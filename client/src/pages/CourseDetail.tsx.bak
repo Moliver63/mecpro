@@ -1,0 +1,220 @@
+import { useState } from "react";
+import { useLocation, useParams } from "wouter";
+import Layout from "@/components/layout/Layout";
+
+const MOCK_COURSES: Record<string, any> = {
+  "marketing-meta-ads": {
+    id: "1", slug: "marketing-meta-ads",
+    title: "Marketing no Meta Ads do Zero ao Avançado",
+    desc: "Aprenda a criar e gerenciar campanhas de alto desempenho no Facebook e Instagram Ads. Do básico ao avançado, com casos reais e projetos práticos.",
+    instructor: "Equipe MECPro", duration: "12h 30min", category: "Tráfego Pago",
+    level: "Iniciante", rating: 4.8, students: 1240, thumb: "📘", isPro: false,
+    modules: [
+      { title: "Módulo 1 – Fundamentos do Meta Ads", lessons: [
+        { id: "1-1", title: "O que é o Meta Ads e como funciona", duration: "15min", free: true },
+        { id: "1-2", title: "Criando sua conta de anunciante", duration: "12min", free: true },
+        { id: "1-3", title: "Estrutura de campanhas, conjuntos e anúncios", duration: "22min", free: false },
+        { id: "1-4", title: "Pixel do Facebook: instalação e eventos", duration: "18min", free: false },
+      ]},
+      { title: "Módulo 2 – Públicos e Segmentação", lessons: [
+        { id: "2-1", title: "Públicos personalizados vs. Lookalike", duration: "20min", free: false },
+        { id: "2-2", title: "Segmentação por interesses e comportamentos", duration: "17min", free: false },
+        { id: "2-3", title: "Remarketing avançado", duration: "25min", free: false },
+      ]},
+      { title: "Módulo 3 – Criativos e Copy", lessons: [
+        { id: "3-1", title: "Formatos de anúncios: imagem, vídeo, carrossel", duration: "20min", free: false },
+        { id: "3-2", title: "Copy persuasivo para anúncios", duration: "28min", free: false },
+        { id: "3-3", title: "Testes A/B de criativos", duration: "16min", free: false },
+      ]},
+    ],
+    whatYouLearn: [
+      "Criar campanhas completas no Meta Ads",
+      "Segmentar públicos com precisão",
+      "Escrever copies de alta conversão",
+      "Analisar métricas e otimizar resultados",
+      "Usar o Pixel do Facebook corretamente",
+    ]
+  },
+  "analise-concorrentes-ia": {
+    id: "2", slug: "analise-concorrentes-ia",
+    title: "Análise de Concorrentes com IA",
+    desc: "Domine a análise de concorrentes usando o MECPro e a cascata 7 camadas para extrair insights valiosos dos anúncios da concorrência.",
+    instructor: "Equipe MECPro", duration: "6h 15min", category: "IA & Marketing",
+    level: "Intermediário", rating: 4.9, students: 856, thumb: "🔍", isPro: true,
+    modules: [
+      { title: "Módulo 1 – A Cascata 7 Camadas", lessons: [
+        { id: "1-1", title: "Como funciona a análise de concorrentes do MECPro", duration: "18min", free: true },
+        { id: "1-2", title: "API oficial do Meta vs. Ads Library", duration: "14min", free: false },
+        { id: "1-3", title: "Interpretando os resultados do Raio-X", duration: "22min", free: false },
+      ]},
+      { title: "Módulo 2 – Estratégias com os Dados", lessons: [
+        { id: "2-1", title: "Identificando padrões nos anúncios dos concorrentes", duration: "24min", free: false },
+        { id: "2-2", title: "Usando IA para gerar insights competitivos", duration: "30min", free: false },
+        { id: "2-3", title: "Criando campanhas baseadas na análise", duration: "28min", free: false },
+      ]},
+    ],
+    whatYouLearn: [
+      "Usar o MECPro para monitorar concorrentes",
+      "Interpretar dados do Meta Ads Library",
+      "Identificar as melhores estratégias dos concorrentes",
+      "Usar IA para gerar insights de mercado",
+      "Criar campanhas baseadas em dados reais",
+    ]
+  }
+};
+
+export default function CourseDetail() {
+  const [, setLocation] = useLocation();
+  const params = useParams<{ slug: string }>();
+  const slug = params?.slug ?? "";
+  const [openModule, setOpenModule] = useState<number | null>(0);
+
+  const course = MOCK_COURSES[slug] ?? Object.values(MOCK_COURSES)[0];
+  const totalLessons = course?.modules?.reduce((acc: number, m: any) => acc + m.lessons.length, 0) ?? 0;
+
+  if (!course) {
+    return (
+      <Layout>
+        <div style={{ textAlign: "center", padding: 60 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📚</div>
+          <p style={{ fontSize: 15, color: "var(--muted)" }}>Curso não encontrado</p>
+          <button className="btn btn-sm btn-green" style={{ marginTop: 16 }} onClick={() => setLocation("/courses")}>← Voltar para cursos</button>
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <button className="btn btn-sm btn-ghost" onClick={() => setLocation("/courses")} style={{ paddingLeft: 0, marginBottom: 16 }}>
+        ← Todos os cursos
+      </button>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 28, alignItems: "flex-start" }}>
+        {/* Main content */}
+        <div>
+          {/* Header */}
+          <div style={{
+            background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)",
+            borderRadius: 18, padding: "32px 28px", marginBottom: 24, color: "white"
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 14 }}>{course.thumb}</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <span style={{ background: "rgba(255,255,255,.1)", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: "#cbd5e1" }}>{course.category}</span>
+              <span style={{ background: "rgba(255,255,255,.1)", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6, color: "#cbd5e1" }}>{course.level}</span>
+              {course.isPro && <span style={{ background: "var(--green)", fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 6 }}>PRO</span>}
+            </div>
+            <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, marginBottom: 10, lineHeight: 1.2 }}>{course.title}</h1>
+            <p style={{ fontSize: 14, color: "#94a3b8", lineHeight: 1.6 }}>{course.desc}</p>
+            <div style={{ display: "flex", gap: 20, marginTop: 16 }}>
+              <span style={{ fontSize: 13, color: "#94a3b8" }}>⭐ {course.rating} ({course.students} alunos)</span>
+              <span style={{ fontSize: 13, color: "#94a3b8" }}>🕐 {course.duration}</span>
+              <span style={{ fontSize: 13, color: "#94a3b8" }}>📖 {totalLessons} aulas</span>
+            </div>
+          </div>
+
+          {/* O que você vai aprender */}
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: "22px 24px", marginBottom: 24 }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 800, color: "var(--black)", marginBottom: 14 }}>
+              🎯 O que você vai aprender
+            </h2>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {course.whatYouLearn?.map((w: string, i: number) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <span style={{ color: "var(--green)", fontWeight: 700, flexShrink: 0 }}>✓</span>
+                  <span style={{ fontSize: 13, color: "var(--body)" }}>{w}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Conteúdo do curso */}
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden" }}>
+            <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--border)" }}>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 800, color: "var(--black)" }}>
+                📚 Conteúdo do curso
+              </h2>
+              <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{course.modules?.length} módulos • {totalLessons} aulas • {course.duration}</p>
+            </div>
+            {course.modules?.map((mod: any, mi: number) => (
+              <div key={mi} style={{ borderBottom: "1px solid var(--border)" }}>
+                <button
+                  onClick={() => setOpenModule(openModule === mi ? null : mi)}
+                  style={{
+                    width: "100%", padding: "16px 24px", background: openModule === mi ? "var(--off)" : "white",
+                    border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center"
+                  }}
+                >
+                  <div style={{ textAlign: "left" }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: "var(--dark)" }}>{mod.title}</p>
+                    <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{mod.lessons.length} aulas</p>
+                  </div>
+                  <span style={{ fontSize: 14, color: "var(--muted)", transform: openModule === mi ? "rotate(90deg)" : "none", transition: "transform .2s" }}>▶</span>
+                </button>
+                {openModule === mi && (
+                  <div>
+                    {mod.lessons.map((lesson: any) => (
+                      <div key={lesson.id}
+                        onClick={() => lesson.free || !course.isPro ? setLocation(`/lesson/${lesson.id}`) : null}
+                        style={{
+                          padding: "12px 24px 12px 44px", borderTop: "1px solid var(--border)",
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          cursor: (lesson.free || !course.isPro) ? "pointer" : "default",
+                          background: "white"
+                        }}
+                        onMouseEnter={e => { if (lesson.free || !course.isPro) e.currentTarget.style.background = "var(--off)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "white"; }}
+                      >
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          <span style={{ fontSize: 14 }}>{lesson.free ? "▶️" : "🔒"}</span>
+                          <span style={{ fontSize: 13, color: "var(--body)" }}>{lesson.title}</span>
+                          {lesson.free && <span style={{ fontSize: 10, background: "var(--green-l)", color: "var(--green-dk)", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>GRÁTIS</span>}
+                        </div>
+                        <span style={{ fontSize: 12, color: "var(--muted)" }}>{lesson.duration}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Sidebar */}
+        <div style={{ position: "sticky", top: 20 }}>
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", boxShadow: "0 8px 32px rgba(0,0,0,.08)" }}>
+            <div style={{ padding: "20px 22px", borderBottom: "1px solid var(--border)", textAlign: "center" }}>
+              <div style={{ fontSize: 56, marginBottom: 10 }}>{course.thumb}</div>
+              <p style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>
+                {course.isPro ? "Plano Pro" : "Grátis"}
+              </p>
+              {course.isPro && <p style={{ fontSize: 12, color: "var(--muted)" }}>Disponível no plano Premium ou VIP</p>}
+            </div>
+            <div style={{ padding: "20px 22px" }}>
+              <button
+                className={`btn btn-md btn-full ${course.isPro ? "btn-green" : "btn-green"}`}
+                onClick={() => setLocation(course.isPro ? "/billing" : `/my-courses`)}
+              >
+                {course.isPro ? "⭐ Assinar para acessar" : "▶ Começar agora"}
+              </button>
+              <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  { icon: "🕐", text: `${course.duration} de conteúdo` },
+                  { icon: "📖", text: `${totalLessons} aulas` },
+                  { icon: "📱", text: "Acesso em qualquer dispositivo" },
+                  { icon: "🏆", text: "Certificado de conclusão" },
+                  { icon: "⭐", text: `${course.rating}/5 (${course.students} alunos)` },
+                ].map((f, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={{ fontSize: 14 }}>{f.icon}</span>
+                    <span style={{ fontSize: 13, color: "var(--body)" }}>{f.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+}

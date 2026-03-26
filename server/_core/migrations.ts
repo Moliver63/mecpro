@@ -1,0 +1,165 @@
+import { getPool } from '../db.js';
+
+export async function runMigrations(): Promise<void> {
+  const pool = await getPool();
+  if (!pool) {
+    console.warn('[migrations] Pool not available — skipping migrations');
+    return;
+  }
+
+  console.log('[migrations] Running migrations...');
+
+  // Step 1 – enums
+  await pool.query(`
+    DO $$ BEGIN
+      CREATE TYPE user_profile AS ENUM ('superadmin','admin','marketing','financeiro','rh','cliente');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+  `);
+
+  await pool.query(`
+    DO $$ BEGIN
+      CREATE TYPE plan_change_status AS ENUM ('pending','approved','rejected');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$;
+  `);
+
+  // Step 2 – users: add profile column
+  await pool.query(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS profile user_profile DEFAULT 'cliente';
+  `);
+
+  // Step 3 – plan_change_requests table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS plan_change_requests (
+      id                   SERIAL PRIMARY KEY,
+      "userId"             INTEGER NOT NULL REFERENCES users(id),
+      "requestedByUserId"  INTEGER NOT NULL REFERENCES users(id),
+      "fromPlan"           TEXT,
+      "toPlan"             TEXT NOT NULL,
+      status               plan_change_status DEFAULT 'pending',
+      reason               TEXT,
+      "reviewedAt"         TIMESTAMPTZ,
+      "reviewedBy"         INTEGER REFERENCES users(id),
+      "createdAt"          TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  // Step 4 – api_integrations: cada coluna em query separada (PG requer isso para IF NOT EXISTS)
+  const apiIntCols = [
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "adAccountId"    TEXT`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "appId"          TEXT`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "appSecret"      TEXT`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "accountId"      TEXT`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "developerToken" TEXT`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "tokenExpiry"    TIMESTAMPTZ`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "tokenExpiresAt" TIMESTAMPTZ`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "isActive"       INTEGER DEFAULT 1`,
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "updatedAt"      TIMESTAMPTZ DEFAULT NOW()`,
+  ];
+  for (const q of apiIntCols) {
+    await pool.query(q);
+  }
+
+  // Step 5 – user_alert_configs table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_alert_configs (
+      id                    SERIAL PRIMARY KEY,
+      "userId"              INTEGER NOT NULL REFERENCES users(id),
+      "projectId"           INTEGER REFERENCES projects(id),
+      "cpcMax"              REAL,
+      "cplMax"              REAL,
+      "cpmMax"              REAL,
+      "ctrMin"              REAL,
+      "spendDailyMax"       REAL,
+      "weeklyReportEnabled" BOOLEAN DEFAULT false,
+      "weeklyReportDay"     INTEGER DEFAULT 1,
+      "weeklyReportHour"    INTEGER DEFAULT 8,
+      "alertEmail"          TEXT,
+      platforms             TEXT[] DEFAULT '{}',
+      "emailAlert"          BOOLEAN DEFAULT true,
+      "createdAt"           TIMESTAMPTZ DEFAULT NOW(),
+      "updatedAt"           TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  // Step 6 – lesson_progress table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS lesson_progress (
+      id           SERIAL PRIMARY KEY,
+      "userId"     INTEGER NOT NULL REFERENCES users(id),
+      "courseSlug" VARCHAR(100) NOT NULL,
+      "lessonId"   VARCHAR(50) NOT NULL,
+      completed    INTEGER NOT NULL DEFAULT 0,
+      "completedAt" TIMESTAMPTZ,
+      "createdAt"  TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  // Step 7 – campaigns: adicionar campos de status de publicação
+  const campaignCols = [
+    `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "publishStatus"  VARCHAR(20) DEFAULT 'draft'`,
+    `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "publishedAt"    TIMESTAMPTZ`,
+    `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "publishError"   TEXT`,
+    `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "metaCampaignId" VARCHAR(100)`,
+    `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "metaAdSetId"    VARCHAR(100)`,
+    `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "metaAdId"       VARCHAR(100)`,
+    `ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS "metaCreativeId" VARCHAR(100)`,
+  ];
+  for (const q of campaignCols) { await pool.query(q); }
+
+  // Step 8 – app_settings: tabela de configurações globais do sistema
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key         TEXT PRIMARY KEY,
+      value       TEXT NOT NULL,
+      "updatedAt" TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  // Seed padrão: Pix habilitado
+  await pool.query(`
+    INSERT INTO app_settings (key, value) VALUES ('pix_enabled', 'true')
+    ON CONFLICT (key) DO NOTHING;
+  `);
+
+  // Step 9 – competitors: colunas TikTok, Google Ads e notas (adicionadas após criação inicial)
+  const competitorCols = [
+    `ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "tiktokUrl"      VARCHAR(500)`,
+    `ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "googleAdsUrl"   VARCHAR(500)`,
+    `ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "googleAdsQuery" VARCHAR(255)`,
+    `ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "notes"          TEXT`,
+    `ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiInsights"     TEXT`,
+    `ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiGeneratedAt"  TIMESTAMPTZ`,
+    `ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiAdsAnalyzed"  INTEGER`,
+  ];
+  for (const q of competitorCols) { await pool.query(q); }
+
+  // Step 10 – scraped_ads: colunas de mídia e landing page
+  const scrapedAdsCols = [
+    `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "source"         VARCHAR(30) DEFAULT 'meta_api'`,
+    `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "imageUrl"       TEXT`,
+    `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "videoUrl"       TEXT`,
+    `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "landingPageUrl" TEXT`,
+    `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "rawData"        TEXT`,
+  ];
+  for (const q of scrapedAdsCols) { await pool.query(q); }
+
+  // Step 11 – market_analyses: garantir existência da tabela e colunas
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS market_analyses (
+      id                       SERIAL PRIMARY KEY,
+      "projectId"              INTEGER NOT NULL UNIQUE,
+      "competitiveGaps"        TEXT,
+      "unexploredOpportunities" TEXT,
+      "suggestedPositioning"   TEXT,
+      "competitiveMap"         TEXT,
+      threats                  TEXT,
+      "aiModel"                VARCHAR(100),
+      "generatedAt"            TIMESTAMPTZ DEFAULT NOW(),
+      "updatedAt"              TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  console.log('[migrations] ✅ Migrations applied successfully');
+}

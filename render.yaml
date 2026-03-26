@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: mecpro
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: node_modules/.bin/cross-env NODE_ENV=production node_modules/.bin/tsx server/_core/index.ts
+    autoDeploy: true

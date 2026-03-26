@@ -1,0 +1,56 @@
+# robots.txt — MECPro Campaign Intelligence Platform
+# https://mecpro-ai.onrender.com
+
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /contact
+Allow: /faq
+Allow: /pricing
+Allow: /terms
+Allow: /privacy
+Allow: /courses
+Allow: /ebooks
+Allow: /blog
+
+# Bloquear páginas privadas / autenticadas
+Disallow: /admin
+Disallow: /admin/*
+Disallow: /dashboard
+Disallow: /my-courses
+Disallow: /my-subscription
+Disallow: /my-certificates
+Disallow: /edit-profile
+Disallow: /messages
+Disallow: /profile
+Disallow: /settings
+Disallow: /billing
+Disallow: /notifications
+Disallow: /referrals
+Disallow: /community
+Disallow: /projects
+Disallow: /checkout-success
+
+# Bloquear API
+Disallow: /api/
+Disallow: /api/*
+
+# Bloquear arquivos técnicos
+Disallow: /*.json
+Disallow: /src/
+
+# Crawl-delay para bots respeitosos
+Crawl-delay: 1
+
+# Sitemap
+Sitemap: https://mecpro-ai.onrender.com/sitemap.xml
+
+# Googlebot — sem restrições extras
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 0
+
+# Bingbot
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1

@@ -1,0 +1,23 @@
+$env:DATABASE_URL="postgresql://usuario:senha@host/banco"
+psql $env:DATABASE_URL -f migration_consultas.sql
+
+DATABASE_URL=DATABASE_URL=postgresql://mecpro_user:6nkEJOcG9HgzMzeaByWXRVKpElDiFxdR@dpg-d6o0nrbh46gs73a2uj70-a.ohio-postgres.render.com/mecpro_db?sslmode=require
+
+
+psql "postgresql://usuario:senha@dpg-xxxxx.render.com/nomebanco?sslmode=require" -f migration_consultas.sql
+```
+
+Só adiciona `?sslmode=require` no final da URL antes das aspas.
+
+E no seu `.env` também:
+```
+DATABASE_URL=DATABASE_URL=postgresql://mecpro_user:6nkEJOcG9HgzMzeaByWXRVKpElDiFxdR@dpg-d6o0nrbh46gs73a2uj70-a.ohio-postgres.render.com/mecpro_db?sslmode=require
+
+psql "postgresql://mecpro_user:6nkEJOcG9HgzMzeaByWXRVKpElDiFxdR@dpg-d6o0nrbh46gs73a2uj70-a.ohio-postgres.render.com/mecpro_db?sslmode=require" -f migration_consultas.sql
+```
+
+Só adiciona `?sslmode=require` no final da URL antes das aspas.
+
+E no seu `.env` também:
+```
+DATABASE_URL=postgresql://usuario:senha@dpg-xxxxx.render.com/nomebanco?sslmode=require
