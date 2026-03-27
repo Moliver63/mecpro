@@ -1,5 +1,6 @@
 import { useLocation, useParams } from "wouter";
 import PlacementSelector from "@/components/PlacementSelector";
+import AdPreviewPanel from "@/components/AdPreviewPanel";
 import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/components/PlacementConfig";
 import { useState } from "react";
 import Layout from "@/components/layout/Layout";
@@ -2086,3 +2087,4 @@ export default function CampaignResult() {
     </Layout>
   );
 }
+
