@@ -421,6 +421,20 @@ export default function CampaignBuilder() {
                       </div>
                     ))}
                   </div>
+
+                  {/* Distribuicao inteligente de formatos */}
+                  <CreativeDistributionPanel
+                    platform={form.platform}
+                    objective={form.objective}
+                    onFormatSelect={(rec) => {
+                      setForm(f => ({
+                        ...f,
+                        extraContext: f.extraContext
+                          ? f.extraContext
+                          : 'Formato: ' + rec.ratio + ' (' + rec.type + '). Placements: ' + rec.placements.join(', '),
+                      }));
+                    }}
+                  />
                 </div>
               )}
 
