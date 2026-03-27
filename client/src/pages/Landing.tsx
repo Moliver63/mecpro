@@ -533,6 +533,21 @@ export default function Landing() {
               ].map(l=>(
                 <a key={l.label} href={l.href} style={{ fontSize:13,color:"var(--muted)",textDecoration:"none" }}>{l.label}</a>
               ))}
+              {/* Redes sociais */}
+              <div style={{ display:"flex", gap:16, marginTop:12 }}>
+                {[
+                  { icon:"??", label:"Instagram", href:"https://instagram.com/mecproai" },
+                  { icon:"??", label:"Facebook",  href:"https://facebook.com/mecproai" },
+                  { icon:"??", label:"TikTok",    href:"https://tiktok.com/@mecproaibrl" },
+                ].map(s => (
+                  <a key={s.label} href={s.href} target="_blank" rel="noreferrer"
+                    style={{ fontSize:13, color:"var(--muted)", textDecoration:"none", display:"flex", alignItems:"center", gap:4 }}>
+                    <span>{s.icon}</span><span>{s.label}</span>
+                  </a>
+                ))}
+              </div>
+              {/* FIM redes — remover este comentário e o fechamento abaixo se causar erro */
+              ))}
             </nav>
             <span style={{ fontSize:12,color:"#adb5bd" }}>Â© 2026 MECPro</span>
           </div>
@@ -542,3 +557,4 @@ export default function Landing() {
     </>
   );
 }
+
