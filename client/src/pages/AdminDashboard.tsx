@@ -32,8 +32,33 @@ export default function AdminDashboard() {
         <p style={{ fontSize:14, color:"var(--muted)" }}>VisÃ£o geral da plataforma MECPro</p>
       </div>
 
+      {/* Banner Inteligência de Campanhas */}
+      <div
+        onClick={() => setLocation("/admin/intelligence")}
+        style={{
+          marginBottom: 24,
+          background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #1d4ed8 100%)",
+          borderRadius: 18, padding: "22px 28px", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          boxShadow: "0 8px 32px rgba(15,23,42,0.25)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <div style={{ fontSize: 42 }}>??</div>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: "white", marginBottom: 4 }}>
+              Inteligência de Campanhas
+            </div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)" }}>
+              Ranking · Score · Padrões vencedores · Aprendizado · Dataset ML
+            </div>
+          </div>
+        </div>
+        <div style={{ fontSize: 22, color: "rgba(255,255,255,0.5)" }}>?</div>
+      </div>
+
       {/* Stats */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:28 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:16, marginBottom:28 }}>
         {[
           { label:"Total de usuÃ¡rios", value:totalUsers, icon:"ðŸ‘¥", color:"#eff6ff", onClick:()=>setLocation("/admin/users") },
           { label:"UsuÃ¡rios premium", value:premiumUsers, icon:"â­", color:"var(--green-l)", onClick:()=>setLocation("/admin/manage-subscriptions") },
@@ -109,7 +134,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Links rÃ¡pidos admin */}
-      <div style={{ marginTop:20, display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12 }}>
+      <div style={{ marginTop:20, display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:12 }}>
         {[
           { icon:"ðŸ‘¥", label:"Gerenciar usuÃ¡rios", path:"/admin/users" },
           { icon:"ðŸ’³", label:"Assinaturas", path:"/admin/manage-subscriptions" },
@@ -179,3 +204,4 @@ export default function AdminDashboard() {
     </Layout>
   );
 }
+
