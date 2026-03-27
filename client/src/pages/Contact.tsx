@@ -22,8 +22,8 @@ export default function Contact() {
   const contactMethods = [
     { icon: "ðŸ“§", label: "E-mail", value: "contato@mecproai.com", action: () => window.open("mailto:contato@mecproai.com") },
     { icon: "ðŸ“±", label: "WhatsApp", value: "(47) 99465-824", action: () => window.open("https://wa.me/554799465824") },
-    { icon: "📸", label: "Instagram", value: "@mecproai",    action: () => window.open("https://instagram.com/mecproai") },
-    { icon: "📘", label: "Facebook",  value: "@mecproai",    action: () => window.open("https://facebook.com/mecproai") },
+    { icon: "📸", label: "Instagram", value: "@mecproaibrl",    action: () => window.open("https://instagram.com/mecproaibrl") },
+    { icon: "📘", label: "Facebook",  value: "@mecproaibrl",    action: () => window.open("https://facebook.com/mecproai") },
     { icon: "🎵", label: "TikTok",    value: "@mecproaibrl", action: () => window.open("https://tiktok.com/@mecproaibrl") },
     { icon: "ðŸ•", label: "HorÃ¡rio", value: "Segâ€“Sex, 9hâ€“18h (BRT)", action: null },
     { icon: "âš¡", label: "Resposta", value: "AtÃ© 24 horas Ãºteis", action: null },
@@ -217,5 +217,6 @@ export default function Contact() {
     </div>
   );
 }
+
 
 

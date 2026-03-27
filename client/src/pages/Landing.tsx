@@ -536,7 +536,7 @@ export default function Landing() {
               {/* Redes sociais */}
               <div style={{ display:"flex", gap:16, marginTop:12 }}>
                 {[
-                  { icon:"📸", label:"Instagram", href:"https://instagram.com/mecproai" },
+                  { icon:"📸", label:"Instagram", href:"https://instagram.com/mecproaibrl" },
                   { icon:"📘", label:"Facebook",  href:"https://facebook.com/mecproai" },
                   { icon:"🎵", label:"TikTok",    href:"https://tiktok.com/@mecproaibrl" },
                 ].map(s => (
@@ -557,5 +557,6 @@ export default function Landing() {
     </>
   );
 }
+
 
 
