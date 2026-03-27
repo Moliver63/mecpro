@@ -546,8 +546,6 @@ export default function Landing() {
                   </a>
                 ))}
               </div>
-              {/* FIM redes — remover este comentário e o fechamento abaixo se causar erro */
-              ))}
             </nav>
             <span style={{ fontSize:12,color:"#adb5bd" }}>Â© 2026 MECPro</span>
           </div>
