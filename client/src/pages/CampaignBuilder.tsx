@@ -5,6 +5,7 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { usePlanLimit } from "@/hooks/usePlanLimit";
 import IntelligenceRecommendation from "@/components/IntelligenceRecommendation";
+import CreativeDistributionPanel from "@/components/CreativeDistributionPanel";
 
 const OBJECTIVES = [
   { value: "leads",       label: "Captação de leads",    icon: "🎯", desc: "Formulários, landing pages" },
@@ -764,3 +765,4 @@ export default function CampaignBuilder() {
     </Layout>
   );
 }
+
