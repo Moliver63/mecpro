@@ -4,6 +4,7 @@ import { useParams, useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { usePlanLimit } from "@/hooks/usePlanLimit";
+import IntelligenceRecommendation from "@/components/IntelligenceRecommendation";
 
 const OBJECTIVES = [
   { value: "leads",       label: "Captação de leads",    icon: "🎯", desc: "Formulários, landing pages" },
@@ -114,6 +115,20 @@ const SEGMENTS = [
   },
 ];
 
+// Mapa segmento → nicho da learning base
+const SEGMENT_TO_NICHE: Record<string, string> = {
+  imoveis_venda:   "imobiliario",
+  imoveis_locacao: "imobiliario",
+  ecommerce:       "varejo",
+  servicos_locais: "servicos",
+  infoprodutos:    "infoprodutos",
+  saude_estetica:  "saude",
+  alimentacao:     "varejo",
+  moda_varejo:     "varejo",
+  b2b:             "geral",
+  outro:           "geral",
+};
+
 export default function CampaignBuilder() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id || 0);
@@ -158,7 +173,7 @@ export default function CampaignBuilder() {
   function isPlatformAllowed(platform: string) {
     if (platform === "meta")   return metaCheck.allowed;
     if (platform === "google") return googleCheck.allowed;
-    if (platform === "tiktok") return true; // TikTok sempre disponível
+    if (platform === "tiktok") return true;
     if (platform === "both")   return metaCheck.allowed && googleCheck.allowed;
     if (platform === "all")    return metaCheck.allowed || googleCheck.allowed;
     return true;
@@ -187,7 +202,11 @@ export default function CampaignBuilder() {
     extraContext: "",
   });
 
-  // Etapa 5 = tela de matching; etapa 6 = geração final
+  // Nicho atual para recomendação de inteligência
+  const currentNiche = (clientProfile as any)?.niche
+    || SEGMENT_TO_NICHE[segment]
+    || "geral";
+
   const STEPS = ["Segmento", "Objetivo", "Plataforma", "Orçamento", "Detalhes", "Match IA", "Gerar"];
 
   async function handleMatch() {
@@ -199,7 +218,6 @@ export default function CampaignBuilder() {
           budget: form.budget, duration: form.duration,
         });
         setMatchResult(result);
-        // Aplica plataforma recomendada se score > 10pts acima da escolhida
         const recScore = result.recommended?.score || 0;
         const curScore = result.alternatives?.find((a: any) => a.platform === form.platform)?.score || recScore;
         if (result.recommended?.platform !== form.platform && recScore - curScore > 10) {
@@ -208,7 +226,7 @@ export default function CampaignBuilder() {
       }
       setStep(7);
     } catch {
-      setStep(7); // vai para geração mesmo se matching falhar
+      setStep(7);
     } finally {
       setMatching(false);
     }
@@ -411,9 +429,7 @@ export default function CampaignBuilder() {
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Orçamento mensal</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24 }}>Arraste o slider para definir seu orçamento. A IA vai sugerir a alocação ideal.</p>
 
-                  {/* Slider de orçamento */}
                   <div style={{ marginBottom: 28 }}>
-                    {/* Valor atual em destaque */}
                     <div style={{ textAlign: "center", marginBottom: 16 }}>
                       <p style={{ fontSize: 42, fontWeight: 900, color: "var(--green-d)", fontFamily: "var(--font-display)", margin: 0, lineHeight: 1 }}>
                         R$ {form.budget.toLocaleString("pt-BR")}
@@ -425,14 +441,9 @@ export default function CampaignBuilder() {
                       </p>
                     </div>
 
-                    {/* Slider */}
                     <div style={{ position: "relative", padding: "0 8px" }}>
                       <input
-                        type="range"
-                        min={300}
-                        max={15000}
-                        step={100}
-                        value={form.budget}
+                        type="range" min={300} max={15000} step={100} value={form.budget}
                         onChange={e => setForm(f => ({ ...f, budget: Number(e.target.value) }))}
                         style={{
                           width: "100%", height: 6, appearance: "none", WebkitAppearance: "none",
@@ -440,7 +451,6 @@ export default function CampaignBuilder() {
                           borderRadius: 99, outline: "none", cursor: "pointer",
                         }}
                       />
-                      {/* Marcadores */}
                       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
                         {[300, 1500, 3000, 7500, 15000].map(v => (
                           <button key={v} onClick={() => setForm(f => ({ ...f, budget: v }))}
@@ -455,7 +465,6 @@ export default function CampaignBuilder() {
                       </div>
                     </div>
 
-                    {/* Faixas de investimento */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 16 }}>
                       {[
                         { min: 300,  max: 999,   label: "Pequeno",  color: "#6b7280", desc: "Teste e aprendizado" },
@@ -477,7 +486,6 @@ export default function CampaignBuilder() {
                       })}
                     </div>
 
-                    {/* Estimativas automáticas */}
                     <div style={{ marginTop: 16, background: "var(--navy)", borderRadius: 12, padding: "12px 16px" }}>
                       <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.5)", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Estimativas para R$ {form.budget.toLocaleString("pt-BR")}/mês</p>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
@@ -495,7 +503,6 @@ export default function CampaignBuilder() {
                     </div>
                   </div>
 
-                  {/* Duração */}
                   <div>
                     <label style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 10 }}>Duração da campanha</label>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -510,7 +517,6 @@ export default function CampaignBuilder() {
                           }}>{d}d</button>
                       ))}
                     </div>
-                    {/* Custo total estimado */}
                     <div style={{ marginTop: 12, padding: "10px 14px", background: "var(--green-l)", borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontSize: 12, color: "var(--green-d)", fontWeight: 600 }}>💰 Investimento total estimado:</span>
                       <span style={{ fontSize: 15, fontWeight: 900, color: "var(--green-d)" }}>
@@ -521,11 +527,35 @@ export default function CampaignBuilder() {
                 </div>
               )}
 
-              {/* Step 5: Detalhes */}
+              {/* ── Step 5: Detalhes — com IntelligenceRecommendation ── */}
               {step === 5 && (
                 <div>
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Detalhes da campanha</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>Quanto mais contexto, mais precisa será a estratégia da IA.</p>
+
+                  {/* ── RECOMENDAÇÃO INTELIGENTE (nova) ── */}
+                  <IntelligenceRecommendation
+                    platform={form.platform}
+                    objective={form.objective}
+                    niche={currentNiche}
+                    onApply={(rec) => {
+                      const budgetMap: Record<string, number> = {
+                        low: 500, mid: 1500, high: 3000, premium: 5000,
+                      };
+                      const durationMap: Record<string, number> = {
+                        short: 7, mid: 30, long: 60,
+                      };
+                      setForm(f => ({
+                        ...f,
+                        budget:       budgetMap[rec.recommendedBudget]    ?? f.budget,
+                        duration:     durationMap[rec.recommendedDuration] ?? f.duration,
+                        extraContext: f.extraContext
+                          ? f.extraContext
+                          : `Formato recomendado: ${rec.recommendedFormat}. Gatilho: ${rec.recommendedTrigger}. CTA: ${rec.recommendedCta}. Baseado em campanhas reais do segmento ${currentNiche}.`,
+                      }));
+                      toast.success("✅ Parâmetros da inteligência aplicados!");
+                    }}
+                  />
 
                   <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Nome da campanha *</label>
                   <input className="input" placeholder="Ex: Campanha Leads Q1 2026"
@@ -615,13 +645,12 @@ export default function CampaignBuilder() {
                 </div>
               )}
 
-              {/* Step 6: Confirmação */}
+              {/* Step 7: Confirmação */}
               {step === 7 && (
                 <div>
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Pronto para gerar</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>Confirme os parâmetros e a IA vai criar sua estratégia completa.</p>
 
-                  {/* Alerta de limite de plano */}
                   {!campaignCheck.allowed && (
                     <div style={{ background:"#fef3c7", border:"1px solid #fcd34d", borderRadius:12, padding:"14px 16px", marginBottom:16 }}>
                       <p style={{ fontSize:13, fontWeight:700, color:"#92400e", marginBottom:4 }}>⚠️ Limite do plano {planName}</p>
@@ -642,8 +671,9 @@ export default function CampaignBuilder() {
                     ["Nome",       form.name || "—"],
                     ["Objetivo",   `${selectedObj?.icon} ${selectedObj?.label}`],
                     ["Plataforma", `${selectedPlat?.icon} ${selectedPlat?.label}`],
-                    ["Orçamento",  `${selectedBudget?.label} (${selectedBudget?.tier})`],
+                    ["Orçamento",  `${selectedBudget?.label ?? `R$ ${form.budget.toLocaleString()}/mês`} (${selectedBudget?.tier ?? ""})`],
                     ["Duração",    `${form.duration} dias`],
+                    ["Nicho",      currentNiche],
                   ].map(([k, v]) => (
                     <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
                       <span style={{ fontSize: 13, color: "var(--muted)" }}>{k}</span>
