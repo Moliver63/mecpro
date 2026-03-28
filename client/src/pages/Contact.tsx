@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 
 export default function Contact() {
@@ -10,7 +10,7 @@ export default function Contact() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name || !form.email || !form.message) { setError("Preencha todos os campos obrigatÃ³rios."); return; }
+    if (!form.name || !form.email || !form.message) { setError("Preencha todos os campos obrigatórios."); return; }
     setSending(true);
     setError("");
     // Simulate sending
@@ -20,13 +20,13 @@ export default function Contact() {
   }
 
   const contactMethods = [
-    { icon: "ðŸ“§", label: "E-mail", value: "contato@mecproai.com", action: () => window.open("mailto:contato@mecproai.com") },
-    { icon: "ðŸ“±", label: "WhatsApp", value: "(47) 99465-824", action: () => window.open("https://wa.me/554799465824") },
-    { icon: "📸", label: "Instagram", value: "@mecproaibrl",    action: () => window.open("https://instagram.com/mecproaibrl") },
-    { icon: "📘", label: "Facebook",  value: "@mecproaibrl",    action: () => window.open("https://facebook.com/mecproai") },
+    { icon: "📧", label: "E-mail", value: "contato@mecproai.com", action: () => window.open("mailto:contato@mecproai.com") },
+    { icon: "📱", label: "WhatsApp", value: "(47) 99465-824", action: () => window.open("https://wa.me/554799465824") },
+    { icon: "📸", label: "Instagram", value: "@mecproaibrl", action: () => window.open("https://instagram.com/mecproaibrl") },
+    { icon: "📘", label: "Facebook",  value: "@mecproai",    action: () => window.open("https://facebook.com/mecproai") },
     { icon: "🎵", label: "TikTok",    value: "@mecproaibrl", action: () => window.open("https://tiktok.com/@mecproaibrl") },
-    { icon: "ðŸ•", label: "HorÃ¡rio", value: "Segâ€“Sex, 9hâ€“18h (BRT)", action: null },
-    { icon: "âš¡", label: "Resposta", value: "AtÃ© 24 horas Ãºteis", action: null },
+    { icon: "🕐", label: "Horário", value: "Seg–Sex, 9h–18h (BRT)", action: null },
+    { icon: "⚡", label: "Resposta", value: "Até 24 horas úteis", action: null },
   ];
 
   return (
@@ -36,7 +36,7 @@ export default function Contact() {
         background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)",
         padding: "60px 24px", textAlign: "center", color: "white"
       }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>âœ‰ï¸</div>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>✉️</div>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: 38, fontWeight: 900, marginBottom: 10 }}>
           Fale Conosco
         </h1>
@@ -50,14 +50,14 @@ export default function Contact() {
           {/* Info de contato */}
           <div>
             <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
-              InformaÃ§Ãµes de contato
+              Informações de contato
             </h2>
 
             {/* Card Michel Leal */}
             <div style={{ background: "linear-gradient(135deg, #0f172a, #1e3a5f)", borderRadius: 16, padding: "20px 22px", marginBottom: 20, color: "white" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
                 <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
-                  ðŸ‘¤
+                  👤
                 </div>
                 <div>
                   <p style={{ fontWeight: 800, fontSize: 15, marginBottom: 2 }}>Michel Leal</p>
@@ -66,25 +66,25 @@ export default function Contact() {
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>ðŸ“±</span>
+                  <span>📱</span>
                   <a href="https://wa.me/554799465824" target="_blank" rel="noreferrer"
                     style={{ color: "#4ade80", fontWeight: 600, textDecoration: "none" }}>
                     (47) 99465-824
                   </a>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>ðŸ“§</span>
+                  <span>📧</span>
                   <a href="mailto:contato@mecproai.com"
                     style={{ color: "#93c5fd", fontWeight: 600, textDecoration: "none" }}>
                     contato@mecproai.com
                   </a>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>ðŸ“</span>
-                  <span style={{ color: "#cbd5e1" }}>BalneÃ¡rio CamboriÃº - SC | Centro</span>
+                  <span>📍</span>
+                  <span style={{ color: "#cbd5e1" }}>Balneário Camboriú - SC | Centro</span>
                 </div>
                 <div style={{ borderTop: "1px solid rgba(255,255,255,.1)", marginTop: 6, paddingTop: 10, fontSize: 11, color: "#64748b", fontStyle: "italic" }}>
-                  MecPro AI â€” InteligÃªncia para campanhas que convertem
+                  MecPro AI — Inteligência para campanhas que convertem
                 </div>
               </div>
             </div>
@@ -114,30 +114,30 @@ export default function Contact() {
             </div>
 
             <div style={{ background: "var(--off)", borderRadius: 14, padding: "18px 20px" }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)", marginBottom: 10 }}>Links rÃ¡pidos</p>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)", marginBottom: 10 }}>Links rápidos</p>
               {[
                 { label: "Perguntas frequentes", path: "/faq" },
-                { label: "PolÃ­tica de privacidade", path: "/privacy" },
+                { label: "Política de privacidade", path: "/privacy" },
                 { label: "Termos de uso", path: "/terms" },
               ].map(l => (
                 <div key={l.path} onClick={() => setLocation(l.path)}
                   style={{ fontSize: 13, color: "var(--green-d)", cursor: "pointer", marginBottom: 6, fontWeight: 500 }}>
-                  â†’ {l.label}
+                  → {l.label}
                 </div>
               ))}
             </div>
           </div>
 
-          {/* FormulÃ¡rio */}
+          {/* Formulário */}
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 20, padding: "32px 30px" }}>
             {sent ? (
               <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                <div style={{ fontSize: 56, marginBottom: 16 }}>âœ…</div>
+                <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>
                   Mensagem enviada!
                 </h3>
                 <p style={{ fontSize: 14, color: "var(--muted)", marginBottom: 24 }}>
-                  Recebemos sua mensagem e responderemos em atÃ© 24 horas Ãºteis.
+                  Recebemos sua mensagem e responderemos em até 24 horas úteis.
                 </p>
                 <button className="btn btn-md btn-green" onClick={() => setSent(false)}>Enviar outra mensagem</button>
               </div>
@@ -149,12 +149,12 @@ export default function Contact() {
 
                 {/* Tipo de assunto */}
                 <div style={{ marginBottom: 18 }}>
-                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)", marginBottom: 6, display: "block" }}>TIPO DE SOLICITAÃ‡ÃƒO</label>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)", marginBottom: 6, display: "block" }}>TIPO DE SOLICITAÇÃO</label>
                   <div style={{ display: "flex", gap: 8 }}>
                     {[
-                      { value: "support", label: "Suporte TÃ©cnico" },
+                      { value: "support", label: "Suporte Técnico" },
                       { value: "billing", label: "Financeiro" },
-                      { value: "feature", label: "SugestÃ£o" },
+                      { value: "feature", label: "Sugestão" },
                       { value: "other", label: "Outro" },
                     ].map(t => (
                       <button key={t.value} type="button" onClick={() => setForm(f => ({ ...f, type: t.value }))}
@@ -195,7 +195,7 @@ export default function Contact() {
                 <div style={{ marginBottom: 20 }}>
                   <label style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)", marginBottom: 6, display: "block" }}>MENSAGEM *</label>
                   <textarea value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
-                    placeholder="Descreva em detalhes sua dÃºvida, problema ou sugestÃ£o..."
+                    placeholder="Descreva em detalhes sua dúvida, problema ou sugestão..."
                     rows={5}
                     style={{ width: "100%", padding: "11px 14px", borderRadius: 10, border: "1px solid var(--border)", fontSize: 14, boxSizing: "border-box", outline: "none", resize: "vertical", fontFamily: "inherit" }} />
                 </div>
@@ -207,7 +207,7 @@ export default function Contact() {
                 )}
 
                 <button type="submit" className="btn btn-md btn-green btn-full" disabled={sending}>
-                  {sending ? "Enviando..." : "ðŸ“§ Enviar mensagem"}
+                  {sending ? "Enviando..." : "📧 Enviar mensagem"}
                 </button>
               </form>
             )}
@@ -217,6 +217,3 @@ export default function Contact() {
     </div>
   );
 }
-
-
-
