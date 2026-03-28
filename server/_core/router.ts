@@ -1594,7 +1594,8 @@ const campaignsRouter = router({
           ...((): object => {
             if (!input.placements || input.placements.length === 0 || input.placementMode === "auto") {
               // Auto: Advantage+ Placements (Meta escolhe)
-              return {};
+              // device_platforms obrigatorio para evitar erro #1885366
+              return { device_platforms: ["mobile", "desktop"] };
             }
             // Manual: mapeia IDs internos → publisher_platforms + positions Meta API
             const fbPositions:  string[] = [];
