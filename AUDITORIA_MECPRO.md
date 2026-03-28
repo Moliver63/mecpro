@@ -211,3 +211,12 @@ git log --oneline -5
 | Deploys bem-sucedidos | 5 |
 | Erros de build | 3 (todos resolvidos) |
 
+
+## ✅ ATUALIZAÇÕES RECENTES
+
+| Data | Correção | Arquivo | Status |
+|---|---|---|---|
+| 28/03/2026 | device_platforms no targeting — fix erro Meta #1885366 | router.ts | ✅ |
+| 28/03/2026 | VSL Generator + Meta Placement Validator | múltiplos | ✅ |
+| 28/03/2026 | vslRouter integrado no appRouter | router.ts | ✅ |
+| 28/03/2026 | Redes sociais Landing + Contact (mecproaibrl) | Landing/Contact | ✅ |
