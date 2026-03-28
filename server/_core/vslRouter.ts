@@ -15,7 +15,7 @@
 
 import { z }          from "zod";
 import { TRPCError }  from "@trpc/server";
-import { router, protectedProcedure } from "./router";
+import { router, protectedProcedure } from "./trpc";
 import { log }        from "../logger";
 import { gemini }     from "../ai";
 
