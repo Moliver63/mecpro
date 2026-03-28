@@ -529,7 +529,7 @@ export default function Landing() {
                 {label:"FAQ", href:"/faq"},
                 {label:"Termos", href:"/terms"},
                 {label:"Privacidade", href:"/privacy"},
-                {label:"Contato", href:"/contact"},
+                {label:"Contato", href:"/contact"},{label:"Instagram", href:"https://instagram.com/mecproaibrl"},{label:"Facebook", href:"https://facebook.com/mecproai"},{label:"TikTok", href:"https://tiktok.com/@mecproaibrl"},
               ].map(l=>(
                 <a key={l.label} href={l.href} style={{ fontSize:13,color:"var(--muted)",textDecoration:"none" }}>{l.label}</a>
               ))}
