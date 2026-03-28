@@ -11,6 +11,7 @@ import { SignJWT } from "jose";
 import { ENV } from "./env";
 import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
+import { vslRouter } from "./vslRouter";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -3662,7 +3663,8 @@ export const appRouter = router({
   notifications: notificationsRouter,
   consultas: consultasRouter,
   academy: academyRouter,
-  intelligence:   adminIntelligenceRouter,   // ← ADICIONAR ESTA LINHA
+  intelligence:   adminIntelligenceRouter,
+  vsl:            vslRouter,   // ← ADICIONAR ESTA LINHA
 });
 
 export type AppRouter = typeof appRouter;
