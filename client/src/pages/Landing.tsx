@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import SEO, { SEO_CONFIGS } from "@/components/SEO";
 
@@ -10,7 +10,7 @@ const LANDING_JSONLD = {
       "name": "MECPro",
       "url": "https://mecpro-ai.onrender.com",
       "logo": "https://mecpro-ai.onrender.com/favicon-512.png",
-      "description": "Plataforma de inteligÃªncia de campanhas com IA. Analise concorrentes via Meta Ads Library, gere campanhas completas, copy e relatÃ³rios PDF/XLSX em minutos.",
+      "description": "Plataforma de inteligência de campanhas com IA. Analise concorrentes via Meta Ads Library, gere campanhas completas, copy e relatórios PDF/XLSX em minutos.",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web Browser",
       "inLanguage": "pt-BR",
@@ -21,51 +21,51 @@ const LANDING_JSONLD = {
         { "@type": "Offer", "name": "Plano VIP",     "price": "397.00", "priceCurrency": "BRL", "priceSpecification": { "@type": "UnitPriceSpecification", "price": "397.00", "priceCurrency": "BRL", "unitText": "MONTH" } },
       ],
       "featureList": [
-        "GeraÃ§Ã£o automÃ¡tica de campanhas completas com IA",
-        "AnÃ¡lise de concorrentes via Meta Ads Library",
-        "Perfil de cliente estratÃ©gico com mapeamento de dores",
-        "AnÃ¡lise de mercado e identificaÃ§Ã£o de gaps",
-        "Mini cursos prÃ¡ticos de como usar a ferramenta",
-        "ExportaÃ§Ã£o de relatÃ³rios em PDF e XLSX",
-        "IntegraÃ§Ã£o direta com Meta Ads e Google Ads",
-        "Pipeline de 7 camadas de inteligÃªncia artificial",
-        "Copy de anÃºncios gerado por IA",
+        "Geração automática de campanhas completas com IA",
+        "Análise de concorrentes via Meta Ads Library",
+        "Perfil de cliente estratégico com mapeamento de dores",
+        "Análise de mercado e identificação de gaps",
+        "Mini cursos práticos de como usar a ferramenta",
+        "Exportação de relatórios em PDF e XLSX",
+        "Integração direta com Meta Ads e Google Ads",
+        "Pipeline de 7 camadas de inteligência artificial",
+        "Copy de anúncios gerado por IA",
       ],
       "aggregateRating": { "@type": "AggregateRating", "ratingValue": "4.9", "reviewCount": "127", "bestRating": "5" },
     },
     {
       "@type": "FAQPage",
       "mainEntity": [
-        { "@type": "Question", "name": "O que Ã© o MECPro?", "acceptedAnswer": { "@type": "Answer", "text": "MECPro Ã© a plataforma lÃ­der em geraÃ§Ã£o de campanhas com IA. Em minutos vocÃª analisa concorrentes, mapeia o perfil do cliente, cruza dados de mercado e recebe a campanha completa â€” copy, ad sets, orÃ§amento e funil â€” pronta para rodar no Meta e Google Ads." } },
-        { "@type": "Question", "name": "Preciso de cartÃ£o de crÃ©dito para comeÃ§ar?", "acceptedAnswer": { "@type": "Answer", "text": "NÃ£o! O MECPro oferece plano gratuito. Crie sua conta em menos de 2 minutos sem informar dados de pagamento." } },
-        { "@type": "Question", "name": "O MECPro tem cursos sobre como usar a ferramenta?", "acceptedAnswer": { "@type": "Answer", "text": "Sim! A MECPro Academy oferece mini cursos prÃ¡ticos ensinando como montar campanhas usando a plataforma â€” do zero ao avanÃ§ado. Os cursos incluem anÃ¡lise de concorrentes, geraÃ§Ã£o de copy com IA, criaÃ§Ã£o de funis e muito mais." } },
-        { "@type": "Question", "name": "Quanto custa o MECPro?", "acceptedAnswer": { "@type": "Answer", "text": "O MECPro oferece: Plano Basic (R$97/mÃªs), Premium (R$197/mÃªs) e VIP (R$397/mÃªs). HÃ¡ tambÃ©m plano gratuito." } },
-        { "@type": "Question", "name": "O MECPro integra com Meta Ads e Google Ads?", "acceptedAnswer": { "@type": "Answer", "text": "Sim! IntegraÃ§Ã£o nativa com Meta Ads e Google Ads â€” publique campanhas sem copiar e colar." } },
+        { "@type": "Question", "name": "O que é o MECPro?", "acceptedAnswer": { "@type": "Answer", "text": "MECPro é a plataforma líder em geração de campanhas com IA. Em minutos você analisa concorrentes, mapeia o perfil do cliente, cruza dados de mercado e recebe a campanha completa — copy, ad sets, orçamento e funil — pronta para rodar no Meta e Google Ads." } },
+        { "@type": "Question", "name": "Preciso de cartão de crédito para começar?", "acceptedAnswer": { "@type": "Answer", "text": "Não! O MECPro oferece plano gratuito. Crie sua conta em menos de 2 minutos sem informar dados de pagamento." } },
+        { "@type": "Question", "name": "O MECPro tem cursos sobre como usar a ferramenta?", "acceptedAnswer": { "@type": "Answer", "text": "Sim! A MECPro Academy oferece mini cursos práticos ensinando como montar campanhas usando a plataforma — do zero ao avançado. Os cursos incluem análise de concorrentes, geração de copy com IA, criação de funis e muito mais." } },
+        { "@type": "Question", "name": "Quanto custa o MECPro?", "acceptedAnswer": { "@type": "Answer", "text": "O MECPro oferece: Plano Basic (R$97/mês), Premium (R$197/mês) e VIP (R$397/mês). Há também plano gratuito." } },
+        { "@type": "Question", "name": "O MECPro integra com Meta Ads e Google Ads?", "acceptedAnswer": { "@type": "Answer", "text": "Sim! Integração nativa com Meta Ads e Google Ads — publique campanhas sem copiar e colar." } },
       ],
     },
     {
       "@type": "ItemList",
       "name": "Mini Cursos MECPro Academy",
-      "description": "Mini cursos prÃ¡ticos de como montar campanhas usando o MECPro",
+      "description": "Mini cursos práticos de como montar campanhas usando o MECPro",
       "itemListElement": [
         { "@type": "ListItem", "position": 1, "name": "Campanha do Zero com MECPro", "url": "https://mecpro-ai.onrender.com/courses/campanha-zero-mecpro" },
-        { "@type": "ListItem", "position": 2, "name": "AnÃ¡lise de Concorrentes com IA", "url": "https://mecpro-ai.onrender.com/courses/analise-concorrentes-ia" },
-        { "@type": "ListItem", "position": 3, "name": "Copy com IA â€” Guia PrÃ¡tico", "url": "https://mecpro-ai.onrender.com/courses/copy-ia-guia-pratico" },
-        { "@type": "ListItem", "position": 4, "name": "Meta Ads do Zero ao AvanÃ§ado", "url": "https://mecpro-ai.onrender.com/courses/marketing-meta-ads" },
+        { "@type": "ListItem", "position": 2, "name": "Análise de Concorrentes com IA", "url": "https://mecpro-ai.onrender.com/courses/analise-concorrentes-ia" },
+        { "@type": "ListItem", "position": 3, "name": "Copy com IA — Guia Prático", "url": "https://mecpro-ai.onrender.com/courses/copy-ia-guia-pratico" },
+        { "@type": "ListItem", "position": 4, "name": "Meta Ads do Zero ao Avançado", "url": "https://mecpro-ai.onrender.com/courses/marketing-meta-ads" },
       ],
     },
   ],
 };
 
-// â”€â”€ Mini Cursos destacados na Landing â”€â”€
+// ── Mini Cursos destacados na Landing ──
 const MINI_COURSES = [
   {
     slug: "campanha-zero-mecpro",
-    icon: "ðŸš€",
+    icon: "🚀",
     tag: "GRATUITO",
     tagColor: "#16a34a",
     title: "Campanha do Zero com MECPro",
-    desc: "Aprenda a criar sua primeira campanha completa usando a plataforma â€” passo a passo em 45 minutos.",
+    desc: "Aprenda a criar sua primeira campanha completa usando a plataforma — passo a passo em 45 minutos.",
     duration: "45 min",
     lessons: 6,
     level: "Iniciante",
@@ -73,23 +73,23 @@ const MINI_COURSES = [
   },
   {
     slug: "analise-concorrentes-ia",
-    icon: "ðŸ”",
+    icon: "🔍",
     tag: "PRO",
     tagColor: "#7c3aed",
-    title: "AnÃ¡lise de Concorrentes com IA",
-    desc: "Domine o mÃ³dulo de concorrentes do MECPro e extraia insights que nenhum concorrente sabe que vocÃª tem.",
+    title: "Análise de Concorrentes com IA",
+    desc: "Domine o módulo de concorrentes do MECPro e extraia insights que nenhum concorrente sabe que você tem.",
     duration: "6h 15min",
     lessons: 24,
-    level: "IntermediÃ¡rio",
+    level: "Intermediário",
     highlight: false,
   },
   {
     slug: "copy-ia-guia-pratico",
-    icon: "âœï¸",
+    icon: "✍️",
     tag: "GRATUITO",
     tagColor: "#16a34a",
-    title: "Copy com IA â€” Guia PrÃ¡tico",
-    desc: "Como usar o gerador de copy do MECPro para criar anÃºncios que convertem â€” com exemplos reais.",
+    title: "Copy com IA — Guia Prático",
+    desc: "Como usar o gerador de copy do MECPro para criar anúncios que convertem — com exemplos reais.",
     duration: "1h 20min",
     lessons: 8,
     level: "Iniciante",
@@ -97,11 +97,11 @@ const MINI_COURSES = [
   },
   {
     slug: "marketing-meta-ads",
-    icon: "ðŸ“˜",
+    icon: "📘",
     tag: "PRO",
     tagColor: "#7c3aed",
-    title: "Meta Ads do Zero ao AvanÃ§ado",
-    desc: "Campanha, pÃºblico, criativo e orÃ§amento â€” tudo dentro do MECPro conectado ao Meta Ads.",
+    title: "Meta Ads do Zero ao Avançado",
+    desc: "Campanha, público, criativo e orçamento — tudo dentro do MECPro conectado ao Meta Ads.",
     duration: "12h 30min",
     lessons: 48,
     level: "Completo",
@@ -109,23 +109,23 @@ const MINI_COURSES = [
   },
   {
     slug: "estrategia-ecommerce",
-    icon: "ðŸ›’",
+    icon: "🛒",
     tag: "PRO",
     tagColor: "#7c3aed",
-    title: "EstratÃ©gia para E-commerce",
-    desc: "Use o MECPro para escalar sua loja com trÃ¡fego pago, remarketing e funil de vendas automatizado.",
+    title: "Estratégia para E-commerce",
+    desc: "Use o MECPro para escalar sua loja com tráfego pago, remarketing e funil de vendas automatizado.",
     duration: "10h 20min",
     lessons: 42,
-    level: "AvanÃ§ado",
+    level: "Avançado",
     highlight: false,
   },
   {
     slug: "relatorios-e-metricas",
-    icon: "ðŸ“Š",
+    icon: "📊",
     tag: "GRATUITO",
     tagColor: "#16a34a",
-    title: "RelatÃ³rios e MÃ©tricas que Importam",
-    desc: "Exporte relatÃ³rios PDF/XLSX pelo MECPro e saiba quais KPIs realmente impactam seus resultados.",
+    title: "Relatórios e Métricas que Importam",
+    desc: "Exporte relatórios PDF/XLSX pelo MECPro e saiba quais KPIs realmente impactam seus resultados.",
     duration: "4h 30min",
     lessons: 18,
     level: "Iniciante",
@@ -135,7 +135,7 @@ const MINI_COURSES = [
 
 
 const WA_NUMBER = "554799465824";
-const WA_MSG = encodeURIComponent("OlÃ¡! Tenho interesse no MECPro. Pode me ajudar? ðŸ˜Š");
+const WA_MSG = encodeURIComponent("Olá! Tenho interesse no MECPro. Pode me ajudar? 😊");
 
 function WAButton() {
   const [open, setOpen] = useState(false);
@@ -157,15 +157,15 @@ function WAButton() {
               </div>
               <div>
                 <p style={{ margin: 0, fontWeight: 800, fontSize: 13, color: "#111" }}>Michel Leal</p>
-                <p style={{ margin: 0, fontSize: 11, color: "#25d366", fontWeight: 600 }}>â— Gerente de Relacionamento</p>
+                <p style={{ margin: 0, fontSize: 11, color: "#25d366", fontWeight: 600 }}>● Gerente de Relacionamento</p>
               </div>
             </div>
-            <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af", lineHeight: 1, padding: "2px 6px" }}>Ã—</button>
+            <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#9ca3af", lineHeight: 1, padding: "2px 6px" }}>×</button>
           </div>
-          {/* BalÃ£o */}
+          {/* Balão */}
           <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "10px 13px", marginBottom: 14 }}>
             <p style={{ margin: 0, fontSize: 12, color: "#374151", lineHeight: 1.6 }}>
-              ðŸ‘‹ OlÃ¡! Posso ajudar com dÃºvidas sobre o <strong>MECPro</strong> ou nossos planos. Fale comigo agora!
+              👋 Olá! Posso ajudar com dúvidas sobre o <strong>MECPro</strong> ou nossos planos. Fale comigo agora!
             </p>
           </div>
           {/* CTA */}
@@ -184,12 +184,12 @@ function WAButton() {
             Chamar no WhatsApp
           </a>
           <p style={{ margin: "10px 0 0", fontSize: 10, color: "#9ca3af", textAlign: "center" }}>
-            (47) 99465-824 Â· Segâ€“Sex, 9hâ€“18h
+            (47) 99465-824 · Seg–Sex, 9h–18h
           </p>
         </div>
       )}
 
-      {/* BotÃ£o flutuante */}
+      {/* Botão flutuante */}
       <button
         onClick={() => setOpen(!open)}
         aria-label="Falar no WhatsApp"
@@ -233,17 +233,17 @@ export default function Landing() {
 
       <div style={{ fontFamily: "var(--font-body)", background: "var(--white)" }}>
 
-        {/* â”€â”€ NAV â”€â”€ */}
+        {/* ── NAV ── */}
         <nav style={{ position:"sticky",top:0,zIndex:100,height:60,background:"rgba(255,255,255,.95)",backdropFilter:"blur(16px)",borderBottom:"1px solid var(--border)" }}>
           <div style={{ maxWidth:1080,margin:"0 auto",padding:"0 32px",height:"100%",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-            <a href="/" aria-label="MECPro â€” pÃ¡gina inicial" style={{ textDecoration:"none", display:"flex", alignItems:"center" }}>
+            <a href="/" aria-label="MECPro — página inicial" style={{ textDecoration:"none", display:"flex", alignItems:"center" }}>
               <img src="/logo.png" alt="MECPro" height={38} style={{ display:"block" }} />
             </a>
             <nav aria-label="Menu principal" style={{ display:"flex",gap:24 }}>
               {[
                 {label:"Plataforma", href:"/#recursos"},
                 {label:"Academy", href:"/courses"},
-                {label:"PreÃ§os", href:"/pricing"},
+                {label:"Preços", href:"/pricing"},
                 {label:"FAQ", href:"/faq"},
               ].map(l=>(
                 <a key={l.label} href={l.href} style={{ fontSize:14,color:"var(--muted)",textDecoration:"none",fontWeight:500 }}>{l.label}</a>
@@ -251,47 +251,47 @@ export default function Landing() {
             </nav>
             <div style={{ display:"flex",gap:8,alignItems:"center" }}>
               <button className="btn btn-md btn-ghost" onClick={()=>setLocation("/login")}>Entrar</button>
-              <button className="btn btn-md btn-primary" onClick={()=>setLocation("/register")}>ComeÃ§ar grÃ¡tis</button>
+              <button className="btn btn-md btn-primary" onClick={()=>setLocation("/register")}>Começar grátis</button>
             </div>
           </div>
         </nav>
 
-        {/* â”€â”€ HERO â”€â”€ */}
+        {/* ── HERO ── */}
         <header style={{ padding:"96px 32px 80px",textAlign:"center",maxWidth:1080,margin:"0 auto" }}>
           <div className="badge badge-green animate-fade-up" style={{ marginBottom:28 }}>
             <span style={{ width:6,height:6,borderRadius:"50%",background:"var(--green)",display:"inline-block",marginRight:8 }} />
-            Plataforma #1 em GeraÃ§Ã£o de Campanhas com IA
+            Plataforma #1 em Geração de Campanhas com IA
           </div>
           <h1 className="animate-fade-up" style={{ fontSize:"clamp(42px,5.5vw,68px)",fontWeight:800,letterSpacing:-2,marginBottom:22,animationDelay:".1s",lineHeight:1.1 }}>
             Gere campanhas completas<br /><span style={{ color:"var(--green-d)" }}>em minutos com IA</span>
           </h1>
           <p className="animate-fade-up" style={{ fontSize:18,fontWeight:300,color:"var(--muted)",maxWidth:560,margin:"0 auto 40px",lineHeight:1.75,animationDelay:".2s" }}>
-            Cruze dados do cliente, concorrentes e mercado. A IA cria a campanha completa â€” copy, ad sets, orÃ§amento e funil. Prontos para rodar.
+            Cruze dados do cliente, concorrentes e mercado. A IA cria a campanha completa — copy, ad sets, orçamento e funil. Prontos para rodar.
           </p>
           <div className="animate-fade-up" style={{ display:"flex",gap:10,justifyContent:"center",marginBottom:14,animationDelay:".3s",flexWrap:"wrap" }}>
-            <button className="btn btn-lg btn-primary" onClick={()=>setLocation("/register")}>Criar conta grÃ¡tis</button>
-            <button className="btn btn-lg btn-outline" onClick={()=>setLocation("/courses")}>Ver Academy grÃ¡tis â†’</button>
+            <button className="btn btn-lg btn-primary" onClick={()=>setLocation("/register")}>Criar conta grátis</button>
+            <button className="btn btn-lg btn-outline" onClick={()=>setLocation("/courses")}>Ver Academy grátis →</button>
           </div>
-          <p style={{ fontSize:13,color:"#adb5bd" }}>Sem cartÃ£o de crÃ©dito Â· Plano gratuito para sempre Â· Mini cursos inclusos</p>
+          <p style={{ fontSize:13,color:"#adb5bd" }}>Sem cartão de crédito · Plano gratuito para sempre · Mini cursos inclusos</p>
         </header>
 
-        {/* â”€â”€ TRUST STRIP â”€â”€ */}
+        {/* ── TRUST STRIP ── */}
         <div role="complementary" aria-label="Segmentos atendidos" style={{ background:"var(--off)",borderTop:"1px solid var(--border)",borderBottom:"1px solid var(--border)",padding:"18px 0" }}>
           <div style={{ maxWidth:1080,margin:"0 auto",padding:"0 32px",display:"flex",alignItems:"center",gap:32,flexWrap:"wrap" }}>
             <span style={{ fontSize:12,fontWeight:500,color:"#adb5bd",textTransform:"uppercase",letterSpacing:".8px",whiteSpace:"nowrap" }}>Usado por</span>
             <div style={{ width:1,height:20,background:"var(--border2)" }} />
-            {["AgÃªncias","E-commerce","SaaS","Consultorias","Freelancers"].map(l=>(
+            {["Agências","E-commerce","SaaS","Consultorias","Freelancers"].map(l=>(
               <span key={l} style={{ fontSize:14,fontWeight:600,color:"#ced4da",fontFamily:"var(--font-display)" }}>{l}</span>
             ))}
           </div>
         </div>
 
-        {/* â”€â”€ STATS â”€â”€ */}
+        {/* ── STATS ── */}
         <section aria-labelledby="stats-heading" style={{ background:"var(--black)",padding:"52px 32px" }}>
-          <h2 id="stats-heading" style={{ display:"none" }}>NÃºmeros do MECPro</h2>
+          <h2 id="stats-heading" style={{ display:"none" }}>Números do MECPro</h2>
           <div style={{ maxWidth:1080,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:32,textAlign:"center" }}>
             {[
-              {v:"500+",l:"AgÃªncias ativas"},
+              {v:"500+",l:"Agências ativas"},
               {v:"10.000+",l:"Campanhas geradas"},
               {v:"7 camadas",l:"Pipeline de IA"},
               {v:"99,9%",l:"Uptime garantido"},
@@ -304,21 +304,21 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* â”€â”€ FEATURES / PLATAFORMA â”€â”€ */}
+        {/* ── FEATURES / PLATAFORMA ── */}
         <section id="recursos" aria-labelledby="features-heading" style={{ maxWidth:1080,margin:"0 auto",padding:"88px 32px" }}>
           <div style={{ marginBottom:52 }}>
-            <div className="badge badge-green" style={{ marginBottom:14 }}>Plataforma de geraÃ§Ã£o de campanhas</div>
-            <h2 id="features-heading" style={{ fontSize:"clamp(30px,3.5vw,42px)",marginBottom:14 }}>4 mÃ³dulos. 1 campanha pronta.</h2>
-            <p style={{ fontSize:16,fontWeight:300,color:"var(--muted)",maxWidth:500,lineHeight:1.7 }}>Cada mÃ³dulo alimenta o prÃ³ximo. A IA pensa a campanha por vocÃª.</p>
+            <div className="badge badge-green" style={{ marginBottom:14 }}>Plataforma de geração de campanhas</div>
+            <h2 id="features-heading" style={{ fontSize:"clamp(30px,3.5vw,42px)",marginBottom:14 }}>4 módulos. 1 campanha pronta.</h2>
+            <p style={{ fontSize:16,fontWeight:300,color:"var(--muted)",maxWidth:500,lineHeight:1.7 }}>Cada módulo alimenta o próximo. A IA pensa a campanha por você.</p>
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:1,background:"var(--border)",border:"1px solid var(--border)",borderRadius:16,overflow:"hidden" }}>
             {[
-              {n:"01",icon:"ðŸŽ¯",t:"Perfil do Cliente",d:"Mapeie dores, desejos, objeÃ§Ãµes e proposta de valor com profundidade estratÃ©gica. A base da campanha ideal."},
-              {n:"02",icon:"ðŸ”",t:"AnÃ¡lise de Concorrentes",d:"Monitore anÃºncios ativos via Meta Ads Library. Extraia copy, criativos e estratÃ©gias dos concorrentes em tempo real."},
-              {n:"03",icon:"ðŸ“Š",t:"InteligÃªncia de Mercado",d:"A IA cruza todos os dados e revela gaps, oportunidades e o posicionamento ideal para vencer."},
-              {n:"04",icon:"ðŸš€",t:"Campanha AutomÃ¡tica",d:"Gere estrutura completa: ad sets, copy, orÃ§amento sugerido e funil de conversÃ£o prontos para rodar."},
-              {n:"05",icon:"ðŸ“„",t:"ExportaÃ§Ã£o PDF & XLSX",d:"RelatÃ³rios profissionais para apresentar a clientes ou implementar diretamente na plataforma de anÃºncios."},
-              {n:"06",icon:"âš¡",t:"Meta & Google Ads",d:"IntegraÃ§Ã£o nativa. Conecte suas contas e publique campanhas direto do MECPro, sem copiar e colar."},
+              {n:"01",icon:"🎯",t:"Perfil do Cliente",d:"Mapeie dores, desejos, objeções e proposta de valor com profundidade estratégica. A base da campanha ideal."},
+              {n:"02",icon:"🔍",t:"Análise de Concorrentes",d:"Monitore anúncios ativos via Meta Ads Library. Extraia copy, criativos e estratégias dos concorrentes em tempo real."},
+              {n:"03",icon:"📊",t:"Inteligência de Mercado",d:"A IA cruza todos os dados e revela gaps, oportunidades e o posicionamento ideal para vencer."},
+              {n:"04",icon:"🚀",t:"Campanha Automática",d:"Gere estrutura completa: ad sets, copy, orçamento sugerido e funil de conversão prontos para rodar."},
+              {n:"05",icon:"📄",t:"Exportação PDF & XLSX",d:"Relatórios profissionais para apresentar a clientes ou implementar diretamente na plataforma de anúncios."},
+              {n:"06",icon:"⚡",t:"Meta & Google Ads",d:"Integração nativa. Conecte suas contas e publique campanhas direto do MECPro, sem copiar e colar."},
             ].map(f=>(
               <article key={f.n} style={{ background:"white",padding:"28px 26px",transition:"background .2s",cursor:"default" }}
                 onMouseEnter={e=>(e.currentTarget.style.background="var(--off)")}
@@ -332,19 +332,19 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* â”€â”€ COMO FUNCIONA â”€â”€ */}
+        {/* ── COMO FUNCIONA ── */}
         <section id="como-funciona" aria-labelledby="how-heading" style={{ background:"var(--off)",borderTop:"1px solid var(--border)",borderBottom:"1px solid var(--border)",padding:"88px 32px" }}>
           <div style={{ maxWidth:1080,margin:"0 auto" }}>
             <div style={{ marginBottom:52,textAlign:"center" }}>
               <div className="badge badge-green" style={{ marginBottom:14 }}>Como funciona</div>
               <h2 id="how-heading" style={{ fontSize:"clamp(30px,3.5vw,42px)",marginBottom:14 }}>3 passos. Campanha pronta.</h2>
-              <p style={{ fontSize:16,fontWeight:300,color:"var(--muted)",lineHeight:1.7 }}>Simples, rÃ¡pido e poderoso.</p>
+              <p style={{ fontSize:16,fontWeight:300,color:"var(--muted)",lineHeight:1.7 }}>Simples, rápido e poderoso.</p>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:32 }}>
               {[
-                {step:"1",icon:"ðŸŽ¯",t:"Preencha o perfil do cliente",d:"Informe segmento, pÃºblico, proposta de valor e objetivos. O MECPro organiza tudo estrategicamente."},
-                {step:"2",icon:"ðŸ”",t:"IA analisa o mercado e concorrentes",d:"Pipeline de 7 camadas coleta dados reais de anÃºncios, estratÃ©gias e copies da concorrÃªncia automaticamente."},
-                {step:"3",icon:"ðŸš€",t:"Receba a campanha pronta",d:"Copy, ad sets, orÃ§amento e funil de conversÃ£o gerados e prontos para rodar no Meta Ads e Google Ads."},
+                {step:"1",icon:"🎯",t:"Preencha o perfil do cliente",d:"Informe segmento, público, proposta de valor e objetivos. O MECPro organiza tudo estrategicamente."},
+                {step:"2",icon:"🔍",t:"IA analisa o mercado e concorrentes",d:"Pipeline de 7 camadas coleta dados reais de anúncios, estratégias e copies da concorrência automaticamente."},
+                {step:"3",icon:"🚀",t:"Receba a campanha pronta",d:"Copy, ad sets, orçamento e funil de conversão gerados e prontos para rodar no Meta Ads e Google Ads."},
               ].map(s=>(
                 <div key={s.step} style={{ background:"white",borderRadius:16,padding:"32px 28px",border:"1px solid var(--border)" }}>
                   <div style={{ fontSize:28,marginBottom:14 }}>{s.icon}</div>
@@ -357,9 +357,9 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-            MINI CURSOS â€” ACADEMY SECTION
-        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+        {/* ══════════════════════════════════════════════
+            MINI CURSOS — ACADEMY SECTION
+        ══════════════════════════════════════════════ */}
         <section id="academy" aria-labelledby="academy-heading" style={{ maxWidth:1080,margin:"0 auto",padding:"88px 32px" }}>
           <div style={{ display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:52,flexWrap:"wrap",gap:20 }}>
             <div>
@@ -368,16 +368,16 @@ export default function Landing() {
                 Aprenda a criar campanhas<br />usando a ferramenta
               </h2>
               <p style={{ fontSize:16,fontWeight:300,color:"var(--muted)",maxWidth:500,lineHeight:1.7,margin:0 }}>
-                Mini cursos prÃ¡ticos que ensinam como montar campanhas completas com o MECPro â€”
-                do perfil do cliente atÃ© publicar no Meta e Google Ads.
+                Mini cursos práticos que ensinam como montar campanhas completas com o MECPro —
+                do perfil do cliente até publicar no Meta e Google Ads.
               </p>
             </div>
             <a href="/courses" style={{ fontSize:14,color:"var(--green-d)",fontWeight:700,textDecoration:"none",whiteSpace:"nowrap",border:"1.5px solid var(--green-d)",padding:"10px 22px",borderRadius:10 }}>
-              Ver todos os cursos â†’
+              Ver todos os cursos →
             </a>
           </div>
 
-          {/* Featured course â€” full width */}
+          {/* Featured course — full width */}
           {MINI_COURSES.filter(c=>c.highlight).map(c=>(
             <div key={c.slug}
               onClick={()=>setLocation(`/courses/${c.slug}`)}
@@ -386,15 +386,15 @@ export default function Landing() {
                 <div style={{ display:"flex",gap:10,marginBottom:14,alignItems:"center" }}>
                   <span style={{ fontSize:28 }}>{c.icon}</span>
                   <span style={{ background:c.tagColor,color:"white",fontSize:10,fontWeight:800,padding:"3px 10px",borderRadius:99,letterSpacing:.5 }}>{c.tag}</span>
-                  <span style={{ background:"rgba(255,255,255,.1)",color:"white",fontSize:11,padding:"3px 10px",borderRadius:99 }}>â­ Destaque</span>
+                  <span style={{ background:"rgba(255,255,255,.1)",color:"white",fontSize:11,padding:"3px 10px",borderRadius:99 }}>⭐ Destaque</span>
                 </div>
                 <h3 style={{ fontSize:24,fontWeight:800,color:"white",marginBottom:10,fontFamily:"var(--font-display)" }}>{c.title}</h3>
                 <p style={{ fontSize:15,color:"#86efac",lineHeight:1.65,maxWidth:500,margin:"0 0 20px" }}>{c.desc}</p>
                 <div style={{ display:"flex",gap:20,flexWrap:"wrap" }}>
                   {[
-                    {icon:"â±",v:c.duration},
-                    {icon:"ðŸ“š",v:`${c.lessons} aulas`},
-                    {icon:"ðŸŽ“",v:c.level},
+                    {icon:"⏱",v:c.duration},
+                    {icon:"📚",v:`${c.lessons} aulas`},
+                    {icon:"🎓",v:c.level},
                   ].map(m=>(
                     <span key={m.v} style={{ fontSize:13,color:"#4ade80",display:"flex",alignItems:"center",gap:5 }}>
                       {m.icon} {m.v}
@@ -403,7 +403,7 @@ export default function Landing() {
                 </div>
               </div>
               <button className="btn btn-lg" style={{ background:"white",color:"#14532d",fontWeight:800,borderRadius:12,whiteSpace:"nowrap",flexShrink:0 }}>
-                ComeÃ§ar agora grÃ¡tis â†’
+                Começar agora grátis →
               </button>
             </div>
           ))}
@@ -424,9 +424,9 @@ export default function Landing() {
                 <p style={{ fontSize:13,color:"var(--muted)",lineHeight:1.6,marginBottom:16 }}>{c.desc}</p>
                 <div style={{ display:"flex",gap:14,borderTop:"1px solid var(--border)",paddingTop:14 }}>
                   {[
-                    {icon:"â±",v:c.duration},
-                    {icon:"ðŸ“š",v:`${c.lessons} aulas`},
-                    {icon:"ðŸŽ“",v:c.level},
+                    {icon:"⏱",v:c.duration},
+                    {icon:"📚",v:`${c.lessons} aulas`},
+                    {icon:"🎓",v:c.level},
                   ].map(m=>(
                     <span key={m.v} style={{ fontSize:12,color:"var(--muted)",display:"flex",alignItems:"center",gap:4 }}>
                       {m.icon} {m.v}
@@ -439,24 +439,24 @@ export default function Landing() {
 
           <div style={{ textAlign:"center",marginTop:36 }}>
             <button className="btn btn-lg btn-outline" onClick={()=>setLocation("/courses")}>
-              Ver todos os cursos da Academy â†’
+              Ver todos os cursos da Academy →
             </button>
           </div>
         </section>
 
-        {/* â”€â”€ PRICING â”€â”€ */}
+        {/* ── PRICING ── */}
         <section aria-labelledby="pricing-heading" style={{ background:"var(--off)",borderTop:"1px solid var(--border)",borderBottom:"1px solid var(--border)",padding:"88px 32px" }}>
           <div style={{ maxWidth:1080,margin:"0 auto" }}>
             <div style={{ marginBottom:52 }}>
-              <div className="badge badge-green" style={{ marginBottom:14 }}>PreÃ§os</div>
+              <div className="badge badge-green" style={{ marginBottom:14 }}>Preços</div>
               <h2 id="pricing-heading" style={{ fontSize:"clamp(30px,3.5vw,42px)",marginBottom:14 }}>Simples e sem surpresa</h2>
-              <p style={{ fontSize:16,fontWeight:300,color:"var(--muted)",lineHeight:1.7 }}>Comece grÃ¡tis. Escale quando precisar. Academy inclusa em todos os planos.</p>
+              <p style={{ fontSize:16,fontWeight:300,color:"var(--muted)",lineHeight:1.7 }}>Comece grátis. Escale quando precisar. Academy inclusa em todos os planos.</p>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16 }}>
               {[
-                {tier:"Basic",price:"97",cadence:"por mÃªs",features:["3 projetos","5 concorrentes/projeto","10 campanhas/mÃªs","Academy gratuita","Suporte por e-mail"],cta:"Assinar Basic",style:"outline",pop:false},
-                {tier:"Premium",price:"197",cadence:"por mÃªs",pop:true,features:["10 projetos","Concorrentes ilimitados","Campanhas ilimitadas","Academy completa + certificados","RelatÃ³rios PDF","Suporte prioritÃ¡rio"],cta:"Assinar Premium",style:"green"},
-                {tier:"VIP",price:"397",cadence:"por mÃªs",features:["Projetos ilimitados","Tudo do Premium","Academy VIP + mentoria","API access","Manager dedicado","Onboarding personalizado"],cta:"Assinar VIP",style:"dark",pop:false},
+                {tier:"Basic",price:"97",cadence:"por mês",features:["3 projetos","5 concorrentes/projeto","10 campanhas/mês","Academy gratuita","Suporte por e-mail"],cta:"Assinar Basic",style:"outline",pop:false},
+                {tier:"Premium",price:"197",cadence:"por mês",pop:true,features:["10 projetos","Concorrentes ilimitados","Campanhas ilimitadas","Academy completa + certificados","Relatórios PDF","Suporte prioritário"],cta:"Assinar Premium",style:"green"},
+                {tier:"VIP",price:"397",cadence:"por mês",features:["Projetos ilimitados","Tudo do Premium","Academy VIP + mentoria","API access","Manager dedicado","Onboarding personalizado"],cta:"Assinar VIP",style:"dark",pop:false},
               ].map(plan=>(
                 <article key={plan.tier} style={{ background:"white",border:`1.5px solid ${plan.pop?"var(--green)":"var(--border)"}`,borderRadius:18,padding:28,position:"relative",boxShadow:plan.pop?"0 0 0 4px rgba(34,197,94,.07)":"none" }}>
                   {plan.pop&&<div style={{ position:"absolute",top:-11,left:"50%",transform:"translateX(-50%)",background:"var(--green-d)",color:"white",fontSize:10.5,fontWeight:700,padding:"3px 14px",borderRadius:99,whiteSpace:"nowrap" }}>Mais popular</div>}
@@ -466,7 +466,7 @@ export default function Landing() {
                   </div>
                   <div style={{ fontSize:13,color:"var(--muted)",marginBottom:22,marginTop:4 }}>{plan.cadence}</div>
                   <div style={{ height:1,background:"var(--border)",margin:"18px 0" }} />
-                  {plan.features.map(f=><div key={f} style={{ display:"flex",gap:8,fontSize:13.5,color:"var(--body)",marginBottom:9 }}><span style={{ color:"var(--green)",fontWeight:700 }}>âœ“</span>{f}</div>)}
+                  {plan.features.map(f=><div key={f} style={{ display:"flex",gap:8,fontSize:13.5,color:"var(--body)",marginBottom:9 }}><span style={{ color:"var(--green)",fontWeight:700 }}>✓</span>{f}</div>)}
                   <button className={`btn btn-full btn-lg ${plan.style==="green"?"btn-green":plan.style==="dark"?"btn-primary":"btn-outline"}`} style={{ marginTop:22 }} onClick={()=>setLocation("/register")}>{plan.cta}</button>
                 </article>
               ))}
@@ -474,7 +474,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* â”€â”€ FAQ ACCORDION â”€â”€ */}
+        {/* ── FAQ ACCORDION ── */}
         <section aria-labelledby="faq-heading" style={{ padding:"72px 32px" }}>
           <div style={{ maxWidth:720,margin:"0 auto" }}>
             <div style={{ textAlign:"center",marginBottom:40 }}>
@@ -482,10 +482,10 @@ export default function Landing() {
               <h2 id="faq-heading" style={{ fontSize:"clamp(26px,3vw,36px)",marginBottom:10 }}>Perguntas frequentes</h2>
             </div>
             {[
-              {q:"O MECPro Ã© uma plataforma de geraÃ§Ã£o de campanhas ou de cursos?",a:"As duas coisas! O MECPro Ã© primariamente uma plataforma de geraÃ§Ã£o de campanhas com IA â€” vocÃª entra com os dados do cliente e sai com a campanha pronta. Mas tambÃ©m oferece a Academy com mini cursos prÃ¡ticos ensinando como usar cada mÃ³dulo da ferramenta, para vocÃª extrair o mÃ¡ximo da plataforma."},
-              {q:"Os mini cursos ensinam como usar o MECPro especificamente?",a:"Sim! Cada mini curso foca em um aspecto da ferramenta: como montar o perfil do cliente, como usar o mÃ³dulo de anÃ¡lise de concorrentes, como gerar copies com IA, como exportar relatÃ³rios e muito mais. Ã‰ o manual vivo da plataforma."},
-              {q:"Preciso saber programar para usar o MECPro?",a:"NÃ£o! O MECPro foi criado para profissionais de marketing. Interface simples, intuitiva e sem cÃ³digo. Os mini cursos ainda tornam tudo mais fÃ¡cil."},
-              {q:"Funciona para qualquer nicho de mercado?",a:"Sim! O MECPro Ã© usado por agÃªncias, e-commerces, SaaS, consultorias e freelancers em todos os segmentos. A IA adapta a anÃ¡lise e as campanhas para o contexto especÃ­fico do seu cliente."},
+              {q:"O MECPro é uma plataforma de geração de campanhas ou de cursos?",a:"As duas coisas! O MECPro é primariamente uma plataforma de geração de campanhas com IA — você entra com os dados do cliente e sai com a campanha pronta. Mas também oferece a Academy com mini cursos práticos ensinando como usar cada módulo da ferramenta, para você extrair o máximo da plataforma."},
+              {q:"Os mini cursos ensinam como usar o MECPro especificamente?",a:"Sim! Cada mini curso foca em um aspecto da ferramenta: como montar o perfil do cliente, como usar o módulo de análise de concorrentes, como gerar copies com IA, como exportar relatórios e muito mais. É o manual vivo da plataforma."},
+              {q:"Preciso saber programar para usar o MECPro?",a:"Não! O MECPro foi criado para profissionais de marketing. Interface simples, intuitiva e sem código. Os mini cursos ainda tornam tudo mais fácil."},
+              {q:"Funciona para qualquer nicho de mercado?",a:"Sim! O MECPro é usado por agências, e-commerces, SaaS, consultorias e freelancers em todos os segmentos. A IA adapta a análise e as campanhas para o contexto específico do seu cliente."},
               {q:"Posso cancelar quando quiser?",a:"Sim, sem fidelidade. Cancele a qualquer momento direto no painel, sem burocracia e sem multa."},
             ].map((item,i)=>(
               <details key={i} style={{ borderBottom:"1px solid var(--border)",padding:"18px 0" }}>
@@ -497,35 +497,35 @@ export default function Landing() {
               </details>
             ))}
             <div style={{ textAlign:"center",marginTop:28 }}>
-              <a href="/faq" style={{ fontSize:14,color:"var(--green-d)",fontWeight:600,textDecoration:"none" }}>Ver todas as perguntas â†’</a>
+              <a href="/faq" style={{ fontSize:14,color:"var(--green-d)",fontWeight:600,textDecoration:"none" }}>Ver todas as perguntas →</a>
             </div>
           </div>
         </section>
 
-        {/* â”€â”€ CTA FINAL â”€â”€ */}
+        {/* ── CTA FINAL ── */}
         <section style={{ padding:"0 32px 80px" }}>
           <div style={{ background:"var(--black)",borderRadius:24,maxWidth:1080,margin:"0 auto",padding:"72px 48px",textAlign:"center" }}>
             <h2 style={{ color:"white",fontSize:"clamp(28px,3.5vw,44px)",marginBottom:14 }}>Pronto para gerar sua<br />primeira campanha com IA?</h2>
-            <p style={{ fontSize:16,color:"#6b7280",marginBottom:12 }}>Comece grÃ¡tis em menos de 2 minutos. Sem cartÃ£o.</p>
-            <p style={{ fontSize:14,color:"#374151",marginBottom:36 }}>âœ“ Academy gratuita inclusa &nbsp;Â·&nbsp; âœ“ Mini cursos prÃ¡ticos &nbsp;Â·&nbsp; âœ“ Campanha pronta em minutos</p>
+            <p style={{ fontSize:16,color:"#6b7280",marginBottom:12 }}>Comece grátis em menos de 2 minutos. Sem cartão.</p>
+            <p style={{ fontSize:14,color:"#374151",marginBottom:36 }}>✓ Academy gratuita inclusa &nbsp;·&nbsp; ✓ Mini cursos práticos &nbsp;·&nbsp; ✓ Campanha pronta em minutos</p>
             <div style={{ display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap" }}>
-              <button className="btn btn-lg" style={{ background:"white",color:"var(--black)",fontWeight:700,borderRadius:10 }} onClick={()=>setLocation("/register")}>Criar conta grÃ¡tis â†’</button>
+              <button className="btn btn-lg" style={{ background:"white",color:"var(--black)",fontWeight:700,borderRadius:10 }} onClick={()=>setLocation("/register")}>Criar conta grátis →</button>
               <button className="btn btn-lg btn-outline" style={{ borderColor:"#374151",color:"#9ca3af" }} onClick={()=>setLocation("/courses")}>Explorar a Academy</button>
             </div>
           </div>
         </section>
 
-        {/* â”€â”€ FOOTER â”€â”€ */}
+        {/* ── FOOTER ── */}
         <footer style={{ borderTop:"1px solid var(--border)",padding:"32px 32px" }}>
           <div style={{ maxWidth:1080,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:20 }}>
             <a href="/" aria-label="MECPro" style={{ textDecoration:"none", display:"flex", alignItems:"center" }}>
               <img src="/logo.png" alt="MECPro" height={32} style={{ display:"block" }} />
             </a>
-            <nav aria-label="Links do rodapÃ©" style={{ display:"flex",gap:20,flexWrap:"wrap" }}>
+            <nav aria-label="Links do rodapé" style={{ display:"flex",gap:20,flexWrap:"wrap" }}>
               {[
                 {label:"Plataforma", href:"/#recursos"},
                 {label:"Academy", href:"/courses"},
-                {label:"PreÃ§os", href:"/pricing"},
+                {label:"Preços", href:"/pricing"},
                 {label:"FAQ", href:"/faq"},
                 {label:"Termos", href:"/terms"},
                 {label:"Privacidade", href:"/privacy"},
@@ -533,21 +533,8 @@ export default function Landing() {
               ].map(l=>(
                 <a key={l.label} href={l.href} style={{ fontSize:13,color:"var(--muted)",textDecoration:"none" }}>{l.label}</a>
               ))}
-              {/* Redes sociais */}
-              <div style={{ display:"flex", gap:16, marginTop:12 }}>
-                {[
-                  { icon:"📸", label:"Instagram", href:"https://instagram.com/mecproaibrl" },
-                  { icon:"📘", label:"Facebook",  href:"https://facebook.com/mecproai" },
-                  { icon:"🎵", label:"TikTok",    href:"https://tiktok.com/@mecproaibrl" },
-                ].map(s => (
-                  <a key={s.label} href={s.href} target="_blank" rel="noreferrer"
-                    style={{ fontSize:13, color:"var(--muted)", textDecoration:"none", display:"flex", alignItems:"center", gap:4 }}>
-                    <span>{s.icon}</span><span>{s.label}</span>
-                  </a>
-                ))}
-              </div>
             </nav>
-            <span style={{ fontSize:12,color:"#adb5bd" }}>Â© 2026 MECPro</span>
+            <span style={{ fontSize:12,color:"#adb5bd" }}>© 2026 MECPro</span>
           </div>
         </footer>
       </div>
@@ -555,6 +542,3 @@ export default function Landing() {
     </>
   );
 }
-
-
-
