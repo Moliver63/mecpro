@@ -51,6 +51,16 @@ import CommunityExplore from "@/pages/CommunityExplore";
 import CommunityConnections from "@/pages/CommunityConnections";
 import CheckoutSuccess from "@/pages/CheckoutSuccess";
 import AcceptAdminInvite from "@/pages/AcceptAdminInvite";
+import MetaCampaigns from "@/pages/MetaCampaigns";
+import MetaIntegration from "@/pages/MetaIntegration";
+import GoogleAdsIntegration from "@/pages/GoogleAdsIntegration";
+import GoogleCampaignCreator from "@/pages/GoogleCampaignCreator";
+import FacebookCampaignCreator from "@/pages/FacebookCampaignCreator";
+import TikTokCampaignCreator from "@/pages/TikTokCampaignCreator";
+import TikTokIntegration from "@/pages/TikTokIntegration";
+import TikTokVideoCreator from "@/pages/TikTokVideoCreator";
+import UnifiedDashboard from "@/pages/UnifiedDashboard";
+import AlertsSettings from "@/pages/AlertsSettings";
 
 // Pages - Admin
 import AdminDashboard from "@/pages/AdminDashboard";
@@ -138,6 +148,16 @@ export default function App() {
             <Route path="/community/explore"><ProtectedRoute><CommunityExplore /></ProtectedRoute></Route>
             <Route path="/community/connections"><ProtectedRoute><CommunityConnections /></ProtectedRoute></Route>
             <Route path="/checkout/success"><ProtectedRoute><CheckoutSuccess /></ProtectedRoute></Route>
+            <Route path="/meta-campaigns"><ProtectedRoute><MetaCampaigns /></ProtectedRoute></Route>
+            <Route path="/meta-integration"><ProtectedRoute><MetaIntegration /></ProtectedRoute></Route>
+            <Route path="/google-ads"><ProtectedRoute><GoogleAdsIntegration /></ProtectedRoute></Route>
+            <Route path="/google-campaign"><ProtectedRoute><GoogleCampaignCreator /></ProtectedRoute></Route>
+            <Route path="/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
+            <Route path="/tiktok-campaign"><ProtectedRoute><TikTokCampaignCreator /></ProtectedRoute></Route>
+            <Route path="/tiktok-integration"><ProtectedRoute><TikTokIntegration /></ProtectedRoute></Route>
+            <Route path="/tiktok-video"><ProtectedRoute><TikTokVideoCreator /></ProtectedRoute></Route>
+            <Route path="/unified-dashboard"><ProtectedRoute><UnifiedDashboard /></ProtectedRoute></Route>
+            <Route path="/alerts"><ProtectedRoute><AlertsSettings /></ProtectedRoute></Route>
 
             {/* ADMIN */}
             <Route path="/admin"><ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute></Route>
@@ -172,3 +192,5 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+
+
