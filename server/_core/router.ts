@@ -2408,13 +2408,29 @@ const integrationsRouter = router({
       const [integration] = await _drz!.select().from(integrations)
         .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google não encontrada" });
-      const accessToken = await getGoogleAccessToken(integration as any);
-      const resp = await fetch("https://www.googleapis.com/oauth2/v1/userinfo?alt=json", {
-        headers: { Authorization: `Bearer ${accessToken}` },
+      const accessToken  = await getGoogleAccessToken(integration as any);
+      const customerId2  = (integration.accountId ?? "").replace(/-/g, "");
+      const devToken2    = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
+      if (!customerId2)  throw new TRPCError({ code: "BAD_REQUEST", message: "Customer ID não configurado" });
+      if (!devToken2)    throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
+      const gaUrl = `https://googleads.googleapis.com/v17/customers/${customerId2}/googleAds:search`;
+      const resp = await fetch(gaUrl, {
+        method: "POST",
+        headers: {
+          "Authorization":      `Bearer ${accessToken}`,
+          "developer-token":    devToken2,
+          "login-customer-id":  customerId2,
+          "Content-Type":       "application/json",
+        },
+        body: JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" }),
+        signal: AbortSignal.timeout(10000),
       });
-      const info: any = await resp.json();
-      if (info.error) throw new TRPCError({ code: "BAD_REQUEST", message: info.error.message });
-      return { name: info.email || info.name || "Google Ads Account", accountId: integration.accountId };
+      const info: any = await resp.json().catch(() => ({}));
+      if (!resp.ok || info.error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Token inválido: ${info.error?.message || `HTTP ${resp.status}`}` });
+      }
+      const customerName = info.results?.[0]?.customer?.descriptiveName || `Google Ads ${customerId2}`;
+      return { name: customerName, accountId: integration.accountId };
     }),
 
   upsertMeta: protectedProcedure
@@ -3669,3 +3685,4 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
+
