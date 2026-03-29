@@ -202,7 +202,7 @@ async function getGoogleAccessToken(integration: {
 async function googleAdsPost<T>(
   path: string, body: unknown, accessToken: string, developerToken: string, customerId: string
 ): Promise<T> {
-  const url = `https://googleads.googleapis.com/v17/customers/${customerId.replace(/-/g, "")}/${path}`;
+  const url = `https://googleads.googleapis.com/v18/customers/${customerId.replace(/-/g, "")}/${path}`;
   const resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -2413,7 +2413,7 @@ const integrationsRouter = router({
       const devToken2    = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
       if (!customerId2)  throw new TRPCError({ code: "BAD_REQUEST", message: "Customer ID não configurado" });
       if (!devToken2)    throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
-      const gaUrl = `https://googleads.googleapis.com/v17/customers/${customerId2}/googleAds:search`;
+      const gaUrl = `https://googleads.googleapis.com/v18/customers/${customerId2}/googleAds:search`;
       const resp = await fetch(gaUrl, {
         method: "POST",
         headers: {
@@ -3560,7 +3560,7 @@ const unifiedRouter = router({
       const days    = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
       const since   = daysAgo(days);
       const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.average_cpc, metrics.average_cpm, metrics.ctr FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' LIMIT 100`;
-      const googleUrl = `https://googleads.googleapis.com/v17/customers/${customerId.replace(/-/g,"")}/googleAds:search`;
+      const googleUrl = `https://googleads.googleapis.com/v18/customers/${customerId.replace(/-/g,"")}/googleAds:search`;
       const resp = await fetch(googleUrl, {
         method: "POST",
         headers: {
@@ -3685,4 +3685,5 @@ export const appRouter = router({
 });
 
 export type AppRouter = typeof appRouter;
+
 
