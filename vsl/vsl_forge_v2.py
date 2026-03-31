@@ -328,7 +328,7 @@ def hf_generate_image(prompt: str, negative_prompt: str,
         }
         short = model.split("/")[-1]
 
-        for url_tmpl in [HF_ROUTER_URL]:
+        for url_tmpl in [HF_ROUTER_URL, HF_INFERENCE_URL]:
             if stop_event.is_set():
                 return
             url = url_tmpl.format(model=model)
