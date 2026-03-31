@@ -90,7 +90,7 @@ _log_lock = threading.Lock()
 # Constantes
 # ══════════════════════════════════════════════════════════════════════════════
 
-HF_INFERENCE_URL = "https://api-inference.huggingface.co/models/{model}"
+HF_INFERENCE_URL = "https://router.huggingface.co/hf-inference/models/{model}"
 
 # Modelos HuggingFace — fallback em cadeia do melhor para o mais rápido
 # Modelos usados em paralelo — pega o que responder primeiro
@@ -102,7 +102,7 @@ HF_IMAGE_MODELS = [
 
 # Endpoints HuggingFace
 HF_ROUTER_URL    = "https://router.huggingface.co/hf-inference/models/{model}"
-HF_INFERENCE_URL = "https://api-inference.huggingface.co/models/{model}"
+HF_INFERENCE_URL = "https://router.huggingface.co/hf-inference/models/{model}"
 
 # Color grades cinematográficos (FFmpeg eq + curves)
 COLOR_GRADES: dict[str, str] = {
@@ -328,7 +328,7 @@ def hf_generate_image(prompt: str, negative_prompt: str,
         }
         short = model.split("/")[-1]
 
-        for url_tmpl in [HF_ROUTER_URL, HF_INFERENCE_URL]:
+        for url_tmpl in [HF_ROUTER_URL]:
             if stop_event.is_set():
                 return
             url = url_tmpl.format(model=model)
