@@ -1,167 +1,348 @@
-import { useState } from "react";
+import Layout from "@/components/layout/Layout";
 import { useLocation } from "wouter";
 
 export default function About() {
   const [, setLocation] = useLocation();
 
-  const team = [
-    { name: "Equipe de Produto", role: "Desenvolvimento e UX", icon: "💻", desc: "Construímos a plataforma com foco na experiência do usuário." },
-    { name: "Equipe de IA MECPro", role: "Inteligência Artificial & Plataforma", icon: "🧠", desc: "Desenvolvemos e evoluímos continuamente a IA MECPro e as integrações com Meta Ads." },
-    { name: "Equipe de Suporte", role: "Atendimento ao cliente", icon: "💬", desc: "Prontos para ajudar você a extrair o máximo do MECPro." },
-  ];
-
-  const stats = [
-    { value: "10.000+", label: "Campanhas geradas" },
-    { value: "500+", label: "Agências parceiras" },
-    { value: "7", label: "Camadas de análise" },
-    { value: "99.9%", label: "Uptime garantido" },
-  ];
-
   return (
-    <div style={{ minHeight: "100vh", background: "var(--white)" }}>
-      {/* Header */}
-      <div style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)", padding: "60px 24px", textAlign: "center", color: "white" }}>
-        <div style={{ maxWidth: 680, margin: "0 auto" }}>
-          <div style={{ display: "inline-block", background: "rgba(255,255,255,.1)", borderRadius: 20, padding: "6px 18px", fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 20, letterSpacing: 1 }}>
-            SOBRE O MECPRO
+    <Layout>
+      {/* Hero */}
+      <div style={{
+        background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #1d4ed8 100%)",
+        borderRadius: 20, padding: "48px 40px", marginBottom: 32, color: "white",
+      }}>
+        <div style={{ maxWidth: 700 }}>
+          <div style={{
+            fontSize: 11, fontWeight: 800, letterSpacing: 2,
+            color: "rgba(255,255,255,0.5)", textTransform: "uppercase", marginBottom: 12,
+          }}>
+            Sobre a empresa
           </div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 42, fontWeight: 900, marginBottom: 16, lineHeight: 1.1 }}>
-            Marketing inteligente,<br />resultados reais
+          <h1 style={{
+            fontFamily: "var(--font-display)", fontSize: 36, fontWeight: 900,
+            color: "white", marginBottom: 16, lineHeight: 1.2,
+          }}>
+            MECPro Tecnologia Ltda
           </h1>
-          <p style={{ fontSize: 16, color: "#cbd5e1", lineHeight: 1.7, maxWidth: 520, margin: "0 auto" }}>
-            O MECPro é uma plataforma de inteligência de marketing com IA que ajuda agências, e-commerces e profissionais a criar campanhas mais eficientes baseadas em dados reais.
+          <p style={{ fontSize: 16, color: "rgba(255,255,255,0.75)", lineHeight: 1.7, marginBottom: 24 }}>
+            Plataforma SaaS de inteligência artificial para criação, gestão e otimização 
+            de campanhas de marketing digital. Fundada em 2011 em Balneário Camboriú, SC, 
+            a MECPro é pioneira na automação de campanhas para Meta Ads, Google Ads e TikTok Ads 
+            no mercado brasileiro.
           </p>
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+            {[
+              { label: "Fundação", value: "2011" },
+              { label: "Sede", value: "Balneário Camboriú, SC" },
+              { label: "CNPJ", value: "13.122.473/0001-03" },
+              { label: "Plataforma", value: "mecproai.com" },
+            ].map(item => (
+              <div key={item.label}>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 }}>
+                  {item.label}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "white", marginTop: 2 }}>
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "60px 24px" }}>
-        {/* Missão */}
-        <div style={{ marginBottom: 60, textAlign: "center" }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 800, color: "var(--black)", marginBottom: 12 }}>
-            Nossa missão
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24, marginBottom: 24 }}>
+
+        {/* Sobre o MECProAI */}
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 16 }}>
+            O que é o MECProAI
           </h2>
-          <p style={{ fontSize: 16, color: "var(--muted)", lineHeight: 1.8, maxWidth: 600, margin: "0 auto" }}>
-            Democratizar o acesso à inteligência de marketing de alta qualidade. Queremos que qualquer profissional — seja um freelancer ou uma grande agência — tenha acesso às mesmas ferramentas de análise que as maiores empresas do mundo.
+          <p style={{ fontSize: 14, color: "var(--dark)", lineHeight: 1.8, marginBottom: 16 }}>
+            O MECProAI é uma plataforma de software como serviço (SaaS) que utiliza inteligência 
+            artificial para automatizar a criação e gestão de campanhas de marketing digital. 
+            A plataforma integra-se nativamente com Meta Ads (Facebook e Instagram), Google Ads 
+            e TikTok Ads, permitindo que agências e anunciantes criem, publiquem e otimizem 
+            campanhas completas em minutos.
+          </p>
+          <p style={{ fontSize: 14, color: "var(--dark)", lineHeight: 1.8, marginBottom: 16 }}>
+            A integração com a Google Ads API permite que nossos usuários criem campanhas de 
+            Search e Display diretamente da nossa plataforma, gerenciem lances de palavras-chave, 
+            recuperem relatórios de performance e otimizem o ROI — tudo sem precisar acessar 
+            o Google Ads diretamente.
+          </p>
+          <p style={{ fontSize: 14, color: "var(--dark)", lineHeight: 1.8 }}>
+            Nossa tecnologia de IA analisa mais de 20 variáveis de mercado, concorrência e 
+            comportamento do público para gerar estratégias de campanha personalizadas, copies 
+            persuasivos, segmentações inteligentes e previsões de performance antes da publicação.
           </p>
         </div>
 
-        {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20, marginBottom: 60 }}>
-          {stats.map(s => (
-            <div key={s.label} style={{
-              background: "white", border: "1px solid var(--border)", borderRadius: 16,
-              padding: "24px 20px", textAlign: "center"
+        {/* Fundador */}
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
+            Fundador & CEO
+          </h2>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+            <div style={{
+              width: 72, height: 72, borderRadius: "50%",
+              background: "linear-gradient(135deg, #0f172a, #1d4ed8)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 28, fontWeight: 900, color: "white", marginBottom: 14,
             }}>
-              <p style={{ fontFamily: "var(--font-display)", fontSize: 32, fontWeight: 900, color: "var(--black)", marginBottom: 6 }}>{s.value}</p>
-              <p style={{ fontSize: 13, color: "var(--muted)" }}>{s.label}</p>
+              M
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>
+              Michel Leal de Oliveira
+            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 16 }}>
+              CEO & Founder — MECPro Tecnologia
+            </div>
+            <div style={{ fontSize: 13, color: "var(--dark)", lineHeight: 1.6, textAlign: "left" }}>
+              Empreendedor digital com mais de 13 anos de experiência em marketing digital, 
+              tecnologia e automação de campanhas. Fundou a MECPro em 2011 com a visão de 
+              democratizar o acesso à inteligência artificial no marketing brasileiro.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Funcionalidades da plataforma */}
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28, marginBottom: 24 }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
+          Funcionalidades da Plataforma
+        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          {[
+            {
+              icon: "🤖", title: "Geração Automática de Campanhas",
+              desc: "IA cria estratégia completa com conjuntos de anúncios, copies, criativos, orçamento e funil de conversão para Meta Ads, Google Ads e TikTok Ads.",
+            },
+            {
+              icon: "🔍", title: "Análise de Concorrentes",
+              desc: "Pipeline de 7 camadas coleta e analisa anúncios ativos dos concorrentes via Meta Ads Library, identificando estratégias, copies e oportunidades de mercado.",
+            },
+            {
+              icon: "📊", title: "Inteligência de Mercado",
+              desc: "Mapeamento de forças, fraquezas e gaps de mercado usando IA para posicionamento estratégico e diferenciação competitiva.",
+            },
+            {
+              icon: "📱", title: "Publicação Direta nas Plataformas",
+              desc: "Integração nativa com Meta Ads API e Google Ads API para publicar campanhas diretamente das plataformas sem necessidade de acesso manual.",
+            },
+            {
+              icon: "📈", title: "Relatórios e Analytics",
+              desc: "Geração automática de relatórios em PDF com métricas de performance, benchmarks do setor e recomendações de otimização orientadas por dados.",
+            },
+            {
+              icon: "🎯", title: "Validação de Placements",
+              desc: "Sistema de validação automática de compatibilidade entre criativos e posicionamentos da Meta Ads para evitar erros de veiculação antes da publicação.",
+            },
+            {
+              icon: "✍️", title: "Copywriting com IA",
+              desc: "Geração de copies persuasivos para anúncios, e-mails e redes sociais baseados em análise de concorrentes e perfil do público-alvo.",
+            },
+            {
+              icon: "🎬", title: "Geração de Vídeos",
+              desc: "Pipeline de criação de VSL e vídeos para anúncios com IA generativa: roteiro, narração, imagens e montagem automatizados para múltiplos formatos.",
+            },
+            {
+              icon: "🧠", title: "Motor de Inteligência",
+              desc: "Score ponderado de campanhas com aprendizado contínuo para identificar padrões vencedores e recomendar estratégias baseadas em dados históricos.",
+            },
+          ].map(f => (
+            <div key={f.title} style={{
+              background: "var(--off)", borderRadius: 12, padding: 18,
+              border: "1px solid var(--border)",
+            }}>
+              <div style={{ fontSize: 24, marginBottom: 8 }}>{f.icon}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", marginBottom: 6 }}>{f.title}</div>
+              <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>{f.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Integrações de API */}
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28, marginBottom: 24 }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>
+          Integrações de API
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>
+          O MECProAI integra-se com as principais plataformas de publicidade digital via API oficial.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+          {[
+            {
+              icon: "📘", name: "Meta Ads API", color: "#1877f2",
+              features: ["Criação de campanhas", "Gestão de conjuntos de anúncios", "Upload de criativos", "Relatórios de performance", "Publicação direta"],
+            },
+            {
+              icon: "🔍", name: "Google Ads API", color: "#4285f4",
+              features: ["Criação de campanhas Search", "Gestão de palavras-chave", "Campanhas Display", "Otimização de lances", "Relatórios de ROI"],
+            },
+            {
+              icon: "🎵", name: "TikTok Ads API", color: "#ff0050",
+              features: ["Criação de campanhas", "Gestão de anúncios", "Upload de vídeos", "Segmentação de audiência", "Relatórios"],
+            },
+            {
+              icon: "🤖", name: "Google Gemini AI", color: "#0ea5e9",
+              features: ["Geração de estratégias", "Criação de copies", "Análise de mercado", "Roteiros de vídeo", "Recomendações"],
+            },
+          ].map(api => (
+            <div key={api.name} style={{
+              border: `1px solid ${api.color}30`, borderRadius: 12, padding: 16,
+              background: `${api.color}05`,
+            }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>{api.icon}</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: api.color, marginBottom: 10 }}>{api.name}</div>
+              {api.features.map(f => (
+                <div key={f} style={{ fontSize: 11, color: "var(--dark)", marginBottom: 4, display: "flex", gap: 6 }}>
+                  <span style={{ color: api.color }}>✓</span> {f}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Planos */}
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28, marginBottom: 24 }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
+          Planos e Preços
+        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+          {[
+            { name: "Free",    price: "Gratuito", color: "#64748b", features: ["3 projetos", "5 campanhas/mês", "Análise básica"] },
+            { name: "Basic",   price: "R$ 97/mês", color: "#0891b2", features: ["10 projetos", "20 campanhas/mês", "Análise de concorrentes"] },
+            { name: "Premium", price: "R$ 197/mês", color: "#7c3aed", features: ["Projetos ilimitados", "Campanhas ilimitadas", "Todos os módulos"] },
+            { name: "VIP",     price: "R$ 397/mês", color: "#16a34a", features: ["Tudo do Premium", "API access", "Suporte prioritário"] },
+          ].map(plan => (
+            <div key={plan.name} style={{
+              border: `1px solid ${plan.color}40`, borderRadius: 12, padding: 18,
+              background: `${plan.color}05`, textAlign: "center",
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: plan.color, marginBottom: 4 }}>{plan.name}</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: "var(--black)", marginBottom: 12 }}>{plan.price}</div>
+              {plan.features.map(f => (
+                <div key={f} style={{ fontSize: 11, color: "var(--dark)", marginBottom: 4 }}>✓ {f}</div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Informações legais e contato */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
+
+        {/* Dados da empresa */}
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
+            Informações da Empresa
+          </h2>
+          {[
+            { label: "Razão Social",      value: "MECPro Tecnologia Ltda" },
+            { label: "Nome Fantasia",     value: "MECProAI" },
+            { label: "CNPJ",              value: "13.122.473/0001-03" },
+            { label: "Fundação",          value: "2011" },
+            { label: "Endereço",          value: "Rua José Damásio Duarte, 46" },
+            { label: "Bairro",            value: "Barra" },
+            { label: "Cidade",            value: "Balneário Camboriú, SC" },
+            { label: "CEP",               value: "88330-000" },
+            { label: "País",              value: "Brasil" },
+            { label: "Segmento",          value: "Software / Marketing Digital / SaaS" },
+          ].map(item => (
+            <div key={item.label} style={{
+              display: "flex", justifyContent: "space-between",
+              padding: "8px 0", borderBottom: "1px solid var(--border)",
+            }}>
+              <span style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>{item.label}</span>
+              <span style={{ fontSize: 12, color: "var(--dark)", fontWeight: 700 }}>{item.value}</span>
             </div>
           ))}
         </div>
 
-        {/* O que fazemos */}
-        <div style={{ marginBottom: 60 }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 24 }}>
-            O que fazemos
+        {/* Contato */}
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
+            Contato
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            {[
-              { icon: "🔍", title: "Análise de Concorrentes", desc: "Monitoramos os anúncios dos seus concorrentes no Meta Ads Library usando uma cascata proprietária de 7 camadas de análise." },
-              { icon: "🚀", title: "Geração de Campanhas com IA", desc: "A IA MECPro analisa o mercado e gera campanhas completas e otimizadas para o Meta Ads — do briefing ao criativo em minutos." },
-              { icon: "📊", title: "Inteligência de Mercado", desc: "Análise completa do seu nicho, tendências, sazonalidade e oportunidades de crescimento geradas pela IA MECPro." },
-              { icon: "🔗", title: "Integração com Meta", desc: "Conecte sua conta do Meta Ads e publique campanhas diretamente pela plataforma." },
-              { icon: "🔎", title: "Consulta CPF/CNPJ", desc: "Verifique dados cadastrais da Receita Federal e processos judiciais do CNJ gratuitamente." },
-              { icon: "📚", title: "Educação e Cursos", desc: "Aprenda marketing digital com nossos cursos e e-books exclusivos para profissionais na MECPro Academy." },
-            ].map(f => (
-              <div key={f.title} style={{
-                background: "white", border: "1px solid var(--border)", borderRadius: 14,
-                padding: "20px 22px", display: "flex", gap: 14, alignItems: "flex-start"
-              }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: "var(--green-l)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
-                  {f.icon}
-                </div>
-                <div>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: "var(--dark)", marginBottom: 4 }}>{f.title}</p>
-                  <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>{f.desc}</p>
-                </div>
+          {[
+            { icon: "📧", label: "E-mail Comercial", value: "contato@mecproai.com", href: "mailto:contato@mecproai.com" },
+            { icon: "🌐", label: "Website", value: "www.mecproai.com", href: "https://www.mecproai.com" },
+            { icon: "📱", label: "WhatsApp", value: "(47) 999465-824", href: "https://wa.me/5547999465824" },
+            { icon: "📸", label: "Instagram", value: "@mecproaibrl", href: "https://instagram.com/mecproaibrl" },
+            { icon: "📘", label: "Facebook", value: "@mecproai", href: "https://facebook.com/mecproai" },
+            { icon: "🎵", label: "TikTok", value: "@mecproaibrl", href: "https://tiktok.com/@mecproaibrl" },
+          ].map(item => (
+            <a key={item.label} href={item.href} target="_blank" rel="noreferrer" style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 0", borderBottom: "1px solid var(--border)",
+              textDecoration: "none",
+            }}>
+              <span style={{ fontSize: 18 }}>{item.icon}</span>
+              <div>
+                <div style={{ fontSize: 10, color: "var(--muted)", fontWeight: 600 }}>{item.label}</div>
+                <div style={{ fontSize: 13, color: "var(--black)", fontWeight: 700 }}>{item.value}</div>
               </div>
-            ))}
-          </div>
-        </div>
+            </a>
+          ))}
 
-        {/* IA MECPro — Tecnologia */}
-        <div style={{ marginBottom: 60 }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 12 }}>
-            A tecnologia por trás do MECPro
-          </h2>
-          <p style={{ fontSize: 15, color: "var(--muted)", lineHeight: 1.8, marginBottom: 20 }}>
-            O MECPro é movido pela <strong>IA MECPro</strong> — uma camada de inteligência artificial desenvolvida e continuamente aprimorada pela nossa equipe de engenharia, especializada em análise de marketing, geração de campanhas e inteligência de mercado.
-          </p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-            {[
-              { icon: "🤖", title: "IA MECPro v2.0", desc: "Modelo de geração de campanhas e análise de concorrentes, atualizado continuamente pela equipe MECPro." },
-              { icon: "🔒", title: "Dados protegidos", desc: "Todo processamento de dados é realizado de forma segura. Nenhuma informação sensível é compartilhada externamente." },
-              { icon: "⚡", title: "Atualizações constantes", desc: "A inteligência da plataforma é atualizada a cada versão. Confira o changelog em Configurações > Sobre." },
-            ].map(t => (
-              <div key={t.title} style={{
-                background: "linear-gradient(135deg, #f8fafc, #f1f5f9)",
-                border: "1px solid var(--border)", borderRadius: 14,
-                padding: "20px 22px", textAlign: "center"
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 10 }}>
+              Documentos legais
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <a href="/privacy" style={{
+                fontSize: 12, padding: "6px 14px", borderRadius: 8,
+                border: "1px solid var(--border)", color: "var(--dark)",
+                textDecoration: "none", fontWeight: 600,
               }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>{t.icon}</div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: "var(--dark)", marginBottom: 6 }}>{t.title}</p>
-                <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>{t.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Time */}
-        <div style={{ marginBottom: 60 }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 24 }}>
-            Nossas equipes
-          </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-            {team.map(t => (
-              <div key={t.name} style={{
-                background: "white", border: "1px solid var(--border)", borderRadius: 16,
-                padding: "24px 22px", textAlign: "center"
+                🔒 Privacidade
+              </a>
+              <a href="/terms" style={{
+                fontSize: 12, padding: "6px 14px", borderRadius: 8,
+                border: "1px solid var(--border)", color: "var(--dark)",
+                textDecoration: "none", fontWeight: 600,
               }}>
-                <div style={{ fontSize: 40, marginBottom: 14 }}>{t.icon}</div>
-                <p style={{ fontSize: 15, fontWeight: 700, color: "var(--dark)", marginBottom: 4 }}>{t.name}</p>
-                <p style={{ fontSize: 12, color: "var(--green-d)", fontWeight: 600, marginBottom: 10 }}>{t.role}</p>
-                <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>{t.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* CTA */}
-        <div style={{
-          background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)",
-          borderRadius: 20, padding: "40px 36px", textAlign: "center", color: "white"
-        }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, marginBottom: 10 }}>
-            Pronto para começar?
-          </h2>
-          <p style={{ fontSize: 15, color: "#94a3b8", marginBottom: 24 }}>
-            Crie sua conta gratuita e experimente o poder do marketing com IA.
-          </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-            <button
-              onClick={() => setLocation("/register")}
-              style={{ background: "var(--green)", border: "none", color: "white", padding: "12px 28px", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-            >
-              Criar conta grátis
-            </button>
-            <button
-              onClick={() => setLocation("/pricing")}
-              style={{ background: "rgba(255,255,255,.1)", border: "1px solid rgba(255,255,255,.2)", color: "white", padding: "12px 28px", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-            >
-              Ver planos
-            </button>
+                📄 Termos de Uso
+              </a>
+              <a href="/contact" style={{
+                fontSize: 12, padding: "6px 14px", borderRadius: 8,
+                border: "1px solid var(--border)", color: "var(--dark)",
+                textDecoration: "none", fontWeight: 600,
+              }}>
+                💬 Contato
+              </a>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* CTA */}
+      <div style={{
+        background: "linear-gradient(135deg, #0f172a, #1e3a5f)",
+        borderRadius: 16, padding: "28px 32px",
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+      }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: "white", marginBottom: 6 }}>
+            Pronto para automatizar suas campanhas?
+          </div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+            Comece gratuitamente. Sem cartão de crédito.
+          </div>
+        </div>
+        <button
+          onClick={() => setLocation("/register")}
+          style={{
+            background: "var(--green)", color: "white",
+            border: "none", borderRadius: 12, padding: "12px 28px",
+            fontSize: 14, fontWeight: 800, cursor: "pointer",
+          }}
+        >
+          Começar grátis →
+        </button>
+      </div>
+    </Layout>
   );
 }
