@@ -5,7 +5,7 @@ import { trpc } from "@/lib/trpc";
 // ─── CATÁLOGO DE AULAS — mesmos dados do CourseDetail ─────────────────────
 const ALL_LESSONS: Record<string, any> = {
   // Campanha do Zero
-  "m1-1": { title: "Visão geral da plataforma", duration: "12min", courseSlug: "campanha-do-zero-com-mecpro", courseTitle: "Campanha do Zero com MECPro", videoId: "dQw4w9WgXcQ", next: "m1-2", prev: null, content: "<h3>Bem-vindo ao MECPro</h3><p>Nesta aula você terá uma visão completa da plataforma, entendendo como cada módulo se conecta para gerar campanhas profissionais com IA em minutos.</p><h3>O que você vai ver:</h3><ul><li>Dashboard e navegação principal</li><li>Os 5 módulos da plataforma</li><li>Como o fluxo de criação de campanha funciona</li><li>Dicas para tirar o máximo da plataforma</li></ul>" },
+  "m1-1": { title: "Visão geral da plataforma", duration: "12min", courseSlug: "campanha-do-zero-com-mecpro", courseTitle: "Campanha do Zero com MECPro", videoId: "https://youtu.be/ksalGChpkRE", next: "m1-2", prev: null, content: "<h3>Bem-vindo ao MECPro</h3><p>Nesta aula você terá uma visão completa da plataforma, entendendo como cada módulo se conecta para gerar campanhas profissionais com IA em minutos.</p><h3>O que você vai ver:</h3><ul><li>Dashboard e navegação principal</li><li>Os 5 módulos da plataforma</li><li>Como o fluxo de criação de campanha funciona</li><li>Dicas para tirar o máximo da plataforma</li></ul>" },
   "m1-2": { title: "Criando seu primeiro projeto", duration: "15min", courseSlug: "campanha-do-zero-com-mecpro", courseTitle: "Campanha do Zero com MECPro", videoId: "dQw4w9WgXcQ", next: "m1-3", prev: "m1-1", content: "<h3>Seu primeiro projeto no MECPro</h3><p>Aprenda a criar e configurar um projeto do zero, definindo nome, nicho e objetivos da campanha.</p><ul><li>Criando um novo projeto</li><li>Configurações iniciais</li><li>Definindo o nicho de atuação</li></ul>" },
   "m1-3": { title: "Navegando pelos módulos", duration: "10min", courseSlug: "campanha-do-zero-com-mecpro", courseTitle: "Campanha do Zero com MECPro", videoId: null, next: "m2-1", prev: "m1-2", content: "<h3>Os 5 Módulos do MECPro</h3><p>Conheça em detalhe cada módulo: Perfil do Cliente, Análise de Concorrentes, Inteligência de Mercado, Campanha e Exportação.</p>" },
   "m2-1": { title: "Preenchendo o perfil com IA", duration: "18min", courseSlug: "campanha-do-zero-com-mecpro", courseTitle: "Campanha do Zero com MECPro", videoId: null, next: "m2-2", prev: "m1-3", content: "<h3>Perfil do Cliente com IA</h3><p>A IA do MECPro preenche automaticamente as dores, desejos e comportamentos do seu cliente ideal com base no nicho informado.</p>" },
@@ -303,3 +303,4 @@ export default function LessonView() {
     </div>
   );
 }
+
