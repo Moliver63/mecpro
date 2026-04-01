@@ -179,7 +179,7 @@ def listar_videos() -> list:
     volumes={VOLUME_PATH: volume},
     timeout=30,
 )
-@modal.web_endpoint(method="GET")
+@modal.fastapi_endpoint(method="GET")
 def health():
     """Health check da API."""
     import os
@@ -197,9 +197,8 @@ def health():
     volumes={VOLUME_PATH: volume},
     gpu="T4",
     timeout=1800,
-    retries=2,
 )
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def gerar(payload: dict):
     """
     Endpoint de geração de vídeo.

@@ -21,8 +21,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Modern digital marketing dashboard with AI interface, clean professional design, blue and white tones, laptop screen showing campaign analytics, Brazilian professional workspace",
-          "negative_prompt": "cartoon, anime, text overlay, watermark, blurry",
+          "prompt": "Empresário brasileiro jovem, sorrindo, sentado em escritório moderno iluminado, notebook aberto mostrando dashboard de marketing digital, luz natural pela janela, foto cinematográfica 35mm",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Bem-vindo ao curso Campanha do Zero com MECPro. Nesta aula você vai aprender a criar uma campanha completa do zero usando todos os módulos da plataforma: perfil do cliente, análise de concorrentes, inteligência de mercado e geração automática com IA.",
           "motion": "slow_zoom_in",
           "xfade": "dissolve",
@@ -35,8 +35,8 @@
         },
         {
           "id": "modulo_perfil",
-          "prompt": "Professional Brazilian marketer filling out detailed client profile on modern software interface, clean office environment, focused expression, digital forms on screen",
-          "negative_prompt": "cartoon, text, watermark, low quality",
+          "prompt": "Profissional de marketing brasileiro concentrado preenchendo formulário digital em tela, close no rosto expressivo, fundo de escritório moderno desfocado, iluminação quente profissional",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O primeiro passo é criar o perfil estratégico do cliente. No MECPro, você preenche segmento de atuação, público-alvo, proposta de valor e diferenciais competitivos. Quanto mais detalhado, mais precisa será a campanha gerada pela IA.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -49,8 +49,8 @@
         },
         {
           "id": "modulo_concorrentes",
-          "prompt": "Split screen showing competitor analysis dashboard, graphs comparing marketing strategies, Brazilian business professional analyzing data on multiple screens, modern office",
-          "negative_prompt": "cartoon, text overlay, watermark",
+          "prompt": "Duas telas lado a lado mostrando gráficos de análise competitiva, empresário brasileiro de pé analisando dados, escritório moderno com luz azul dos monitores, perspectiva cinematográfica",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Com o perfil criado, o MECPro analisa automaticamente seus concorrentes via Meta Ads Library. O sistema coleta anúncios ativos, copia, formatos criativos e estratégias de posicionamento para você ter inteligência competitiva real.",
           "motion": "drift",
           "xfade": "wipeleft",
@@ -63,8 +63,8 @@
         },
         {
           "id": "modulo_geracao",
-          "prompt": "AI generating marketing campaign content on screen, holographic data visualization, professional Brazilian marketing team reviewing AI-generated ads, futuristic clean office",
-          "negative_prompt": "cartoon, text, watermark, old-fashioned",
+          "prompt": "Mãos de profissional brasileiro digitando em teclado, tela do computador exibindo anúncios sendo gerados automaticamente, efeito de luz suave, foto profissional com bokeh",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Agora vem a mágica: com um clique, o MECPro gera uma campanha completa com conjuntos de anúncios, copies persuasivos, formatos criativos por placement, orçamento sugerido e funil de conversão. Tudo pronto para publicar no Meta Ads.",
           "motion": "slow_zoom_in",
           "xfade": "fade",
@@ -77,8 +77,8 @@
         },
         {
           "id": "resultado",
-          "prompt": "Successful Brazilian entrepreneur smiling confidently at laptop showing impressive campaign results, green growth charts on screen, modern home office, warm lighting",
-          "negative_prompt": "cartoon, text, watermark, sad, failure",
+          "prompt": "Empreendedora brasileira sorrindo com confiança, notebook na mesa mostrando gráficos verdes crescendo, escritório home office organizado, luz natural quente, expressão de conquista",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Parabéns! Você acabou de aprender o fluxo completo do MECPro. No próximo módulo vamos nos aprofundar em como personalizar cada elemento da campanha gerada para maximizar seus resultados. Até lá!",
           "motion": "breathe",
           "xfade": "fade",
@@ -112,8 +112,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Intelligence analyst studying competitor marketing data on multiple screens, Brazilian professional in modern office, data visualization charts, serious focused expression",
-          "negative_prompt": "cartoon, text, watermark, blurry",
+          "prompt": "Analista de marketing brasileiro com headphones, múltiplos monitores com dados de concorrentes, sala de operações moderna, iluminação azul técnica, expressão focada e determinada",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Nesta aula você vai dominar a inteligência de concorrência do MECPro. Vamos explorar as 7 camadas de análise que o sistema usa para mapear forças, fraquezas e oportunidades de mercado em tempo real.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -126,8 +126,8 @@
         },
         {
           "id": "ads_library",
-          "prompt": "Facebook Meta Ads Library interface on screen, Brazilian marketer analyzing competitor advertisements, multiple ad creatives visible, analytical dashboard, professional setting",
-          "negative_prompt": "cartoon, text overlay, watermark",
+          "prompt": "Tela de computador mostrando biblioteca de anúncios do Facebook, mãos brasileiras navegando pela interface, foco na tela com blur artístico no fundo, foto close profissional",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "A primeira camada é a Meta Ads Library. O MECPro se conecta diretamente à biblioteca pública de anúncios do Facebook e Instagram para capturar todos os anúncios ativos dos seus concorrentes — incluindo copy, formato, duração e estratégia de posicionamento.",
           "motion": "drift",
           "xfade": "dissolve",
@@ -140,8 +140,8 @@
         },
         {
           "id": "analise_copy",
-          "prompt": "Close-up of marketing copywriting analysis on screen, Brazilian professional highlighting key phrases and patterns in competitor ads, analytical mindset, clean modern office",
-          "negative_prompt": "cartoon, text, watermark",
+          "prompt": "Close em tela com textos de anúncios destacados em amarelo, caneta apontando para elementos importantes, profissional brasileiro ao fundo desfocado, luz quente de escritório",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "A IA do MECPro analisa o padrão de copy dos concorrentes: quais gatilhos mentais usam, qual estrutura de headline converte melhor, qual CTA aparece com mais frequência nos anúncios de maior duração — que são os que estão performando.",
           "motion": "slow_zoom_in",
           "xfade": "wipeleft",
@@ -154,8 +154,8 @@
         },
         {
           "id": "gaps_mercado",
-          "prompt": "Strategic gap analysis visualization, market opportunity chart, Brazilian business professional pointing to unexplored market segments on whiteboard, strategic planning session",
-          "negative_prompt": "cartoon, text overlay, watermark, low quality",
+          "prompt": "Gráfico de oportunidades de mercado em tela grande, empresário brasileiro apontando para área de crescimento, sala de reunião moderna, iluminação corporativa profissional",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O ponto mais valioso da análise é identificar os gaps: o que seus concorrentes NÃO estão fazendo. O MECPro cruza os dados e aponta oportunidades de posicionamento que nenhum concorrente está explorando — sua vantagem competitiva real.",
           "motion": "breathe",
           "xfade": "fade",
@@ -189,8 +189,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Creative copywriter at modern desk with multiple screens showing compelling ad copy, Brazilian professional in inspirational workspace, warm lighting, books on marketing visible",
-          "negative_prompt": "cartoon, text overlay, watermark, blurry",
+          "prompt": "Copywriter brasileiro criativo em mesa de trabalho, rodeado de post-its coloridos com ideias, notebook aberto, expressão inspirada, luz natural pela janela, foto editorial",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Bem-vindo ao curso de Copy com IA. Você vai aprender a usar o MECPro para escrever copies que convertem: headlines irresistíveis, CTAs poderosos, anúncios para Meta e Google, e-mails de alta conversão — tudo com as melhores técnicas de copywriting avançado.",
           "motion": "slow_zoom_in",
           "xfade": "dissolve",
@@ -203,8 +203,8 @@
         },
         {
           "id": "estrutura_copy",
-          "prompt": "Brazilian marketing professional writing on whiteboard showing AIDA formula structure, attention interest desire action, modern training room, engaged expression",
-          "negative_prompt": "cartoon, text overlay, watermark",
+          "prompt": "Quadro branco com estrutura AIDA desenhada, profissional brasileiro de marketing explicando para câmera, escritório moderno, iluminação suave difusa, composição cinematográfica",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "A estrutura de copy que o MECPro usa é baseada nas fórmulas comprovadas: AIDA, PAS e Before-After-Bridge. A IA combina essas estruturas com os dados do perfil do cliente para gerar copies personalizados que falam diretamente com a dor do seu público.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -217,8 +217,8 @@
         },
         {
           "id": "headlines",
-          "prompt": "Split screen showing weak versus powerful marketing headlines, Brazilian copywriter comparing ad performance metrics, A/B testing results on screen, professional analysis",
-          "negative_prompt": "cartoon, text, watermark, low quality",
+          "prompt": "Comparação visual na tela — manchete fraca vs manchete poderosa destacada em verde, profissional brasileiro sorrindo ao lado, escritório clean, fotografia profissional",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Headlines são responsáveis por 80% da decisão de clique. O MECPro gera múltiplas variações de headline para cada anúncio, testando diferentes ângulos: dor, curiosidade, benefício direto, prova social e urgência. Você escolhe a que mais ressoa com seu público.",
           "motion": "drift",
           "xfade": "wipeleft",
@@ -231,8 +231,8 @@
         },
         {
           "id": "cta_conversao",
-          "prompt": "High-converting call-to-action button analysis, Brazilian digital marketer showing before and after conversion rates on dashboard, excited professional expression, growth charts",
-          "negative_prompt": "cartoon, text overlay, watermark",
+          "prompt": "Dedo de profissional brasileiro apontando para botão de CTA na tela, expressão confiante, luz de monitor iluminando o rosto, fundo escuro dramático, foto cinematográfica",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O CTA é onde a conversão acontece ou não. O MECPro analisa os CTAs dos anúncios vencedores do seu nicho e sugere o mais adequado para cada objetivo: cadastro, compra, contato, download. Um CTA específico converte até 3 vezes mais que um genérico.",
           "motion": "breathe",
           "xfade": "fade",
@@ -266,8 +266,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Brazilian digital marketer at premium workstation with Meta Business Suite and Facebook Ads Manager on screens, professional setup with multiple monitors, focused and competent",
-          "negative_prompt": "cartoon, text overlay, watermark, blurry",
+          "prompt": "Especialista em tráfego brasileiro em workstation premium com 3 monitores mostrando Meta Business Suite, expressão profissional e confiante, escritório high-tech, iluminação técnica azul",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Neste curso você vai integrar o MECPro ao Meta Ads e automatizar a criação de campanhas no Facebook e Instagram com segmentação inteligente por IA. Vamos desde a configuração da conta até a publicação do primeiro anúncio.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -280,8 +280,8 @@
         },
         {
           "id": "integracao",
-          "prompt": "Meta Business integration setup screen, API connection interface, Brazilian tech professional configuring marketing automation, modern office environment, step by step process",
-          "negative_prompt": "cartoon, text, watermark",
+          "prompt": "Tela mostrando integração de API com ícones do Meta e setas de conexão, mãos brasileiras configurando sistema, close técnico na tela, luz LED do monitor",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O primeiro passo é conectar o MECPro à sua conta do Meta. Você vai em Integrações, insere seu token de acesso do Meta Business, e o sistema detecta automaticamente suas contas de anúncio, páginas e pixels configurados.",
           "motion": "drift",
           "xfade": "dissolve",
@@ -294,8 +294,8 @@
         },
         {
           "id": "placements",
-          "prompt": "Meta Ads placement selection interface showing Feed, Stories, Reels, Messenger options, Brazilian marketer strategically selecting placements based on campaign objective, analytical",
-          "negative_prompt": "cartoon, text overlay, watermark, low quality",
+          "prompt": "Interface do Meta Ads mostrando opções de Feed Stories Reels Messenger, profissional brasileiro selecionando placements, foco na tela nítida, escritório desfocado",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "A seleção de placements é crucial. O MECPro recomenda automaticamente os melhores posicionamentos para cada objetivo: Feed e Reels para awareness, Stories para engajamento, Feed e Messenger para conversão. O validador integrado bloqueia combinações incompatíveis antes da publicação.",
           "motion": "slow_zoom_in",
           "xfade": "wipeleft",
@@ -308,8 +308,8 @@
         },
         {
           "id": "publicacao",
-          "prompt": "Successful campaign launch moment, Brazilian marketer pressing publish button with confident smile, campaign going live notification on screen, celebration in modern office",
-          "negative_prompt": "cartoon, text, watermark, failure, sad",
+          "prompt": "Momento de clique no botão publicar campanha, rosto de empreendedor brasileiro em alegria genuína, tela verde de sucesso ao fundo, foto espontânea e real",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Com tudo configurado, o MECPro publica a campanha diretamente no Meta Ads com um clique. O sistema cria a estrutura completa: campanha, conjuntos de anúncios e anúncios — respeitando todas as regras de aprovação da Meta para maximizar as chances de veiculação imediata.",
           "motion": "breathe",
           "xfade": "fade",
@@ -343,8 +343,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Brazilian social media manager surrounded by smartphone screens showing Instagram TikTok LinkedIn feeds, creative workspace with colorful content calendar on wall, energetic professional",
-          "negative_prompt": "cartoon, text overlay, watermark, blurry",
+          "prompt": "Social media manager brasileira jovem cercada de smartphones com Instagram TikTok abertos, sorriso autêntico, mesa de trabalho criativa, luz colorida suave, foto lifestyle",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Neste curso você vai montar um calendário editorial completo para LinkedIn, Instagram e TikTok usando a IA do MECPro. Posts, carrosséis, Reels e scripts prontos — em minutos, não em horas.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -357,8 +357,8 @@
         },
         {
           "id": "calendario",
-          "prompt": "Digital content calendar on large monitor showing 30-day posting schedule for multiple social platforms, Brazilian content creator planning strategically, organized colorful interface",
-          "negative_prompt": "cartoon, text, watermark",
+          "prompt": "Monitor grande exibindo calendário editorial de 30 dias colorido, profissional brasileiro planejando conteúdo, caneta na mão apontando para datas, escritório organizado",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O MECPro gera um calendário editorial de 30 dias baseado no perfil do cliente e no comportamento do público-alvo. Para cada dia, sugere o tipo de conteúdo ideal, o melhor horário de publicação por plataforma e o formato — post, carrossel, Reels ou Stories.",
           "motion": "slow_zoom_in",
           "xfade": "dissolve",
@@ -371,8 +371,8 @@
         },
         {
           "id": "reels_scripts",
-          "prompt": "Brazilian content creator filming vertical Reels video with smartphone on tripod, ring light setup, professional home studio, script visible on tablet beside camera, engaged and confident",
-          "negative_prompt": "cartoon, text overlay, watermark, low quality",
+          "prompt": "Criador de conteúdo brasileiro filmando vídeo vertical com smartphone no tripé, anel de luz ao fundo, expressão natural e comunicativa, estúdio home simples e moderno",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Para Reels e TikTok, o MECPro gera scripts completos com hook nos primeiros 3 segundos, desenvolvimento em 15 a 30 segundos e CTA final. O formato segue as melhores práticas de cada plataforma para maximizar o alcance orgânico.",
           "motion": "drift",
           "xfade": "wipeleft",
@@ -406,8 +406,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Brazilian marketing analyst presenting professional PDF report to client in modern meeting room, charts and graphs on large screen, confident presentation, business professional setting",
-          "negative_prompt": "cartoon, text overlay, watermark, blurry",
+          "prompt": "Analista brasileiro apresentando relatório PDF profissional em tablet para cliente, sala de reunião moderna com mesa de vidro, iluminação corporativa, expressão confiante",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Neste curso você vai aprender a gerar relatórios profissionais em PDF com o MECPro e interpretar as métricas que realmente importam para tomar decisões orientadas por dados — não por achismos.",
           "motion": "slow_zoom_in",
           "xfade": "dissolve",
@@ -420,8 +420,8 @@
         },
         {
           "id": "metricas_essenciais",
-          "prompt": "Marketing metrics dashboard showing CTR CPC CPM ROAS conversion rate charts, Brazilian data analyst explaining KPIs to team, clean modern analytics interface, professional setting",
-          "negative_prompt": "cartoon, text, watermark",
+          "prompt": "Dashboard de métricas de marketing com CTR CPC ROAS em destaque, analista brasileiro apontando para KPIs, sala de operações com múltiplas telas, luz técnica azul",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "As métricas que mais importam para anúncios são: CTR — taxa de cliques, CPM — custo por mil impressões, CPC — custo por clique, e ROAS — retorno sobre investimento em anúncios. O MECPro monitora todas automaticamente e compara com os benchmarks do seu nicho.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -434,8 +434,8 @@
         },
         {
           "id": "geracao_pdf",
-          "prompt": "Professional marketing report PDF generation on screen, Brazilian marketer clicking export button, clean report with charts appearing, client-ready presentation format, premium design",
-          "negative_prompt": "cartoon, text overlay, watermark, low quality",
+          "prompt": "Tela mostrando relatório PDF sendo gerado automaticamente com gráficos, mãos de profissional brasileiro ao teclado, close na tela nítida, escritório desfocado",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Com um clique, o MECPro gera um relatório PDF profissional com design premium — pronto para entregar ao cliente. O relatório inclui resumo executivo, performance de cada conjunto de anúncios, criativos vencedores, benchmarks do setor e recomendações de otimização.",
           "motion": "breathe",
           "xfade": "fade",
@@ -469,8 +469,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Brazilian digital marketer analyzing Google Ads campaign performance on large monitor, search results and display ads visible on screen, professional marketing agency environment",
-          "negative_prompt": "cartoon, text overlay, watermark, blurry",
+          "prompt": "Especialista em Google Ads brasileiro em monitor grande com interface do Google Ads, expressão analítica e concentrada, escritório moderno iluminado, foto profissional editorial",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Neste curso avançado você vai configurar campanhas no Google Ads usando os dados gerados pelo MECPro. Palavras-chave de alta intenção, segmentação precisa e otimização de ROI — tudo guiado pela inteligência artificial.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -483,8 +483,8 @@
         },
         {
           "id": "keywords",
-          "prompt": "Keyword research interface on screen showing search volume competition and CPC data, Brazilian PPC specialist analyzing keyword opportunities, strategic planning with data",
-          "negative_prompt": "cartoon, text, watermark",
+          "prompt": "Interface de pesquisa de palavras-chave na tela com volume de busca e CPC, profissional brasileiro estudando dados, close na tela com bokeh no fundo, luz quente",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O MECPro analisa o perfil do cliente e sugere as palavras-chave de maior intenção de compra para o seu nicho. O sistema classifica por volume de busca, concorrência e CPC estimado — priorizando as que trazem maior retorno com menor investimento.",
           "motion": "slow_zoom_in",
           "xfade": "dissolve",
@@ -497,8 +497,8 @@
         },
         {
           "id": "otimizacao",
-          "prompt": "ROI optimization dashboard showing improving conversion rates and decreasing CPC over time, Brazilian performance marketer making strategic bid adjustments, data-driven decisions",
-          "negative_prompt": "cartoon, text overlay, watermark, negative results",
+          "prompt": "Dashboard mostrando curva de conversão subindo e CPC caindo, empresário brasileiro sorrindo ao ver resultados positivos, escritório moderno, foto celebração profissional",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "A otimização contínua é o segredo do Google Ads. O MECPro monitora o desempenho das palavras-chave em tempo real e sugere ajustes de lance, pausas de termos com baixo desempenho e expansões para termos similares que estão convertendo melhor.",
           "motion": "drift",
           "xfade": "fade",
@@ -532,8 +532,8 @@
       "scenes": [
         {
           "id": "intro",
-          "prompt": "Brazilian e-commerce entrepreneur reviewing online store performance metrics, product images and sales dashboards on multiple screens, modern fulfillment warehouse background, success atmosphere",
-          "negative_prompt": "cartoon, text overlay, watermark, blurry",
+          "prompt": "Empreendedor de e-commerce brasileiro revisando métricas da loja online, notebook com dashboard de vendas, home office organizado e moderno, luz natural, expressão satisfeita",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Neste curso avançado você vai aplicar o MECPro para e-commerces: análise de sazonalidade, campanhas de remarketing inteligentes, promoções estratégicas e crescimento sustentável do ticket médio.",
           "motion": "push_in",
           "xfade": "dissolve",
@@ -546,8 +546,8 @@
         },
         {
           "id": "sazonalidade",
-          "prompt": "Seasonal sales calendar analysis showing peak periods for Brazilian e-commerce, data analyst reviewing Black Friday Carnival and other key dates performance, strategic planning",
-          "negative_prompt": "cartoon, text, watermark",
+          "prompt": "Calendário sazonal de vendas na tela com picos destacados em laranja, profissional brasileiro planejando estratégia, mesa de trabalho organizada, iluminação quente",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O MECPro analisa os padrões de sazonalidade do seu nicho e cria um calendário de campanhas baseado nos picos de demanda. Black Friday, Dia das Mães, Natal, Dia dos Namorados — cada data com estratégia específica de orçamento, oferta e criativo.",
           "motion": "drift",
           "xfade": "dissolve",
@@ -560,8 +560,8 @@
         },
         {
           "id": "remarketing",
-          "prompt": "Remarketing funnel visualization showing website visitors being retargeted with personalized ads, Brazilian e-commerce conversion optimization, customer journey mapping on screen",
-          "negative_prompt": "cartoon, text overlay, watermark, low quality",
+          "prompt": "Funil de remarketing visualizado na tela com ícones de carrinho abandonado sendo recuperado, analista brasileiro acompanhando dados, escritório moderno, foto técnica",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "O remarketing é onde o e-commerce recupera vendas perdidas. O MECPro configura audiências de remarketing por comportamento: visitou o produto mas não comprou, adicionou ao carrinho mas abandonou, comprou uma vez mas não voltou — cada grupo com copy e oferta específicos.",
           "motion": "slow_zoom_in",
           "xfade": "wipeleft",
@@ -574,8 +574,8 @@
         },
         {
           "id": "ticket_medio",
-          "prompt": "Brazilian e-commerce entrepreneur celebrating increased average order value on dashboard, upsell and cross-sell strategy visualization, growth metrics showing revenue increase, modern office",
-          "negative_prompt": "cartoon, text, watermark, failure, negative",
+          "prompt": "Empreendedora brasileira animada vendo número de ticket médio crescendo na tela, gráfico verde subindo, escritório home office, luz natural, momento genuíno de alegria",
+          "negative_prompt": "cartoon, anime, ilustração, pintura, texto, marca d'água, logo, baixa qualidade, borrado, distorcido, feio, irreal, 3D render, CGI",
           "narration": "Aumentar o ticket médio é a forma mais inteligente de crescer sem aumentar o investimento em anúncios. O MECPro sugere estratégias de upsell, cross-sell e bundles baseadas nos produtos mais vendidos e no comportamento de compra da sua base de clientes.",
           "motion": "breathe",
           "xfade": "fade",
