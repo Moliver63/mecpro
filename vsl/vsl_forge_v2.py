@@ -730,9 +730,9 @@ def concat_xfade(scene_paths: list[Path], durations: list[float],
 def make_ass(subs: list[dict], out_path: Path,
              width: int, height: int, position: str = "bottom") -> None:
     align    = {"bottom": 2, "top": 8, "middle": 5}.get(position, 2)
-    margin_v = max(30, height // 20)
-    margin_h = max(60, width // 9)
-    fs       = max(18, height // 32)
+    margin_v = 50  # margem vertical fixa
+    margin_h = 100  # margem horizontal fixa
+    fs       = 24  # fonte fixa 24px — funciona em qualquer resolução
     style   = (
         f"Style: Default,Arial,{fs},"
         "&H00FFFFFF,&H0000FFFF,&H00000000,&HCC000000,"
@@ -750,7 +750,7 @@ def make_ass(subs: list[dict], out_path: Path,
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
     out_lines = []
-    max_chars = max(35, width // fs)
+    max_chars = 55  # chars por linha fixo
     for item in subs:
         txt = item["text"].replace("\n", r"\N").replace("{","(").replace("}",")")
         if len(txt) > max_chars:
