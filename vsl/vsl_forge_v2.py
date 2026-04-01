@@ -95,9 +95,9 @@ HF_INFERENCE_URL = "https://router.huggingface.co/hf-inference/models/{model}"
 # Modelos HuggingFace — fallback em cadeia do melhor para o mais rápido
 # Modelos usados em paralelo — pega o que responder primeiro
 HF_IMAGE_MODELS = [
-    "black-forest-labs/FLUX.1-schnell",      # rápido, fotorrealista
-    "stabilityai/stable-diffusion-3.5-medium", # melhor para pessoas/emoções
-    "stabilityai/sdxl-turbo",                # ultra-rápido fallback
+    "black-forest-labs/FLUX.1-dev",          # melhor qualidade fotorrealista
+    "black-forest-labs/FLUX.1-schnell",      # rápido, bom fallback
+    "stabilityai/stable-diffusion-3.5-large", # excelente para pessoas
 ]
 
 # Endpoints HuggingFace
@@ -320,8 +320,8 @@ def hf_generate_image(prompt: str, negative_prompt: str,
             "inputs": prompt,
             "parameters": {
                 "negative_prompt":     negative_prompt,
-                "num_inference_steps": 4  if is_flux else 25,
-                "guidance_scale":      3.5 if is_flux else 7.0,
+                "num_inference_steps": 28 if "dev" in model else (4 if is_flux else 30),
+                "guidance_scale":      3.5 if is_flux else 7.5,
                 "width":  width,
                 "height": height,
             }
@@ -934,8 +934,8 @@ def main() -> int:
                 prompt          = hf_prompt,
                 negative_prompt = scene.negative_prompt,
                 out_path        = img_path,
-                width           = 1024,
-                height          = 576,
+                width           = 1280,
+                height          = 720,
                 resume          = args.resume,
             )
 
