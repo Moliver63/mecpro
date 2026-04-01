@@ -729,18 +729,19 @@ def concat_xfade(scene_paths: list[Path], durations: list[float],
 
 def make_ass(subs: list[dict], out_path: Path,
              width: int, height: int, position: str = "bottom") -> None:
-    align   = {"bottom": 2, "top": 8, "middle": 5}.get(position, 2)
-    margin  = max(50, height // 14)
-    fs      = max(32, height // 18)
+    align    = {"bottom": 2, "top": 8, "middle": 5}.get(position, 2)
+    margin_v = max(30, height // 20)
+    margin_h = max(60, width // 9)
+    fs       = max(18, height // 32)
     style   = (
-        f"Style: Default,Arial Black,{fs},"
-        "&H00FFFFFF,&H0000FFFF,&H00000000,&H99000000,"
-        f"1,0,0,0,100,100,0,0,1,2.8,1.8,{align},60,60,{margin},1\n"
+        f"Style: Default,Arial,{fs},"
+        "&H00FFFFFF,&H0000FFFF,&H00000000,&HCC000000,"
+        f"1,0,0,0,100,100,0,0,1,2.0,1.2,{align},{margin_h},{margin_h},{margin_v},1\n"
     )
     header = (
         "[Script Info]\nScriptType: v4.00+\n"
         f"PlayResX: {width}\nPlayResY: {height}\n"
-        "WrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
+        "WrapStyle: 0\nScaledBorderAndShadow: yes\n\n"
         "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,"
         "PrimaryColour,SecondaryColour,OutlineColour,BackColour,"
         "Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,"
@@ -748,18 +749,30 @@ def make_ass(subs: list[dict], out_path: Path,
         + style + "\n[Events]\n"
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
     )
-    lines = []
+    out_lines = []
+    max_chars = max(35, width // fs)
     for item in subs:
         txt = item["text"].replace("\n", r"\N").replace("{","(").replace("}",")")
-        if len(txt) > 72:
+        if len(txt) > max_chars:
             words = txt.split()
-            mid   = len(words) // 2
-            txt   = " ".join(words[:mid]) + r"\N" + " ".join(words[mid:])
-        lines.append(
-            f"Dialogue: 0,{seconds_to_ass(item['start'])},"
-            f"{seconds_to_ass(item['end'])},Default,,0,0,0,,{txt}"
+            result_lines = []
+            current = ""
+            for word in words:
+                test = (current + " " + word).strip()
+                if len(test) <= max_chars:
+                    current = test
+                else:
+                    if current:
+                        result_lines.append(current)
+                    current = word
+            if current:
+                result_lines.append(current)
+            txt = r"\N".join(result_lines)
+        end_time = max(item["start"] + 0.1, item["end"] - 0.05)
+        out_lines.append(
+            f"Dialogue: 0,{seconds_to_ass(item['start'])},"            f"{seconds_to_ass(end_time)},Default,,0,0,0,,{txt}"
         )
-    out_path.write_text(header + "\n".join(lines), encoding="utf-8")
+    out_path.write_text(header + "\n".join(out_lines), encoding="utf-8")
 
 
 def apply_subtitles(inp: Path, ass: Path, out: Path,
@@ -894,7 +907,7 @@ def main() -> int:
         log(f"\n🎬 [{idx}/{len(project.scenes)}] {scene.id}")
 
         audio_dur = ffprobe_duration(audio_path) or 3.0
-        scene_dur = max(audio_dur + 0.4, 4.0)
+        scene_dur = max(audio_dur + 0.8, 4.0)  # 0.8s de respiro entre falas
 
         if args.resume and file_ok(scene_path, min_bytes=100_000):
             log(f"  ♻️  Cena já renderizada — skip")
