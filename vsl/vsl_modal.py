@@ -94,12 +94,28 @@ def gerar_video(config: dict, draft: bool = False) -> dict:
 
     # Baixa o vsl_forge_v2.py do GitHub direto
     import urllib.request
+    import time as _time
     forge_url = (
-        "https://raw.githubusercontent.com/Moliver63/mecpro/main/vsl/vsl_forge_v2.py"
+        f"https://raw.githubusercontent.com/Moliver63/mecpro/main/vsl/vsl_forge_v2.py"
+        f"?nocache={int(_time.time())}"
     )
     forge_path = "/tmp/vsl_forge_v2.py"
+    # Remove cache antigo se existir
+    import os as _os
+    if _os.path.exists(forge_path):
+        _os.remove(forge_path)
     urllib.request.urlretrieve(forge_url, forge_path)
-    print("✅ vsl_forge_v2.py baixado do GitHub")
+    # Verificar URL HuggingFace no arquivo baixado
+    forge_content = open(forge_path).read()
+    if "api-inference.huggingface.co" in forge_content:
+        forge_content = forge_content.replace(
+            "https://api-inference.huggingface.co/models/{model}",
+            "https://router.huggingface.co/hf-inference/models/{model}"
+        )
+        open(forge_path, "w").write(forge_content)
+        print("✅ vsl_forge_v2.py baixado + URL HF corrigida automaticamente")
+    else:
+        print("✅ vsl_forge_v2.py baixado do GitHub (URL OK)")
 
     # Monta o comando
     cmd = [sys.executable, forge_path, "--config", config_path]
