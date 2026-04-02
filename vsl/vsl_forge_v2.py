@@ -127,19 +127,54 @@ COLOR_GRADES: dict[str, str] = {
         "eq=contrast=1.05:saturation=1.05:brightness=0.01,"
         "unsharp=3:3:0.3"
     ),
+    # Netflix cinematic grades
+    "cold_blue": (
+        "eq=contrast=1.15:saturation=0.85:brightness=-0.02,"
+        "colorbalance=rs=-0.15:gs=-0.05:bs=0.20,"
+        "unsharp=5:5:0.5"
+    ),
+    "warm_dark": (
+        "eq=contrast=1.20:saturation=0.90:brightness=-0.05,"
+        "colorbalance=rs=0.15:gs=0.05:bs=-0.10,"
+        "unsharp=5:5:0.6"
+    ),
+    "electric_blue": (
+        "eq=contrast=1.25:saturation=1.10:brightness=0.02,"
+        "colorbalance=rs=-0.10:gs=0.05:bs=0.25,"
+        "unsharp=7:7:0.7"
+    ),
+    "golden_hour": (
+        "eq=contrast=1.15:saturation=1.20:brightness=0.03,"
+        "colorbalance=rs=0.20:gs=0.10:bs=-0.15,"
+        "curves=r='0/0 0.5/0.55 1/1',"
+        "unsharp=5:5:0.5"
+    ),
+    "warm_professional": (
+        "eq=contrast=1.10:saturation=1.05:brightness=0.01,"
+        "colorbalance=rs=0.08:gs=0.02:bs=-0.05,"
+        "unsharp=3:3:0.3"
+    ),
 }
 
 # Movimentos de câmera Ken Burns
 MOTIONS = {
-    "push_in":      {"z_start": 1.0,  "z_end": 1.25, "x": "center", "y": "center"},
-    "pull_out":     {"z_start": 1.25, "z_end": 1.0,  "x": "center", "y": "center"},
-    "slow_zoom_in": {"z_start": 1.0,  "z_end": 1.15, "x": "center", "y": "center"},
-    "drift":        {"z_start": 1.05, "z_end": 1.10, "x": "left",   "y": "center"},
-    "pan_right":    {"z_start": 1.1,  "z_end": 1.1,  "x": "left",   "y": "center"},
-    "pan_left":     {"z_start": 1.1,  "z_end": 1.1,  "x": "right",  "y": "center"},
-    "breathe":      {"z_start": 1.0,  "z_end": 1.08, "x": "center", "y": "center"},
-    "tilt_up":      {"z_start": 1.05, "z_end": 1.10, "x": "center", "y": "bottom"},
-    "static":       {"z_start": 1.0,  "z_end": 1.0,  "x": "center", "y": "center"},
+    # Movimentos originais
+    "push_in":           {"z_start": 1.0,  "z_end": 1.25, "x": "center", "y": "center"},
+    "pull_out":          {"z_start": 1.25, "z_end": 1.0,  "x": "center", "y": "center"},
+    "slow_zoom_in":      {"z_start": 1.0,  "z_end": 1.15, "x": "center", "y": "center"},
+    "drift":             {"z_start": 1.05, "z_end": 1.10, "x": "left",   "y": "center"},
+    "pan_right":         {"z_start": 1.1,  "z_end": 1.1,  "x": "left",   "y": "center"},
+    "pan_left":          {"z_start": 1.1,  "z_end": 1.1,  "x": "right",  "y": "center"},
+    "breathe":           {"z_start": 1.0,  "z_end": 1.08, "x": "center", "y": "center"},
+    "tilt_up":           {"z_start": 1.05, "z_end": 1.10, "x": "center", "y": "bottom"},
+    "static":            {"z_start": 1.0,  "z_end": 1.0,  "x": "center", "y": "center"},
+    # Movimentos Netflix — cinematográficos e dramáticos
+    "zoom_in_dramatic":  {"z_start": 1.0,  "z_end": 1.40, "x": "center", "y": "center"},
+    "zoom_out_slow":     {"z_start": 1.35, "z_end": 1.0,  "x": "center", "y": "center"},
+    "zoom_in_fast":      {"z_start": 1.0,  "z_end": 1.50, "x": "center", "y": "center"},
+    "zoom_out_reveal":   {"z_start": 1.45, "z_end": 1.05, "x": "left",   "y": "bottom"},
+    "pan_right_slow":    {"z_start": 1.15, "z_end": 1.20, "x": "left",   "y": "center"},
+    "drift_cinematic":   {"z_start": 1.1,  "z_end": 1.25, "x": "left",   "y": "bottom"},
 }
 
 XFADE_TYPES = [
@@ -271,6 +306,9 @@ def load_project(path: Path) -> Project:
     scenes = []
     for s in raw.get("scenes", []):
         clean = {k: v for k, v in s.items() if k in scene_fields}
+        # Mapear ken_burns para motion se especificado
+        if "ken_burns" in s and "motion" not in s:
+            clean["motion"] = s["ken_burns"]
         scenes.append(Scene(**clean))
 
     proj_raw = {k: v for k, v in raw.items() if k in project_fields}
@@ -769,6 +807,16 @@ def make_ass(subs: list[dict], out_path: Path,
                 result_lines.append(current)
             txt = r"\N".join(result_lines)
         end_time = max(item["start"] + 0.1, item["end"] - 0.05)
+        # Destacar palavras-chave em amarelo (estilo Netflix)
+        keywords = ["MECPro", "IA", "inteligência artificial", "campanha",
+                    "muda o jogo", "nível profissional", "mágica", "segundos",
+                    "clique", "automático", "profissional", "concorrentes"]
+        for kw in keywords:
+            if kw.lower() in txt.lower():
+                idx = txt.lower().find(kw.lower())
+                original = txt[idx:idx+len(kw)]
+                txt = txt[:idx] + "{\\c&H00FFFF&}" + original + "{\\c&HFFFFFF&}" + txt[idx+len(kw):]
+                break  # apenas primeira ocorrência por linha
         out_lines.append(
             f"Dialogue: 0,{seconds_to_ass(item['start'])},"            f"{seconds_to_ass(end_time)},Default,,0,0,0,,{txt}"
         )
