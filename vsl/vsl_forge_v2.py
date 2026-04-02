@@ -697,6 +697,127 @@ def tts_elevenlabs(text: str, out_path: Path, voice: str) -> bool:
     return False
 
 
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# D-ID Avatar Generation — seu rosto falando com sua voz
+# ══════════════════════════════════════════════════════════════════════════════
+
+def did_generate_avatar(audio_path: Path, out_path: Path) -> bool:
+    """
+    Gera vídeo com avatar D-ID usando o áudio gerado pelo ElevenLabs.
+    Retorna True se o vídeo foi gerado com sucesso.
+    """
+    did_key   = os.getenv("DID_API_KEY")
+    did_image = os.getenv("DID_IMAGE_ID")
+
+    if not did_key or not did_image:
+        log("  ⚠️  D-ID: DID_API_KEY ou DID_IMAGE_ID não configurado")
+        return False
+
+    # Upload do áudio para o GitHub raw já foi feito — usar URL local via upload
+    try:
+        # 1. Fazer upload do áudio para o D-ID
+        import base64
+        audio_bytes = audio_path.read_bytes()
+
+        boundary = "----FormBoundary" + str(int(time.time()))
+        body = (
+            f"--{boundary}\r\n"
+            f"Content-Disposition: form-data; name=\"audio\"; filename=\"{audio_path.name}\"\r\n"
+            f"Content-Type: audio/mpeg\r\n\r\n"
+        ).encode() + audio_bytes + f"\r\n--{boundary}--".encode()
+
+        headers_upload = {
+            "Authorization": f"Basic {did_key}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}"
+        }
+
+        resp_upload = requests.post(
+            "https://api.d-id.com/audios",
+            headers=headers_upload,
+            data=body,
+            timeout=60
+        )
+
+        if resp_upload.status_code not in (200, 201):
+            log(f"  ⚠️  D-ID upload áudio falhou: {resp_upload.status_code}")
+            return False
+
+        audio_url = resp_upload.json().get("url")
+        if not audio_url:
+            log("  ⚠️  D-ID: URL do áudio não retornada")
+            return False
+
+        log(f"  ✅ D-ID: áudio enviado")
+
+        # 2. Criar o vídeo com o avatar
+        payload = {
+            "source_url": f"s3://d-id-images-prod/google-oauth2|104537257287717675751/{did_image}/michel.jpeg",
+            "script": {
+                "type": "audio",
+                "audio_url": audio_url
+            },
+            "config": {
+                "fluent": True,
+                "pad_audio": 0.3,
+                "stitch": True
+            }
+        }
+
+        resp_talk = requests.post(
+            "https://api.d-id.com/talks",
+            headers={
+                "Authorization": f"Basic {did_key}",
+                "Content-Type": "application/json",
+                "accept": "application/json"
+            },
+            json=payload,
+            timeout=30
+        )
+
+        if resp_talk.status_code not in (200, 201):
+            log(f"  ⚠️  D-ID criar talk falhou: {resp_talk.status_code} {resp_talk.text[:200]}")
+            return False
+
+        talk_id = resp_talk.json().get("id")
+        log(f"  ⏳ D-ID: gerando avatar [{talk_id}]…")
+
+        # 3. Aguardar o vídeo ficar pronto
+        for attempt in range(30):
+            time.sleep(5)
+            resp_status = requests.get(
+                f"https://api.d-id.com/talks/{talk_id}",
+                headers={
+                    "Authorization": f"Basic {did_key}",
+                    "accept": "application/json"
+                },
+                timeout=15
+            )
+            data = resp_status.json()
+            status = data.get("status")
+
+            if status == "done":
+                result_url = data.get("result_url")
+                # 4. Baixar o vídeo
+                resp_video = requests.get(result_url, timeout=120)
+                out_path.write_bytes(resp_video.content)
+                if file_ok(out_path, min_bytes=50_000):
+                    log(f"  ✅ D-ID: avatar gerado ({out_path.stat().st_size // 1024}KB)")
+                    return True
+                break
+            elif status == "error":
+                log(f"  ❌ D-ID: erro na geração — {data.get('error', {}).get('description', 'desconhecido')}")
+                return False
+            else:
+                log(f"  ⏳ D-ID: {status} ({attempt+1}/30)…")
+
+    except Exception as e:
+        log(f"  ⚠️  D-ID: exceção — {e}")
+
+    return False
+
+
 def normalize_audio(in_p: Path, out_p: Path) -> None:
     """Normaliza volume E força sample rate 44100Hz para evitar problemas."""
     try:
@@ -939,7 +1060,12 @@ def main() -> int:
             log(f"  ✅ TTS {idx}/{len(project.scenes)}: {sid}")
 
     # ── FASE 2: Imagens + Ken Burns ───────────────────────────────────────────
-    log(f"\n🖼️  Fase 2/4 — Imagens + Ken Burns\n")
+    # Verificar se D-ID está configurado
+    use_did = bool(os.getenv("DID_API_KEY") and os.getenv("DID_IMAGE_ID"))
+    if use_did:
+        log(f"\n🎭  Fase 2/4 — Avatar D-ID + Ken Burns\n")
+    else:
+        log(f"\n🖼️  Fase 2/4 — Imagens + Ken Burns\n")
 
     subs:        list = []
     scene_paths: list = []
@@ -987,6 +1113,16 @@ def main() -> int:
                 resume          = args.resume,
             )
 
+        # Gerar avatar D-ID se configurado — overlay no canto da tela
+        did_ok = False
+        avatar_path = img_dir / f"{sid}_avatar.mp4"
+        if use_did and file_ok(audio_path):
+            log(f"  🎭 Gerando avatar D-ID…")
+            did_ok = did_generate_avatar(audio_path, avatar_path)
+            if did_ok:
+                log(f"  ✅ Avatar D-ID pronto")
+
+
         if not img_ok:
             generate_fallback_art(img_path,
                                    scene.prompt or scene.narration,
@@ -1030,6 +1166,38 @@ def main() -> int:
                  "-c:a", "aac", str(scene_path)], quiet=True)
 
         real_dur = ffprobe_duration(scene_path) or scene_dur
+
+        # Overlay do avatar D-ID no canto inferior direito
+        if did_ok and file_ok(avatar_path, min_bytes=50_000):
+            overlay_path = sc_dir / f"{sid}_overlay.mp4"
+            avatar_w, avatar_h = 280, 280  # tamanho do avatar
+            margin = 20  # margem da borda
+            x_pos = width - avatar_w - margin
+            y_pos = height - avatar_h - margin - 40  # 40px acima da legenda
+
+            run([
+                "ffmpeg", "-y",
+                "-i", str(scene_path),
+                "-i", str(avatar_path),
+                "-filter_complex",
+                (
+                    f"[1:v]scale={avatar_w}:{avatar_h},"
+                    f"geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)',"
+                    f"format=yuva420p[avatar];"
+                    f"[0:v][avatar]overlay={x_pos}:{y_pos}:shortest=1[vout]"
+                ),
+                "-map", "[vout]",
+                "-map", "0:a",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-c:a", "copy",
+                str(overlay_path)
+            ], quiet=True)
+
+            if file_ok(overlay_path, min_bytes=100_000):
+                scene_path = overlay_path
+                real_dur = ffprobe_duration(scene_path) or scene_dur
+                log(f"  ✅ Avatar overlay aplicado")
+
         scene_paths.append(scene_path)
         durations.append(real_dur)
         xfades.append(scene.xfade)
