@@ -705,6 +705,312 @@ def tts_elevenlabs(text: str, out_path: Path, voice: str) -> bool:
 
 def did_generate_avatar(audio_path: Path, out_path: Path) -> bool:
     """
+    Gera vídeo com avatar D-ID usando áudio do ElevenLabs.
+    Estratégia: upload do áudio para GitHub Pages via API e usa URL pública.
+    """
+    did_key   = os.getenv("DID_API_KEY", "")
+    did_image = os.getenv("DID_IMAGE_ID", "")
+    gh_token  = os.getenv("GITHUB_TOKEN", "")
+    gh_repo   = "Moliver63/mecpro"
+
+    if not did_key or not did_image:
+        log("  ⚠️  D-ID: credenciais não configuradas")
+        return False
+
+    try:
+        import base64 as _b64
+
+        # 1. Upload do áudio para GitHub via API
+        audio_bytes = audio_path.read_bytes()
+        audio_b64   = _b64.b64encode(audio_bytes).decode()
+        gh_path     = f"vsl/assets/tmp_{audio_path.stem}.mp3"
+        gh_url      = f"https://raw.githubusercontent.com/{gh_repo}/main/{gh_path}"
+
+        if gh_token:
+            # Verificar se arquivo já existe (para pegar SHA)
+            check = requests.get(
+                f"https://api.github.com/repos/{gh_repo}/contents/{gh_path}",
+                headers={"Authorization": f"token {gh_token}"},
+                timeout=10
+            )
+            sha = check.json().get("sha", "") if check.status_code == 200 else ""
+
+            payload_gh = {
+                "message": f"tmp audio {audio_path.stem}",
+                "content": audio_b64,
+            }
+            if sha:
+                payload_gh["sha"] = sha
+
+            resp_gh = requests.put(
+                f"https://api.github.com/repos/{gh_repo}/contents/{gh_path}",
+                headers={"Authorization": f"token {gh_token}", "Content-Type": "application/json"},
+                json=payload_gh,
+                timeout=60
+            )
+            if resp_gh.status_code not in (200, 201):
+                log(f"  ⚠️  GitHub upload falhou: {resp_gh.status_code}")
+                return False
+            log(f"  ✅ Áudio enviado para GitHub")
+            time.sleep(3)  # aguardar propagação CDN
+        else:
+            # Sem token GitHub — tentar usar arquivo já existente
+            log(f"  ⚠️  GITHUB_TOKEN não configurado — usando cold_open.mp3")
+            gh_url = f"https://raw.githubusercontent.com/{gh_repo}/main/vsl/assets/cold_open.mp3"
+
+        # 2. Criar talk no D-ID com URL do GitHub
+        source_s3 = f"s3://d-id-images-prod/google-oauth2|104537257287717675751/{did_image}/michel.jpeg"
+        payload = {
+            "source_url": source_s3,
+            "script": {
+                "type": "audio",
+                "audio_url": gh_url
+            },
+            "config": {
+                "fluent": True,
+                "pad_audio": 0.3,
+                "stitch": True,
+                "result_format": ".mp4"
+            }
+        }
+
+        resp_talk = requests.post(
+            "https://api.d-id.com/talks",
+            headers={
+                "Authorization": f"Basic {did_key}",
+                "Content-Type": "application/json",
+                "accept": "application/json"
+            },
+            json=payload,
+            timeout=30
+        )
+
+        if resp_talk.status_code not in (200, 201):
+            log(f"  ⚠️  D-ID talk falhou: {resp_talk.status_code} — {resp_talk.text[:200]}")
+            return False
+
+        talk_id = resp_talk.json().get("id", "")
+        if not talk_id:
+            return False
+
+        log(f"  ⏳ D-ID: processando [{talk_id}]…")
+
+        # 3. Polling até ficar pronto
+        for attempt in range(36):
+            time.sleep(5)
+            resp_status = requests.get(
+                f"https://api.d-id.com/talks/{talk_id}",
+                headers={"Authorization": f"Basic {did_key}", "accept": "application/json"},
+                timeout=15
+            )
+            data   = resp_status.json()
+            status = data.get("status", "")
+
+            if status == "done":
+                result_url = data.get("result_url", "")
+                if not result_url:
+                    return False
+                resp_video = requests.get(result_url, timeout=120)
+                out_path.write_bytes(resp_video.content)
+                if file_ok(out_path, min_bytes=50_000):
+                    log(f"  ✅ D-ID: avatar gerado ({out_path.stat().st_size // 1024}KB)")
+                    return True
+                return False
+            elif status in ("error", "failed"):
+                log(f"  ❌ D-ID erro: {data.get('error', {}).get('description', '')}")
+                return False
+            elif attempt % 3 == 0:
+                log(f"  ⏳ D-ID: {status} ({(attempt+1)*5}s)…")
+
+        log("  ⚠️  D-ID: timeout")
+
+    except Exception as e:
+        log(f"  ⚠️  D-ID exceção: {e}")
+
+    return False
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Ken Burns — Imagem → Vídeo Cinematográfico
+# ══════════════════════════════════════════════════════════════════════════════
+
+def build_ken_burns_filter(motion: str, duration: float,
+                             width: int, height: int,
+                             fps: int = 24,
+                             grain: float = 0.06,
+                             color_grade: str = "warm_film",
+                             cinematic_bars: bool = False,
+                             vignette: bool = True) -> str:
+    """
+    Monta o filtro FFmpeg completo para Ken Burns + color grade.
+    """
+    cfg    = MOTIONS.get(motion, MOTIONS["push_in"])
+    frames = int(duration * fps)
+    frames = max(frames, 1)
+
+    z_s = cfg["z_start"]
+    z_e = cfg["z_end"]
+
+    # Zoom expression com easing suave (sine)
+    zoom_expr = (
+        f"if(eq(on,1),{z_s},"
+        f"min({z_s}+({z_e}-{z_s})*sin(PI*on/{frames}/2),{max(z_s,z_e)+0.01}))"
+    )
+
+    # X position
+    x_cfg = cfg["x"]
+    if x_cfg == "center":
+        x_expr = "iw/2-(iw/zoom/2)"
+    elif x_cfg == "left":
+        x_expr = f"iw/2-(iw/zoom/2)+on*{(z_s*width*0.04):.1f}/{frames}"
+    elif x_cfg == "right":
+        x_expr = f"iw/2-(iw/zoom/2)-on*{(z_s*width*0.04):.1f}/{frames}"
+    else:
+        x_expr = "iw/2-(iw/zoom/2)"
+
+    # Y position
+    y_cfg = cfg["y"]
+    if y_cfg == "center":
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif y_cfg == "bottom":
+        y_expr = f"ih/2-(ih/zoom/2)-on*{(z_s*height*0.02):.1f}/{frames}"
+    else:
+        y_expr = "ih/2-(ih/zoom/2)"
+
+    # Escala de entrada maior para o zoom
+    scale_factor = max(z_e, z_s) + 0.05
+    sw = int(width * scale_factor)
+    sh = int(height * scale_factor)
+
+    # Garantir dimensões pares
+    sw += sw % 2
+    sh += sh % 2
+
+    # Zoompan
+    zoompan = (
+        f"scale={sw}:{sh}:flags=lanczos,"
+        f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':"
+        f"d=1:s={width}x{height}:fps={fps}"
+    )
+
+    # Color grade
+    grade = COLOR_GRADES.get(color_grade, COLOR_GRADES["warm_film"])
+
+    # Grain cinematográfico
+    grain_filter = ""
+    if grain > 0:
+        noise_val = int(grain * 40)
+        grain_filter = f",noise=alls={noise_val}:allf=t+u"
+
+    # Vinheta
+    vignette_filter = ",vignette=PI/5" if vignette else ""
+
+    # Barras cinemáticas 2.35:1
+    bars_filter = ""
+    if cinematic_bars:
+        bar_h = int((height - width / 2.35) / 2)
+        if bar_h > 0:
+            bars_filter = (
+                f",drawbox=x=0:y=0:w={width}:h={bar_h}:color=black:t=fill"
+                f",drawbox=x=0:y={height-bar_h}:w={width}:h={bar_h}:color=black:t=fill"
+            )
+
+    return (
+        f"{zoompan},"
+        f"{grade}"
+        f"{grain_filter}"
+        f"{vignette_filter}"
+        f"{bars_filter}"
+        f",format=yuv420p"
+    )
+
+
+def render_scene_video(image_path: Path, audio_path: Path,
+                        out_path: Path,
+                        motion: str, duration: float,
+                        width: int, height: int, fps: int,
+                        grain: float, color_grade: str,
+                        cinematic_bars: bool, vignette: bool,
+                        audio_fade_in: float, audio_fade_out: float,
+                        draft: bool = False) -> None:
+    """Combina imagem + Ken Burns + áudio em MP4."""
+    vf = build_ken_burns_filter(
+        motion, duration, width, height, fps,
+        grain, color_grade, cinematic_bars, vignette
+    )
+
+    afilters = []
+    if audio_fade_in > 0:
+        afilters.append(f"afade=t=in:st=0:d={audio_fade_in:.3f}")
+    if audio_fade_out > 0 and duration > audio_fade_out:
+        fade_st = max(0.0, duration - audio_fade_out)
+        afilters.append(f"afade=t=out:st={fade_st:.3f}:d={audio_fade_out:.3f}")
+
+    preset = "ultrafast" if draft else "slow"
+    crf    = "28"        if draft else "18"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-loop", "1", "-framerate", str(fps), "-i", str(image_path),
+        "-i", str(audio_path),
+        "-vf", vf,
+        "-t", f"{duration:.3f}",
+        "-shortest",
+        "-c:v", "libx264", "-preset", preset, "-crf", crf,
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+    ]
+    if afilters:
+        cmd += ["-af", ",".join(afilters)]
+    cmd.append(str(out_path))
+    run(cmd)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TTS — ElevenLabs → Silêncio
+# ══════════════════════════════════════════════════════════════════════════════
+
+def synth_silence(out_path: Path, duration: float = 3.0, sr: int = 24000) -> None:
+    with wave.open(str(out_path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(b"\x00\x00" * int(duration * sr))
+
+
+def tts_elevenlabs(text: str, out_path: Path, voice: str) -> bool:
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        return False
+    try:
+        from elevenlabs.client import ElevenLabs
+        client = ElevenLabs(api_key=api_key)
+        for model in ["eleven_multilingual_v2", "eleven_monolingual_v1"]:
+            try:
+                audio = client.text_to_speech.convert(
+                    text=text, voice_id=voice, model_id=model,
+                    output_format="mp3_44100_128",
+                )
+                if hasattr(audio, "__iter__") and not isinstance(audio, (bytes, bytearray)):
+                    audio = b"".join(audio)
+                out_path.write_bytes(audio)
+                if file_ok(out_path):
+                    log(f"  ✅ ElevenLabs ({model})")
+                    return True
+            except Exception as e:
+                log(f"  ⚠️  ElevenLabs {model}: {e}")
+    except Exception as e:
+        log(f"  ⚠️  ElevenLabs import: {e}")
+    return False
+
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# D-ID Avatar Generation — seu rosto falando com sua voz
+# ══════════════════════════════════════════════════════════════════════════════
+
+def did_generate_avatar(audio_path: Path, out_path: Path) -> bool:
+    """
     Gera vídeo com avatar D-ID usando o áudio do ElevenLabs.
     Faz upload do MP3 para o D-ID e aguarda o vídeo ficar pronto.
     """
