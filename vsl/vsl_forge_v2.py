@@ -769,8 +769,7 @@ def did_generate_avatar(audio_path: Path, out_path: Path) -> bool:
             "config": {
                 "fluent": True,
                 "pad_audio": 0.3,
-                "stitch": True,
-                "result_format": ".mp4"
+                "stitch": True
             }
         }
 
