@@ -642,36 +642,149 @@ export default function CampaignBuilder() {
                     A IA também usará os dados do perfil do cliente e dos concorrentes analisados.
                   </p>
 
-                  {/* ── AJUSTE 1: Região de atuação ── */}
+                  {/* ── REGIÃO / PAÍS / GEOLOCALIZAÇÃO ── */}
                   <div style={{ marginTop: 16 }}>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>
-                      📍 Região de atuação
-                      <span style={{ fontWeight: 400, color: "var(--muted)", marginLeft: 6 }}>(deixe vazio para Brasil todo)</span>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 8 }}>
+                      📍 Localização do público
                     </label>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                      {["SC","SP","RJ","MG","PR","RS","BA","GO","DF","PE"].map(uf => (
-                        <button key={uf}
-                          onClick={() => setForm(f => ({
-                            ...f,
-                            regions: f.regions.includes(uf)
-                              ? f.regions.filter(r => r !== uf)
-                              : [...f.regions, uf],
-                          }))}
+
+                    {/* Modo de segmentação */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                      {[
+                        { value: "brasil",  label: "🇧🇷 Brasil" },
+                        { value: "paises",  label: "🌎 Internacional" },
+                        { value: "raio",    label: "📍 Por raio" },
+                      ].map(m => (
+                        <button key={m.value}
+                          onClick={() => setForm(f => ({ ...f, locationMode: m.value as any, regions: [], countries: [] }))}
                           style={{
-                            padding: "5px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700,
-                            border: `1px solid ${form.regions.includes(uf) ? "var(--green)" : "var(--border)"}`,
-                            background: form.regions.includes(uf) ? "var(--green-l)" : "white",
-                            color: form.regions.includes(uf) ? "var(--green-d)" : "var(--muted)",
+                            padding: "6px 14px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            border: `1px solid ${(form as any).locationMode === m.value ? "var(--green)" : "var(--border)"}`,
+                            background: (form as any).locationMode === m.value ? "var(--green-l)" : "white",
+                            color: (form as any).locationMode === m.value ? "var(--green-d)" : "var(--muted)",
                             cursor: "pointer",
                           }}>
-                          {uf}
+                          {m.label}
                         </button>
                       ))}
                     </div>
-                    {form.regions.length > 0 && (
-                      <p style={{ fontSize: 11, color: "var(--green-d)", fontWeight: 600 }}>
-                        ✅ Segmentando para: {form.regions.join(", ")}
-                      </p>
+
+                    {/* MODO BRASIL — estados */}
+                    {(!(form as any).locationMode || (form as any).locationMode === "brasil") && (
+                      <div>
+                        <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>Selecione os estados (deixe vazio para Brasil todo)</p>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                          {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map(uf => (
+                            <button key={uf}
+                              onClick={() => setForm(f => ({
+                                ...f,
+                                regions: f.regions.includes(uf)
+                                  ? f.regions.filter(r => r !== uf)
+                                  : [...f.regions, uf],
+                              }))}
+                              style={{
+                                padding: "4px 10px", borderRadius: 16, fontSize: 11, fontWeight: 700,
+                                border: `1px solid ${form.regions.includes(uf) ? "var(--green)" : "var(--border)"}`,
+                                background: form.regions.includes(uf) ? "var(--green-l)" : "white",
+                                color: form.regions.includes(uf) ? "var(--green-d)" : "var(--muted)",
+                                cursor: "pointer",
+                              }}>
+                              {uf}
+                            </button>
+                          ))}
+                        </div>
+                        {form.regions.length > 0 && (
+                          <p style={{ fontSize: 11, color: "var(--green-d)", fontWeight: 600 }}>
+                            ✅ {form.regions.join(", ")}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* MODO INTERNACIONAL — países */}
+                    {(form as any).locationMode === "paises" && (
+                      <div>
+                        <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>Selecione os países</p>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                          {[
+                            { code: "BR", label: "🇧🇷 Brasil" },
+                            { code: "PT", label: "🇵🇹 Portugal" },
+                            { code: "US", label: "🇺🇸 EUA" },
+                            { code: "AR", label: "🇦🇷 Argentina" },
+                            { code: "CL", label: "🇨🇱 Chile" },
+                            { code: "CO", label: "🇨🇴 Colômbia" },
+                            { code: "MX", label: "🇲🇽 México" },
+                            { code: "ES", label: "🇪🇸 Espanha" },
+                            { code: "FR", label: "🇫🇷 França" },
+                            { code: "DE", label: "🇩🇪 Alemanha" },
+                            { code: "IT", label: "🇮🇹 Itália" },
+                            { code: "GB", label: "🇬🇧 Reino Unido" },
+                            { code: "CA", label: "🇨🇦 Canadá" },
+                            { code: "AU", label: "🇦🇺 Austrália" },
+                            { code: "JP", label: "🇯🇵 Japão" },
+                            { code: "AO", label: "🇦🇴 Angola" },
+                            { code: "MZ", label: "🇲🇿 Moçambique" },
+                            { code: "UY", label: "🇺🇾 Uruguai" },
+                            { code: "PY", label: "🇵🇾 Paraguai" },
+                            { code: "PE", label: "🇵🇪 Peru" },
+                          ].map(c => {
+                            const countries = (form as any).countries || [];
+                            return (
+                              <button key={c.code}
+                                onClick={() => setForm(f => ({
+                                  ...f,
+                                  countries: countries.includes(c.code)
+                                    ? countries.filter((x: string) => x !== c.code)
+                                    : [...countries, c.code],
+                                } as any))}
+                                style={{
+                                  padding: "5px 12px", borderRadius: 16, fontSize: 11, fontWeight: 700,
+                                  border: `1px solid ${countries.includes(c.code) ? "var(--green)" : "var(--border)"}`,
+                                  background: countries.includes(c.code) ? "var(--green-l)" : "white",
+                                  color: countries.includes(c.code) ? "var(--green-d)" : "var(--muted)",
+                                  cursor: "pointer",
+                                }}>
+                                {c.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {((form as any).countries || []).length > 0 && (
+                          <p style={{ fontSize: 11, color: "var(--green-d)", fontWeight: 600 }}>
+                            ✅ {((form as any).countries || []).join(", ")}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* MODO RAIO — cidade + km */}
+                    {(form as any).locationMode === "raio" && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+                        <div>
+                          <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Cidade / endereço</label>
+                          <input className="input"
+                            placeholder="Ex: Balneário Camboriú, SC"
+                            value={(form as any).geoCity || ""}
+                            onChange={e => setForm(f => ({ ...f, geoCity: e.target.value } as any))}
+                            style={{ fontSize: 12 }} />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Raio</label>
+                          <select className="input"
+                            value={(form as any).geoRadius || 15}
+                            onChange={e => setForm(f => ({ ...f, geoRadius: Number(e.target.value) } as any))}
+                            style={{ fontSize: 12, width: 100 }}>
+                            {[5,10,15,20,30,40,50,80,100].map(r => (
+                              <option key={r} value={r}>{r} km</option>
+                            ))}
+                          </select>
+                        </div>
+                        {(form as any).geoCity && (
+                          <p style={{ fontSize: 11, color: "var(--green-d)", fontWeight: 600, gridColumn: "1/-1" }}>
+                            ✅ Raio de {(form as any).geoRadius || 15}km em torno de {(form as any).geoCity}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
 
