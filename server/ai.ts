@@ -3181,6 +3181,7 @@ ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
 Gere 5 criativos NOVOS e DIFERENTES dos anteriores. Responda SOMENTE em JSON:
 {
+  "INSTRUCAO_CRIATIVOS": "IMPORTANTE: O objetivo desta campanha e ${input.objective}. Para LEADS: copies focados em cadastro, material gratuito, sem compromisso, CTA de baixo atrito. Para SALES: copies focados em oferta, preco, urgencia, garantia, CTA de compra direta. NUNCA use placeholders como [problema], [resultado], [marca] — use textos REAIS baseados no nicho e perfil do cliente.",
   "creatives": [
     {
       "type": "testimonial|storytelling|authority|lead_magnet|social_proof|direct_offer",
