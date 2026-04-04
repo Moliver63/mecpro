@@ -947,6 +947,21 @@ export default function CampaignResult() {
                       <input value={editDraft.cta ?? cr.cta ?? ""} onChange={e => setEditDraft((d: any) => ({ ...d, cta: e.target.value }))}
                         placeholder="Botão de ação (ex: Saiba Mais)" className="input input-sm w-full" />
                     </div>
+                    {/* Ajuste 2: Formato de mídia no criativo */}
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", display: "block", marginBottom: 4 }}>FORMATO</label>
+                      <select className="input input-sm w-full"
+                        value={editDraft.format ?? cr.format ?? cr.type ?? ""}
+                        onChange={e => setEditDraft((d: any) => ({ ...d, format: e.target.value }))}>
+                        <option value="">Selecionar formato</option>
+                        <option value="Feed 4:5 (Vertical)">📱 Feed 4:5 — Vertical (Instagram/Facebook)</option>
+                        <option value="Stories 9:16 (Vertical)">⭕ Stories 9:16 — Vertical (Stories/Reels)</option>
+                        <option value="Feed 1:1 (Quadrado)">⬜ Feed 1:1 — Quadrado (Universal)</option>
+                        <option value="Feed 1.91:1 (Horizontal)">🖥️ Feed 1.91:1 — Horizontal (Link Ads)</option>
+                        <option value="Reels 9:16 (Vídeo)">🎬 Reels 9:16 — Vídeo (Reels/TikTok)</option>
+                        <option value="Carrossel">🎠 Carrossel (múltiplas imagens)</option>
+                      </select>
+                    </div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => updateCreativeMutation.mutate({ campaignId: id, index: i, ...editDraft })}
                         disabled={updateCreativeMutation.isLoading} className="btn btn-sm btn-green">
@@ -964,7 +979,17 @@ export default function CampaignResult() {
                         <p style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>{cr.format || cr.type || `Criativo ${i + 1}`}</p>
                         {cr._edited && <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700 }}>✏️ editado</span>}
                       </div>
-                      <button onClick={() => { setEditingCreative(i); setEditDraft({}); }}
+                      <button onClick={() => {
+                          setEditingCreative(i);
+                          // Fix ajuste 5: pré-carrega dados do criativo ao abrir edição
+                          setEditDraft({
+                            headline: cr.headline ?? "",
+                            copy:     cr.copy     ?? "",
+                            hook:     cr.hook     ?? "",
+                            cta:      cr.cta      ?? "",
+                            format:   cr.format   ?? cr.type ?? "",
+                          });
+                        }}
                         style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "3px 10px", cursor: "pointer", flexShrink: 0 }}>
                         ✏️ Editar
                       </button>
