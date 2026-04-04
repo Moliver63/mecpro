@@ -731,17 +731,67 @@ export default function CampaignBuilder() {
                     </div>
                   </div>
 
-                  {/* ── AJUSTE 4: Perfil do público (funil) ── */}
+                  {/* ── AJUSTE 4: Perfil do público — dinâmico por segmento ── */}
                   <div style={{ marginTop: 16 }}>
                     <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>
                       🎯 Perfil do público
                     </label>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      {[
-                        { value: "moradia",    label: "🏠 Moradia",    desc: "Comprar para morar" },
-                        { value: "investidor", label: "💰 Investidor", desc: "Renda passiva/aluguel" },
-                        { value: "geral",      label: "👥 Geral",      desc: "Ambos os perfis" },
-                      ].map(opt => (
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {((): { value: string; label: string; desc: string }[] => {
+                        // Perfis dinâmicos por segmento
+                        const profiles: Record<string, { value: string; label: string; desc: string }[]> = {
+                          imoveis_venda: [
+                            { value: "moradia",    label: "🏠 Moradia",    desc: "Comprar para morar" },
+                            { value: "investidor", label: "💰 Investidor", desc: "Renda passiva/aluguel" },
+                            { value: "geral",      label: "👥 Ambos",      desc: "Moradia e investimento" },
+                          ],
+                          imoveis_locacao: [
+                            { value: "moradia",    label: "🏠 Residencial", desc: "Morar no imóvel" },
+                            { value: "investidor", label: "🏖️ Temporada",   desc: "Airbnb/aluguel curto" },
+                            { value: "geral",      label: "👥 Ambos",       desc: "Todos os perfis" },
+                          ],
+                          ecommerce: [
+                            { value: "geral",      label: "🛒 Comprador",   desc: "Público geral consumidor" },
+                            { value: "moradia",    label: "🎁 Presente",    desc: "Comprando para oferecer" },
+                            { value: "investidor", label: "🏪 Revendedor",  desc: "Compra para revender" },
+                          ],
+                          servicos_locais: [
+                            { value: "geral",      label: "👥 Geral",       desc: "Público local" },
+                            { value: "moradia",    label: "👤 Pessoa física", desc: "Consumidor individual" },
+                            { value: "investidor", label: "🏢 Empresa",     desc: "Pessoa jurídica" },
+                          ],
+                          infoprodutos: [
+                            { value: "moradia",    label: "🌱 Iniciante",   desc: "Começando do zero" },
+                            { value: "investidor", label: "📈 Avançado",    desc: "Já tem experiência" },
+                            { value: "geral",      label: "👥 Todos",       desc: "Todos os níveis" },
+                          ],
+                          saude_estetica: [
+                            { value: "moradia",    label: "💆 Bem-estar",   desc: "Saúde e qualidade de vida" },
+                            { value: "investidor", label: "✨ Estética",    desc: "Procedimentos estéticos" },
+                            { value: "geral",      label: "👥 Ambos",       desc: "Saúde e estética" },
+                          ],
+                          alimentacao: [
+                            { value: "geral",      label: "🍔 Delivery",    desc: "Pede em casa" },
+                            { value: "moradia",    label: "🪑 No local",    desc: "Come no restaurante" },
+                            { value: "investidor", label: "🎉 Eventos",     desc: "Catering/encomendas" },
+                          ],
+                          moda_varejo: [
+                            { value: "geral",      label: "👗 Consumidor",  desc: "Compra para si" },
+                            { value: "moradia",    label: "🎁 Presente",    desc: "Compra para oferecer" },
+                            { value: "investidor", label: "🏪 Revendedor",  desc: "Compra para revender" },
+                          ],
+                          b2b: [
+                            { value: "moradia",    label: "🏢 PME",         desc: "Pequenas e médias empresas" },
+                            { value: "investidor", label: "🏭 Enterprise",  desc: "Grandes empresas" },
+                            { value: "geral",      label: "👥 Todos",       desc: "Todos os portes" },
+                          ],
+                        };
+                        return profiles[segment] || [
+                          { value: "geral",      label: "👥 Geral",       desc: "Público amplo" },
+                          { value: "moradia",    label: "👤 Específico",  desc: "Perfil definido" },
+                          { value: "investidor", label: "🎯 Avançado",    desc: "Alta intenção" },
+                        ];
+                      })().map(opt => (
                         <button key={opt.value}
                           onClick={() => setForm(f => ({ ...f, audienceProfile: opt.value as any }))}
                           style={{
