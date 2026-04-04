@@ -1360,6 +1360,10 @@ const campaignsRouter = router({
       adSetIndex:    z.number().default(0),
       placementMode: z.enum(["auto", "manual"]).optional(),
       placements:    z.array(z.string()).optional(),
+      // Novos campos — Ajustes 1 e 3
+      ageMin:   z.number().min(18).max(65).optional(),
+      ageMax:   z.number().min(18).max(65).optional(),
+      regions:  z.array(z.string()).optional(),   // ex: ["SC", "SP"]
     }))
     .mutation(async ({ input, ctx }) => {
       // Verificar se plano permite integração Meta
@@ -1588,8 +1592,11 @@ const campaignsRouter = router({
         daily_budget:      budgetDaily * 100,
         end_time:          endTime,
         targeting: {
-          age_min: 18, age_max: 65,
-          geo_locations: { countries: ["BR"] },
+          age_min: input.ageMin ?? 18,
+          age_max: input.ageMax ?? 65,
+          geo_locations: input.regions && input.regions.length > 0
+            ? { regions: input.regions.map(uf => ({ key: `BR-${uf}`, name: uf, country: "BR" })) }
+            : { countries: ["BR"] },
           // Placements selecionados pelo usuário (adapter Meta)
           ...((): object => {
             if (!input.placements || input.placements.length === 0 || input.placementMode === "auto") {
