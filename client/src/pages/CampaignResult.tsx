@@ -1,6 +1,7 @@
 import { useLocation, useParams } from "wouter";
 import PlacementSelector from "@/components/PlacementSelector";
 import AdPreviewPanel from "@/components/AdPreviewPanel";
+import { getImageDimensions, validateMediaForPlacements, getOrientationGuide, type MediaDimensions, type MediaValidationResult } from "@/components/MediaValidator";
 import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/components/PlacementConfig";
 import { useState } from "react";
 import Layout from "@/components/layout/Layout";
@@ -35,6 +36,8 @@ export default function CampaignResult() {
   const [uploading,    setUploading]    = useState(false);
   const [uploadDone,   setUploadDone]   = useState(false);
   const [mediaMode,    setMediaMode]    = useState<"none" | "url" | "upload">("none");
+  const [mediaDims,    setMediaDims]    = useState<MediaDimensions | null>(null);
+  const [mediaValidation, setMediaValidation] = useState<MediaValidationResult | null>(null);
 
   // ── estado multi-upload ──
   const [mediaFiles,      setMediaFiles]      = useState<File[]>([]);
