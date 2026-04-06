@@ -1360,10 +1360,14 @@ const campaignsRouter = router({
       adSetIndex:    z.number().default(0),
       placementMode: z.enum(["auto", "manual"]).optional(),
       placements:    z.array(z.string()).optional(),
-      // Novos campos — Ajustes 1 e 3
-      ageMin:   z.number().min(18).max(65).optional(),
-      ageMax:   z.number().min(18).max(65).optional(),
-      regions:  z.array(z.string()).optional(),   // ex: ["SC", "SP"]
+      // Localização e faixa etária
+      ageMin:       z.number().min(13).max(65).optional(),
+      ageMax:       z.number().min(18).max(65).optional(),
+      regions:      z.array(z.string()).optional(),    // estados BR: ["SC", "SP"]
+      countries:    z.array(z.string()).optional(),    // países: ["BR", "PT", "US"]
+      locationMode: z.enum(["brasil", "paises", "raio"]).optional(),
+      geoCity:      z.string().optional(),             // cidade para raio
+      geoRadius:    z.number().optional(),             // km do raio
     }))
     .mutation(async ({ input, ctx }) => {
       // Verificar se plano permite integração Meta
@@ -1594,9 +1598,29 @@ const campaignsRouter = router({
         targeting: {
           age_min: input.ageMin ?? 18,
           age_max: input.ageMax ?? 65,
-          geo_locations: input.regions && input.regions.length > 0
-            ? { regions: input.regions.map(uf => ({ key: `BR-${uf}`, name: uf, country: "BR" })) }
-            : { countries: ["BR"] },
+          geo_locations: (() => {
+            const mode = input.locationMode || (input.regions?.length ? "brasil" : "brasil");
+            // Modo: países internacionais
+            if (mode === "paises" && input.countries && input.countries.length > 0) {
+              return { countries: input.countries };
+            }
+            // Modo: raio por cidade (custom_locations)
+            if (mode === "raio" && input.geoCity) {
+              return {
+                custom_locations: [{
+                  address_string: input.geoCity,
+                  radius:         input.geoRadius || 15,
+                  distance_unit:  "kilometer",
+                }],
+              };
+            }
+            // Modo: estados do Brasil
+            if (input.regions && input.regions.length > 0) {
+              return { regions: input.regions.map(uf => ({ key: `BR-${uf}`, name: uf, country: "BR" })) };
+            }
+            // Padrão: Brasil todo
+            return { countries: ["BR"] };
+          })(),
           // Placements selecionados pelo usuário (adapter Meta)
           ...((): object => {
             if (!input.placements || input.placements.length === 0 || input.placementMode === "auto") {
@@ -3153,7 +3177,7 @@ const metaCampaignsRouter = router({
       let targetingUpdate: any = {};
 
       if (input.placementMode === "auto" || input.placements.length === 0) {
-        targetingUpdate = { targeting: { age_min: 18, age_max: 65, geo_locations: { countries: ["BR"] } } };
+        targetingUpdate = { targeting: { age_min: input.ageMin ?? 18, age_max: input.ageMax ?? 65, geo_locations: { countries: input.countries?.length ? input.countries : ["BR"] }, device_platforms: ["mobile", "desktop"] } };
       } else {
         const publishers  = new Set<string>();
         const fbPos:  string[] = [];
@@ -3171,8 +3195,13 @@ const metaCampaignsRouter = router({
 
         targetingUpdate = {
           targeting: {
-            age_min: 18, age_max: 65,
-            geo_locations: { countries: ["BR"] },
+            age_min: input.ageMin ?? 18,
+            age_max: input.ageMax ?? 65,
+            geo_locations: input.regions?.length
+              ? { regions: input.regions.map((uf: string) => ({ key: `BR-${uf}`, name: uf, country: "BR" })) }
+              : input.countries?.length
+              ? { countries: input.countries }
+              : { countries: ["BR"] },
             publisher_platforms:             Array.from(publishers),
             ...(fbPos.length  > 0 ? { facebook_positions:          fbPos }  : {}),
             ...(igPos.length  > 0 ? { instagram_positions:         igPos }  : {}),
