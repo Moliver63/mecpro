@@ -378,6 +378,24 @@ export default function CampaignResult() {
     setUploadDone(false);
     setUploadedHash("");
     setUploadedVid("");
+    // ── Validar dimensões automaticamente para conformidade Meta ──
+    getImageDimensions(file).then(dims => {
+      setMediaDims(dims);
+      const placements = selectedPlacements.length > 0
+        ? selectedPlacements
+        : placementMode === "auto"
+        ? ["fb_feed", "ig_feed", "fb_story", "ig_story"]
+        : ["fb_feed", "ig_feed"];
+      const validation = validateMediaForPlacements(dims, placements);
+      setMediaValidation(validation);
+      if (validation.errors.length > 0) {
+        toast.error("⚠️ " + validation.errors[0]);
+      } else if (validation.warnings.length > 0) {
+        toast.warning?.("⚠️ " + validation.warnings[0]);
+      } else {
+        toast.success("✅ Mídia compatível: " + dims.width + "×" + dims.height + "px (" + dims.ratio + ")");
+      }
+    }).catch(() => setMediaDims(null));
     if (isImage) {
       const reader = new FileReader();
       reader.onload = (ev) => setMediaPreview(ev.target?.result as string);
