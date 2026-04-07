@@ -2880,6 +2880,55 @@ const integrationsRouter = router({
       };
     }),
 
+  // -- Criar Lead Form na Meta automaticamente --------------------------------
+  createLeadForm: protectedProcedure
+    .input(z.object({
+      pageId:           z.string(),
+      name:             z.string(),
+      fields:           z.array(z.string()).default(["FULL_NAME", "EMAIL", "PHONE"]),
+      customQuestion:   z.string().optional(),
+      thankYouMessage:  z.string().optional(),
+      privacyUrl:       z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Conta Meta não conectada." });
+      const token = (integration as any).accessToken as string;
+
+      // Monta os campos do formulário
+      const questions = input.fields.map(f => ({ type: f }));
+      if (input.customQuestion?.trim()) {
+        questions.push({ type: "CUSTOM", label: input.customQuestion.trim() } as any);
+      }
+
+      const body: any = {
+        name:             input.name,
+        questions,
+        privacy_policy:   { url: input.privacyUrl },
+        thank_you_page:   {
+          title: "Obrigado!",
+          body:  input.thankYouMessage || "Em breve nossa equipe entrará em contato.",
+        },
+        locale: "pt_BR",
+      };
+
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/${input.pageId}/leadgen_forms`,
+        {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ ...body, access_token: token }),
+        }
+      );
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error)
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao criar formulário: ${data?.error?.message || `HTTP ${res.status}`}` });
+
+      log.info("meta", "createLeadForm OK", { pageId: input.pageId, formId: data.id });
+      return { id: data.id, name: input.name };
+    }),
+
   // -- Lista Lead Forms de uma Página ----------------------------------------
   listLeadForms: protectedProcedure
     .input(z.object({ pageId: z.string() }))

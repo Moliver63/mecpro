@@ -642,6 +642,130 @@ export default function CampaignBuilder() {
                     A IA também usará os dados do perfil do cliente e dos concorrentes analisados.
                   </p>
 
+                  {/* ── FORMULÁRIO DE LEADS META (se objetivo = leads) ── */}
+                  {form.objective === "leads" && (
+                    <div style={{ marginTop: 20, background: "#eff6ff", border: "2px solid #bfdbfe", borderRadius: 16, padding: 20 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                        <span style={{ fontSize: 22 }}>📋</span>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: "#1d4ed8" }}>Formulário de Leads Meta</div>
+                          <div style={{ fontSize: 12, color: "#3b82f6" }}>Pré-preenchido com os dados do cliente — edite se necessário</div>
+                        </div>
+                        <div style={{ marginLeft: "auto" }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 10px", borderRadius: 20, background: "#dbeafe", color: "#1d4ed8" }}>
+                            Converte 2-3x mais que landing page
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Nome do formulário */}
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 4 }}>
+                          Nome do formulário *
+                        </label>
+                        <input className="input"
+                          value={(form as any).leadForm?.name || `Leads - ${form.name || "Campanha"}`}
+                          onChange={e => setForm(f => ({ ...f, leadForm: { ...(f as any).leadForm, name: e.target.value } } as any))}
+                          style={{ fontSize: 12, width: "100%" }}
+                          placeholder="Ex: Leads Imóveis BC - Abril 2026" />
+                      </div>
+
+                      {/* Campos do formulário */}
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 8 }}>
+                          Campos para capturar
+                        </label>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {[
+                            { id: "FULL_NAME",   label: "👤 Nome completo",  required: true },
+                            { id: "EMAIL",       label: "📧 E-mail",          required: true },
+                            { id: "PHONE",       label: "📱 Telefone",        required: false },
+                            { id: "CITY",        label: "📍 Cidade",          required: false },
+                            { id: "STATE",       label: "🗺️ Estado",          required: false },
+                            { id: "COMPANY_NAME",label: "🏢 Empresa",         required: false },
+                          ].map(field => {
+                            const selectedFields = (form as any).leadForm?.fields || ["FULL_NAME", "EMAIL", "PHONE"];
+                            const isSelected = selectedFields.includes(field.id);
+                            return (
+                              <button key={field.id}
+                                onClick={() => {
+                                  if (field.required) return; // não remove obrigatórios
+                                  const curr = (form as any).leadForm?.fields || ["FULL_NAME", "EMAIL", "PHONE"];
+                                  const next = isSelected
+                                    ? curr.filter((f: string) => f !== field.id)
+                                    : [...curr, field.id];
+                                  setForm(f => ({ ...f, leadForm: { ...(f as any).leadForm, fields: next } } as any));
+                                }}
+                                style={{
+                                  padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+                                  border: `1px solid ${isSelected ? "#1d4ed8" : "#e2e8f0"}`,
+                                  background: isSelected ? "#dbeafe" : "white",
+                                  color: isSelected ? "#1d4ed8" : "#94a3b8",
+                                  cursor: field.required ? "default" : "pointer",
+                                  opacity: field.required ? 0.8 : 1,
+                                }}>
+                                {field.label} {field.required ? "(obrigatório)" : ""}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Pergunta personalizada */}
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 4 }}>
+                          Pergunta personalizada <span style={{ fontWeight: 400, color: "#3b82f6" }}>(opcional)</span>
+                        </label>
+                        <input className="input"
+                          value={(form as any).leadForm?.customQuestion || ""}
+                          onChange={e => setForm(f => ({ ...f, leadForm: { ...(f as any).leadForm, customQuestion: e.target.value } } as any))}
+                          style={{ fontSize: 12, width: "100%" }}
+                          placeholder={
+                            segment === "imoveis_venda" ? "Ex: Você busca imóvel para morar ou investir?" :
+                            segment === "infoprodutos"  ? "Ex: Qual é seu maior desafio hoje?" :
+                            segment === "servicos_locais" ? "Ex: Qual serviço você tem interesse?" :
+                            "Ex: Como podemos te ajudar?"
+                          } />
+                      </div>
+
+                      {/* Mensagem de agradecimento */}
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 4 }}>
+                          Mensagem de agradecimento
+                        </label>
+                        <textarea className="input" rows={2}
+                          value={(form as any).leadForm?.thankYouMessage || `Obrigado pelo interesse! Em breve nossa equipe entrará em contato.`}
+                          onChange={e => setForm(f => ({ ...f, leadForm: { ...(f as any).leadForm, thankYouMessage: e.target.value } } as any))}
+                          style={{ fontSize: 12, width: "100%", resize: "vertical" }} />
+                      </div>
+
+                      {/* URL de política de privacidade */}
+                      <div style={{ marginBottom: 8 }}>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", display: "block", marginBottom: 4 }}>
+                          URL da Política de Privacidade *{" "}
+                          <span style={{ fontWeight: 400, color: "#3b82f6" }}>(exigida pela Meta)</span>
+                        </label>
+                        <input className="input"
+                          value={(form as any).leadForm?.privacyUrl || ""}
+                          onChange={e => setForm(f => ({ ...f, leadForm: { ...(f as any).leadForm, privacyUrl: e.target.value } } as any))}
+                          style={{ fontSize: 12, width: "100%" }}
+                          placeholder="https://seusite.com.br/privacidade" />
+                        {!(form as any).leadForm?.privacyUrl && (
+                          <p style={{ fontSize: 10, color: "#ef4444", marginTop: 4 }}>
+                            ⚠️ Obrigatório para publicar formulário de leads na Meta
+                          </p>
+                        )}
+                      </div>
+
+                      <div style={{ background: "#dbeafe", borderRadius: 8, padding: "8px 12px", marginTop: 8 }}>
+                        <p style={{ fontSize: 11, color: "#1e40af", margin: 0, lineHeight: 1.5 }}>
+                          💡 O formulário será criado automaticamente na Meta quando você publicar a campanha. 
+                          Os dados dos leads ficam disponíveis no Meta Ads Manager para download.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* ── REGIÃO / PAÍS / GEOLOCALIZAÇÃO ── */}
                   <div style={{ marginTop: 16 }}>
                     <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 8 }}>
