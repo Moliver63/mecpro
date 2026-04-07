@@ -1,190 +1,244 @@
+import { useLocation } from "wouter";
+
 export default function Privacy() {
+  const [, setLocation] = useLocation();
+  const updated = "07 de abril de 2026";
+
   return (
-    <div style={{ minHeight: "100vh", background: "var(--white)" }}>
+    <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+
       {/* Header */}
-      <header style={{ borderBottom: "1px solid var(--border)", background: "var(--white)", padding: "16px 0", position: "sticky", top: 0, zIndex: 50 }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20, color: "var(--black)" }}>MECPro</span>
-          <a href="/login" style={{ fontSize: 14, color: "var(--muted)", textDecoration: "none", fontWeight: 500 }}>← Voltar</a>
+      <header style={{ borderBottom: "1px solid #e2e8f0", background: "white", padding: "16px 0", position: "sticky", top: 0, zIndex: 50 }}>
+        <div style={{ maxWidth: 860, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontWeight: 800, fontSize: 18, color: "#0f172a", cursor: "pointer" }} onClick={() => setLocation("/")}>MECProAI</span>
+          <a href="/login" style={{ fontSize: 14, color: "#64748b", textDecoration: "none", fontWeight: 500 }}>← Voltar</a>
         </div>
       </header>
 
-      {/* Content */}
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "48px 24px 80px" }}>
+      <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px 80px" }}>
+
         {/* Title */}
-        <div style={{ marginBottom: 40 }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>MECPro · Campaign Intelligence Builder</p>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 36, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>Política de Privacidade</h1>
-          <p style={{ color: "var(--muted)", fontSize: 14 }}>Versão 1.0 · Última atualização: 14/03/2026</p>
+        <div style={{ background: "linear-gradient(135deg, #0f172a, #1e3a5f)", borderRadius: 16, padding: "32px 36px", marginBottom: 32, color: "white" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: "rgba(255,255,255,0.5)", textTransform: "uppercase", marginBottom: 8 }}>
+            Documento Legal
+          </div>
+          <h1 style={{ fontSize: 28, fontWeight: 900, margin: "0 0 8px" }}>Política de Privacidade</h1>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.7)", margin: 0 }}>
+            Última atualização: {updated} · MECPro Tecnologia Ltda · CNPJ 13.122.473/0001-03
+          </p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
-
-          {/* Section 1 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>1. Quem Somos</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15 }}>
-              O MECPro (Campaign Intelligence Builder) é uma plataforma de inteligência de campanhas digitais operada por <strong style={{ color: "var(--black)" }}>Michel Leal ME</strong>, CNPJ a ser informado, com sede em Balneário Camboriú – SC, Brasil. Nosso site é acessível em <strong style={{ color: "var(--black)" }}>mecpro-ai.onrender.com</strong> e <strong style={{ color: "var(--black)" }}>www.mecpro.com</strong>.
-            </p>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15, marginTop: 10 }}>
-              Para dúvidas sobre esta política, entre em contato pelo e-mail: <a href="mailto:contato@mecproai.com" style={{ color: "var(--black)", fontWeight: 600 }}>contato@mecproai.com</a>.
-            </p>
-          </section>
-
-          {/* Section 2 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>2. Dados que Coletamos</h2>
-
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--black)", marginBottom: 8 }}>2.1 Dados fornecidos por você</h3>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li>Nome completo e endereço de e-mail ao criar uma conta</li>
-              <li>Informações de pagamento processadas via Stripe (não armazenamos dados de cartão)</li>
-              <li>Dados de projetos e campanhas criados na plataforma</li>
-              <li>Informações sobre sua empresa, nicho de mercado e público-alvo</li>
-              <li>URLs de concorrentes e dados relacionados à análise competitiva</li>
-            </ul>
-
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--black)", marginBottom: 8, marginTop: 16 }}>2.2 Dados coletados automaticamente</h3>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li>Endereço IP e informações do dispositivo</li>
-              <li>Logs de acesso e uso da plataforma</li>
-              <li>Cookies de sessão e autenticação</li>
-              <li>Dados de integração com Meta Ads (token de acesso e ID da conta de anúncios)</li>
-            </ul>
-
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: "var(--black)", marginBottom: 8, marginTop: 16 }}>2.3 Dados de terceiros</h3>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li>Informações de perfil do Google quando você faz login com Google OAuth</li>
-              <li>Dados da API do Meta Ads quando você conecta sua conta de anúncios</li>
-              <li>Métricas de campanhas obtidas via API do Meta Ads</li>
-            </ul>
-          </section>
-
-          {/* Section 3 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>3. Como Usamos seus Dados</h2>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li>Fornecer e melhorar os serviços da plataforma MECPro</li>
-              <li>Gerar análises de campanhas e insights com a IA MECPro, nossa inteligência artificial proprietária</li>
-              <li>Autenticar sua identidade e proteger sua conta</li>
-              <li>Processar pagamentos e gerenciar assinaturas</li>
-              <li>Enviar notificações relacionadas ao serviço via e-mail (Resend)</li>
-              <li>Publicar campanhas no Meta Ads em seu nome, quando autorizado</li>
-              <li>Cumprir obrigações legais e regulatórias</li>
-              <li>Prevenir fraudes e garantir a segurança da plataforma</li>
-            </ul>
-          </section>
-
-          {/* Section 4 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>4. Compartilhamento de Dados</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15, marginBottom: 12 }}>Não vendemos seus dados pessoais. Compartilhamos informações apenas nas seguintes situações:</p>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li><strong style={{ color: "var(--black)" }}>Stripe:</strong> processamento de pagamentos e assinaturas</li>
-              <li><strong style={{ color: "var(--black)" }}>IA MECPro:</strong> geração de conteúdo de campanhas — processado internamente pela plataforma com segurança e confidencialidade</li>
-              <li><strong style={{ color: "var(--black)" }}>Meta Platforms:</strong> publicação de campanhas quando você autoriza a integração</li>
-              <li><strong style={{ color: "var(--black)" }}>Resend:</strong> envio de e-mails transacionais</li>
-              <li><strong style={{ color: "var(--black)" }}>Render.com:</strong> hospedagem da aplicação e banco de dados</li>
-              <li><strong style={{ color: "var(--black)" }}>Autoridades legais:</strong> quando exigido por lei ou ordem judicial</li>
-            </ul>
-          </section>
-
-          {/* Section 5 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>5. Seus Direitos (LGPD)</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15, marginBottom: 12 }}>De acordo com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), você tem direito a:</p>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li>Confirmação da existência de tratamento de seus dados</li>
-              <li>Acesso aos seus dados pessoais</li>
-              <li>Correção de dados incompletos, inexatos ou desatualizados</li>
-              <li>Anonimização, bloqueio ou eliminação de dados desnecessários</li>
-              <li>Portabilidade dos dados a outro fornecedor de serviço</li>
-              <li>Eliminação dos dados pessoais tratados com seu consentimento</li>
-              <li>Informação sobre compartilhamento com terceiros</li>
-              <li>Revogação do consentimento a qualquer momento</li>
-            </ul>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15, marginTop: 12 }}>
-              Para exercer esses direitos, envie uma solicitação para: <a href="mailto:contato@mecproai.com" style={{ color: "var(--black)", fontWeight: 600 }}>contato@mecproai.com</a>
-            </p>
-          </section>
-
-          {/* Section 6 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>6. Segurança dos Dados</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15, marginBottom: 12 }}>Adotamos medidas técnicas e organizacionais para proteger seus dados, incluindo:</p>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li>Transmissão de dados via HTTPS/TLS</li>
-              <li>Senhas armazenadas com hash bcrypt</li>
-              <li>Tokens JWT com expiração de 7 dias</li>
-              <li>Banco de dados PostgreSQL com acesso restrito</li>
-              <li>Tokens de integração armazenados de forma segura no banco de dados</li>
-              <li>Logs de auditoria para ações administrativas</li>
-            </ul>
-          </section>
-
-          {/* Section 7 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>7. Retenção de Dados</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15 }}>
-              Mantemos seus dados enquanto sua conta estiver ativa. Após o cancelamento da conta, os dados são excluídos em até <strong style={{ color: "var(--black)" }}>90 dias</strong>, exceto quando a retenção for exigida por lei.
-            </p>
-          </section>
-
-          {/* Section 8 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>8. Cookies</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15, marginBottom: 12 }}>
-              Utilizamos cookies essenciais para autenticação e funcionamento da plataforma. Não utilizamos cookies de rastreamento de terceiros para fins publicitários.
-            </p>
-            <ul style={{ paddingLeft: 20, color: "var(--muted)", lineHeight: 1.9, fontSize: 15 }}>
-              <li><strong style={{ color: "var(--black)" }}>Cookie de sessão (token JWT httpOnly):</strong> necessário para manter sua sessão autenticada</li>
-              <li><strong style={{ color: "var(--black)" }}>Preferências do usuário:</strong> armazenadas localmente para melhor experiência</li>
-            </ul>
-          </section>
-
-          {/* Section 9 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>9. Transferência Internacional</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15 }}>
-              Seus dados podem ser processados nos Estados Unidos (Render.com, Google, Meta, Stripe). Essas transferências são realizadas com base em cláusulas contratuais padrão e garantias adequadas de proteção.
-            </p>
-          </section>
-
-          {/* Section 10 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>10. Crianças e Adolescentes</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15 }}>
-              O MECPro não é direcionado a menores de 18 anos. Não coletamos intencionalmente dados de crianças. Se identificarmos tal coleta, os dados serão excluídos imediatamente.
-            </p>
-          </section>
-
-          {/* Section 11 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>11. Alterações nesta Política</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15 }}>
-              Podemos atualizar esta política periodicamente. Notificaremos você por e-mail sobre alterações significativas. O uso continuado da plataforma após as alterações constitui aceitação da nova política.
-            </p>
-          </section>
-
-          {/* Section 12 */}
-          <section>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: "var(--black)", marginBottom: 12, paddingBottom: 8, borderBottom: "2px solid var(--border)" }}>12. Contato</h2>
-            <p style={{ color: "var(--muted)", lineHeight: 1.7, fontSize: 15, marginBottom: 12 }}>Para dúvidas, solicitações ou reclamações relacionadas à privacidade:</p>
-            <ul style={{ listStyle: "none", padding: 0, color: "var(--muted)", lineHeight: 2, fontSize: 15 }}>
-              <li>📧 <a href="mailto:contato@mecproai.com" style={{ color: "var(--black)", fontWeight: 600 }}>contato@mecproai.com</a></li>
-              <li>📱 <a href="https://wa.me/554799465824" style={{ color: "var(--black)", fontWeight: 600 }}>(47) 99465-824</a> — Michel Leal, Gerente de Relacionamento</li>
-              <li>🌐 <a href="https://www.mecproai.com" style={{ color: "var(--black)", fontWeight: 600 }}>www.mecproai.com</a></li>
-              <li>📍 Balneário Camboriú – SC | Centro</li>
-            </ul>
-          </section>
-
+        {/* Company info box */}
+        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 12, padding: "16px 20px", marginBottom: 28, display: "flex", gap: 20, flexWrap: "wrap" }}>
+          {[
+            { label: "Razão Social", value: "MECPro Tecnologia Ltda" },
+            { label: "CNPJ", value: "13.122.473/0001-03" },
+            { label: "Endereço", value: "Rua José Damásio Duarte, 46 — Barra, Balneário Camboriú, SC" },
+            { label: "E-mail DPO", value: "contato@mecproai.com" },
+            { label: "Site", value: "www.mecproai.com" },
+          ].map(item => (
+            <div key={item.label}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 2 }}>{item.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>{item.value}</div>
+            </div>
+          ))}
         </div>
 
-        {/* Back button */}
-        <div style={{ marginTop: 56, paddingTop: 32, borderTop: "1px solid var(--border)", textAlign: "center" }}>
-          <a href="/login" style={{ display: "inline-block", padding: "12px 32px", background: "var(--black)", color: "white", borderRadius: 10, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>← Voltar ao login</a>
+        {/* Sections */}
+        {[
+          {
+            num: "1", title: "Introdução e Controlador dos Dados",
+            content: `A MECPro Tecnologia Ltda ("MECProAI", "nós", "nosso"), pessoa jurídica de direito privado inscrita no CNPJ 13.122.473/0001-03, com sede na Rua José Damásio Duarte, 46, Barra, Balneário Camboriú — SC, CEP 88330-000, é a controladora dos dados pessoais coletados por meio da plataforma MECProAI (www.mecproai.com).
+
+Esta Política de Privacidade descreve como coletamos, usamos, armazenamos e protegemos seus dados pessoais, em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018), o Regulamento Geral de Proteção de Dados da União Europeia (GDPR) e demais legislações aplicáveis.
+
+Ao utilizar nossa plataforma, você concorda com os termos desta Política. Caso não concorde, não utilize nossos serviços.`,
+          },
+          {
+            num: "2", title: "Dados Coletados",
+            content: `Coletamos os seguintes dados pessoais:
+
+**Dados fornecidos diretamente:**
+• Nome completo e e-mail (cadastro e autenticação)
+• Dados da empresa (nome, CNPJ, segmento, site)
+• Informações de pagamento (processadas por gateway seguro — não armazenamos dados de cartão)
+• Tokens de acesso a plataformas de anúncios (Meta Ads, Google Ads, TikTok Ads) fornecidos pelo usuário via OAuth 2.0
+
+**Dados coletados automaticamente:**
+• Endereço IP e dados de navegação
+• Logs de acesso e uso da plataforma
+• Cookies técnicos necessários para funcionamento
+
+**Dados de terceiros:**
+• Métricas de campanhas das contas de anúncios conectadas (acessadas via API em nome do usuário)
+• Dados públicos de anúncios de concorrentes via Meta Ads Library (dados públicos)`,
+          },
+          {
+            num: "3", title: "Finalidade do Tratamento",
+            content: `Tratamos seus dados pessoais para as seguintes finalidades:
+
+**a) Prestação dos serviços contratados:**
+• Criação e gestão de campanhas de marketing digital via IA
+• Análise de concorrentes e inteligência de mercado
+• Geração de relatórios de performance
+• Publicação de campanhas nas plataformas conectadas
+
+**b) Integração com APIs de terceiros:**
+• Meta Ads API: criação de campanhas, upload de criativos, publicação de anúncios e recuperação de métricas em nome do usuário autenticado
+• Google Ads API: criação e gestão de campanhas Search e Display, gestão de palavras-chave e relatórios de ROI em nome do usuário autenticado via OAuth 2.0
+• TikTok Ads API: criação e gestão de campanhas de vídeo
+
+**c) Melhoria contínua do serviço:**
+• Análise agregada e anonimizada de uso para aprimoramento da IA
+
+**d) Comunicações:**
+• Notificações sobre o serviço, atualizações e suporte técnico
+
+**e) Cumprimento de obrigações legais**`,
+          },
+          {
+            num: "4", title: "Base Legal para o Tratamento (LGPD)",
+            content: `O tratamento dos seus dados pessoais é realizado com base nas seguintes hipóteses legais previstas na LGPD:
+
+• **Execução de contrato** (Art. 7º, V): dados necessários para prestação dos serviços contratados
+• **Legítimo interesse** (Art. 7º, IX): melhoria dos serviços e segurança da plataforma
+• **Consentimento** (Art. 7º, I): comunicações de marketing e cookies não essenciais
+• **Cumprimento de obrigação legal** (Art. 7º, II): quando exigido por lei ou autoridade competente`,
+          },
+          {
+            num: "5", title: "Compartilhamento de Dados",
+            content: `Não vendemos, alugamos ou compartilhamos seus dados pessoais com terceiros para fins comerciais próprios.
+
+Compartilhamos dados exclusivamente nas seguintes situações:
+
+**Plataformas de anúncios (mediante autorização do usuário):**
+• Meta Platforms (Facebook/Instagram): dados de campanhas enviados via API em nome do usuário autenticado
+• Google LLC: dados de campanhas enviados via Google Ads API em nome do usuário autenticado via OAuth 2.0
+• TikTok: dados de campanhas via TikTok Ads API
+
+**Provedores de serviços essenciais:**
+• Render.com: hospedagem da plataforma (servidores nos EUA)
+• Google Cloud (Gemini AI): processamento de inteligência artificial para geração de estratégias
+
+**Autoridades competentes:**
+• Quando exigido por lei, decisão judicial ou regulação aplicável
+
+Todos os dados compartilhados com plataformas de anúncios são processados em nome e sob controle do usuário, seguindo as políticas de privacidade de cada plataforma.`,
+          },
+          {
+            num: "6", title: "Transferência Internacional de Dados",
+            content: `A MECProAI processa dados em servidores localizados nos Estados Unidos (Render.com e Google Cloud). Essa transferência é realizada com base em cláusulas contratuais padrão e mecanismos de adequação reconhecidos pela ANPD e pelo GDPR.
+
+Ao utilizar nossas integrações com Meta Ads, Google Ads e TikTok Ads, seus dados de campanha são transferidos para os servidores dessas plataformas, localizados globalmente, conforme suas respectivas políticas de privacidade.`,
+          },
+          {
+            num: "7", title: "Retenção de Dados",
+            content: `Mantemos seus dados pelo período necessário para:
+
+• Prestação dos serviços contratados (durante toda a vigência do contrato)
+• Cumprimento de obrigações legais (até 5 anos após encerramento da conta)
+• Defesa em eventuais processos judiciais ou administrativos
+
+Tokens de acesso a APIs de terceiros são armazenados de forma criptografada e eliminados imediatamente após o cancelamento da integração pelo usuário.`,
+          },
+          {
+            num: "8", title: "Segurança dos Dados",
+            content: `Adotamos medidas técnicas e organizacionais para proteger seus dados:
+
+• Criptografia em trânsito (HTTPS/TLS 1.3) e em repouso
+• Tokens de acesso armazenados de forma criptografada
+• Autenticação por JWT com expiração configurada
+• Controle de acesso por função (RBAC)
+• Logs de auditoria de operações sensíveis
+• Backups regulares com retenção controlada
+
+Em caso de incidente de segurança que afete seus dados, notificaremos você e a ANPD conforme exigido pela LGPD.`,
+          },
+          {
+            num: "9", title: "Seus Direitos como Titular (LGPD/GDPR)",
+            content: `Você tem os seguintes direitos em relação aos seus dados pessoais:
+
+• **Confirmação e acesso**: saber se tratamos seus dados e obter cópia
+• **Correção**: atualizar dados incompletos, inexatos ou desatualizados
+• **Anonimização, bloqueio ou eliminação**: de dados desnecessários ou tratados em desconformidade
+• **Portabilidade**: receber seus dados em formato estruturado
+• **Informação sobre compartilhamento**: saber com quem compartilhamos seus dados
+• **Revogação do consentimento**: a qualquer momento, sem prejuízo dos tratamentos anteriores
+• **Oposição**: contestar tratamentos realizados com base em legítimo interesse
+
+Para exercer seus direitos, entre em contato pelo e-mail: contato@mecproai.com. Responderemos em até 15 dias úteis.`,
+          },
+          {
+            num: "10", title: "Uso de Cookies",
+            content: `Utilizamos cookies técnicos essenciais para o funcionamento da plataforma (autenticação, sessão, preferências). Não utilizamos cookies de rastreamento de terceiros para fins publicitários.
+
+Ao utilizar a plataforma, você consente com o uso de cookies essenciais. Você pode configurar seu navegador para recusar cookies, mas isso pode afetar a funcionalidade da plataforma.`,
+          },
+          {
+            num: "11", title: "Encarregado de Proteção de Dados (DPO)",
+            content: `Nosso Encarregado de Proteção de Dados pode ser contatado em:
+
+**Nome:** Michel Leal de Oliveira
+**E-mail:** contato@mecproai.com
+**Endereço:** Rua José Damásio Duarte, 46, Barra, Balneário Camboriú — SC, CEP 88330-000, Brasil`,
+          },
+          {
+            num: "12", title: "Alterações nesta Política",
+            content: `Esta Política pode ser atualizada periodicamente. Notificaremos você por e-mail ou por aviso na plataforma sobre mudanças significativas. A versão mais atual estará sempre disponível em www.mecproai.com/privacy.
+
+**Última atualização:** ${updated}
+**Versão:** 3.0`,
+          },
+          {
+            num: "13", title: "Contato e Reclamações",
+            content: `Para dúvidas, solicitações ou reclamações sobre esta Política:
+
+• **E-mail:** contato@mecproai.com
+• **Endereço:** Rua José Damásio Duarte, 46, Barra, Balneário Camboriú — SC, CEP 88330-000
+• **Site:** www.mecproai.com/contact
+
+Você também pode apresentar reclamação à Autoridade Nacional de Proteção de Dados (ANPD): www.gov.br/anpd`,
+          },
+        ].map(section => (
+          <div key={section.num} style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, padding: "24px 28px", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 12 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
+                {section.num}
+              </div>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", margin: 0 }}>{section.title}</h2>
+            </div>
+            <div style={{ paddingLeft: 42 }}>
+              {section.content.split("\n").map((line, i) => {
+                if (!line.trim()) return <div key={i} style={{ height: 8 }} />;
+                const isBold = line.startsWith("**") && line.includes(":**");
+                const isBullet = line.startsWith("•");
+                return (
+                  <p key={i} style={{
+                    fontSize: 14, color: isBold ? "#0f172a" : "#475569",
+                    lineHeight: 1.7, margin: "0 0 4px",
+                    fontWeight: isBold ? 700 : 400,
+                    paddingLeft: isBullet ? 8 : 0,
+                  }}>
+                    {line.replace(/\*\*/g, "")}
+                  </p>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        {/* Footer */}
+        <div style={{ textAlign: "center", marginTop: 32, padding: "20px", background: "white", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+          <p style={{ fontSize: 13, color: "#94a3b8", margin: "0 0 8px" }}>
+            MECPro Tecnologia Ltda · CNPJ 13.122.473/0001-03
+          </p>
+          <div style={{ display: "flex", gap: 16, justifyContent: "center" }}>
+            <a href="/terms" style={{ fontSize: 13, color: "#1d4ed8", textDecoration: "none" }}>Termos de Uso</a>
+            <a href="/about" style={{ fontSize: 13, color: "#1d4ed8", textDecoration: "none" }}>Sobre nós</a>
+            <a href="/contact" style={{ fontSize: 13, color: "#1d4ed8", textDecoration: "none" }}>Contato</a>
+          </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }
