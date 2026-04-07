@@ -166,23 +166,25 @@ export default function CampaignResult() {
 
   // ── Upload de imagem via tRPC hook ───────────────────────────────────────
   const uploadImageMutation   = (trpc as any).integrations?.uploadImageToMeta?.useMutation?.() ?? { mutateAsync: null };
-  // ── Mutation para buscar formulários de leads da página ──
-  const listLeadFormsMutation = (trpc as any).campaigns?.listLeadForms?.useMutation?.({
-    onSuccess: (data: any) => {
-      setLeadForms(data?.forms || []);
-      setLoadingForms(false);
-      if (!data?.forms?.length) toast.error("Nenhum formulário encontrado. Crie um em facebook.com/ads/manager");
-    },
-    onError: (e: any) => {
-      setLoadingForms(false);
-      toast.error("Erro ao buscar formulários: " + e.message);
-    },
-  }) ?? { mutate: () => {}, isLoading: false };
-
-  function fetchLeadForms() {
+  // ── Buscar formulários de leads via fetch direto ──
+  async function fetchLeadForms() {
     if (!pageId.trim()) { toast.error("Selecione a página primeiro"); return; }
     setLoadingForms(true);
-    (listLeadFormsMutation as any).mutate({ pageId: pageId.trim() });
+    try {
+      const data = await (trpc as any).integrations?.listLeadForms?.query?.({ pageId: pageId.trim() });
+      const forms = Array.isArray(data) ? data : (data?.data ?? []);
+      setLeadForms(forms.map((f: any) => ({
+        id:          f.id,
+        name:        f.name,
+        status:      f.status || "ACTIVE",
+        leads_count: f.leads_count || 0,
+      })));
+      if (!forms.length) toast.error("Nenhum formulário encontrado. Crie um no Meta Ads Manager.");
+    } catch (e: any) {
+      toast.error("Erro ao buscar formulários: " + (e?.message || "verifique sua conexão Meta"));
+    } finally {
+      setLoadingForms(false);
+    }
   }
 
   const discoverPageIdMutation = (trpc as any).competitors?.discoverPageId?.useMutation?.({
