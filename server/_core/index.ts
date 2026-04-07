@@ -398,6 +398,215 @@ app.get('/api/auth/me', async (req: Request, res: Response) => {
 
 // ─── Serve frontend estático (SPA) ────────────────────────
 const distPath = path.join(__dirname, '../../dist/public');
+
+// ── Rotas estáticas para crawlers (Google, Meta) — sem necessidade de JS ──
+// Servidas ANTES do express.static para garantir prioridade
+const PRIVACY_HTML = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Politica de Privacidade da MECProAI — MECPro Tecnologia Ltda, CNPJ 13.122.473/0001-03">
+  <title>Politica de Privacidade — MECProAI</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; padding: 40px 24px; color: #334155; background: #f8fafc; }
+    h1 { color: #0f172a; font-size: 28px; margin-bottom: 8px; }
+    h2 { color: #0f172a; font-size: 18px; margin-top: 32px; margin-bottom: 8px; border-left: 4px solid #1d4ed8; padding-left: 12px; }
+    p { line-height: 1.7; margin: 8px 0; }
+    .header { background: #0f172a; color: white; padding: 32px; border-radius: 12px; margin-bottom: 32px; }
+    .header p { color: rgba(255,255,255,0.7); margin: 4px 0 0; font-size: 14px; }
+    .info-box { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; display: flex; flex-wrap: wrap; gap: 20px; }
+    .info-item label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; display: block; margin-bottom: 2px; }
+    .info-item span { font-size: 13px; font-weight: 600; color: #0f172a; }
+    .section { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+    .footer { text-align: center; margin-top: 32px; padding: 20px; background: white; border-radius: 10px; border: 1px solid #e2e8f0; }
+    .footer a { color: #1d4ed8; text-decoration: none; margin: 0 8px; font-size: 13px; }
+    a { color: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Politica de Privacidade</h1>
+    <p>Ultima atualizacao: 07 de abril de 2026 &middot; MECPro Tecnologia Ltda &middot; CNPJ 13.122.473/0001-03</p>
+  </div>
+
+  <div class="info-box">
+    <div class="info-item"><label>Razao Social</label><span>MECPro Tecnologia Ltda</span></div>
+    <div class="info-item"><label>CNPJ</label><span>13.122.473/0001-03</span></div>
+    <div class="info-item"><label>Endereco</label><span>Rua Jose Damasio Duarte, 46 &mdash; Barra, Balneario Camboriu, SC</span></div>
+    <div class="info-item"><label>E-mail DPO</label><span>contato@mecproai.com</span></div>
+    <div class="info-item"><label>Site</label><span>www.mecproai.com</span></div>
+  </div>
+
+  <div class="section">
+    <h2>1. Introducao e Controlador dos Dados</h2>
+    <p>A MECPro Tecnologia Ltda ("MECProAI"), inscrita no CNPJ 13.122.473/0001-03, com sede na Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000, e a controladora dos dados pessoais coletados pela plataforma MECProAI (www.mecproai.com).</p>
+    <p>Esta Politica descreve como coletamos, usamos, armazenamos e protegemos seus dados, em conformidade com a LGPD (Lei n 13.709/2018) e o GDPR.</p>
+  </div>
+
+  <div class="section">
+    <h2>2. Dados Coletados</h2>
+    <p>Coletamos: nome completo, e-mail e dados da empresa (fornecidos no cadastro); tokens de acesso OAuth 2.0 para Meta Ads, Google Ads e TikTok Ads (fornecidos pelo usuario); endereco IP, logs de acesso e cookies tecnicos essenciais.</p>
+  </div>
+
+  <div class="section">
+    <h2>3. Finalidade do Tratamento</h2>
+    <p>Utilizamos seus dados para: prestacao dos servicos contratados (criacao e gestao de campanhas de marketing via IA); integracao com APIs de terceiros (Meta Ads API, Google Ads API, TikTok Ads API) em nome do usuario autenticado via OAuth 2.0; geracao de relatorios de performance; melhoria continua da plataforma; comunicacoes sobre o servico.</p>
+  </div>
+
+  <div class="section">
+    <h2>4. Base Legal (LGPD)</h2>
+    <p>Execucao de contrato (Art. 7, V); Legitimo interesse (Art. 7, IX); Consentimento (Art. 7, I); Cumprimento de obrigacao legal (Art. 7, II).</p>
+  </div>
+
+  <div class="section">
+    <h2>5. Integracao com APIs de Terceiros</h2>
+    <p>A MECProAI integra-se com Meta Ads API, Google Ads API e TikTok Ads API mediante autorizacao expressa do usuario via OAuth 2.0. Os dados de campanha sao processados em nome e sob controle do usuario. Nao compartilhamos dados entre clientes. Todo acesso e feito exclusivamente em nome do cliente autenticado.</p>
+    <p>O uso das APIs esta sujeito aos termos de cada plataforma: <a href="https://developers.facebook.com/devpolicy">Meta Business Tools Terms</a> | <a href="https://developers.google.com/google-ads/api/terms">Google Ads API Terms</a>.</p>
+  </div>
+
+  <div class="section">
+    <h2>6. Compartilhamento de Dados</h2>
+    <p>Nao vendemos seus dados. Compartilhamos apenas com: plataformas de anuncios autorizadas pelo usuario; provedores de hospedagem (Render.com) e IA (Google Gemini); autoridades competentes quando exigido por lei.</p>
+  </div>
+
+  <div class="section">
+    <h2>7. Transferencia Internacional</h2>
+    <p>Dados processados em servidores nos EUA (Render.com, Google Cloud), com base em clausulas contratuais padrao reconhecidas pela ANPD e GDPR.</p>
+  </div>
+
+  <div class="section">
+    <h2>8. Seguranca</h2>
+    <p>Criptografia em transito (HTTPS/TLS 1.3) e em repouso; tokens OAuth armazenados de forma criptografada; autenticacao JWT; controle de acesso por funcao (RBAC); logs de auditoria.</p>
+  </div>
+
+  <div class="section">
+    <h2>9. Seus Direitos (LGPD/GDPR)</h2>
+    <p>Voce tem direito a: acesso, correcao, portabilidade, eliminacao e oposicao ao tratamento de seus dados. Para exercer seus direitos: <strong>contato@mecproai.com</strong>. Respondemos em ate 15 dias uteis.</p>
+  </div>
+
+  <div class="section">
+    <h2>10. Encarregado de Dados (DPO)</h2>
+    <p>Michel Leal de Oliveira &mdash; contato@mecproai.com &mdash; Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000, Brasil.</p>
+  </div>
+
+  <div class="section">
+    <h2>11. Contato e Reclamacoes</h2>
+    <p>E-mail: contato@mecproai.com | Site: www.mecproai.com/contact | ANPD: www.gov.br/anpd</p>
+  </div>
+
+  <div class="footer">
+    <p style="color:#94a3b8;font-size:13px;margin:0 0 8px">MECPro Tecnologia Ltda &middot; CNPJ 13.122.473/0001-03</p>
+    <a href="/terms">Termos de Uso</a>
+    <a href="/about">Sobre nos</a>
+    <a href="/contact">Contato</a>
+  </div>
+</body>
+</html>`;
+const TERMS_HTML = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Termos de Uso da MECProAI — MECPro Tecnologia Ltda, CNPJ 13.122.473/0001-03">
+  <title>Termos de Uso — MECProAI</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 860px; margin: 0 auto; padding: 40px 24px; color: #334155; background: #f8fafc; }
+    h1 { color: #0f172a; font-size: 28px; margin-bottom: 8px; }
+    h2 { color: #0f172a; font-size: 18px; margin-top: 32px; margin-bottom: 8px; border-left: 4px solid #064e3b; padding-left: 12px; }
+    p { line-height: 1.7; margin: 8px 0; }
+    .header { background: #064e3b; color: white; padding: 32px; border-radius: 12px; margin-bottom: 32px; }
+    .header p { color: rgba(255,255,255,0.7); margin: 4px 0 0; font-size: 14px; }
+    .info-box { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px; margin-bottom: 24px; display: flex; flex-wrap: wrap; gap: 20px; }
+    .info-item label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; display: block; margin-bottom: 2px; }
+    .info-item span { font-size: 13px; font-weight: 600; color: #0f172a; }
+    .section { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+    .footer { text-align: center; margin-top: 32px; padding: 20px; background: white; border-radius: 10px; border: 1px solid #e2e8f0; }
+    .footer a { color: #1d4ed8; text-decoration: none; margin: 0 8px; font-size: 13px; }
+    a { color: #1d4ed8; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Termos de Uso</h1>
+    <p>Ultima atualizacao: 07 de abril de 2026 &middot; MECPro Tecnologia Ltda &middot; CNPJ 13.122.473/0001-03</p>
+  </div>
+
+  <div class="info-box">
+    <div class="info-item"><label>Razao Social</label><span>MECPro Tecnologia Ltda</span></div>
+    <div class="info-item"><label>CNPJ</label><span>13.122.473/0001-03</span></div>
+    <div class="info-item"><label>Endereco</label><span>Rua Jose Damasio Duarte, 46 &mdash; Barra, Balneario Camboriu, SC</span></div>
+    <div class="info-item"><label>E-mail</label><span>contato@mecproai.com</span></div>
+    <div class="info-item"><label>Site</label><span>www.mecproai.com</span></div>
+  </div>
+
+  <div class="section">
+    <h2>1. Aceitacao dos Termos</h2>
+    <p>Ao acessar ou utilizar a plataforma MECProAI (www.mecproai.com), voce concorda com estes Termos de Uso. A MECPro Tecnologia Ltda, inscrita no CNPJ 13.122.473/0001-03, com sede na Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000, e a prestadora dos servicos.</p>
+  </div>
+
+  <div class="section">
+    <h2>2. Descricao dos Servicos</h2>
+    <p>A MECProAI e uma plataforma SaaS de marketing digital com inteligencia artificial que oferece: geracao automatica de campanhas via IA; analise de concorrentes; integracao com Meta Ads API, Google Ads API e TikTok Ads API para criacao e publicacao de campanhas em nome do usuario autenticado via OAuth 2.0; relatorios de performance; Academy com cursos de marketing digital.</p>
+  </div>
+
+  <div class="section">
+    <h2>3. Integracao com APIs de Terceiros</h2>
+    <p>Ao conectar suas contas de anuncios, voce autoriza a MECProAI a criar, editar e publicar campanhas em seu nome via API oficial. Os tokens de acesso sao armazenados de forma criptografada e utilizados exclusivamente para os servicos contratados. O uso esta sujeito aos termos de cada plataforma:</p>
+    <p><a href="https://developers.facebook.com/devpolicy">Meta Business Tools Terms</a> | <a href="https://developers.google.com/google-ads/api/terms">Google Ads API Terms</a> | <a href="https://ads.tiktok.com/marketing_api/terms">TikTok Ads API Terms</a></p>
+  </div>
+
+  <div class="section">
+    <h2>4. Planos e Pagamentos</h2>
+    <p>Free (gratuito) | Basic R$ 97/mes | Premium R$ 197/mes | VIP R$ 397/mes. Cobranças mensais antecipadas. Cancelamento a qualquer momento com acesso ate fim do periodo pago.</p>
+  </div>
+
+  <div class="section">
+    <h2>5. Uso Aceitavel</h2>
+    <p>Proibido: criar campanhas com conteudo ilegal ou fraudulento; violar politicas das plataformas de anuncios; tentar acessar dados de outros usuarios; fazer engenharia reversa da plataforma; revender acesso as APIs integradas sem autorizacao.</p>
+  </div>
+
+  <div class="section">
+    <h2>6. Propriedade Intelectual</h2>
+    <p>Todo o codigo, design, algoritmos e marcas da MECProAI sao propriedade exclusiva da MECPro Tecnologia Ltda. Os dados e criativos criados pelo usuario permanecem de sua propriedade.</p>
+  </div>
+
+  <div class="section">
+    <h2>7. Limitacao de Responsabilidade</h2>
+    <p>A MECProAI nao se responsabiliza por resultados especificos de campanhas, decisoes de aprovacao das plataformas de anuncios, ou alteracoes nas APIs de terceiros. Nossa responsabilidade esta limitada ao valor pago no mes do evento.</p>
+  </div>
+
+  <div class="section">
+    <h2>8. Lei Aplicavel e Foro</h2>
+    <p>Regidos pelas leis do Brasil. Foro eleito: Comarca de Balneario Camboriu &mdash; SC. Para usuarios na UE, aplicam-se adicionalmente as disposicoes do GDPR.</p>
+  </div>
+
+  <div class="section">
+    <h2>9. Contato</h2>
+    <p>E-mail: contato@mecproai.com | Endereco: Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000 | Site: www.mecproai.com/contact</p>
+  </div>
+
+  <div class="footer">
+    <p style="color:#94a3b8;font-size:13px;margin:0 0 8px">MECPro Tecnologia Ltda &middot; CNPJ 13.122.473/0001-03</p>
+    <a href="/privacy">Politica de Privacidade</a>
+    <a href="/about">Sobre nos</a>
+    <a href="/contact">Contato</a>
+  </div>
+</body>
+</html>`;
+
+app.get('/privacy', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(PRIVACY_HTML);
+});
+
+app.get('/terms', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(TERMS_HTML);
+});
+
 app.use(express.static(distPath));
 
 // SPA fallback – qualquer rota não-API retorna index.html
