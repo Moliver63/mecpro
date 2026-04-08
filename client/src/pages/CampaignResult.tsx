@@ -88,7 +88,11 @@ export default function CampaignResult() {
   const [regenerating,    setRegenerating]    = useState<string | null>(null);
   const [regenContext,    setRegenContext]     = useState("");
   const [showRegenModal,  setShowRegenModal]  = useState<string | null>(null);
-  // Formulário de leads criado no CampaignBuilder (Step 5)
+  // ── Estados formulário de leads (usados no modal) ──
+  const [leadDestination, setLeadDestination] = useState<"website" | "lead_form">("website");
+  const [leadFormId,      setLeadFormId]      = useState<string>("");
+  const [leadForms,       setLeadForms]       = useState<{id:string;name:string;status:string;leads_count:number}[]>([]);
+  const [loadingForms,    setLoadingForms]    = useState(false);
 
   // ── mutations edição ──
   const updateCreativeMutation = (trpc as any).campaigns?.updateCreative?.useMutation?.({
@@ -1514,77 +1518,14 @@ export default function CampaignResult() {
                         </span>
                       </div>
                       <div style={{ padding: 14 }}>
-                        {isLeads && (
+                                                {isLeads && (
                           <div style={{ marginBottom: 12 }}>
-                            {/* Seletor de destino */}
-                            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                              {[
-                                { value: "lead_form", label: "📋 Formulário de Leads", desc: "Nativo Meta — converte 2-3x mais" },
-                                { value: "website",   label: "🌐 Website",             desc: "Redireciona para URL externa" },
-                              ].map(opt => (
-                                <button key={opt.value}
-                                  onClick={() => setLeadDestination(opt.value as any)}
-                                  style={{
-                                    flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "pointer",
-                                    border: `2px solid ${leadDestination === opt.value ? "#1877f2" : "#e2e8f0"}`,
-                                    background: leadDestination === opt.value ? "#eff6ff" : "white",
-                                    textAlign: "left",
-                                  }}>
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: leadDestination === opt.value ? "#1877f2" : "#0f172a" }}>{opt.label}</div>
-                                  <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>{opt.desc}</div>
-                                </button>
-                              ))}
+                            <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+                              <p style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", margin: "0 0 4px" }}>📋 Campanha de Captação de Leads</p>
+                              <p style={{ fontSize: 12, color: "#3b82f6", margin: 0, lineHeight: 1.5 }}>
+                                O formulário de leads foi configurado na etapa de construção da campanha. URL de destino é opcional.
+                              </p>
                             </div>
-
-                            {/* Formulário de leads nativo */}
-                            {leadDestination === "lead_form" && (
-                              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: 14 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                                  <p style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", margin: 0 }}>📋 Selecionar Formulário de Leads</p>
-                                  <button onClick={fetchLeadForms} disabled={loadingForms}
-                                    style={{ fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 8,
-                                      background: "#1877f2", color: "white", border: "none", cursor: "pointer" }}>
-                                    {loadingForms ? "⏳ Buscando..." : "🔄 Buscar formulários"}
-                                  </button>
-                                </div>
-
-                                {leadForms.length > 0 ? (
-                                  <div>
-                                    <select className="input" style={{ width: "100%", marginBottom: 8 }}
-                                      value={leadFormId} onChange={e => setLeadFormId(e.target.value)}>
-                                      <option value="">Selecione um formulário...</option>
-                                      {leadForms.map(f => (
-                                        <option key={f.id} value={f.id}>
-                                          {f.name} — {f.leads_count} leads {f.status === "ACTIVE" ? "✅" : "⏸️"}
-                                        </option>
-                                      ))}
-                                    </select>
-                                    {leadFormId && (
-                                      <p style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>
-                                        ✅ Formulário selecionado — leads serão capturados dentro do Facebook/Instagram
-                                      </p>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <div>
-                                    <p style={{ fontSize: 12, color: "#1d4ed8", marginBottom: 8 }}>
-                                      Clique em "Buscar formulários" para listar os formulários existentes da página.
-                                    </p>
-                                    <a href="https://www.facebook.com/ads/manager/creation/creation/?campaign_objective=LEAD_GENERATION"
-                                      target="_blank" rel="noreferrer"
-                                      style={{ fontSize: 11, color: "#1877f2", fontWeight: 700 }}>
-                                      + Criar novo formulário no Meta Ads Manager →
-                                    </a>
-                                  </div>
-                                )}
-
-                                <div style={{ marginTop: 10, background: "#dbeafe", borderRadius: 8, padding: "8px 10px" }}>
-                                  <p style={{ fontSize: 11, color: "#1e40af", margin: 0, lineHeight: 1.4 }}>
-                                    💡 <strong>Por que usar formulário nativo?</strong> O usuário não sai do app — nome, email e telefone são preenchidos automaticamente pelo Facebook. Taxa de conversão 2-3x maior que landing page externa.
-                                  </p>
-                                </div>
-                              </div>
-                            )}
                           </div>
                         )}
                         {isAwareness && (
