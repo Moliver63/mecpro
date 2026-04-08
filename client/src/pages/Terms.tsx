@@ -48,13 +48,13 @@ export default function Terms() {
         {[
           {
             num: "1", title: "Aceitação dos Termos",
-            content: `Ao acessar ou utilizar a plataforma MECProAI (www.mecproai.com), você ("Usuário") concorda integralmente com estes Termos de Uso. Caso não concorde com qualquer disposição, não utilize nossos serviços.
+            content: `Ao acessar ou utilizar o aplicativo e plataforma MECProAI ("MECProAI"), disponível em www.mecproai.com, você ("Usuário") concorda integralmente com estes Termos de Uso. Caso não concorde com qualquer disposição, não utilize o aplicativo MECProAI.
 
 Estes Termos constituem um contrato vinculante entre você e a MECPro Tecnologia Ltda, pessoa jurídica de direito privado inscrita no CNPJ 13.122.473/0001-03, com sede na Rua José Damásio Duarte, 46, Barra, Balneário Camboriú — SC, CEP 88330-000.`,
           },
           {
             num: "2", title: "Descrição dos Serviços",
-            content: `A MECProAI é uma plataforma SaaS (Software as a Service) de marketing digital com inteligência artificial que oferece:
+            content: `O aplicativo MECProAI é uma plataforma SaaS (Software as a Service) de marketing digital com inteligência artificial, desenvolvida pela MECPro Tecnologia Ltda (CNPJ 13.122.473/0001-03). O aplicativo MECProAI oferece:
 
 • **Geração automática de campanhas:** criação de estratégias, copies, criativos e segmentações via IA
 • **Análise de concorrentes:** monitoramento de anúncios via Meta Ads Library e outras fontes públicas
@@ -115,7 +115,7 @@ Os preços podem ser alterados com aviso prévio de 30 dias por e-mail.`,
 O uso das APIs está sujeito aos termos de uso de cada plataforma:
 • Meta Business Tools Terms: developers.facebook.com/devpolicy
 • Google Ads API Terms: developers.google.com/google-ads/api/terms
-• TikTok Ads API Terms: ads.tiktok.com/marketing_api/terms`,
+• TikTok Ads API Terms (aplicável ao uso do aplicativo MECProAI com a plataforma TikTok For Business): ads.tiktok.com/marketing_api/terms`,
           },
           {
             num: "6", title: "Uso Aceitável",

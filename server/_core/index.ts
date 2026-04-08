@@ -440,7 +440,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 
   <div class="section">
     <h2>1. Introducao e Controlador dos Dados</h2>
-    <p>A MECPro Tecnologia Ltda ("MECProAI"), inscrita no CNPJ 13.122.473/0001-03, com sede na Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000, e a controladora dos dados pessoais coletados pela plataforma MECProAI (www.mecproai.com).</p>
+    <p>A MECPro Tecnologia Ltda, desenvolvedora do aplicativo MECProAI, inscrita no CNPJ 13.122.473/0001-03, com sede na Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000, e a controladora dos dados pessoais coletados por meio do aplicativo MECProAI (www.mecproai.com), disponivel como plataforma web.</p>
     <p>Esta Politica descreve como coletamos, usamos, armazenamos e protegemos seus dados, em conformidade com a LGPD (Lei n 13.709/2018) e o GDPR.</p>
   </div>
 
@@ -451,7 +451,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 
   <div class="section">
     <h2>3. Finalidade do Tratamento</h2>
-    <p>Utilizamos seus dados para: prestacao dos servicos contratados (criacao e gestao de campanhas de marketing via IA); integracao com APIs de terceiros (Meta Ads API, Google Ads API, TikTok Ads API) em nome do usuario autenticado via OAuth 2.0; geracao de relatorios de performance; melhoria continua da plataforma; comunicacoes sobre o servico.</p>
+    <p>O aplicativo MECProAI utiliza seus dados para: prestacao dos servicos contratados (criacao e gestao de campanhas de marketing via IA); integracao com APIs de terceiros (Meta Ads API, Google Ads API, TikTok Ads API) em nome do usuario autenticado via OAuth 2.0; geracao de relatorios de performance; melhoria continua do aplicativo MECProAI; comunicacoes sobre o servico.</p>
   </div>
 
   <div class="section">
@@ -542,7 +542,7 @@ const TERMS_HTML = `<!DOCTYPE html>
 
   <div class="section">
     <h2>1. Aceitacao dos Termos</h2>
-    <p>Ao acessar ou utilizar a plataforma MECProAI (www.mecproai.com), voce concorda com estes Termos de Uso. A MECPro Tecnologia Ltda, inscrita no CNPJ 13.122.473/0001-03, com sede na Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000, e a prestadora dos servicos.</p>
+    <p>Ao acessar ou utilizar o aplicativo MECProAI (www.mecproai.com), voce concorda com estes Termos de Uso. O aplicativo MECProAI e desenvolvido e operado pela MECPro Tecnologia Ltda (CNPJ 13.122.473/0001-03). A MECPro Tecnologia Ltda, inscrita no CNPJ 13.122.473/0001-03, com sede na Rua Jose Damasio Duarte, 46, Barra, Balneario Camboriu &mdash; SC, CEP 88330-000, e a prestadora dos servicos.</p>
   </div>
 
   <div class="section">

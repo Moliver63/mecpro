@@ -48,9 +48,9 @@ export default function Privacy() {
         {[
           {
             num: "1", title: "Introdução e Controlador dos Dados",
-            content: `A MECPro Tecnologia Ltda ("MECProAI", "nós", "nosso"), pessoa jurídica de direito privado inscrita no CNPJ 13.122.473/0001-03, com sede na Rua José Damásio Duarte, 46, Barra, Balneário Camboriú — SC, CEP 88330-000, é a controladora dos dados pessoais coletados por meio da plataforma MECProAI (www.mecproai.com).
+            content: `A MECPro Tecnologia Ltda, desenvolvedora e operadora do aplicativo e plataforma MECProAI ("MECProAI", "nós", "nosso"), pessoa jurídica de direito privado inscrita no CNPJ 13.122.473/0001-03, com sede na Rua José Damásio Duarte, 46, Barra, Balneário Camboriú — SC, CEP 88330-000, é a controladora dos dados pessoais coletados por meio do aplicativo MECProAI, acessível em www.mecproai.com e disponível como plataforma web.
 
-Esta Política de Privacidade descreve como coletamos, usamos, armazenamos e protegemos seus dados pessoais, em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018), o Regulamento Geral de Proteção de Dados da União Europeia (GDPR) e demais legislações aplicáveis.
+Esta Política de Privacidade descreve como o aplicativo MECProAI coleta, usa, armazena e protege seus dados pessoais, em conformidade com a Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018), o Regulamento Geral de Proteção de Dados da União Europeia (GDPR) e demais legislações aplicáveis, incluindo as políticas da TikTok Ads API, Meta Ads API e Google Ads API.
 
 Ao utilizar nossa plataforma, você concorda com os termos desta Política. Caso não concorde, não utilize nossos serviços.`,
           },
@@ -114,7 +114,7 @@ Compartilhamos dados exclusivamente nas seguintes situações:
 **Plataformas de anúncios (mediante autorização do usuário):**
 • Meta Platforms (Facebook/Instagram): dados de campanhas enviados via API em nome do usuário autenticado
 • Google LLC: dados de campanhas enviados via Google Ads API em nome do usuário autenticado via OAuth 2.0
-• TikTok: dados de campanhas via TikTok Ads API
+• TikTok For Business (TikTok Ads API): o aplicativo MECProAI utiliza a TikTok Ads API para criação e gestão de campanhas de vídeo, upload de criativos, segmentação de audiência e recuperação de métricas de performance, em nome do usuário autenticado
 
 **Provedores de serviços essenciais:**
 • Render.com: hospedagem da plataforma (servidores nos EUA)
