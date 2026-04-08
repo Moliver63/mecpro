@@ -88,11 +88,7 @@ export default function CampaignResult() {
   const [regenerating,    setRegenerating]    = useState<string | null>(null);
   const [regenContext,    setRegenContext]     = useState("");
   const [showRegenModal,  setShowRegenModal]  = useState<string | null>(null);
-  // ── Formulário de leads ──
-  const [leadDestination, setLeadDestination] = useState<"website" | "lead_form">("website");
-  const [leadFormId,      setLeadFormId]      = useState<string>("");
-  const [leadForms,       setLeadForms]       = useState<{id:string;name:string;status:string;leads_count:number}[]>([]);
-  const [loadingForms,    setLoadingForms]    = useState(false);
+  // Formulário de leads criado no CampaignBuilder (Step 5)
 
   // ── mutations edição ──
   const updateCreativeMutation = (trpc as any).campaigns?.updateCreative?.useMutation?.({
@@ -166,26 +162,7 @@ export default function CampaignResult() {
 
   // ── Upload de imagem via tRPC hook ───────────────────────────────────────
   const uploadImageMutation   = (trpc as any).integrations?.uploadImageToMeta?.useMutation?.() ?? { mutateAsync: null };
-  // ── Buscar formulários de leads via fetch direto ──
-  async function fetchLeadForms() {
-    if (!pageId.trim()) { toast.error("Selecione a página primeiro"); return; }
-    setLoadingForms(true);
-    try {
-      const data = await (trpc as any).integrations?.listLeadForms?.query?.({ pageId: pageId.trim() });
-      const forms = Array.isArray(data) ? data : (data?.data ?? []);
-      setLeadForms(forms.map((f: any) => ({
-        id:          f.id,
-        name:        f.name,
-        status:      f.status || "ACTIVE",
-        leads_count: f.leads_count || 0,
-      })));
-      if (!forms.length) toast.error("Nenhum formulário encontrado. Crie um no Meta Ads Manager.");
-    } catch (e: any) {
-      toast.error("Erro ao buscar formulários: " + (e?.message || "verifique sua conexão Meta"));
-    } finally {
-      setLoadingForms(false);
-    }
-  }
+
 
   const discoverPageIdMutation = (trpc as any).competitors?.discoverPageId?.useMutation?.({
     onSuccess: (data: any) => {
@@ -324,13 +301,10 @@ export default function CampaignResult() {
         imageHash:   !isCarousel ? (uploadedHash || undefined) : undefined,
         imageHashes: isCarousel ? validHashes : undefined,
         videoId:     uploadedVid  || undefined,
-        linkUrl:     (leadDestination === "website" && linkUrl.trim()) ? linkUrl.trim() : undefined,
+        linkUrl:     linkUrl.trim() || undefined,
         adSetIndex,
         placementMode,
         placements:  selectedPlacements.length > 0 ? selectedPlacements : undefined,
-        // Formulário de leads nativo
-        destination:   leadDestination,
-        leadGenFormId: leadDestination === "lead_form" && leadFormId ? leadFormId : undefined,
       } as any);
     } finally { setPublishing(false); }
   }
