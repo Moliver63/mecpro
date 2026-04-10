@@ -1335,28 +1335,59 @@ const campaignsRouter = router({
 
   generate: protectedProcedure
     .input(z.object({
-      projectId: z.number(),
-      name: z.string(),
-      objective: z.string(),
-      platform: z.string(),
-      budget: z.number(),
-      duration: z.number(),
-      extraContext: z.string().optional(),
+      projectId:       z.number(),
+      name:            z.string(),
+      objective:       z.string(),
+      platform:        z.string(),
+      budget:          z.number(),
+      duration:        z.number(),
+      extraContext:    z.string().optional(),
+      // Segmentação do CampaignBuilder
+      ageMin:          z.number().min(13).max(65).optional(),
+      ageMax:          z.number().min(18).max(65).optional(),
+      regions:         z.array(z.string()).optional(),
+      countries:       z.array(z.string()).optional(),
+      locationMode:    z.enum(["brasil","paises","raio"]).optional(),
+      geoCity:         z.string().optional(),
+      geoRadius:       z.number().optional(),
+      mediaFormat:     z.string().optional(),
+      audienceProfile: z.string().optional(),
+      leadForm:        z.any().optional(),
+      segment:         z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      // Verificar se o plano permite gerar campanhas com IA
       const check = await db.checkPlanLimit(ctx.user.id, "campaigns", { projectId: input.projectId });
       if (!check.allowed) throw new TRPCError({ code: "FORBIDDEN", message: check.reason });
       const { generateCampaign } = await import("../ai");
+      // Consolida contexto de segmentação no extraContext
+      const segmentContext = [
+        input.extraContext || "",
+        (input.regions?.length)   ? "Regioes: " + input.regions.join(", ")                         : "",
+        (input.countries?.length) ? "Paises: "  + input.countries.join(", ")                       : "",
+        input.geoCity             ? "Raio de "  + (input.geoRadius || 15) + "km em " + input.geoCity : "",
+        (input.ageMin && input.ageMax) ? "Faixa etaria: " + input.ageMin + "-" + input.ageMax + " anos" : "",
+        (input.mediaFormat && input.mediaFormat !== "mixed") ? "Formato de midia: " + input.mediaFormat : "",
+        (input.audienceProfile && input.audienceProfile !== "geral") ? "Perfil do publico: " + input.audienceProfile : "",
+        input.segment ? "Segmento: " + input.segment : "",
+      ].filter(Boolean).join(". ");
       return generateCampaign({
-        projectId: input.projectId,
-        name: input.name,
-        objective: input.objective,
-        platform: input.platform,
-        budget: input.budget,
-        duration: input.duration,
-        extraContext: input.extraContext,
-      });
+        projectId:    input.projectId,
+        name:         input.name,
+        objective:    input.objective,
+        platform:     input.platform,
+        budget:       input.budget,
+        duration:     input.duration,
+        extraContext: segmentContext,
+        ageMin:       input.ageMin,
+        ageMax:       input.ageMax,
+        regions:      input.regions,
+        countries:    input.countries,
+        locationMode: input.locationMode,
+        geoCity:      input.geoCity,
+        geoRadius:    input.geoRadius,
+        mediaFormat:  input.mediaFormat,
+        leadForm:     input.leadForm,
+      } as any);
     }),
 
   publishToMeta: protectedProcedure
