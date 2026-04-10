@@ -1460,7 +1460,8 @@ const campaignsRouter = router({
       }
       function toBillingEvent(obj: string) {
         const o = (obj || "").toLowerCase();
-        if (o === "engagement") return "POST_ENGAGEMENT";
+        // billing_event IMPRESSIONS para todos (POST_ENGAGEMENT causa erro Meta 1815117)
+        return "IMPRESSIONS";
         if (o === "branding")   return "IMPRESSIONS";
         if (o === "leads")      return "IMPRESSIONS";      // Lead Generation usa IMPRESSIONS
         return "IMPRESSIONS";
