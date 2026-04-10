@@ -2939,6 +2939,82 @@ export default function CompetitorAnalysis() {
               </>
             )}
 
+            {/* ── Tabela comparativa de gasto dos concorrentes ── */}
+            {(competitors?.length || 0) > 1 && !adding && (
+              <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, padding: 18, marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{"💰"}</div>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Estimativa de Investimento em Tráfego Pago</p>
+                    <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Baseado em anúncios ativos, dias no ar, formato e CPM do nicho</p>
+                  </div>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc" }}>
+                        {["Concorrente", "Anúncios", "Dias no ar", "Formato", "Gasto estimado/mês", "Confiança"].map((h: string) => (
+                          <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontWeight: 700, color: "var(--muted)", fontSize: 11, textTransform: "uppercase" as const, borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" as const }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(competitors || []).map((comp: any) => {
+                        const compAds   = comp.scrapedAds || [];
+                        if (compAds.length === 0) return (
+                          <tr key={comp.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                            <td style={{ padding: "10px 12px", fontWeight: 600 }}>{comp.name}</td>
+                            <td colSpan={5} style={{ padding: "10px 12px", color: "var(--muted)", fontSize: 11 }}>Sem anúncios — analise o concorrente primeiro</td>
+                          </tr>
+                        );
+                        const activeC  = compAds.filter((a: any) => a.isActive || a.isActive === 1).length;
+                        const now3     = Date.now();
+                        const daysC    = compAds.filter((a: any) => a.startDate).map((a: any) =>
+                          Math.max(1, Math.round((now3 - new Date(a.startDate).getTime()) / 86400000)));
+                        const avgDC    = daysC.length > 0 ? Math.round(daysC.reduce((s: number, d: number) => s + d, 0) / daysC.length) : 30;
+                        const fmtsC    = compAds.map((a: any) => (a.adType || "image") as string);
+                        const vidC     = fmtsC.filter((f: string) => f.toLowerCase().includes("video")).length;
+                        const isVidC   = vidC > fmtsC.length * 0.5;
+                        const multC    = isVidC ? 1.4 : 1.0;
+                        const mfC      = 30 / Math.min(Math.max(avgDC, 1), 90);
+                        const daily    = isVidC ? 800 : 500;
+                        const spMin    = Math.round((Math.max(activeC,1) * avgDC * daily * 0.7 * 10 * multC / 1000) * mfC);
+                        const spMax    = Math.round((Math.max(activeC,1) * avgDC * daily * 1.3 * 25 * multC / 1000) * mfC);
+                        const conf     = activeC >= 10 && daysC.length >= 5 ? "alta" : activeC >= 3 ? "média" : "baixa";
+                        const confClr  = conf === "alta" ? "#166534" : conf === "média" ? "#92400e" : "#64748b";
+                        const confBg2  = conf === "alta" ? "#dcfce7" : conf === "média" ? "#fef3c7" : "#f1f5f9";
+                        return (
+                          <tr key={comp.id} style={{ borderBottom: "1px solid var(--border)", cursor: "pointer" }}
+                            onClick={() => setSelected((selected === comp.id ? null : comp.id) as any)}>
+                            <td style={{ padding: "10px 12px", fontWeight: 700, color: "var(--black)" }}>{comp.name}</td>
+                            <td style={{ padding: "10px 12px", color: "var(--dark)" }}>{activeC}/{compAds.length}</td>
+                            <td style={{ padding: "10px 12px", color: "var(--dark)" }}>{avgDC}d</td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: isVidC ? "#ede9fe" : "#f0fdf4", color: isVidC ? "#7c3aed" : "#166534", fontWeight: 700 }}>
+                                {isVidC ? "🎥 Vídeo" : "🖼️ Imagem"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span style={{ fontWeight: 800, color: "#0f172a", fontSize: 13 }}>
+                                {"R$ " + spMin.toLocaleString("pt-BR") + " – R$ " + spMax.toLocaleString("pt-BR")}
+                              </span>
+                              <span style={{ fontSize: 10, color: "var(--muted)", display: "block" }}>/mês</span>
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: confBg2, color: confClr, fontWeight: 700 }}>{conf}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p style={{ fontSize: 10, color: "var(--muted)", marginTop: 8 }}>
+                  {"⚠️ Estimativa baseada em dados públicos da Meta Ads Library. Valores reais podem variar."}
+                </p>
+              </div>
+            )}
+
             {/* Lista de concorrentes */}
             {(competitors?.length || 0) > 0 && (
               <div>
