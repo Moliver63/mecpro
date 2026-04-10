@@ -244,6 +244,13 @@ export default function CampaignBuilder() {
     ageMax:     65,               // faixa etária máxima
     mediaFormat: "mixed" as "horizontal" | "vertical" | "square" | "mixed", // tipo de mídia
     audienceProfile: "moradia" as "moradia" | "investidor" | "geral",       // perfil do público
+    // Campos de localização internacional
+    countries:    [] as string[],   // países selecionados
+    locationMode: "brasil" as "brasil" | "paises" | "raio",  // modo de localização
+    geoCity:      "",               // cidade para raio
+    geoRadius:    15,               // raio em km
+    // Formulário de leads (Step 5)
+    leadForm:     null as any,      // dados do formulário de leads
   });
 
   // Nicho atual para recomendação de inteligência
@@ -283,6 +290,7 @@ export default function CampaignBuilder() {
       await generate.mutateAsync({
         projectId,
         ...form,
+        segment,
         extraContext: [
           form.extraContext,
           form.regions.length > 0 ? `Região de atuação: ${form.regions.join(', ')}` : '',
