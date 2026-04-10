@@ -1439,7 +1439,7 @@ const campaignsRouter = router({
         if (o === "leads")      return "LEAD_GENERATION";
         // OUTCOME_SALES: com pixel → OFFSITE_CONVERSIONS; sem pixel → LANDING_PAGE_VIEWS
         if (o === "sales")      return pixelId ? "OFFSITE_CONVERSIONS" : "LANDING_PAGE_VIEWS";
-        if (o === "engagement") return "POST_ENGAGEMENT";
+        if (o === "engagement") return "ENGAGED_USERS";  // POST_ENGAGEMENT causa erro 2490408
         if (o === "branding")   return "REACH";
         if (o === "traffic")    return "LINK_CLICKS";
         return "LINK_CLICKS";
