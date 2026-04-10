@@ -352,6 +352,22 @@ const clientProfileRouter = router({
 const competitorsRouter = router({
   list: protectedProcedure.input(z.object({ projectId: z.number() })).query(({ input }) => db.getCompetitorsByProjectId(input.projectId)),
 
+  // -- Estima gasto mensal do concorrente em trafego pago --
+  estimateSpend: protectedProcedure
+    .input(z.object({ competitorId: z.number(), projectId: z.number() }))
+    .query(async ({ input }) => {
+      const { estimateCompetitorSpend } = await import('../ai.js');
+      const ads     = await db.getAdsByCompetitorId(input.competitorId);
+      if (!ads || ads.length === 0) return {
+        monthlyMin: 0, monthlyMax: 0, monthlyMid: 0, confidence: 'baixa',
+        methodology: 'Sem anuncios suficientes para estimar.',
+        breakdown: { activeAds: 0, avgDaysRunning: 0, dominantFormat: '-', impressionRange: '-', cpmUsed: [0,0], estimatedImpressions: [0,0] },
+      };
+      const profile = await db.getClientProfileByProjectId(input.projectId);
+      const niche   = (profile as any)?.niche || 'default';
+      return estimateCompetitorSpend(ads, niche);
+    }),
+
   // -- Verifica se um @handle do Instagram existe e retorna dados públicos --
   verifyInstagram: protectedProcedure
     .input(z.object({ handle: z.string() }))
