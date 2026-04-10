@@ -459,6 +459,130 @@ function resolveNicheBenchmarks(niche: string) {
   return MARKET_NICHE_BENCHMARKS["default"];
 }
 
+// ── Motor de Estimativa de Gasto do Concorrente ───────────────────────────────
+// Baseado em dados públicos da Meta Ads Library:
+// - Número de anúncios ativos
+// - Tempo de veiculação (dias no ar)
+// - Formato dos criativos (vídeo = CPM maior)
+// - Faixa de impressões reportada pela Meta
+// - CPM médio do nicho
+
+export function estimateCompetitorSpend(ads: any[], niche: string): {
+  monthlyMin:    number;
+  monthlyMax:    number;
+  monthlyMid:    number;
+  confidence:    "alta" | "media" | "baixa";
+  methodology:   string;
+  breakdown: {
+    activeAds:       number;
+    avgDaysRunning:  number;
+    dominantFormat:  string;
+    impressionRange: string;
+    cpmUsed:         [number, number];
+    estimatedImpressions: [number, number];
+  };
+} {
+  const benchmarks = resolveNicheBenchmarks(niche);
+  const now = Date.now();
+
+  // 1. Filtra anúncios ativos
+  const activeAds = ads.filter(a => a.isActive || a.isActive === 1);
+  const totalAds  = activeAds.length || ads.length;
+
+  // 2. Calcula dias médios de veiculação
+  const daysRunning = ads
+    .filter(a => a.startDate)
+    .map(a => Math.max(1, Math.round((now - new Date(a.startDate).getTime()) / (1000 * 60 * 60 * 24))));
+  const avgDays = daysRunning.length > 0
+    ? Math.round(daysRunning.reduce((s, d) => s + d, 0) / daysRunning.length)
+    : 30;
+
+  // 3. Formato dominante (vídeo = CPM 30-50% maior)
+  const formats = ads.map(a => a.adType || a.format || "image");
+  const videoCount = formats.filter(f => f.toLowerCase().includes("video") || f === "VIDEO").length;
+  const dominantFormat = videoCount > formats.length * 0.5 ? "video" : "image";
+  const formatMultiplier = dominantFormat === "video" ? 1.4 : 1.0;
+
+  // 4. Estima impressões por faixa reportada pela Meta
+  // Meta reporta: "<1K", "1K-4.9K", "5K-9.9K", "10K-49.9K", "50K-199.9K", "200K-499.9K", "500K+"
+  const impressionRanges: Record<string, [number, number]> = {
+    "< 1000":    [100,    999],
+    "1000-4999": [1000,   4999],
+    "5000-9999": [5000,   9999],
+    "10000-49999": [10000, 49999],
+    "50000-199999": [50000, 199999],
+    "200000-499999": [200000, 499999],
+    "500000+":   [500000, 2000000],
+  };
+
+  // Pega a faixa de impressões mais comum nos anúncios
+  const impressionFaixas = ads
+    .map(a => a.impressions || a.impressionRange || "")
+    .filter(Boolean);
+
+  let estImpMin = 0;
+  let estImpMax = 0;
+  let impressionLabel = "Não informado";
+
+  if (impressionFaixas.length > 0) {
+    // Soma os ranges de impressões de todos os anúncios
+    for (const faixa of impressionFaixas) {
+      for (const [key, [min, max]] of Object.entries(impressionRanges)) {
+        if (faixa.includes(key) || (typeof faixa === "string" && faixa.replace(/[^0-9]/g, "") >= String(min))) {
+          estImpMin += min;
+          estImpMax += max;
+          break;
+        }
+      }
+    }
+    impressionLabel = `~${(estImpMin / 1000).toFixed(0)}K – ${(estImpMax / 1000).toFixed(0)}K impressões`;
+  } else {
+    // Fallback: estima por número de anúncios ativos × dias × impressões médias diárias por formato
+    const dailyImprPerAd = dominantFormat === "video" ? 800 : 500;
+    estImpMin = totalAds * avgDays * dailyImprPerAd * 0.7;
+    estImpMax = totalAds * avgDays * dailyImprPerAd * 1.3;
+    impressionLabel = "Estimado por volume de anúncios";
+  }
+
+  // 5. Calcula gasto estimado: Impressões × CPM / 1000
+  const [cpmMin, cpmMax] = benchmarks.cpm;
+  const cpmAdjMin = cpmMin * formatMultiplier;
+  const cpmAdjMax = cpmMax * formatMultiplier;
+
+  const spendMin = Math.round((estImpMin * cpmAdjMin) / 1000);
+  const spendMax = Math.round((estImpMax * cpmAdjMax) / 1000);
+  const spendMid = Math.round((spendMin + spendMax) / 2);
+
+  // 6. Normaliza para mensal (30 dias)
+  const monthlyFactor = avgDays > 0 ? 30 / Math.min(avgDays, 90) : 1;
+  const monthlyMin = Math.round(spendMin * monthlyFactor);
+  const monthlyMax = Math.round(spendMax * monthlyFactor);
+  const monthlyMid = Math.round(spendMid * monthlyFactor);
+
+  // 7. Confiança baseada na quantidade de dados
+  const confidence: "alta" | "media" | "baixa" =
+    totalAds >= 10 && daysRunning.length >= 5 ? "alta" :
+    totalAds >= 3  && daysRunning.length >= 2 ? "media" : "baixa";
+
+  return {
+    monthlyMin,
+    monthlyMax,
+    monthlyMid,
+    confidence,
+    methodology: `Estimativa baseada em ${totalAds} anúncios (${activeAds.length} ativos), ` +
+      `média de ${avgDays} dias no ar, formato dominante: ${dominantFormat}, ` +
+      `CPM do nicho ${benchmarks.label}: R$ ${cpmAdjMin.toFixed(0)}-${cpmAdjMax.toFixed(0)}/mil impressões.`,
+    breakdown: {
+      activeAds:            activeAds.length,
+      avgDaysRunning:       avgDays,
+      dominantFormat,
+      impressionRange:      impressionLabel,
+      cpmUsed:              [Math.round(cpmAdjMin), Math.round(cpmAdjMax)],
+      estimatedImpressions: [Math.round(estImpMin), Math.round(estImpMax)],
+    },
+  };
+}
+
 function fmtRange(range: [number, number], prefix = "R$ "): string {
   return `${prefix}${range[0].toFixed(2).replace(".", ",")} — ${prefix}${range[1].toFixed(2).replace(".", ",")}`;
 }
