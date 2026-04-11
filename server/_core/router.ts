@@ -2495,6 +2495,7 @@ const integrationsRouter = router({
       if (!devToken2) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
 
       // Usa listAccessibleCustomers para verificar acesso sem precisar de customer ID específico
+      log.info("google", "testGoogle attempt", { customerId2, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken });
       const gaUrl = "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers";
       const resp = await fetch(gaUrl, {
         method: "GET",
