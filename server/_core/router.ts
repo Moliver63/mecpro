@@ -2487,30 +2487,36 @@ const integrationsRouter = router({
       const [integration] = await _drz!.select().from(integrations)
         .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google não encontrada" });
-      const accessToken  = await getGoogleAccessToken(integration as any);
-      const customerId2  = (integration.accountId ?? "").replace(/-/g, "");
-      const devToken2    = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
-      if (!customerId2)  throw new TRPCError({ code: "BAD_REQUEST", message: "Customer ID não configurado" });
-      if (!devToken2)    throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
-      const gaUrl = `https://googleads.googleapis.com/v18/customers/${customerId2}/googleAds:search`;
+
+      const accessToken = await getGoogleAccessToken(integration as any);
+      const customerId2 = (integration.accountId ?? "").replace(/-/g, "");
+      const devToken2   = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
+
+      if (!devToken2) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
+
+      // Usa listAccessibleCustomers para verificar acesso sem precisar de customer ID específico
+      const gaUrl = "https://googleads.googleapis.com/v18/customers:listAccessibleCustomers";
       const resp = await fetch(gaUrl, {
-        method: "POST",
+        method: "GET",
         headers: {
-          "Authorization":      `Bearer ${accessToken}`,
-          "developer-token":    devToken2,
-          "login-customer-id":  customerId2,
-          "Content-Type":       "application/json",
+          "Authorization":   `Bearer ${accessToken}`,
+          "developer-token": devToken2,
+          ...(customerId2 ? { "login-customer-id": customerId2 } : {}),
+          "Content-Type":    "application/json",
         },
-        body: JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" }),
         signal: AbortSignal.timeout(10000),
       });
       const info: any = await resp.json().catch(() => ({}));
       if (!resp.ok || info.error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `Token inválido: ${info.error?.message || `HTTP ${resp.status}`}` });
       }
-      const customerName = info.results?.[0]?.customer?.descriptiveName || `Google Ads ${customerId2}`;
-      return { name: customerName, accountId: integration.accountId };
+      const resourceNames: string[] = info.resourceNames || [];
+      const customerName = resourceNames.length > 0
+        ? `Google Ads MCC — ${resourceNames.length} conta(s) acessível(is)`
+        : `Google Ads ${customerId2}`;
+      return { name: customerName, accountId: integration.accountId, customers: resourceNames };
     }),
+
 
   upsertMeta: protectedProcedure
     .input(z.object({
