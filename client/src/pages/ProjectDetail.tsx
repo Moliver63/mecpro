@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useLocation, useParams } from "wouter";
+import { toast } from "sonner";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 
@@ -17,17 +19,66 @@ export default function ProjectDetail() {
   const { data: profile } = trpc.clientProfile.get.useQuery({ projectId: id }, { enabled: !!id });
   const { data: competitors = [] } = trpc.competitors.list.useQuery({ projectId: id }, { enabled: !!id });
   const { data: campaigns = [] } = trpc.campaigns.list.useQuery({ projectId: id }, { enabled: !!id });
+  const deleteProject = (trpc as any).projects?.delete?.useMutation?.({
+    onSuccess: () => setLocation("/projects"),
+    onError: (e: any) => alert("Erro ao deletar: " + e.message),
+  }) ?? { mutate: () => {} };
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (isLoading) return <Layout><div style={{ textAlign: "center", padding: 60, color: "var(--muted)" }}>Carregando...</div></Layout>;
   if (!project) return <Layout><div style={{ textAlign: "center", padding: 60, color: "var(--muted)" }}>Projeto não encontrado</div></Layout>;
 
-  const progress = [!!profile, competitors.length > 0, false, campaigns.length > 0];
+  // Módulo 3: Análise de mercado concluída se tem dados reais
+  const hasMarket = !!(project as any)?.marketAnalysis || (campaigns as any[]).length > 0;
+  // Módulo 4: Campanha publicada se tem publishedAdId ou publishStatus
+  const hasCampaignPublished = (campaigns as any[]).some((c: any) =>
+    c.publishedAdId || c.publishStatus === "published" || c.metaCampaignId || c.googleCampaignId
+  );
+  const hasCampaign = (campaigns as any[]).length > 0;
+
+  const progress = [
+    !!profile,                          // M1: Perfil do cliente
+    (competitors as any[]).length > 0,  // M2: Concorrentes analisados
+    hasMarket,                          // M3: Mercado analisado
+    hasCampaign,                        // M4: Campanha gerada
+  ];
   const pct = Math.round((progress.filter(Boolean).length / 4) * 100);
+
+  // Publicação: verifica se foi publicado em alguma plataforma
+  const publishedMeta    = (campaigns as any[]).some((c: any) => c.metaCampaignId || c.publishedAdId);
+  const publishedGoogle  = (campaigns as any[]).some((c: any) => c.googleCampaignId);
+  const publishedTikTok  = (campaigns as any[]).some((c: any) => c.tiktokCampaignId);
+  const totalPublished   = [publishedMeta, publishedGoogle, publishedTikTok].filter(Boolean).length;
+  const publishPct       = hasCampaign ? Math.round((totalPublished / 3) * 100) : 0;
 
   return (
     <Layout>
+      {/* Modal de confirmação de delete */}
+      {confirmDelete && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "white", borderRadius: 16, padding: 32, maxWidth: 400, width: "90%", textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🗑️</div>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>Deletar projeto?</h3>
+            <p style={{ fontSize: 14, color: "#64748b", marginBottom: 24, lineHeight: 1.5 }}>
+              Esta ação é irreversível. Todos os dados do projeto, concorrentes e campanhas serão deletados permanentemente.
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button onClick={() => setConfirmDelete(false)}
+                style={{ padding: "10px 24px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontWeight: 600 }}>
+                Cancelar
+              </button>
+              <button onClick={() => { deleteProject.mutate({ id }); setConfirmDelete(false); }}
+                style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: "#ef4444", color: "white", cursor: "pointer", fontWeight: 700 }}>
+                Sim, deletar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom: 24 }}>
-        <button className="btn btn-sm btn-ghost" onClick={() => setLocation("/projects")} style={{ paddingLeft: 0, marginBottom: 12 }}>← Projetos</button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => setLocation("/projects")} style={{ paddingLeft: 0 }}>← Projetos</button>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>{project.name}</h1>
@@ -46,6 +97,31 @@ export default function ProjectDetail() {
           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--green-d)" }}>{pct}%</span>
         </div>
         <div className="progress"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
+        {/* Indicadores de publicação por plataforma */}
+        {hasCampaign && (
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700,
+              background: publishedMeta ? "#dcfce7" : "#f1f5f9",
+              color: publishedMeta ? "#166534" : "#94a3b8" }}>
+              {publishedMeta ? "✅" : "⭕"} Meta Ads
+            </span>
+            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700,
+              background: publishedGoogle ? "#dcfce7" : "#f1f5f9",
+              color: publishedGoogle ? "#166534" : "#94a3b8" }}>
+              {publishedGoogle ? "✅" : "⭕"} Google Ads
+            </span>
+            <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700,
+              background: publishedTikTok ? "#dcfce7" : "#f1f5f9",
+              color: publishedTikTok ? "#166534" : "#94a3b8" }}>
+              {publishedTikTok ? "✅" : "⭕"} TikTok Ads
+            </span>
+            {totalPublished > 0 && (
+              <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8" }}>
+                📊 {publishPct}% publicado
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Modules */}
