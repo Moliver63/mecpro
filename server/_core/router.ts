@@ -2494,29 +2494,55 @@ const integrationsRouter = router({
 
       if (!devToken2) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
 
-      // Usa listAccessibleCustomers para verificar acesso sem precisar de customer ID específico
       log.info("google", "testGoogle attempt", { customerId2, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken });
-      const gaUrl = "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers";
+
+      // Tenta buscar info do customer diretamente
+      const gaUrl = `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:search`;
       const resp = await fetch(gaUrl, {
-        method: "GET",
+        method: "POST",
         headers: {
-          "Authorization":   `Bearer ${accessToken}`,
-          "developer-token": devToken2,
-          ...(customerId2 ? { "login-customer-id": customerId2 } : {}),
-          "Content-Type":    "application/json",
+          "Authorization":      `Bearer ${accessToken}`,
+          "developer-token":    devToken2,
+          "login-customer-id":  customerId2,
+          "Content-Type":       "application/json",
         },
-        signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name, customer.status FROM customer LIMIT 1" }),
+        signal: AbortSignal.timeout(15000),
       });
+
       const info: any = await resp.json().catch(() => ({}));
+      log.info("google", "testGoogle response", { status: resp.status, error: info?.error?.message, results: info?.results?.length });
+
+      if (resp.status === 403) {
+        // 403 = token válido mas sem permissão neste customer — isso é normal para MCC
+        // Tenta listAccessibleCustomers como fallback
+        const fallbackUrl = "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers";
+        const fallbackResp = await fetch(fallbackUrl, {
+          method: "GET",
+          headers: {
+            "Authorization":   `Bearer ${accessToken}`,
+            "developer-token": devToken2,
+            "Content-Type":    "application/json",
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+        const fallbackInfo: any = await fallbackResp.json().catch(() => ({}));
+        log.info("google", "testGoogle fallback", { status: fallbackResp.status, customers: fallbackInfo?.resourceNames?.length });
+
+        if (fallbackResp.ok && fallbackInfo.resourceNames?.length > 0) {
+          return { name: `Google Ads MCC — ${fallbackInfo.resourceNames.length} conta(s)`, accountId: integration.accountId };
+        }
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Acesso negado: ${fallbackInfo?.error?.message || "verifique permissões do MCC"}` });
+      }
+
       if (!resp.ok || info.error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `Token inválido: ${info.error?.message || `HTTP ${resp.status}`}` });
       }
-      const resourceNames: string[] = info.resourceNames || [];
-      const customerName = resourceNames.length > 0
-        ? `Google Ads MCC — ${resourceNames.length} conta(s) acessível(is)`
-        : `Google Ads ${customerId2}`;
-      return { name: customerName, accountId: integration.accountId, customers: resourceNames };
+
+      const customerName = info.results?.[0]?.customer?.descriptiveName || `Google Ads ${customerId2}`;
+      return { name: customerName, accountId: integration.accountId };
     }),
+
 
 
   upsertMeta: protectedProcedure
