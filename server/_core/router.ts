@@ -2062,7 +2062,7 @@ const campaignsRouter = router({
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
 
       const developerToken = integration.developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
-      const customerId     = integration.accountId ?? "";
+      const customerId     = (integration.accountId ?? "").replace(/-/g, "").trim();
       if (!developerToken) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer token não configurado" });
       if (!customerId)     throw new TRPCError({ code: "BAD_REQUEST", message: "Customer ID não configurado" });
 
