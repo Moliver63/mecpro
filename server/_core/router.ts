@@ -2488,45 +2488,53 @@ const integrationsRouter = router({
         .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google não encontrada" });
 
-      const accessToken  = await getGoogleAccessToken(integration as any);
-      const customerId2  = (integration.accountId ?? "").replace(/-/g, "").trim();
-      const devToken2    = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
+      const accessToken = await getGoogleAccessToken(integration as any);
+      const customerId2 = (integration.accountId ?? "").replace(/-/g, "").trim();
+      const devToken2   = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
 
       if (!devToken2) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
 
-      log.info("google", "testGoogle attempt", { customerId2, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken, tokenPrefix: accessToken?.slice(0,20) });
+      log.info("google", "testGoogle attempt", { customerId2, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken });
 
-      // Usa o endpoint correto da Google Ads API REST
-      const gaUrl = `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:searchStream`;
+      // Endpoint correto da Google Ads API REST v19
+      const gaUrl = `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:search`;
       const resp = await fetch(gaUrl, {
         method: "POST",
         headers: {
-          "Authorization":      `Bearer ${accessToken}`,
-          "developer-token":    devToken2,
-          "login-customer-id":  customerId2,
-          "Content-Type":       "application/json",
-          "x-goog-api-version": "19",
+          "Authorization":   `Bearer ${accessToken}`,
+          "developer-token": devToken2,
+          "login-customer-id": customerId2,
+          "Content-Type":    "application/json",
         },
-        body: JSON.stringify({ query: "SELECT customer.id FROM customer LIMIT 1" }),
+        body: JSON.stringify({
+          query: "SELECT customer.id, customer.descriptive_name, customer.status FROM customer LIMIT 1"
+        }),
         signal: AbortSignal.timeout(15000),
       });
 
       const rawText = await resp.text();
-      log.info("google", "testGoogle response", { status: resp.status, bodyStart: rawText.slice(0, 400) });
+      log.info("google", "testGoogle response", { status: resp.status, body: rawText.slice(0, 400) });
 
       if (resp.ok) {
-        return { name: `Google Ads MCC ${customerId2} ✅`, accountId: integration.accountId };
+        try {
+          const data = JSON.parse(rawText);
+          const name = data.results?.[0]?.customer?.descriptiveName || `Google Ads ${customerId2}`;
+          return { name, accountId: integration.accountId };
+        } catch {
+          return { name: `Google Ads ${customerId2}`, accountId: integration.accountId };
+        }
       }
 
-      // Tenta parsear erro JSON
+      // Tenta parsear erro
       let errMsg = `HTTP ${resp.status}`;
       try {
         const errJson = JSON.parse(rawText);
-        errMsg = errJson?.error?.message || errJson?.[0]?.error?.message || errMsg;
+        errMsg = errJson?.error?.message || errJson?.error?.details?.[0]?.message || errMsg;
       } catch {}
 
       throw new TRPCError({ code: "BAD_REQUEST", message: `Token inválido: ${errMsg}` });
     }),
+
 
 
 
