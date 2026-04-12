@@ -251,8 +251,6 @@ async function googleAdsPost<T>(
   return await resp.json() as T;
 }
 
-  return await resp.json() as T;
-}
 
 
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
