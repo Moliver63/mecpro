@@ -2491,66 +2491,43 @@ const integrationsRouter = router({
       const accessToken  = await getGoogleAccessToken(integration as any);
       const customerId2  = (integration.accountId ?? "").replace(/-/g, "").trim();
       const devToken2    = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
-      const mccId        = process.env.GOOGLE_ADS_CUSTOMER_ID?.replace(/-/g, "") || "3856992760";
 
       if (!devToken2) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
 
-      log.info("google", "testGoogle attempt", { customerId2, mccId, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken });
+      log.info("google", "testGoogle attempt", { customerId2, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken, tokenPrefix: accessToken?.slice(0,20) });
 
-      // Tenta 1: customer direto sem login-customer-id
-      const urls = [
-        { url: `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:search`, loginId: customerId2 },
-        { url: `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:search`, loginId: mccId },
-        { url: `https://googleads.googleapis.com/v19/customers/${mccId}/googleAds:search`, loginId: mccId },
-      ];
-
-      let lastStatus = 0;
-      let lastBody = "";
-
-      for (const { url, loginId } of urls) {
-        const resp = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Authorization":      `Bearer ${accessToken}`,
-            "developer-token":    devToken2,
-            "login-customer-id":  loginId,
-            "Content-Type":       "application/json",
-          },
-          body: JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" }),
-          signal: AbortSignal.timeout(10000),
-        });
-
-        const info: any = await resp.json().catch(() => ({}));
-        lastStatus = resp.status;
-        lastBody = JSON.stringify(info).slice(0, 300);
-
-        log.info("google", "testGoogle try", { url: url.slice(0, 80), loginId, status: resp.status, body: lastBody });
-
-        if (resp.ok && !info.error) {
-          const customerName = info.results?.[0]?.customer?.descriptiveName || `Google Ads ${customerId2}`;
-          return { name: customerName, accountId: integration.accountId };
-        }
-      }
-
-      // Fallback: listAccessibleCustomers sem login-customer-id
-      const fallbackResp = await fetch("https://googleads.googleapis.com/v19/customers:listAccessibleCustomers", {
-        method: "GET",
+      // Usa o endpoint correto da Google Ads API REST
+      const gaUrl = `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:searchStream`;
+      const resp = await fetch(gaUrl, {
+        method: "POST",
         headers: {
-          "Authorization":   `Bearer ${accessToken}`,
-          "developer-token": devToken2,
-          "Content-Type":    "application/json",
+          "Authorization":      `Bearer ${accessToken}`,
+          "developer-token":    devToken2,
+          "login-customer-id":  customerId2,
+          "Content-Type":       "application/json",
+          "x-goog-api-version": "19",
         },
-        signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({ query: "SELECT customer.id FROM customer LIMIT 1" }),
+        signal: AbortSignal.timeout(15000),
       });
-      const fallbackInfo: any = await fallbackResp.json().catch(() => ({}));
-      log.info("google", "testGoogle fallback", { status: fallbackResp.status, body: JSON.stringify(fallbackInfo).slice(0, 300) });
 
-      if (fallbackResp.ok && fallbackInfo.resourceNames?.length > 0) {
-        return { name: `Google Ads — ${fallbackInfo.resourceNames.length} conta(s) acessível(is)`, accountId: integration.accountId };
+      const rawText = await resp.text();
+      log.info("google", "testGoogle response", { status: resp.status, bodyStart: rawText.slice(0, 400) });
+
+      if (resp.ok) {
+        return { name: `Google Ads MCC ${customerId2} ✅`, accountId: integration.accountId };
       }
 
-      throw new TRPCError({ code: "BAD_REQUEST", message: `Token inválido: HTTP ${lastStatus} — ${lastBody}` });
+      // Tenta parsear erro JSON
+      let errMsg = `HTTP ${resp.status}`;
+      try {
+        const errJson = JSON.parse(rawText);
+        errMsg = errJson?.error?.message || errJson?.[0]?.error?.message || errMsg;
+      } catch {}
+
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Token inválido: ${errMsg}` });
     }),
+
 
 
 
