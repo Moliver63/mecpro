@@ -2497,6 +2497,13 @@ const integrationsRouter = router({
       log.info("google", "testGoogle attempt", { customerId2, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken });
 
       // Endpoint correto da Google Ads API REST v19
+      // Teste de conectividade
+      try {
+        const pingResp = await fetch("https://googleads.googleapis.com/", { method: "GET", signal: AbortSignal.timeout(5000) });
+        log.info("google", "connectivity test", { status: pingResp.status, ok: pingResp.ok });
+      } catch (pingErr: any) {
+        log.error("google", "connectivity FAILED", { error: pingErr.message });
+      }
       const gaUrl = `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:search`;
       const resp = await fetch(gaUrl, {
         method: "POST",
