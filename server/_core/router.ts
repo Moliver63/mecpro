@@ -2511,7 +2511,7 @@ const integrationsRouter = router({
       });
 
       const info: any = await resp.json().catch(() => ({}));
-      log.info("google", "testGoogle response", { status: resp.status, error: info?.error?.message, results: info?.results?.length });
+      log.info("google", "testGoogle response", { status: resp.status, body: JSON.stringify(info).slice(0, 500) });
 
       if (resp.status === 403) {
         // 403 = token válido mas sem permissão neste customer — isso é normal para MCC
