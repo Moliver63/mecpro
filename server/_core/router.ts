@@ -200,30 +200,33 @@ async function getGoogleAccessToken(integration: {
 }
 
 async function googleAdsPost<T>(
-  path: string, body: unknown, accessToken: string, developerToken: string, customerId: string
+  path: string,
+  body: unknown,
+  accessToken: string,
+  developerToken: string,
+  customerId: string,
+  loginCustomerId?: string
 ): Promise<T> {
-  const url = `https://googleads.googleapis.com/v19/customers/${customerId.replace(/-/g, "")}/${path}`;
+  const cleanId    = customerId.replace(/\D/g, "");
+  const cleanLogin = (loginCustomerId ?? "").replace(/\D/g, "");
+  const url = `https://googleads.googleapis.com/v19/customers/${cleanId}/${path}`;
   const resp = await fetch(url, {
     method: "POST",
     headers: {
-      "Content-Type":       "application/json",
-      "Authorization":      `Bearer ${accessToken}`,
-      "developer-token":    developerToken,
-      "login-customer-id":  customerId.replace(/-/g, ""), // necessário para MCC
+      "Content-Type":    "application/json",
+      "Authorization":   `Bearer ${accessToken}`,
+      "developer-token": developerToken,
+      ...(cleanLogin ? { "login-customer-id": cleanLogin } : {}),
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(20000),
   });
-
-  // Safe JSON parsing — API pode retornar HTML em erros 4xx/5xx
   if (!resp.ok) {
     const text = await resp.text().catch(() => `HTTP ${resp.status}`);
-    const isHtml = text.trim().startsWith("<");
-    const msg = isHtml
-      ? `Google Ads HTTP ${resp.status} — verifique Developer Token (Basic Access necessário)`
-      : text.slice(0, 400);
-    throw new Error(`Google Ads API error [${path}]: ${msg}`);
+    throw new Error(`Google Ads API error [${path}] HTTP ${resp.status}: ${text.slice(0, 400)}`);
   }
+  return await resp.json() as T;
+}
 
   const data: any = await resp.json().catch(() => ({}));
   if (data.error) throw new Error(`Google Ads API error [${path}]: ${JSON.stringify(data.error)}`);
@@ -2483,64 +2486,99 @@ const integrationsRouter = router({
     .mutation(async ({ ctx }) => {
       const userId = (ctx as any).user?.id;
       if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+
       const _drz = await getDb();
       const [integration] = await _drz!.select().from(integrations)
-        .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
+        .where(and(
+          eq(integrations.userId, userId),
+          eq(integrations.provider, "google"),
+          eq(integrations.isActive, 1)
+        ));
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google não encontrada" });
 
-      const accessToken = await getGoogleAccessToken(integration as any);
-      const customerId2 = (integration.accountId ?? "").replace(/-/g, "").trim();
-      const devToken2   = (integration as any).developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
+      const accessToken     = await getGoogleAccessToken(integration as any);
+      const customerId      = String(integration.accountId ?? "").replace(/\D/g, "");
+      const loginCustomerId = String((integration as any).loginCustomerId ?? "").replace(/\D/g, "");
+      const devToken        = String((integration as any).developerToken ?? process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "");
 
-      if (!devToken2) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
+      if (!devToken) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token não configurado" });
 
-      log.info("google", "testGoogle attempt", { customerId2, devTokenPrefix: devToken2.slice(0,8), hasToken: !!accessToken });
-
-      // Endpoint correto da Google Ads API REST v19
-      // Teste de conectividade
-      try {
-        const pingResp = await fetch("https://googleads.googleapis.com/", { method: "GET", signal: AbortSignal.timeout(5000) });
-        log.info("google", "connectivity test", { status: pingResp.status, ok: pingResp.ok });
-      } catch (pingErr: any) {
-        log.error("google", "connectivity FAILED", { error: pingErr.message });
-      }
-      const gaUrl = `https://googleads.googleapis.com/v19/customers/${customerId2}/googleAds:search`;
-      const resp = await fetch(gaUrl, {
-        method: "POST",
-        headers: {
-          "Authorization":   `Bearer ${accessToken}`,
-          "developer-token": devToken2,
-          "login-customer-id": customerId2,
-          "Content-Type":    "application/json",
-        },
-        body: JSON.stringify({
-          query: "SELECT customer.id, customer.descriptive_name, customer.status FROM customer LIMIT 1"
-        }),
-        signal: AbortSignal.timeout(15000),
+      log.info("google", "testGoogle attempt", {
+        customerId, loginCustomerId: loginCustomerId || "(none)",
+        devTokenPrefix: devToken.slice(0, 8), hasToken: !!accessToken
       });
 
-      const rawText = await resp.text();
-      log.info("google", "testGoogle response", { status: resp.status, body: rawText.slice(0, 400) });
+      // PASSO 1: valida credenciais básicas com listAccessibleCustomers
+      const validateResp = await fetch(
+        "https://googleads.googleapis.com/v19/customers:listAccessibleCustomers",
+        {
+          method: "GET",
+          headers: {
+            "Authorization":   `Bearer ${accessToken}`,
+            "developer-token": devToken,
+            "Content-Type":    "application/json",
+          },
+          signal: AbortSignal.timeout(15000),
+        }
+      );
 
-      if (resp.ok) {
+      const validateText = await validateResp.text();
+      log.info("google", "testGoogle validate", { status: validateResp.status, body: validateText.slice(0, 300) });
+
+      if (!validateResp.ok) {
+        const msg =
+          validateResp.status === 401 ? "OAuth inválido ou expirado" :
+          validateResp.status === 403 ? "Sem permissão — Developer Token não aprovado para produção" :
+          validateResp.status === 404 ? "Endpoint Google Ads inválido" :
+          `Falha ao validar: HTTP ${validateResp.status}`;
+        throw new TRPCError({ code: "BAD_REQUEST", message: msg });
+      }
+
+      // PASSO 2: se passou, considera integração válida
+      // tenta buscar nome da conta se tiver customerId
+      if (!customerId) {
+        return { name: "Google Ads conectado ✅", accountId: integration.accountId };
+      }
+
+      const mccId = loginCustomerId || customerId;
+      const queryResp = await fetch(
+        `https://googleads.googleapis.com/v19/customers/${customerId}/googleAds:search`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization":      `Bearer ${accessToken}`,
+            "developer-token":    devToken,
+            "login-customer-id":  mccId,
+            "Content-Type":       "application/json",
+          },
+          body: JSON.stringify({
+            query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1"
+          }),
+          signal: AbortSignal.timeout(15000),
+        }
+      );
+
+      const rawText = await queryResp.text();
+      log.info("google", "testGoogle query", { status: queryResp.status, body: rawText.slice(0, 300) });
+
+      if (queryResp.ok) {
         try {
           const data = JSON.parse(rawText);
-          const name = data.results?.[0]?.customer?.descriptiveName || `Google Ads ${customerId2}`;
-          return { name, accountId: integration.accountId };
+          const name = data.results?.[0]?.customer?.descriptiveName || `Google Ads ${customerId}`;
+          return { name: `${name} ✅`, accountId: integration.accountId };
         } catch {
-          return { name: `Google Ads ${customerId2}`, accountId: integration.accountId };
+          return { name: `Google Ads ${customerId} ✅`, accountId: integration.accountId };
         }
       }
 
-      // Tenta parsear erro
-      let errMsg = `HTTP ${resp.status}`;
-      try {
-        const errJson = JSON.parse(rawText);
-        errMsg = errJson?.error?.message || errJson?.error?.details?.[0]?.message || errMsg;
-      } catch {}
-
-      throw new TRPCError({ code: "BAD_REQUEST", message: `Token inválido: ${errMsg}` });
+      // Conta específica falhou mas credentials são válidas
+      const errMsg =
+        queryResp.status === 403 ? "Sem permissão para acessar essa conta" :
+        queryResp.status === 404 ? "Conta Google Ads não encontrada" :
+        `HTTP ${queryResp.status}`;
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Credenciais válidas mas conta inválida: ${errMsg}` });
     }),
+
 
 
 
