@@ -2142,25 +2142,36 @@ const campaignsRouter = router({
       });
 
       // 4. Create Campaign via gRPC
-      const campaignOp = await gCustomer.campaigns.create([{
-        name:                    input.campaignName,
-        status:                  2, // PAUSED
-        advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2, // DISPLAY=3, SEARCH=2
-        campaign_budget:         budgetResourceName,
-        start_date:              input.startDate,
-        ...(input.endDate ? { end_date: input.endDate } : {}),
-        ...(input.biddingStrategy === "MAXIMIZE_CONVERSIONS" ? { maximize_conversions: {} } :
-            input.biddingStrategy === "TARGET_CPA" && input.targetCpa ? { target_cpa: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } } :
-            input.biddingStrategy === "TARGET_ROAS" && input.targetRoas ? { target_roas: { target_roas: input.targetRoas } } :
-            { maximize_clicks: {} }),
-        network_settings: {
-          target_google_search:        true,
-          target_search_network:       true,
-          target_content_network:      input.campaignType === "DISPLAY",
-          target_partner_search_network: false,
-        },
-        geo_target_type_setting: { positive_geo_target_type: 2 }, // PRESENCE
-      }]);
+      let campaignOp: any;
+      try {
+        campaignOp = await gCustomer.campaigns.create([{
+          name:                    input.campaignName,
+          status:                  2, // PAUSED
+          advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2,
+          campaign_budget:         budgetResourceName,
+          start_date:              input.startDate,
+          ...(input.endDate ? { end_date: input.endDate } : {}),
+          ...(input.biddingStrategy === "MAXIMIZE_CONVERSIONS" ? { maximize_conversions: {} } :
+              input.biddingStrategy === "TARGET_CPA" && input.targetCpa ? { target_cpa: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } } :
+              input.biddingStrategy === "TARGET_ROAS" && input.targetRoas ? { target_roas: { target_roas: input.targetRoas } } :
+              { maximize_clicks: {} }),
+          network_settings: {
+            target_google_search:        true,
+            target_search_network:       true,
+            target_content_network:      input.campaignType === "DISPLAY",
+            target_partner_search_network: false,
+          },
+        }]);
+        log.info("google", "campaign created via gRPC", { result: JSON.stringify(campaignOp).slice(0,200) });
+      } catch (campErr: any) {
+        log.error("google", "campaign gRPC FAILED", {
+          message: campErr.message,
+          code: campErr.code,
+          details: JSON.stringify(campErr.errors || campErr.details || []).slice(0, 500),
+          budgetResourceName,
+        });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao criar campanha Google: ${campErr.message}` });
+      }
       const campaignResourceName = campaignOp.results?.[0]?.resource_name ?? campaignOp.results?.[0]?.resourceName ?? "";
       log.info("google", "campaign created via gRPC", { campaignResourceName });
 
