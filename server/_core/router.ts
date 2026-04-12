@@ -2092,6 +2092,9 @@ const campaignsRouter = router({
 
       const accessToken = await getGoogleAccessToken(integration as any);
 
+      // Marca como processando
+      await (db as any).updateCampaign?.(input.campaignId, { publishStatus: "processing" }).catch(() => {});
+
       // 2. Create Budget via gRPC (google-ads-api)
       let budgetOp: any;
       try {
@@ -2151,15 +2154,14 @@ const campaignsRouter = router({
           campaign_budget:         budgetResourceName,
           start_date:              input.startDate,
           ...(input.endDate ? { end_date: input.endDate } : {}),
-          // campaign_bidding_strategy — campo obrigatório como objeto aninhado
-          campaign_bidding_strategy: (
-            input.biddingStrategy === "TARGET_CPA" && input.targetCpa
-              ? { target_cpa: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } }
-              : input.biddingStrategy === "TARGET_ROAS" && input.targetRoas
-              ? { target_roas: { target_roas: input.targetRoas } }
-              : input.biddingStrategy === "MAXIMIZE_CONVERSIONS"
-              ? { maximize_conversions: {} }
-              : { maximize_clicks: {} }
+          // bidding strategy — campos diretos no payload da campanha
+          ...(input.biddingStrategy === "TARGET_CPA" && input.targetCpa
+            ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } }
+            : input.biddingStrategy === "TARGET_ROAS" && input.targetRoas
+            ? { bidding_strategy_type: "MAXIMIZE_CONVERSION_VALUE", maximize_conversion_value: { target_roas: input.targetRoas } }
+            : input.biddingStrategy === "MAXIMIZE_CONVERSIONS"
+            ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: {} }
+            : { bidding_strategy_type: "TARGET_SPEND", target_spend: {} }
           ),
           network_settings: {
             target_google_search:        true,
@@ -2252,6 +2254,15 @@ const campaignsRouter = router({
       const extractId = (name: string) => name.split("/").pop() ?? name;
       const googleCampaignId = extractId(campaignResourceName);
       const googleAdGroupId  = extractId(adGroupResourceName);
+
+      // Persiste sucesso
+      await (db as any).updateCampaign?.(input.campaignId, {
+        publishStatus: "success",
+        publishedAt: new Date(),
+        publishError: null,
+        googleCampaignId,
+        googleAdGroupId,
+      }).catch(() => {});
 
       return {
         success: true,
@@ -3907,7 +3918,8 @@ export const appRouter = router({
   integrations: integrationsRouter,
   clientProfile: clientProfileRouter,
   competitors: competitorsRouter,
-  market: marketRouter,
+  market:        marketRouter,
+  marketAnalysis: marketRouter, // alias para compatibilidade com clientes legados
   campaigns: campaignsRouter,
   plans: plansRouter,
   admin: adminRouter,
