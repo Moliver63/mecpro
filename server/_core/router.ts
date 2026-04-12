@@ -2147,14 +2147,19 @@ const campaignsRouter = router({
         campaignOp = await gCustomer.campaigns.create([{
           name:                    input.campaignName,
           status:                  2, // PAUSED
-          advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2,
+          advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2, // DISPLAY=3, SEARCH=2
           campaign_budget:         budgetResourceName,
           start_date:              input.startDate,
           ...(input.endDate ? { end_date: input.endDate } : {}),
-          ...(input.biddingStrategy === "MAXIMIZE_CONVERSIONS" ? { maximize_conversions: {} } :
-              input.biddingStrategy === "TARGET_CPA" && input.targetCpa ? { target_cpa: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } } :
-              input.biddingStrategy === "TARGET_ROAS" && input.targetRoas ? { target_roas: { target_roas: input.targetRoas } } :
-              { maximize_clicks: {} }),
+          // bidding strategy — campo obrigatório como enum
+          ...(input.biddingStrategy === "MAXIMIZE_CONVERSIONS"
+            ? { bidding_strategy_type: 10, maximize_conversions: { target_cpa_micros: 0 } }
+            : input.biddingStrategy === "TARGET_CPA" && input.targetCpa
+            ? { bidding_strategy_type: 6, target_cpa: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } }
+            : input.biddingStrategy === "TARGET_ROAS" && input.targetRoas
+            ? { bidding_strategy_type: 14, target_roas: { target_roas: input.targetRoas } }
+            : { bidding_strategy_type: 9, maximize_clicks: {} } // MAXIMIZE_CLICKS=9
+          ),
           network_settings: {
             target_google_search:        true,
             target_search_network:       true,
