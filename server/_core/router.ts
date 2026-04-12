@@ -228,10 +228,6 @@ async function googleAdsPost<T>(
   return await resp.json() as T;
 }
 
-  const data: any = await resp.json().catch(() => ({}));
-  if (data.error) throw new Error(`Google Ads API error [${path}]: ${JSON.stringify(data.error)}`);
-  return data as T;
-}
 
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
