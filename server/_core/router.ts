@@ -2138,10 +2138,16 @@ const campaignsRouter = router({
 
       // Cria cliente gRPC para operações restantes
       const { client: gClient, refreshToken: gRefresh } = await getGoogleAdsClient(integration as any);
+      // IMPORTANTE: MCC não cria campanhas diretamente
+      // customer_id = conta filha (onde a campanha será criada)
+      // login_customer_id = MCC (para autenticação)
+      const mccCustomerId = process.env.GOOGLE_ADS_CUSTOMER_ID?.replace(/-/g, "") || customerId;
+      const targetCustomerId = customerId === mccCustomerId ? customerId : customerId;
+      log.info("google", "gRPC customer setup", { customerId, mccCustomerId, targetCustomerId });
       const gCustomer = gClient.Customer({
-        customer_id:      customerId,
-        refresh_token:    gRefresh,
-        login_customer_id: customerId,
+        customer_id:       targetCustomerId,
+        refresh_token:     gRefresh,
+        login_customer_id: mccCustomerId !== targetCustomerId ? mccCustomerId : targetCustomerId,
       });
 
       // 4. Create Campaign via gRPC
@@ -2150,11 +2156,11 @@ const campaignsRouter = router({
         campaignOp = await gCustomer.campaigns.create([{
           name:                    input.campaignName,
           status:                  2, // PAUSED
-          advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2, // DISPLAY=3, SEARCH=2
+          advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2,
           campaign_budget:         budgetResourceName,
           start_date:              input.startDate,
           ...(input.endDate ? { end_date: input.endDate } : {}),
-          // bidding strategy — campos diretos no payload da campanha
+          contains_eu_political_advertising: false, // campo obrigatório
           ...(input.biddingStrategy === "TARGET_CPA" && input.targetCpa
             ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } }
             : input.biddingStrategy === "TARGET_ROAS" && input.targetRoas
