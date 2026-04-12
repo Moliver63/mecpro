@@ -210,6 +210,7 @@ async function googleAdsPost<T>(
   const cleanId    = customerId.replace(/\D/g, "");
   const cleanLogin = (loginCustomerId ?? "").replace(/\D/g, "");
   const url = `https://googleads.googleapis.com/v19/customers/${cleanId}/${path}`;
+  log.info("google", "googleAdsPost request", { url, cleanId, cleanLogin, devTokenPrefix: developerToken.slice(0,8) });
   const resp = await fetch(url, {
     method: "POST",
     headers: {
