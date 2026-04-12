@@ -199,6 +199,28 @@ async function getGoogleAccessToken(integration: {
   return data.access_token;
 }
 
+// ── Google Ads API via biblioteca oficial (gRPC) ────────────────────────────
+async function getGoogleAdsClient(integration: {
+  refreshToken?: string | null;
+  appId?: string | null;
+  appSecret?: string | null;
+  developerToken?: string | null;
+}) {
+  const { GoogleAdsApi } = await import("google-ads-api");
+  const clientId     = integration.appId     || process.env.GOOGLE_CLIENT_ID     || process.env.GOOGLE_ADS_CLIENT_ID || "";
+  const clientSecret = integration.appSecret || process.env.GOOGLE_CLIENT_SECRET  || process.env.GOOGLE_ADS_CLIENT_SECRET || "";
+  const devToken     = (integration as any).developerToken || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
+  const refreshToken = integration.refreshToken || "";
+
+  const client = new GoogleAdsApi({
+    client_id:     clientId,
+    client_secret: clientSecret,
+    developer_token: devToken,
+  });
+
+  return { client, refreshToken, devToken };
+}
+
 async function googleAdsPost<T>(
   path: string,
   body: unknown,
@@ -210,7 +232,7 @@ async function googleAdsPost<T>(
   const cleanId    = customerId.replace(/\D/g, "");
   const cleanLogin = (loginCustomerId ?? "").replace(/\D/g, "");
   const url = `https://googleads.googleapis.com/v19/customers/${cleanId}/${path}`;
-  log.info("google", "googleAdsPost request", { url, cleanId, cleanLogin, devTokenPrefix: developerToken.slice(0,8) });
+  log.info("google", "googleAdsPost request", { url, cleanId, cleanLogin: cleanLogin || "(none)", devTokenPrefix: developerToken.slice(0,8) });
   const resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -226,6 +248,9 @@ async function googleAdsPost<T>(
     const text = await resp.text().catch(() => `HTTP ${resp.status}`);
     throw new Error(`Google Ads API error [${path}] HTTP ${resp.status}: ${text.slice(0, 400)}`);
   }
+  return await resp.json() as T;
+}
+
   return await resp.json() as T;
 }
 
@@ -2069,16 +2094,33 @@ const campaignsRouter = router({
 
       const accessToken = await getGoogleAccessToken(integration as any);
 
-      // 2. Create Budget
-      const budgetOp = await googleAdsPost<any>(
-        "campaignBudgets:mutate",
-        { operations: [{ create: {
-          name:           `Budget-${input.campaignName}-${Date.now()}`,
-          amountMicros:   input.dailyBudgetMicros,
-          deliveryMethod: "STANDARD",
-        }}]},
-        accessToken, developerToken, customerId
-      );
+      // 2. Create Budget via gRPC (google-ads-api)
+      let budgetOp: any;
+      try {
+        const { client, refreshToken } = await getGoogleAdsClient(integration as any);
+        const customer = client.Customer({
+          customer_id:    customerId,
+          refresh_token:  refreshToken,
+          login_customer_id: customerId,
+        });
+        budgetOp = await customer.campaignBudgets.create([{
+          name:            `Budget-${input.campaignName}-${Date.now()}`,
+          amount_micros:   input.dailyBudgetMicros,
+          delivery_method: 2, // STANDARD
+        }]);
+        log.info("google", "budget created via gRPC", { budgetOp });
+      } catch (grpcErr: any) {
+        log.warn("google", "gRPC failed, trying REST", { error: grpcErr.message });
+        budgetOp = await googleAdsPost<any>(
+          "campaignBudgets:mutate",
+          { operations: [{ create: {
+            name:           `Budget-${input.campaignName}-${Date.now()}`,
+            amountMicros:   input.dailyBudgetMicros,
+            deliveryMethod: "STANDARD",
+          }}]},
+          accessToken, developerToken, customerId
+        );
+      }
       const budgetResourceName = budgetOp.results?.[0]?.resourceName ?? "";
 
       // 3. Build bidding strategy config
