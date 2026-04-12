@@ -2119,7 +2119,7 @@ const campaignsRouter = router({
           accessToken, developerToken, customerId
         );
       }
-      const budgetResourceName = budgetOp.results?.[0]?.resourceName ?? "";
+      const budgetResourceName = budgetOp.results?.[0]?.resource_name ?? budgetOp.results?.[0]?.resourceName ?? "";
 
       // 3. Build bidding strategy config
       const biddingConfig: Record<string, any> = {};
@@ -2133,52 +2133,59 @@ const campaignsRouter = router({
         biddingConfig.maximizeClicks = {};
       }
 
-      // 4. Create Campaign
-      const campaignOp = await googleAdsPost<any>(
-        "campaigns:mutate",
-        { operations: [{ create: {
-          name:                 input.campaignName,
-          status:               "PAUSED",
-          advertisingChannelType: input.campaignType,
-          campaignBudget:       budgetResourceName,
-          startDate:            input.startDate,
-          ...(input.endDate ? { endDate: input.endDate } : {}),
-          ...biddingConfig,
-          networkSettings: {
-            targetGoogleSearch:       true,
-            targetSearchNetwork:      true,
-            targetContentNetwork:     input.campaignType === "DISPLAY",
-            targetPartnerSearchNetwork: false,
-          },
-          geoTargetTypeSetting: { positiveGeoTargetType: "PRESENCE" },
-        }}]},
-        accessToken, developerToken, customerId
-      );
-      const campaignResourceName = campaignOp.results?.[0]?.resourceName ?? "";
+      // Cria cliente gRPC para operações restantes
+      const { client: gClient, refreshToken: gRefresh } = await getGoogleAdsClient(integration as any);
+      const gCustomer = gClient.Customer({
+        customer_id:      customerId,
+        refresh_token:    gRefresh,
+        login_customer_id: customerId,
+      });
 
-      // 5. Create Ad Group
-      const adGroupOp = await googleAdsPost<any>(
-        "adGroups:mutate",
-        { operations: [{ create: {
-          name:     `AdGroup-${input.campaignName}`,
-          campaign: campaignResourceName,
-          status:   "ENABLED",
-          type:     input.campaignType === "DISPLAY" ? "DISPLAY_STANDARD" : "SEARCH_STANDARD",
-        }}]},
-        accessToken, developerToken, customerId
-      );
-      const adGroupResourceName = adGroupOp.results?.[0]?.resourceName ?? "";
+      // 4. Create Campaign via gRPC
+      const campaignOp = await gCustomer.campaigns.create([{
+        name:                    input.campaignName,
+        status:                  2, // PAUSED
+        advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2, // DISPLAY=3, SEARCH=2
+        campaign_budget:         budgetResourceName,
+        start_date:              input.startDate,
+        ...(input.endDate ? { end_date: input.endDate } : {}),
+        ...(input.biddingStrategy === "MAXIMIZE_CONVERSIONS" ? { maximize_conversions: {} } :
+            input.biddingStrategy === "TARGET_CPA" && input.targetCpa ? { target_cpa: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } } :
+            input.biddingStrategy === "TARGET_ROAS" && input.targetRoas ? { target_roas: { target_roas: input.targetRoas } } :
+            { maximize_clicks: {} }),
+        network_settings: {
+          target_google_search:        true,
+          target_search_network:       true,
+          target_content_network:      input.campaignType === "DISPLAY",
+          target_partner_search_network: false,
+        },
+        geo_target_type_setting: { positive_geo_target_type: 2 }, // PRESENCE
+      }]);
+      const campaignResourceName = campaignOp.results?.[0]?.resource_name ?? campaignOp.results?.[0]?.resourceName ?? "";
+      log.info("google", "campaign created via gRPC", { campaignResourceName });
 
-      // 6. Add Keywords (Search only)
+      // 5. Create Ad Group via gRPC
+      const adGroupOp = await gCustomer.adGroups.create([{
+        name:     `AdGroup-${input.campaignName}`,
+        campaign: campaignResourceName,
+        status:   2, // ENABLED
+        type:     input.campaignType === "DISPLAY" ? 17 : 2, // DISPLAY_STANDARD=17, SEARCH_STANDARD=2
+      }]);
+      const adGroupResourceName = adGroupOp.results?.[0]?.resource_name ?? adGroupOp.results?.[0]?.resourceName ?? "";
+      log.info("google", "adGroup created via gRPC", { adGroupResourceName });
+
+      // 6. Add Keywords via gRPC (Search only)
       if (input.campaignType === "SEARCH" && input.keywords.length > 0) {
-        const kwOps = input.keywords.map(kw => ({ create: {
-          adGroup: adGroupResourceName,
-          text:    kw,
-          matchType: kw.startsWith("+") ? "BROAD" : kw.startsWith("\"") ? "PHRASE" : "EXACT",
-          status: "ENABLED",
-        }}));
-        await googleAdsPost("adGroupCriteria:mutate", { operations: kwOps },
-          accessToken, developerToken, customerId);
+        const kwOps = input.keywords.map((kw: string) => ({
+          ad_group: adGroupResourceName,
+          keyword:  {
+            text:       kw.replace(/["+]/g, ""),
+            match_type: kw.startsWith("+") ? 4 : kw.startsWith("\"") ? 3 : 2, // BROAD=4, PHRASE=3, EXACT=2
+          },
+          status: 2, // ENABLED
+        }));
+        await gCustomer.adGroupCriteria.create(kwOps);
+        log.info("google", "keywords created via gRPC", { count: kwOps.length });
       }
 
       // 7. Create Ads
@@ -2206,19 +2213,16 @@ const campaignsRouter = router({
           continue;
         }
 
-        const adOp = await googleAdsPost<any>(
-          "adGroupAds:mutate",
-          { operations: [{ create: {
-            adGroup: adGroupResourceName,
-            status: "PAUSED",
-            ad: {
-              responsiveSearchAd: { headlines, descriptions },
-              finalUrls: [ad.finalUrl.trim()],
-            },
-          }}]},
-          accessToken, developerToken, customerId
-        );
-        adResults.push(adOp.results?.[0]?.resourceName ?? "");
+        const adOp = await gCustomer.adGroupAds.create([{
+          ad_group: adGroupResourceName,
+          status:   3, // PAUSED
+          ad: {
+            responsive_search_ad: { headlines, descriptions },
+            final_urls: [ad.finalUrl.trim()],
+          },
+        }]);
+        adResults.push(adOp.results?.[0]?.resource_name ?? adOp.results?.[0]?.resourceName ?? "");
+        log.info("google", "ad created via gRPC", { resource: adResults[adResults.length-1] });
       }
 
       if (adResults.length === 0) {
