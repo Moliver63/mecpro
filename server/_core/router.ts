@@ -12,6 +12,8 @@ import { ENV } from "./env";
 import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { vslRouter } from "./vslRouter";
+import { scoreCreative } from "../creativeScoringEngine";
+import { generateAdImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -44,76 +46,199 @@ function buildAdCopy(campaign: any, opts: {
   maxMessage?: number;
   maxHeadline?: number;
   maxDescription?: number;
+  placement?: "feed" | "stories" | "reels";
+  objective?: string;
 } = {}) {
   const {
     maxMessage     = 2000,
     maxHeadline    = 255,
     maxDescription = 125,
+    placement      = "feed",
+    objective      = campaign?.objective || "traffic",
   } = opts;
 
-  // Parse criativos e hooks
   let creatives: any[] = [];
-  let hooks_:    any[] = [];
-  try { creatives = JSON.parse(campaign.creatives  || "[]"); } catch {}
+  let hooks_: any[] = [];
+  let copies_: any[] = [];
+  try { creatives = JSON.parse(campaign.creatives || "[]"); } catch {}
   try {
-    const aiResp = JSON.parse(campaign.aiResponse  || "{}");
+    const aiResp = JSON.parse(campaign.aiResponse || "{}");
     hooks_ = aiResp?.hooks || [];
+    copies_ = aiResp?.copies || [];
   } catch {}
 
-  const cr = Array.isArray(creatives) && creatives.length > 0 ? creatives[0] : null;
+  const normalizePlacement = (value: string) => String(value || "").toLowerCase();
+  const scoreValue = (creative: any) => Number(creative?.finalScore || creative?.ctrEstimate || 0);
+  const formatOf = (creative: any) => normalizePlacement(creative?.format || creative?.type || creative?.orientation || "");
+  const isStoriesLike = (creative: any) => /(story|stories|reels|9:16)/i.test(formatOf(creative));
+  const isReelsLike = (creative: any) => /(reels)/i.test(formatOf(creative));
+  const isFeedLike = (creative: any) => !isStoriesLike(creative) || /(feed|4:5|1:1|square|carousel|image)/i.test(formatOf(creative));
 
-  // Hook — gancho de abertura (impacto máximo nos primeiros 3 segundos)
-  const hook = (cr?.hook || "")
+  const pickBest = (matcher: (creative: any) => boolean, fallback?: any) => {
+    const pool = creatives.filter(matcher);
+    return (pool.sort((a, b) => scoreValue(b) - scoreValue(a))[0]) || fallback || creatives[0] || null;
+  };
+
+  const feedCreative = pickBest((creative) => isFeedLike(creative));
+  const storiesCreative = pickBest((creative) => isStoriesLike(creative), feedCreative);
+  const reelsCreative = pickBest((creative) => isReelsLike(creative), storiesCreative || feedCreative);
+  const selectedCreative = placement === "stories"
+    ? storiesCreative
+    : placement === "reels"
+      ? reelsCreative
+      : feedCreative;
+
+  const fallbackHook = Array.isArray(hooks_) && hooks_[0]
+    ? String(hooks_[0]?.text || hooks_[0]).slice(0, 150)
+    : "";
+  const hook = (selectedCreative?.hook || fallbackHook || "")
     .replace(/^["']|["']$/g, "")
     .trim()
-    .slice(0, 150)
-    || (Array.isArray(hooks_) && hooks_[0]
-      ? String(hooks_[0]?.text || hooks_[0]).slice(0, 150)
-      : "");
+    .slice(0, 150);
 
-  // Headline — proposta de valor principal
-  const headline = (cr?.headline || cr?.title || campaign.name || "")
+  const objectiveLabels: Record<string, string> = {
+    leads: "Cadastre-se",
+    sales: "Comprar agora",
+    traffic: "Saiba mais",
+    branding: "Ver mais",
+    engagement: "Fale conosco",
+  };
+
+  const META_CTA_MAP: Record<string, string> = {
+    "saiba mais": "LEARN_MORE",
+    "learn more": "LEARN_MORE",
+    "cadastre-se": "SIGN_UP",
+    "cadastrar grátis": "SIGN_UP",
+    "cadastrar gratis": "SIGN_UP",
+    "receber material": "SIGN_UP",
+    "quero meu guia grátis": "SIGN_UP",
+    "quero meu guia gratis": "SIGN_UP",
+    "comprar agora": "BUY_NOW",
+    "garantir desconto": "GET_OFFER",
+    "ver oferta": "SHOP_NOW",
+    "solicitar orçamento": "GET_QUOTE",
+    "pedir orçamento": "GET_QUOTE",
+    "fale conosco": "CONTACT_US",
+    "fale no whatsapp": "WHATSAPP_MESSAGE",
+    "whatsapp": "WHATSAPP_MESSAGE",
+    "agendar": "BOOK_NOW",
+    "baixar": "DOWNLOAD",
+    "assinar": "SUBSCRIBE",
+  };
+
+  const normalizeMetaCta = (raw: string, currentObjective: string) => {
+    const clean = String(raw || objectiveLabels[currentObjective] || "Saiba mais")
+      .trim()
+      .toLowerCase();
+    const direct = META_CTA_MAP[clean];
+    if (direct) return direct;
+    if (/compr|oferta|desconto/.test(clean)) return currentObjective === "sales" ? "BUY_NOW" : "LEARN_MORE";
+    if (/cadast|guia|ebook|material|inscri/.test(clean)) return "SIGN_UP";
+    if (/orcamento|quote/.test(clean)) return "GET_QUOTE";
+    if (/agend/.test(clean)) return "BOOK_NOW";
+    if (/contato|whats|mensagem/.test(clean)) return "CONTACT_US";
+    if (currentObjective === "leads") return "SIGN_UP";
+    if (currentObjective === "sales") return "BUY_NOW";
+    return "LEARN_MORE";
+  };
+
+  const buildAngle = (creative: any) => creative?.angle || creative?.type || creative?.funnelStage || "performance";
+  const ctrEstimate = clampNumber(
+    0.7 +
+    (String(selectedCreative?.hook || "").length > 20 ? 0.3 : 0) +
+    (selectedCreative?.finalScore ? Number(selectedCreative.finalScore) / 100 : 0.2),
+    0.8,
+    3.8,
+  );
+
+  const feedHeadline = (selectedCreative?.headline || selectedCreative?.title || campaign.name || "")
     .trim()
     .slice(0, maxHeadline);
+  const feedCopyRaw = String(selectedCreative?.copy || selectedCreative?.description || "").trim();
+  const fallbackCopy = Array.isArray(copies_) && copies_[0]
+    ? String(copies_[0]?.primaryText || copies_[0]?.headline || "")
+    : "";
+  const feedCopy = (feedCopyRaw || fallbackCopy).slice(0, maxDescription);
+  const feedMessage = [hook, feedCopyRaw || fallbackCopy]
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, maxMessage) || String(campaign.name || "").slice(0, maxMessage);
+  const feedCta = normalizeMetaCta(selectedCreative?.cta, objective);
+  const feedAngle = buildAngle(selectedCreative);
 
-  // Copy — desenvolvimento do argumento
-  const copyRaw = (cr?.copy || cr?.description || "").trim();
-  const copy    = copyRaw.slice(0, maxDescription);
+  const storiesBase = storiesCreative || selectedCreative || feedCreative;
+  const storyTexts = [
+    String(storiesBase?.hook || hook || "").trim(),
+    String(storiesBase?.headline || feedHeadline || "").trim(),
+    String(storiesBase?.copy || feedCopy || objectiveLabels[objective] || "").trim(),
+  ].filter(Boolean);
 
-  // Mensagem completa (hook + copy) para Meta feed
-  const messageParts = [hook, copyRaw].filter(Boolean);
-  const message = messageParts.join("\n\n").slice(0, maxMessage)
-    // fallback apenas se não tiver nenhum criativo
-    || campaign.name.slice(0, maxMessage);
+  const fitStoryLine = (text: string) => {
+    const clean = String(text || "").replace(/\s+/g, " ").trim();
+    if (!clean) return "Saiba mais hoje";
+    if (clean.length <= 40) return clean;
+    return clean.slice(0, 37).trimEnd() + "...";
+  };
 
-  // CTA normalizado
-  const ctaRaw = (cr?.cta || "LEARN_MORE").toUpperCase()
-    .replace(/[^A-Z0-9_]/g, "_").replace(/_+/g, "_").trim();
+  const storiesScript = [0, 1, 2].map((index) => fitStoryLine(storyTexts[index] || storyTexts[storyTexts.length - 1] || hook || feedHeadline));
+  const storiesCta = normalizeMetaCta(storiesBase?.cta, objective);
+  const storiesHook = String(storiesBase?.hook || hook || feedHeadline).slice(0, 120);
+  const storiesAngle = buildAngle(storiesBase);
 
-  // Headlines para Google RSA (máx 30 chars cada)
   const googleHeadlines = [
-    (cr?.headline || campaign.name).slice(0, 30),
-    (cr?.cta      || "Saiba Mais").slice(0, 30),
-    hook.slice(0, 30) || (cr?.copy || "").split(" ").slice(0, 4).join(" ").slice(0, 30),
+    feedHeadline.slice(0, 30),
+    fitStoryLine(storiesScript[0]).slice(0, 30),
+    String(objectiveLabels[objective] || selectedCreative?.cta || "Saiba mais").slice(0, 30),
   ].filter(Boolean);
 
-  // Descriptions para Google RSA (máx 90 chars cada)
   const googleDescriptions = [
-    copyRaw.slice(0, 90) || headline.slice(0, 90),
-    (cr?.cta ? `${cr.cta} agora` : "Entre em contato").slice(0, 90),
+    (feedCopyRaw || fallbackCopy || feedHeadline).slice(0, 90),
+    `${storiesScript.join(" | ")}`.slice(0, 90),
   ].filter(Boolean);
+
+  const hasRealCopy = !!selectedCreative;
 
   return {
-    message,      // Meta feed message
-    headline,     // Meta ad name / TikTok
-    copy,         // Meta description / TikTok
-    hook,         // Para Stories/Reels
-    ctaRaw,       // CTA code (LEARN_MORE etc)
+    feed: {
+      creative: feedCreative,
+      message: feedMessage,
+      headline: feedHeadline,
+      copy: feedCopy,
+      hook,
+      cta: feedCta,
+      hasRealCopy,
+      angle: feedAngle,
+      ctrEstimate,
+    },
+    stories: {
+      creative: storiesCreative || reelsCreative || feedCreative,
+      script: storiesScript,
+      hook: storiesHook,
+      cta: storiesCta,
+      hasRealCopy: !!storiesBase,
+      angle: storiesAngle,
+    },
+    reels: {
+      creative: reelsCreative || storiesCreative || feedCreative,
+      hook: String(reelsCreative?.hook || storiesHook || hook).slice(0, 120),
+      cta: normalizeMetaCta(reelsCreative?.cta || storiesBase?.cta, objective),
+      angle: buildAngle(reelsCreative || storiesBase),
+    },
     googleHeadlines,
     googleDescriptions,
-    hasRealCopy: !!cr,  // indica se veio de criativo real
+    hasRealCopy,
+    message: feedMessage,
+    headline: feedHeadline,
+    copy: feedCopy,
+    hook,
+    ctaRaw: feedCta,
   };
 }
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Number(value.toFixed(2))));
+}
+
 
 // -- TikTok OAuth + Research API helpers --------------------------------------
 
@@ -1304,9 +1429,50 @@ const campaignsRouter = router({
       if (input.cta      !== undefined) creatives[input.index].cta      = input.cta;
       if (input.hook     !== undefined) creatives[input.index].hook     = input.hook;
       if (input.format   !== undefined) creatives[input.index].format   = input.format;
+      Object.assign(creatives[input.index], scoreCreative(creatives[input.index]));
       creatives[input.index]._edited = true;
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
       return { ok: true, creatives };
+    }),
+
+  regenerateCreativeImage: protectedProcedure
+    .input(z.object({
+      campaignId: z.number(),
+      creativeIndex: z.number(),
+      format: z.enum(["feed", "stories", "square"]),
+    }))
+    .mutation(async ({ input }) => {
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+
+      const creatives = JSON.parse(campaign.creatives || "[]");
+      const creative = creatives[input.creativeIndex];
+      if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
+
+      const provider = ((process.env.IMAGE_PROVIDER || "mock").toLowerCase() as ImageProvider);
+      const apiKey = provider === "heygen"
+        ? process.env.HEYGEN_API_KEY || ""
+        : provider === "huggingface"
+          ? process.env.HUGGINGFACE_API_KEY || ""
+          : "";
+      const normalizedProvider: ImageProvider = provider === "huggingface" || provider === "heygen" ? provider : "mock";
+      const imageUrl = await generateAdImage(
+        creative,
+        campaign.name || "segmento geral",
+        campaign.objective || "traffic",
+        { provider: normalizedProvider, apiKey },
+        input.format as CreativeImageFormat,
+      );
+
+      if (!imageUrl) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar imagem" });
+
+      if (input.format === "stories") creatives[input.creativeIndex].storyImageUrl = imageUrl;
+      if (input.format === "feed") creatives[input.creativeIndex].feedImageUrl = imageUrl;
+      if (input.format === "square") creatives[input.creativeIndex].squareImageUrl = imageUrl;
+      creatives[input.creativeIndex].imageUpdatedAt = new Date().toISOString();
+
+      await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
+      return { ok: true, imageUrl, format: input.format, creative: creatives[input.creativeIndex] };
     }),
 
   // -- Edição manual de conjunto de anúncios --------------------------------
@@ -1610,17 +1776,53 @@ const campaignsRouter = router({
       const creatives = parseJson(c.creatives);
       const extra     = parseJson(c.aiResponse);
       const adSet     = Array.isArray(adSets) ? (adSets[input.adSetIndex] ?? adSets[0]) : null;
-      const creative  = Array.isArray(creatives) ? creatives[0] : null;
-      // ── Copy direcionado baseado nos criativos reais da campanha ──
-      const adCopy = buildAdCopy(c);
+      const creativeList = Array.isArray(creatives) ? creatives : [];
+      const manualPlacements = input.placementMode === "manual" ? (input.placements || []) : [];
+      const storyLikePlacements = manualPlacements.filter((placement: string) => /(story|reels)/i.test(placement));
+      const placementKey: "feed" | "stories" | "reels" = storyLikePlacements.length > 0 && storyLikePlacements.length === manualPlacements.length
+        ? (storyLikePlacements.some((placement: string) => /reels/i.test(placement)) ? "reels" : "stories")
+        : "feed";
+      const objective = c.objective || "traffic";
+      const adCopy = buildAdCopy(c, { placement: placementKey, objective });
+      const creative = placementKey === "stories"
+        ? (adCopy as any).stories?.creative || creativeList[0]
+        : placementKey === "reels"
+          ? (adCopy as any).reels?.creative || (adCopy as any).stories?.creative || creativeList[0]
+          : (adCopy as any).feed?.creative || creativeList[0];
+      const creativeScore = creative?.finalScore ? {
+        hookStrength: creative.hookStrength,
+        clarity: creative.clarity,
+        urgency: creative.urgency,
+        specificity: creative.specificity,
+        complianceRisk: creative.complianceRisk,
+        finalScore: creative.finalScore,
+        recommendations: creative.recommendations || [],
+      } : scoreCreative(creative || {});
+      const publishWarnings: string[] = [];
+      if ((creativeScore?.finalScore || 0) < 60) {
+        publishWarnings.push(`Criativo com score ${creativeScore.finalScore}/100. Revise antes de escalar.`);
+      }
+      const selectedGeneratedImageUrl = placementKey === "stories" || placementKey === "reels"
+        ? creative?.storyImageUrl || creative?.feedImageUrl || creative?.squareImageUrl
+        : creative?.feedImageUrl || creative?.squareImageUrl || creative?.storyImageUrl;
+      const selectedMessage = placementKey === "stories" || placementKey === "reels"
+        ? (((adCopy as any).stories?.script || []).join("\n") || adCopy.message)
+        : adCopy.feed.message;
+      const selectedHeadline = placementKey === "stories" || placementKey === "reels"
+        ? ((adCopy as any).stories?.hook || adCopy.feed.headline || c.name)
+        : adCopy.feed.headline;
+      const selectedDescription = placementKey === "stories" || placementKey === "reels"
+        ? (((adCopy as any).stories?.script || [])[2] || adCopy.feed.copy || "")
+        : adCopy.feed.copy;
       log.info("meta", "adCopy gerado", {
         hasRealCopy: adCopy.hasRealCopy,
-        messagePreview: adCopy.message.slice(0, 60),
-        headline: adCopy.headline.slice(0, 40),
+        placementKey,
+        messagePreview: selectedMessage.slice(0, 60),
+        headline: selectedHeadline.slice(0, 40),
+        creativeScore: creativeScore?.finalScore || null,
       });
       const budgetDaily = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
       const endTime = new Date(Date.now() + (c.durationDays ?? 30) * 24 * 60 * 60 * 1000).toISOString();
-      const objective = c.objective || "traffic";
       const { campaignObj: resolvedCampaignObj, optimizationGoal: resolvedOptGoal } = resolveObjectiveAndGoal(objective, input.pixelId);
       const dest = input.destination;
 
@@ -1753,9 +1955,12 @@ const campaignsRouter = router({
 
       // 3. Ad Creative
       const creativeName = `${c.name} — Criativo`.slice(0, 100);
-      const VALID_CTAS = ["LEARN_MORE","SIGN_UP","CONTACT_US","APPLY_NOW","GET_QUOTE","BOOK_NOW","SHOP_NOW","SUBSCRIBE","DOWNLOAD","WATCH_VIDEO","CALL_NOW","WHATSAPP_MESSAGE","MESSAGE_PAGE","ORDER_NOW","GET_IN_TOUCH","INQUIRE_NOW","MAKE_AN_APPOINTMENT","ASK_ABOUT_SERVICES","BOOK_A_CONSULTATION","GET_A_QUOTE"];
-      const ctaRaw = (creative?.cta || "").toUpperCase().replace(/[^A-Z0-9_]/g, "_").replace(/_+/g, "_").trim();
-      const ctaType = VALID_CTAS.includes(ctaRaw) ? ctaRaw : "LEARN_MORE";
+      const VALID_CTAS = ["LEARN_MORE","SIGN_UP","CONTACT_US","APPLY_NOW","GET_QUOTE","BOOK_NOW","SHOP_NOW","SUBSCRIBE","DOWNLOAD","WATCH_VIDEO","CALL_NOW","WHATSAPP_MESSAGE","MESSAGE_PAGE","ORDER_NOW","GET_IN_TOUCH","INQUIRE_NOW","MAKE_AN_APPOINTMENT","ASK_ABOUT_SERVICES","BOOK_A_CONSULTATION","GET_A_QUOTE","BUY_NOW","GET_OFFER"];
+      const preferredCta = placementKey === "stories" || placementKey === "reels"
+        ? (adCopy as any).stories?.cta || adCopy.feed.cta
+        : adCopy.feed.cta;
+      const ctaType = VALID_CTAS.includes(preferredCta) ? preferredCta : "LEARN_MORE";
+      const resolvedImageUrl = input.imageUrl || selectedGeneratedImageUrl;
 
       // Monta link_data ou lead_gen_data dependendo do destino
       let storySpec: any;
@@ -1765,9 +1970,9 @@ const campaignsRouter = router({
           lead_gen_data: {
             lead_gen_form_id: input.leadGenFormId,
             call_to_action:   { type: ctaType },
-            message:          adCopy.message,
-            name:             adCopy.headline,
-            ...(input.imageHash ? { image_hash: input.imageHash } : input.imageUrl ? { picture: input.imageUrl } : {}),
+            message:          selectedMessage,
+            name:             selectedHeadline,
+            ...(input.imageHash ? { image_hash: input.imageHash } : resolvedImageUrl ? { picture: resolvedImageUrl } : {}),
           },
         };
       } else {
@@ -1822,8 +2027,8 @@ const campaignsRouter = router({
           const items = carouselHashes || carouselUrls || [];
           const child_attachments = items.map((item: string, idx: number) => ({
             link:           finalLink,
-            name:           `${adCopy.headline} ${idx > 0 ? `(${idx + 1})` : ""}`.trim(),
-            description:    idx === 0 ? adCopy.copy : "",
+            name:           `${selectedHeadline} ${idx > 0 ? `(${idx + 1})` : ""}`.trim(),
+            description:    idx === 0 ? selectedDescription : "",
             call_to_action: { type: ctaType, value: { link: finalLink } },
             ...(carouselHashes
               ? { image_hash: item }
@@ -1834,7 +2039,7 @@ const campaignsRouter = router({
             page_id: input.pageId,
             link_data: {
               link:               finalLink,
-              message:            adCopy.message,
+              message:            selectedMessage,
               child_attachments,
               // multi_share_end_card: false — remove card final de perfil automático
               multi_share_end_card: false,
@@ -1847,8 +2052,8 @@ const campaignsRouter = router({
           storySpec = {
             page_id: input.pageId,
             link_data: {
-              message:        adCopy.message,
-              name:           adCopy.headline,
+              message:        selectedMessage,
+              name:           selectedHeadline,
               link:           finalLink,
               call_to_action: {
                 type: noLinkRequired && !effectiveLink ? "LEARN_MORE" : ctaType,
@@ -1857,8 +2062,8 @@ const campaignsRouter = router({
                 ? { video_id: input.videoId }
                 : input.imageHash
                   ? { image_hash: input.imageHash }
-                  : input.imageUrl
-                    ? { picture: input.imageUrl }
+                  : resolvedImageUrl
+                    ? { picture: resolvedImageUrl }
                     : {}),
             },
           };
@@ -1886,16 +2091,16 @@ const campaignsRouter = router({
       }
 
       // Validar imageUrl — rejeitar URLs de domínios que bloqueiam crawl do Facebook
-      if (input.imageUrl) {
+      if (resolvedImageUrl) {
         const blockedDomains = ["google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
           "facebook.com", "fbcdn.net", "localhost", "127.0.0.1"];
-        const urlLower = input.imageUrl.toLowerCase();
+        const urlLower = resolvedImageUrl.toLowerCase();
         const isBlocked = blockedDomains.some(d => urlLower.includes(d));
         const isValidHttps = urlLower.startsWith("https://");
         if (isBlocked || !isValidHttps) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `URL de imagem inválida: "${input.imageUrl}". Use uma imagem hospedada em HTTPS no seu próprio domínio.`
+            message: `URL de imagem inválida: "${resolvedImageUrl}". Use uma imagem hospedada em HTTPS no seu próprio domínio.`
           });
         }
       }
@@ -1929,6 +2134,9 @@ const campaignsRouter = router({
         creativeId: metaCreativeId,
         adId:       adData.id,
         status:     "PAUSED",
+        warnings: publishWarnings,
+        creativeScore,
+        placementUsed: placementKey,
       };
 
       } catch (err: any) {

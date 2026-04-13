@@ -155,7 +155,11 @@ export default function CampaignResult() {
       setPublishResult(data);
       setShowModal(false);
       setPublishing(false);
-      toast.success("✅ Campanha publicada no Meta Ads!");
+      if (Array.isArray(data?.warnings) && data.warnings.length > 0) {
+        toast.warning(`⚠️ ${data.warnings[0]}`);
+      } else {
+        toast.success("✅ Campanha publicada no Meta Ads!");
+      }
     },
     onError: (e: any) => {
       const msg = e?.message || e?.data?.message || "Erro desconhecido ao publicar";
@@ -167,6 +171,14 @@ export default function CampaignResult() {
   // ── Upload de imagem via tRPC hook ───────────────────────────────────────
   const uploadImageMutation   = (trpc as any).integrations?.uploadImageToMeta?.useMutation?.() ?? { mutateAsync: null };
 
+
+  const regenerateCreativeImageMutation = (trpc as any).campaigns?.regenerateCreativeImage?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast.success("🖼️ Imagem regenerada com sucesso!");
+      refetchCampaign?.();
+    },
+    onError: (e: any) => toast.error("Erro ao regenerar imagem: " + e.message),
+  }) ?? { mutate: () => {}, isLoading: false };
 
   const discoverPageIdMutation = (trpc as any).competitors?.discoverPageId?.useMutation?.({
     onSuccess: (data: any) => {
@@ -498,6 +510,26 @@ export default function CampaignResult() {
     parts.push(hashtagsBase.slice(0, 4).join(" "));
 
     return parts.filter(Boolean).join("\n\n");
+  }
+
+  function inferCreativeFormat(creative: any): "feed" | "stories" | "square" {
+    const format = String(creative?.format || creative?.type || creative?.orientation || "").toLowerCase();
+    if (/(story|stories|reels|9:16)/i.test(format)) return "stories";
+    if (/(1:1|square|quadrado)/i.test(format)) return "square";
+    return "feed";
+  }
+
+  function getCreativeImage(creative: any, preferredFormat?: "feed" | "stories" | "square"): string {
+    if (preferredFormat === "stories") return creative?.storyImageUrl || creative?.feedImageUrl || creative?.squareImageUrl || "";
+    if (preferredFormat === "square") return creative?.squareImageUrl || creative?.feedImageUrl || creative?.storyImageUrl || "";
+    return creative?.feedImageUrl || creative?.squareImageUrl || creative?.storyImageUrl || "";
+  }
+
+  function getScoreBadge(score?: number) {
+    const numericScore = Number(score || 0);
+    if (numericScore >= 75) return { label: `${numericScore}/100`, bg: "#dcfce7", color: "#166534" };
+    if (numericScore >= 60) return { label: `${numericScore}/100`, bg: "#fef3c7", color: "#92400e" };
+    return { label: `${numericScore}/100`, bg: "#fee2e2", color: "#b91c1c" };
   }
 
   function parseJson(str: string | null) {
@@ -950,10 +982,13 @@ export default function CampaignResult() {
                 </button>
               </div>
             </div>
-            {Array.isArray(creatives) ? creatives.map((cr: any, i: number) => (
-              <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", marginBottom: 10, background: i === 0 ? "var(--green-l)" : "white" }}>
+            {Array.isArray(creatives) ? creatives.map((cr: any, i: number) => {
+              const creativeFormat = inferCreativeFormat(cr);
+              const creativeImage = getCreativeImage(cr, creativeFormat);
+              const scoreBadge = getScoreBadge(cr.finalScore);
+              return (
+              <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", marginBottom: 14, background: i === 0 ? "var(--green-l)" : "white" }}>
                 {editingCreative === i ? (
-                  // ── Modo edição ──
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     <div>
                       <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", display: "block", marginBottom: 4 }}>HEADLINE</label>
@@ -975,7 +1010,6 @@ export default function CampaignResult() {
                       <input value={editDraft.cta ?? cr.cta ?? ""} onChange={e => setEditDraft((d: any) => ({ ...d, cta: e.target.value }))}
                         placeholder="Botão de ação (ex: Saiba Mais)" className="input input-sm w-full" />
                     </div>
-                    {/* Ajuste 2: Formato de mídia no criativo */}
                     <div>
                       <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", display: "block", marginBottom: 4 }}>FORMATO</label>
                       <select className="input input-sm w-full"
@@ -999,46 +1033,105 @@ export default function CampaignResult() {
                     </div>
                   </div>
                 ) : (
-                  // ── Modo visualização ──
                   <>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        {i === 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-d)" }}>⭐ PRINCIPAL</span>}
-                        <p style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>{cr.format || cr.type || `Criativo ${i + 1}`}</p>
-                        {cr._edited && <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700 }}>✏️ editado</span>}
+                    <div style={{ display: "grid", gridTemplateColumns: creativeImage ? "220px 1fr" : "1fr", gap: 16, alignItems: "start" }}>
+                      <div>
+                        {creativeImage ? (
+                          <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", borderRadius: 12, border: "1px solid #e5e7eb", objectFit: "cover", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }} />
+                        ) : (
+                          <div style={{ width: "100%", borderRadius: 12, border: "1px dashed #cbd5e1", background: "#f8fafc", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 12, fontWeight: 700, textAlign: "center", padding: 16 }}>
+                            Sem imagem gerada ainda
+                          </div>
+                        )}
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => regenerateCreativeImageMutation.mutate({ campaignId: id, creativeIndex: i, format: creativeFormat })}
+                            disabled={regenerateCreativeImageMutation.isLoading}
+                            style={{ fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>
+                            🖼️ {creativeImage ? "Regenerar imagem" : "Gerar imagem"}
+                          </button>
+                          <span style={{ fontSize: 10, fontWeight: 700, background: "#f8fafc", color: "#475569", borderRadius: 999, padding: "6px 10px" }}>
+                            {creativeFormat === "stories" ? "Stories 9:16" : creativeFormat === "square" ? "Square 1:1" : "Feed 4:5"}
+                          </span>
+                        </div>
                       </div>
-                      <button onClick={() => {
-                          setEditingCreative(i);
-                          // Fix ajuste 5: pré-carrega dados do criativo ao abrir edição
-                          setEditDraft({
-                            headline: cr.headline ?? "",
-                            copy:     cr.copy     ?? "",
-                            hook:     cr.hook     ?? "",
-                            cta:      cr.cta      ?? "",
-                            format:   cr.format   ?? cr.type ?? "",
-                          });
-                        }}
-                        style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "3px 10px", cursor: "pointer", flexShrink: 0 }}>
-                        ✏️ Editar
-                      </button>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6, gap: 8 }}>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                            {i === 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-d)" }}>⭐ PRINCIPAL</span>}
+                            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", margin: 0 }}>{cr.format || cr.type || `Criativo ${i + 1}`}</p>
+                            {cr._edited && <span style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700 }}>✏️ editado</span>}
+                            {cr.finalScore ? (
+                              <span style={{ fontSize: 10, fontWeight: 800, padding: "4px 8px", borderRadius: 999, background: scoreBadge.bg, color: scoreBadge.color }}>
+                                Score {scoreBadge.label}
+                              </span>
+                            ) : null}
+                          </div>
+                          <button onClick={() => {
+                              setEditingCreative(i);
+                              setEditDraft({
+                                headline: cr.headline ?? "",
+                                copy:     cr.copy     ?? "",
+                                hook:     cr.hook     ?? "",
+                                cta:      cr.cta      ?? "",
+                                format:   cr.format   ?? cr.type ?? "",
+                              });
+                            }}
+                            style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "3px 10px", cursor: "pointer", flexShrink: 0 }}>
+                            ✏️ Editar
+                          </button>
+                        </div>
+                        {cr.hook && <p style={{ fontSize: 11, color: "#7c3aed", fontStyle: "italic", marginBottom: 4 }}>🎣 Hook: "{cr.hook}"</p>}
+                        {cr.headline && <p style={{ fontSize: 12, color: "var(--navy)", fontWeight: 600, marginBottom: 3 }}>"{cr.headline}"</p>}
+                        {cr.copy && <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5, marginBottom: 8 }}>{cr.copy}</p>}
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                          {cr.cta && <span style={{ fontSize: 11, fontWeight: 700, background: "var(--navy)", color: "white", padding: "3px 10px", borderRadius: 6 }}>CTA: {cr.cta}</span>}
+                          {cr.complianceRisk && (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
+                              background: cr.complianceRisk === "Baixo" ? "#dcfce7" : cr.complianceRisk === "Médio" ? "#fef3c7" : "#fee2e2",
+                              color: cr.complianceRisk === "Baixo" ? "#166534" : cr.complianceRisk === "Médio" ? "#92400e" : "#dc2626" }}>
+                              {cr.complianceRisk === "Baixo" ? "✅ Risco baixo" : cr.complianceRisk === "Médio" ? "⚠️ Risco médio" : "❌ Risco alto"}
+                            </span>
+                          )}
+                        </div>
+                        {(cr.hookStrength || cr.clarity || cr.urgency || cr.specificity) ? (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
+                            {[
+                              { label: "Hook", value: cr.hookStrength },
+                              { label: "Clareza", value: cr.clarity },
+                              { label: "Urgência", value: cr.urgency },
+                              { label: "Especificidade", value: cr.specificity },
+                            ].map((metric) => (
+                              <div key={metric.label} style={{ background: "#f8fafc", borderRadius: 10, padding: "8px 10px" }}>
+                                <div style={{ fontSize: 10, color: "#64748b", marginBottom: 4 }}>{metric.label}</div>
+                                <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>{metric.value || 0}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        {Array.isArray(cr.recommendations) && cr.recommendations.length > 0 && (
+                          <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                            <p style={{ fontSize: 11, fontWeight: 800, color: "#9a3412", marginBottom: 6 }}>Recomendações</p>
+                            <ul style={{ margin: 0, paddingLeft: 18, color: "#7c2d12", fontSize: 12, lineHeight: 1.5 }}>
+                              {cr.recommendations.map((item: string, idx: number) => <li key={idx}>{item}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    {cr.hook && <p style={{ fontSize: 11, color: "#7c3aed", fontStyle: "italic", marginBottom: 4 }}>🎣 Hook: "{cr.hook}"</p>}
-                    {cr.headline && <p style={{ fontSize: 12, color: "var(--navy)", fontWeight: 600, marginBottom: 3 }}>"{cr.headline}"</p>}
-                    {cr.copy && <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5, marginBottom: 6 }}>{cr.copy}</p>}
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {cr.cta && <span style={{ fontSize: 11, fontWeight: 700, background: "var(--navy)", color: "white", padding: "3px 10px", borderRadius: 6 }}>CTA: {cr.cta}</span>}
-                      {cr.complianceScore && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
-                          background: cr.complianceScore === "safe" ? "#dcfce7" : cr.complianceScore === "warning" ? "#fef3c7" : "#fee2e2",
-                          color: cr.complianceScore === "safe" ? "#166534" : cr.complianceScore === "warning" ? "#92400e" : "#dc2626" }}>
-                          {cr.complianceScore === "safe" ? "✅ Compliance OK" : cr.complianceScore === "warning" ? "⚠️ Verificar" : "❌ Risco"}
-                        </span>
-                      )}
+                    <div style={{ marginTop: 14 }}>
+                      <AdPreviewPanel
+                        creative={{ ...cr, format: creativeFormat === "stories" ? "stories" : creativeFormat === "square" ? "image" : "image" }}
+                        platform={(campaign as any)?.platform || "meta"}
+                        objective={(campaign as any)?.objective}
+                        clientName={(clientProfile as any)?.companyName}
+                        mediaPreview={creativeFormat === "stories" ? (cr.storyImageUrl || creativeImage) : creativeImage}
+                      />
                     </div>
                   </>
                 )}
               </div>
-            )) : <p style={{ fontSize: 13, color: "var(--body)", whiteSpace: "pre-wrap" }}>{JSON.stringify(creatives, null, 2)}</p>}
+            )}) : <p style={{ fontSize: 13, color: "var(--body)", whiteSpace: "pre-wrap" }}>{JSON.stringify(creatives, null, 2)}</p>}
           </div>
         )}
 

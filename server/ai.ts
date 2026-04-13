@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { log } from "./logger";
 import * as db from "./db";
+import { scoreCreativeList } from "./creativeScoringEngine";
+import { generateAdImage, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -3249,6 +3251,19 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     executionPlan    = JSON.stringify(mock.executionPlan);
   }
 
+  try {
+    const parsedCreatives = JSON.parse(creatives || "[]");
+    if (Array.isArray(parsedCreatives) && parsedCreatives.length > 0) {
+      const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsedCreatives, {
+        objective: input.objective,
+        segment: input.extraContext || (clientProfile as any)?.niche || input.name,
+      });
+      creatives = JSON.stringify(enrichedCreatives);
+    }
+  } catch (error: any) {
+    log.warn("ai", "Falha ao enriquecer criativos com score/imagem", { error: error?.message });
+  }
+
   const campaign = await db.createCampaign({
     projectId: input.projectId,
     name: input.name,
@@ -3315,7 +3330,7 @@ ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
 Gere 5 criativos NOVOS e DIFERENTES dos anteriores. Responda SOMENTE em JSON:
 {
-  "INSTRUCAO_CRIATIVOS": "IMPORTANTE: O objetivo desta campanha e ${input.objective}. Para LEADS: copies focados em cadastro, material gratuito, sem compromisso, CTA de baixo atrito. Para SALES: copies focados em oferta, preco, urgencia, garantia, CTA de compra direta. NUNCA use placeholders como [problema], [resultado], [marca] — use textos REAIS baseados no nicho e perfil do cliente.",
+  "INSTRUCAO_CRIATIVOS": "IMPORTANTE: O objetivo desta campanha e ${objective}. Para LEADS: copies focados em cadastro, material gratuito, sem compromisso, CTA de baixo atrito. Para SALES: copies focados em oferta, preco, urgencia, garantia, CTA de compra direta. NUNCA use placeholders como [problema], [resultado], [marca] — use textos REAIS baseados no nicho e perfil do cliente.",
   "creatives": [
     {
       "type": "testimonial|storytelling|authority|lead_magnet|social_proof|direct_offer",
@@ -3431,7 +3446,11 @@ Gere copies para 3 estágios do funil. Responda SOMENTE em JSON:
 
   // Salva no banco o campo correspondente
   if (input.part === "creatives" && parsed.creatives) {
-    await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(parsed.creatives));
+    const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsed.creatives, {
+      objective,
+      segment: input.extraContext || niche || c.name || "segmento geral",
+    });
+    await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(enrichedCreatives));
   } else if (input.part === "adSets" && parsed.adSets) {
     await db.updateCampaignField(input.campaignId, "adSets", JSON.stringify(parsed.adSets));
   } else if (["hooks", "abTests", "copies"].includes(input.part)) {
@@ -3469,6 +3488,59 @@ function fmtBenchmarks(niche: string): string {
     `CTR: ${b.ctr[0]}%–${b.ctr[1]}% | ` +
     `ROAS: ${b.roas[0]}x–${b.roas[1]}x`
   );
+}
+
+function resolveCreativeImageFormat(creative: any): CreativeImageFormat {
+  const format = String(creative?.format || creative?.type || creative?.orientation || "").toLowerCase();
+  if (/(story|stories|reels|9:16)/i.test(format)) return "stories";
+  if (/(1:1|square|quadrado)/i.test(format)) return "square";
+  return "feed";
+}
+
+function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string } {
+  const provider = String(process.env.IMAGE_PROVIDER || "mock").toLowerCase();
+  if (provider === "huggingface") {
+    return { provider: "huggingface", apiKey: process.env.HUGGINGFACE_API_KEY || "" };
+  }
+  if (provider === "heygen") {
+    return { provider: "heygen", apiKey: process.env.HEYGEN_API_KEY || "" };
+  }
+  return { provider: "mock", apiKey: "" };
+}
+
+async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
+  objective: string;
+  segment: string;
+}) {
+  const scored = scoreCreativeList(Array.isArray(creatives) ? creatives : []).map((creative, index) => ({
+    ...creative,
+    creativeIndex: creative?.creativeIndex ?? index,
+  }));
+
+  const config = resolveImageProviderConfig();
+  const maxImages = Math.min(3, scored.length);
+
+  for (let index = 0; index < maxImages; index++) {
+    const creative = scored[index];
+    const format = resolveCreativeImageFormat(creative);
+    const imageUrl = await generateAdImage(
+      creative,
+      context.segment,
+      context.objective,
+      config,
+      format,
+    );
+    if (imageUrl) {
+      if (format === "stories") creative.storyImageUrl = imageUrl;
+      if (format === "feed") creative.feedImageUrl = imageUrl;
+      if (format === "square") creative.squareImageUrl = imageUrl;
+      creative.imageProviderUsed = config.provider;
+      creative.imageUpdatedAt = new Date().toISOString();
+    }
+    if (index < maxImages - 1) await sleep(2000);
+  }
+
+  return scored;
 }
 
 function fmtAds(ads: any[], limit = 25): string {
