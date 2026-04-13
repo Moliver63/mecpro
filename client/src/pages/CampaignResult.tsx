@@ -7,6 +7,8 @@ import { useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
+import { resolveLegacyImageUrlByFormat, buildPublishMediaFromCreative, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
 
 export default function CampaignResult() {
   const { id: routeId, campaignId } = useParams<{ id: string; campaignId: string }>();
@@ -343,19 +345,34 @@ export default function CampaignResult() {
       const validHashes = uploadedHashes.filter(h => !!h);
       const isCarousel  = validHashes.length >= 2;
 
-      await publishMutation.mutateAsync({
+      const creativeList: CampaignCreative[] = Array.isArray(creatives) ? creatives : [];
+      const selectedCreative = creativeList[0];
+      const mergedCreative = selectedCreative
+        ? mergeCreativeWithProjectedLegacy(selectedCreative)
+        : null;
+      const fallbackPublishMedia = mergedCreative
+        ? buildPublishMediaFromCreative(mergedCreative, mergedCreative.format as CreativeFormat | undefined)
+        : null;
+
+      const publishPayload: PublishToMetaInput = {
         campaignId: id,
         projectId,
         pageId: pageId.trim(),
-        imageUrl:    mediaMode === "url" ? imageUrl.trim() || undefined : undefined,
-        imageHash:   !isCarousel ? (uploadedHash || undefined) : undefined,
-        imageHashes: isCarousel ? validHashes : undefined,
-        videoId:     uploadedVid  || undefined,
-        linkUrl:     linkUrl.trim() || undefined,
+        imageUrl: mediaMode === "url"
+          ? imageUrl.trim() || undefined
+          : !uploadedVid && !isCarousel && !uploadedHash
+            ? fallbackPublishMedia?.imageUrl || undefined
+            : undefined,
+        imageHash: !isCarousel && !uploadedVid ? (uploadedHash || fallbackPublishMedia?.imageHash || undefined) : undefined,
+        imageHashes: isCarousel ? validHashes : fallbackPublishMedia?.imageHashes || undefined,
+        videoId: uploadedVid || fallbackPublishMedia?.videoId || undefined,
+        linkUrl: linkUrl.trim() || undefined,
         adSetIndex,
         placementMode,
-        placements:  selectedPlacements.length > 0 ? selectedPlacements : undefined,
-      } as any);
+        placements: selectedPlacements.length > 0 ? selectedPlacements : undefined,
+      };
+
+      await publishMutation.mutateAsync(publishPayload as any);
     } finally { setPublishing(false); }
   }
 
@@ -628,10 +645,9 @@ export default function CampaignResult() {
     return "feed";
   }
 
-  function getCreativeImage(creative: any, preferredFormat?: "feed" | "stories" | "square"): string {
-    if (preferredFormat === "stories") return creative?.storyImageUrl || creative?.feedImageUrl || creative?.squareImageUrl || "";
-    if (preferredFormat === "square") return creative?.squareImageUrl || creative?.feedImageUrl || creative?.storyImageUrl || "";
-    return creative?.feedImageUrl || creative?.squareImageUrl || creative?.storyImageUrl || "";
+  function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
+    const mergedCreative = mergeCreativeWithProjectedLegacy(creative);
+    return resolveLegacyImageUrlByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined) || "";
   }
 
   function getScoreBadge(score?: number) {
@@ -648,6 +664,7 @@ export default function CampaignResult() {
 
   const adSets    = campaign ? parseJson((campaign as any).adSets) : null;
   const creatives = campaign ? parseJson((campaign as any).creatives) : null;
+  const creativeList: CampaignCreative[] = Array.isArray(creatives) ? creatives : [];
   const funnel    = campaign ? parseJson((campaign as any).conversionFunnel) : null;
   const plan      = campaign ? parseJson((campaign as any).executionPlan) : null;
   const extra     = campaign ? parseJson((campaign as any).aiResponse) : null;

@@ -1,6 +1,8 @@
 import "dotenv/config";
 import { log } from "./logger";
 import * as db from "./db";
+import type { CampaignCreative } from "../shared/campaignCreative.schema";
+import { syncCreativeTextToV2, syncCreativeImageToV2 } from "../shared/campaignCreative.sync";
 import { scoreCreativeList } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 
@@ -3258,7 +3260,30 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         objective: input.objective,
         segment: input.extraContext || (clientProfile as any)?.niche || input.name,
       });
-      creatives = JSON.stringify(enrichedCreatives);
+      const creativesWithV2 = enrichedCreatives.map((rawCreative: any) => {
+        let creative = rawCreative as CampaignCreative;
+        creative = syncCreativeTextToV2(creative);
+        if (creative.feedImageUrl || creative.feedImageHash) {
+          creative = syncCreativeImageToV2(creative, "feed", {
+            imageUrl: creative.feedImageUrl ?? null,
+            imageHash: creative.feedImageHash ?? null,
+          });
+        }
+        if (creative.storyImageUrl || creative.storyImageHash) {
+          creative = syncCreativeImageToV2(creative, "stories", {
+            imageUrl: creative.storyImageUrl ?? null,
+            imageHash: creative.storyImageHash ?? null,
+          });
+        }
+        if (creative.squareImageUrl || creative.squareImageHash) {
+          creative = syncCreativeImageToV2(creative, "square", {
+            imageUrl: creative.squareImageUrl ?? null,
+            imageHash: creative.squareImageHash ?? null,
+          });
+        }
+        return creative;
+      });
+      creatives = JSON.stringify(creativesWithV2);
     }
   } catch (error: any) {
     log.warn("ai", "Falha ao enriquecer criativos com score/imagem", { error: error?.message });
@@ -3450,7 +3475,30 @@ Gere copies para 3 estágios do funil. Responda SOMENTE em JSON:
       objective,
       segment: input.extraContext || niche || c.name || "segmento geral",
     });
-    await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(enrichedCreatives));
+    const creativesWithV2 = enrichedCreatives.map((rawCreative: any) => {
+      let creative = rawCreative as CampaignCreative;
+      creative = syncCreativeTextToV2(creative);
+      if (creative.feedImageUrl || creative.feedImageHash) {
+        creative = syncCreativeImageToV2(creative, "feed", {
+          imageUrl: creative.feedImageUrl ?? null,
+          imageHash: creative.feedImageHash ?? null,
+        });
+      }
+      if (creative.storyImageUrl || creative.storyImageHash) {
+        creative = syncCreativeImageToV2(creative, "stories", {
+          imageUrl: creative.storyImageUrl ?? null,
+          imageHash: creative.storyImageHash ?? null,
+        });
+      }
+      if (creative.squareImageUrl || creative.squareImageHash) {
+        creative = syncCreativeImageToV2(creative, "square", {
+          imageUrl: creative.squareImageUrl ?? null,
+          imageHash: creative.squareImageHash ?? null,
+        });
+      }
+      return creative;
+    });
+    await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creativesWithV2));
   } else if (input.part === "adSets" && parsed.adSets) {
     await db.updateCampaignField(input.campaignId, "adSets", JSON.stringify(parsed.adSets));
   } else if (["hooks", "abTests", "copies"].includes(input.part)) {

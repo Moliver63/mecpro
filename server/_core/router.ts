@@ -14,6 +14,22 @@ import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
+import {
+  updateCreativeInputSchema,
+  updateCreativeImageInputSchema,
+  regenerateCreativeImageInputSchema,
+  uploadImageToMetaInputSchema,
+  uploadVideoToMetaInputSchema,
+  publishToMetaInputSchema,
+  mergeCreativeWithProjectedLegacy,
+  buildPublishMediaFromCreative,
+  type CampaignCreative,
+} from "../../shared/campaignCreative.schema";
+import {
+  syncCreativeTextToV2,
+  syncCreativeImageToV2,
+  syncCreativePublishMediaToV2,
+} from "../../shared/campaignCreative.sync";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -1409,40 +1425,30 @@ const campaignsRouter = router({
 
   // -- Edição manual de criativo ---------------------------------------------
   updateCreative: protectedProcedure
-    .input(z.object({
-      campaignId: z.number(),
-      index:      z.number(),
-      headline:   z.string().optional(),
-      copy:       z.string().optional(),
-      cta:        z.string().optional(),
-      hook:       z.string().optional(),
-      format:     z.string().optional(),
-    }))
+    .input(updateCreativeInputSchema)
     .mutation(async ({ input }) => {
       const campaign = await db.getCampaignById(input.campaignId) as any;
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
-      const creatives = JSON.parse(campaign.creatives || "[]");
+      const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
       if (!creatives[input.index]) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
-      // Merge apenas os campos enviados
-      if (input.headline !== undefined) creatives[input.index].headline = input.headline;
-      if (input.copy     !== undefined) creatives[input.index].copy     = input.copy;
-      if (input.cta      !== undefined) creatives[input.index].cta      = input.cta;
-      if (input.hook     !== undefined) creatives[input.index].hook     = input.hook;
-      if (input.format   !== undefined) creatives[input.index].format   = input.format;
-      Object.assign(creatives[input.index], scoreCreative(creatives[input.index]));
-      creatives[input.index]._edited = true;
+      const currentCreative = (creatives[input.index] ?? {}) as CampaignCreative;
+      const nextCreative: CampaignCreative = {
+        ...currentCreative,
+        ...(input.headline !== undefined ? { headline: input.headline } : {}),
+        ...(input.copy !== undefined ? { copy: input.copy } : {}),
+        ...(input.cta !== undefined ? { cta: input.cta } : {}),
+        ...(input.hook !== undefined ? { hook: input.hook } : {}),
+        ...(input.format !== undefined ? { format: input.format } : {}),
+      };
+      Object.assign(nextCreative, scoreCreative(nextCreative));
+      nextCreative._edited = true;
+      creatives[input.index] = syncCreativeTextToV2(nextCreative);
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
       return { ok: true, creatives };
     }),
 
   updateCreativeImage: protectedProcedure
-    .input(z.object({
-      campaignId: z.number(),
-      creativeIndex: z.number(),
-      format: z.enum(["feed", "stories", "square"]),
-      imageUrl: z.string().optional(),
-      imageHash: z.string().optional(),
-    }))
+    .input(updateCreativeImageInputSchema)
     .mutation(async ({ input }) => {
       if (!input.imageUrl && !input.imageHash) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Informe imageUrl ou imageHash para atualizar a imagem do criativo." });
@@ -1451,8 +1457,8 @@ const campaignsRouter = router({
       const campaign = await db.getCampaignById(input.campaignId) as any;
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
 
-      const creatives = JSON.parse(campaign.creatives || "[]");
-      const creative = creatives[input.creativeIndex];
+      const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
+      const creative = creatives[input.creativeIndex] as CampaignCreative;
       if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
 
       const urlKey = input.format === "stories"
@@ -1474,22 +1480,23 @@ const campaignsRouter = router({
       creative.imageGenerationWarnings = [];
       creative.manualImageOverride = true;
 
+      creatives[input.creativeIndex] = syncCreativeImageToV2(creative, input.format, {
+        imageUrl: input.imageUrl ?? null,
+        imageHash: input.imageHash ?? null,
+      });
+
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
       return { ok: true, creative: creatives[input.creativeIndex], imageUrl: creative[urlKey] || null, imageHash: creative[hashKey] || null };
     }),
 
   regenerateCreativeImage: protectedProcedure
-    .input(z.object({
-      campaignId: z.number(),
-      creativeIndex: z.number(),
-      format: z.enum(["feed", "stories", "square"]),
-    }))
+    .input(regenerateCreativeImageInputSchema)
     .mutation(async ({ input }) => {
       const campaign = await db.getCampaignById(input.campaignId) as any;
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
 
-      const creatives = JSON.parse(campaign.creatives || "[]");
-      const creative = creatives[input.creativeIndex];
+      const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
+      const creative = creatives[input.creativeIndex] as CampaignCreative;
       if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
 
       const provider = ((process.env.IMAGE_PROVIDER || "mock").toLowerCase() as ImageProvider);
@@ -1517,6 +1524,11 @@ const campaignsRouter = router({
       creatives[input.creativeIndex].imageProviderUsed = diagnostics.provider;
       creatives[input.creativeIndex].imageGenerationReason = diagnostics.reason;
       creatives[input.creativeIndex].imageGenerationWarnings = diagnostics.warnings;
+
+      creatives[input.creativeIndex] = syncCreativeImageToV2(creatives[input.creativeIndex], input.format, {
+        imageUrl,
+        imageHash: null,
+      });
 
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
       return { ok: true, imageUrl, format: input.format, creative: creatives[input.creativeIndex], diagnostics };
@@ -1627,31 +1639,7 @@ const campaignsRouter = router({
     }),
 
   publishToMeta: protectedProcedure
-    .input(z.object({
-      campaignId:    z.number(),
-      projectId:     z.number(),
-      pageId:        z.string(),
-      destination:   z.enum(["website", "lead_form"]).default("website"),
-      leadGenFormId: z.string().optional(),
-      linkUrl:       z.string().optional(),
-      imageUrl:      z.string().optional(),
-      imageHash:     z.string().optional(),    // image_hash da foto destaque
-      imageHashes:   z.array(z.string()).optional(), // array de hashes para carrossel (2-10 fotos)
-      imageUrls:     z.array(z.string()).optional(), // array de URLs para carrossel
-      videoId:       z.string().optional(),    // video_id do vídeo enviado para Meta
-      pixelId:       z.string().optional(),    // Facebook Pixel ID
-      adSetIndex:    z.number().default(0),
-      placementMode: z.enum(["auto", "manual"]).optional(),
-      placements:    z.array(z.string()).optional(),
-      // Localização e faixa etária
-      ageMin:       z.number().min(13).max(65).optional(),
-      ageMax:       z.number().min(18).max(65).optional(),
-      regions:      z.array(z.string()).optional(),    // estados BR: ["SC", "SP"]
-      countries:    z.array(z.string()).optional(),    // países: ["BR", "PT", "US"]
-      locationMode: z.enum(["brasil", "paises", "raio"]).optional(),
-      geoCity:      z.string().optional(),             // cidade para raio
-      geoRadius:    z.number().optional(),             // km do raio
-    }))
+    .input(publishToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
       // Verificar se plano permite integração Meta
       const metaCheck = await db.checkPlanLimit(ctx.user.id, "meta");
@@ -1823,7 +1811,7 @@ const campaignsRouter = router({
       const creatives = parseJson(c.creatives);
       const extra     = parseJson(c.aiResponse);
       const adSet     = Array.isArray(adSets) ? (adSets[input.adSetIndex] ?? adSets[0]) : null;
-      const creativeList = Array.isArray(creatives) ? creatives : [];
+      const creativeList = Array.isArray(creatives) ? creatives as CampaignCreative[] : [];
       const manualPlacements = input.placementMode === "manual" ? (input.placements || []) : [];
       const storyLikePlacements = manualPlacements.filter((placement: string) => /(story|reels)/i.test(placement));
       const placementKey: "feed" | "stories" | "reels" = storyLikePlacements.length > 0 && storyLikePlacements.length === manualPlacements.length
@@ -1849,9 +1837,16 @@ const campaignsRouter = router({
       if ((creativeScore?.finalScore || 0) < 60) {
         publishWarnings.push(`Criativo com score ${creativeScore.finalScore}/100. Revise antes de escalar.`);
       }
+      const selectedCreativeRaw = creative as CampaignCreative | null;
+      const selectedCreative = selectedCreativeRaw
+        ? mergeCreativeWithProjectedLegacy(selectedCreativeRaw)
+        : null;
+      const fallbackPublishMedia = selectedCreative
+        ? buildPublishMediaFromCreative(selectedCreative, selectedCreative.format)
+        : null;
       const selectedGeneratedImageUrl = placementKey === "stories" || placementKey === "reels"
-        ? creative?.storyImageUrl || creative?.feedImageUrl || creative?.squareImageUrl
-        : creative?.feedImageUrl || creative?.squareImageUrl || creative?.storyImageUrl;
+        ? selectedCreative?.storyImageUrl || selectedCreative?.feedImageUrl || selectedCreative?.squareImageUrl
+        : selectedCreative?.feedImageUrl || selectedCreative?.squareImageUrl || selectedCreative?.storyImageUrl;
       const selectedMessage = placementKey === "stories" || placementKey === "reels"
         ? (((adCopy as any).stories?.script || []).join("\n") || adCopy.message)
         : adCopy.feed.message;
@@ -2008,10 +2003,23 @@ const campaignsRouter = router({
         : adCopy.feed.cta;
       const ctaType = VALID_CTAS.includes(preferredCta) ? preferredCta : "LEARN_MORE";
       const selectedGeneratedImageHash = placementKey === "stories" || placementKey === "reels"
-        ? creative?.storyImageHash || creative?.feedImageHash || creative?.squareImageHash
-        : creative?.feedImageHash || creative?.squareImageHash || creative?.storyImageHash;
-      const resolvedImageHash = input.imageHash || selectedGeneratedImageHash;
-      const resolvedImageUrl = input.imageUrl || selectedGeneratedImageUrl;
+        ? selectedCreative?.storyImageHash || selectedCreative?.feedImageHash || selectedCreative?.squareImageHash
+        : selectedCreative?.feedImageHash || selectedCreative?.squareImageHash || selectedCreative?.storyImageHash;
+      const effectiveVideoId = input.videoId ?? fallbackPublishMedia?.videoId ?? null;
+      const effectiveImageHashes = input.imageHashes?.length && input.imageHashes.length >= 2
+        ? input.imageHashes
+        : fallbackPublishMedia?.imageHashes ?? null;
+      const effectiveImageUrls = input.imageUrls?.length && input.imageUrls.length >= 2
+        ? input.imageUrls
+        : fallbackPublishMedia?.imageUrls ?? null;
+      const effectiveImageHash = input.imageHash ?? (!effectiveImageHashes && !effectiveVideoId
+        ? (fallbackPublishMedia?.imageHash ?? selectedGeneratedImageHash ?? null)
+        : null);
+      const effectiveImageUrl = input.imageUrl ?? (!effectiveImageHashes && !effectiveImageHash && !effectiveVideoId
+        ? (fallbackPublishMedia?.imageUrl ?? selectedGeneratedImageUrl ?? null)
+        : null);
+      const resolvedImageHash = effectiveImageHash;
+      const resolvedImageUrl = effectiveImageUrl;
 
       // Monta link_data ou lead_gen_data dependendo do destino
       let storySpec: any;
@@ -2081,11 +2089,11 @@ const campaignsRouter = router({
         const finalLink = effectiveLink || `https://www.facebook.com/${input.pageId}`;
 
         // Decide formato: carrossel (2-10 fotos) ou imagem simples
-        carouselHashes = (input.imageHashes && input.imageHashes.length >= 2)
-          ? input.imageHashes.slice(0, 10)   // Meta permite no máximo 10 cards
+        carouselHashes = (effectiveImageHashes && effectiveImageHashes.length >= 2)
+          ? effectiveImageHashes.slice(0, 10)   // Meta permite no máximo 10 cards
           : null;
-        carouselUrls = (!carouselHashes && input.imageUrls && input.imageUrls.length >= 2)
-          ? input.imageUrls.slice(0, 10)
+        carouselUrls = (!carouselHashes && effectiveImageUrls && effectiveImageUrls.length >= 2)
+          ? effectiveImageUrls.slice(0, 10)
           : null;
         isCarousel = !!(carouselHashes || carouselUrls);
 
@@ -2126,8 +2134,8 @@ const campaignsRouter = router({
               call_to_action: {
                 type: noLinkRequired && !effectiveLink ? "LEARN_MORE" : ctaType,
               },
-              ...(input.videoId
-                ? { video_id: input.videoId }
+              ...(effectiveVideoId
+                ? { video_id: effectiveVideoId }
                 : resolvedImageHash
                   ? { image_hash: resolvedImageHash }
                   : resolvedImageUrl
@@ -2165,8 +2173,22 @@ const campaignsRouter = router({
       if (carouselUrls?.length) {
         carouselUrls.forEach(validateMetaImageUrl);
       }
-      if (!isCarousel && !input.videoId && !resolvedImageHash && dest !== "lead_form" && resolvedImageUrl) {
+      if (!isCarousel && !effectiveVideoId && !resolvedImageHash && dest !== "lead_form" && resolvedImageUrl) {
         validateMetaImageUrl(resolvedImageUrl);
+      }
+
+      if (selectedCreativeRaw) {
+        const creativeIndex = typeof input.creativeIndex === "number" ? input.creativeIndex : 0;
+        if (creativeList[creativeIndex]) {
+          creativeList[creativeIndex] = syncCreativePublishMediaToV2(selectedCreativeRaw, {
+            imageHash: effectiveImageHash,
+            imageUrl: effectiveImageUrl,
+            imageHashes: effectiveImageHashes,
+            imageUrls: effectiveImageUrls,
+            videoId: effectiveVideoId,
+          });
+          await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creativeList));
+        }
       }
 
       const creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
@@ -3016,10 +3038,7 @@ const integrationsRouter = router({
 
   // -- Upload de imagem → retorna image_hash real para uso em criativos ------
   uploadImageToMeta: protectedProcedure
-    .input(z.object({
-      imageBase64: z.string(),        // base64 puro ou com prefixo data:image
-      fileName:    z.string().default("ad_image.jpg"),
-    }))
+    .input(uploadImageToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
       const integration = await db.getApiIntegration(ctx.user.id, "meta");
       if (!integration || !(integration as any).accessToken)
@@ -3098,11 +3117,7 @@ const integrationsRouter = router({
     }),
 
   uploadVideoToMeta: protectedProcedure
-    .input(z.object({
-      videoBase64: z.string(),
-      fileName:    z.string().default("ad_video.mp4"),
-      mimeType:    z.string().default("video/mp4"),
-    }))
+    .input(uploadVideoToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
       const integration = await db.getApiIntegration(ctx.user.id, "meta");
       if (!integration || !(integration as any).accessToken)
