@@ -25,13 +25,13 @@ const AD_FORMATS = [
 
 const CTA_OPTIONS = [
   "LEARN_MORE","SHOP_NOW","SIGN_UP","CONTACT_US","GET_OFFER",
-  "DOWNLOAD","BOOK_NOW","SUBSCRIBE","WATCH_MORE","SEND_MESSAGE",
+  "DOWNLOAD","BOOK_NOW","SUBSCRIBE","WATCH_MORE","SEND_MESSAGE","WHATSAPP_MESSAGE",
 ];
 const CTA_LABELS: Record<string, string> = {
   LEARN_MORE: "Saiba Mais", SHOP_NOW: "Comprar Agora", SIGN_UP: "Cadastre-se",
   CONTACT_US: "Entre em Contato", GET_OFFER: "Obter Oferta", DOWNLOAD: "Baixar",
   BOOK_NOW: "Reservar Agora", SUBSCRIBE: "Inscrever-se", WATCH_MORE: "Ver Mais",
-  SEND_MESSAGE: "Enviar Mensagem",
+  SEND_MESSAGE: "Enviar Mensagem", WHATSAPP_MESSAGE: "Fale no WhatsApp",
 };
 
 const PLACEMENTS = [
@@ -92,20 +92,56 @@ function normalizeDestinationUrl(raw?: string | null): string {
   }
 }
 
-function resolveAutoDestination(profile: any): string {
+function extractWhatsAppDetails(raw?: string | null): { phone?: string; link?: string } {
+  const normalized = normalizeDestinationUrl(raw);
+  const fallbackDigits = String(raw || "").replace(/\D/g, "");
+  const buildLink = (phone?: string, text?: string | null) => {
+    const params = new URLSearchParams();
+    if (phone) params.set("phone", phone);
+    if (text) params.set("text", text);
+    const query = params.toString();
+    return `https://api.whatsapp.com/send${query ? `?${query}` : ""}`;
+  };
+
+  if (normalized) {
+    try {
+      const url = new URL(normalized);
+      const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+      const isWhatsAppHost = host === "wa.me" || host.endsWith("whatsapp.com");
+      if (isWhatsAppHost) {
+        const phone = url.searchParams.get("phone")?.replace(/\D/g, "")
+          || url.pathname.replace(/\//g, "").replace(/\D/g, "")
+          || fallbackDigits
+          || undefined;
+        const text = url.searchParams.get("text");
+        return { phone, link: buildLink(phone, text) };
+      }
+    } catch {}
+  }
+
+  if (fallbackDigits.length >= 8) {
+    return { phone: fallbackDigits, link: buildLink(fallbackDigits) };
+  }
+
+  return {};
+}
+
+function resolveAutoDestination(profile: any, options?: { preferWhatsApp?: boolean }): string {
   const website = normalizeDestinationUrl(profile?.websiteUrl);
-  if (website) return website;
 
   let social: any = {};
   try { social = JSON.parse(profile?.socialLinks || "{}"); } catch {}
 
   const whatsappRaw = social?.whatsappUrl || social?.whatsapp;
-  if (whatsappRaw) {
-    const whatsapp = /^https?:\/\//i.test(String(whatsappRaw))
+  const whatsapp = whatsappRaw
+    ? (/^https?:\/\//i.test(String(whatsappRaw))
       ? normalizeDestinationUrl(String(whatsappRaw))
-      : normalizeDestinationUrl(`https://wa.me/${String(whatsappRaw).replace(/\D/g, "")}`);
-    if (whatsapp) return whatsapp;
-  }
+      : normalizeDestinationUrl(`https://wa.me/${String(whatsappRaw).replace(/\D/g, "")}`))
+    : "";
+
+  if (options?.preferWhatsApp && whatsapp) return whatsapp;
+  if (website) return website;
+  if (whatsapp) return whatsapp;
 
   const instagramRaw = social?.instagramUrl || social?.instagram;
   if (instagramRaw) {
@@ -217,9 +253,17 @@ export default function FacebookCampaignCreator() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Computed
-  const autoDestinationUrl = resolveAutoDestination(clientProfile);
-  const effectiveDestinationUrl = normalizeDestinationUrl(account.linkUrl) || normalizeDestinationUrl(creative.destUrl) || autoDestinationUrl;
-  const utmUrl = buildUtmUrl(effectiveDestinationUrl, campaign.name);
+  const preferWhatsAppAuto = campaign.objective === "ENGAGEMENT"
+    || campaign.objective === "LEADS"
+    || creative.callToAction === "WHATSAPP_MESSAGE";
+  const autoDestinationUrl = resolveAutoDestination(clientProfile, { preferWhatsApp: preferWhatsAppAuto });
+  const rawDestinationUrl = normalizeDestinationUrl(account.linkUrl) || normalizeDestinationUrl(creative.destUrl) || autoDestinationUrl;
+  const whatsappDestination = extractWhatsAppDetails(rawDestinationUrl);
+  const effectiveDestinationUrl = whatsappDestination.link || rawDestinationUrl;
+  const effectiveCallToAction = account.destination === "lead_form"
+    ? creative.callToAction
+    : (whatsappDestination.link ? "WHATSAPP_MESSAGE" : creative.callToAction);
+  const utmUrl = whatsappDestination.link ? "" : buildUtmUrl(effectiveDestinationUrl, campaign.name);
   const isStep1Valid = account.adAccountId && account.fbPageId && account.accessToken;
   const isStep2Valid = campaign.name && campaign.budget > 0;
   const isStep3Valid = adSet.name && adSet.ageMin < adSet.ageMax;
@@ -323,8 +367,9 @@ export default function FacebookCampaignCreator() {
         name:              adSet.name,
         campaign_id:       campaignId,
         billing_event:     adSet.billingEvent,
-        optimization_goal: adSet.optimizationGoal,
+        optimization_goal: whatsappDestination.link && campaign.objective === "ENGAGEMENT" ? "CONVERSATIONS" : adSet.optimizationGoal,
         bid_strategy:      "LOWEST_COST_WITHOUT_CAP",
+        ...(whatsappDestination.link ? { destination_type: "WHATSAPP" } : {}),
         targeting: {
           age_min:       adSet.ageMin,
           age_max:       adSet.ageMax,
@@ -343,6 +388,16 @@ export default function FacebookCampaignCreator() {
         adSetPayload.lifetime_budget = Math.round(campaign.budget * 100);
         if (campaign.endDate) adSetPayload.end_time = new Date(campaign.endDate).toISOString();
       }
+      if (account.fbPageId && ["LEADS", "SALES", "ENGAGEMENT"].includes(campaign.objective)) {
+        adSetPayload.promoted_object = whatsappDestination.link
+          ? {
+              page_id: account.fbPageId,
+              ...(whatsappDestination.phone ? { whatsapp_phone_number: whatsappDestination.phone } : {}),
+            }
+          : (account.pixelId && campaign.objective === "SALES"
+            ? { page_id: account.fbPageId, pixel_id: account.pixelId, custom_event_type: "PURCHASE" }
+            : { page_id: account.fbPageId });
+      }
       const adSetRes = await fetch(`${BASE}/${ACT}/adsets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -359,7 +414,7 @@ export default function FacebookCampaignCreator() {
           page_id: account.fbPageId,
           lead_gen_data: {
             lead_gen_form_id: account.leadGenFormId,
-            call_to_action:   { type: creative.callToAction },
+            call_to_action:   { type: effectiveCallToAction },
             message:          creative.primaryText,
             name:             creative.headline,
             ...(finalImageHash
@@ -377,7 +432,9 @@ export default function FacebookCampaignCreator() {
             name:           creative.headline,
             description:    creative.description,
             link:           utmUrl || effectiveDestinationUrl,
-            call_to_action: { type: creative.callToAction },
+            call_to_action: whatsappDestination.link
+              ? { type: effectiveCallToAction, value: { app_destination: "WHATSAPP" } }
+              : { type: effectiveCallToAction, value: { link: utmUrl || effectiveDestinationUrl } },
             // Prioriza image_hash sobre URL direta
             ...(finalImageHash
               ? { image_hash: finalImageHash }
@@ -878,7 +935,7 @@ export default function FacebookCampaignCreator() {
               { label: "Orçamento", value: `R$ ${campaign.budget}/${campaign.budgetType === "DAILY" ? "dia" : "total"}` },
               { label: "Público", value: `${adSet.ageMin}‑${adSet.ageMax} anos, ${adSet.gender === "ALL" ? "Todos" : adSet.gender}` },
               { label: "Formato", value: AD_FORMATS.find(f => f.value === creative.format)?.label ?? creative.format },
-              { label: "CTA", value: CTA_LABELS[creative.callToAction] ?? creative.callToAction },
+              { label: "CTA", value: CTA_LABELS[effectiveCallToAction] ?? effectiveCallToAction },
             ].map(item => (
               <div key={item.label}>
                 <div style={{ fontSize: 11, color: "#94a3b8" }}>{item.label}</div>
@@ -930,7 +987,7 @@ export default function FacebookCampaignCreator() {
                     {creative.description && <div style={{ fontSize: 11, color: "#6b7280" }}>{creative.description}</div>}
                   </div>
                   <button className="btn btn-sm btn-primary" style={{ marginTop: 10, width: "100%", background: "#1877f2", border: "none" }}>
-                    {CTA_LABELS[creative.callToAction] ?? creative.callToAction}
+                    {CTA_LABELS[effectiveCallToAction] ?? effectiveCallToAction}
                   </button>
                 </div>
               </div>

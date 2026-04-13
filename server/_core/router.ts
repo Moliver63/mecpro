@@ -118,7 +118,7 @@ function buildAdCopy(campaign: any, opts: {
     sales: "Comprar agora",
     traffic: "Saiba mais",
     branding: "Ver mais",
-    engagement: "Fale conosco",
+    engagement: "Fale no WhatsApp",
   };
 
   const META_CTA_MAP: Record<string, string> = {
@@ -149,11 +149,14 @@ function buildAdCopy(campaign: any, opts: {
       .toLowerCase();
     const direct = META_CTA_MAP[clean];
     if (direct) return direct;
+    if (/whats/.test(clean)) return "WHATSAPP_MESSAGE";
     if (/compr|oferta|desconto/.test(clean)) return currentObjective === "sales" ? "BUY_NOW" : "LEARN_MORE";
     if (/cadast|guia|ebook|material|inscri/.test(clean)) return "SIGN_UP";
     if (/orcamento|quote/.test(clean)) return "GET_QUOTE";
     if (/agend/.test(clean)) return "BOOK_NOW";
-    if (/contato|whats|mensagem/.test(clean)) return "CONTACT_US";
+    if (/mensagem/.test(clean)) return "MESSAGE_PAGE";
+    if (/contato/.test(clean)) return "CONTACT_US";
+    if (currentObjective === "engagement") return "WHATSAPP_MESSAGE";
     if (currentObjective === "leads") return "SIGN_UP";
     if (currentObjective === "sales") return "BUY_NOW";
     return "LEARN_MORE";
@@ -1715,15 +1718,48 @@ const campaignsRouter = router({
           return undefined;
         }
       }
-      function resolveAutoDestination(profile: any): { url?: string; source?: string } {
+      function extractWhatsAppDetails(raw?: string | null): { phone?: string; link?: string } {
+        const normalized = normalizeDestinationUrl(raw);
+        const fallbackDigits = String(raw || "").replace(/\D/g, "");
+        const buildLink = (phone?: string, text?: string | null) => {
+          const params = new URLSearchParams();
+          if (phone) params.set("phone", phone);
+          if (text) params.set("text", text);
+          const query = params.toString();
+          return `https://api.whatsapp.com/send${query ? `?${query}` : ""}`;
+        };
+
+        if (normalized) {
+          try {
+            const url = new URL(normalized);
+            const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+            const isWhatsAppHost = host === "wa.me" || host.endsWith("whatsapp.com");
+            if (isWhatsAppHost) {
+              const phone = url.searchParams.get("phone")?.replace(/\D/g, "")
+                || url.pathname.replace(/\//g, "").replace(/\D/g, "")
+                || fallbackDigits
+                || undefined;
+              const text = url.searchParams.get("text");
+              return { phone, link: buildLink(phone, text) };
+            }
+          } catch {}
+        }
+
+        if (fallbackDigits.length >= 8) {
+          return { phone: fallbackDigits, link: buildLink(fallbackDigits) };
+        }
+
+        return {};
+      }
+      function resolveAutoDestination(profile: any, options?: { preferWhatsApp?: boolean }): { url?: string; source?: string } {
         const website = normalizeDestinationUrl(profile?.websiteUrl);
-        if (website) return { url: website, source: "websiteUrl" };
 
         const rawSocial = String(profile?.socialLinks || "").trim();
         let social: any = {};
         try { social = JSON.parse(rawSocial || "{}"); } catch {}
 
         const textSource = rawSocial;
+        let whatsappUrl: string | undefined;
         const whatsappCandidates = [
           social?.whatsappUrl,
           social?.whatsapp,
@@ -1736,8 +1772,15 @@ const campaignsRouter = router({
           const whatsapp = /^https?:\/\//i.test(String(candidate))
             ? normalizeDestinationUrl(String(candidate))
             : normalizeDestinationUrl(`https://wa.me/${String(candidate).replace(/\D/g, "")}`);
-          if (whatsapp) return { url: whatsapp, source: "whatsapp" };
+          if (whatsapp) {
+            whatsappUrl = whatsapp;
+            break;
+          }
         }
+
+        if (options?.preferWhatsApp && whatsappUrl) return { url: whatsappUrl, source: "whatsapp" };
+        if (website) return { url: website, source: "websiteUrl" };
+        if (whatsappUrl) return { url: whatsappUrl, source: "whatsapp" };
 
         const instagramCandidates = [
           social?.instagramUrl,
@@ -1871,6 +1914,25 @@ const campaignsRouter = router({
       const endTime = new Date(Date.now() + (c.durationDays ?? 30) * 24 * 60 * 60 * 1000).toISOString();
       const { campaignObj: resolvedCampaignObj, optimizationGoal: resolvedOptGoal } = resolveObjectiveAndGoal(objective, input.pixelId);
       const dest = input.destination;
+      const preferredCtaText = placementKey === "stories" || placementKey === "reels"
+        ? String((adCopy as any).stories?.cta || adCopy.feed.cta || "")
+        : String(adCopy.feed.cta || "");
+      const preferWhatsAppDestination = /whats/i.test(preferredCtaText) || ["engagement", "leads"].includes(String(objective || "").toLowerCase());
+      const manualLink = dest === "lead_form" ? undefined : normalizeDestinationUrl(input.linkUrl);
+      const autoDestination = dest === "lead_form" ? {} : resolveAutoDestination(clientProfile, { preferWhatsApp: preferWhatsAppDestination });
+      const pageFallback = dest === "lead_form" || !input.pageId ? undefined : normalizeDestinationUrl(`https://www.facebook.com/${input.pageId}`);
+      const effectiveLink = manualLink || autoDestination.url || pageFallback;
+      const destinationSource = manualLink
+        ? "input.linkUrl"
+        : autoDestination.source || (pageFallback ? "pageId_facebook_page" : undefined);
+      const whatsappDestination = dest === "lead_form" ? {} : extractWhatsAppDetails(effectiveLink);
+      const isWhatsAppDestination = !!whatsappDestination.link;
+      const finalLink = isWhatsAppDestination
+        ? whatsappDestination.link!
+        : (effectiveLink || `https://www.facebook.com/${input.pageId}`);
+      const adSetOptimizationGoal = isWhatsAppDestination && String(objective || "").toLowerCase() === "engagement"
+        ? "CONVERSATIONS"
+        : resolvedOptGoal;
 
       // 1. Campaign
       const campaignObjective = resolvedCampaignObj;
@@ -1910,10 +1972,11 @@ const campaignsRouter = router({
         name:              adSetName,
         campaign_id:       metaCampaignId,
         billing_event:     toBillingEvent(objective),
-        optimization_goal: resolvedOptGoal,
+        optimization_goal: adSetOptimizationGoal,
         bid_strategy:      "LOWEST_COST_WITHOUT_CAP",
         daily_budget:      budgetDaily * 100,
         end_time:          endTime,
+        ...(isWhatsAppDestination ? { destination_type: "WHATSAPP" } : {}),
         targeting: {
           age_min: input.ageMin ?? 18,
           age_max: input.ageMax ?? 65,
@@ -1990,9 +2053,14 @@ const campaignsRouter = router({
         },
         // promoted_object obrigatório para OUTCOME_LEADS e OUTCOME_SALES
         ...(["leads","sales","engagement"].includes(objective) && input.pageId ? {
-          promoted_object: input.pixelId && objective === "sales"
-            ? { page_id: input.pageId, pixel_id: input.pixelId, custom_event_type: "PURCHASE" }
-            : { page_id: input.pageId }
+          promoted_object: isWhatsAppDestination
+            ? {
+                page_id: input.pageId,
+                ...(whatsappDestination.phone ? { whatsapp_phone_number: whatsappDestination.phone } : {}),
+              }
+            : input.pixelId && objective === "sales"
+              ? { page_id: input.pageId, pixel_id: input.pixelId, custom_event_type: "PURCHASE" }
+              : { page_id: input.pageId }
         } : {}),
         status:            "PAUSED",
         access_token:      token,
@@ -2002,10 +2070,9 @@ const campaignsRouter = router({
       // 3. Ad Creative
       const creativeName = `${c.name} — Criativo`.slice(0, 100);
       const VALID_CTAS = ["LEARN_MORE","SIGN_UP","CONTACT_US","APPLY_NOW","GET_QUOTE","BOOK_NOW","SHOP_NOW","SUBSCRIBE","DOWNLOAD","WATCH_VIDEO","CALL_NOW","WHATSAPP_MESSAGE","MESSAGE_PAGE","ORDER_NOW","GET_IN_TOUCH","INQUIRE_NOW","MAKE_AN_APPOINTMENT","ASK_ABOUT_SERVICES","BOOK_A_CONSULTATION","GET_A_QUOTE","BUY_NOW","GET_OFFER"];
-      const preferredCta = placementKey === "stories" || placementKey === "reels"
-        ? (adCopy as any).stories?.cta || adCopy.feed.cta
-        : adCopy.feed.cta;
-      const ctaType = VALID_CTAS.includes(preferredCta) ? preferredCta : "LEARN_MORE";
+      const baseCtaType = VALID_CTAS.includes(preferredCtaText) ? preferredCtaText : "LEARN_MORE";
+      const ctaType = isWhatsAppDestination ? "WHATSAPP_MESSAGE" : baseCtaType;
+      const ctaValue = isWhatsAppDestination ? { app_destination: "WHATSAPP" } : { link: finalLink };
       const selectedGeneratedImageHash = placementKey === "stories" || placementKey === "reels"
         ? selectedCreative?.storyImageHash || selectedCreative?.feedImageHash || selectedCreative?.squareImageHash
         : selectedCreative?.feedImageHash || selectedCreative?.squareImageHash || selectedCreative?.storyImageHash;
@@ -2063,14 +2130,6 @@ const campaignsRouter = router({
           },
         };
       } else {
-        const manualLink = normalizeDestinationUrl(input.linkUrl);
-        const autoDestination = resolveAutoDestination(clientProfile);
-        const pageFallback = input.pageId ? normalizeDestinationUrl(`https://www.facebook.com/${input.pageId}`) : undefined;
-        const effectiveLink = manualLink || autoDestination.url || pageFallback;
-        const destinationSource = manualLink
-          ? "input.linkUrl"
-          : autoDestination.source || (pageFallback ? "pageId_facebook_page" : undefined);
-
         // Objetivos que NAO precisam de URL externa
         const noLinkRequired = [
           "OUTCOME_AWARENESS",
@@ -2097,7 +2156,16 @@ const campaignsRouter = router({
           });
         }
 
-        const finalLink = effectiveLink || `https://www.facebook.com/${input.pageId}`;
+        if (isWhatsAppDestination) {
+          log.info("meta", "Click-to-WhatsApp ativado", {
+            campaignId: input.campaignId,
+            projectId: input.projectId,
+            pageId: input.pageId,
+            source: destinationSource,
+            phone: whatsappDestination.phone || null,
+            optimizationGoal: adSetOptimizationGoal,
+          });
+        }
 
         // Decide formato: carrossel (2-10 fotos) ou imagem simples
         carouselHashes = (effectiveImageHashes && effectiveImageHashes.length >= 2)
@@ -2116,7 +2184,7 @@ const campaignsRouter = router({
             link:           finalLink,
             name:           `${selectedHeadline} ${idx > 0 ? `(${idx + 1})` : ""}`.trim(),
             description:    idx === 0 ? selectedDescription : "",
-            call_to_action: { type: ctaType, value: { link: finalLink } },
+            call_to_action: { type: ctaType, value: ctaValue },
             ...(carouselHashes
               ? { image_hash: item }
               : { picture:    item }),
@@ -2143,7 +2211,8 @@ const campaignsRouter = router({
               name:           selectedHeadline,
               link:           finalLink,
               call_to_action: {
-                type: noLinkRequired && !effectiveLink ? "LEARN_MORE" : ctaType,
+                type: noLinkRequired && !effectiveLink && !isWhatsAppDestination ? "LEARN_MORE" : ctaType,
+                ...(noLinkRequired && !effectiveLink && !isWhatsAppDestination ? {} : { value: ctaValue }),
               },
               ...(effectiveVideoId
                 ? { video_id: effectiveVideoId }
