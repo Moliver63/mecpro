@@ -2986,6 +2986,9 @@ Gere uma análise de mercado completa em JSON:
 export async function generateCampaign(input: {
   projectId: number; name: string; objective: string;
   platform: string; budget: number; duration: number; extraContext?: string;
+  ageMin?: number; ageMax?: number; regions?: string[]; countries?: string[];
+  locationMode?: "brasil" | "paises" | "raio"; geoCity?: string; geoRadius?: number;
+  mediaFormat?: string; audienceProfile?: string; leadForm?: any;
 }) {
   log.info("ai", "generateCampaign start", { projectId: input.projectId, objective: input.objective });
 
@@ -3034,6 +3037,31 @@ export async function generateCampaign(input: {
   const dominantFormat = Object.entries(fmtFreq).sort((a: any, b: any) => (b[1] as number) - (a[1] as number))[0]?.[0] || "image";
   const monthlyBudget  = (clientProfile as any)?.monthlyBudget || input.budget;
   const campaignObjective = (clientProfile as any)?.campaignObjective || input.objective;
+  const targetingConfig = {
+    ageMin: input.ageMin ?? 18,
+    ageMax: input.ageMax ?? 65,
+    locationMode: input.locationMode || (input.countries?.length ? "paises" : input.geoCity ? "raio" : "brasil"),
+    regions: Array.isArray(input.regions) ? input.regions : [],
+    countries: Array.isArray(input.countries) ? input.countries : [],
+    geoCity: input.geoCity?.trim() || "",
+    geoRadius: input.geoRadius ?? 15,
+  };
+  const normalizedLeadFormDraft = input.leadForm
+    ? {
+        name: String(input.leadForm?.name || `Leads - ${input.name}`).trim(),
+        fields: Array.isArray(input.leadForm?.fields) && input.leadForm.fields.length > 0
+          ? input.leadForm.fields
+          : ["FULL_NAME", "EMAIL", "PHONE"],
+        customQuestion: typeof input.leadForm?.customQuestion === "string" ? input.leadForm.customQuestion.trim() : "",
+        thankYouMessage: typeof input.leadForm?.thankYouMessage === "string" ? input.leadForm.thankYouMessage.trim() : "",
+        privacyUrl: typeof input.leadForm?.privacyUrl === "string" ? input.leadForm.privacyUrl.trim() : "",
+      }
+    : null;
+  const publishPreferences = {
+    destination: input.objective === "leads" || !!normalizedLeadFormDraft ? "lead_form" : "website",
+    mediaFormat: input.mediaFormat || null,
+    audienceProfile: input.audienceProfile || null,
+  };
 
   const prompt = `
 Você é um estrategista de marketing digital sênior especializado em performance.
@@ -3242,6 +3270,9 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       tracking:     parsed.tracking     || null,
       optimization: parsed.optimization || null,
       scaling:      parsed.scaling      || null,
+      targetingConfig,
+      leadFormDraft: normalizedLeadFormDraft,
+      publishPreferences,
     });
   } catch (e: any) {
     log.warn("ai", "Campaign parse error — using mock", { error: e.message });
@@ -3251,6 +3282,19 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     creatives        = JSON.stringify(mock.creatives);
     conversionFunnel = JSON.stringify(mock.conversionFunnel);
     executionPlan    = JSON.stringify(mock.executionPlan);
+    aiResponse = JSON.stringify({
+      campaignName: mock.campaignName || input.name,
+      metrics: mock.metrics || null,
+      glossary: mock.glossary || null,
+      hooks: mock.hooks || null,
+      abTests: mock.abTests || null,
+      tracking: mock.tracking || null,
+      optimization: mock.optimization || null,
+      scaling: mock.scaling || null,
+      targetingConfig,
+      leadFormDraft: normalizedLeadFormDraft,
+      publishPreferences,
+    });
   }
 
   try {

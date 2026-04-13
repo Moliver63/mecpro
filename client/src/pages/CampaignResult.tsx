@@ -3,12 +3,36 @@ import PlacementSelector from "@/components/PlacementSelector";
 import AdPreviewPanel from "@/components/AdPreviewPanel";
 import { getImageDimensions, validateMediaForPlacements, getOrientationGuide, type MediaDimensions, type MediaValidationResult } from "@/components/MediaValidator";
 import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/components/PlacementConfig";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
 import { resolveLegacyImageUrlByFormat, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
+
+const BR_STATE_OPTIONS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+const COUNTRY_OPTIONS = [
+  { code: "BR", label: "🇧🇷 Brasil" },
+  { code: "PT", label: "🇵🇹 Portugal" },
+  { code: "US", label: "🇺🇸 EUA" },
+  { code: "AR", label: "🇦🇷 Argentina" },
+  { code: "CL", label: "🇨🇱 Chile" },
+  { code: "CO", label: "🇨🇴 Colômbia" },
+  { code: "MX", label: "🇲🇽 México" },
+  { code: "ES", label: "🇪🇸 Espanha" },
+  { code: "FR", label: "🇫🇷 França" },
+  { code: "DE", label: "🇩🇪 Alemanha" },
+  { code: "IT", label: "🇮🇹 Itália" },
+  { code: "GB", label: "🇬🇧 Reino Unido" },
+  { code: "CA", label: "🇨🇦 Canadá" },
+  { code: "AU", label: "🇦🇺 Austrália" },
+  { code: "JP", label: "🇯🇵 Japão" },
+  { code: "AO", label: "🇦🇴 Angola" },
+  { code: "MZ", label: "🇲🇿 Moçambique" },
+  { code: "UY", label: "🇺🇾 Uruguai" },
+  { code: "PY", label: "🇵🇾 Paraguai" },
+  { code: "PE", label: "🇵🇪 Peru" },
+];
 
 export default function CampaignResult() {
   const { id: routeId, campaignId } = useParams<{ id: string; campaignId: string }>();
@@ -98,6 +122,14 @@ export default function CampaignResult() {
   const [leadFormId,      setLeadFormId]      = useState<string>("");
   const [leadForms,       setLeadForms]       = useState<{id:string;name:string;status:string;leads_count:number}[]>([]);
   const [loadingForms,    setLoadingForms]    = useState(false);
+  const [ageMin,          setAgeMin]          = useState<number>(18);
+  const [ageMax,          setAgeMax]          = useState<number>(65);
+  const [locationMode,    setLocationMode]    = useState<"brasil" | "paises" | "raio">("brasil");
+  const [regions,         setRegions]         = useState<string[]>([]);
+  const [countries,       setCountries]       = useState<string[]>([]);
+  const [geoCity,         setGeoCity]         = useState("");
+  const [geoRadius,       setGeoRadius]       = useState<number>(15);
+  const [hydratedCampaignId, setHydratedCampaignId] = useState<number | null>(null);
 
   // ── mutations edição ──
   const updateCreativeMutation = (trpc as any).campaigns?.updateCreative?.useMutation?.({
@@ -176,6 +208,7 @@ export default function CampaignResult() {
   // ── Upload de imagem via tRPC hook ───────────────────────────────────────
   const uploadImageMutation   = (trpc as any).integrations?.uploadImageToMeta?.useMutation?.() ?? { mutateAsync: null };
   const uploadVideoMutation   = (trpc as any).integrations?.uploadVideoToMeta?.useMutation?.() ?? { mutateAsync: null };
+  const createLeadFormMutation = (trpc as any).integrations?.createLeadForm?.useMutation?.() ?? { mutateAsync: null, isPending: false };
 
   const updateCreativeImageMutation = (trpc as any).campaigns?.updateCreativeImage?.useMutation?.({
     onSuccess: () => {
@@ -310,8 +343,59 @@ export default function CampaignResult() {
     return !!file && file.type.startsWith("image/");
   }
 
+  async function createLeadFormFromDraft(): Promise<string | null> {
+    if (!pageId.trim()) {
+      toast.error("Selecione a página antes de criar o formulário na Meta.");
+      return null;
+    }
+    if (!createLeadFormMutation.mutateAsync) {
+      toast.error("Função de criação de formulário não disponível. Recarregue a página.");
+      return null;
+    }
+    const draft = leadFormDraft && typeof leadFormDraft === "object" ? leadFormDraft : null;
+    if (!draft) {
+      toast.error("Nenhum rascunho de formulário foi salvo nesta campanha.");
+      return null;
+    }
+    const privacyUrl = String(draft.privacyUrl || "").trim();
+    if (!privacyUrl) {
+      toast.error("O rascunho salvo não possui URL de política de privacidade.");
+      return null;
+    }
+
+    const created = await createLeadFormMutation.mutateAsync({
+      pageId: pageId.trim(),
+      name: String(draft.name || `Leads - ${(campaign as any)?.name || "Campanha"}`).trim(),
+      fields: Array.isArray(draft.fields) && draft.fields.length > 0 ? draft.fields : ["FULL_NAME", "EMAIL", "PHONE"],
+      customQuestion: String(draft.customQuestion || "").trim() || undefined,
+      thankYouMessage: String(draft.thankYouMessage || "").trim() || undefined,
+      privacyUrl,
+    });
+
+    const createdForm = {
+      id: String(created?.id || "").trim(),
+      name: String(created?.name || draft.name || `Leads - ${(campaign as any)?.name || "Campanha"}`).trim(),
+      status: "ACTIVE",
+      leads_count: 0,
+    };
+
+    if (createdForm.id) {
+      setLeadForms((prev) => prev.some((form) => form.id === createdForm.id) ? prev : [createdForm, ...prev]);
+      setLeadFormId(createdForm.id);
+      await Promise.resolve(leadFormsQuery.refetch?.());
+      toast.success("✅ Formulário criado na Meta e selecionado para o publish.");
+      return createdForm.id;
+    }
+
+    toast.error("A Meta não retornou um ID de formulário válido.");
+    return null;
+  }
+
   async function handlePublish() {
     if (!pageId.trim()) { toast.error("Informe o ID da Página do Facebook"); return; }
+    if (ageMin >= ageMax) { toast.error("A idade mínima deve ser menor que a idade máxima."); return; }
+    if (locationMode === "paises" && countries.length === 0) { toast.error("Selecione pelo menos um país para segmentação internacional."); return; }
+    if (locationMode === "raio" && !geoCity.trim()) { toast.error("Informe a cidade ou endereço para segmentação por raio."); return; }
     // Verifica se tem arquivo pendente de upload
     if (mediaMode === "upload" && mediaFiles.length > 0) {
       const singleVideoSelected = mediaFiles.length === 1 && isVideoFile(mediaFiles[0]);
@@ -341,6 +425,14 @@ export default function CampaignResult() {
 
     setPublishing(true);
     try {
+      const resolvedLeadFormId = leadDestination === "lead_form"
+        ? (leadFormId.trim() || await createLeadFormFromDraft() || "")
+        : "";
+      if (leadDestination === "lead_form" && !resolvedLeadFormId) {
+        toast.error("Selecione um formulário existente ou crie o formulário salvo antes de publicar.");
+        return;
+      }
+
       // Prepara dados de imagem — carrossel se tiver 2+ fotos enviadas
       const validHashes = uploadedHashes.filter(h => !!h);
       const isCarousel  = validHashes.length >= 2;
@@ -358,6 +450,8 @@ export default function CampaignResult() {
         campaignId: id,
         projectId,
         pageId: pageId.trim(),
+        destination: leadDestination,
+        leadGenFormId: leadDestination === "lead_form" ? resolvedLeadFormId : undefined,
         imageUrl: effectiveImageUrl,
         imageHash: effectiveImageHash,
         imageHashes: effectiveImageHashes,
@@ -366,6 +460,13 @@ export default function CampaignResult() {
         adSetIndex,
         placementMode,
         placements: selectedPlacements.length > 0 ? selectedPlacements : undefined,
+        ageMin,
+        ageMax,
+        locationMode,
+        regions: locationMode === "brasil" ? regions : undefined,
+        countries: locationMode === "paises" ? countries : undefined,
+        geoCity: locationMode === "raio" ? geoCity.trim() : undefined,
+        geoRadius: locationMode === "raio" ? geoRadius : undefined,
       };
 
       await publishMutation.mutateAsync(publishPayload as any);
@@ -549,6 +650,79 @@ export default function CampaignResult() {
   const { data: campaign, isLoading, refetch: _refetch } = trpc.campaigns.get.useQuery({ id }, { enabled: !!id });
   refetchCampaign = _refetch;
 
+  const adSets    = campaign ? parseJson((campaign as any).adSets) : null;
+  const creatives = campaign ? parseJson((campaign as any).creatives) : null;
+  const creativeList: CampaignCreative[] = Array.isArray(creatives) ? creatives : [];
+  const funnel    = campaign ? parseJson((campaign as any).conversionFunnel) : null;
+  const plan      = campaign ? parseJson((campaign as any).executionPlan) : null;
+  const extra     = campaign ? parseJson((campaign as any).aiResponse) : null;
+  const targetingConfig = extra?.targetingConfig || null;
+  const leadFormDraft = extra?.leadFormDraft || null;
+  const publishPreferences = extra?.publishPreferences || null;
+  const metrics      = extra?.metrics      || null;
+  const glossary     = extra?.glossary     || null;
+  const suggestedName = extra?.campaignName || null;
+  const hooks        = extra?.hooks        || null;
+  const abTests      = extra?.abTests      || null;
+  const tracking     = extra?.tracking     || null;
+  const optimization = extra?.optimization || null;
+  const scaling      = extra?.scaling      || null;
+
+  const leadFormsQuery = (trpc as any).integrations?.listLeadForms?.useQuery?.(
+    { pageId },
+    { enabled: showModal && leadDestination === "lead_form" && !!pageId.trim() }
+  ) ?? { data: [], isLoading: false, refetch: () => undefined };
+
+  useEffect(() => {
+    setLoadingForms(!!leadFormsQuery.isLoading);
+    if (Array.isArray(leadFormsQuery.data)) {
+      setLeadForms(leadFormsQuery.data as any);
+    }
+  }, [leadFormsQuery.data, leadFormsQuery.isLoading]);
+
+  useEffect(() => {
+    const campaignKey = Number((campaign as any)?.id || 0);
+    if (!campaignKey || hydratedCampaignId === campaignKey) return;
+
+    setAgeMin(Number(targetingConfig?.ageMin ?? 18));
+    setAgeMax(Number(targetingConfig?.ageMax ?? 65));
+    setLocationMode((targetingConfig?.locationMode || "brasil") as "brasil" | "paises" | "raio");
+    setRegions(Array.isArray(targetingConfig?.regions) ? targetingConfig.regions : []);
+    setCountries(Array.isArray(targetingConfig?.countries) ? targetingConfig.countries : []);
+    setGeoCity(String(targetingConfig?.geoCity || ""));
+    setGeoRadius(Number(targetingConfig?.geoRadius ?? 15));
+
+    const objective = String((campaign as any)?.objective || "").toLowerCase();
+    const preferredDestination = publishPreferences?.destination === "website" ? "website" : objective === "leads" ? "lead_form" : "website";
+    setLeadDestination(preferredDestination);
+    setHydratedCampaignId(campaignKey);
+  }, [campaign, hydratedCampaignId, publishPreferences?.destination, targetingConfig]);
+
+  useEffect(() => {
+    const objective = String((campaign as any)?.objective || "").toLowerCase();
+    if (showModal && objective === "leads" && !leadFormId) {
+      setLeadDestination("lead_form");
+    }
+  }, [showModal, campaign, leadFormId]);
+
+  useEffect(() => {
+    if (leadDestination !== "lead_form") {
+      setLeadFormId("");
+      return;
+    }
+    const draftName = String(leadFormDraft?.name || "").trim().toLowerCase();
+    if (!leadFormId && draftName) {
+      const matched = leadForms.find((form) => String(form.name || "").trim().toLowerCase() === draftName);
+      if (matched?.id) {
+        setLeadFormId(matched.id);
+        return;
+      }
+    }
+    if (leadForms.length === 1 && !leadFormId) {
+      setLeadFormId(leadForms[0].id);
+    }
+  }, [leadDestination, leadForms, leadFormId, leadFormDraft]);
+
   // ── Gera mensagem orgânica direcionada com dados reais da campanha ──────────
   function generateOrganicMessage(camp: any): string {
     const crs     = (() => { try { return JSON.parse(camp.creatives || "[]"); } catch { return []; } })();
@@ -657,21 +831,6 @@ export default function CampaignResult() {
     if (!str) return null;
     try { return JSON.parse(str); } catch { return null; }
   }
-
-  const adSets    = campaign ? parseJson((campaign as any).adSets) : null;
-  const creatives = campaign ? parseJson((campaign as any).creatives) : null;
-  const creativeList: CampaignCreative[] = Array.isArray(creatives) ? creatives : [];
-  const funnel    = campaign ? parseJson((campaign as any).conversionFunnel) : null;
-  const plan      = campaign ? parseJson((campaign as any).executionPlan) : null;
-  const extra     = campaign ? parseJson((campaign as any).aiResponse) : null;
-  const metrics      = extra?.metrics      || null;
-  const glossary     = extra?.glossary     || null;
-  const suggestedName = extra?.campaignName || null;
-  const hooks        = extra?.hooks        || null;
-  const abTests      = extra?.abTests      || null;
-  const tracking     = extra?.tracking     || null;
-  const optimization = extra?.optimization || null;
-  const scaling      = extra?.scaling      || null;
 
   if (isLoading) return (
     <Layout>
@@ -1744,58 +1903,266 @@ export default function CampaignResult() {
                   const isAwareness = ["awareness","engagement"].includes(objective);
                   const isRequired  = !isLeads && !isAwareness;
                   return (
-                    <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: `1.5px solid ${isRequired ? "#ef4444" : "#e2e8f0"}` }}>
-                      <div style={{ background: isRequired ? "#fee2e2" : "#f8fafc", padding: "10px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 15 }}>{isRequired ? "🔴" : isLeads || isAwareness ? "🟢" : "🔵"}</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>Destino do anúncio</span>
-                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 20,
-                          background: isRequired ? "#fee2e2" : "#f0fdf4",
-                          color: isRequired ? "#dc2626" : "#16a34a" }}>
-                          {isRequired ? "Obrigatório" : "Opcional"}
-                        </span>
-                      </div>
-                      <div style={{ padding: 14 }}>
-                                                {isLeads && (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
-                              <p style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", margin: "0 0 4px" }}>📋 Campanha de Captação de Leads</p>
-                              <p style={{ fontSize: 12, color: "#3b82f6", margin: 0, lineHeight: 1.5 }}>
-                                O formulário de leads foi configurado na etapa de construção da campanha. URL de destino é opcional.
+                    <>
+                      <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: `1.5px solid ${isRequired ? "#ef4444" : "#e2e8f0"}` }}>
+                        <div style={{ background: isRequired ? "#fee2e2" : "#f8fafc", padding: "10px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 15 }}>{isRequired ? "🔴" : isLeads || isAwareness ? "🟢" : "🔵"}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>Destino do anúncio</span>
+                          <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: 20,
+                            background: isRequired ? "#fee2e2" : "#f0fdf4",
+                            color: isRequired ? "#dc2626" : "#16a34a" }}>
+                            {isRequired ? "Obrigatório" : "Opcional"}
+                          </span>
+                        </div>
+                        <div style={{ padding: 14 }}>
+                          {isLeads && (
+                            <div style={{ marginBottom: 12 }}>
+                              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+                                <p style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", margin: "0 0 4px" }}>📋 Campanha de Captação de Leads</p>
+                                <p style={{ fontSize: 12, color: "#3b82f6", margin: 0, lineHeight: 1.5 }}>
+                                  Escolha se quer publicar com formulário instantâneo da Meta ou com URL externa.
+                                </p>
+                              </div>
+                              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                                {[
+                                  { key: "lead_form", label: "📋 Formulário Meta" },
+                                  { key: "website", label: "🔗 Site / landing page" },
+                                ].map(option => (
+                                  <button key={option.key}
+                                    onClick={() => setLeadDestination(option.key as "website" | "lead_form")}
+                                    style={{
+                                      flex: 1,
+                                      padding: "8px 10px",
+                                      borderRadius: 10,
+                                      border: `1.5px solid ${leadDestination === option.key ? "#2563eb" : "#cbd5e1"}`,
+                                      background: leadDestination === option.key ? "#dbeafe" : "white",
+                                      color: leadDestination === option.key ? "#1d4ed8" : "#475569",
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      cursor: "pointer",
+                                    }}>{option.label}</button>
+                                ))}
+                              </div>
+                              {leadDestination === "lead_form" && (
+                                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                    <p style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", margin: 0 }}>Formulário de leads</p>
+                                    <button
+                                      onClick={() => leadFormsQuery.refetch?.()}
+                                      style={{ background: "none", border: "none", color: "#2563eb", fontSize: 11, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                                      Atualizar lista
+                                    </button>
+                                  </div>
+                                  {!!leadFormDraft && (
+                                    <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                                      <p style={{ fontSize: 11, color: "#1d4ed8", fontWeight: 700, margin: "0 0 4px" }}>
+                                        Rascunho salvo do builder: {String(leadFormDraft?.name || `Leads - ${(campaign as any)?.name || "Campanha"}`)}
+                                      </p>
+                                      <p style={{ fontSize: 11, color: "#1d4ed8", margin: "0 0 8px", lineHeight: 1.5 }}>
+                                        Campos: {Array.isArray(leadFormDraft?.fields) && leadFormDraft.fields.length > 0 ? leadFormDraft.fields.join(", ") : "FULL_NAME, EMAIL, PHONE"}
+                                      </p>
+                                      <button
+                                        className="btn btn-sm btn-ghost"
+                                        onClick={() => createLeadFormFromDraft().catch((e: any) => toast.error(`Erro ao criar formulário: ${e?.message || "falha desconhecida"}`))}
+                                        disabled={!pageId.trim() || !!createLeadFormMutation.isPending}
+                                        style={{ fontSize: 11, padding: "6px 10px", borderColor: "#93c5fd", color: "#1d4ed8" }}>
+                                        {createLeadFormMutation.isPending ? "Criando formulário..." : "Criar formulário salvo na Meta"}
+                                      </button>
+                                      {!String(leadFormDraft?.privacyUrl || "").trim() && (
+                                        <p style={{ fontSize: 10, color: "#b45309", margin: "8px 0 0" }}>
+                                          O rascunho salvo precisa de URL de política de privacidade para ser criado automaticamente.
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                  {loadingForms ? (
+                                    <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>⏳ Carregando formulários da página...</p>
+                                  ) : leadForms.length > 0 ? (
+                                    <>
+                                      <select
+                                        className="input"
+                                        value={leadFormId}
+                                        onChange={e => setLeadFormId(e.target.value)}
+                                        style={{ width: "100%", fontSize: 12, marginBottom: 6 }}>
+                                        <option value="">Selecione um formulário...</option>
+                                        {leadForms.map((form) => (
+                                          <option key={form.id} value={form.id}>
+                                            {form.name} ({form.status || "ACTIVE"})
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>
+                                        A Meta receberá o <strong>lead_gen_form_id</strong> selecionado no publish.
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <p style={{ fontSize: 12, color: "#b45309", margin: 0 }}>
+                                      Nenhum formulário encontrado para esta página. Você pode criar o rascunho salvo acima ou selecionar outra página antes de publicar.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {isAwareness && (
+                            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                              <p style={{ fontSize: 12, color: "#166534", fontWeight: 600, margin: "0 0 4px" }}>📢 Campanha de Branding / Engajamento</p>
+                              <p style={{ fontSize: 12, color: "#166534", margin: 0, lineHeight: 1.5 }}>
+                                Direciona para a página do Facebook ou Instagram. URL opcional.
                               </p>
                             </div>
-                          </div>
-                        )}
-                        {isAwareness && (
-                          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
-                            <p style={{ fontSize: 12, color: "#166534", fontWeight: 600, margin: "0 0 4px" }}>📢 Campanha de Branding / Engajamento</p>
-                            <p style={{ fontSize: 12, color: "#166534", margin: 0, lineHeight: 1.5 }}>
-                              Direciona para a página do Facebook ou Instagram. URL opcional.
-                            </p>
-                          </div>
-                        )}
-                        {!isLeads && !isAwareness && (
-                          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
-                            <p style={{ fontSize: 12, color: "#dc2626", fontWeight: 600, margin: "0 0 4px" }}>
-                              🔴 URL de destino obrigatória
-                            </p>
-                            <p style={{ fontSize: 12, color: "#dc2626", margin: 0, lineHeight: 1.5 }}>
-                              Campanhas de tráfego/vendas precisam de uma URL de destino.
-                            </p>
-                          </div>
-                        )}
-                        <input
-                          className="input"
-                          placeholder="https://seusite.com.br/pagina-de-vendas"
-                          value={linkUrl}
-                          onChange={e => setLinkUrl(e.target.value)}
-                          style={{
-                            width: "100%",
-                            borderColor: isRequired && !linkUrl.trim() ? "#ef4444" : undefined,
-                            fontSize: 13,
-                          }}
-                        />
+                          )}
+                          {!isLeads && !isAwareness && (
+                            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 12px", marginBottom: 12 }}>
+                              <p style={{ fontSize: 12, color: "#dc2626", fontWeight: 600, margin: "0 0 4px" }}>
+                                🔴 URL de destino obrigatória
+                              </p>
+                              <p style={{ fontSize: 12, color: "#dc2626", margin: 0, lineHeight: 1.5 }}>
+                                Campanhas de tráfego/vendas precisam de uma URL de destino.
+                              </p>
+                            </div>
+                          )}
+                          {(leadDestination === "website" || !isLeads) && (
+                            <input
+                              className="input"
+                              placeholder="https://seusite.com.br/pagina-de-vendas"
+                              value={linkUrl}
+                              onChange={e => setLinkUrl(e.target.value)}
+                              style={{
+                                width: "100%",
+                                borderColor: isRequired && !linkUrl.trim() ? "#ef4444" : undefined,
+                                fontSize: 13,
+                              }}
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
+
+                      <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>
+                        <div style={{ background: "#f8fafc", padding: "10px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 15 }}>📍</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>Localização do público</span>
+                        </div>
+                        <div style={{ padding: 14 }}>
+                          <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                            {[
+                              { value: "brasil", label: "🇧🇷 Brasil" },
+                              { value: "paises", label: "🌎 Internacional" },
+                              { value: "raio", label: "📍 Por raio" },
+                            ].map(option => (
+                              <button key={option.value}
+                                onClick={() => {
+                                  setLocationMode(option.value as "brasil" | "paises" | "raio");
+                                  if (option.value !== "brasil") setRegions([]);
+                                  if (option.value !== "paises") setCountries([]);
+                                }}
+                                style={{
+                                  padding: "6px 12px",
+                                  borderRadius: 20,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  border: `1px solid ${locationMode === option.value ? "var(--green)" : "var(--border)"}`,
+                                  background: locationMode === option.value ? "var(--green-l)" : "white",
+                                  color: locationMode === option.value ? "var(--green-d)" : "var(--muted)",
+                                  cursor: "pointer",
+                                }}>{option.label}</button>
+                            ))}
+                          </div>
+
+                          {locationMode === "brasil" && (
+                            <>
+                              <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>Selecione estados específicos ou deixe vazio para Brasil inteiro.</p>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {BR_STATE_OPTIONS.map((uf) => (
+                                  <button key={uf}
+                                    onClick={() => setRegions((prev) => prev.includes(uf) ? prev.filter((item) => item !== uf) : [...prev, uf])}
+                                    style={{
+                                      padding: "4px 10px",
+                                      borderRadius: 16,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      border: `1px solid ${regions.includes(uf) ? "var(--green)" : "var(--border)"}`,
+                                      background: regions.includes(uf) ? "var(--green-l)" : "white",
+                                      color: regions.includes(uf) ? "var(--green-d)" : "var(--muted)",
+                                      cursor: "pointer",
+                                    }}>{uf}</button>
+                                ))}
+                              </div>
+                              <p style={{ fontSize: 11, color: regions.length ? "var(--green-d)" : "var(--muted)", margin: "8px 0 0" }}>
+                                {regions.length ? `✅ Estados enviados: ${regions.join(", ")}` : "✅ Fallback para Brasil inteiro"}
+                              </p>
+                            </>
+                          )}
+
+                          {locationMode === "paises" && (
+                            <>
+                              <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>Selecione os países que devem ser enviados à Meta.</p>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {COUNTRY_OPTIONS.map((country) => (
+                                  <button key={country.code}
+                                    onClick={() => setCountries((prev) => prev.includes(country.code) ? prev.filter((item) => item !== country.code) : [...prev, country.code])}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 16,
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      border: `1px solid ${countries.includes(country.code) ? "var(--green)" : "var(--border)"}`,
+                                      background: countries.includes(country.code) ? "var(--green-l)" : "white",
+                                      color: countries.includes(country.code) ? "var(--green-d)" : "var(--muted)",
+                                      cursor: "pointer",
+                                    }}>{country.label}</button>
+                                ))}
+                              </div>
+                              <p style={{ fontSize: 11, color: countries.length ? "var(--green-d)" : "#b45309", margin: "8px 0 0" }}>
+                                {countries.length ? `✅ Países enviados: ${countries.join(", ")}` : "Selecione ao menos um país para publish internacional."}
+                              </p>
+                            </>
+                          )}
+
+                          {locationMode === "raio" && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
+                              <div>
+                                <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Cidade / endereço</label>
+                                <input className="input" value={geoCity} onChange={e => setGeoCity(e.target.value)} placeholder="Ex: Balneário Camboriú, SC" style={{ fontSize: 12 }} />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Raio</label>
+                                <select className="input" value={geoRadius} onChange={e => setGeoRadius(Number(e.target.value))} style={{ width: 100, fontSize: 12 }}>
+                                  {[5,10,15,20,30,40,50,80,100].map((radius) => <option key={radius} value={radius}>{radius} km</option>)}
+                                </select>
+                              </div>
+                              <p style={{ fontSize: 11, color: geoCity.trim() ? "var(--green-d)" : "#b45309", margin: 0, gridColumn: "1 / -1" }}>
+                                {geoCity.trim() ? `✅ Raio de ${geoRadius}km em torno de ${geoCity}` : "Informe a cidade para montar custom_locations na Meta."}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>
+                        <div style={{ background: "#f8fafc", padding: "10px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 15 }}>👤</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>Faixa etária</span>
+                        </div>
+                        <div style={{ padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                          <div>
+                            <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Idade mínima</label>
+                            <select className="input" value={ageMin} onChange={e => setAgeMin(Number(e.target.value))} style={{ fontSize: 12 }}>
+                              {[13,18,21,25,28,30,32,35,40,45,50].map((age) => <option key={age} value={age}>{age} anos</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, color: "var(--muted)", display: "block", marginBottom: 4 }}>Idade máxima</label>
+                            <select className="input" value={ageMax} onChange={e => setAgeMax(Number(e.target.value))} style={{ fontSize: 12 }}>
+                              {[18,21,25,30,35,40,45,50,55,60,65].map((age) => <option key={age} value={age}>{age} anos</option>)}
+                            </select>
+                          </div>
+                          <p style={{ fontSize: 11, color: ageMin < ageMax ? "var(--green-d)" : "#dc2626", margin: 0, gridColumn: "1 / -1" }}>
+                            {ageMin < ageMax ? `✅ A Meta receberá ${ageMin}–${ageMax} anos no ad set.` : "A idade mínima precisa ser menor do que a máxima."}
+                          </p>
+                        </div>
+                      </div>
+                    </>
                   );
                 })()}
               </div>
