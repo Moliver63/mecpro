@@ -13,7 +13,7 @@ import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
-import { generateAdImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
+import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -1435,6 +1435,49 @@ const campaignsRouter = router({
       return { ok: true, creatives };
     }),
 
+  updateCreativeImage: protectedProcedure
+    .input(z.object({
+      campaignId: z.number(),
+      creativeIndex: z.number(),
+      format: z.enum(["feed", "stories", "square"]),
+      imageUrl: z.string().optional(),
+      imageHash: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      if (!input.imageUrl && !input.imageHash) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe imageUrl ou imageHash para atualizar a imagem do criativo." });
+      }
+
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+
+      const creatives = JSON.parse(campaign.creatives || "[]");
+      const creative = creatives[input.creativeIndex];
+      if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
+
+      const urlKey = input.format === "stories"
+        ? "storyImageUrl"
+        : input.format === "square"
+          ? "squareImageUrl"
+          : "feedImageUrl";
+      const hashKey = input.format === "stories"
+        ? "storyImageHash"
+        : input.format === "square"
+          ? "squareImageHash"
+          : "feedImageHash";
+
+      if (input.imageUrl) creative[urlKey] = input.imageUrl;
+      if (input.imageHash) creative[hashKey] = input.imageHash;
+      creative.imageUpdatedAt = new Date().toISOString();
+      creative.imageProviderUsed = input.imageHash ? "meta_manual_upload" : "manual_url";
+      creative.imageGenerationReason = null;
+      creative.imageGenerationWarnings = [];
+      creative.manualImageOverride = true;
+
+      await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
+      return { ok: true, creative: creatives[input.creativeIndex], imageUrl: creative[urlKey] || null, imageHash: creative[hashKey] || null };
+    }),
+
   regenerateCreativeImage: protectedProcedure
     .input(z.object({
       campaignId: z.number(),
@@ -1456,6 +1499,7 @@ const campaignsRouter = router({
           ? process.env.HUGGINGFACE_API_KEY || ""
           : "";
       const normalizedProvider: ImageProvider = provider === "huggingface" || provider === "heygen" ? provider : "mock";
+      const diagnostics = getImageGenerationDiagnostics(normalizedProvider);
       const imageUrl = await generateAdImage(
         creative,
         campaign.name || "segmento geral",
@@ -1470,9 +1514,12 @@ const campaignsRouter = router({
       if (input.format === "feed") creatives[input.creativeIndex].feedImageUrl = imageUrl;
       if (input.format === "square") creatives[input.creativeIndex].squareImageUrl = imageUrl;
       creatives[input.creativeIndex].imageUpdatedAt = new Date().toISOString();
+      creatives[input.creativeIndex].imageProviderUsed = diagnostics.provider;
+      creatives[input.creativeIndex].imageGenerationReason = diagnostics.reason;
+      creatives[input.creativeIndex].imageGenerationWarnings = diagnostics.warnings;
 
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
-      return { ok: true, imageUrl, format: input.format, creative: creatives[input.creativeIndex] };
+      return { ok: true, imageUrl, format: input.format, creative: creatives[input.creativeIndex], diagnostics };
     }),
 
   // -- Edição manual de conjunto de anúncios --------------------------------
@@ -1960,6 +2007,10 @@ const campaignsRouter = router({
         ? (adCopy as any).stories?.cta || adCopy.feed.cta
         : adCopy.feed.cta;
       const ctaType = VALID_CTAS.includes(preferredCta) ? preferredCta : "LEARN_MORE";
+      const selectedGeneratedImageHash = placementKey === "stories" || placementKey === "reels"
+        ? creative?.storyImageHash || creative?.feedImageHash || creative?.squareImageHash
+        : creative?.feedImageHash || creative?.squareImageHash || creative?.storyImageHash;
+      const resolvedImageHash = input.imageHash || selectedGeneratedImageHash;
       const resolvedImageUrl = input.imageUrl || selectedGeneratedImageUrl;
 
       // Monta link_data ou lead_gen_data dependendo do destino
@@ -1972,7 +2023,7 @@ const campaignsRouter = router({
             call_to_action:   { type: ctaType },
             message:          selectedMessage,
             name:             selectedHeadline,
-            ...(input.imageHash ? { image_hash: input.imageHash } : resolvedImageUrl ? { picture: resolvedImageUrl } : {}),
+            ...(resolvedImageHash ? { image_hash: resolvedImageHash } : resolvedImageUrl ? { picture: resolvedImageUrl } : {}),
           },
         };
       } else {
@@ -2060,8 +2111,8 @@ const campaignsRouter = router({
               },
               ...(input.videoId
                 ? { video_id: input.videoId }
-                : input.imageHash
-                  ? { image_hash: input.imageHash }
+                : resolvedImageHash
+                  ? { image_hash: resolvedImageHash }
                   : resolvedImageUrl
                     ? { picture: resolvedImageUrl }
                     : {}),

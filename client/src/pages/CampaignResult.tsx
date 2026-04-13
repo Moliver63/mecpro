@@ -88,6 +88,7 @@ export default function CampaignResult() {
   const [regenerating,    setRegenerating]    = useState<string | null>(null);
   const [regenContext,    setRegenContext]     = useState("");
   const [showRegenModal,  setShowRegenModal]  = useState<string | null>(null);
+  const [replacingCreativeImage, setReplacingCreativeImage] = useState<number | null>(null);
   // ── Estados formulário de leads (usados no modal) ──
   const [leadDestination, setLeadDestination] = useState<"website" | "lead_form">("website");
   const [leadFormId,      setLeadFormId]      = useState<string>("");
@@ -171,10 +172,25 @@ export default function CampaignResult() {
   // ── Upload de imagem via tRPC hook ───────────────────────────────────────
   const uploadImageMutation   = (trpc as any).integrations?.uploadImageToMeta?.useMutation?.() ?? { mutateAsync: null };
 
+  const updateCreativeImageMutation = (trpc as any).campaigns?.updateCreativeImage?.useMutation?.({
+    onSuccess: () => {
+      toast.success("🖼️ Imagem do criativo atualizada!");
+      refetchCampaign?.();
+      setReplacingCreativeImage(null);
+    },
+    onError: (e: any) => {
+      toast.error("Erro ao salvar imagem do criativo: " + e.message);
+      setReplacingCreativeImage(null);
+    },
+  }) ?? { mutateAsync: null, isLoading: false };
 
   const regenerateCreativeImageMutation = (trpc as any).campaigns?.regenerateCreativeImage?.useMutation?.({
     onSuccess: (data: any) => {
-      toast.success("🖼️ Imagem regenerada com sucesso!");
+      if (data?.diagnostics?.reason) {
+        toast.warning(`🖼️ Imagem atualizada com fallback: ${data.diagnostics.reason}`);
+      } else {
+        toast.success("🖼️ Imagem regenerada com sucesso!");
+      }
       refetchCampaign?.();
     },
     onError: (e: any) => toast.error("Erro ao regenerar imagem: " + e.message),
@@ -379,6 +395,54 @@ export default function CampaignResult() {
       return null;
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleManualCreativeImage(file: File, creativeIndex: number, format: "feed" | "stories" | "square") {
+    if (!file.type.startsWith("image/")) {
+      toast.error("Selecione uma imagem JPG, PNG, WebP ou GIF.");
+      return;
+    }
+    if (!uploadImageMutation.mutateAsync || !updateCreativeImageMutation.mutateAsync) {
+      toast.error("Função de upload manual indisponível. Recarregue a página.");
+      return;
+    }
+
+    setReplacingCreativeImage(creativeIndex);
+    try {
+      const base64: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+        reader.onerror = () => reject(new Error("Falha ao ler o arquivo"));
+        reader.readAsDataURL(file);
+      });
+
+      if (!base64 || base64.length < 100) {
+        toast.error("Arquivo inválido ou corrompido.");
+        return;
+      }
+
+      const sizeBytes = Math.ceil(base64.length * 0.75);
+      if (sizeBytes > 4 * 1024 * 1024) {
+        toast.error(`Imagem muito grande (${(sizeBytes / 1024 / 1024).toFixed(1)}MB). Limite: 4MB.`);
+        return;
+      }
+
+      const uploadResult = await uploadImageMutation.mutateAsync({
+        imageBase64: base64,
+        fileName: file.name || `creative-${creativeIndex + 1}.jpg`,
+      });
+
+      await updateCreativeImageMutation.mutateAsync({
+        campaignId: id,
+        creativeIndex,
+        format,
+        imageUrl: uploadResult?.url || undefined,
+        imageHash: uploadResult?.hash || undefined,
+      });
+    } catch (e: any) {
+      toast.error(`Erro ao trocar imagem: ${e?.message || "falha desconhecida"}`);
+      setReplacingCreativeImage(null);
     }
   }
 
@@ -1050,6 +1114,22 @@ export default function CampaignResult() {
                             style={{ fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>
                             🖼️ {creativeImage ? "Regenerar imagem" : "Gerar imagem"}
                           </button>
+                          <label
+                            htmlFor={`creative-image-input-${i}`}
+                            style={{ fontSize: 11, fontWeight: 700, background: "#ecfccb", color: "#3f6212", border: "1px solid #bef264", borderRadius: 8, padding: "6px 10px", cursor: replacingCreativeImage === i ? "wait" : "pointer", opacity: replacingCreativeImage === i ? 0.7 : 1 }}>
+                            {replacingCreativeImage === i ? "⏳ Enviando..." : "⬆️ Trocar foto manualmente"}
+                          </label>
+                          <input
+                            id={`creative-image-input-${i}`}
+                            type="file"
+                            accept="image/*"
+                            style={{ display: "none" }}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleManualCreativeImage(file, i, creativeFormat);
+                              e.currentTarget.value = "";
+                            }}
+                          />
                           <span style={{ fontSize: 10, fontWeight: 700, background: "#f8fafc", color: "#475569", borderRadius: 999, padding: "6px 10px" }}>
                             {creativeFormat === "stories" ? "Stories 9:16" : creativeFormat === "square" ? "Square 1:1" : "Feed 4:5"}
                           </span>
@@ -1109,6 +1189,12 @@ export default function CampaignResult() {
                             ))}
                           </div>
                         ) : null}
+                        {cr.imageGenerationReason && (
+                          <div style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                            <p style={{ fontSize: 11, fontWeight: 800, color: "#9a3412", marginBottom: 4 }}>Diagnóstico da imagem</p>
+                            <p style={{ fontSize: 12, color: "#7c2d12", margin: 0 }}>{cr.imageGenerationReason}</p>
+                          </div>
+                        )}
                         {Array.isArray(cr.recommendations) && cr.recommendations.length > 0 && (
                           <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 10, padding: 10, marginBottom: 12 }}>
                             <p style={{ fontSize: 11, fontWeight: 800, color: "#9a3412", marginBottom: 6 }}>Recomendações</p>

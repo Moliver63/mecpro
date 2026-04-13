@@ -2,7 +2,7 @@ import "dotenv/config";
 import { log } from "./logger";
 import * as db from "./db";
 import { scoreCreativeList } from "./creativeScoringEngine";
-import { generateAdImage, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
+import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -3518,7 +3518,15 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   }));
 
   const config = resolveImageProviderConfig();
+  const diagnostics = getImageGenerationDiagnostics(config.provider);
   const maxImages = Math.min(3, scored.length);
+
+  for (let index = 0; index < scored.length; index++) {
+    scored[index].imageProviderUsed = diagnostics.provider;
+    scored[index].imageGenerationReason = diagnostics.reason;
+    scored[index].imageGenerationWarnings = diagnostics.warnings;
+    scored[index].imageGenerationMode = diagnostics.canGenerateRealImages ? "real" : "fallback";
+  }
 
   for (let index = 0; index < maxImages; index++) {
     const creative = scored[index];
@@ -3534,7 +3542,6 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       if (format === "stories") creative.storyImageUrl = imageUrl;
       if (format === "feed") creative.feedImageUrl = imageUrl;
       if (format === "square") creative.squareImageUrl = imageUrl;
-      creative.imageProviderUsed = config.provider;
       creative.imageUpdatedAt = new Date().toISOString();
     }
     if (index < maxImages - 1) await sleep(2000);

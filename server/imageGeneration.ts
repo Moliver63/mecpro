@@ -75,7 +75,56 @@ function buildMockUrl(creative: any, objective: string, format: CreativeImageFor
   return `https://placehold.co/${dim.width}x${dim.height}/0f172a/ffffff.png?text=${title}`;
 }
 
-async function uploadToCloudinary(buffer: Buffer, fileName: string): Promise<string | null> {
+export type ImageGenerationDiagnostics = {
+  provider: ImageProvider;
+  canGenerateRealImages: boolean;
+  storageReady: boolean;
+  reason: string | null;
+  warnings: string[];
+};
+
+export function getImageGenerationDiagnostics(providerInput?: string): ImageGenerationDiagnostics {
+  const provider = (String(providerInput || process.env.IMAGE_PROVIDER || "mock").toLowerCase() as ImageProvider);
+  const normalizedProvider: ImageProvider = provider === "huggingface" || provider === "heygen" ? provider : "mock";
+  const hasHuggingFaceKey = !!String(process.env.HUGGINGFACE_API_KEY || "").trim();
+  const storageReady = !!(
+    String(process.env.CLOUDINARY_CLOUD_NAME || "").trim()
+    && String(process.env.CLOUDINARY_API_KEY || "").trim()
+    && String(process.env.CLOUDINARY_API_SECRET || "").trim()
+  );
+  const warnings: string[] = [];
+  let reason: string | null = null;
+
+  if (normalizedProvider === "mock") {
+    reason = 'IMAGE_PROVIDER está em "mock"; o sistema usa placeholder e não gera imagem real.';
+  } else if (normalizedProvider === "heygen") {
+    reason = "O fluxo HeyGen deste projeto ainda cai em fallback seguro e não produz imagem real.";
+  } else if (!hasHuggingFaceKey) {
+    reason = "HUGGINGFACE_API_KEY não configurada.";
+  } else if (!storageReady) {
+    reason = "Cloudinary não configurado; a imagem até pode ser gerada, mas não há storage público para salvar o arquivo.";
+  }
+
+  if (normalizedProvider === "huggingface" && !hasHuggingFaceKey) {
+    warnings.push("Defina HUGGINGFACE_API_KEY para habilitar a geração real.");
+  }
+  if (normalizedProvider === "huggingface" && !storageReady) {
+    warnings.push("Defina CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET.");
+  }
+  if (normalizedProvider === "heygen") {
+    warnings.push("Troque IMAGE_PROVIDER para huggingface para geração de imagem real neste projeto.");
+  }
+
+  return {
+    provider: normalizedProvider,
+    storageReady,
+    canGenerateRealImages: normalizedProvider === "huggingface" && hasHuggingFaceKey && storageReady,
+    reason,
+    warnings,
+  };
+}
+
+export async function uploadImageBufferToCloudinary(buffer: Buffer, fileName: string): Promise<string | null> {
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
   const apiKey = process.env.CLOUDINARY_API_KEY;
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
@@ -106,6 +155,12 @@ async function uploadToCloudinary(buffer: Buffer, fileName: string): Promise<str
   }
 
   return data.secure_url as string;
+}
+
+export async function uploadBase64ImageToCloudinary(base64Data: string, fileName: string): Promise<string | null> {
+  const base64Clean = String(base64Data || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+  if (!base64Clean) return null;
+  return uploadImageBufferToCloudinary(Buffer.from(base64Clean, "base64"), fileName);
 }
 
 async function generateWithHuggingFace(prompt: string, apiKey: string, format: CreativeImageFormat): Promise<Buffer | null> {
@@ -191,7 +246,7 @@ export async function generateAdImage(
       const buffer = await generateWithHuggingFace(prompt, config.apiKey, format);
       if (buffer) {
         const fileName = `creative-${Date.now()}-${format}.png`;
-        const uploadedUrl = await uploadToCloudinary(buffer, fileName);
+        const uploadedUrl = await uploadImageBufferToCloudinary(buffer, fileName);
         if (uploadedUrl) {
           IMAGE_CACHE.set(cacheKey, uploadedUrl);
           return uploadedUrl;
