@@ -336,9 +336,6 @@ export const publishToMetaInputSchema = z.object({
   const hasVideo = !!value.videoId;
   const hasSingleImage = !!value.imageHash || !!value.imageUrl;
   const hasCarousel = (value.imageHashes?.length ?? 0) >= 2 || (value.imageUrls?.length ?? 0) >= 2;
-  if (!hasVideo && !hasSingleImage && !hasCarousel) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Publish precisa de imageHash/imageUrl, imageHashes/imageUrls ou videoId" });
-  }
   if (hasVideo && (hasSingleImage || hasCarousel)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Não misture vídeo com imagem única ou carrossel no publish" });
   }
@@ -394,14 +391,24 @@ export function buildPublishMediaFromCreative(
   creative: CampaignCreative,
   format?: CreativeFormat | null,
 ): LegacyPublishMedia | null {
-  if (creative.publishMedia) return creative.publishMedia;
-  if (creative.creativeSystemV2?.legacyProjection?.publishMedia) return creative.creativeSystemV2.legacyProjection.publishMedia;
+  const legacyProjectionMedia = creative.creativeSystemV2?.legacyProjection?.publishMedia ?? null;
+  const directPublishMedia = creative.publishMedia ?? null;
+  const hasComplexMedia = (media?: LegacyPublishMedia | null) => {
+    if (!media) return false;
+    return !!media.videoId || (media.imageHashes?.length ?? 0) >= 2 || (media.imageUrls?.length ?? 0) >= 2;
+  };
 
-  const imageHash = resolveLegacyImageHashByFormat(creative, format ?? creative.format);
-  const imageUrl = resolveLegacyImageUrlByFormat(creative, format ?? creative.format);
+  if (hasComplexMedia(legacyProjectionMedia)) return legacyProjectionMedia;
+  if (hasComplexMedia(directPublishMedia)) return directPublishMedia;
+
+  const resolvedFormat = format ?? creative.format;
+  const imageHash = resolveLegacyImageHashByFormat(creative, resolvedFormat);
+  const imageUrl = resolveLegacyImageUrlByFormat(creative, resolvedFormat);
 
   if (imageHash) return { imageHash };
   if (imageUrl) return { imageUrl };
+  if (legacyProjectionMedia) return legacyProjectionMedia;
+  if (directPublishMedia) return directPublishMedia;
   return null;
 }
 

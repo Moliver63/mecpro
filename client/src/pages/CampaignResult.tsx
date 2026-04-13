@@ -8,7 +8,7 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
-import { resolveLegacyImageUrlByFormat, buildPublishMediaFromCreative, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
+import { resolveLegacyImageUrlByFormat, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
 
 export default function CampaignResult() {
   const { id: routeId, campaignId } = useParams<{ id: string; campaignId: string }>();
@@ -345,27 +345,23 @@ export default function CampaignResult() {
       const validHashes = uploadedHashes.filter(h => !!h);
       const isCarousel  = validHashes.length >= 2;
 
-      const creativeList: CampaignCreative[] = Array.isArray(creatives) ? creatives : [];
-      const selectedCreative = creativeList[0];
-      const mergedCreative = selectedCreative
-        ? mergeCreativeWithProjectedLegacy(selectedCreative)
-        : null;
-      const fallbackPublishMedia = mergedCreative
-        ? buildPublishMediaFromCreative(mergedCreative, mergedCreative.format as CreativeFormat | undefined)
-        : null;
-
+      const manualImageUrl = mediaMode === "url" ? imageUrl.trim() : "";
+      const effectiveVideoId = uploadedVid || undefined;
+      const effectiveImageHashes = !effectiveVideoId && isCarousel ? validHashes : undefined;
+      const effectiveImageHash = !effectiveVideoId && !effectiveImageHashes?.length && !manualImageUrl
+        ? (uploadedHash || undefined)
+        : undefined;
+      const effectiveImageUrl = !effectiveVideoId && !effectiveImageHashes?.length && !effectiveImageHash
+        ? (manualImageUrl || undefined)
+        : undefined;
       const publishPayload: PublishToMetaInput = {
         campaignId: id,
         projectId,
         pageId: pageId.trim(),
-        imageUrl: mediaMode === "url"
-          ? imageUrl.trim() || undefined
-          : !uploadedVid && !isCarousel && !uploadedHash
-            ? fallbackPublishMedia?.imageUrl || undefined
-            : undefined,
-        imageHash: !isCarousel && !uploadedVid ? (uploadedHash || fallbackPublishMedia?.imageHash || undefined) : undefined,
-        imageHashes: isCarousel ? validHashes : fallbackPublishMedia?.imageHashes || undefined,
-        videoId: uploadedVid || fallbackPublishMedia?.videoId || undefined,
+        imageUrl: effectiveImageUrl,
+        imageHash: effectiveImageHash,
+        imageHashes: effectiveImageHashes,
+        videoId: effectiveVideoId,
         linkUrl: linkUrl.trim() || undefined,
         adSetIndex,
         placementMode,

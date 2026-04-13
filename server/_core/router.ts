@@ -24,6 +24,7 @@ import {
   mergeCreativeWithProjectedLegacy,
   buildPublishMediaFromCreative,
   type CampaignCreative,
+  type CreativeFormat,
 } from "../../shared/campaignCreative.schema";
 import {
   syncCreativeTextToV2,
@@ -1841,8 +1842,11 @@ const campaignsRouter = router({
       const selectedCreative = selectedCreativeRaw
         ? mergeCreativeWithProjectedLegacy(selectedCreativeRaw)
         : null;
+      const preferredCreativeFormat: CreativeFormat = placementKey === "stories" || placementKey === "reels"
+        ? "stories"
+        : "feed";
       const fallbackPublishMedia = selectedCreative
-        ? buildPublishMediaFromCreative(selectedCreative, selectedCreative.format)
+        ? buildPublishMediaFromCreative(selectedCreative, preferredCreativeFormat)
         : null;
       const selectedGeneratedImageUrl = placementKey === "stories" || placementKey === "reels"
         ? selectedCreative?.storyImageUrl || selectedCreative?.feedImageUrl || selectedCreative?.squareImageUrl
@@ -2021,6 +2025,13 @@ const campaignsRouter = router({
       const resolvedImageHash = effectiveImageHash;
       const resolvedImageUrl = effectiveImageUrl;
 
+      if (!effectiveVideoId && !effectiveImageHash && !effectiveImageUrl && !(effectiveImageHashes?.length) && !(effectiveImageUrls?.length)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Nenhuma mídia disponível para publicação. Faça upload de imagem/vídeo ou gere um criativo com mídia válida.",
+        });
+      }
+
       // Monta link_data ou lead_gen_data dependendo do destino
       let storySpec: any;
       let carouselHashes: string[] | null = null;
@@ -2178,7 +2189,12 @@ const campaignsRouter = router({
       }
 
       if (selectedCreativeRaw) {
-        const creativeIndex = typeof input.creativeIndex === "number" ? input.creativeIndex : 0;
+        const inferredCreativeIndex = creativeList.findIndex((item) => item === selectedCreativeRaw);
+        const creativeIndex = typeof input.creativeIndex === "number"
+          ? input.creativeIndex
+          : inferredCreativeIndex >= 0
+            ? inferredCreativeIndex
+            : 0;
         if (creativeList[creativeIndex]) {
           creativeList[creativeIndex] = syncCreativePublishMediaToV2(selectedCreativeRaw, {
             imageHash: effectiveImageHash,
