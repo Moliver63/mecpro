@@ -46,6 +46,8 @@ export default function CampaignResult() {
   const [featuredIndex,   setFeaturedIndex]   = useState<number>(0);
   const [uploadingIndex,  setUploadingIndex]  = useState<number | null>(null);
 
+  const MAX_META_CAROUSEL_ITEMS = 10;
+
   // Sincroniza uploadedHash com a foto em destaque
   const handleSetFeatured = (idx: number) => {
     setFeaturedIndex(idx);
@@ -171,6 +173,7 @@ export default function CampaignResult() {
 
   // ── Upload de imagem via tRPC hook ───────────────────────────────────────
   const uploadImageMutation   = (trpc as any).integrations?.uploadImageToMeta?.useMutation?.() ?? { mutateAsync: null };
+  const uploadVideoMutation   = (trpc as any).integrations?.uploadVideoToMeta?.useMutation?.() ?? { mutateAsync: null };
 
   const updateCreativeImageMutation = (trpc as any).campaigns?.updateCreativeImage?.useMutation?.({
     onSuccess: () => {
@@ -297,12 +300,27 @@ export default function CampaignResult() {
     }
   }
 
+  function isVideoFile(file?: File | null) {
+    return !!file && file.type.startsWith("video/");
+  }
+
+  function isImageFile(file?: File | null) {
+    return !!file && file.type.startsWith("image/");
+  }
+
   async function handlePublish() {
     if (!pageId.trim()) { toast.error("Informe o ID da Página do Facebook"); return; }
-    // Verifica se tem arquivo pendente de upload (modo upload sem hash)
-    if (mediaMode === "upload" && mediaFiles.length > 0 && uploadedHashes.filter(Boolean).length === 0) {
-      toast.error("Clique em '📤 Enviar foto(s) para Meta' antes de publicar.");
-      return;
+    // Verifica se tem arquivo pendente de upload
+    if (mediaMode === "upload" && mediaFiles.length > 0) {
+      const singleVideoSelected = mediaFiles.length === 1 && isVideoFile(mediaFiles[0]);
+      const pendingVideo = singleVideoSelected && !uploadedVid;
+      const pendingImages = !singleVideoSelected && mediaFiles.some((file, idx) => isImageFile(file) && !uploadedHashes[idx]);
+      if (pendingVideo || pendingImages) {
+        toast.error(singleVideoSelected
+          ? "Clique em '📤 Enviar vídeo para Meta' antes de publicar."
+          : "Clique em '📤 Enviar foto(s) para Meta' antes de publicar.");
+        return;
+      }
     }
 
     // Apenas sales e traffic exigem URL externa obrigatoriamente
@@ -342,8 +360,8 @@ export default function CampaignResult() {
   }
 
   // ── Upload de mídia para Meta Ads (via tRPC) ──
-  // Upload de um arquivo específico (por índice ou por File object)
-  async function handleUploadMedia(fileOverride?: File): Promise<string | null> {
+  // Upload de um arquivo específico (foto ou vídeo)
+  async function handleUploadMedia(fileOverride?: File): Promise<{ kind: "image"; hash: string } | { kind: "video"; videoId: string } | null> {
     const targetFile = fileOverride || mediaFile;
     if (!targetFile) return null;
     setUploading(true);
@@ -360,9 +378,37 @@ export default function CampaignResult() {
         return null;
       }
 
+      const isVideo = isVideoFile(targetFile);
       const sizeBytes = Math.ceil(base64.length * 0.75);
-      if (sizeBytes > 4 * 1024 * 1024) {
-        toast.error(`❌ Imagem muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 4MB.`);
+      const limitBytes = isVideo ? 50 * 1024 * 1024 : 4 * 1024 * 1024;
+      if (sizeBytes > limitBytes) {
+        toast.error(isVideo
+          ? `❌ Vídeo muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 50MB.`
+          : `❌ Imagem muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 4MB.`);
+        return null;
+      }
+
+      if (isVideo) {
+        if (!uploadVideoMutation.mutateAsync) {
+          toast.error("❌ Função de upload de vídeo não disponível. Recarregue a página.");
+          return null;
+        }
+
+        const result = await uploadVideoMutation.mutateAsync({
+          videoBase64: base64,
+          fileName: targetFile.name || "ad_video.mp4",
+          mimeType: targetFile.type || "video/mp4",
+        });
+
+        if (result?.videoId) {
+          setUploadedVid(result.videoId);
+          setUploadedHash("");
+          setUploadDone(true);
+          toast.success(`✅ Vídeo enviado! (${targetFile.name.slice(0, 20)})`);
+          return { kind: "video", videoId: result.videoId as string };
+        }
+
+        toast.error("❌ Upload concluído mas sem vídeo retornado.");
         return null;
       }
 
@@ -377,18 +423,17 @@ export default function CampaignResult() {
       });
 
       if (result?.hash) {
-        // Se for upload único (sem mediaFiles), atualiza estado legado
         if (!fileOverride) {
           setUploadedHash(result.hash);
           setUploadedVid("");
           setUploadDone(true);
         }
         toast.success(`✅ Foto enviada! (${targetFile.name.slice(0, 20)})`);
-        return result.hash as string;
-      } else {
-        toast.error("❌ Upload concluído mas sem hash retornado.");
-        return null;
+        return { kind: "image", hash: result.hash as string };
       }
+
+      toast.error("❌ Upload concluído mas sem hash retornado.");
+      return null;
     } catch (e: any) {
       const msg = e?.message || e?.data?.message || "Erro desconhecido";
       toast.error(`❌ Upload falhou: ${msg}`);
@@ -1628,7 +1673,7 @@ export default function CampaignResult() {
                 <PlacementSelector
                   platform={(c.platform || "meta").toLowerCase()}
                   objective={c.objective}
-                  hasVideo={mediaType === "video"}
+                  hasVideo={mediaType === "video" || (mediaFiles.length === 1 && isVideoFile(mediaFiles[0]))}
                   mode={placementMode}
                   selectedPlacements={selectedPlacements}
                   onModeChange={m => {
@@ -1785,11 +1830,20 @@ export default function CampaignResult() {
                         <div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
                             {mediaFiles.map((file, idx) => (
-                              <div key={idx} style={{ position: "relative", borderRadius: 8, overflow: "hidden", aspectRatio: "1", background: "#f1f5f9" }}>
+                              <div
+                                key={idx}
+                                onClick={() => {
+                                  if (isImageFile(mediaFiles[idx])) handleSetFeatured(idx);
+                                }}
+                                style={{ position: "relative", borderRadius: 8, overflow: "hidden", aspectRatio: "1", background: "#f1f5f9", cursor: isImageFile(mediaFiles[idx]) ? "pointer" : "default" }}>
                                 {mediaPreviews[idx] && (
-                                  <img src={mediaPreviews[idx]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  isVideoFile(mediaFiles[idx]) ? (
+                                    <video src={mediaPreviews[idx]} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted playsInline controls={false} />
+                                  ) : (
+                                    <img src={mediaPreviews[idx]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  )
                                 )}
-                                {featuredIndex === idx && (
+                                {featuredIndex === idx && isImageFile(mediaFiles[idx]) && (
                                   <div style={{ position: "absolute", top: 4, left: 4, background: "#1877f2", color: "white",
                                     fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4 }}>⭐ Destaque</div>
                                 )}
@@ -1803,18 +1857,33 @@ export default function CampaignResult() {
                                 )}
                                 <button onClick={e => {
                                   e.stopPropagation();
+                                  const removedWasVideo = isVideoFile(mediaFiles[idx]);
                                   const newFiles    = mediaFiles.filter((_: any, i: number) => i !== idx);
                                   const newPreviews = mediaPreviews.filter((_: any, i: number) => i !== idx);
                                   const newHashes   = uploadedHashes.filter((_: any, i: number) => i !== idx);
                                   setMediaFiles(newFiles);
                                   setMediaPreviews(newPreviews);
                                   setUploadedHashes(newHashes);
-                                  if (featuredIndex === idx) { setFeaturedIndex(0); setUploadedHash(""); setUploadDone(false); }
-                                  else if (featuredIndex > idx) { handleSetFeatured(featuredIndex - 1); }
+                                  if (removedWasVideo) {
+                                    setUploadedVid("");
+                                    setUploadDone(false);
+                                  }
+                                  if (newFiles.length === 0) {
+                                    setMediaType(null);
+                                    setUploadedHash("");
+                                    setUploadedVid("");
+                                    setUploadDone(false);
+                                  } else if (featuredIndex === idx) {
+                                    setFeaturedIndex(0);
+                                    setUploadedHash(newHashes[0] || "");
+                                    setUploadDone(!!newHashes[0]);
+                                  } else if (featuredIndex > idx) {
+                                    setFeaturedIndex(featuredIndex - 1);
+                                  }
                                 }} style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,.6)", color: "white", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
                               </div>
                             ))}
-                            {mediaFiles.length < 5 && (
+                            {mediaFiles.length < MAX_META_CAROUSEL_ITEMS && !mediaFiles.some(file => isVideoFile(file)) && (
                               <label htmlFor="meta-media-input-multi" style={{
                                 borderRadius: 8, border: "2px dashed var(--border)", background: "white",
                                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -1826,11 +1895,24 @@ export default function CampaignResult() {
                                   style={{ display: "none" }}
                                   onChange={e => {
                                     const files = Array.from(e.target.files || []) as File[];
-                                    const remaining = 5 - mediaFiles.length;
-                                    const toAdd = files.slice(0, remaining);
+                                    const hasVideoInSelection = files.some(file => isVideoFile(file));
+                                    const hasImageInSelection = files.some(file => isImageFile(file));
+                                    if (hasVideoInSelection) {
+                                      toast.error("Carrossel aceita apenas fotos. Para vídeo, envie um único arquivo.");
+                                      e.target.value = "";
+                                      return;
+                                    }
+                                    if (!hasImageInSelection) {
+                                      toast.error("Selecione imagens JPG, PNG, GIF ou WebP.");
+                                      e.target.value = "";
+                                      return;
+                                    }
+                                    const remaining = MAX_META_CAROUSEL_ITEMS - mediaFiles.length;
+                                    const toAdd = files.filter(file => isImageFile(file)).slice(0, remaining);
                                     const newFiles    = [...mediaFiles,    ...toAdd];
                                     const newPreviews = [...mediaPreviews, ...toAdd.map(() => "")];
                                     const newHashes   = [...uploadedHashes,...toAdd.map(() => "")];
+                                    setMediaType("image");
                                     setMediaFiles(newFiles);
                                     setMediaPreviews(newPreviews);
                                     setUploadedHashes(newHashes);
@@ -1851,38 +1933,59 @@ export default function CampaignResult() {
                           {mediaFiles.length > 0 && (
                             <div style={{ marginTop: 8 }}>
                               <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>
-                                {mediaFiles.length >= 2 ? `📸 Carrossel com ${mediaFiles.length} fotos` : "📸 Imagem única"}
-                                {" — "}clique na imagem para definir o destaque
+                                {mediaFiles.length === 1 && isVideoFile(mediaFiles[0])
+                                  ? "🎬 Vídeo único"
+                                  : mediaFiles.length >= 2
+                                    ? `📸 Carrossel com ${mediaFiles.length} fotos`
+                                    : "📸 Imagem única"}
+                                {isVideoFile(mediaFiles[0]) ? "" : " — clique na imagem para definir o destaque"}
                               </p>
                               <button
                                 onClick={async () => {
+                                  const singleVideoSelected = mediaFiles.length === 1 && isVideoFile(mediaFiles[0]);
+                                  if (singleVideoSelected) {
+                                    setUploadingIndex(0);
+                                    const uploadResult = await handleUploadMedia(mediaFiles[0]);
+                                    setUploadingIndex(null);
+                                    if (uploadResult?.kind === "video") {
+                                      toast.success("✅ Vídeo enviado para a Meta!");
+                                    }
+                                    return;
+                                  }
+
                                   const newHashes = [...uploadedHashes];
                                   for (let i = 0; i < mediaFiles.length; i++) {
-                                    if (!newHashes[i]) {
+                                    if (!newHashes[i] && isImageFile(mediaFiles[i])) {
                                       setUploadingIndex(i);
-                                      const hash = await handleUploadMedia(mediaFiles[i]);
-                                      if (hash) {
-                                        newHashes[i] = hash;
+                                      const uploadResult = await handleUploadMedia(mediaFiles[i]);
+                                      if (uploadResult?.kind === "image") {
+                                        newHashes[i] = uploadResult.hash;
                                         setUploadedHashes([...newHashes]);
-                                        // Primeira foto é o destaque
                                         if (i === featuredIndex) {
-                                          setUploadedHash(hash);
+                                          setUploadedHash(uploadResult.hash);
                                           setUploadDone(true);
                                         }
                                       }
                                     }
                                   }
                                   setUploadingIndex(null);
-                                  const allDone = newHashes.filter(Boolean).length === mediaFiles.length;
-                                  if (allDone) toast.success(`✅ ${mediaFiles.length} foto(s) enviadas para a Meta!`);
+                                  const totalImages = mediaFiles.filter(file => isImageFile(file)).length;
+                                  const allDone = newHashes.filter(Boolean).length === totalImages;
+                                  if (allDone) toast.success(`✅ ${totalImages} foto(s) enviadas para a Meta!`);
                                 }}
-                                disabled={uploading || mediaFiles.every((_: any, i: number) => !!uploadedHashes[i])}
+                                disabled={uploading || ((mediaFiles.length === 1 && isVideoFile(mediaFiles[0])) ? !!uploadedVid : mediaFiles.every((file: any, i: number) => !isImageFile(file) || !!uploadedHashes[i]))}
                                 style={{
                                   width: "100%", padding: "8px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
                                   background: uploadDone ? "#dcfce7" : "#1877f2",
                                   color: uploadDone ? "#166534" : "white", border: "none",
                                 }}>
-                                {uploading ? "⏳ Enviando..." : uploadDone ? "✅ Enviado para Meta!" : `📤 Enviar ${mediaFiles.length} foto(s) para Meta`}
+                                {uploading
+                                  ? "⏳ Enviando..."
+                                  : uploadDone
+                                    ? "✅ Enviado para Meta!"
+                                    : (mediaFiles.length === 1 && isVideoFile(mediaFiles[0]))
+                                      ? "📤 Enviar vídeo para Meta"
+                                      : `📤 Enviar ${mediaFiles.length} foto(s) para Meta`}
                               </button>
                             </div>
                           )}
@@ -1891,18 +1994,50 @@ export default function CampaignResult() {
                         <label htmlFor="meta-media-input-multi" style={{ cursor: "pointer" }}>
                           <div style={{ border: "2px dashed var(--border)", borderRadius: 12, padding: 20, textAlign: "center" }}>
                             <div style={{ fontSize: 32, marginBottom: 8 }}>📸</div>
-                            <p style={{ fontSize: 12, fontWeight: 700, color: "var(--body)", margin: "0 0 4px" }}>Clique para adicionar fotos</p>
-                            <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>JPG, PNG, MP4 · máx 4MB · até 5 fotos</p>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: "var(--body)", margin: "0 0 4px" }}>Clique para adicionar fotos ou um vídeo</p>
+                            <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>JPG, PNG, WebP, GIF ou MP4/MOV · até 10 fotos ou 1 vídeo</p>
                           </div>
                           <input id="meta-media-input-multi" type="file" multiple
                             accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,video/mp4,video/mov"
                             style={{ display: "none" }}
                             onChange={e => {
                               const files = Array.from(e.target.files || []) as File[];
-                              const toAdd = files.slice(0, 5);
+                              const hasVideoInSelection = files.some(file => isVideoFile(file));
+                              const hasImageInSelection = files.some(file => isImageFile(file));
+
+                              if (hasVideoInSelection && hasImageInSelection) {
+                                toast.error("Escolha fotos para carrossel ou um único vídeo. Não misture os dois.");
+                                e.target.value = "";
+                                return;
+                              }
+
+                              if (hasVideoInSelection) {
+                                const firstVideo = files.find(file => isVideoFile(file));
+                                if (!firstVideo) {
+                                  e.target.value = "";
+                                  return;
+                                }
+                                setMediaType("video");
+                                setMediaFiles([firstVideo]);
+                                setMediaPreviews([URL.createObjectURL(firstVideo)]);
+                                setUploadedHashes([""]);
+                                setUploadedHash("");
+                                setUploadedVid("");
+                                setUploadDone(false);
+                                setFeaturedIndex(0);
+                                e.target.value = "";
+                                return;
+                              }
+
+                              const toAdd = files.filter(file => isImageFile(file)).slice(0, MAX_META_CAROUSEL_ITEMS);
+                              setMediaType("image");
                               setMediaFiles(toAdd);
                               setMediaPreviews(toAdd.map(() => ""));
                               setUploadedHashes(toAdd.map(() => ""));
+                              setUploadedHash("");
+                              setUploadedVid("");
+                              setUploadDone(false);
+                              setFeaturedIndex(0);
                               toAdd.forEach((file, i) => {
                                 const reader = new FileReader();
                                 reader.onload = ev => {

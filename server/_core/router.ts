@@ -2015,6 +2015,23 @@ const campaignsRouter = router({
 
       // Monta link_data ou lead_gen_data dependendo do destino
       let storySpec: any;
+      let carouselHashes: string[] | null = null;
+      let carouselUrls: string[] | null = null;
+      let isCarousel = false;
+
+      function validateMetaImageUrl(url: string) {
+        const blockedDomains = ["google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
+          "facebook.com", "fbcdn.net", "localhost", "127.0.0.1"];
+        const urlLower = url.toLowerCase();
+        const isBlocked = blockedDomains.some(d => urlLower.includes(d));
+        const isValidHttps = urlLower.startsWith("https://");
+        if (isBlocked || !isValidHttps) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `URL de imagem inválida: "${url}". Use uma imagem hospedada em HTTPS no seu próprio domínio.`
+          });
+        }
+      }
       if (dest === "lead_form" && input.leadGenFormId) {
         storySpec = {
           page_id: input.pageId,
@@ -2064,13 +2081,13 @@ const campaignsRouter = router({
         const finalLink = effectiveLink || `https://www.facebook.com/${input.pageId}`;
 
         // Decide formato: carrossel (2-10 fotos) ou imagem simples
-        const carouselHashes = (input.imageHashes && input.imageHashes.length >= 2)
+        carouselHashes = (input.imageHashes && input.imageHashes.length >= 2)
           ? input.imageHashes.slice(0, 10)   // Meta permite no máximo 10 cards
           : null;
-        const carouselUrls = (!carouselHashes && input.imageUrls && input.imageUrls.length >= 2)
+        carouselUrls = (!carouselHashes && input.imageUrls && input.imageUrls.length >= 2)
           ? input.imageUrls.slice(0, 10)
           : null;
-        const isCarousel = !!(carouselHashes || carouselUrls);
+        isCarousel = !!(carouselHashes || carouselUrls);
 
         if (isCarousel) {
           // -- Formato Carrossel (2-10 fotos) -----------------------------
@@ -2141,19 +2158,15 @@ const campaignsRouter = router({
         }];
       }
 
-      // Validar imageUrl — rejeitar URLs de domínios que bloqueiam crawl do Facebook
-      if (resolvedImageUrl) {
-        const blockedDomains = ["google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
-          "facebook.com", "fbcdn.net", "localhost", "127.0.0.1"];
-        const urlLower = resolvedImageUrl.toLowerCase();
-        const isBlocked = blockedDomains.some(d => urlLower.includes(d));
-        const isValidHttps = urlLower.startsWith("https://");
-        if (isBlocked || !isValidHttps) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `URL de imagem inválida: "${resolvedImageUrl}". Use uma imagem hospedada em HTTPS no seu próprio domínio.`
-          });
-        }
+      // Validar apenas URLs realmente enviadas como picture para a Meta
+      if (dest === "lead_form" && !resolvedImageHash && resolvedImageUrl) {
+        validateMetaImageUrl(resolvedImageUrl);
+      }
+      if (carouselUrls?.length) {
+        carouselUrls.forEach(validateMetaImageUrl);
+      }
+      if (!isCarousel && !input.videoId && !resolvedImageHash && dest !== "lead_form" && resolvedImageUrl) {
+        validateMetaImageUrl(resolvedImageUrl);
       }
 
       const creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
@@ -3082,6 +3095,69 @@ const integrationsRouter = router({
 
       log.info("meta", "Image uploaded OK", { userId: ctx.user.id, hash: first.hash, fileName: input.fileName });
       return { hash: first.hash, url: first.url };
+    }),
+
+  uploadVideoToMeta: protectedProcedure
+    .input(z.object({
+      videoBase64: z.string(),
+      fileName:    z.string().default("ad_video.mp4"),
+      mimeType:    z.string().default("video/mp4"),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Conta Meta não conectada. Acesse Configurações → Meta Ads." });
+
+      const token     = (integration as any).accessToken as string;
+      const accountId = (integration as any).adAccountId as string;
+      if (!accountId)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios não configurado." });
+      const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+
+      const base64Clean = input.videoBase64.replace(/^data:video\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+      const sizeBytes = Math.ceil(base64Clean.length * 0.75);
+      if (sizeBytes > 50 * 1024 * 1024) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Vídeo muito grande (${(sizeBytes / 1024 / 1024).toFixed(1)}MB). O limite atual é 50MB.`,
+        });
+      }
+      if (!base64Clean || base64Clean.length < 100) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Dados do vídeo inválidos ou corrompidos." });
+      }
+
+      try {
+        const bytes = Buffer.from(base64Clean, "base64");
+        const form = new FormData();
+        form.append("access_token", token);
+        form.append("source", new Blob([bytes], { type: input.mimeType || "video/mp4" }), input.fileName || "ad_video.mp4");
+
+        const res = await fetch(`https://graph.facebook.com/v19.0/${act}/advideos`, {
+          method: "POST",
+          body: form as any,
+        });
+        const data: any = await res.json().catch(() => ({}));
+        if (!res.ok || data?.error) {
+          const metaMsg  = data?.error?.message || `HTTP ${res.status}`;
+          const metaCode = data?.error?.code ? ` (código ${data.error.code})` : "";
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Falha no upload do vídeo: ${metaMsg}${metaCode}`,
+          });
+        }
+        if (!data?.id) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "video_id não retornado pela Meta. Tente novamente." });
+        }
+
+        log.info("meta", "Video uploaded OK", { userId: ctx.user.id, videoId: data.id, fileName: input.fileName });
+        return { videoId: data.id as string };
+      } catch (err: any) {
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Erro de rede ao enviar vídeo para Meta: ${err?.message || "Erro desconhecido"}`,
+        });
+      }
     }),
 
   // ── Post Orgânico na Página do Facebook ────────────────────────────────────
