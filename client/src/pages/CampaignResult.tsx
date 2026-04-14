@@ -34,6 +34,31 @@ const COUNTRY_OPTIONS = [
   { code: "PE", label: "🇵🇪 Peru" },
 ];
 
+function normalizeDestinationUrl(raw?: string | null): string {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+
+  let candidate = value;
+  if (!/^https?:\/\//i.test(candidate)) {
+    if (/^wa\.me\//i.test(candidate)) {
+      candidate = `https://${candidate}`;
+    } else if (/^[\d\s()+-]{8,}$/.test(candidate)) {
+      const digits = candidate.replace(/\D/g, "");
+      if (digits) candidate = `https://wa.me/${digits}`;
+    } else if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(candidate)) {
+      candidate = `https://${candidate}`;
+    }
+  }
+
+  try {
+    const url = new URL(candidate);
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 export default function CampaignResult() {
   const { id: routeId, campaignId } = useParams<{ id: string; campaignId: string }>();
   const [, setLocation] = useLocation();
@@ -412,8 +437,9 @@ export default function CampaignResult() {
     // Apenas sales e traffic exigem URL externa obrigatoriamente
     const campaignObj = (campaign as any)?.objective || "";
     const needsDest = ["sales", "traffic"].includes(campaignObj);
-    const hasProfileDest = !!(clientProfile as any)?.websiteUrl || !!(clientProfile as any)?.socialLinks;
-    const hasManualLink = !!linkUrl.trim();
+    const normalizedProfileWebsite = normalizeDestinationUrl((clientProfile as any)?.websiteUrl);
+    const hasProfileDest = !!normalizedProfileWebsite || !!(clientProfile as any)?.socialLinks;
+    const hasManualLink = !!normalizeDestinationUrl(linkUrl);
 
     if (needsDest && !hasProfileDest && !hasManualLink) {
       toast.error(
@@ -446,6 +472,7 @@ export default function CampaignResult() {
       const effectiveImageUrl = !effectiveVideoId && !effectiveImageHashes?.length && !effectiveImageHash
         ? (manualImageUrl || undefined)
         : undefined;
+      const normalizedLinkUrl = normalizeDestinationUrl(linkUrl) || normalizedProfileWebsite;
       const publishPayload: PublishToMetaInput = {
         campaignId: id,
         projectId,
@@ -456,7 +483,7 @@ export default function CampaignResult() {
         imageHash: effectiveImageHash,
         imageHashes: effectiveImageHashes,
         videoId: effectiveVideoId,
-        linkUrl: linkUrl.trim() || undefined,
+        linkUrl: normalizedLinkUrl || undefined,
         adSetIndex,
         placementMode,
         placements: selectedPlacements.length > 0 ? selectedPlacements : undefined,
@@ -670,7 +697,11 @@ export default function CampaignResult() {
 
   const leadFormsQuery = (trpc as any).integrations?.listLeadForms?.useQuery?.(
     { pageId },
-    { enabled: showModal && leadDestination === "lead_form" && !!pageId.trim() }
+    {
+      enabled: showModal && leadDestination === "lead_form" && !!pageId.trim(),
+      retry: false,
+      staleTime: 30_000,
+    }
   ) ?? { data: [], isLoading: false, refetch: () => undefined };
 
   useEffect(() => {
@@ -2028,6 +2059,10 @@ export default function CampaignResult() {
                               placeholder="https://seusite.com.br/pagina-de-vendas"
                               value={linkUrl}
                               onChange={e => setLinkUrl(e.target.value)}
+                              onBlur={e => {
+                                const normalized = normalizeDestinationUrl(e.target.value);
+                                if (normalized) setLinkUrl(normalized);
+                              }}
                               style={{
                                 width: "100%",
                                 borderColor: isRequired && !linkUrl.trim() ? "#ef4444" : undefined,

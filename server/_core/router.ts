@@ -513,7 +513,16 @@ const clientProfileRouter = router({
       campaignObjective: z.enum(["leads", "sales", "branding", "traffic", "engagement"]).optional(),
       monthlyBudget: z.number().optional(), websiteUrl: z.string().optional(), socialLinks: z.string().optional(),
     }))
-    .mutation(({ input }) => db.upsertClientProfile(input as any)),
+    .mutation(({ input }) => {
+      const websiteUrl = (() => {
+        const raw = String(input.websiteUrl || "").trim();
+        if (!raw) return undefined;
+        if (/^https?:\/\//i.test(raw)) return raw.replace(/^http:\/\//i, "https://");
+        if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return `https://${raw}`;
+        return raw;
+      })();
+      return db.upsertClientProfile({ ...input, websiteUrl } as any);
+    }),
 });
 
 // ============ COMPETITORS ROUTER ============
@@ -1751,6 +1760,51 @@ const campaignsRouter = router({
 
         return {};
       }
+      const BR_STATE_NAMES: Record<string, string> = {
+        AC: "Acre", AL: "Alagoas", AP: "Amapá", AM: "Amazonas", BA: "Bahia", CE: "Ceará",
+        DF: "Distrito Federal", ES: "Espírito Santo", GO: "Goiás", MA: "Maranhão", MT: "Mato Grosso",
+        MS: "Mato Grosso do Sul", MG: "Minas Gerais", PA: "Pará", PB: "Paraíba", PR: "Paraná",
+        PE: "Pernambuco", PI: "Piauí", RJ: "Rio de Janeiro", RN: "Rio Grande do Norte",
+        RS: "Rio Grande do Sul", RO: "Rondônia", RR: "Roraima", SC: "Santa Catarina",
+        SP: "São Paulo", SE: "Sergipe", TO: "Tocantins",
+      };
+      async function resolveBrazilRegionKeys(userToken: string, ufs: string[]): Promise<number[]> {
+        const uniqueUfs = [...new Set((ufs || []).map((uf) => String(uf || "").trim().toUpperCase()).filter(Boolean))];
+        if (uniqueUfs.length === 0) return [];
+
+        const results = await Promise.all(uniqueUfs.map(async (uf) => {
+          const stateName = BR_STATE_NAMES[uf];
+          if (!stateName) return null;
+          const params = new URLSearchParams({
+            type: "adgeolocation",
+            q: stateName,
+            access_token: userToken,
+          });
+          params.set("location_types", '["region"]');
+          params.set("countries", '["BR"]');
+
+          const res = await fetch(`https://graph.facebook.com/v19.0/search?${params.toString()}`, {
+            signal: AbortSignal.timeout(10000),
+          });
+          const data: any = await res.json().catch(() => ({}));
+          if (!res.ok || data?.error) {
+            log.warn("meta", "Falha ao resolver regiao BR", { uf, message: data?.error?.message || `HTTP ${res.status}` });
+            return null;
+          }
+
+          const exact = (data?.data || []).find((item: any) => {
+            const itemName = String(item?.name || "").trim().toLowerCase();
+            const itemType = String(item?.type || "").trim().toLowerCase();
+            const countryCode = String(item?.country_code || item?.country || "").trim().toUpperCase();
+            return itemType === "region" && itemName === stateName.trim().toLowerCase() && (!countryCode || countryCode === "BR");
+          }) || (data?.data || []).find((item: any) => String(item?.type || "").trim().toLowerCase() === "region");
+
+          const numericKey = Number(exact?.key);
+          return Number.isFinite(numericKey) ? numericKey : null;
+        }));
+
+        return results.filter((value): value is number => Number.isFinite(value));
+      }
       function resolveAutoDestination(profile: any, options?: { preferWhatsApp?: boolean }): { url?: string; source?: string } {
         const website = normalizeDestinationUrl(profile?.websiteUrl);
 
@@ -1933,6 +1987,9 @@ const campaignsRouter = router({
       const adSetOptimizationGoal = isWhatsAppDestination && String(objective || "").toLowerCase() === "engagement"
         ? "CONVERSATIONS"
         : resolvedOptGoal;
+      const resolvedBrazilRegionKeys = input.locationMode === "brasil" && (input.regions?.length || 0) > 0
+        ? await resolveBrazilRegionKeys(token, input.regions || [])
+        : [];
 
       // 1. Campaign
       const campaignObjective = resolvedCampaignObj;
@@ -1998,7 +2055,13 @@ const campaignsRouter = router({
             }
             // Modo: estados do Brasil
             if (input.regions && input.regions.length > 0) {
-              return { regions: input.regions.map(uf => ({ key: `BR-${uf}`, name: uf, country: "BR" })) };
+              if (resolvedBrazilRegionKeys.length === 0) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: `Não foi possível resolver os estados selecionados (${input.regions.join(", ")}) para o targeting da Meta.`,
+                });
+              }
+              return { regions: resolvedBrazilRegionKeys.map((key) => ({ key })) };
             }
             // Padrão: Brasil todo
             return { countries: ["BR"] };
@@ -2052,7 +2115,7 @@ const campaignsRouter = router({
           })(),
         },
         // promoted_object obrigatório para OUTCOME_LEADS e OUTCOME_SALES
-        ...(["leads","sales","engagement"].includes(objective) && input.pageId ? {
+        ...((["leads","sales","engagement"].includes(objective) || isWhatsAppDestination) && input.pageId ? {
           promoted_object: isWhatsAppDestination
             ? {
                 page_id: input.pageId,
@@ -3503,6 +3566,34 @@ const integrationsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Conta Meta não conectada." });
       const token = (integration as any).accessToken as string;
 
+      let pageToken = token;
+      try {
+        const accountsRes = await fetch(
+          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&limit=100&access_token=${token}`,
+          { signal: AbortSignal.timeout(10000) }
+        );
+        const accountsData: any = await accountsRes.json().catch(() => ({}));
+        const page = (accountsData?.data || []).find((item: any) => String(item?.id) === String(input.pageId));
+        if (page?.access_token) {
+          pageToken = page.access_token;
+        } else if (accountsData?.error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao obter token da página: ${accountsData.error.message}` });
+        } else {
+          const availablePages = Array.isArray(accountsData?.data)
+            ? accountsData.data.map((item: any) => `${item?.name || "Sem nome"} (${item?.id || "sem-id"})`).join(", ")
+            : "";
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: availablePages
+              ? `A página ${input.pageId} não retornou Page Access Token. Verifique se ela está vinculada ao usuário/admin no Business Manager. Páginas encontradas: ${availablePages}`
+              : `A página ${input.pageId} não retornou Page Access Token. Verifique permissões de administrador da página e da conta Meta.`,
+          });
+        }
+      } catch (e: any) {
+        if (e instanceof TRPCError) throw e;
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao obter token da página: ${e?.message || "falha desconhecida"}` });
+      }
+
       // Monta os campos do formulário
       const questions = input.fields.map(f => ({ type: f }));
       if (input.customQuestion?.trim()) {
@@ -3525,7 +3616,7 @@ const integrationsRouter = router({
         {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({ ...body, access_token: token }),
+          body:    JSON.stringify({ ...body, access_token: pageToken }),
         }
       );
       const data: any = await res.json().catch(() => ({}));
@@ -3545,8 +3636,36 @@ const integrationsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Conta Meta não conectada." });
       const token = (integration as any).accessToken as string;
 
+      let pageToken = token;
+      try {
+        const accountsRes = await fetch(
+          `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&limit=100&access_token=${token}`,
+          { signal: AbortSignal.timeout(10000) }
+        );
+        const accountsData: any = await accountsRes.json().catch(() => ({}));
+        const page = (accountsData?.data || []).find((item: any) => String(item?.id) === String(input.pageId));
+        if (page?.access_token) {
+          pageToken = page.access_token;
+        } else if (accountsData?.error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao obter token da página: ${accountsData.error.message}` });
+        } else {
+          const availablePages = Array.isArray(accountsData?.data)
+            ? accountsData.data.map((item: any) => `${item?.name || "Sem nome"} (${item?.id || "sem-id"})`).join(", ")
+            : "";
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: availablePages
+              ? `A página ${input.pageId} não retornou Page Access Token. Verifique se ela está vinculada ao usuário/admin no Business Manager. Páginas encontradas: ${availablePages}`
+              : `A página ${input.pageId} não retornou Page Access Token. Verifique permissões de administrador da página e da conta Meta.`,
+          });
+        }
+      } catch (e: any) {
+        if (e instanceof TRPCError) throw e;
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao obter token da página: ${e?.message || "falha desconhecida"}` });
+      }
+
       const res = await fetch(
-        `https://graph.facebook.com/v19.0/${input.pageId}/leadgen_forms?fields=id,name,status,leads_count&access_token=${token}`
+        `https://graph.facebook.com/v19.0/${input.pageId}/leadgen_forms?fields=id,name,status,leads_count&access_token=${pageToken}`
       );
       const data: any = await res.json().catch(() => ({}));
       if (!res.ok || data?.error)
@@ -3830,10 +3949,50 @@ const metaCampaignsRouter = router({
         ig_shop:         { pub: "instagram",        pos: "shop" },
       };
 
+      async function resolveBrazilRegionKeysForUpdate(userToken: string, ufs: string[]): Promise<number[]> {
+        const BR_STATE_NAMES: Record<string, string> = {
+          AC: "Acre", AL: "Alagoas", AP: "Amapá", AM: "Amazonas", BA: "Bahia", CE: "Ceará", DF: "Distrito Federal",
+          ES: "Espírito Santo", GO: "Goiás", MA: "Maranhão", MT: "Mato Grosso", MS: "Mato Grosso do Sul", MG: "Minas Gerais",
+          PA: "Pará", PB: "Paraíba", PR: "Paraná", PE: "Pernambuco", PI: "Piauí", RJ: "Rio de Janeiro", RN: "Rio Grande do Norte",
+          RS: "Rio Grande do Sul", RO: "Rondônia", RR: "Roraima", SC: "Santa Catarina", SP: "São Paulo", SE: "Sergipe", TO: "Tocantins",
+        };
+        const uniqueUfs = [...new Set((ufs || []).map((uf) => String(uf || "").trim().toUpperCase()).filter(Boolean))];
+        if (uniqueUfs.length === 0) return [];
+        const results = await Promise.all(uniqueUfs.map(async (uf) => {
+          const stateName = BR_STATE_NAMES[uf];
+          if (!stateName) return null;
+          const params = new URLSearchParams({ type: "adgeolocation", q: stateName, access_token: userToken });
+          params.set("location_types", '["region"]');
+          params.set("countries", '["BR"]');
+          const res = await fetch(`https://graph.facebook.com/v19.0/search?${params.toString()}`, { signal: AbortSignal.timeout(10000) });
+          const data: any = await res.json().catch(() => ({}));
+          if (!res.ok || data?.error) return null;
+          const exact = (data?.data || []).find((item: any) => {
+            const itemName = String(item?.name || "").trim().toLowerCase();
+            const itemType = String(item?.type || "").trim().toLowerCase();
+            const countryCode = String(item?.country_code || item?.country || "").trim().toUpperCase();
+            return itemType === "region" && itemName === stateName.trim().toLowerCase() && (!countryCode || countryCode === "BR");
+          }) || (data?.data || []).find((item: any) => String(item?.type || "").trim().toLowerCase() === "region");
+          const numericKey = Number(exact?.key);
+          return Number.isFinite(numericKey) ? numericKey : null;
+        }));
+        return results.filter((value): value is number => Number.isFinite(value));
+      }
+
+      const resolvedRegionKeys = input.regions?.length ? await resolveBrazilRegionKeysForUpdate(token, input.regions) : [];
       let targetingUpdate: any = {};
 
       if (input.placementMode === "auto" || input.placements.length === 0) {
-        targetingUpdate = { targeting: { age_min: input.ageMin ?? 18, age_max: input.ageMax ?? 65, geo_locations: { countries: input.countries?.length ? input.countries : ["BR"] }, device_platforms: ["mobile", "desktop"] } };
+        targetingUpdate = {
+          targeting: {
+            age_min: input.ageMin ?? 18,
+            age_max: input.ageMax ?? 65,
+            geo_locations: resolvedRegionKeys.length
+              ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
+              : { countries: input.countries?.length ? input.countries : ["BR"] },
+            device_platforms: ["mobile", "desktop"],
+          }
+        };
       } else {
         const publishers  = new Set<string>();
         const fbPos:  string[] = [];
@@ -3853,8 +4012,8 @@ const metaCampaignsRouter = router({
           targeting: {
             age_min: input.ageMin ?? 18,
             age_max: input.ageMax ?? 65,
-            geo_locations: input.regions?.length
-              ? { regions: input.regions.map((uf: string) => ({ key: `BR-${uf}`, name: uf, country: "BR" })) }
+            geo_locations: resolvedRegionKeys.length
+              ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
               : input.countries?.length
               ? { countries: input.countries }
               : { countries: ["BR"] },

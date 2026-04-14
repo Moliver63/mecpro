@@ -2,10 +2,24 @@ import { z } from "zod";
 
 const nonEmptyString = z.string().trim().min(1);
 const optionalString = z.string().trim().min(1).optional().nullable();
-const httpsUrl = z.string().url().refine((v) => v.startsWith("https://"), {
+
+function normalizeHttpsCandidate(raw: unknown): unknown {
+  if (raw === null || raw === undefined) return raw;
+  if (typeof raw !== "string") return raw;
+  const value = raw.trim();
+  if (!value) return undefined;
+  if (/^https:\/\//i.test(value)) return value;
+  if (/^http:\/\//i.test(value)) return value.replace(/^http:\/\//i, "https://");
+  if (/^wa\.me\//i.test(value)) return `https://${value}`;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(value)) return `https://${value}`;
+  return value;
+}
+
+const httpsUrlBase = z.string().url().refine((v) => v.startsWith("https://"), {
   message: "URL deve ser https",
 });
-const optionalHttpsUrl = httpsUrl.optional().nullable();
+const httpsUrl = z.preprocess(normalizeHttpsCandidate, httpsUrlBase);
+const optionalHttpsUrl = z.preprocess((raw) => normalizeHttpsCandidate(raw), httpsUrlBase.optional().nullable());
 const dateLike = z.union([z.string(), z.date()]).optional().nullable();
 
 export const creativeFormatSchema = z.enum(["feed", "stories", "square", "horizontal", "reels", "carousel"]);
