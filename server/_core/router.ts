@@ -3850,9 +3850,12 @@ const metaCampaignsRouter = router({
         for (const p of projects) {
           const camps = await db.getCampaignsByProjectId(p.id);
           for (const c of camps) {
+            const directMetaId = String((c as any).metaCampaignId || "").trim();
+            if (directMetaId) mecproIds.add(directMetaId);
             try {
               const parsed = JSON.parse((c as any).aiResponse || "{}");
-              if (parsed?.campaignId) mecproIds.add(String(parsed.campaignId));
+              const nestedId = String(parsed?.metaCampaignId || parsed?.campaignId || "").trim();
+              if (nestedId) mecproIds.add(nestedId);
             } catch {}
           }
         }
@@ -4366,6 +4369,275 @@ const academyRouter = router({
     }),
 });
 
+const googleCampaignsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ period: z.enum(["7d", "30d", "90d"]).default("30d") }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const accessToken = await getGoogleAccessToken(integration as any);
+      const developerToken = String((integration as any).developerToken ?? process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "");
+      const customerId = String((integration as any).accountId ?? "").replace(/\D/g, "");
+      if (!developerToken || !customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token ou Customer ID ausentes" });
+
+      const period = input?.period ?? "30d";
+      const since = daysAgo(period === "7d" ? 7 : period === "90d" ? 90 : 30);
+      const query = [
+        "SELECT campaign.id, campaign.name, campaign.status, campaign.start_date, campaign.end_date,",
+        "campaign.advertising_channel_type, campaign_budget.amount_micros,",
+        "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.average_cpc, metrics.average_cpm, metrics.ctr",
+        `FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' ORDER BY campaign.id DESC LIMIT 100`,
+      ].join(" ");
+
+      const data = await googleAdsPost<any>(
+        "googleAds:search",
+        { query },
+        accessToken,
+        developerToken,
+        customerId,
+        customerId,
+      );
+
+      const campaigns = (data.results || []).map((row: any) => ({
+        id: String(row.campaign?.id || ""),
+        name: row.campaign?.name || "Campanha Google",
+        status: String(row.campaign?.status || "UNKNOWN"),
+        channelType: String(row.campaign?.advertisingChannelType || row.campaign?.advertising_channel_type || "SEARCH"),
+        startDate: row.campaign?.startDate || row.campaign?.start_date || null,
+        endDate: row.campaign?.endDate || row.campaign?.end_date || null,
+        budgetMicros: Number(row.campaignBudget?.amountMicros ?? row.campaign_budget?.amount_micros ?? 0),
+        metrics: {
+          impressions: Number(row.metrics?.impressions || 0),
+          clicks: Number(row.metrics?.clicks || 0),
+          costMicros: Number(row.metrics?.costMicros ?? row.metrics?.cost_micros ?? 0),
+          averageCpc: Number(row.metrics?.averageCpc ?? row.metrics?.average_cpc ?? 0),
+          averageCpm: Number(row.metrics?.averageCpm ?? row.metrics?.average_cpm ?? 0),
+          ctr: Number(row.metrics?.ctr || 0),
+        },
+      }));
+
+      return { campaigns, total: campaigns.length };
+    }),
+
+  updateStatus: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), status: z.enum(["ENABLED", "PAUSED", "REMOVED"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const accessToken = await getGoogleAccessToken(integration as any);
+      const developerToken = String((integration as any).developerToken ?? process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "");
+      const customerId = String((integration as any).accountId ?? "").replace(/\D/g, "");
+      const resourceName = `customers/${customerId}/campaigns/${input.campaignId}`;
+      await googleAdsPost<any>(
+        "campaigns:mutate",
+        { operations: [{ update: { resourceName, status: input.status }, updateMask: "status" }] },
+        accessToken,
+        developerToken,
+        customerId,
+        customerId,
+      );
+      return { success: true, campaignId: input.campaignId, status: input.status };
+    }),
+
+  rename: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), name: z.string().trim().min(2).max(255) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const accessToken = await getGoogleAccessToken(integration as any);
+      const developerToken = String((integration as any).developerToken ?? process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "");
+      const customerId = String((integration as any).accountId ?? "").replace(/\D/g, "");
+      const resourceName = `customers/${customerId}/campaigns/${input.campaignId}`;
+      await googleAdsPost<any>(
+        "campaigns:mutate",
+        { operations: [{ update: { resourceName, name: input.name }, updateMask: "name" }] },
+        accessToken,
+        developerToken,
+        customerId,
+        customerId,
+      );
+      return { success: true };
+    }),
+
+  updateBudget: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), dailyBudget: z.number().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const accessToken = await getGoogleAccessToken(integration as any);
+      const developerToken = String((integration as any).developerToken ?? process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "");
+      const customerId = String((integration as any).accountId ?? "").replace(/\D/g, "");
+
+      const budgetLookup = await googleAdsPost<any>(
+        "googleAds:search",
+        { query: `SELECT campaign.campaign_budget FROM campaign WHERE campaign.id = ${input.campaignId} LIMIT 1` },
+        accessToken,
+        developerToken,
+        customerId,
+        customerId,
+      );
+      const budgetResourceName = String(budgetLookup.results?.[0]?.campaign?.campaignBudget || budgetLookup.results?.[0]?.campaign?.campaign_budget || "");
+      if (!budgetResourceName) throw new TRPCError({ code: "BAD_REQUEST", message: "Budget da campanha não encontrado no Google Ads" });
+
+      await googleAdsPost<any>(
+        "campaignBudgets:mutate",
+        { operations: [{ update: { resourceName: budgetResourceName, amountMicros: Math.round(input.dailyBudget * 1_000_000) }, updateMask: "amount_micros" }] },
+        accessToken,
+        developerToken,
+        customerId,
+        customerId,
+      );
+      return { success: true, budgetResourceName };
+    }),
+
+  details: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), period: z.enum(["7d", "30d", "90d"]).default("30d") }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const accessToken = await getGoogleAccessToken(integration as any);
+      const developerToken = String((integration as any).developerToken ?? process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "");
+      const customerId = String((integration as any).accountId ?? "").replace(/\D/g, "");
+      const period = input?.period ?? "30d";
+      const since = daysAgo(period === "7d" ? 7 : period === "90d" ? 90 : 30);
+
+      const adGroups = await googleAdsPost<any>(
+        "googleAds:search",
+        { query: `SELECT ad_group.id, ad_group.name, ad_group.status, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.ctr FROM ad_group WHERE campaign.id = ${input?.campaignId} AND segments.date BETWEEN '${since}' AND '${today()}' LIMIT 100` },
+        accessToken,
+        developerToken,
+        customerId,
+        customerId,
+      );
+
+      let ads: any[] = [];
+      try {
+        const adsData = await googleAdsPost<any>(
+          "googleAds:search",
+          { query: `SELECT ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.ad.final_urls, ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions FROM ad_group_ad WHERE campaign.id = ${input?.campaignId} LIMIT 100` },
+          accessToken,
+          developerToken,
+          customerId,
+          customerId,
+        );
+        ads = adsData.results || [];
+      } catch (error: any) {
+        log.warn("google", "details ads query failed", { campaignId: input?.campaignId, error: error.message });
+      }
+
+      return { adGroups: adGroups.results || [], ads };
+    }),
+});
+
+const tiktokCampaignsRouter = router({
+  list: protectedProcedure
+    .input(z.object({ period: z.enum(["7d", "30d", "90d"]).default("30d") }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "tiktok");
+      if (!integration || !(integration as any).accessToken || !(integration as any).accountId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Integração TikTok não configurada" });
+      }
+      const token = String((integration as any).accessToken || "");
+      const advertiserId = String((integration as any).accountId || "");
+      const listResp = await fetch(`https://business-api.tiktok.com/open_api/v1.3/campaign/get/?advertiser_id=${advertiserId}&page_size=100`, {
+        headers: { "Access-Token": token },
+      });
+      const listData: any = await listResp.json().catch(() => ({}));
+      if (!listResp.ok || listData.code !== 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: listData.message || `TikTok HTTP ${listResp.status}` });
+      }
+
+      const period = input?.period ?? "30d";
+      const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
+      const reportResp = await fetch(`https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/`, {
+        method: "POST",
+        headers: { "Access-Token": token, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          advertiser_id: advertiserId,
+          report_type: "BASIC",
+          dimensions: ["campaign_id"],
+          metrics: ["spend", "impressions", "clicks", "cpc", "cpm", "ctr"],
+          start_date: daysAgo(days),
+          end_date: today(),
+          page_size: 100,
+        }),
+      });
+      const reportData: any = await reportResp.json().catch(() => ({}));
+      const metricsById = new Map<string, any>();
+      if (reportResp.ok && reportData.code === 0) {
+        for (const row of reportData.data?.list || []) metricsById.set(String(row.dimensions?.campaign_id || row.campaign_id || ""), row.metrics || {});
+      }
+
+      const campaigns = (listData.data?.list || []).map((c: any) => ({
+        id: String(c.campaign_id || c.id || ""),
+        name: c.campaign_name || c.name || "Campanha TikTok",
+        status: String(c.operation_status || c.secondary_status || c.status || "DISABLE"),
+        objective: c.objective_type || c.objective || "TRAFFIC",
+        budget: Number(c.budget || 0),
+        budgetMode: c.budget_mode || null,
+        createTime: c.create_time || null,
+        metrics: (() => {
+          const m = metricsById.get(String(c.campaign_id || c.id || "")) || {};
+          return {
+            spend: Number(m.spend || 0),
+            impressions: Number(m.impressions || 0),
+            clicks: Number(m.clicks || 0),
+            cpc: Number(m.cpc || 0),
+            cpm: Number(m.cpm || 0),
+            ctr: Number(m.ctr || 0),
+          };
+        })(),
+      }));
+
+      return { campaigns, total: campaigns.length };
+    }),
+
+  updateStatus: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), status: z.enum(["ENABLE", "DISABLE", "DELETE"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "tiktok");
+      if (!integration || !(integration as any).accessToken || !(integration as any).accountId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Integração TikTok não configurada" });
+      }
+      await tikTokPost<any>("campaign/status/update/", {
+        advertiser_id: String((integration as any).accountId),
+        campaign_ids: [input.campaignId],
+        operation_status: input.status,
+      }, String((integration as any).accessToken));
+      return { success: true };
+    }),
+
+  rename: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), name: z.string().trim().min(2).max(512) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "tiktok");
+      if (!integration || !(integration as any).accessToken || !(integration as any).accountId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Integração TikTok não configurada" });
+      }
+      await tikTokPost<any>("campaign/update/", {
+        advertiser_id: String((integration as any).accountId),
+        campaign_id: input.campaignId,
+        campaign_name: input.name,
+      }, String((integration as any).accessToken));
+      return { success: true };
+    }),
+
+  updateBudget: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), budget: z.number().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "tiktok");
+      if (!integration || !(integration as any).accessToken || !(integration as any).accountId) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Integração TikTok não configurada" });
+      }
+      await tikTokPost<any>("campaign/update/", {
+        advertiser_id: String((integration as any).accountId),
+        campaign_id: input.campaignId,
+        budget: input.budget,
+      }, String((integration as any).accessToken));
+      return { success: true };
+    }),
+});
+
 // ------------------------------------------------------------------------------
 // UNIFIED DASHBOARD ROUTER — métricas consolidadas Meta + Google + TikTok
 // ------------------------------------------------------------------------------
@@ -4530,6 +4802,8 @@ export const appRouter = router({
   admin: adminRouter,
   planRequests: planRequestsRouter,
   metaCampaigns: metaCampaignsRouter,
+  googleCampaigns: googleCampaignsRouter,
+  tiktokCampaigns: tiktokCampaignsRouter,
   unified: unifiedRouter,
   tiktokVideo: tiktokVideoRouter,
   alerts: alertsRouter,

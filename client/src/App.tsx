@@ -81,8 +81,10 @@ import AdminPlanRequests from "@/pages/AdminPlanRequests";
 import FacebookCampaignCreator from "@/pages/FacebookCampaignCreator";
 import GoogleAdsIntegration from "@/pages/GoogleAdsIntegration";
 import GoogleCampaignCreator from "@/pages/GoogleCampaignCreator";
+import GoogleCampaigns from "@/pages/GoogleCampaigns";
 import TikTokIntegration from "@/pages/TikTokIntegration";
 import TikTokCampaignCreator from "@/pages/TikTokCampaignCreator";
+import TikTokCampaigns from "@/pages/TikTokCampaigns";
 import TikTokVideoCreator from "@/pages/TikTokVideoCreator";
 import AlertsSettings from "@/pages/AlertsSettings";
 
@@ -169,6 +171,8 @@ export default function App() {
             <Route path="/projects/:id/tiktok-campaign"><ProtectedRoute><TikTokCampaignCreator /></ProtectedRoute></Route>
             <Route path="/projects/:id/google-campaign"><ProtectedRoute><GoogleCampaignCreator /></ProtectedRoute></Route>
             <Route path="/meta-campaigns"><ProtectedRoute><MetaCampaigns /></ProtectedRoute></Route>
+            <Route path="/google-campaigns"><ProtectedRoute><GoogleCampaigns /></ProtectedRoute></Route>
+            <Route path="/tiktok-campaigns"><ProtectedRoute><TikTokCampaigns /></ProtectedRoute></Route>
             <Route path="/unified-dashboard"><ProtectedRoute><UnifiedDashboard /></ProtectedRoute></Route>
             <Route path="/facebook-campaign/new"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/projects/:id/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>

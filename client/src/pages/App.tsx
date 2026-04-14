@@ -55,8 +55,10 @@ import MetaCampaigns from "@/pages/MetaCampaigns";
 import MetaIntegration from "@/pages/MetaIntegration";
 import GoogleAdsIntegration from "@/pages/GoogleAdsIntegration";
 import GoogleCampaignCreator from "@/pages/GoogleCampaignCreator";
+import GoogleCampaigns from "@/pages/GoogleCampaigns";
 import FacebookCampaignCreator from "@/pages/FacebookCampaignCreator";
 import TikTokCampaignCreator from "@/pages/TikTokCampaignCreator";
+import TikTokCampaigns from "@/pages/TikTokCampaigns";
 import TikTokIntegration from "@/pages/TikTokIntegration";
 import TikTokVideoCreator from "@/pages/TikTokVideoCreator";
 import UnifiedDashboard from "@/pages/UnifiedDashboard";
@@ -149,6 +151,8 @@ export default function App() {
             <Route path="/community/connections"><ProtectedRoute><CommunityConnections /></ProtectedRoute></Route>
             <Route path="/checkout/success"><ProtectedRoute><CheckoutSuccess /></ProtectedRoute></Route>
             <Route path="/meta-campaigns"><ProtectedRoute><MetaCampaigns /></ProtectedRoute></Route>
+            <Route path="/google-campaigns"><ProtectedRoute><GoogleCampaigns /></ProtectedRoute></Route>
+            <Route path="/tiktok-campaigns"><ProtectedRoute><TikTokCampaigns /></ProtectedRoute></Route>
             <Route path="/meta-integration"><ProtectedRoute><MetaIntegration /></ProtectedRoute></Route>
             <Route path="/google-ads"><ProtectedRoute><GoogleAdsIntegration /></ProtectedRoute></Route>
             <Route path="/google-campaign"><ProtectedRoute><GoogleCampaignCreator /></ProtectedRoute></Route>

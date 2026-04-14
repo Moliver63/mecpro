@@ -7,6 +7,8 @@ const NAV_USER = [
   { icon: "📊", label: "Dashboard",       path: "/dashboard" },
   { icon: "📁", label: "Projetos",        path: "/projects" },
   { icon: "📘", label: "Campanhas Meta",  path: "/meta-campaigns" },
+  { icon: "🔵", label: "Campanhas Google", path: "/google-campaigns" },
+  { icon: "🎵", label: "Campanhas TikTok", path: "/tiktok-campaigns" },
   { icon: "🎓", label: "Academia",        path: "/academy" },
   { icon: "🔔", label: "Notificações",    path: "/notifications" },
   { icon: "💬", label: "Mensagens",       path: "/messages" },

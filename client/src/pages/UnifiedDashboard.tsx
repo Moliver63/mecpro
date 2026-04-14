@@ -261,15 +261,15 @@ export default function UnifiedDashboard() {
             borderRadius:12, padding:14, cursor:"pointer", fontWeight:700, fontSize:13, color:"#1e40af" }}>
           📘 Gerenciar Meta Ads →
         </button>
-        <button onClick={() => setLocation("/settings/google")}
+        <button onClick={() => setLocation("/google-campaigns")}
           style={{ flex:1, background:"#eff6ff", border:"1.5px solid #bfdbfe",
             borderRadius:12, padding:14, cursor:"pointer", fontWeight:700, fontSize:13, color:"#1e40af" }}>
-          🔵 Configurar Google Ads →
+          🔵 Gerenciar Google Ads →
         </button>
-        <button onClick={() => setLocation("/settings/tiktok")}
+        <button onClick={() => setLocation("/tiktok-campaigns")}
           style={{ flex:1, background:"#f8fafc", border:"1.5px solid #e2e8f0",
             borderRadius:12, padding:14, cursor:"pointer", fontWeight:700, fontSize:13, color:"#010101" }}>
-          🎵 Configurar TikTok Ads →
+          🎵 Gerenciar TikTok Ads →
         </button>
       </div>
     </div>
