@@ -3,7 +3,6 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-
 type GoogleCampaign = {
   id: string;
   name: string;
@@ -20,6 +19,11 @@ type GoogleCampaign = {
     averageCpm?: number;
     ctr?: number;
   };
+};
+
+type GoogleCampaignDetails = {
+  adGroups?: any[];
+  ads?: any[];
 };
 
 const R = (v?: number) => `R$ ${Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -44,32 +48,47 @@ function MetricCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 1000 }}>
+      <div style={{ width: "min(960px, 100%)", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 20, border: "1px solid var(--border)", boxShadow: "0 20px 60px rgba(15,23,42,.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", padding: 20, borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{title}</h2>
+            {subtitle && <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>{subtitle}</p>}
+          </div>
+          <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
+        </div>
+        <div style={{ padding: 20 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function GoogleCampaigns() {
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [campaigns, setCampaigns] = useState<GoogleCampaign[]>([]);
+  const [selectedCampaign, setSelectedCampaign] = useState<GoogleCampaign | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [detailsData, setDetailsData] = useState<GoogleCampaignDetails | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editBudget, setEditBudget] = useState(0);
+  const [editStatus, setEditStatus] = useState<"ENABLED" | "PAUSED" | "REMOVED">("PAUSED");
 
   const listMutation = trpc.googleCampaigns.list.useMutation({
     onSuccess: (data: any) => setCampaigns(data.campaigns || []),
     onError: (e) => toast.error(e.message),
   });
-  const statusMutation = trpc.googleCampaigns.updateStatus.useMutation({
-    onSuccess: () => { toast.success("Status atualizado no Google Ads"); load(); },
+  const detailsMutation = trpc.googleCampaigns.details.useMutation({
+    onSuccess: (data: any) => setDetailsData(data || { adGroups: [], ads: [] }),
     onError: (e) => toast.error(e.message),
   });
-  const renameMutation = trpc.googleCampaigns.rename.useMutation({
-    onSuccess: () => { toast.success("Nome atualizado"); load(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const budgetMutation = trpc.googleCampaigns.updateBudget.useMutation({
-    onSuccess: () => { toast.success("Orçamento atualizado"); load(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const deleteMutation = trpc.googleCampaigns.updateStatus.useMutation({
-    onSuccess: () => { toast.success("Campanha removida"); load(); },
-    onError: (e) => toast.error(e.message),
-  });
+  const statusMutation = trpc.googleCampaigns.updateStatus.useMutation();
+  const renameMutation = trpc.googleCampaigns.rename.useMutation();
+  const budgetMutation = trpc.googleCampaigns.updateBudget.useMutation();
 
   const load = () => listMutation.mutate({ period });
   useEffect(() => { load(); }, [period]);
@@ -87,8 +106,57 @@ export default function GoogleCampaigns() {
     return acc;
   }, { spend: 0, clicks: 0, impressions: 0 }), [filtered]);
 
-  const avgCpc = totals.clicks > 0 ? totals.spend / totals.clicks : 0;
   const avgCtr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
+
+  const openDetails = (campaign: GoogleCampaign) => {
+    setSelectedCampaign(campaign);
+    setDetailsData(null);
+    setDetailsOpen(true);
+    detailsMutation.mutate({ campaignId: campaign.id, period });
+  };
+
+  const openEdit = (campaign: GoogleCampaign) => {
+    setSelectedCampaign(campaign);
+    setEditName(campaign.name);
+    setEditBudget(Math.max(1, Number(campaign.budgetMicros || 0) / 1_000_000 || 1));
+    setEditStatus((["ENABLED", "PAUSED", "REMOVED"].includes(campaign.status) ? campaign.status : "PAUSED") as any);
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!selectedCampaign) return;
+    try {
+      const tasks: Promise<any>[] = [];
+      const trimmedName = editName.trim();
+      const budgetValue = Number(editBudget);
+      if (trimmedName && trimmedName !== selectedCampaign.name) {
+        tasks.push(renameMutation.mutateAsync({ campaignId: selectedCampaign.id, name: trimmedName }));
+      }
+      if (Number.isFinite(budgetValue) && budgetValue > 0) {
+        const currentBudget = Number(selectedCampaign.budgetMicros || 0) / 1_000_000;
+        if (Math.abs(budgetValue - currentBudget) > 0.0001) {
+          tasks.push(budgetMutation.mutateAsync({ campaignId: selectedCampaign.id, dailyBudget: budgetValue }));
+        }
+      }
+      if (editStatus !== selectedCampaign.status) {
+        if (editStatus === "REMOVED" && !window.confirm(`Remover a campanha "${selectedCampaign.name}" no Google Ads?`)) return;
+        tasks.push(statusMutation.mutateAsync({ campaignId: selectedCampaign.id, status: editStatus }));
+      }
+      if (tasks.length === 0) {
+        toast.info("Nenhuma alteração para salvar");
+        setEditOpen(false);
+        return;
+      }
+      await Promise.all(tasks);
+      toast.success("Campanha Google atualizada");
+      setEditOpen(false);
+      load();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao atualizar campanha Google");
+    }
+  };
+
+  const busy = listMutation.isPending || detailsMutation.isPending || statusMutation.isPending || renameMutation.isPending || budgetMutation.isPending;
 
   return (
     <Layout>
@@ -96,12 +164,12 @@ export default function GoogleCampaigns() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>🔵 Google Ads</h1>
-            <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>Gerencie campanhas, orçamento e status sem sair do MECPro.</p>
+            <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>Agora com detalhes da campanha e edição básica sem depender de prompts soltos.</p>
           </div>
           <button className="btn btn-primary" onClick={load} disabled={listMutation.isPending}>Atualizar</button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: 12, marginBottom: 18 }}>
           <MetricCard label="Campanhas" value={String(filtered.length)} />
           <MetricCard label="Gasto" value={R(totals.spend)} />
           <MetricCard label="Cliques" value={N(totals.clicks)} />
@@ -109,12 +177,8 @@ export default function GoogleCampaigns() {
         </div>
 
         <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome ou ID"
-            style={{ flex: 2, minWidth: 240, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }}
-          />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome ou ID"
+            style={{ flex: 2, minWidth: 240, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }} />
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }}>
             <option value="all">Todos os status</option>
             <option value="ENABLED">Ativas</option>
@@ -141,32 +205,16 @@ export default function GoogleCampaigns() {
                       <span style={{ background: s.bg, color: s.color, padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{s.label}</span>
                       <span style={{ background: "#eff6ff", color: "#1d4ed8", padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{c.channelType || "SEARCH"}</span>
                     </div>
-                    <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 13 }}>ID {c.id} • Início {c.startDate || "—"} • Fim {c.endDate || "—"}</p>
+                    <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 13 }}>ID {c.id} • Início {c.startDate || "—"} • Fim {c.endDate || "—"} • Orçamento {R(Number(c.budgetMicros || 0) / 1_000_000)}</p>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button className="btn btn-sm btn-secondary" onClick={() => {
-                      const next = c.status === "ENABLED" ? "PAUSED" : "ENABLED";
-                      statusMutation.mutate({ campaignId: c.id, status: next as any });
-                    }}>{c.status === "ENABLED" ? "Pausar" : "Ativar"}</button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => {
-                      const name = window.prompt("Novo nome da campanha", c.name);
-                      if (name && name.trim() && name.trim() !== c.name) renameMutation.mutate({ campaignId: c.id, name: name.trim() });
-                    }}>Renomear</button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => {
-                      const raw = window.prompt("Novo orçamento diário em R$", String(Math.max(1, Math.round((Number(c.budgetMicros || 0) / 1_000_000) || 1))));
-                      if (!raw) return;
-                      const value = Number(String(raw).replace(",", "."));
-                      if (!Number.isFinite(value) || value <= 0) return toast.error("Informe um orçamento válido");
-                      budgetMutation.mutate({ campaignId: c.id, dailyBudget: value });
-                    }}>Orçamento</button>
-                    <button className="btn btn-sm btn-ghost" style={{ color: "#b91c1c" }} onClick={() => {
-                      if (!window.confirm(`Remover a campanha "${c.name}" no Google Ads?`)) return;
-                      deleteMutation.mutate({ campaignId: c.id, status: "REMOVED" as any });
-                    }}>Remover</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => openDetails(c)}>Detalhes</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => openEdit(c)}>Editar</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => statusMutation.mutate({ campaignId: c.id, status: c.status === "ENABLED" ? "PAUSED" : "ENABLED" as any }, { onSuccess: () => { toast.success("Status atualizado no Google Ads"); load(); }, onError: (e) => toast.error(e.message) })}>{c.status === "ENABLED" ? "Pausar" : "Ativar"}</button>
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 10, marginTop: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 10, marginTop: 16 }}>
                   {[
                     ["Gasto", R(spend)],
                     ["Impressões", N(c.metrics?.impressions)],
@@ -191,6 +239,108 @@ export default function GoogleCampaigns() {
           )}
         </div>
       </div>
+
+      {detailsOpen && selectedCampaign && (
+        <ModalShell title="Detalhes da campanha Google" subtitle={`${selectedCampaign.name} • ID ${selectedCampaign.id}`} onClose={() => setDetailsOpen(false)}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: 12, marginBottom: 16 }}>
+            <MetricCard label="Status" value={statusBadge(selectedCampaign.status).label} />
+            <MetricCard label="Orçamento" value={R(Number(selectedCampaign.budgetMicros || 0) / 1_000_000)} />
+            <MetricCard label="Cliques" value={N(selectedCampaign.metrics?.clicks)} />
+            <MetricCard label="CTR" value={P(selectedCampaign.metrics?.ctr)} />
+          </div>
+
+          {detailsMutation.isPending && <p style={{ color: "var(--muted)" }}>Carregando ad groups e anúncios…</p>}
+
+          {!detailsMutation.isPending && (
+            <div style={{ display: "grid", gap: 18 }}>
+              <section>
+                <h3 style={{ marginTop: 0 }}>Ad groups</h3>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {(detailsData?.adGroups || []).map((row: any, idx: number) => {
+                    const adGroup = row.adGroup || row.ad_group || {};
+                    const metrics = row.metrics || {};
+                    return (
+                      <div key={`${adGroup.id || idx}`} style={{ border: "1px solid var(--border)", borderRadius: 14, padding: 14, background: "#f8fafc" }}>
+                        <div style={{ fontWeight: 800 }}>{adGroup.name || `Ad Group ${idx + 1}`}</div>
+                        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>ID {adGroup.id || "—"} • Status {adGroup.status || "—"}</div>
+                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 8, fontSize: 13 }}>
+                          <span>Impr. {N(metrics.impressions)}</span>
+                          <span>Cliques {N(metrics.clicks)}</span>
+                          <span>CTR {P(metrics.ctr)}</span>
+                          <span>Gasto {R(Number(metrics.costMicros ?? metrics.cost_micros ?? 0) / 1_000_000)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!(detailsData?.adGroups || []).length && <p style={{ color: "var(--muted)" }}>Nenhum ad group retornado para esta campanha.</p>}
+                </div>
+              </section>
+
+              <section>
+                <h3 style={{ marginTop: 0 }}>Anúncios</h3>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {(detailsData?.ads || []).map((row: any, idx: number) => {
+                    const adGroupAd = row.adGroupAd || row.ad_group_ad || {};
+                    const ad = adGroupAd.ad || {};
+                    const rsa = ad.responsiveSearchAd || ad.responsive_search_ad || {};
+                    const headlines = (rsa.headlines || []).map((h: any) => h.text).filter(Boolean);
+                    const descriptions = (rsa.descriptions || []).map((d: any) => d.text).filter(Boolean);
+                    const finalUrls = ad.finalUrls || ad.final_urls || [];
+                    return (
+                      <div key={`${ad.id || idx}`} style={{ border: "1px solid var(--border)", borderRadius: 14, padding: 14, background: "#fff" }}>
+                        <div style={{ fontWeight: 800 }}>Anúncio {ad.id || idx + 1}</div>
+                        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>Status {adGroupAd.status || "—"}</div>
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>Headlines</div>
+                          <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>{headlines.length ? headlines.map((text: string) => <span key={text} style={{ background: "#eff6ff", color: "#1d4ed8", borderRadius: 999, padding: "4px 10px", fontSize: 12, fontWeight: 700 }}>{text}</span>) : <span style={{ color: "var(--muted)" }}>—</span>}</div>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>Descrições</div>
+                          <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>{descriptions.length ? descriptions.map((text: string) => <li key={text}>{text}</li>) : <li>—</li>}</ul>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 13 }}><strong>URL final:</strong> {finalUrls[0] || "—"}</div>
+                      </div>
+                    );
+                  })}
+                  {!(detailsData?.ads || []).length && <p style={{ color: "var(--muted)" }}>Nenhum anúncio retornado para esta campanha.</p>}
+                </div>
+              </section>
+            </div>
+          )}
+        </ModalShell>
+      )}
+
+      {editOpen && selectedCampaign && (
+        <ModalShell title="Editar campanha Google" subtitle="Nome, status e orçamento diário" onClose={() => setEditOpen(false)}>
+          <div style={{ display: "grid", gap: 14 }}>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontWeight: 700 }}>Nome da campanha</span>
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }} />
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 14 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontWeight: 700 }}>Status</span>
+                <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as any)} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }}>
+                  <option value="ENABLED">Ativa</option>
+                  <option value="PAUSED">Pausada</option>
+                  <option value="REMOVED">Removida</option>
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontWeight: 700 }}>Orçamento diário (R$)</span>
+                <input type="number" min={1} step="0.01" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }} />
+              </label>
+            </div>
+            <div style={{ background: "#eff6ff", color: "#1d4ed8", padding: 14, borderRadius: 14, fontSize: 13 }}>
+              Edição básica disponível agora: nome, status e orçamento. Edição de criativos/keywords pode ser adicionada na próxima etapa.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button className="btn btn-ghost" onClick={() => setEditOpen(false)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={busy}>Salvar alterações</button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
     </Layout>
   );
 }

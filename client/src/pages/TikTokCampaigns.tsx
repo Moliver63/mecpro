@@ -3,7 +3,6 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-
 type TikTokCampaign = {
   id: string;
   name: string;
@@ -43,32 +42,42 @@ function MetricCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ModalShell({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, zIndex: 1000 }}>
+      <div style={{ width: "min(900px, 100%)", maxHeight: "90vh", overflow: "auto", background: "#fff", borderRadius: 20, border: "1px solid var(--border)", boxShadow: "0 20px 60px rgba(15,23,42,.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", padding: 20, borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{title}</h2>
+            {subtitle && <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>{subtitle}</p>}
+          </div>
+          <button className="btn btn-ghost" onClick={onClose}>Fechar</button>
+        </div>
+        <div style={{ padding: 20 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function TikTokCampaigns() {
   const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [campaigns, setCampaigns] = useState<TikTokCampaign[]>([]);
+  const [selectedCampaign, setSelectedCampaign] = useState<TikTokCampaign | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editBudget, setEditBudget] = useState(0);
+  const [editStatus, setEditStatus] = useState<"ENABLE" | "DISABLE" | "DELETE">("DISABLE");
 
   const listMutation = trpc.tiktokCampaigns.list.useMutation({
     onSuccess: (data: any) => setCampaigns(data.campaigns || []),
     onError: (e) => toast.error(e.message),
   });
-  const statusMutation = trpc.tiktokCampaigns.updateStatus.useMutation({
-    onSuccess: () => { toast.success("Status atualizado no TikTok Ads"); load(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const renameMutation = trpc.tiktokCampaigns.rename.useMutation({
-    onSuccess: () => { toast.success("Nome atualizado"); load(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const budgetMutation = trpc.tiktokCampaigns.updateBudget.useMutation({
-    onSuccess: () => { toast.success("Orçamento atualizado"); load(); },
-    onError: (e) => toast.error(e.message),
-  });
-  const deleteMutation = trpc.tiktokCampaigns.updateStatus.useMutation({
-    onSuccess: () => { toast.success("Campanha removida"); load(); },
-    onError: (e) => toast.error(e.message),
-  });
+  const statusMutation = trpc.tiktokCampaigns.updateStatus.useMutation();
+  const renameMutation = trpc.tiktokCampaigns.rename.useMutation();
+  const budgetMutation = trpc.tiktokCampaigns.updateBudget.useMutation();
 
   const load = () => listMutation.mutate({ period });
   useEffect(() => { load(); }, [period]);
@@ -90,8 +99,54 @@ export default function TikTokCampaigns() {
     return acc;
   }, { spend: 0, clicks: 0, impressions: 0 }), [filtered]);
 
-  const avgCpc = totals.clicks > 0 ? totals.spend / totals.clicks : 0;
   const avgCtr = totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0;
+
+  const openDetails = (campaign: TikTokCampaign) => {
+    setSelectedCampaign(campaign);
+    setDetailsOpen(true);
+  };
+
+  const openEdit = (campaign: TikTokCampaign) => {
+    setSelectedCampaign(campaign);
+    setEditName(campaign.name);
+    setEditBudget(Math.max(1, Number(campaign.budget || 1)));
+    const normalized = String(campaign.status || "").toUpperCase();
+    setEditStatus((normalized.includes("DELETE") ? "DELETE" : normalized.includes("ENABLE") ? "ENABLE" : "DISABLE") as any);
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!selectedCampaign) return;
+    try {
+      const tasks: Promise<any>[] = [];
+      const trimmedName = editName.trim();
+      const budgetValue = Number(editBudget);
+      if (trimmedName && trimmedName !== selectedCampaign.name) {
+        tasks.push(renameMutation.mutateAsync({ campaignId: selectedCampaign.id, name: trimmedName }));
+      }
+      if (Number.isFinite(budgetValue) && budgetValue > 0 && Math.abs(budgetValue - Number(selectedCampaign.budget || 0)) > 0.0001) {
+        tasks.push(budgetMutation.mutateAsync({ campaignId: selectedCampaign.id, budget: budgetValue }));
+      }
+      const currentStatus = String(selectedCampaign.status || "").toUpperCase();
+      if ((editStatus === "ENABLE" && !currentStatus.includes("ENABLE")) || (editStatus === "DISABLE" && !currentStatus.includes("DISABLE")) || (editStatus === "DELETE" && !currentStatus.includes("DELETE"))) {
+        if (editStatus === "DELETE" && !window.confirm(`Remover a campanha "${selectedCampaign.name}" no TikTok Ads?`)) return;
+        tasks.push(statusMutation.mutateAsync({ campaignId: selectedCampaign.id, status: editStatus }));
+      }
+      if (tasks.length === 0) {
+        toast.info("Nenhuma alteração para salvar");
+        setEditOpen(false);
+        return;
+      }
+      await Promise.all(tasks);
+      toast.success("Campanha TikTok atualizada");
+      setEditOpen(false);
+      load();
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao atualizar campanha TikTok");
+    }
+  };
+
+  const busy = listMutation.isPending || statusMutation.isPending || renameMutation.isPending || budgetMutation.isPending;
 
   return (
     <Layout>
@@ -99,12 +154,12 @@ export default function TikTokCampaigns() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>🎵 TikTok Ads</h1>
-            <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>Gerencie campanhas TikTok, nome, orçamento e publicação em um só lugar.</p>
+            <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>Detalhes e edição básica de campanhas já disponíveis no MECPro.</p>
           </div>
           <button className="btn btn-primary" onClick={load} disabled={listMutation.isPending}>Atualizar</button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: 12, marginBottom: 18 }}>
           <MetricCard label="Campanhas" value={String(filtered.length)} />
           <MetricCard label="Gasto" value={R(totals.spend)} />
           <MetricCard label="Cliques" value={N(totals.clicks)} />
@@ -112,12 +167,8 @@ export default function TikTokCampaigns() {
         </div>
 
         <div style={{ display: "flex", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome ou ID"
-            style={{ flex: 2, minWidth: 240, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }}
-          />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nome ou ID"
+            style={{ flex: 2, minWidth: 240, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }} />
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }}>
             <option value="all">Todos os status</option>
             <option value="ENABLE">Ativas</option>
@@ -146,29 +197,13 @@ export default function TikTokCampaigns() {
                     <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 13 }}>ID {c.id} • Criada em {c.createTime ? new Date(c.createTime).toLocaleDateString("pt-BR") : "—"} • Orçamento {R(c.budget)}</p>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button className="btn btn-sm btn-secondary" onClick={() => {
-                      const next = String(c.status || "").toUpperCase().includes("ENABLE") ? "DISABLE" : "ENABLE";
-                      statusMutation.mutate({ campaignId: c.id, status: next as any });
-                    }}>{String(c.status || "").toUpperCase().includes("ENABLE") ? "Pausar" : "Ativar"}</button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => {
-                      const name = window.prompt("Novo nome da campanha", c.name);
-                      if (name && name.trim() && name.trim() !== c.name) renameMutation.mutate({ campaignId: c.id, name: name.trim() });
-                    }}>Renomear</button>
-                    <button className="btn btn-sm btn-secondary" onClick={() => {
-                      const raw = window.prompt("Novo orçamento da campanha em R$", String(Math.max(1, Math.round(Number(c.budget || 1)))));
-                      if (!raw) return;
-                      const value = Number(String(raw).replace(",", "."));
-                      if (!Number.isFinite(value) || value <= 0) return toast.error("Informe um orçamento válido");
-                      budgetMutation.mutate({ campaignId: c.id, budget: value });
-                    }}>Orçamento</button>
-                    <button className="btn btn-sm btn-ghost" style={{ color: "#b91c1c" }} onClick={() => {
-                      if (!window.confirm(`Remover a campanha "${c.name}" no TikTok Ads?`)) return;
-                      deleteMutation.mutate({ campaignId: c.id, status: "DELETE" as any });
-                    }}>Remover</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => openDetails(c)}>Detalhes</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => openEdit(c)}>Editar</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => statusMutation.mutate({ campaignId: c.id, status: String(c.status || "").toUpperCase().includes("ENABLE") ? "DISABLE" : "ENABLE" as any }, { onSuccess: () => { toast.success("Status atualizado no TikTok Ads"); load(); }, onError: (e) => toast.error(e.message) })}>{String(c.status || "").toUpperCase().includes("ENABLE") ? "Pausar" : "Ativar"}</button>
                   </div>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 10, marginTop: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 10, marginTop: 16 }}>
                   {[
                     ["Gasto", R(c.metrics?.spend)],
                     ["Impressões", N(c.metrics?.impressions)],
@@ -193,6 +228,74 @@ export default function TikTokCampaigns() {
           )}
         </div>
       </div>
+
+      {detailsOpen && selectedCampaign && (
+        <ModalShell title="Detalhes da campanha TikTok" subtitle={`${selectedCampaign.name} • ID ${selectedCampaign.id}`} onClose={() => setDetailsOpen(false)}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: 12, marginBottom: 16 }}>
+            <MetricCard label="Status" value={statusBadge(selectedCampaign.status).label} />
+            <MetricCard label="Orçamento" value={R(selectedCampaign.budget)} />
+            <MetricCard label="Cliques" value={N(selectedCampaign.metrics?.clicks)} />
+            <MetricCard label="CTR" value={P(selectedCampaign.metrics?.ctr)} />
+          </div>
+
+          <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 16, background: "#f8fafc" }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 700 }}>Objetivo</div>
+              <div style={{ marginTop: 4, fontWeight: 800 }}>{selectedCampaign.objective || "TRAFFIC"}</div>
+            </div>
+            <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 16, background: "#f8fafc" }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 700 }}>Modo de orçamento</div>
+              <div style={{ marginTop: 4, fontWeight: 800 }}>{selectedCampaign.budgetMode || "—"}</div>
+            </div>
+            <div style={{ border: "1px solid var(--border)", borderRadius: 16, padding: 16, background: "#fff" }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 700 }}>Resumo de performance</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))", gap: 12, marginTop: 12 }}>
+                <div><strong>Impressões:</strong> {N(selectedCampaign.metrics?.impressions)}</div>
+                <div><strong>Cliques:</strong> {N(selectedCampaign.metrics?.clicks)}</div>
+                <div><strong>CPC:</strong> {R(selectedCampaign.metrics?.cpc)}</div>
+                <div><strong>CPM:</strong> {R(selectedCampaign.metrics?.cpm)}</div>
+                <div><strong>CTR:</strong> {P(selectedCampaign.metrics?.ctr)}</div>
+                <div><strong>Gasto:</strong> {R(selectedCampaign.metrics?.spend)}</div>
+              </div>
+            </div>
+            <div style={{ background: "#fdf2f8", color: "#9d174d", padding: 14, borderRadius: 14, fontSize: 13 }}>
+              Próxima etapa sugerida: ampliar a edição de criativos para trocar imagem/vídeo diretamente no TikTok Ads.
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
+      {editOpen && selectedCampaign && (
+        <ModalShell title="Editar campanha TikTok" subtitle="Nome, status e orçamento" onClose={() => setEditOpen(false)}>
+          <div style={{ display: "grid", gap: 14 }}>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontWeight: 700 }}>Nome da campanha</span>
+              <input value={editName} onChange={(e) => setEditName(e.target.value)} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }} />
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px,1fr))", gap: 14 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontWeight: 700 }}>Status</span>
+                <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as any)} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }}>
+                  <option value="ENABLE">Ativa</option>
+                  <option value="DISABLE">Pausada</option>
+                  <option value="DELETE">Removida</option>
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontWeight: 700 }}>Orçamento (R$)</span>
+                <input type="number" min={1} step="0.01" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "#fff" }} />
+              </label>
+            </div>
+            <div style={{ background: "#ecfeff", color: "#155e75", padding: 14, borderRadius: 14, fontSize: 13 }}>
+              Edição básica aplicada agora. Troca de criativos, imagem e vídeo pode ser adicionada na próxima etapa sem mexer neste fluxo base.
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button className="btn btn-ghost" onClick={() => setEditOpen(false)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={busy}>Salvar alterações</button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
     </Layout>
   );
 }
