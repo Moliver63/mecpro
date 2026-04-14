@@ -101,6 +101,8 @@ function ctaLabel(type?: string) {
     GET_QUOTE: "Solicitar orçamento", CONTACT_US: "Fale conosco",
     DOWNLOAD: "Baixar", WATCH_MORE: "Assistir", APPLY_NOW: "Candidatar-se",
     BOOK_TRAVEL: "Reservar", SUBSCRIBE: "Assinar",
+    WHATSAPP_MESSAGE: "💬 Enviar mensagem", WHATSAPP: "💬 WhatsApp",
+    SEND_WHATSAPP_MESSAGE: "💬 Enviar mensagem",
   };
   return map[type || ""] || type || "Saiba mais";
 }
@@ -222,12 +224,9 @@ function MetaFeedPreview({ ad, placement, device }: { ad: MetaAd; placement: Met
   const title = ad.creative?.title || ad.name;
   const body = ad.creative?.body || "";
   const ctaType = ad.creative?.call_to_action?.type;
-  const landingUrl =
-    ad.creative?.call_to_action?.value?.link ||
-    (ad.creative as any)?.object_story_spec?.link_data?.link ||
-    (ad.creative as any)?.link_url ||
-    (ad.creative as any)?.object_url ||
-    null;
+  const isWhatsApp = ctaType === "WHATSAPP_MESSAGE" || ctaType === "WHATSAPP";
+  // Link já normalizado no mapeamento de metaAds (inclui reconstrução WhatsApp)
+  const landingUrl = ad.creative?.call_to_action?.value?.link || null;
   const isDesktop = device === "desktop";
 
   if (isStory) {
@@ -458,12 +457,45 @@ export default function LiveAdPreviewModal({ platform, campaignId, campaignName,
     };
   });
 
-  const metaAds: MetaAd[] = (metaDetails.data?.ads || []).map((ad: any) => ({
-    id: ad.id,
-    name: ad.name,
-    status: ad.status,
-    creative: ad.creative,
-  }));
+  // Extrai whatsapp_phone_number do promoted_object dos adsets (para CTAs WhatsApp)
+  const whatsappPhone: string | null = (() => {
+    const adSets: any[] = metaDetails.data?.adSets || [];
+    for (const s of adSets) {
+      const phone = s.promoted_object?.whatsapp_phone_number;
+      if (phone) return String(phone).replace(/\D/g, "");
+    }
+    return null;
+  })();
+
+  const metaAds: MetaAd[] = (metaDetails.data?.ads || []).map((ad: any) => {
+    const ctaType = ad.creative?.call_to_action?.type;
+    const isWhatsApp = ctaType === "WHATSAPP_MESSAGE" || ctaType === "WHATSAPP";
+
+    // Reconstrói link WhatsApp quando CTA é WHATSAPP_MESSAGE
+    let resolvedLink =
+      ad.creative?.call_to_action?.value?.link ||
+      (ad.creative as any)?.object_story_spec?.link_data?.link ||
+      (ad.creative as any)?.link_url ||
+      (ad.creative as any)?.object_url ||
+      null;
+
+    if (isWhatsApp && !resolvedLink && whatsappPhone) {
+      resolvedLink = `https://wa.me/${whatsappPhone}`;
+    }
+
+    return {
+      id: ad.id,
+      name: ad.name,
+      status: ad.status,
+      creative: {
+        ...ad.creative,
+        call_to_action: {
+          ...ad.creative?.call_to_action,
+          value: { link: resolvedLink },
+        },
+      },
+    };
+  });
 
   const tiktokAds: TikTokAd[] = []; // TikTok retorna via adGroups; usa dados da campanha
 

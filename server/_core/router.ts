@@ -4321,7 +4321,7 @@ const metaCampaignsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado." });
       const token = (integration as any).accessToken as string;
 
-      const adsetFields = "id,name,status,daily_budget,optimization_goal,targeting,insights{impressions,clicks,spend,cpc,cpm,ctr,reach}";
+      const adsetFields = "id,name,status,daily_budget,optimization_goal,targeting,promoted_object,insights{impressions,clicks,spend,cpc,cpm,ctr,reach}";
       const adsetRes = await fetch(
         `https://graph.facebook.com/v19.0/${input.campaignId}/adsets?fields=${adsetFields}&access_token=${token}`
       );
