@@ -2775,6 +2775,9 @@ const campaignsRouter = router({
             .replace(/^"/, "")
             .replace(/"$/, "")
             .replace(/\+/g, "")
+            .replace(/[—–-]+/g, " ")
+            .replace(/[^ -\p{L}\p{N}\s]/gu, " ")
+            .replace(/[%]/g, " ")
             .replace(/\s+/g, " ")
             .trim()
             .slice(0, 80);
@@ -2806,22 +2809,26 @@ const campaignsRouter = router({
           .map(({ op }) => op as any);
 
         if (kwOps.length > 0) {
-          try {
-            await gCustomer.adGroupCriteria.create(kwOps);
-            log.info("google", "keywords created via gRPC", { count: kwOps.length });
-          } catch (kwErr: any) {
-            const detailsText = typeof kwErr?.details === "string"
-              ? kwErr.details
-              : JSON.stringify(kwErr?.errors || kwErr?.details || []).slice(0, 500);
-            log.error("google", "keywords gRPC FAILED", {
-              message: kwErr?.message,
-              code: kwErr?.code,
-              details: detailsText,
-              count: kwOps.length,
-              sample: kwOps.slice(0, 5).map((op: any) => ({ text: op.keyword?.text, match_type: op.keyword?.match_type })),
-            });
-            keywordWarnings.push(`Palavras-chave não publicadas: ${kwErr?.message || detailsText || "falha desconhecida"}`);
+          let keywordCreatedCount = 0;
+          for (const kwOp of kwOps) {
+            try {
+              await gCustomer.adGroupCriteria.create([kwOp]);
+              keywordCreatedCount += 1;
+            } catch (kwErr: any) {
+              const detailsText = typeof kwErr?.details === "string"
+                ? kwErr.details
+                : JSON.stringify(kwErr?.errors || kwErr?.details || []).slice(0, 500);
+              log.error("google", "keyword gRPC FAILED", {
+                message: kwErr?.message,
+                code: kwErr?.code,
+                details: detailsText,
+                keyword: kwOp.keyword?.text,
+                match_type: kwOp.keyword?.match_type,
+              });
+              keywordWarnings.push(`Keyword não publicada: ${kwOp.keyword?.text} — ${kwErr?.message || detailsText || "falha desconhecida"}`);
+            }
           }
+          log.info("google", "keywords created via gRPC", { count: keywordCreatedCount, attempted: kwOps.length });
         } else {
           keywordWarnings.push("Nenhuma palavra-chave válida após normalização.");
           log.warn("google", "nenhuma keyword válida para criar", { originalCount: input.keywords.length });
@@ -4699,15 +4706,23 @@ const googleCampaignsRouter = router({
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
       const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
       const resourceName = `customers/${runtime.customerId}/campaigns/${input.campaignId}`;
+      const operations = input.status === "REMOVED"
+        ? [{ remove: resourceName }]
+        : [{ update: { resourceName, status: input.status }, updateMask: "status" }];
       await googleAdsPost<any>(
         "campaigns:mutate",
-        { operations: [{ update: { resourceName, status: input.status }, updateMask: "status" }] },
+        { operations },
         runtime.accessToken,
         runtime.developerToken,
         runtime.customerId,
         runtime.loginCustomerId,
       );
-      return { success: true, campaignId: input.campaignId, status: input.status };
+      return {
+        success: true,
+        campaignId: input.campaignId,
+        status: input.status,
+        operation: input.status === "REMOVED" ? "remove" : "update",
+      };
     }),
 
   rename: protectedProcedure
