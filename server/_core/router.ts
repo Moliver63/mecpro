@@ -4328,7 +4328,7 @@ const metaCampaignsRouter = router({
       const adsetData = await adsetRes.json() as any;
       if (adsetData.error) throw new TRPCError({ code: "BAD_REQUEST", message: `Meta: ${adsetData.error.message}` });
 
-      const adFields = "id,name,status,creative{id,name,title,body,image_url,thumbnail_url},insights{impressions,clicks,spend,cpc,ctr}";
+      const adFields = "id,name,status,creative{id,name,title,body,image_url,thumbnail_url,object_story_spec{link_data{link,call_to_action},video_data{call_to_action}},call_to_action{type,value{link}},link_url,object_url},insights{impressions,clicks,spend,cpc,ctr}";
       const adRes = await fetch(
         `https://graph.facebook.com/v19.0/${input.campaignId}/ads?fields=${adFields}&access_token=${token}`
       );
