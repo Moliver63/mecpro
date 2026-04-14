@@ -4394,27 +4394,43 @@ const googleCampaignsRouter = router({
       const period = input?.period ?? "30d";
       const since = daysAgo(period === "7d" ? 7 : period === "90d" ? 90 : 30);
       const query = [
-        "SELECT campaign.id, campaign.name, campaign.status, campaign.start_date, campaign.end_date,",
+        "SELECT campaign.id, campaign.name, campaign.status,",
         "metrics.impressions, metrics.clicks, metrics.cost_micros",
-        `FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' ORDER BY campaign.id DESC LIMIT 100`,
+        `FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != REMOVED ORDER BY campaign.id DESC LIMIT 100`,
       ].join(" ");
 
-      const data = await googleAdsPost<any>(
-        "googleAds:search",
-        { query },
-        accessToken,
-        developerToken,
-        customerId,
-        customerId,
-      );
+      let data: any;
+      try {
+        data = await googleAdsPost<any>(
+          "googleAds:search",
+          { query },
+          accessToken,
+          developerToken,
+          customerId,
+          customerId,
+        );
+      } catch (error: any) {
+        const message = String(error?.message || "");
+        const shouldFallback = message.includes("UNRECOGNIZED_FIELD") || message.includes("INVALID_ARGUMENT");
+        if (!shouldFallback) throw error;
+        log.warn("google", "googleCampaigns.list fallback query", { customerId, reason: message.slice(0, 200) });
+        data = await googleAdsPost<any>(
+          "googleAds:search",
+          { query: "SELECT campaign.id, campaign.name, campaign.status FROM campaign ORDER BY campaign.id DESC LIMIT 100" },
+          accessToken,
+          developerToken,
+          customerId,
+          customerId,
+        );
+      }
 
       const campaigns = (data.results || []).map((row: any) => ({
         id: String(row.campaign?.id || ""),
         name: row.campaign?.name || "Campanha Google",
         status: String(row.campaign?.status || "UNKNOWN"),
         channelType: "SEARCH",
-        startDate: row.campaign?.startDate || row.campaign?.start_date || null,
-        endDate: row.campaign?.endDate || row.campaign?.end_date || null,
+        startDate: null,
+        endDate: null,
         budgetMicros: 0,
         metrics: (() => {
           const impressions = Number(row.metrics?.impressions || 0);
@@ -4702,9 +4718,9 @@ const unifiedRouter = router({
       if (!developerToken || !customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token ou Customer ID ausentes" });
       const days    = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
       const since   = daysAgo(days);
-      const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' LIMIT 100`;
+      const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != REMOVED LIMIT 100`;
       const googleUrl = buildGoogleAdsUrl(customerId.replace(/-/g,""), "googleAds:search");
-      const resp = await fetch(googleUrl, {
+      let resp = await fetch(googleUrl, {
         method: "POST",
         headers: {
           "Authorization":      `Bearer ${accessToken}`,
@@ -4718,18 +4734,38 @@ const unifiedRouter = router({
 
       if (!resp.ok) {
         const text = await resp.text().catch(() => `HTTP ${resp.status}`);
-        const isHtml = text.trim().startsWith("<");
-        log.warn("google", "googleMetrics HTTP error", {
-          status: resp.status,
-          isHtml,
-          preview: text.slice(0, 200),
+        const shouldFallback = text.includes("UNRECOGNIZED_FIELD") || text.includes("INVALID_ARGUMENT");
+        if (!shouldFallback) {
+          const isHtml = text.trim().startsWith("<");
+          log.warn("google", "googleMetrics HTTP error", {
+            status: resp.status,
+            isHtml,
+            preview: text.slice(0, 200),
+          });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: isHtml
+              ? `Google Ads API retornou erro HTTP ${resp.status}. Verifique se o Developer Token tem Basic Access em ads.google.com → API Center.`
+              : `Google Ads API erro: ${text.slice(0, 300)}`,
+          });
+        }
+
+        log.warn("google", "googleMetrics fallback query", { customerId, preview: text.slice(0, 200) });
+        resp = await fetch(googleUrl, {
+          method: "POST",
+          headers: {
+            "Authorization":      `Bearer ${accessToken}`,
+            "developer-token":    developerToken,
+            "Content-Type":       "application/json",
+            "login-customer-id":  customerId.replace(/-/g, ""),
+          },
+          body: JSON.stringify({ query: "SELECT campaign.id FROM campaign LIMIT 100" }),
+          signal: AbortSignal.timeout(15000),
         });
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: isHtml
-            ? `Google Ads API retornou erro HTTP ${resp.status}. Verifique se o Developer Token tem Basic Access em ads.google.com → API Center.`
-            : `Google Ads API erro: ${text.slice(0, 300)}`,
-        });
+        if (!resp.ok) {
+          const fallbackText = await resp.text().catch(() => `HTTP ${resp.status}`);
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Google Ads API erro: ${fallbackText.slice(0, 300)}` });
+        }
       }
 
       const data: any = await resp.json().catch(() => ({}));
