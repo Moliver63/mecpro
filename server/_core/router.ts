@@ -4395,8 +4395,7 @@ const googleCampaignsRouter = router({
       const since = daysAgo(period === "7d" ? 7 : period === "90d" ? 90 : 30);
       const query = [
         "SELECT campaign.id, campaign.name, campaign.status, campaign.start_date, campaign.end_date,",
-        "campaign.advertising_channel_type, campaign_budget.amount_micros,",
-        "metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.average_cpc, metrics.average_cpm, metrics.ctr",
+        "metrics.impressions, metrics.clicks, metrics.cost_micros",
         `FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' ORDER BY campaign.id DESC LIMIT 100`,
       ].join(" ");
 
@@ -4413,18 +4412,23 @@ const googleCampaignsRouter = router({
         id: String(row.campaign?.id || ""),
         name: row.campaign?.name || "Campanha Google",
         status: String(row.campaign?.status || "UNKNOWN"),
-        channelType: String(row.campaign?.advertisingChannelType || row.campaign?.advertising_channel_type || "SEARCH"),
+        channelType: "SEARCH",
         startDate: row.campaign?.startDate || row.campaign?.start_date || null,
         endDate: row.campaign?.endDate || row.campaign?.end_date || null,
-        budgetMicros: Number(row.campaignBudget?.amountMicros ?? row.campaign_budget?.amount_micros ?? 0),
-        metrics: {
-          impressions: Number(row.metrics?.impressions || 0),
-          clicks: Number(row.metrics?.clicks || 0),
-          costMicros: Number(row.metrics?.costMicros ?? row.metrics?.cost_micros ?? 0),
-          averageCpc: Number(row.metrics?.averageCpc ?? row.metrics?.average_cpc ?? 0),
-          averageCpm: Number(row.metrics?.averageCpm ?? row.metrics?.average_cpm ?? 0),
-          ctr: Number(row.metrics?.ctr || 0),
-        },
+        budgetMicros: 0,
+        metrics: (() => {
+          const impressions = Number(row.metrics?.impressions || 0);
+          const clicks = Number(row.metrics?.clicks || 0);
+          const costMicros = Number(row.metrics?.costMicros ?? row.metrics?.cost_micros ?? 0);
+          return {
+            impressions,
+            clicks,
+            costMicros,
+            averageCpc: clicks > 0 ? costMicros / clicks : 0,
+            averageCpm: impressions > 0 ? (costMicros / impressions) * 1000 : 0,
+            ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+          };
+        })(),
       }));
 
       return { campaigns, total: campaigns.length };
@@ -4698,7 +4702,7 @@ const unifiedRouter = router({
       if (!developerToken || !customerId) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer Token ou Customer ID ausentes" });
       const days    = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
       const since   = daysAgo(days);
-      const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.average_cpc, metrics.average_cpm, metrics.ctr FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' LIMIT 100`;
+      const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' LIMIT 100`;
       const googleUrl = buildGoogleAdsUrl(customerId.replace(/-/g,""), "googleAds:search");
       const resp = await fetch(googleUrl, {
         method: "POST",
