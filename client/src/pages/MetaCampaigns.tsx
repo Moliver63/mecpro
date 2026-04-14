@@ -1050,6 +1050,11 @@ export default function MetaCampaigns() {
   const [deleteModal, setDeleteModal] = useState<Campaign | null>(null);
   const [budgetModal, setBudgetModal] = useState<Campaign | null>(null);
   const [budgetValue, setBudgetValue] = useState("");
+  const [editModal, setEditModal] = useState<Campaign | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editBudget, setEditBudget] = useState("");
+  const [editStatus, setEditStatus] = useState<"ACTIVE" | "PAUSED" | "DELETE">("PAUSED");
+  const [editSaving, setEditSaving] = useState(false);
   const [compareModal, setCompareModal] = useState(false);
   const [perfModal, setPerfModal] = useState(false);
 
@@ -1115,6 +1120,54 @@ export default function MetaCampaigns() {
     setDetailLoading(true);
     setView("detail");
     detailsMutation.mutate({ campaignId: c.id });
+  };
+
+  const openEdit = (c: Campaign) => {
+    setEditModal(c);
+    setEditName(c.name);
+    setEditBudget(String(Number(c.daily_budget || c.lifetime_budget || 0) / 100 || 1));
+    setEditStatus(c.status === "ACTIVE" ? "ACTIVE" : "PAUSED");
+  };
+
+  const saveEdit = async () => {
+    if (!editModal) return;
+    setEditSaving(true);
+    try {
+      const trimmedName = editName.trim();
+      const nextBudget = Number(String(editBudget).replace(",", "."));
+      const currentBudget = Number(editModal.daily_budget || editModal.lifetime_budget || 0) / 100;
+
+      if (trimmedName && trimmedName !== editModal.name) {
+        await renameMutation.mutateAsync({ campaignId: editModal.id, name: trimmedName });
+      }
+
+      if (Number.isFinite(nextBudget) && nextBudget >= 1 && Math.abs(nextBudget - currentBudget) > 0.0001) {
+        const details = await detailsMutation.mutateAsync({ campaignId: editModal.id });
+        const adSetId = details.adSets?.[0]?.id;
+        if (!adSetId) {
+          throw new Error("Nenhum Ad Set encontrado para atualizar o orçamento.");
+        }
+        await budgetMutation.mutateAsync({ adSetId, dailyBudget: nextBudget });
+      }
+
+      if (editStatus === "DELETE") {
+        if (!window.confirm(`Excluir a campanha "${editModal.name}" no Meta Ads?`)) {
+          setEditSaving(false);
+          return;
+        }
+        await deleteMutation.mutateAsync({ campaignId: editModal.id });
+      } else if (editStatus !== editModal.status) {
+        await statusMutation.mutateAsync({ campaignId: editModal.id, status: editStatus });
+      }
+
+      toast.success("✅ Campanha Meta atualizada!");
+      setEditModal(null);
+      listMutation.mutate();
+    } catch (e: any) {
+      toast.error(`❌ ${e?.message || "Erro ao atualizar campanha"}`);
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const filtered = useMemo(() => {
@@ -1199,7 +1252,7 @@ export default function MetaCampaigns() {
               📘 Campanhas Meta Ads
             </h1>
             <p style={{ fontSize: 14, color: "var(--muted)", margin: 0 }}>
-              Gerencie, analise e edite suas campanhas — criadas pelo MECPro AI ou no Facebook
+              Layout atualizado para ficar alinhado com Google e TikTok, sem perder os recursos avançados do Meta Ads.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -1337,73 +1390,72 @@ export default function MetaCampaigns() {
         </div>
       )}
 
-      {/* ── Tabela ── */}
+      {/* ── Lista em cards ── */}
       {loaded && filtered.length > 0 && (
-        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 20, overflow: "hidden", boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc", borderBottom: "1px solid var(--border)" }}>
-                {["Campanha", "Origem", "Objetivo", "Status", "Orçamento", "Impressões", "Cliques", "CTR", "Gasto", "Criada em", "Ações"].map(h => (
-                  <th key={h} style={{ padding: "13px 16px", fontSize: 10, fontWeight: 700, color: "var(--muted)", textAlign: "left", textTransform: "uppercase", letterSpacing: "0.6px", whiteSpace: "nowrap" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => {
-                const m = c.insights?.data?.[0];
-                return (
-                  <tr key={c.id} className="mc-row" style={{ borderBottom: "1px solid #f1f5f9", transition: "background 0.1s" }}>
-                    <td style={{ padding: "14px 16px", maxWidth: 220 }}>
-                      <div className="mc-name" style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", marginBottom: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 200, transition: "color 0.15s" }}>
-                        {c.name}
-                      </div>
-                      <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "monospace" }}>{c.id}</div>
-                    </td>
-                    <td style={{ padding: "14px 16px" }}><SourceBadge source={c.source} /></td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, color: "var(--body)", whiteSpace: "nowrap" }}>{OBJ_LABELS[c.objective] || c.objective}</td>
-                    <td style={{ padding: "14px 16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <StatusBadge status={c.status} />
-                        {(statusMutation.isPending && statusMutation.variables?.campaignId === c.id) && (
-                          <span style={{ fontSize: 10, color: "var(--muted)" }}>...</span>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, color: "var(--body)", whiteSpace: "nowrap" }}>
-                      {R(c.daily_budget || c.lifetime_budget)}
-                      <div style={{ fontSize: 10, color: "var(--muted)" }}>{c.daily_budget ? "/ dia" : c.lifetime_budget ? "total" : ""}</div>
-                    </td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, fontWeight: 600, color: "var(--body)" }}>
-                      {m ? N(m.impressions) : <span style={{ color: "var(--muted)" }}>—</span>}
-                    </td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, fontWeight: 600, color: "var(--body)" }}>
-                      {m ? N(m.clicks) : <span style={{ color: "var(--muted)" }}>—</span>}
-                    </td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, fontWeight: 600, color: "var(--body)" }}>
-                      {m ? PCT(m.ctr) : <span style={{ color: "var(--muted)" }}>—</span>}
-                    </td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, fontWeight: 700, color: m?.spend && Number(m.spend) > 0 ? "#dc2626" : "var(--muted)" }}>
-                      {m ? `R$ ${Number(m.spend).toFixed(2)}` : "—"}
-                    </td>
-                    <td style={{ padding: "14px 16px", fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>{D(c.created_time)}</td>
-                    <td style={{ padding: "14px 16px" }}>
-                      <ActionDropdown
-                        campaign={c}
-                        onView={() => openDetail(c)}
-                        onRename={() => { setRenameModal(c); setRenameValue(c.name); }}
-                        onDelete={() => setDeleteModal(c)}
-                        onEditBudget={() => { setBudgetModal(c); setBudgetValue(String(Number(c.daily_budget || 0) / 100)); }}
-                        onToggleStatus={() => {
-                          const next = c.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
-                          statusMutation.mutate({ campaignId: c.id, status: next });
-                        }}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div style={{ display: "grid", gap: 14 }}>
+          {filtered.map((c) => {
+            const m = c.insights?.data?.[0];
+            const spendColor = m?.spend && Number(m.spend) > 0 ? "#dc2626" : "var(--muted)";
+            return (
+              <div key={c.id} style={{ background: "white", border: "1px solid var(--border)", borderRadius: 18, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,.04)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 260, flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--black)" }}>{c.name}</h3>
+                      <StatusBadge status={c.status} />
+                      <SourceBadge source={c.source} />
+                      <span style={{ background: "#f3f4f6", color: "#111827", padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
+                        {OBJ_LABELS[c.objective] || c.objective}
+                      </span>
+                    </div>
+                    <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 13 }}>
+                      ID {c.id} • Criada em {D(c.created_time)} • Atualizada em {D(c.updated_time)} • Orçamento {R(c.daily_budget || c.lifetime_budget)} {c.daily_budget ? "/ dia" : c.lifetime_budget ? "total" : ""}
+                    </p>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+                    <button className="btn btn-sm btn-secondary" onClick={() => openDetail(c)}>Detalhes</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => openEdit(c)}>Editar</button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => {
+                        const next = c.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+                        statusMutation.mutate({ campaignId: c.id, status: next });
+                      }}
+                    >
+                      {c.status === "ACTIVE" ? "Pausar" : "Ativar"}
+                    </button>
+                    <ActionDropdown
+                      campaign={c}
+                      onView={() => openDetail(c)}
+                      onRename={() => { setRenameModal(c); setRenameValue(c.name); }}
+                      onDelete={() => setDeleteModal(c)}
+                      onEditBudget={() => { setBudgetModal(c); setBudgetValue(String(Number(c.daily_budget || c.lifetime_budget || 0) / 100)); }}
+                      onToggleStatus={() => {
+                        const next = c.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+                        statusMutation.mutate({ campaignId: c.id, status: next });
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px,1fr))", gap: 10, marginTop: 16 }}>
+                  {[
+                    ["Gasto", m ? `R$ ${Number(m.spend).toFixed(2)}` : "—", spendColor],
+                    ["Impressões", m ? N(m.impressions) : "—", "var(--black)"],
+                    ["Cliques", m ? N(m.clicks) : "—", "var(--black)"],
+                    ["CTR", m ? PCT(m.ctr) : "—", "var(--black)"],
+                    ["CPC", m ? `R$ ${Number(m.cpc).toFixed(2)}` : "—", "var(--black)"],
+                    ["CPM", m ? `R$ ${Number(m.cpm).toFixed(2)}` : "—", "var(--black)"],
+                  ].map(([label, value, color]) => (
+                    <div key={String(label)} style={{ background: "#f8fafc", borderRadius: 12, padding: 12 }}>
+                      <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700 }}>{label}</div>
+                      <div style={{ marginTop: 4, fontWeight: 800, color: String(color) }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1515,6 +1567,63 @@ export default function MetaCampaigns() {
                 }}
               >
                 {budgetMutation.isPending || detailLoading ? "Salvando..." : "💾 Salvar orçamento"}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Editar campanha */}
+      <Modal open={!!editModal} onClose={() => setEditModal(null)} title="🛠️ Editar Campanha Meta">
+        {editModal && (
+          <div>
+            <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
+              Ajuste nome, status e orçamento mantendo os recursos avançados já existentes da página.
+            </p>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Nome da campanha</label>
+            <input
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              maxLength={100}
+              style={{ width: "100%", padding: "10px 14px", border: "1px solid var(--border)", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 14 }}
+              autoFocus
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px,1fr))", gap: 14 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--black)" }}>Status</span>
+                <select
+                  value={editStatus}
+                  onChange={e => setEditStatus(e.target.value as any)}
+                  style={{ width: "100%", padding: "10px 14px", border: "1px solid var(--border)", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box", background: "white" }}
+                >
+                  <option value="ACTIVE">Ativa</option>
+                  <option value="PAUSED">Pausada</option>
+                  <option value="DELETE">Excluir campanha</option>
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--black)" }}>Orçamento diário (R$)</span>
+                <input
+                  type="number"
+                  value={editBudget}
+                  onChange={e => setEditBudget(e.target.value)}
+                  min={1}
+                  step="0.01"
+                  style={{ width: "100%", padding: "10px 14px", border: "1px solid var(--border)", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" }}
+                />
+              </label>
+            </div>
+            <div style={{ fontSize: 12, color: "#155e75", background: "#ecfeff", padding: "10px 14px", borderRadius: 8, marginTop: 16 }}>
+              O orçamento continua sendo aplicado no primeiro Ad Set da campanha, preservando a lógica atual do Meta.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => setEditModal(null)} disabled={editSaving}>Cancelar</button>
+              <button
+                className="btn btn-sm btn-primary"
+                disabled={editSaving || !editName.trim() || !editBudget || Number(editBudget) < 1}
+                onClick={saveEdit}
+              >
+                {editSaving ? "Salvando..." : "💾 Salvar alterações"}
               </button>
             </div>
           </div>
