@@ -2763,17 +2763,69 @@ const campaignsRouter = router({
       log.info("google", "adGroup created via gRPC", { adGroupResourceName });
 
       // 6. Add Keywords via gRPC (Search only)
+      const keywordWarnings: string[] = [];
       if (input.campaignType === "SEARCH" && input.keywords.length > 0) {
-        const kwOps = input.keywords.map((kw: string) => ({
-          ad_group: adGroupResourceName,
-          keyword:  {
-            text:       kw.replace(/["+]/g, ""),
-            match_type: kw.startsWith("+") ? 4 : kw.startsWith("\"") ? 3 : 2, // BROAD=4, PHRASE=3, EXACT=2
-          },
-          status: 2, // ENABLED
-        }));
-        await gCustomer.adGroupCriteria.create(kwOps);
-        log.info("google", "keywords created via gRPC", { count: kwOps.length });
+        const normalizeKeyword = (rawKeyword: string) => {
+          const raw = String(rawKeyword ?? "").trim();
+          const isExact = raw.startsWith("[") && raw.endsWith("]");
+          const isPhrase = raw.startsWith("\"") && raw.endsWith("\"");
+          const cleanedText = raw
+            .replace(/^\[/, "")
+            .replace(/\]$/, "")
+            .replace(/^"/, "")
+            .replace(/"$/, "")
+            .replace(/\+/g, "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 80);
+          const wordCount = cleanedText ? cleanedText.split(/\s+/).length : 0;
+          if (!cleanedText || wordCount > 10) return null;
+          return {
+            ad_group: adGroupResourceName,
+            keyword: {
+              text: cleanedText,
+              match_type: isExact ? 2 : isPhrase ? 3 : 4, // EXACT=2, PHRASE=3, BROAD=4
+            },
+            status: 2,
+          };
+        };
+
+        const seenKeywords = new Set<string>();
+        const kwOps = input.keywords
+          .map((kw: string) => ({ raw: kw, op: normalizeKeyword(kw) }))
+          .filter(({ raw, op }) => {
+            if (!op) {
+              keywordWarnings.push(`Keyword descartada: ${String(raw ?? "").slice(0, 80)}`);
+              return false;
+            }
+            const dedupeKey = `${op.keyword.match_type}:${op.keyword.text.toLowerCase()}`;
+            if (seenKeywords.has(dedupeKey)) return false;
+            seenKeywords.add(dedupeKey);
+            return true;
+          })
+          .map(({ op }) => op as any);
+
+        if (kwOps.length > 0) {
+          try {
+            await gCustomer.adGroupCriteria.create(kwOps);
+            log.info("google", "keywords created via gRPC", { count: kwOps.length });
+          } catch (kwErr: any) {
+            const detailsText = typeof kwErr?.details === "string"
+              ? kwErr.details
+              : JSON.stringify(kwErr?.errors || kwErr?.details || []).slice(0, 500);
+            log.error("google", "keywords gRPC FAILED", {
+              message: kwErr?.message,
+              code: kwErr?.code,
+              details: detailsText,
+              count: kwOps.length,
+              sample: kwOps.slice(0, 5).map((op: any) => ({ text: op.keyword?.text, match_type: op.keyword?.match_type })),
+            });
+            keywordWarnings.push(`Palavras-chave não publicadas: ${kwErr?.message || detailsText || "falha desconhecida"}`);
+          }
+        } else {
+          keywordWarnings.push("Nenhuma palavra-chave válida após normalização.");
+          log.warn("google", "nenhuma keyword válida para criar", { originalCount: input.keywords.length });
+        }
       }
 
       // 7. Create Ads
@@ -2871,13 +2923,15 @@ const campaignsRouter = router({
         });
       }
 
-      if (adErrors.length > 0) {
-        log.warn("google", "publishToGoogle concluído com falhas parciais de anúncios", {
+      const publishWarnings = [...keywordWarnings, ...adErrors];
+      if (publishWarnings.length > 0) {
+        log.warn("google", "publishToGoogle concluído com falhas parciais", {
           googleCampaignId,
           googleAdGroupId,
           createdAds: adResults.length,
           failedAds: adErrors.length,
-          firstError: adErrors[0],
+          keywordWarnings: keywordWarnings.length,
+          firstWarning: publishWarnings[0],
         });
       }
 
@@ -2885,7 +2939,7 @@ const campaignsRouter = router({
       await (db as any).updateCampaign?.(input.campaignId, {
         publishStatus: "success",
         publishedAt: new Date(),
-        publishError: null,
+        publishError: publishWarnings[0] ?? null,
         googleCampaignId,
         googleAdGroupId,
       }).catch(() => {});
@@ -2896,7 +2950,7 @@ const campaignsRouter = router({
         googleAdGroupId,
         googleAdIds: adResults.map(extractId),
         budgetResourceName,
-        warnings: adErrors,
+        warnings: publishWarnings,
         message: `Campanha "${effectiveCampaignName}" criada no Google Ads (ID: ${googleCampaignId})`,
       };
     }),
