@@ -2777,52 +2777,109 @@ const campaignsRouter = router({
       }
 
       // 7. Create Ads
+      const normalizeAssetTexts = (values: string[] | undefined, maxChars: number, maxItems: number) => {
+        const seen = new Set<string>();
+        const cleaned: Array<{ text: string }> = [];
+        for (const raw of values ?? []) {
+          const text = String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars);
+          if (!text) continue;
+          const key = text.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          cleaned.push({ text });
+          if (cleaned.length >= maxItems) break;
+        }
+        return cleaned;
+      };
+
       const adResults: string[] = [];
-      for (const ad of input.ads) {
-        const headlines = ad.headlines
-          .filter((h: string) => h.trim())
-          .map((text: string) => ({ text: text.slice(0, 30) })); // Google exige máx 30 chars
-        const descriptions = ad.descriptions
-          .filter((d: string) => d.trim())
-          .map((text: string) => ({ text: text.slice(0, 90) })); // Google exige máx 90 chars
-
-        // Google Ads exige mínimo 3 headlines e 2 descriptions para RSA
-        if (headlines.length < 3) {
-          const pad = ["Saiba mais", "Entre em contato", "Solicite agora"];
-          while (headlines.length < 3) headlines.push({ text: pad[headlines.length] });
-        }
-        if (descriptions.length < 2) {
-          const pad = ["Entre em contato e saiba mais.", "Solicite agora e conheça nossas soluções."];
-          while (descriptions.length < 2) descriptions.push({ text: pad[descriptions.length] });
-        }
-
-        if (!ad.finalUrl?.trim() || !ad.finalUrl.startsWith("http")) {
-          log.warn("google", "Anúncio sem finalUrl válida — pulando", { finalUrl: ad.finalUrl });
-          continue;
-        }
-
-        const adOp = await gCustomer.adGroupAds.create([{
-          ad_group: adGroupResourceName,
-          status:   3, // PAUSED
-          ad: {
-            responsive_search_ad: { headlines, descriptions },
-            final_urls: [ad.finalUrl.trim()],
-          },
-        }]);
-        adResults.push(adOp.results?.[0]?.resource_name ?? adOp.results?.[0]?.resourceName ?? "");
-        log.info("google", "ad created via gRPC", { resource: adResults[adResults.length-1] });
-      }
-
-      if (adResults.length === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Nenhum anúncio válido para publicar. Verifique headlines e URLs de destino.",
-        });
-      }
-
+      const adErrors: string[] = [];
       const extractId = (name: string) => name.split("/").pop() ?? name;
       const googleCampaignId = extractId(campaignResourceName);
       const googleAdGroupId  = extractId(adGroupResourceName);
+
+      for (const [index, ad] of input.ads.entries()) {
+        const headlines = normalizeAssetTexts(ad.headlines, 30, 15);
+        const descriptions = normalizeAssetTexts(ad.descriptions, 90, 4);
+
+        // Google Ads exige 3–15 headlines e 2–4 descriptions para RSA.
+        for (const pad of ["Saiba mais", "Entre em contato", "Solicite agora", "Fale com nossa equipe"]) {
+          if (headlines.length >= 3) break;
+          if (!headlines.some((h) => h.text.toLowerCase() === pad.toLowerCase())) headlines.push({ text: pad.slice(0, 30) });
+        }
+        for (const pad of ["Entre em contato e saiba mais.", "Solicite agora e conheça nossas soluções.", "Fale com nossa equipe especializada.", "Descubra como podemos ajudar."]) {
+          if (descriptions.length >= 2) break;
+          if (!descriptions.some((d) => d.text.toLowerCase() === pad.toLowerCase())) descriptions.push({ text: pad.slice(0, 90) });
+        }
+
+        let finalUrl = "";
+        try {
+          const parsed = new URL(String(ad.finalUrl ?? "").trim());
+          if (!/^https?:$/.test(parsed.protocol)) throw new Error("invalid_protocol");
+          finalUrl = parsed.toString();
+        } catch {
+          log.warn("google", "Anúncio sem finalUrl válida — pulando", { index: index + 1, finalUrl: ad.finalUrl });
+          adErrors.push(`Anúncio ${index + 1}: finalUrl inválida`);
+          continue;
+        }
+
+        try {
+          const adOp = await gCustomer.adGroupAds.create([{
+            ad_group: adGroupResourceName,
+            status:   3, // PAUSED
+            ad: {
+              responsive_search_ad: { headlines, descriptions },
+              final_urls: [finalUrl],
+            },
+          }]);
+          adResults.push(adOp.results?.[0]?.resource_name ?? adOp.results?.[0]?.resourceName ?? "");
+          log.info("google", "ad created via gRPC", {
+            index: index + 1,
+            resource: adResults[adResults.length - 1],
+            headlinesCount: headlines.length,
+            descriptionsCount: descriptions.length,
+          });
+        } catch (adErr: any) {
+          const detailsText = typeof adErr?.details === "string"
+            ? adErr.details
+            : JSON.stringify(adErr?.errors || adErr?.details || []).slice(0, 500);
+          log.error("google", "ad gRPC FAILED", {
+            index: index + 1,
+            message: adErr?.message,
+            code: adErr?.code,
+            details: detailsText,
+            headlinesCount: headlines.length,
+            descriptionsCount: descriptions.length,
+            finalUrl,
+          });
+          adErrors.push(`Anúncio ${index + 1}: ${adErr?.message || detailsText || "falha desconhecida"}`);
+          continue;
+        }
+      }
+
+      if (adResults.length === 0) {
+        const firstError = adErrors[0] || "Verifique headlines, descriptions e URL final.";
+        await (db as any).updateCampaign?.(input.campaignId, {
+          publishStatus: "error",
+          publishError: firstError,
+          googleCampaignId,
+          googleAdGroupId,
+        }).catch(() => {});
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Nenhum anúncio válido para publicar no Google Ads. ${firstError}`,
+        });
+      }
+
+      if (adErrors.length > 0) {
+        log.warn("google", "publishToGoogle concluído com falhas parciais de anúncios", {
+          googleCampaignId,
+          googleAdGroupId,
+          createdAds: adResults.length,
+          failedAds: adErrors.length,
+          firstError: adErrors[0],
+        });
+      }
 
       // Persiste sucesso
       await (db as any).updateCampaign?.(input.campaignId, {
@@ -2839,6 +2896,7 @@ const campaignsRouter = router({
         googleAdGroupId,
         googleAdIds: adResults.map(extractId),
         budgetResourceName,
+        warnings: adErrors,
         message: `Campanha "${effectiveCampaignName}" criada no Google Ads (ID: ${googleCampaignId})`,
       };
     }),
