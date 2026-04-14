@@ -5,6 +5,7 @@ import { PLATFORM_PLACEMENTS, type PlacementMode } from "@/components/PlacementC
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import LiveAdPreviewModal from "@/components/LiveAdPreviewModal";
 
 // ─────────────────────────────────────────────
 // TIPOS
@@ -1052,6 +1053,7 @@ export default function MetaCampaigns() {
   const [budgetValue, setBudgetValue] = useState("");
   const [editModal, setEditModal] = useState<Campaign | null>(null);
   const [editName, setEditName] = useState("");
+  const [previewCampaign, setPreviewCampaign] = useState<Campaign | null>(null);
   const [editBudget, setEditBudget] = useState("");
   const [editStatus, setEditStatus] = useState<"ACTIVE" | "PAUSED" | "DELETE">("PAUSED");
   const [editSaving, setEditSaving] = useState(false);
@@ -1415,6 +1417,7 @@ export default function MetaCampaigns() {
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
                     <button className="btn btn-sm btn-secondary" onClick={() => openDetail(c)}>Detalhes</button>
                     <button className="btn btn-sm btn-secondary" onClick={() => openEdit(c)}>Editar</button>
+                    <button className="btn btn-sm" style={{ background: "linear-gradient(135deg,#1877f2,#e1306c)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }} onClick={() => setPreviewCampaign(c)}>👁️ Preview</button>
                     <button
                       className="btn btn-sm btn-ghost"
                       onClick={() => {
@@ -1634,6 +1637,15 @@ export default function MetaCampaigns() {
       <Modal open={compareModal} onClose={() => setCompareModal(false)} title="⚖️ Comparar Campanhas" wide>
         <CampaignComparator campaigns={campaigns} onClose={() => setCompareModal(false)} />
       </Modal>
+
+      {previewCampaign && (
+        <LiveAdPreviewModal
+          platform="meta"
+          campaignId={previewCampaign.id}
+          campaignName={previewCampaign.name}
+          onClose={() => setPreviewCampaign(null)}
+        />
+      )}
 
     </Layout>
   );

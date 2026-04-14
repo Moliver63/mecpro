@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import LiveAdPreviewModal from "@/components/LiveAdPreviewModal";
 
 type TikTokCampaign = {
   id: string;
@@ -67,6 +68,7 @@ export default function TikTokCampaigns() {
   const [selectedCampaign, setSelectedCampaign] = useState<TikTokCampaign | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [editName, setEditName] = useState("");
   const [editBudget, setEditBudget] = useState(0);
   const [editStatus, setEditStatus] = useState<"ENABLE" | "DISABLE" | "DELETE">("DISABLE");
@@ -199,6 +201,7 @@ export default function TikTokCampaigns() {
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button className="btn btn-sm btn-secondary" onClick={() => openDetails(c)}>Detalhes</button>
                     <button className="btn btn-sm btn-secondary" onClick={() => openEdit(c)}>Editar</button>
+                    <button className="btn btn-sm" style={{ background: "linear-gradient(135deg,#ff0050,#010101)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }} onClick={() => { setSelectedCampaign(c); setPreviewOpen(true); }}>👁️ Preview</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => statusMutation.mutate({ campaignId: c.id, status: String(c.status || "").toUpperCase().includes("ENABLE") ? "DISABLE" : "ENABLE" as any }, { onSuccess: () => { toast.success("Status atualizado no TikTok Ads"); load(); }, onError: (e) => toast.error(e.message) })}>{String(c.status || "").toUpperCase().includes("ENABLE") ? "Pausar" : "Ativar"}</button>
                   </div>
                 </div>
@@ -295,6 +298,15 @@ export default function TikTokCampaigns() {
             </div>
           </div>
         </ModalShell>
+      )}
+
+      {previewOpen && selectedCampaign && (
+        <LiveAdPreviewModal
+          platform="tiktok"
+          campaignId={selectedCampaign.id}
+          campaignName={selectedCampaign.name}
+          onClose={() => setPreviewOpen(false)}
+        />
       )}
     </Layout>
   );
