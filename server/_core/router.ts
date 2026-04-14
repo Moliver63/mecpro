@@ -2703,7 +2703,7 @@ const campaignsRouter = router({
           campaign_budget:         budgetResourceName,
           start_date:              input.startDate,
           ...(input.endDate ? { end_date: input.endDate } : {}),
-          contains_eu_political_advertising: false, // campo obrigatório
+          contains_eu_political_advertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING", // obrigatório desde EU PAR; boolean false não satisfaz o enum exigido
           ...(input.biddingStrategy === "TARGET_CPA" && input.targetCpa
             ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } }
             : input.biddingStrategy === "TARGET_ROAS" && input.targetRoas
@@ -2727,7 +2727,13 @@ const campaignsRouter = router({
           details: JSON.stringify(campErr.errors || campErr.details || []).slice(0, 500),
           budgetResourceName,
         });
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao criar campanha Google: ${campErr.message}` });
+        const detailsText = typeof campErr?.details === "string"
+          ? campErr.details
+          : JSON.stringify(campErr?.errors || campErr?.details || []).slice(0, 500);
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Erro ao criar campanha Google: ${campErr?.message || detailsText || "falha desconhecida"}`,
+        });
       }
       const campaignResourceName = campaignOp.results?.[0]?.resource_name ?? campaignOp.results?.[0]?.resourceName ?? "";
       log.info("google", "campaign created via gRPC", { campaignResourceName });
