@@ -344,6 +344,13 @@ async function getGoogleAccessToken(integration: {
   return data.access_token;
 }
 
+const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v23";
+
+function buildGoogleAdsUrl(customerId: string, path: string): string {
+  const cleanId = String(customerId || "").replace(/\D/g, "");
+  return `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanId}/${path}`;
+}
+
 // ── Google Ads API via biblioteca oficial (gRPC) ────────────────────────────
 async function getGoogleAdsClient(integration: {
   refreshToken?: string | null;
@@ -376,7 +383,7 @@ async function googleAdsPost<T>(
 ): Promise<T> {
   const cleanId    = customerId.replace(/\D/g, "");
   const cleanLogin = (loginCustomerId ?? "").replace(/\D/g, "");
-  const url = `https://googleads.googleapis.com/v19/customers/${cleanId}/${path}`;
+  const url = buildGoogleAdsUrl(cleanId, path);
   log.info("google", "googleAdsPost request", { url, cleanId, cleanLogin: cleanLogin || "(none)", devTokenPrefix: developerToken.slice(0,8) });
   const resp = await fetch(url, {
     method: "POST",
@@ -3035,7 +3042,7 @@ const integrationsRouter = router({
       // Tenta validar via API mas não falha se der 404
       try {
         const resp = await fetch(
-          `https://googleads.googleapis.com/v19/customers/${customerId}/googleAds:search`,
+          buildGoogleAdsUrl(customerId, "googleAds:search"),
           {
             method: "POST",
             headers: {
@@ -3060,7 +3067,11 @@ const integrationsRouter = router({
         if (resp.status === 401) throw new TRPCError({ code: "BAD_REQUEST", message: "Token OAuth expirado ou inválido" });
         if (resp.status === 403) throw new TRPCError({ code: "BAD_REQUEST", message: "Sem permissão — verifique Developer Token e Customer ID" });
 
-        // 404 ou outros — aceita como válido (pode ser limitação de rede)
+        if (resp.status === 404) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Endpoint Google Ads não encontrado (${GOOGLE_ADS_API_VERSION}). Verifique a versão da API e o Customer ID.` });
+        }
+
+        // outros status não determinísticos — aceita como parcialmente válido se OAuth respondeu
         log.warn("google", "testGoogle API não disponível mas credenciais OK", { status: resp.status });
         return { name: `Google Ads MCC ${customerId} ✅ (credenciais válidas)`, accountId: integration.accountId };
 
@@ -4688,7 +4699,7 @@ const unifiedRouter = router({
       const days    = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
       const since   = daysAgo(days);
       const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.average_cpc, metrics.average_cpm, metrics.ctr FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND campaign.status != 'REMOVED' LIMIT 100`;
-      const googleUrl = `https://googleads.googleapis.com/v19/customers/${customerId.replace(/-/g,"")}/googleAds:search`;
+      const googleUrl = buildGoogleAdsUrl(customerId.replace(/-/g,""), "googleAds:search");
       const resp = await fetch(googleUrl, {
         method: "POST",
         headers: {
