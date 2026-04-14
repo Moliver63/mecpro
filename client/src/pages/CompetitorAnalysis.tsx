@@ -506,12 +506,21 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
     onSuccess: (data: any) => {
       if (data?.found && data?.pageId) {
         setDiscoveredPageId(data.pageId);
-        toast.success(`✅ Page ID encontrado: ${data.pageId}${data.pageName ? " — " + data.pageName : ""}`);
+        const methodLabel: Record<string, string> = {
+          graph_direct_handle: "Graph API",
+          ig_oembed_fb_page:   "Instagram oEmbed",
+          ads_library:         "Ads Library",
+          my_pages_exact:      "Suas páginas",
+          graph_slug_var:      "Graph API (variação)",
+          gemini:              "IA",
+        };
+        const via = methodLabel[data.method] || data.method || "auto";
+        toast.success(`✅ Page ID encontrado via ${via}: ${data.pageId}${data.pageName ? " — " + data.pageName : ""}`);
       } else {
-        toast.error("❌ Page ID não encontrado automaticamente. Tente pelo modo URL ou Nome.");
+        toast.error("❌ Page ID não encontrado. Tente informar o nome exato da Página do Facebook (não o @instagram).");
       }
     },
-    onError: () => toast.error("❌ Erro ao buscar Page ID."),
+    onError: () => toast.error("❌ Erro ao buscar Page ID. Verifique se a integração Meta está ativa."),
   }) ?? { mutate: () => {}, isPending: false };
   const [country, setCountry]   = useState("BR");
   const [website,      setWebsite]      = useState("");

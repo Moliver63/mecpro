@@ -1371,6 +1371,36 @@ const competitorsRouter = router({
         }
       }
 
+      // ── ESTRATÉGIA 2.5: Ads Library — busca page_id por nome/handle ──
+      if (token && results.length === 0) {
+        tried.push("ads_library_search");
+        const searchTerms = [...new Set([raw, rawSimple, companySlug, input.companyName?.toLowerCase().replace(/[^a-z0-9 ]/g, "") || ""])].filter(Boolean).slice(0, 3);
+        for (const term of searchTerms) {
+          if (results.length > 0) break;
+          try {
+            const adsUrl = `https://graph.facebook.com/v20.0/ads_archive?access_token=${token}&search_terms=${encodeURIComponent(term)}&ad_reached_countries=BR&ad_type=ALL&fields=page_id,page_name&limit=5`;
+            const adsRes = await fetch(adsUrl, { signal: AbortSignal.timeout(8000) });
+            const adsData: any = await adsRes.json();
+            if (!adsData.error && Array.isArray(adsData.data) && adsData.data.length > 0) {
+              // Pega o page_id mais relevante — prioriza match exato no nome
+              const match = adsData.data.find((a: any) => {
+                const pname = (a.page_name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                return pname === companySlug || pname === rawSimple || pname.includes(rawSimple);
+              }) || adsData.data[0];
+              if (match?.page_id && /^\d+$/.test(String(match.page_id))) {
+                results.push({ method: "ads_library", pageId: String(match.page_id), pageName: match.page_name || term, confidence: "high" });
+                log.info("ai", "discoverPageId Estratégia 2.5 OK", { term, pageId: match.page_id, pageName: match.page_name });
+                break;
+              }
+            } else {
+              log.info("ai", "discoverPageId Estratégia 2.5 sem resultado", { term, error: adsData.error?.message });
+            }
+          } catch (e: any) {
+            log.info("ai", "discoverPageId Estratégia 2.5 erro", { term, message: e?.message?.slice(0, 80) });
+          }
+        }
+      }
+
       // ── ESTRATÉGIA 3: Minhas páginas — token do usuário (match exato) ──
       if (token && results.length === 0) {
         tried.push("my_pages");
