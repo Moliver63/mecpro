@@ -222,7 +222,12 @@ function MetaFeedPreview({ ad, placement, device }: { ad: MetaAd; placement: Met
   const title = ad.creative?.title || ad.name;
   const body = ad.creative?.body || "";
   const ctaType = ad.creative?.call_to_action?.type;
-  const landingUrl = ad.creative?.call_to_action?.value?.link;
+  const landingUrl =
+    ad.creative?.call_to_action?.value?.link ||
+    (ad.creative as any)?.object_story_spec?.link_data?.link ||
+    (ad.creative as any)?.link_url ||
+    (ad.creative as any)?.object_url ||
+    null;
   const isDesktop = device === "desktop";
 
   if (isStory) {
@@ -259,18 +264,29 @@ function MetaFeedPreview({ ad, placement, device }: { ad: MetaAd; placement: Met
           </div>
         )}
 
-        {/* CTA bottom */}
-        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "16px 14px" }}>
-          {landingUrl ? (
-            <a href={landingUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", background: "rgba(255,255,255,.95)", borderRadius: 24, padding: "10px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#0f172a", textDecoration: "none" }}>
-              {ctaLabel(ctaType)}
-            </a>
-          ) : (
-            <div style={{ background: "rgba(255,255,255,.95)", borderRadius: 24, padding: "10px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#0f172a" }}>
-              {ctaLabel(ctaType)}
-            </div>
-          )}
-          <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.6)" }}>👆 Clique para testar destino</div>
+        {/* CTA bottom - sempre clicável */}
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "16px 14px", zIndex: 10 }}>
+          <button
+            onClick={() => {
+              if (landingUrl) {
+                window.open(landingUrl, "_blank", "noopener,noreferrer");
+              } else {
+                alert("URL de destino não encontrada nos dados desta campanha.\nVerifique se o criativo tem uma URL configurada.");
+              }
+            }}
+            style={{
+              display: "block", width: "100%",
+              background: "rgba(255,255,255,.95)", borderRadius: 24,
+              padding: "10px 0", textAlign: "center", fontSize: 13, fontWeight: 700,
+              color: "#0f172a", border: "none", cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(0,0,0,.25)",
+            }}
+          >
+            {ctaLabel(ctaType)} {landingUrl ? "↗" : "⚠️"}
+          </button>
+          <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.6)" }}>
+            {landingUrl ? "👆 Clique para abrir o destino real" : "⚠️ URL não encontrada neste anúncio"}
+          </div>
         </div>
       </div>
     );
@@ -322,16 +338,12 @@ function MetaFeedPreview({ ad, placement, device }: { ad: MetaAd; placement: Met
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#1c1e21" }}>{truncate(title, 40)}</div>
           </div>
-          {landingUrl ? (
-            <a href={landingUrl} target="_blank" rel="noopener noreferrer"
-              style={{ background: isIG ? accentColor : "#e4e6eb", color: isIG ? "#fff" : "#1c1e21", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap" }}>
-              {ctaLabel(ctaType)}
-            </a>
-          ) : (
-            <button style={{ background: isIG ? accentColor : "#e4e6eb", color: isIG ? "#fff" : "#1c1e21", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "default", whiteSpace: "nowrap" }}>
-              {ctaLabel(ctaType)}
-            </button>
-          )}
+          <button
+            onClick={() => landingUrl ? window.open(landingUrl, "_blank", "noopener,noreferrer") : alert("URL de destino não encontrada nos dados desta campanha.")}
+            style={{ background: isIG ? accentColor : "#e4e6eb", color: isIG ? "#fff" : "#1c1e21", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
+          >
+            {ctaLabel(ctaType)} {landingUrl ? "↗" : "⚠️"}
+          </button>
         </div>
       </div>
 
@@ -400,17 +412,15 @@ function TikTokPreview({ ad, device }: { ad: TikTokAd; device: DeviceMode }) {
         {ad.headline && (
           <div style={{ fontSize: 13, color: "#fff", lineHeight: 1.4, marginBottom: 6 }}>{truncate(ad.headline, 80)}</div>
         )}
-        {ad.landingUrl ? (
-          <a href={ad.landingUrl} target="_blank" rel="noopener noreferrer"
-            style={{ display: "block", background: "#ff0050", borderRadius: 4, padding: "7px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#fff", textDecoration: "none" }}>
-            Saiba mais
-          </a>
-        ) : (
-          <div style={{ background: "#ff0050", borderRadius: 4, padding: "7px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#fff" }}>
-            Saiba mais
-          </div>
-        )}
-        <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.5)" }}>👆 Clique para testar destino</div>
+        <button
+          onClick={() => ad.landingUrl ? window.open(ad.landingUrl, "_blank", "noopener,noreferrer") : alert("URL de destino não encontrada neste anúncio TikTok.")}
+          style={{ display: "block", width: "100%", background: "#ff0050", borderRadius: 4, padding: "7px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#fff", border: "none", cursor: "pointer" }}
+        >
+          Saiba mais {ad.landingUrl ? "↗" : "⚠️"}
+        </button>
+        <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.5)" }}>
+          {ad.landingUrl ? "👆 Clique para testar destino" : "⚠️ URL não encontrada"}
+        </div>
       </div>
     </div>
   );
