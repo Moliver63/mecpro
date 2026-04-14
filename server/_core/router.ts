@@ -2694,53 +2694,67 @@ const campaignsRouter = router({
       });
 
       // 4. Create Campaign via gRPC
+      const buildGoogleCampaignCreate = (name: string) => ({
+        name,
+        status: 2, // PAUSED
+        advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2,
+        campaign_budget: budgetResourceName,
+        start_date: input.startDate,
+        ...(input.endDate ? { end_date: input.endDate } : {}),
+        contains_eu_political_advertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING", // obrigatório desde EU PAR; boolean false não satisfaz o enum exigido
+        ...(input.biddingStrategy === "TARGET_CPA" && input.targetCpa
+          ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } }
+          : input.biddingStrategy === "TARGET_ROAS" && input.targetRoas
+          ? { bidding_strategy_type: "MAXIMIZE_CONVERSION_VALUE", maximize_conversion_value: { target_roas: input.targetRoas } }
+          : input.biddingStrategy === "MAXIMIZE_CONVERSIONS"
+          ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: {} }
+          : { bidding_strategy_type: "TARGET_SPEND", target_spend: {} }
+        ),
+        network_settings: {
+          target_google_search: true,
+          target_search_network: true,
+          target_content_network: input.campaignType === "DISPLAY",
+          target_partner_search_network: false,
+        },
+      });
+
+      let effectiveCampaignName = input.campaignName;
+      let effectiveAdGroupName = `AdGroup-${input.campaignName}`;
       let campaignOp: any;
       try {
-        campaignOp = await gCustomer.campaigns.create([{
-          name:                    input.campaignName,
-          status:                  2, // PAUSED
-          advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2,
-          campaign_budget:         budgetResourceName,
-          start_date:              input.startDate,
-          ...(input.endDate ? { end_date: input.endDate } : {}),
-          contains_eu_political_advertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING", // obrigatório desde EU PAR; boolean false não satisfaz o enum exigido
-          ...(input.biddingStrategy === "TARGET_CPA" && input.targetCpa
-            ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: { target_cpa_micros: Math.round(input.targetCpa * 1_000_000) } }
-            : input.biddingStrategy === "TARGET_ROAS" && input.targetRoas
-            ? { bidding_strategy_type: "MAXIMIZE_CONVERSION_VALUE", maximize_conversion_value: { target_roas: input.targetRoas } }
-            : input.biddingStrategy === "MAXIMIZE_CONVERSIONS"
-            ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: {} }
-            : { bidding_strategy_type: "TARGET_SPEND", target_spend: {} }
-          ),
-          network_settings: {
-            target_google_search:        true,
-            target_search_network:       true,
-            target_content_network:      input.campaignType === "DISPLAY",
-            target_partner_search_network: false,
-          },
-        }]);
-        log.info("google", "campaign created via gRPC", { result: JSON.stringify(campaignOp).slice(0,200) });
+        campaignOp = await gCustomer.campaigns.create([buildGoogleCampaignCreate(effectiveCampaignName)]);
+        log.info("google", "campaign created via gRPC", { result: JSON.stringify(campaignOp).slice(0,200), effectiveCampaignName });
       } catch (campErr: any) {
-        log.error("google", "campaign gRPC FAILED", {
-          message: campErr.message,
-          code: campErr.code,
-          details: JSON.stringify(campErr.errors || campErr.details || []).slice(0, 500),
-          budgetResourceName,
-        });
         const detailsText = typeof campErr?.details === "string"
           ? campErr.details
           : JSON.stringify(campErr?.errors || campErr?.details || []).slice(0, 500);
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Erro ao criar campanha Google: ${campErr?.message || detailsText || "falha desconhecida"}`,
-        });
+        const duplicateName = detailsText.includes("DUPLICATE_CAMPAIGN_NAME") || String(campErr?.message || "").includes("DUPLICATE_CAMPAIGN_NAME");
+        if (duplicateName) {
+          const suffix = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(-10);
+          effectiveCampaignName = `${input.campaignName}-${suffix}`.slice(0, 255);
+          effectiveAdGroupName = `AdGroup-${effectiveCampaignName}`.slice(0, 255);
+          log.warn("google", "campaign duplicate name retry", { originalName: input.campaignName, retriedName: effectiveCampaignName });
+          campaignOp = await gCustomer.campaigns.create([buildGoogleCampaignCreate(effectiveCampaignName)]);
+          log.info("google", "campaign created via gRPC after retry", { result: JSON.stringify(campaignOp).slice(0,200), effectiveCampaignName });
+        } else {
+          log.error("google", "campaign gRPC FAILED", {
+            message: campErr.message,
+            code: campErr.code,
+            details: JSON.stringify(campErr.errors || campErr.details || []).slice(0, 500),
+            budgetResourceName,
+          });
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Erro ao criar campanha Google: ${campErr?.message || detailsText || "falha desconhecida"}`,
+          });
+        }
       }
       const campaignResourceName = campaignOp.results?.[0]?.resource_name ?? campaignOp.results?.[0]?.resourceName ?? "";
-      log.info("google", "campaign created via gRPC", { campaignResourceName });
+      log.info("google", "campaign created via gRPC", { campaignResourceName, effectiveCampaignName });
 
       // 5. Create Ad Group via gRPC
       const adGroupOp = await gCustomer.adGroups.create([{
-        name:     `AdGroup-${input.campaignName}`,
+        name: effectiveAdGroupName,
         campaign: campaignResourceName,
         status:   2, // ENABLED
         type:     input.campaignType === "DISPLAY" ? 17 : 2, // DISPLAY_STANDARD=17, SEARCH_STANDARD=2
@@ -2825,7 +2839,7 @@ const campaignsRouter = router({
         googleAdGroupId,
         googleAdIds: adResults.map(extractId),
         budgetResourceName,
-        message: `Campanha "${input.campaignName}" criada no Google Ads (ID: ${googleCampaignId})`,
+        message: `Campanha "${effectiveCampaignName}" criada no Google Ads (ID: ${googleCampaignId})`,
       };
     }),
 
