@@ -2626,12 +2626,13 @@ const campaignsRouter = router({
         .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
 
-      const developerToken = integration.developerToken ?? (process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "");
-      const customerId     = (integration.accountId ?? "").replace(/-/g, "").trim();
-      if (!developerToken) throw new TRPCError({ code: "BAD_REQUEST", message: "Developer token não configurado" });
-      if (!customerId)     throw new TRPCError({ code: "BAD_REQUEST", message: "Customer ID não configurado" });
-
-      const accessToken = await getGoogleAccessToken(integration as any);
+      const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+      if (runtime.isManager && !runtime.childCustomerIds?.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "O Customer ID Google configurado é uma conta gerente (MCC) sem conta cliente elegível. Informe um Customer ID de anunciante ou configure GOOGLE_ADS_LOGIN_CUSTOMER_ID.",
+        });
+      }
 
       // Marca como processando
       await (db as any).updateCampaign?.(input.campaignId, { publishStatus: "processing" }).catch(() => {});
@@ -2641,9 +2642,9 @@ const campaignsRouter = router({
       try {
         const { client, refreshToken } = await getGoogleAdsClient(integration as any);
         const customer = client.Customer({
-          customer_id:    customerId,
-          refresh_token:  refreshToken,
-          login_customer_id: customerId,
+          customer_id: runtime.customerId,
+          refresh_token: refreshToken,
+          ...(runtime.loginCustomerId ? { login_customer_id: runtime.loginCustomerId } : {}),
         });
         budgetOp = await customer.campaignBudgets.create([{
           name:            `Budget-${input.campaignName}-${Date.now()}`,
@@ -2660,7 +2661,7 @@ const campaignsRouter = router({
             amountMicros:   input.dailyBudgetMicros,
             deliveryMethod: "STANDARD",
           }}]},
-          accessToken, developerToken, customerId
+          runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId
         );
       }
       const budgetResourceName = budgetOp.results?.[0]?.resource_name ?? budgetOp.results?.[0]?.resourceName ?? "";
@@ -2677,18 +2678,19 @@ const campaignsRouter = router({
         biddingConfig.maximizeClicks = {};
       }
 
-      // Cria cliente gRPC para operações restantes
+      // Cria cliente gRPC para operações restantes usando o mesmo contexto resolvido do REST
       const { client: gClient, refreshToken: gRefresh } = await getGoogleAdsClient(integration as any);
-      // IMPORTANTE: MCC não cria campanhas diretamente
-      // customer_id = conta filha (onde a campanha será criada)
-      // login_customer_id = MCC (para autenticação)
-      const mccCustomerId = process.env.GOOGLE_ADS_CUSTOMER_ID?.replace(/-/g, "") || customerId;
-      const targetCustomerId = customerId === mccCustomerId ? customerId : customerId;
-      log.info("google", "gRPC customer setup", { customerId, mccCustomerId, targetCustomerId });
+      log.info("google", "gRPC customer setup", {
+        configuredCustomerId: String((integration.accountId ?? "")).replace(/-/g, "").trim(),
+        usingCustomerId: runtime.customerId,
+        loginCustomerId: runtime.loginCustomerId || "(none)",
+        managerCustomerId: runtime.managerCustomerId || "(none)",
+        isManager: runtime.isManager,
+      });
       const gCustomer = gClient.Customer({
-        customer_id:       targetCustomerId,
-        refresh_token:     gRefresh,
-        login_customer_id: mccCustomerId !== targetCustomerId ? mccCustomerId : targetCustomerId,
+        customer_id: runtime.customerId,
+        refresh_token: gRefresh,
+        ...(runtime.loginCustomerId ? { login_customer_id: runtime.loginCustomerId } : {}),
       });
 
       // 4. Create Campaign via gRPC
