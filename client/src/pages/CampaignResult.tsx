@@ -434,6 +434,33 @@ export default function CampaignResult() {
       }
     }
 
+    const campaignCreatives = (() => {
+      try { return JSON.parse((campaign as any)?.creatives || "[]"); } catch { return []; }
+    })();
+    const mergedCreatives = Array.isArray(campaignCreatives)
+      ? campaignCreatives.map((cr: any) => mergeCreativeWithProjectedLegacy(cr))
+      : [];
+    const placementsToCheck = selectedPlacements.length > 0
+      ? selectedPlacements
+      : placementMode === "auto"
+        ? ["fb_feed", "ig_feed", "fb_story", "ig_story"]
+        : ["fb_feed", "ig_feed"];
+    const requiresStoryAsset = placementsToCheck.some((p) => ["fb_story", "ig_story", "messenger_story"].includes(p));
+    const requiresReelsVideo = placementsToCheck.some((p) => ["fb_reels", "ig_reels"].includes(p));
+    const hasUploadedMedia = !!uploadedVid || !!uploadedHash || uploadedHashes.filter(Boolean).length >= 2 || !!imageUrl.trim();
+    const hasStoryReadyCreative = mergedCreatives.some((cr: any) => !!(cr.storyImageUrl || cr.storyImageHash || cr.publishMedia?.videoId));
+    const hasReelsReadyCreative = mergedCreatives.some((cr: any) => !!cr.publishMedia?.videoId);
+
+    if (requiresStoryAsset && !hasStoryReadyCreative && !hasUploadedMedia) {
+      toast.error("Stories exigem criativo vertical 9:16 dedicado. Gere ou envie uma mídia específica de stories antes de publicar.");
+      return;
+    }
+
+    if (requiresReelsVideo && !uploadedVid && !hasReelsReadyCreative) {
+      toast.error("Reels exige vídeo vertical 9:16. Faça upload de um vídeo antes de publicar nesses placements.");
+      return;
+    }
+
     // Apenas sales e traffic exigem URL externa obrigatoriamente
     const campaignObj = (campaign as any)?.objective || "";
     const needsDest = ["sales", "traffic"].includes(campaignObj);
@@ -1298,6 +1325,13 @@ export default function CampaignResult() {
               const creativeFormat = inferCreativeFormat(cr);
               const creativeImage = getCreativeImage(cr, creativeFormat);
               const scoreBadge = getScoreBadge(cr.finalScore);
+              const mergedCreative = mergeCreativeWithProjectedLegacy(cr);
+              const creativeAudit = {
+                story: !!(mergedCreative.storyImageUrl || mergedCreative.storyImageHash),
+                feed: !!(mergedCreative.feedImageUrl || mergedCreative.feedImageHash),
+                square: !!(mergedCreative.squareImageUrl || mergedCreative.squareImageHash),
+                video: !!mergedCreative.publishMedia?.videoId,
+              };
               return (
               <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", marginBottom: 14, background: i === 0 ? "var(--green-l)" : "white" }}>
                 {editingCreative === i ? (
@@ -1421,6 +1455,26 @@ export default function CampaignResult() {
                               {cr.complianceRisk === "Baixo" ? "✅ Risco baixo" : cr.complianceRisk === "Médio" ? "⚠️ Risco médio" : "❌ Risco alto"}
                             </span>
                           )}
+                        </div>
+                        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 10, marginBottom: 12 }}>
+                          <p style={{ fontSize: 11, fontWeight: 800, color: "#334155", marginBottom: 8 }}>🧭 Auditoria de criativo por canal</p>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 999, background: creativeAudit.story ? "#dcfce7" : "#fee2e2", color: creativeAudit.story ? "#166534" : "#b91c1c" }}>
+                              Meta Story 9:16: {creativeAudit.story ? "OK" : "Falta"}
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 999, background: creativeAudit.feed ? "#dcfce7" : "#fef3c7", color: creativeAudit.feed ? "#166534" : "#92400e" }}>
+                              Feed: {creativeAudit.feed ? "OK" : "Revisar"}
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 999, background: creativeAudit.square ? "#dcfce7" : "#fef3c7", color: creativeAudit.square ? "#166534" : "#92400e" }}>
+                              Square 1:1: {creativeAudit.square ? "OK" : "Opcional"}
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 999, background: creativeAudit.video ? "#dcfce7" : "#fee2e2", color: creativeAudit.video ? "#166534" : "#b91c1c" }}>
+                              TikTok/Reels vídeo: {creativeAudit.video ? "OK" : "Falta"}
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 999, background: "#eff6ff", color: "#1d4ed8" }}>
+                              Google Search: texto OK
+                            </span>
+                          </div>
                         </div>
                         {(cr.hookStrength || cr.clarity || cr.urgency || cr.specificity) ? (
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>

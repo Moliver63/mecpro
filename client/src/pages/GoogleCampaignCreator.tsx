@@ -243,6 +243,11 @@ export default function GoogleCampaignCreator() {
     if (!form.dailyBudget || Number(form.dailyBudget) <= 0) { toast.error("Orçamento diário obrigatório"); return; }
     if (!form.startDate)  { toast.error("Data de início obrigatória"); return; }
 
+    if (form.campaignType !== "SEARCH") {
+      toast.error("No momento esta publicação do Google está validada apenas para Search. Para Display, Video e Performance Max precisamos anexar assets visuais dedicados antes do publish.");
+      return;
+    }
+
     // Valida ads — headline e finalUrl obrigatórios
     for (let i = 0; i < form.ads.length; i++) {
       const ad = form.ads[i];
@@ -306,6 +311,11 @@ export default function GoogleCampaignCreator() {
           onChange={e => set("campaignType", e.target.value)}>
           {CAMPAIGN_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
+        {form.campaignType !== "SEARCH" && (
+          <div style={{ background: "#fff7ed", border: "1.5px solid #fdba74", borderRadius: 10, padding: 12, marginTop: 4, marginBottom: 12, fontSize: 12, lineHeight: 1.7, color: "#9a3412" }}>
+            <strong>⚠️ Ajuste de integração:</strong> o publish desta tela está homologado para <strong>Google Search</strong>. Para Display, Video e Performance Max ainda falta o fluxo dedicado de image assets (ex.: 1:1 e 1.91:1), então o envio é bloqueado para evitar publicar criativos no lugar errado.
+          </div>
+        )}
         {form.strategy && (
           <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0",
             borderRadius: 10, padding: 12, marginTop: 4, fontSize: 12, lineHeight: 1.7 }}>

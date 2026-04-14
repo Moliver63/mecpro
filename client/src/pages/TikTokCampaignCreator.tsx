@@ -201,6 +201,7 @@ export default function TikTokCampaignCreator() {
     for (let i = 0; i < form.ads.length; i++) {
       const ad = form.ads[i];
       if (!ad.adText?.trim()) { toast.error(`Anúncio ${i + 1}: texto do anúncio obrigatório`); return; }
+      if (!ad.videoUrl?.trim()) { toast.error(`Anúncio ${i + 1}: informe o vídeo principal ou o video_id do TikTok.`); return; }
       if (!ad.landingPageUrl?.trim()) { toast.error(`Anúncio ${i + 1}: URL de destino obrigatória`); return; }
       if (!ad.landingPageUrl.startsWith("http")) { toast.error(`Anúncio ${i + 1}: URL deve começar com https://`); return; }
     }
@@ -342,6 +343,9 @@ export default function TikTokCampaignCreator() {
             🤖 Textos dos anúncios gerados pela IA. Adicione URLs de vídeo e imagem de capa.
           </div>
         )}
+        <div style={{ background: "#ecfeff", border: "1.5px solid #a5f3fc", borderRadius: 10, padding: 10, marginBottom: 12, fontSize: 11, lineHeight: 1.7, color: "#155e75" }}>
+          <strong>📱 Validação profissional:</strong> TikTok é <strong>video-first</strong>. Para evitar criativo desalinhado, cada anúncio precisa ter um <strong>vídeo principal</strong> preenchido. O formato recomendado é <strong>vertical 9:16</strong>.
+        </div>
         {form.ads.map((ad, i) => (
           <div key={i} style={{ background: "#f8fafc", border: "1.5px solid #e2e8f0",
             borderRadius: 14, padding: 16, marginBottom: 16 }}>

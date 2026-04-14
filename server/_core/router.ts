@@ -2044,7 +2044,7 @@ const campaignsRouter = router({
         ? buildPublishMediaFromCreative(selectedCreative, preferredCreativeFormat)
         : null;
       const selectedGeneratedImageUrl = placementKey === "stories" || placementKey === "reels"
-        ? selectedCreative?.storyImageUrl || selectedCreative?.feedImageUrl || selectedCreative?.squareImageUrl
+        ? selectedCreative?.storyImageUrl || null
         : selectedCreative?.feedImageUrl || selectedCreative?.squareImageUrl || selectedCreative?.storyImageUrl;
       const selectedMessage = placementKey === "stories" || placementKey === "reels"
         ? (((adCopy as any).stories?.script || []).join("\n") || adCopy.message)
@@ -2236,7 +2236,7 @@ const campaignsRouter = router({
       const ctaType = isWhatsAppDestination ? "WHATSAPP_MESSAGE" : baseCtaType;
       const ctaValue = isWhatsAppDestination ? { app_destination: "WHATSAPP" } : { link: finalLink };
       const selectedGeneratedImageHash = placementKey === "stories" || placementKey === "reels"
-        ? selectedCreative?.storyImageHash || selectedCreative?.feedImageHash || selectedCreative?.squareImageHash
+        ? selectedCreative?.storyImageHash || null
         : selectedCreative?.feedImageHash || selectedCreative?.squareImageHash || selectedCreative?.storyImageHash;
       const effectiveVideoId = input.videoId ?? fallbackPublishMedia?.videoId ?? null;
       const effectiveImageHashes = input.imageHashes?.length && input.imageHashes.length >= 2
@@ -2245,14 +2245,34 @@ const campaignsRouter = router({
       const effectiveImageUrls = input.imageUrls?.length && input.imageUrls.length >= 2
         ? input.imageUrls
         : fallbackPublishMedia?.imageUrls ?? null;
+      const hasExplicitUploadedMedia = !!input.videoId || !!input.imageHash || !!input.imageUrl || !!(input.imageHashes?.length) || !!(input.imageUrls?.length);
+      const hasDedicatedStoryMedia = !!selectedCreative?.storyImageHash || !!selectedCreative?.storyImageUrl;
       const effectiveImageHash = input.imageHash ?? (!effectiveImageHashes && !effectiveVideoId
-        ? (fallbackPublishMedia?.imageHash ?? selectedGeneratedImageHash ?? null)
+        ? ((placementKey === "stories" || placementKey === "reels")
+            ? (selectedGeneratedImageHash ?? null)
+            : (fallbackPublishMedia?.imageHash ?? selectedGeneratedImageHash ?? null))
         : null);
       const effectiveImageUrl = input.imageUrl ?? (!effectiveImageHashes && !effectiveImageHash && !effectiveVideoId
-        ? (fallbackPublishMedia?.imageUrl ?? selectedGeneratedImageUrl ?? null)
+        ? ((placementKey === "stories" || placementKey === "reels")
+            ? (selectedGeneratedImageUrl ?? null)
+            : (fallbackPublishMedia?.imageUrl ?? selectedGeneratedImageUrl ?? null))
         : null);
       const resolvedImageHash = effectiveImageHash;
       const resolvedImageUrl = effectiveImageUrl;
+
+      if ((placementKey === "stories" || placementKey === "reels") && !hasExplicitUploadedMedia && !hasDedicatedStoryMedia && !effectiveVideoId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Stories/Reels exigem criativo vertical dedicado 9:16. Gere ou envie uma mídia específica de stories antes de publicar.",
+        });
+      }
+
+      if (placementKey === "reels" && !effectiveVideoId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Reels exige vídeo vertical 9:16. Faça upload de um vídeo antes de publicar nesses placements.",
+        });
+      }
 
       if (!effectiveVideoId && !effectiveImageHash && !effectiveImageUrl && !(effectiveImageHashes?.length) && !(effectiveImageUrls?.length)) {
         throw new TRPCError({
@@ -2619,6 +2639,13 @@ const campaignsRouter = router({
       // Verificar se plano permite Google Ads (premium+)
       const googleCheck = await db.checkPlanLimit(userId, "google");
       if (!googleCheck.allowed) throw new TRPCError({ code: "FORBIDDEN", message: googleCheck.reason });
+
+      if (input.campaignType !== "SEARCH") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A publicação Google desta tela está validada apenas para campanhas Search. Para Display, Video ou Performance Max é necessário um fluxo dedicado de assets visuais (1:1 e 1.91:1) antes do publish.",
+        });
+      }
 
       // 1. Get Google Ads integration
       const _drz = await getDb();
