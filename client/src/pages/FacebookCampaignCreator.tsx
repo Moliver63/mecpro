@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -191,6 +191,40 @@ export default function FacebookCampaignCreator() {
   const { data: integrations = [] } = trpc.integrations.list.useQuery() as any;
   const { data: clientProfile } = (trpc as any).clientProfile?.get?.useQuery?.({ projectId: projectIdNumber }, { enabled: !!projectIdNumber }) ?? { data: null };
   const metaInteg = (integrations as any[]).find((i: any) => i.provider === "meta");
+
+  // Páginas do Facebook
+  const [pages, setPages] = useState<{ id: string; name: string }[]>([]);
+  const [loadingPages, setLoadingPages] = useState(false);
+
+  async function fetchPages(token: string) {
+    if (!token) return;
+    setLoadingPages(true);
+    try {
+      const res = await fetch(`https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&access_token=${token}`);
+      const data = await res.json();
+      if (data.error) { toast.error(`Erro ao buscar páginas: ${data.error.message}`); return; }
+      const list: { id: string; name: string }[] = data.data || [];
+      setPages(list);
+      if (list.length === 1) {
+        setAccount(a => ({ ...a, fbPageId: list[0].id }));
+        toast.success(`✅ Página detectada: ${list[0].name}`);
+      } else if (list.length === 0) {
+        toast.error("Nenhuma página encontrada nesta conta Meta.");
+      }
+    } catch {
+      toast.error("Erro ao buscar páginas do Facebook.");
+    } finally {
+      setLoadingPages(false);
+    }
+  }
+
+  // Busca páginas automaticamente quando token fica disponível
+  useEffect(() => {
+    const token = metaInteg?.accessToken;
+    if (token && pages.length === 0 && !loadingPages) {
+      fetchPages(token);
+    }
+  }, [metaInteg?.accessToken]);
 
   const [step, setStep] = useState(1);
   const [publishing, setPublishing] = useState(false);
@@ -557,12 +591,38 @@ export default function FacebookCampaignCreator() {
             <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>
               ID da Página do Facebook <span style={{ color: "#dc2626" }}>*</span>
             </label>
-            <input
-              className="input input-sm w-full"
-              placeholder="123456789"
-              value={account.fbPageId}
-              onChange={e => setAccount(a => ({ ...a, fbPageId: e.target.value }))}
-            />
+            {loadingPages ? (
+              <div style={{ fontSize: 13, color: "#94a3b8", padding: "10px 0" }}>⏳ Buscando suas páginas...</div>
+            ) : pages.length > 0 ? (
+              <>
+                <select
+                  className="input input-sm w-full"
+                  value={account.fbPageId}
+                  onChange={e => setAccount(a => ({ ...a, fbPageId: e.target.value }))}
+                >
+                  <option value="">Selecione uma página...</option>
+                  {pages.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>Páginas carregadas da sua conta Meta.</div>
+              </>
+            ) : (
+              <>
+                <input
+                  className="input input-sm w-full"
+                  placeholder="123456789"
+                  value={account.fbPageId}
+                  onChange={e => setAccount(a => ({ ...a, fbPageId: e.target.value }))}
+                />
+                <button
+                  onClick={() => fetchPages(account.accessToken || metaInteg?.accessToken)}
+                  style={{ marginTop: 4, fontSize: 11, color: "#1877f2", background: "none", border: "none", cursor: "pointer", fontWeight: 700, padding: 0 }}
+                >
+                  🔄 Carregar páginas automaticamente
+                </button>
+              </>
+            )}
           </div>
           <div>
             <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>ID da Conta do Instagram</label>
