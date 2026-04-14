@@ -1863,10 +1863,12 @@ const campaignsRouter = router({
         });
         const data: any = await res.json().catch(() => ({}));
         if (!res.ok || data?.error) {
-          const msg = data?.error?.message || `HTTP ${res.status}`;
+          const rawMessage = data?.error?.message || `HTTP ${res.status}`;
+          const userMessage = data?.error?.error_user_msg || "";
+          const msg = userMessage || rawMessage;
           log.error("meta", tag, {
             status: res.status,
-            message: msg,
+            message: rawMessage,
             error_code: data?.error?.code,
             error_subcode: data?.error?.error_subcode,
             error_user_msg: data?.error?.error_user_msg,
@@ -2037,6 +2039,7 @@ const campaignsRouter = router({
         targeting: {
           age_min: input.ageMin ?? 18,
           age_max: input.ageMax ?? 65,
+          targeting_automation: { advantage_audience: 0 },
           geo_locations: (() => {
             const mode = input.locationMode || (input.regions?.length ? "brasil" : "brasil");
             // Modo: países internacionais
@@ -3553,12 +3556,12 @@ const integrationsRouter = router({
   // -- Criar Lead Form na Meta automaticamente --------------------------------
   createLeadForm: protectedProcedure
     .input(z.object({
-      pageId:           z.string(),
-      name:             z.string(),
+      pageId:           z.string().trim().min(1, "Selecione uma página do Facebook antes de listar/criar formulários."),
+      name:             z.string().trim().min(1),
       fields:           z.array(z.string()).default(["FULL_NAME", "EMAIL", "PHONE"]),
       customQuestion:   z.string().optional(),
       thankYouMessage:  z.string().optional(),
-      privacyUrl:       z.string(),
+      privacyUrl:       z.string().trim().min(1),
     }))
     .mutation(async ({ input, ctx }) => {
       const integration = await db.getApiIntegration(ctx.user.id, "meta");
@@ -3621,7 +3624,7 @@ const integrationsRouter = router({
       );
       const data: any = await res.json().catch(() => ({}));
       if (!res.ok || data?.error)
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao criar formulário: ${data?.error?.message || `HTTP ${res.status}`}` });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Erro ao criar formulário: ${data?.error?.error_user_msg || data?.error?.message || `HTTP ${res.status}`}` });
 
       log.info("meta", "createLeadForm OK", { pageId: input.pageId, formId: data.id });
       return { id: data.id, name: input.name };
@@ -3629,7 +3632,7 @@ const integrationsRouter = router({
 
   // -- Lista Lead Forms de uma Página ----------------------------------------
   listLeadForms: protectedProcedure
-    .input(z.object({ pageId: z.string() }))
+    .input(z.object({ pageId: z.string().trim().min(1, "Selecione uma página do Facebook antes de listar formulários.") }))
     .query(async ({ input, ctx }) => {
       const integration = await db.getApiIntegration(ctx.user.id, "meta");
       if (!integration || !(integration as any).accessToken)
@@ -3669,7 +3672,7 @@ const integrationsRouter = router({
       );
       const data: any = await res.json().catch(() => ({}));
       if (!res.ok || data?.error)
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Meta leadgen_forms: ${data?.error?.message || `HTTP ${res.status}`}` });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Meta leadgen_forms: ${data?.error?.error_user_msg || data?.error?.message || `HTTP ${res.status}`}` });
 
       return (data.data ?? []) as Array<{ id: string; name: string; status: string; leads_count?: number }>;
     }),
@@ -3987,6 +3990,7 @@ const metaCampaignsRouter = router({
           targeting: {
             age_min: input.ageMin ?? 18,
             age_max: input.ageMax ?? 65,
+            targeting_automation: { advantage_audience: 0 },
             geo_locations: resolvedRegionKeys.length
               ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
               : { countries: input.countries?.length ? input.countries : ["BR"] },
@@ -4012,6 +4016,7 @@ const metaCampaignsRouter = router({
           targeting: {
             age_min: input.ageMin ?? 18,
             age_max: input.ageMax ?? 65,
+            targeting_automation: { advantage_audience: 0 },
             geo_locations: resolvedRegionKeys.length
               ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
               : input.countries?.length

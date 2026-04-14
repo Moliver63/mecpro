@@ -696,7 +696,7 @@ export default function CampaignResult() {
   const scaling      = extra?.scaling      || null;
 
   const leadFormsQuery = (trpc as any).integrations?.listLeadForms?.useQuery?.(
-    { pageId },
+    { pageId: pageId.trim() },
     {
       enabled: showModal && leadDestination === "lead_form" && !!pageId.trim(),
       retry: false,
