@@ -586,6 +586,7 @@ export default function CampaignResult() {
           return null;
         }
 
+        toast.info?.(`📤 Enviando ${isAudio ? "áudio" : "vídeo"}: ${targetFile.name} (${(sizeBytes/1024/1024).toFixed(1)}MB)...`);
         const result = await uploadVideoMutation.mutateAsync({
           videoBase64: base64,
           fileName: targetFile.name || (isAudio ? "ad_audio.mp3" : "ad_video.mp4"),

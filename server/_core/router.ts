@@ -3618,23 +3618,47 @@ const integrationsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios não configurado." });
       const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
 
-      const base64Clean = input.videoBase64.replace(/^data:video\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+      // Remove qualquer prefixo data:*/*;base64, independente do tipo MIME
+      const base64Clean = input.videoBase64.replace(/^data:[a-zA-Z0-9.+/-]+;base64,/, "").trim();
       const sizeBytes = Math.ceil(base64Clean.length * 0.75);
-      if (sizeBytes > 50 * 1024 * 1024) {
+      if (sizeBytes > 200 * 1024 * 1024) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Vídeo muito grande (${(sizeBytes / 1024 / 1024).toFixed(1)}MB). O limite atual é 50MB.`,
+          message: `Arquivo muito grande (${(sizeBytes / 1024 / 1024).toFixed(1)}MB). O limite é 200MB.`,
         });
       }
       if (!base64Clean || base64Clean.length < 100) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Dados do vídeo inválidos ou corrompidos." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Dados do arquivo inválidos ou corrompidos." });
       }
+
+      // Normaliza o mimeType — áudio é enviado como vídeo para a Meta
+      const effectiveMime = input.mimeType?.startsWith("audio/")
+        ? "video/mp4"   // Meta não aceita audio/* diretamente — converte para video/mp4
+        : (input.mimeType || "video/mp4");
+
+      // Normaliza extensão do arquivo
+      const effectiveFileName = (() => {
+        const name = input.fileName || "ad_video.mp4";
+        if (input.mimeType?.startsWith("audio/") && !name.match(/\.mp4$/i)) {
+          return name.replace(/\.[^.]+$/, "") + ".mp4";
+        }
+        return name;
+      })();
+
+      log.info("meta", "uploadVideoToMeta iniciado", {
+        userId: ctx.user.id,
+        fileName: effectiveFileName,
+        mimeType: effectiveMime,
+        originalMime: input.mimeType,
+        sizeMB: (sizeBytes / 1024 / 1024).toFixed(1),
+        accountId: act,
+      });
 
       try {
         const bytes = Buffer.from(base64Clean, "base64");
         const form = new FormData();
         form.append("access_token", token);
-        form.append("source", new Blob([bytes], { type: input.mimeType || "video/mp4" }), input.fileName || "ad_video.mp4");
+        form.append("source", new Blob([bytes], { type: effectiveMime }), effectiveFileName);
 
         const res = await fetch(`https://graph.facebook.com/v19.0/${act}/advideos`, {
           method: "POST",
