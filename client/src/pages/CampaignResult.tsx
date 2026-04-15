@@ -597,87 +597,45 @@ export default function CampaignResult() {
     } finally { setPublishing(false); }
   }
 
-  // ── Upload de mídia para Meta Ads (via tRPC) ──
-  // Upload de um arquivo específico (foto ou vídeo)
+  // ── Upload de mídia via FormData (sem base64 — sem limite de tamanho) ──────
   async function handleUploadMedia(fileOverride?: File): Promise<{ kind: "image"; hash: string } | { kind: "video"; videoId: string } | null> {
     const targetFile = fileOverride || mediaFile;
     if (!targetFile) return null;
     setUploading(true);
+
+    const isVid = isVideoFile(targetFile);
+    const isAud = isAudioFile(targetFile);
+    const isMedia = isVid || isAud;
+    const sizeMB = (targetFile.size / 1024 / 1024).toFixed(1);
+
     try {
-      const base64: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload  = () => resolve((reader.result as string).split(",")[1] ?? "");
-        reader.onerror = () => reject(new Error("Falha ao ler o arquivo"));
-        reader.readAsDataURL(targetFile);
-      });
+      toast.info?.(`📤 Enviando ${isMedia ? (isAud ? "áudio" : "vídeo") : "imagem"}: ${targetFile.name} (${sizeMB}MB)...`);
 
-      if (!base64 || base64.length < 100) {
-        toast.error("❌ Arquivo inválido ou corrompido. Tente outro arquivo.");
+      const form = new FormData();
+      form.append("file", targetFile, targetFile.name);
+
+      const endpoint = isMedia ? "/api/meta/upload-video" : "/api/meta/upload-image";
+      const res = await fetch(endpoint, { method: "POST", body: form, credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        toast.error(`❌ Upload falhou: ${data.error || "Erro desconhecido"}`);
         return null;
       }
 
-      const isVideo = isVideoFile(targetFile);
-      const isAudio = isAudioFile(targetFile);
-      const isMedia = isVideo || isAudio;
-      const sizeBytes = Math.ceil(base64.length * 0.75);
-      const limitBytes = isMedia ? 200 * 1024 * 1024 : 4 * 1024 * 1024;
-      if (sizeBytes > limitBytes) {
-        toast.error(isMedia
-          ? `❌ Arquivo muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 200MB.`
-          : `❌ Imagem muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 4MB.`);
-        return null;
-      }
-
-      if (isVideo || isAudio) {
-        if (!uploadVideoMutation.mutateAsync) {
-          toast.error("❌ Função de upload de vídeo não disponível. Recarregue a página.");
-          return null;
-        }
-
-        toast.info?.(`📤 Enviando ${isAudio ? "áudio" : "vídeo"}: ${targetFile.name} (${(sizeBytes/1024/1024).toFixed(1)}MB)...`);
-        const result = await uploadVideoMutation.mutateAsync({
-          videoBase64: base64,
-          fileName: targetFile.name || (isAudio ? "ad_audio.mp3" : "ad_video.mp4"),
-          mimeType: targetFile.type || (isAudio ? "audio/mpeg" : "video/mp4"),
-        });
-
-        if (result?.videoId) {
-          setUploadedVid(result.videoId);
-          setUploadedHash("");
-          setUploadDone(true);
-          toast.success(`✅ Vídeo enviado! (${targetFile.name.slice(0, 20)})`);
-          return { kind: "video", videoId: result.videoId as string };
-        }
-
-        toast.error("❌ Upload concluído mas sem vídeo retornado.");
-        return null;
-      }
-
-      if (!uploadImageMutation.mutateAsync) {
-        toast.error("❌ Função de upload não disponível. Recarregue a página.");
-        return null;
-      }
-
-      const result = await uploadImageMutation.mutateAsync({
-        imageBase64: base64,
-        fileName: targetFile.name || "ad_image.jpg",
-      });
-
-      if (result?.hash) {
-        if (!fileOverride) {
-          setUploadedHash(result.hash);
-          setUploadedVid("");
-          setUploadDone(true);
-        }
+      if (isMedia) {
+        if (!data.videoId) { toast.error("❌ Upload concluído mas sem videoId retornado."); return null; }
+        if (!fileOverride) { setUploadedVid(data.videoId); setUploadedHash(""); setUploadDone(true); }
+        toast.success(`✅ ${isAud ? "Áudio" : "Vídeo"} enviado! (${targetFile.name.slice(0, 20)})`);
+        return { kind: "video", videoId: data.videoId };
+      } else {
+        if (!data.hash) { toast.error("❌ Upload concluído mas sem hash retornado."); return null; }
+        if (!fileOverride) { setUploadedHash(data.hash); setUploadedVid(""); setUploadDone(true); }
         toast.success(`✅ Foto enviada! (${targetFile.name.slice(0, 20)})`);
-        return { kind: "image", hash: result.hash as string };
+        return { kind: "image", hash: data.hash };
       }
-
-      toast.error("❌ Upload concluído mas sem hash retornado.");
-      return null;
     } catch (e: any) {
-      const msg = e?.message || e?.data?.message || "Erro desconhecido";
-      toast.error(`❌ Upload falhou: ${msg}`);
+      toast.error(`❌ Upload falhou: ${e?.message || "Erro de rede"}`);
       return null;
     } finally {
       setUploading(false);
@@ -700,64 +658,29 @@ export default function CampaignResult() {
 
     setReplacingCreativeImage(creativeIndex);
     try {
-      const base64: string = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
-        reader.onerror = () => reject(new Error("Falha ao ler o arquivo"));
-        reader.readAsDataURL(file);
-      });
+      const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+      toast.info?.(`📤 Enviando ${isVid || isAud ? "mídia" : "imagem"}: ${file.name} (${sizeMB}MB)...`);
 
-      if (!base64 || base64.length < 100) {
-        toast.error("Arquivo inválido ou corrompido.");
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const endpoint = (isVid || isAud) ? "/api/meta/upload-video" : "/api/meta/upload-image";
+      const res = await fetch(endpoint, { method: "POST", body: form, credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        toast.error(`Erro no upload: ${data.error || "Falha desconhecida"}`);
         return;
       }
 
-      const sizeBytes = Math.ceil(base64.length * 0.75);
-
-      // ── Vídeo ou Áudio ──
       if (isVid || isAud) {
-        if (sizeBytes > 200 * 1024 * 1024) {
-          toast.error(`Arquivo muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 200MB.`);
-          return;
-        }
-        if (!uploadVideoMutation.mutateAsync) {
-          toast.error("Função de upload de vídeo indisponível. Recarregue a página.");
-          return;
-        }
-        toast.info?.(`📤 Enviando ${isAud ? "áudio" : "vídeo"}: ${file.name} (${(sizeBytes/1024/1024).toFixed(1)}MB)...`);
-        const vidResult = await uploadVideoMutation.mutateAsync({
-          videoBase64: base64,
-          fileName: file.name || "ad_video.mp4",
-          mimeType: file.type || "video/mp4",
-        });
-        if (!vidResult?.videoId) { toast.error("Upload concluído mas sem videoId retornado."); return; }
-        await updateCreativeImageMutation.mutateAsync({
-          campaignId: id, creativeIndex, format,
-          videoId: vidResult.videoId,
-        });
+        if (!data.videoId) { toast.error("Upload concluído mas sem videoId retornado."); return; }
+        await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, videoId: data.videoId });
         toast.success(`✅ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
-        return;
+      } else {
+        if (!data.hash) { toast.error("Upload concluído mas sem hash retornado."); return; }
+        await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, imageUrl: undefined, imageHash: data.hash });
+        toast.success(`✅ Imagem atualizada no criativo ${creativeIndex + 1}!`);
       }
-
-      // ── Imagem ──
-      if (sizeBytes > 4 * 1024 * 1024) {
-        toast.error(`Imagem muito grande (${(sizeBytes / 1024 / 1024).toFixed(1)}MB). Limite: 4MB.`);
-        return;
-      }
-      if (!uploadImageMutation.mutateAsync) {
-        toast.error("Função de upload de imagem indisponível. Recarregue a página.");
-        return;
-      }
-      const uploadResult = await uploadImageMutation.mutateAsync({
-        imageBase64: base64,
-        fileName: file.name || `creative-${creativeIndex + 1}.jpg`,
-      });
-      await updateCreativeImageMutation.mutateAsync({
-        campaignId: id, creativeIndex, format,
-        imageUrl: uploadResult?.url || undefined,
-        imageHash: uploadResult?.hash || undefined,
-      });
-      toast.success(`✅ Imagem atualizada no criativo ${creativeIndex + 1}!`);
     } catch (e: any) {
       toast.error(`Erro ao trocar mídia: ${e?.message || "falha desconhecida"}`);
       setReplacingCreativeImage(null);
