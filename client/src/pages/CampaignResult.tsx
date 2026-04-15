@@ -360,8 +360,30 @@ export default function CampaignResult() {
     }
   }
 
+  const VIDEO_TYPES = new Set([
+    "video/mp4","video/mov","video/quicktime","video/mpeg","video/webm",
+    "video/avi","video/x-msvideo","video/x-matroska","video/3gpp",
+    "video/x-flv","video/ogg",
+  ]);
+  const AUDIO_TYPES = new Set([
+    "audio/mpeg","audio/mp3","audio/mp4","audio/aac","audio/ogg",
+    "audio/wav","audio/webm","audio/x-wav","audio/flac",
+  ]);
+  const VIDEO_EXTS  = /\.(mp4|mov|mpeg|mpg|webm|avi|mkv|3gp|flv|ogv|wmv)$/i;
+  const AUDIO_EXTS  = /\.(mp3|aac|ogg|wav|flac|m4a|opus)$/i;
+
   function isVideoFile(file?: File | null) {
-    return !!file && file.type.startsWith("video/");
+    if (!file) return false;
+    return VIDEO_TYPES.has(file.type) || file.type.startsWith("video/") || VIDEO_EXTS.test(file.name);
+  }
+
+  function isAudioFile(file?: File | null) {
+    if (!file) return false;
+    return AUDIO_TYPES.has(file.type) || file.type.startsWith("audio/") || AUDIO_EXTS.test(file.name);
+  }
+
+  function isVideoOrAudioFile(file?: File | null) {
+    return isVideoFile(file) || isAudioFile(file);
   }
 
   function isImageFile(file?: File | null) {
@@ -547,16 +569,18 @@ export default function CampaignResult() {
       }
 
       const isVideo = isVideoFile(targetFile);
+      const isAudio = isAudioFile(targetFile);
+      const isMedia = isVideo || isAudio;
       const sizeBytes = Math.ceil(base64.length * 0.75);
-      const limitBytes = isVideo ? 50 * 1024 * 1024 : 4 * 1024 * 1024;
+      const limitBytes = isMedia ? 200 * 1024 * 1024 : 4 * 1024 * 1024;
       if (sizeBytes > limitBytes) {
-        toast.error(isVideo
-          ? `❌ Vídeo muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 50MB.`
+        toast.error(isMedia
+          ? `❌ Arquivo muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 200MB.`
           : `❌ Imagem muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 4MB.`);
         return null;
       }
 
-      if (isVideo) {
+      if (isVideo || isAudio) {
         if (!uploadVideoMutation.mutateAsync) {
           toast.error("❌ Função de upload de vídeo não disponível. Recarregue a página.");
           return null;
@@ -564,8 +588,8 @@ export default function CampaignResult() {
 
         const result = await uploadVideoMutation.mutateAsync({
           videoBase64: base64,
-          fileName: targetFile.name || "ad_video.mp4",
-          mimeType: targetFile.type || "video/mp4",
+          fileName: targetFile.name || (isAudio ? "ad_audio.mp3" : "ad_video.mp4"),
+          mimeType: targetFile.type || (isAudio ? "audio/mpeg" : "video/mp4"),
         });
 
         if (result?.videoId) {
@@ -663,14 +687,15 @@ export default function CampaignResult() {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const isVideo = file.type.startsWith("video/");
-    const isImage = file.type.startsWith("image/");
-    if (!isVideo && !isImage) {
-      toast.error("Tipo inválido. Use JPG, PNG, GIF, WebP, MP4 ou MOV.");
+    const isVideo = isVideoFile(file);
+    const isAudio = isAudioFile(file);
+    const isImage = isImageFile(file);
+    if (!isVideo && !isAudio && !isImage) {
+      toast.error("Tipo inválido. Use imagem (JPG, PNG, GIF, WebP), vídeo (MP4, MOV, WEBM, AVI, MKV) ou áudio (MP3, AAC, WAV).");
       return;
     }
     setMediaFile(file);
-    setMediaType(isVideo ? "video" : "image");
+    setMediaType(isVideo || isAudio ? "video" : "image");
     setUploadDone(false);
     setUploadedHash("");
     setUploadedVid("");
@@ -2360,7 +2385,7 @@ export default function CampaignResult() {
                               }}>
                                 +
                                 <input id="meta-media-input-multi" type="file" multiple
-                                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,video/mp4,video/mov"
+                                  accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,video/mp4,video/mov,video/quicktime,video/mpeg,video/webm,video/avi,video/x-matroska,audio/mpeg,audio/mp3,audio/aac,audio/wav,audio/ogg,.mp4,.mov,.mp3,.mpeg,.webm,.avi,.mkv,.aac,.wav"
                                   style={{ display: "none" }}
                                   onChange={e => {
                                     const files = Array.from(e.target.files || []) as File[];
@@ -2462,12 +2487,12 @@ export default function CampaignResult() {
                       ) : (
                         <label htmlFor="meta-media-input-multi" style={{ cursor: "pointer" }}>
                           <div style={{ border: "2px dashed var(--border)", borderRadius: 12, padding: 20, textAlign: "center" }}>
-                            <div style={{ fontSize: 32, marginBottom: 8 }}>📸</div>
-                            <p style={{ fontSize: 12, fontWeight: 700, color: "var(--body)", margin: "0 0 4px" }}>Clique para adicionar fotos ou um vídeo</p>
-                            <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>JPG, PNG, WebP, GIF ou MP4/MOV · até 10 fotos ou 1 vídeo</p>
+                            <div style={{ fontSize: 32, marginBottom: 8 }}>📸🎬🎵</div>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: "var(--body)", margin: "0 0 4px" }}>Clique para adicionar fotos, vídeo ou áudio</p>
+                            <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>JPG, PNG, WebP, GIF · MP4, MOV, WEBM, AVI, MKV · MP3, AAC, WAV · até 10 fotos ou 1 vídeo/áudio</p>
                           </div>
                           <input id="meta-media-input-multi" type="file" multiple
-                            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,video/mp4,video/mov"
+                            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,video/mp4,video/mov,video/quicktime,video/mpeg,video/webm,video/avi,video/x-matroska,audio/mpeg,audio/mp3,audio/aac,audio/wav,audio/ogg,.mp4,.mov,.mp3,.mpeg,.webm,.avi,.mkv,.aac,.wav"
                             style={{ display: "none" }}
                             onChange={e => {
                               const files = Array.from(e.target.files || []) as File[];
