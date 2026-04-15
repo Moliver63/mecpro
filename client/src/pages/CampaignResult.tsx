@@ -637,11 +637,15 @@ export default function CampaignResult() {
   }
 
   async function handleManualCreativeImage(file: File, creativeIndex: number, format: "feed" | "stories" | "square") {
-    if (!file.type.startsWith("image/")) {
-      toast.error("Selecione uma imagem JPG, PNG, WebP ou GIF.");
+    const isVid = isVideoFile(file);
+    const isAud = isAudioFile(file);
+    const isImg = isImageFile(file);
+
+    if (!isVid && !isAud && !isImg) {
+      toast.error("Tipo inválido. Use imagem (JPG, PNG, WebP, GIF), vídeo (MP4, MOV, WEBM, AVI, MKV) ou áudio (MP3, AAC, WAV).");
       return;
     }
-    if (!uploadImageMutation.mutateAsync || !updateCreativeImageMutation.mutateAsync) {
+    if (!updateCreativeImageMutation.mutateAsync) {
       toast.error("Função de upload manual indisponível. Recarregue a página.");
       return;
     }
@@ -661,25 +665,53 @@ export default function CampaignResult() {
       }
 
       const sizeBytes = Math.ceil(base64.length * 0.75);
+
+      // ── Vídeo ou Áudio ──
+      if (isVid || isAud) {
+        if (sizeBytes > 200 * 1024 * 1024) {
+          toast.error(`Arquivo muito grande (${(sizeBytes/1024/1024).toFixed(1)}MB). Limite: 200MB.`);
+          return;
+        }
+        if (!uploadVideoMutation.mutateAsync) {
+          toast.error("Função de upload de vídeo indisponível. Recarregue a página.");
+          return;
+        }
+        toast.info?.(`📤 Enviando ${isAud ? "áudio" : "vídeo"}: ${file.name} (${(sizeBytes/1024/1024).toFixed(1)}MB)...`);
+        const vidResult = await uploadVideoMutation.mutateAsync({
+          videoBase64: base64,
+          fileName: file.name || "ad_video.mp4",
+          mimeType: file.type || "video/mp4",
+        });
+        if (!vidResult?.videoId) { toast.error("Upload concluído mas sem videoId retornado."); return; }
+        await updateCreativeImageMutation.mutateAsync({
+          campaignId: id, creativeIndex, format,
+          videoId: vidResult.videoId,
+        });
+        toast.success(`✅ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
+        return;
+      }
+
+      // ── Imagem ──
       if (sizeBytes > 4 * 1024 * 1024) {
         toast.error(`Imagem muito grande (${(sizeBytes / 1024 / 1024).toFixed(1)}MB). Limite: 4MB.`);
         return;
       }
-
+      if (!uploadImageMutation.mutateAsync) {
+        toast.error("Função de upload de imagem indisponível. Recarregue a página.");
+        return;
+      }
       const uploadResult = await uploadImageMutation.mutateAsync({
         imageBase64: base64,
         fileName: file.name || `creative-${creativeIndex + 1}.jpg`,
       });
-
       await updateCreativeImageMutation.mutateAsync({
-        campaignId: id,
-        creativeIndex,
-        format,
+        campaignId: id, creativeIndex, format,
         imageUrl: uploadResult?.url || undefined,
         imageHash: uploadResult?.hash || undefined,
       });
+      toast.success(`✅ Imagem atualizada no criativo ${creativeIndex + 1}!`);
     } catch (e: any) {
-      toast.error(`Erro ao trocar imagem: ${e?.message || "falha desconhecida"}`);
+      toast.error(`Erro ao trocar mídia: ${e?.message || "falha desconhecida"}`);
       setReplacingCreativeImage(null);
     }
   }
@@ -1425,12 +1457,12 @@ export default function CampaignResult() {
                           <label
                             htmlFor={`creative-image-input-${i}`}
                             style={{ fontSize: 11, fontWeight: 700, background: "#ecfccb", color: "#3f6212", border: "1px solid #bef264", borderRadius: 8, padding: "6px 10px", cursor: replacingCreativeImage === i ? "wait" : "pointer", opacity: replacingCreativeImage === i ? 0.7 : 1 }}>
-                            {replacingCreativeImage === i ? "⏳ Enviando..." : "⬆️ Trocar foto manualmente"}
+                            {replacingCreativeImage === i ? "⏳ Enviando..." : "⬆️ Trocar foto/vídeo"}
                           </label>
                           <input
                             id={`creative-image-input-${i}`}
                             type="file"
-                            accept="image/*"
+                            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,video/mp4,video/mov,video/quicktime,video/webm,video/avi,audio/mpeg,audio/mp3,audio/aac,audio/wav,.mp4,.mov,.mp3,.webm,.avi,.mkv,.aac,.wav"
                             style={{ display: "none" }}
                             onChange={(e) => {
                               const file = e.target.files?.[0];

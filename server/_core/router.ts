@@ -3994,8 +3994,10 @@ const integrationsRouter = router({
 
   // -- Lista Lead Forms de uma Página ----------------------------------------
   listLeadForms: protectedProcedure
-    .input(z.object({ pageId: z.string().trim().min(1, "Selecione uma página do Facebook antes de listar formulários.") }))
+    .input(z.object({ pageId: z.string().trim().default("") }))
     .query(async ({ input, ctx }) => {
+      // Retorna lista vazia silenciosamente se pageId não foi selecionado ainda
+      if (!input.pageId) return [];
       const integration = await db.getApiIntegration(ctx.user.id, "meta");
       if (!integration || !(integration as any).accessToken)
         throw new TRPCError({ code: "BAD_REQUEST", message: "Conta Meta não conectada." });
