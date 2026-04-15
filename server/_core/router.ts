@@ -2040,7 +2040,20 @@ const campaignsRouter = router({
             fbtrace_id: data?.error?.fbtrace_id,
             full_error: JSON.stringify(data?.error),
           });
-          throw new TRPCError({ code: "BAD_REQUEST", message: `Meta ${tag}: ${msg}` });
+          // Mensagens de erro amigáveis para erros conhecidos
+          const subcode = data?.error?.error_subcode;
+          const errorCode = data?.error?.code;
+          let friendlyMsg = msg;
+
+          if (subcode === 1487246) {
+            friendlyMsg = "O número de WhatsApp informado não está vinculado à sua conta Meta Business. Acesse business.facebook.com → Configurações → Contas do WhatsApp e vincule o número antes de publicar.";
+          } else if (subcode === 1443050 || msg.includes("video_id") || msg.includes("link_data")) {
+            friendlyMsg = "Erro no formato do criativo de vídeo. O vídeo foi enviado corretamente mas houve conflito na estrutura do anúncio. Tente publicar novamente — o sistema foi corrigido.";
+          } else if (errorCode === 100 && msg.includes("Invalid parameter")) {
+            friendlyMsg = `Parâmetro inválido na Meta API: ${userMessage || rawMessage}`;
+          }
+
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Meta ${tag}: ${friendlyMsg}` });
         }
         return data as T;
       }
@@ -2454,26 +2467,43 @@ const campaignsRouter = router({
           };
           log.info("meta", "Criativo carrossel", { cards: child_attachments.length, pageId: input.pageId });
         } else {
-          // -- Formato imagem simples ---------------------------------------
-          storySpec = {
-            page_id: input.pageId,
-            link_data: {
-              message:        selectedMessage,
-              name:           selectedHeadline,
-              link:           finalLink,
-              call_to_action: {
-                type: noLinkRequired && !effectiveLink && !isWhatsAppDestination ? "LEARN_MORE" : ctaType,
-                ...(noLinkRequired && !effectiveLink && !isWhatsAppDestination ? {} : { value: ctaValue }),
+          // -- Formato vídeo (video_data) ou imagem simples (link_data) ------
+          // A Meta exige estruturas DIFERENTES para vídeo vs imagem:
+          // Vídeo → object_story_spec.video_data
+          // Imagem → object_story_spec.link_data (com image_hash ou picture)
+          if (effectiveVideoId) {
+            storySpec = {
+              page_id: input.pageId,
+              video_data: {
+                video_id:       effectiveVideoId,
+                message:        selectedMessage,
+                title:          selectedHeadline,
+                call_to_action: {
+                  type:  ctaType,
+                  value: ctaValue,
+                },
               },
-              ...(effectiveVideoId
-                ? { video_id: effectiveVideoId }
-                : resolvedImageHash
+            };
+            log.info("meta", "Criativo vídeo via video_data", { videoId: effectiveVideoId, pageId: input.pageId });
+          } else {
+            storySpec = {
+              page_id: input.pageId,
+              link_data: {
+                message:        selectedMessage,
+                name:           selectedHeadline,
+                link:           finalLink,
+                call_to_action: {
+                  type: noLinkRequired && !effectiveLink && !isWhatsAppDestination ? "LEARN_MORE" : ctaType,
+                  ...(noLinkRequired && !effectiveLink && !isWhatsAppDestination ? {} : { value: ctaValue }),
+                },
+                ...(resolvedImageHash
                   ? { image_hash: resolvedImageHash }
                   : resolvedImageUrl
                     ? { picture: resolvedImageUrl }
                     : {}),
-            },
-          };
+              },
+            };
+          }
         }
       }
 
