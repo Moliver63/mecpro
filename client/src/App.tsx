@@ -79,6 +79,7 @@ import AdminAccountSettings from "@/pages/AdminAccountSettings";
 import AdminRoles from "@/pages/AdminRoles";
 import AdminPlanRequests from "@/pages/AdminPlanRequests";
 import FacebookCampaignCreator from "@/pages/FacebookCampaignCreator";
+import AutonomousAgent from "@/pages/AutonomousAgent";
 import GoogleAdsIntegration from "@/pages/GoogleAdsIntegration";
 import GoogleCampaignCreator from "@/pages/GoogleCampaignCreator";
 import GoogleCampaigns from "@/pages/GoogleCampaigns";
@@ -175,6 +176,7 @@ export default function App() {
             <Route path="/tiktok-campaigns"><ProtectedRoute><TikTokCampaigns /></ProtectedRoute></Route>
             <Route path="/unified-dashboard"><ProtectedRoute><UnifiedDashboard /></ProtectedRoute></Route>
             <Route path="/facebook-campaign/new"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
+            <Route path="/autonomous-agent"><ProtectedRoute><AutonomousAgent /></ProtectedRoute></Route>
             <Route path="/projects/:id/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/consultas"><ProtectedRoute><Consultas /></ProtectedRoute></Route>
             <Route path="/billing"><ProtectedRoute><Billing /></ProtectedRoute></Route>

@@ -627,7 +627,7 @@ const MARKET_NICHE_BENCHMARKS: Record<string, {
 
 // ── Meta Insights API — busca métricas reais da conta do usuário ──
 // Aceita token e accountId do projeto/usuário (multi-tenant)
-async function fetchMetaInsightsBenchmarks(
+export async function fetchMetaInsightsBenchmarks(
   tokenOverride?: string,
   accountIdOverride?: string
 ): Promise<{

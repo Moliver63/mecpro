@@ -5303,6 +5303,63 @@ const unifiedRouter = router({
     }),
 });
 
+// ─── Autonomous Agent Router ─────────────────────────────────────────────────
+const autonomousAgentRouter = router({
+
+  // Roda o agente para uma campanha específica
+  runForCampaign: protectedProcedure
+    .input(z.object({ campaignId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { runAgentForCampaign } = await import("../autonomousAgent.js");
+      const decision = await runAgentForCampaign(input.campaignId, ctx.user.id);
+      if (!decision) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada ou sem dados publicados." });
+      return decision;
+    }),
+
+  // Roda o agente para todas as campanhas de um projeto
+  runForProject: protectedProcedure
+    .input(z.object({ projectId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { runAgentForProject } = await import("../autonomousAgent.js");
+      const decisions = await runAgentForProject(input.projectId, ctx.user.id);
+      return {
+        total:     decisions.length,
+        decisions: decisions.map(d => ({
+          campaignId: d.campaignId,
+          action:     d.action,
+          score:      d.score,
+          reason:     d.reason,
+          executed:   d.executed,
+          llmUsed:    d.llmUsed,
+          metrics:    d.metrics ? {
+            ctr:   +d.metrics.ctr.toFixed(2),
+            cpc:   +d.metrics.cpc.toFixed(2),
+            spend: +d.metrics.spend.toFixed(2),
+          } : null,
+        })),
+        summary: {
+          paused:    decisions.filter(d => d.action === "pause_campaign").length,
+          scaled:    decisions.filter(d => d.action === "scale_budget").length,
+          adjusted:  decisions.filter(d => d.action === "adjust_budget").length,
+          creatives: decisions.filter(d => d.action === "suggest_creative").length,
+          executed:  decisions.filter(d => d.executed).length,
+        },
+      };
+    }),
+
+  // Status do agente (modo atual, LLM principal)
+  status: protectedProcedure
+    .query(() => ({
+      mode:          process.env.AUTONOMOUS_AGENT_MODE || "observe",
+      llmPrincipal:  process.env.ANTHROPIC_API_KEY ? "claude" : "gemini",
+      claudeEnabled: !!process.env.ANTHROPIC_API_KEY,
+      thresholds: {
+        pause:  Number(process.env.AGENT_PAUSE_THRESHOLD  || 35),
+        scale:  Number(process.env.AGENT_SCALE_THRESHOLD  || 78),
+      },
+    })),
+});
+
 export const appRouter = router({
   auth: authRouter,
   projects: projectsRouter,
@@ -5319,6 +5376,7 @@ export const appRouter = router({
   googleCampaigns: googleCampaignsRouter,
   tiktokCampaigns: tiktokCampaignsRouter,
   tiktokBulk: tiktokBulkRouter,
+  agent: autonomousAgentRouter,
   unified: unifiedRouter,
   tiktokVideo: tiktokVideoRouter,
   alerts: alertsRouter,
