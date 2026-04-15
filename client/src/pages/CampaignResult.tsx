@@ -200,16 +200,64 @@ export default function CampaignResult() {
       const integration = (metaIntegration as any[])?.find(i => i.provider === "meta");
       const token = integration?.accessToken;
       if (!token) { toast.error("Token Meta não encontrado. Reconecte em Configurações → Meta Ads."); return; }
-      const res = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${token}`);
+
+      // Busca páginas + campos de WhatsApp vinculado automaticamente
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,phone,whatsapp_connected_id,connected_instagram_account&access_token=${token}`
+      );
       const data = await res.json();
       if (data.error) { toast.error(`Erro ao buscar páginas: ${data.error.message}`); return; }
       const list = data.data || [];
       setPages(list);
-      if (list.length === 1) setPageId(list[0].id);
+
+      if (list.length === 1) {
+        setPageId(list[0].id);
+
+        // Auto-detecta WhatsApp vinculado à página
+        await autoDetectWhatsApp(list[0], token);
+      }
       if (list.length === 0) toast.error("Nenhuma página encontrada nessa conta.");
     } catch (e: any) {
       toast.error("Erro ao buscar páginas do Facebook.");
     } finally { setLoadingPages(false); }
+  }
+
+  // Busca automaticamente o WhatsApp vinculado à página ou Business Manager
+  async function autoDetectWhatsApp(page: any, token: string) {
+    try {
+      // 1. Tenta pegar o número vinculado direto na página
+      if (page.whatsapp_connected_id || page.phone) {
+        const phone = page.whatsapp_connected_id || page.phone;
+        const digits = String(phone).replace(/\D/g, "");
+        if (digits.length >= 8) {
+          const waUrl = `https://wa.me/${digits}`;
+          // Atualiza o linkUrl automaticamente se não tiver sido preenchido
+          if (!linkUrl.trim()) {
+            setLinkUrl(waUrl);
+            toast.success(`✅ WhatsApp detectado automaticamente: +${digits}`);
+          }
+          return;
+        }
+      }
+
+      // 2. Tenta buscar via WhatsApp Business Accounts do Business Manager
+      const waRes = await fetch(
+        `https://graph.facebook.com/v19.0/${page.id}?fields=whatsapp_connected_id,phone_number&access_token=${token}`
+      );
+      const waData = await waRes.json();
+      if (!waData.error) {
+        const phone = waData.whatsapp_connected_id || waData.phone_number;
+        if (phone) {
+          const digits = String(phone).replace(/\D/g, "");
+          if (digits.length >= 8 && !linkUrl.trim()) {
+            setLinkUrl(`https://wa.me/${digits}`);
+            toast.success(`✅ WhatsApp detectado via página: +${digits}`);
+          }
+        }
+      }
+    } catch {
+      // Silencioso — WhatsApp é opcional
+    }
   }
 
   const publishMutation = trpc.campaigns.publishToMeta.useMutation({
@@ -2019,7 +2067,15 @@ export default function CampaignResult() {
                   <div style={{ fontSize: 13, color: "var(--muted)", padding: "10px 0", marginBottom: 14 }}>⏳ Buscando suas páginas...</div>
                 ) : pages.length > 0 ? (
                   <div style={{ marginBottom: 14 }}>
-                    <select className="input" style={{ width: "100%", marginBottom: 4 }} value={pageId} onChange={e => setPageId(e.target.value)}>
+                    <select className="input" style={{ width: "100%", marginBottom: 4 }} value={pageId} onChange={e => {
+                      setPageId(e.target.value);
+                      // Auto-detecta WhatsApp da página selecionada
+                      const selected = pages.find((p: any) => p.id === e.target.value);
+                      const integration = (metaIntegration as any[])?.find(i => i.provider === "meta");
+                      if (selected && integration?.accessToken) {
+                        autoDetectWhatsApp(selected, integration.accessToken);
+                      }
+                    }}>
                       <option value="">Selecione uma página...</option>
                       {pages.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
                     </select>

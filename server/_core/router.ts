@@ -3718,6 +3718,38 @@ const integrationsRouter = router({
       }
     }),
 
+  // ── Buscar WhatsApp vinculado à página do Facebook ──────────────────────────
+  getPageWhatsApp: protectedProcedure
+    .input(z.object({ pageId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado." });
+      const token = (integration as any).accessToken as string;
+
+      // Tenta múltiplos campos que podem conter o número WhatsApp
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,phone_number,phone&access_token=${token}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      const data: any = await res.json();
+      if (data.error) return { found: false, phone: null, waUrl: null };
+
+      const rawPhone = data.whatsapp_connected_id || data.phone_number || data.phone;
+      if (!rawPhone) return { found: false, phone: null, waUrl: null };
+
+      const digits = String(rawPhone).replace(/\D/g, "");
+      if (digits.length < 8) return { found: false, phone: null, waUrl: null };
+
+      // Garante código do país (55 para Brasil se não tiver)
+      const fullDigits = digits.startsWith("55") ? digits : `55${digits}`;
+      return {
+        found:  true,
+        phone:  `+${fullDigits}`,
+        waUrl:  `https://wa.me/${fullDigits}`,
+      };
+    }),
+
   // ── Post Orgânico na Página do Facebook ────────────────────────────────────
   publishOrganicPost: protectedProcedure
     .input(z.object({
