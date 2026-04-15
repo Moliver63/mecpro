@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
+import WhatsAppField from "@/components/WhatsAppField";
 
 const OBJECTIVES = [
   { value: "leads",      label: "Captação de leads" },
@@ -239,10 +240,39 @@ export default function ClientProfile() {
             <p style={{ fontSize: 14, fontWeight: 800, color: "var(--navy)", marginBottom: 18, fontFamily: "var(--font-display)" }}>🚧 Objeções & Contatos</p>
             <Field label="Principais objeções de compra" placeholder="Ex: Preço alto, não tenho tempo..." textarea
               value={form.mainObjections ?? ""} onChange={v => set("mainObjections", v)} />
-            <Field label="Redes sociais / Contatos" placeholder="Ex: Instagram: @suaempresa · WhatsApp: (11) 99999-9999" textarea
+            {/* WhatsApp dedicado para anúncios */}
+            <div style={{ marginBottom: 16 }}>
+              <WhatsAppField
+                label="WhatsApp para Anúncios (Meta Ads)"
+                value={waPhone}
+                onChange={v => {
+                  setWaPhone(v);
+                  // Sincroniza automaticamente no socialLinks
+                  try {
+                    const social = JSON.parse(form.socialLinks || "{}");
+                    social.whatsapp = v;
+                    set("socialLinks", JSON.stringify(social));
+                  } catch {
+                    set("socialLinks", JSON.stringify({ whatsapp: v }));
+                  }
+                }}
+                onSaved={(phone, waUrl) => {
+                  setWaPhone(phone);
+                  try {
+                    const social = JSON.parse(form.socialLinks || "{}");
+                    social.whatsapp = waUrl;
+                    social.whatsappUrl = waUrl;
+                    set("socialLinks", JSON.stringify(social));
+                  } catch {
+                    set("socialLinks", JSON.stringify({ whatsapp: waUrl, whatsappUrl: waUrl }));
+                  }
+                }}
+              />
+            </div>
+            <Field label="Redes sociais / Contatos" placeholder="Ex: Instagram: @suaempresa · Site: https://..." textarea
               value={form.socialLinks ?? ""} onChange={v => set("socialLinks", v)} />
             <p style={{ fontSize: 11, color: "var(--muted)", marginTop: -10 }}>
-              Dica: informe pelo menos um destino válido para publicação automática, como site, WhatsApp ou Instagram.
+              Dica: o WhatsApp acima é usado automaticamente como destino dos anúncios Meta.
             </p>
           </div>
         </div>

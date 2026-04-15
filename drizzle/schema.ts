@@ -105,6 +105,7 @@ export const scrapedAds = pgTable("scraped_ads", {
   imageUrl: text("imageUrl"),
   videoUrl: text("videoUrl"),
   landingPageUrl: text("landingPageUrl"),
+  whatsappPhone: varchar("whatsappPhone", { length: 50 }),  // WhatsApp vinculado à conta Meta
   isActive: integer("isActive").default(1).notNull(),
   startDate: timestamp("startDate"),
   rawData: text("rawData"),
@@ -180,6 +181,7 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   hasExportPdf: integer("hasExportPdf").default(0).notNull(),
   hasExportXlsx: integer("hasExportXlsx").default(0).notNull(),
   stripePriceId: varchar("stripePriceId", { length: 255 }),
+  whatsappPhone: varchar("whatsappPhone", { length: 50 }),  // WhatsApp vinculado à conta Meta
   isActive: integer("isActive").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -237,6 +239,7 @@ export const apiIntegrations = pgTable("api_integrations", {
   developerToken: varchar("developerToken", { length: 255 }), // Google Ads developer token
   tokenExpiry: timestamp("tokenExpiry"),                  // TikTok/Google token expiry
   tokenExpiresAt: timestamp("tokenExpiresAt"),            // OAuth token expiry (Meta)
+  whatsappPhone: varchar("whatsappPhone", { length: 50 }),  // WhatsApp vinculado à conta Meta
   isActive: integer("isActive").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),

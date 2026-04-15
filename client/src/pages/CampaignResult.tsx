@@ -6,6 +6,7 @@ import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/comp
 import { useEffect, useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
+import WhatsAppField from "@/components/WhatsAppField";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
 import { resolveLegacyImageUrlByFormat, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
@@ -2145,21 +2146,49 @@ export default function CampaignResult() {
                             </div>
                           )}
                           {(leadDestination === "website" || !isLeads) && (
-                            <input
-                              className="input"
-                              placeholder="https://seusite.com.br/pagina-de-vendas"
-                              value={linkUrl}
-                              onChange={e => setLinkUrl(e.target.value)}
-                              onBlur={e => {
-                                const normalized = normalizeDestinationUrl(e.target.value);
-                                if (normalized) setLinkUrl(normalized);
-                              }}
-                              style={{
-                                width: "100%",
-                                borderColor: isRequired && !linkUrl.trim() ? "#ef4444" : undefined,
-                                fontSize: 13,
-                              }}
-                            />
+                            <div>
+                              {/* Atalho WhatsApp */}
+                              <div style={{ marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>Atalho:</span>
+                                {(metaIntegration as any[])?.find(i => i.provider === "meta")?.whatsappPhone && (
+                                  <button
+                                    onClick={() => setLinkUrl(`https://wa.me/${((metaIntegration as any[]).find(i => i.provider === "meta")?.whatsappPhone || "").replace(/\D/g,"")}`)}
+                                    style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, border: "1px solid #25d366", background: "#f0fdf4", color: "#16a34a", cursor: "pointer" }}>
+                                    📱 Usar WhatsApp salvo
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    const wa = prompt("Digite o número WhatsApp (ex: 47999465824):");
+                                    if (wa) setLinkUrl(`https://wa.me/${wa.replace(/\D/g,"")}`);
+                                  }}
+                                  style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, border: "1px solid #e2e8f0", background: "#f8fafc", color: "#475569", cursor: "pointer" }}>
+                                  ➕ Inserir WhatsApp
+                                </button>
+                              </div>
+                              <input
+                                className="input"
+                                placeholder="https://seusite.com.br  ou  https://wa.me/5547999999999"
+                                value={linkUrl}
+                                onChange={e => setLinkUrl(e.target.value)}
+                                onBlur={e => {
+                                  const normalized = normalizeDestinationUrl(e.target.value);
+                                  if (normalized) setLinkUrl(normalized);
+                                }}
+                                style={{
+                                  width: "100%",
+                                  borderColor: isRequired && !linkUrl.trim() ? "#ef4444" : undefined,
+                                  fontSize: 13,
+                                }}
+                              />
+                              {/* Preview do link */}
+                              {linkUrl.includes("wa.me") && (
+                                <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 11, color: "#16a34a", fontWeight: 600 }}>📱 Destino WhatsApp detectado</span>
+                                  <a href={linkUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#25d366" }}>Testar link</a>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>

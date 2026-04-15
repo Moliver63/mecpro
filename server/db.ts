@@ -613,6 +613,7 @@ export async function upsertApiIntegration(data: {
   developerToken?: string;   // Google Ads developer token
   tokenExpiry?: Date;        // TikTok/Google token expiry
   tokenExpiresAt?: Date; isActive?: number;
+  whatsappPhone?: string;    // WhatsApp vinculado à conta Meta
 }) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
   const existing = await getApiIntegration(data.userId, data.provider);

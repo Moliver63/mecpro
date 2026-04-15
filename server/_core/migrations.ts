@@ -142,6 +142,8 @@ export async function runMigrations(): Promise<void> {
     `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "videoUrl"       TEXT`,
     `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "landingPageUrl" TEXT`,
     `ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "rawData"        TEXT`,
+    // WhatsApp vinculado à conta Meta
+    `ALTER TABLE api_integrations ADD COLUMN IF NOT EXISTS "whatsappPhone" VARCHAR(50)`,
   ];
   for (const q of scrapedAdsCols) { await pool.query(q); }
 

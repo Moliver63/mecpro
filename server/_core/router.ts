@@ -3285,6 +3285,69 @@ const notificationsRouter = router({
 const integrationsRouter = router({
   list: protectedProcedure.query(({ ctx }) => db.listApiIntegrations(ctx.user.id)),
 
+  // ── Salvar e validar WhatsApp na conta Meta ──────────────────────────────
+  saveWhatsApp: protectedProcedure
+    .input(z.object({
+      phone:  z.string().min(6),
+      pageId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado. Acesse Configurações → Meta Ads primeiro." });
+
+      const token = (integration as any).accessToken as string;
+
+      // Normaliza número: remove tudo exceto dígitos, garante código do país BR
+      const digits = input.phone.replace(/\D/g, "");
+      const fullDigits = digits.startsWith("55") ? digits : `55${digits}`;
+      const waUrl = `https://wa.me/${fullDigits}`;
+
+      // Valida vínculo na Meta se pageId fornecido
+      let linked = false;
+      let linkedPageName = "";
+      if (input.pageId) {
+        try {
+          const res = await fetch(
+            `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,name&access_token=${token}`,
+            { signal: AbortSignal.timeout(8000) }
+          );
+          const pageData: any = await res.json();
+          const connectedPhone = pageData?.whatsapp_connected_id
+            ? String(pageData.whatsapp_connected_id).replace(/\D/g, "")
+            : null;
+          linked = !!(connectedPhone && (
+            fullDigits.endsWith(connectedPhone) || connectedPhone.endsWith(fullDigits.slice(-8))
+          ));
+          linkedPageName = pageData?.name || "";
+        } catch {}
+      }
+
+      // Salva na integração Meta do usuário
+      await db.upsertApiIntegration({
+        userId: ctx.user.id,
+        provider: "meta",
+        whatsappPhone: `+${fullDigits}`,
+      } as any);
+
+      log.info("server", "WhatsApp salvo", {
+        userId: ctx.user.id, phone: `+${fullDigits}`, linked, linkedPageName,
+      });
+
+      return {
+        saved:   true,
+        phone:   `+${fullDigits}`,
+        waUrl,
+        linked,
+        linkedPageName,
+        warning: !linked && input.pageId
+          ? `Número salvo, mas não está vinculado à página "${linkedPageName || input.pageId}" no Meta Business Manager.`
+          : !input.pageId
+            ? "Número salvo. Selecione uma página para verificar o vínculo."
+            : null,
+      };
+    }),
+
 
 
   upsertTikTok: protectedProcedure
@@ -3745,6 +3808,8 @@ const integrationsRouter = router({
         });
       }
     }),
+
+
 
   // ── Buscar WhatsApp vinculado à página do Facebook ──────────────────────────
   getPageWhatsApp: protectedProcedure

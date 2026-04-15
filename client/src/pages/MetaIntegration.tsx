@@ -1,4 +1,5 @@
 import { useState } from "react";
+import WhatsAppField from "@/components/WhatsAppField";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -129,6 +130,7 @@ export default function MetaIntegration() {
   const [appId,       setAppId]       = useState("");
   const [appSecret,   setAppSecret]   = useState("");
   const [saving,      setSaving]      = useState(false);
+  const [waPhone,     setWaPhone]     = useState((existing as any)?.whatsappPhone || "");
   const [testing,     setTesting]     = useState(false);
 
   async function handleSave() {
@@ -226,6 +228,17 @@ export default function MetaIntegration() {
                   style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", color: "#dc2626", cursor: "pointer" }}>
                   Remover
                 </button>
+              </div>
+
+              {/* WhatsApp vinculado */}
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #dcfce7" }}>
+                <WhatsAppField
+                  label="WhatsApp para Anúncios"
+                  value={waPhone}
+                  onChange={setWaPhone}
+                  onSaved={(phone) => setWaPhone(phone)}
+                  compact
+                />
               </div>
 
               {/* Painel de diagnóstico — aparece após testar */}
