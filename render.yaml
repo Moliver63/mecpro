@@ -5,3 +5,13 @@ services:
     buildCommand: npm install && npm run build
     startCommand: node_modules/.bin/cross-env NODE_ENV=production node_modules/.bin/tsx server/_core/index.ts
     autoDeploy: true
+    envVars:
+      - key: AUTONOMOUS_AGENT_MODE
+        value: observe  # Mude para 'semi' ou 'active' quando pronto
+
+  - type: cron
+    name: mecpro-autonomous-agent
+    env: node
+    buildCommand: npm install
+    schedule: "0 */6 * * *"  # A cada 6 horas (ajuste conforme necessidade)
+    startCommand: node_modules/.bin/cross-env NODE_ENV=production node_modules/.bin/tsx server/autonomousWorker.ts
