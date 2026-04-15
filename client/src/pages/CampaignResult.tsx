@@ -522,13 +522,13 @@ export default function CampaignResult() {
     const hasReelsReadyCreative = mergedCreatives.some((cr: any) => !!cr.publishMedia?.videoId);
 
     if (requiresStoryAsset && !hasStoryReadyCreative && !hasUploadedMedia) {
-      toast.error("Stories exigem criativo vertical 9:16 dedicado. Gere ou envie uma mídia específica de stories antes de publicar.");
-      return;
+      toast.warning?.("⚠️ Sem mídia 9:16 dedicada — publicando stories com criativo de feed. Para melhor resultado, envie uma mídia vertical.");
+      // Não bloqueia — publica com mídia disponível
     }
 
     if (requiresReelsVideo && !uploadedVid && !hasReelsReadyCreative) {
-      toast.error("Reels exige vídeo vertical 9:16. Faça upload de um vídeo antes de publicar nesses placements.");
-      return;
+      toast.warning?.("⚠️ Reels sem vídeo dedicado — publicando com imagem. Para melhor resultado, envie um vídeo vertical.");
+      // Não bloqueia — publica com imagem
     }
 
     // Apenas sales e traffic exigem URL externa obrigatoriamente

@@ -2160,7 +2160,39 @@ const campaignsRouter = router({
         ? "input.linkUrl"
         : autoDestination.source || (pageFallback ? "pageId_facebook_page" : undefined);
       const whatsappDestination = dest === "lead_form" ? {} : extractWhatsAppDetails(effectiveLink);
-      const isWhatsAppDestination = !!whatsappDestination.link;
+      let isWhatsAppDestination = !!whatsappDestination.link;
+
+      // ── Validação prévia: verifica se número WhatsApp está vinculado na conta ──
+      if (isWhatsAppDestination && whatsappDestination.phone && input.pageId) {
+        try {
+          const waCheckRes = await fetch(
+            `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id&access_token=${token}`,
+            { signal: AbortSignal.timeout(5000) }
+          );
+          const waCheckData: any = await waCheckRes.json().catch(() => ({}));
+          const connectedPhone = waCheckData?.whatsapp_connected_id
+            ? String(waCheckData.whatsapp_connected_id).replace(/\D/g, "")
+            : null;
+          const requestedPhone = whatsappDestination.phone.replace(/\D/g, "");
+
+          if (connectedPhone && !requestedPhone.endsWith(connectedPhone) && !connectedPhone.endsWith(requestedPhone)) {
+            log.warn("meta", "WhatsApp não vinculado — fallback para website", {
+              requested: requestedPhone, connected: connectedPhone, pageId: input.pageId,
+            });
+            // Fallback: usa site do cliente ou página do Facebook
+            isWhatsAppDestination = false;
+            (whatsappDestination as any).link = null;
+          } else if (!connectedPhone) {
+            log.warn("meta", "Página sem WhatsApp vinculado — fallback para website", { pageId: input.pageId });
+            isWhatsAppDestination = false;
+            (whatsappDestination as any).link = null;
+          }
+        } catch {
+          // Se verificação falhar, tenta publicar mesmo assim
+          log.warn("meta", "Falha ao verificar WhatsApp — tentando publicar com WhatsApp");
+        }
+      }
+
       const finalLink = isWhatsAppDestination
         ? whatsappDestination.link!
         : (effectiveLink || `https://www.facebook.com/${input.pageId}`);
@@ -2342,18 +2374,14 @@ const campaignsRouter = router({
       const resolvedImageHash = effectiveImageHash;
       const resolvedImageUrl = effectiveImageUrl;
 
+      // Stories/Reels sem mídia dedicada: publica com mídia de feed disponível
+      // (aviso no frontend — não bloqueia)
       if ((placementKey === "stories" || placementKey === "reels") && !hasExplicitUploadedMedia && !hasDedicatedStoryMedia && !effectiveVideoId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Stories/Reels exigem criativo vertical dedicado 9:16. Gere ou envie uma mídia específica de stories antes de publicar.",
+        log.warn("meta", "Stories/Reels sem mídia 9:16 dedicada — usando mídia de feed como fallback", {
+          campaignId: input.campaignId, placementKey,
+          hasImage: !!(resolvedImageHash || resolvedImageUrl),
         });
-      }
-
-      if (placementKey === "reels" && !effectiveVideoId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Reels exige vídeo vertical 9:16. Faça upload de um vídeo antes de publicar nesses placements.",
-        });
+        // Continua sem lançar erro
       }
 
       if (!effectiveVideoId && !effectiveImageHash && !effectiveImageUrl && !(effectiveImageHashes?.length) && !(effectiveImageUrls?.length)) {
