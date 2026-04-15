@@ -507,17 +507,19 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
       if (data?.found && data?.pageId) {
         setDiscoveredPageId(data.pageId);
         const methodLabel: Record<string, string> = {
-          graph_direct_handle: "Graph API",
-          ig_oembed_fb_page:   "Instagram oEmbed",
-          ads_library:         "Ads Library",
-          my_pages_exact:      "Suas páginas",
-          graph_slug_var:      "Graph API (variação)",
-          gemini:              "IA",
+          graph_direct_handle:  "Graph API",
+          ig_oembed_fb_page:    "Instagram oEmbed",
+          ads_library:          "Ads Library",
+          my_pages_exact:       "Suas páginas",
+          graph_pages_search:   "Busca de páginas",
+          graph_slug_var:       "Graph API (variação)",
+          gemini:               "IA",
         };
         const via = methodLabel[data.method] || data.method || "auto";
-        toast.success(`✅ Page ID encontrado via ${via}: ${data.pageId}${data.pageName ? " — " + data.pageName : ""}`);
+        const conf = data.confidence === "medium" ? " (confiança média — confirme o nome)" : "";
+        toast.success(`✅ Page ID encontrado via ${via}: ${data.pageId}${data.pageName ? " — " + data.pageName : ""}${conf}`);
       } else {
-        toast.error("❌ Page ID não encontrado. Tente informar o nome exato da Página do Facebook (não o @instagram).");
+        toast.error("❌ Page ID não encontrado automaticamente. Dica: tente usar o nome exato da Página do Facebook (ex: 'Triadi Imóveis') em vez do @instagram.");
       }
     },
     onError: () => toast.error("❌ Erro ao buscar Page ID. Verifique se a integração Meta está ativa."),

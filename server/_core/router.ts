@@ -1410,23 +1410,62 @@ const competitorsRouter = router({
           const pagesData: any = await pagesRes.json();
           if (!pagesData.error && Array.isArray(pagesData.data)) {
             const pages = pagesData.data;
-            // Match exato no slug da página
-            const match = pages.find((p: any) => {
-              const pageSlug = (p.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-              return pageSlug === raw || pageSlug === rawSimple ||
-                     pageSlug === companySlug || p.id === raw;
-            });
+            // Match exato ou parcial no slug da página
+            const pageNames = pages.map((p: any) => ({ id: p.id, name: p.name, slug: (p.name || "").toLowerCase().replace(/[^a-z0-9]/g, "") }));
+            log.info("ai", "discoverPageId Estratégia 3 páginas disponíveis", { pages: pageNames.map(p => p.name) });
+
+            const exactMatch = pageNames.find(p =>
+              p.slug === raw || p.slug === rawSimple || p.slug === companySlug || p.id === raw
+            );
+            // Match parcial: nome da página contém o handle ou vice-versa
+            const partialMatch = !exactMatch && pageNames.find(p =>
+              p.slug.includes(rawSimple) || rawSimple.includes(p.slug) ||
+              p.slug.includes(companySlug) || companySlug.includes(p.slug)
+            );
+            const match = exactMatch || partialMatch;
             if (match) {
-              results.push({ method: "my_pages_exact", pageId: match.id, pageName: match.name, confidence: "high" });
-              log.info("ai", "discoverPageId Estratégia 3 OK", { pageId: match.id, name: match.name });
+              const conf = exactMatch ? "high" : "medium";
+              results.push({ method: "my_pages_exact", pageId: match.id, pageName: match.name, confidence: conf });
+              log.info("ai", "discoverPageId Estratégia 3 OK", { pageId: match.id, name: match.name, exact: !!exactMatch });
             } else {
-              log.info("ai", "discoverPageId Estratégia 3 sem match exato", { pagesCount: pages.length, handles: [raw, rawSimple] });
+              log.info("ai", "discoverPageId Estratégia 3 sem match", { pagesCount: pages.length, slugs: pageNames.map(p => p.slug), handles: [raw, rawSimple, companySlug] });
             }
           } else {
             log.info("ai", "discoverPageId Estratégia 3 erro API", { error: pagesData.error?.message });
           }
         } catch (e: any) {
           log.info("ai", "discoverPageId Estratégia 3 erro", { message: e?.message?.slice(0, 80) });
+        }
+      }
+
+      // ── ESTRATÉGIA 3.5: Graph API pages/search — busca por nome ──
+      if (token && results.length === 0) {
+        tried.push("graph_pages_search");
+        const searchTerms = [...new Set([raw, input.companyName || ""])].filter(Boolean).slice(0, 2);
+        for (const term of searchTerms) {
+          if (results.length > 0) break;
+          try {
+            const url = `https://graph.facebook.com/v20.0/pages/search?q=${encodeURIComponent(term)}&fields=id,name,username&access_token=${token}`;
+            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            const d: any = await res.json();
+            if (!d.error && Array.isArray(d.data) && d.data.length > 0) {
+              // Prioriza match mais próximo pelo nome
+              const termSlug = term.toLowerCase().replace(/[^a-z0-9]/g, "");
+              const best = d.data.find((p: any) => {
+                const s = (p.name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                return s === termSlug || s.includes(termSlug) || termSlug.includes(s);
+              }) || d.data[0];
+              if (best?.id && /^\d+$/.test(String(best.id))) {
+                results.push({ method: "graph_pages_search", pageId: String(best.id), pageName: best.name || term, confidence: "medium" });
+                log.info("ai", "discoverPageId Estratégia 3.5 OK", { term, pageId: best.id, name: best.name });
+                break;
+              }
+            } else {
+              log.info("ai", "discoverPageId Estratégia 3.5 sem resultado", { term, error: d.error?.message });
+            }
+          } catch (e: any) {
+            log.info("ai", "discoverPageId Estratégia 3.5 erro", { term, message: e?.message?.slice(0, 80) });
+          }
         }
       }
 
