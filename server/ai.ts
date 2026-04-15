@@ -1136,17 +1136,31 @@ export async function gemini(
         }
       } catch {}
     }
-    log.warn("ai", "Todos os modelos Gemini indisponíveis — tentando Claude API como fallback");
+    log.warn("ai", "Todos os modelos Gemini indisponíveis — tentando Groq (Llama) como fallback");
     try {
-      const claudeResult = await callClaudeAPI(prompt, opts.systemInstruction, opts.temperature);
-      if (claudeResult) {
-        log.info("ai", "✅ Claude API fallback OK");
-        return claudeResult;
+      const groqResult = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature);
+      if (groqResult) {
+        log.info("ai", "✅ Groq API fallback OK");
+        return groqResult;
       }
-    } catch (claudeErr: any) {
-      log.warn("ai", "Claude API fallback falhou", { message: claudeErr?.message?.slice(0, 80) });
+    } catch (groqErr: any) {
+      log.warn("ai", "Groq API fallback falhou", { message: groqErr?.message?.slice(0, 80) });
     }
-    log.warn("ai", "Claude API também indisponível — usando mock response");
+
+    // Claude como último recurso (se configurado)
+    if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY) {
+      try {
+        const claudeResult = await callClaudeAPI(prompt, opts.systemInstruction, opts.temperature);
+        if (claudeResult) {
+          log.info("ai", "✅ Claude API fallback OK");
+          return claudeResult;
+        }
+      } catch (claudeErr: any) {
+        log.warn("ai", "Claude API fallback falhou", { message: claudeErr?.message?.slice(0, 80) });
+      }
+    }
+
+    log.warn("ai", "Todos os LLMs indisponíveis — usando mock response");
     return mockResponse(prompt);
   }
 
@@ -1158,6 +1172,84 @@ export async function gemini(
     setCachedGemini(cacheKey, result);
   }
   return result;
+}
+
+// ── Groq API — fallback principal quando Gemini está indisponível ────────────
+// Compatível com OpenAI API format. Modelos Llama 3 gratuitos.
+async function callGroqAPI(
+  prompt: string,
+  systemInstruction?: string,
+  temperature: number = 0.3,
+): Promise<string | null> {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    log.info("ai", "Groq API: GROQ_API_KEY não configurada — pulando fallback");
+    return null;
+  }
+
+  // Modelo principal: llama-3.3-70b-versatile
+  // Fallback interno: llama-3.1-8b-instant (mais rápido, menor quota)
+  const models = [
+    process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+  ];
+
+  for (const model of models) {
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature,
+          max_tokens: 8192,
+          response_format: { type: "json_object" }, // força JSON como o Gemini
+          messages: [
+            { role: "system",  content: systemInstruction || SYSTEM_MECPRO },
+            { role: "user",    content: prompt },
+          ],
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (res.status === 429) {
+        log.warn("ai", `Groq rate limit no modelo ${model} — tentando próximo`);
+        continue;
+      }
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        log.warn("ai", `Groq HTTP ${res.status} no modelo ${model}`, { preview: errText.slice(0, 150) });
+        continue;
+      }
+
+      const data: any = await res.json().catch(() => null);
+      if (!data) continue;
+
+      const text = data.choices?.[0]?.message?.content || "";
+      if (!text) {
+        log.warn("ai", `Groq: resposta vazia no modelo ${model}`);
+        continue;
+      }
+
+      log.info("ai", "Groq API OK", {
+        model,
+        inputTok:   data.usage?.prompt_tokens,
+        outputTok:  data.usage?.completion_tokens,
+        finishReason: data.choices?.[0]?.finish_reason,
+      });
+
+      return text;
+
+    } catch (e: any) {
+      log.warn("ai", `Groq erro no modelo ${model}`, { message: e?.message?.slice(0, 80) });
+    }
+  }
+
+  return null;
 }
 
 // ── Claude API — fallback quando Gemini está totalmente indisponível ──────────
@@ -1525,6 +1617,10 @@ export function getHealthStatus() {
     },
     geminiKeys: {
       exhausted: _exhaustedKeys.size,
+    },
+    groqFallback: {
+      configured: !!process.env.GROQ_API_KEY,
+      model:      process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
     },
     claudeFallback: {
       configured: !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY),

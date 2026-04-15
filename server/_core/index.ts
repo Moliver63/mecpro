@@ -26,6 +26,7 @@ console.log('[BOOT] JWT_SECRET set:', !!process.env.JWT_SECRET);
 console.log('[BOOT] SESSION_SECRET set:', !!process.env.SESSION_SECRET);
 console.log('[BOOT] STRIPE_SECRET_KEY set:', !!process.env.STRIPE_SECRET_KEY);
 console.log('[BOOT] GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY);
+console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_KEY);
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude fallback):', !!process.env.ANTHROPIC_API_KEY);
 console.log('[BOOT] PID:', process.pid);
 

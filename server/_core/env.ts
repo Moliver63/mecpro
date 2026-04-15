@@ -11,6 +11,8 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_MODEL:   z.string().optional(), // padrão: llama-3.3-70b-versatile
   ANTHROPIC_API_KEY: z.string().optional(),
   CLAUDE_API_KEY: z.string().optional(), // alias alternativo
   META_ACCESS_TOKEN: z.string().optional(),
