@@ -3640,11 +3640,28 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
   let adSets, creatives, conversionFunnel, executionPlan, strategy = "";
   let aiResponse: string | null = null;
 
-  // Tenta reparar JSON truncado fechando chaves/colchetes abertos
+  // Tenta reparar JSON truncado fechando chaves/colchetes abertos e strings
   function repairJson(raw: string): string {
     let s = raw.replace(/```json|```/g, "").trim();
     // Remove trailing vírgulas antes de fechar
     s = s.replace(/,\s*([}\]])/g, "$1");
+
+    // Detecta string truncada no meio: termina com " sem fechar
+    // Ex: "text": "valor truncado aqui   → fecha a string
+    const lastQuote = s.lastIndexOf('"');
+    const secondLast = s.lastIndexOf('"', lastQuote - 1);
+    if (lastQuote > 0 && secondLast > 0) {
+      const afterLastQuote = s.slice(lastQuote + 1).trim();
+      // Se depois da última aspas não há : , } ] significa string aberta
+      if (!afterLastQuote.match(/^[\s]*[:,}\]]/)) {
+        s = s.slice(0, lastQuote) + '"'; // fecha a string
+      }
+    }
+
+    // Remove última propriedade incompleta (chave sem valor)
+    s = s.replace(/,?\s*"[^"]*"\s*:\s*$/, "");
+    s = s.replace(/,?\s*"[^"]*"\s*$/, "");
+
     // Conta colchetes e chaves abertas e fecha se necessário
     const opens = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
     const braces = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
@@ -3682,13 +3699,33 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       publishPreferences,
     });
   } catch (e: any) {
-    log.warn("ai", "Campaign parse error — using mock", { error: e.message });
-    const mock = JSON.parse(mockResponse("campanha"));
-    strategy         = mock.strategy;
-    adSets           = JSON.stringify(mock.adSets);
-    creatives        = JSON.stringify(mock.creatives);
-    conversionFunnel = JSON.stringify(mock.conversionFunnel);
-    executionPlan    = JSON.stringify(mock.executionPlan);
+    log.warn("ai", "Campaign parse error — tentando Groq como fallback", { error: e.message });
+
+    // Tenta Groq quando Gemini retorna JSON truncado
+    try {
+      const groqRaw = await callGroqAPI(prompt, undefined, 0.6);
+      if (groqRaw) {
+        let groqParsed: any;
+        try { groqParsed = JSON.parse(groqRaw); }
+        catch { groqParsed = JSON.parse(repairJson(groqRaw)); }
+        strategy         = groqParsed.strategy || "";
+        adSets           = JSON.stringify(groqParsed.adSets || []);
+        creatives        = JSON.stringify(groqParsed.creatives || []);
+        conversionFunnel = JSON.stringify(groqParsed.conversionFunnel || []);
+        executionPlan    = JSON.stringify(groqParsed.executionPlan || []);
+        log.info("ai", "Campaign gerada via Groq fallback após parse error do Gemini");
+      } else {
+        throw new Error("Groq sem resposta");
+      }
+    } catch (groqErr: any) {
+      log.warn("ai", "Groq fallback também falhou — usando mock", { error: groqErr.message });
+      const mock = JSON.parse(mockResponse("campanha"));
+      strategy         = mock.strategy;
+      adSets           = JSON.stringify(mock.adSets);
+      creatives        = JSON.stringify(mock.creatives);
+      conversionFunnel = JSON.stringify(mock.conversionFunnel);
+      executionPlan    = JSON.stringify(mock.executionPlan);
+    } // fim catch groqErr
     aiResponse = JSON.stringify({
       campaignName: mock.campaignName || input.name,
       metrics: mock.metrics || null,

@@ -259,9 +259,9 @@ app.get("/privacy/tiktok-developers-site-verification.txt", (_req, res) => {
 });
 
 // ─── Body parsers ─────────────────────────────────────────
-// Limite de 20MB para suportar upload de imagens em base64 via tRPC
-app.use(json({ limit: "20mb" }));
-app.use(express.urlencoded({ extended: true, limit: "20mb" }));
+// Limite de 50MB para suportar upload de imagens e vídeos em base64 via tRPC
+app.use(json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 
 // ─── Google OAuth ──────────────────────────────────────────
