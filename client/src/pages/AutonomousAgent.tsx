@@ -44,6 +44,15 @@ export default function AutonomousAgentPage() {
 
   // Queries e mutations
   const { data: status } = (trpc as any).agent?.status?.useQuery?.() ?? { data: null };
+  const { data: llmMode, refetch: refetchLLM } = (trpc as any).llm?.getMode?.useQuery?.() ?? { data: null, refetch: () => {} };
+
+  const setLLMMutation = (trpc as any).llm?.setMode?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast.success(`${data.label} ativado com sucesso!`);
+      refetchLLM?.();
+    },
+    onError: (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
 
   const runProjectMutation = (trpc as any).agent?.runForProject?.useMutation?.({
     onSuccess: (data: any) => {
@@ -161,6 +170,91 @@ export default function AutonomousAgentPage() {
             </div>
           </div>
         )}
+
+        {/* ── Toggle LLM Principal ── */}
+        <div style={{
+          background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16,
+          padding: "18px 24px", marginBottom: 20,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>
+                🔀 LLM Principal
+              </div>
+              <div style={{ fontSize: 13, color: "#64748b" }}>
+                {llmMode?.mode === "on"
+                  ? "Modo ligado — usando Gemini 2.5-flash (melhor qualidade)"
+                  : "Modo desligado — usando Groq Llama (econômico, gratuito)"}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              {/* Badges dos LLMs */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{
+                  padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+                  background: llmMode?.mode === "on" ? "#f0fdf4" : "#f8fafc",
+                  color: llmMode?.mode === "on" ? "#059669" : "#94a3b8",
+                  border: `1.5px solid ${llmMode?.mode === "on" ? "#bbf7d0" : "#e2e8f0"}`,
+                  transition: "all .2s",
+                }}>
+                  🟢 Gemini
+                </div>
+                <div style={{
+                  padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700,
+                  background: llmMode?.mode === "off" ? "#fffbeb" : "#f8fafc",
+                  color: llmMode?.mode === "off" ? "#d97706" : "#94a3b8",
+                  border: `1.5px solid ${llmMode?.mode === "off" ? "#fde68a" : "#e2e8f0"}`,
+                  transition: "all .2s",
+                }}>
+                  🟡 Groq/Llama
+                </div>
+              </div>
+
+              {/* Toggle switch */}
+              <button
+                onClick={() => (setLLMMutation as any).mutate({ mode: llmMode?.mode === "on" ? "off" : "on" })}
+                disabled={(setLLMMutation as any).isPending}
+                style={{
+                  position: "relative", width: 56, height: 30,
+                  borderRadius: 999, border: "none", cursor: "pointer",
+                  background: llmMode?.mode === "on"
+                    ? "linear-gradient(135deg,#059669,#10b981)"
+                    : "#e2e8f0",
+                  transition: "all .25s",
+                  boxShadow: llmMode?.mode === "on" ? "0 2px 8px rgba(5,150,105,.4)" : "none",
+                }}
+              >
+                <div style={{
+                  position: "absolute", top: 3,
+                  left: llmMode?.mode === "on" ? 29 : 3,
+                  width: 24, height: 24, borderRadius: "50%",
+                  background: "#fff",
+                  boxShadow: "0 1px 4px rgba(0,0,0,.2)",
+                  transition: "left .25s",
+                }} />
+              </button>
+
+              <span style={{ fontSize: 12, fontWeight: 700, color: llmMode?.mode === "on" ? "#059669" : "#d97706" }}>
+                {llmMode?.mode === "on" ? "LIGADO" : "DESLIGADO"}
+              </span>
+            </div>
+          </div>
+
+          {/* Info contextual */}
+          <div style={{
+            marginTop: 14, padding: "10px 14px", borderRadius: 10,
+            background: llmMode?.mode === "on" ? "#f0fdf4" : "#fffbeb",
+            border: `1px solid ${llmMode?.mode === "on" ? "#bbf7d0" : "#fde68a"}`,
+            fontSize: 12, color: llmMode?.mode === "on" ? "#065f46" : "#92400e",
+          }}>
+            {llmMode?.mode === "on" ? (
+              <>✅ <strong>Gemini ativo</strong> — Melhor qualidade de copy e estrutura de campanha. Usa quota da API Google.</>
+            ) : (
+              <>⚡ <strong>Groq/Llama ativo</strong> — 14.400 req/dia gratuitas. Ideal quando quota do Gemini esgota. Qualidade ligeiramente inferior.</>
+            )}
+          </div>
+        </div>
 
         {/* ── Configuração e disparo ── */}
         <div style={{

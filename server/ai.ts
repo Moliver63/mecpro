@@ -842,6 +842,33 @@ const GEMINI_MODELS = [
 ];
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
+// ── Toggle LLM Principal — controlado pelo painel Admin ──────────────────────
+// "on"  = Gemini (melhor qualidade)
+// "off" = Groq/Llama (fallback gratuito)
+let _llmMode: "on" | "off" = "on";  // padrão: Gemini ligado
+
+export function getLLMMode(): "on" | "off" { return _llmMode; }
+export function setLLMMode(mode: "on" | "off") {
+  _llmMode = mode;
+  log.info("ai", `🔀 LLM Mode alterado para: ${mode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)"}`);
+}
+
+// Carrega configuração salva no banco na inicialização
+export async function loadLLMModeFromDB() {
+  try {
+    const { getAdminSettings } = await import("./_core/../db.js");
+    const settings = await getAdminSettings();
+    if (settings["llm_mode"] === "off") {
+      _llmMode = "off";
+      log.info("ai", "LLM Mode carregado do banco: 🟡 Groq/Llama");
+    } else {
+      log.info("ai", "LLM Mode carregado do banco: 🟢 Gemini");
+    }
+  } catch {
+    log.info("ai", "LLM Mode: usando padrão (Gemini)");
+  }
+}
+
 // ── MECPro AI Service (Python/Groq) — motor externo gratuito ──
 const MECPRO_AI_URL = process.env.MECPRO_AI_URL?.replace(/\/$/, "");
 
@@ -1041,6 +1068,19 @@ export async function gemini(
   opts: { temperature?: number; systemInstruction?: string; useCache?: boolean } = {},
   retryCount = 0
 ): Promise<string> {
+  // ── Toggle: se modo "off", vai direto para Groq (sem tentar Gemini) ──────
+  if (_llmMode === "off" && retryCount === 0) {
+    log.info("ai", "🟡 LLM Mode OFF — usando Groq/Llama diretamente");
+    try {
+      const groqResult = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature);
+      if (groqResult) return groqResult;
+    } catch (e: any) {
+      log.warn("ai", "Groq falhou no modo OFF", { message: e?.message?.slice(0, 80) });
+    }
+    log.warn("ai", "Groq indisponível no modo OFF — usando mock");
+    return mockResponse(prompt);
+  }
+
   // Cache: evita chamadas repetidas para o mesmo prompt em 5 minutos
   if (opts.useCache !== false && retryCount === 0) {
     const cacheKey = prompt.slice(0, 200) + (opts.temperature || 0.3);
@@ -1055,7 +1095,9 @@ export async function gemini(
   const keyAttempt = Math.floor(retryCount / GEMINI_MODELS.length);
   const apiKey = getGeminiKey(keyAttempt);
   if (!apiKey) {
-    log.warn("ai", "Nenhuma GEMINI_API_KEY configurada — usando mock response");
+    log.warn("ai", "Nenhuma GEMINI_API_KEY configurada — usando Groq como fallback");
+    const groqResult = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature);
+    if (groqResult) return groqResult;
     return mockResponse(prompt);
   }
 
@@ -1617,6 +1659,11 @@ export function getHealthStatus() {
     },
     geminiKeys: {
       exhausted: _exhaustedKeys.size,
+    },
+    llmMode: {
+      current:    _llmMode,
+      label:      _llmMode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)",
+      principal:  _llmMode === "on" ? "gemini-2.5-flash" : (process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
     },
     groqFallback: {
       configured: !!process.env.GROQ_API_KEY,

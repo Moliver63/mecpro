@@ -5349,15 +5349,56 @@ const autonomousAgentRouter = router({
 
   // Status do agente (modo atual, LLM principal)
   status: protectedProcedure
-    .query(() => ({
-      mode:          process.env.AUTONOMOUS_AGENT_MODE || "observe",
-      llmPrincipal:  process.env.ANTHROPIC_API_KEY ? "claude" : "gemini",
-      claudeEnabled: !!process.env.ANTHROPIC_API_KEY,
-      thresholds: {
-        pause:  Number(process.env.AGENT_PAUSE_THRESHOLD  || 35),
-        scale:  Number(process.env.AGENT_SCALE_THRESHOLD  || 78),
-      },
-    })),
+    .query(async () => {
+      const { getLLMMode } = await import("../ai.js");
+      return {
+        mode:          process.env.AUTONOMOUS_AGENT_MODE || "observe",
+        llmPrincipal:  getLLMMode() === "on" ? "gemini" : "groq",
+        claudeEnabled: !!process.env.ANTHROPIC_API_KEY,
+        groqEnabled:   !!process.env.GROQ_API_KEY,
+        thresholds: {
+          pause:  Number(process.env.AGENT_PAUSE_THRESHOLD  || 35),
+          scale:  Number(process.env.AGENT_SCALE_THRESHOLD  || 78),
+        },
+      };
+    }),
+});
+
+// ─── LLM Toggle Router ────────────────────────────────────────────────────────
+const llmToggleRouter = router({
+
+  // Retorna o estado atual do toggle
+  getMode: protectedProcedure
+    .query(async () => {
+      const { getLLMMode } = await import("../ai.js");
+      const mode = getLLMMode();
+      return {
+        mode,
+        label:     mode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)",
+        principal: mode === "on" ? "Gemini 2.5-flash" : (process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+        groqConfigured: !!process.env.GROQ_API_KEY,
+        geminiConfigured: !!process.env.GEMINI_API_KEY,
+      };
+    }),
+
+  // Alterna o modo (só admin/superadmin)
+  setMode: protectedProcedure
+    .input(z.object({ mode: z.enum(["on", "off"]) }))
+    .mutation(async ({ ctx, input }) => {
+      if (!["admin", "superadmin"].includes((ctx.user as any)?.role || "")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas admins podem alterar o modo LLM." });
+      }
+      const { setLLMMode } = await import("../ai.js");
+      setLLMMode(input.mode);
+      // Persiste no banco para sobreviver a reinicializações
+      await db.saveAdminSetting("llm_mode", input.mode);
+      log.info("server", `LLM Mode alterado por admin ${ctx.user.id}`, { mode: input.mode });
+      return {
+        success: true,
+        mode:    input.mode,
+        label:   input.mode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)",
+      };
+    }),
 });
 
 export const appRouter = router({
@@ -5377,6 +5418,7 @@ export const appRouter = router({
   tiktokCampaigns: tiktokCampaignsRouter,
   tiktokBulk: tiktokBulkRouter,
   agent: autonomousAgentRouter,
+  llm: llmToggleRouter,
   unified: unifiedRouter,
   tiktokVideo: tiktokVideoRouter,
   alerts: alertsRouter,
