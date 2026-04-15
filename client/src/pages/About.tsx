@@ -269,7 +269,7 @@ export default function About() {
           {[
             { icon: "📧", label: "E-mail Comercial", value: "contato@mecproai.com", href: "mailto:contato@mecproai.com" },
             { icon: "🌐", label: "Website", value: "www.mecproai.com", href: "https://www.mecproai.com" },
-            { icon: "📱", label: "WhatsApp", value: "(47) 999465-824", href: "https://wa.me/5547999465824" },
+            { icon: "📱", label: "WhatsApp", value: "(47) 99999-9999", href: "https://wa.me/5547999999999" },
             { icon: "📸", label: "Instagram", value: "@mecproaibrl", href: "https://instagram.com/mecproaibrl" },
             { icon: "📘", label: "Facebook", value: "@mecproai", href: "https://facebook.com/mecproai" },
             { icon: "🎵", label: "TikTok", value: "@mecproaibrl", href: "https://tiktok.com/@mecproaibrl" },

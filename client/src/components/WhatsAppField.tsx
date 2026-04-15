@@ -8,7 +8,7 @@
  *   - ClientProfile (cadastro do projeto)
  *
  * Props:
- *   value       — número atual (ex: "+5547999465824" ou "47999465824")
+ *   value       — número atual (ex: "+5547999999999" ou "47999999999")
  *   onChange    — callback quando número muda
  *   pageId      — ID da página FB para validar vínculo (opcional)
  *   onSaved     — callback após salvar com sucesso

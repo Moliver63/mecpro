@@ -223,38 +223,46 @@ export default function CampaignResult() {
     } finally { setLoadingPages(false); }
   }
 
-  // Busca automaticamente o WhatsApp vinculado à página ou Business Manager
+  // Busca automaticamente o WhatsApp vinculado à página do Facebook
   async function autoDetectWhatsApp(page: any, token: string) {
     try {
-      // 1. Tenta pegar o número vinculado direto na página
+      let digits = "";
+
+      // 1. Direto na listagem (me/accounts já trouxe o campo)
       if (page.whatsapp_connected_id || page.phone) {
         const phone = page.whatsapp_connected_id || page.phone;
-        const digits = String(phone).replace(/\D/g, "");
-        if (digits.length >= 8) {
-          const waUrl = `https://wa.me/${digits}`;
-          // Atualiza o linkUrl automaticamente se não tiver sido preenchido
-          if (!linkUrl.trim()) {
-            setLinkUrl(waUrl);
-            toast.success(`✅ WhatsApp detectado automaticamente: +${digits}`);
-          }
-          return;
+        digits = String(phone).replace(/\D/g, "");
+      }
+
+      // 2. Busca extra via Graph API se não veio na listagem
+      if (!digits || digits.length < 8) {
+        const waRes = await fetch(
+          `https://graph.facebook.com/v19.0/${page.id}?fields=whatsapp_connected_id,phone_number&access_token=${token}`
+        );
+        const waData = await waRes.json();
+        if (!waData.error) {
+          const phone = waData.whatsapp_connected_id || waData.phone_number;
+          if (phone) digits = String(phone).replace(/\D/g, "");
         }
       }
 
-      // 2. Tenta buscar via WhatsApp Business Accounts do Business Manager
-      const waRes = await fetch(
-        `https://graph.facebook.com/v19.0/${page.id}?fields=whatsapp_connected_id,phone_number&access_token=${token}`
-      );
-      const waData = await waRes.json();
-      if (!waData.error) {
-        const phone = waData.whatsapp_connected_id || waData.phone_number;
-        if (phone) {
-          const digits = String(phone).replace(/\D/g, "");
-          if (digits.length >= 8 && !linkUrl.trim()) {
-            setLinkUrl(`https://wa.me/${digits}`);
-            toast.success(`✅ WhatsApp detectado via página: +${digits}`);
-          }
-        }
+      if (!digits || digits.length < 8) return;
+
+      const fullDigits = digits.startsWith("55") ? digits : `55${digits}`;
+      const waUrl = `https://wa.me/${fullDigits}`;
+
+      // Preenche linkUrl se vazio
+      if (!linkUrl.trim()) {
+        setLinkUrl(waUrl);
+        toast.success(`✅ WhatsApp detectado: +${fullDigits}`);
+      }
+
+      // Salva como padrão na integração Meta via tRPC (silencioso)
+      const metaInt = (metaIntegration as any[])?.find(i => i.provider === "meta");
+      if (metaInt && !metaInt.whatsappPhone) {
+        try {
+          await (trpc as any).integrations?.saveWhatsApp?.mutate?.({ phone: fullDigits });
+        } catch {}
       }
     } catch {
       // Silencioso — WhatsApp é opcional
@@ -767,6 +775,47 @@ export default function CampaignResult() {
       setLeadForms(leadFormsQuery.data as any);
     }
   }, [leadFormsQuery.data, leadFormsQuery.isLoading]);
+
+  // ── Preenche linkUrl automaticamente com WhatsApp padrão da conta ───────────
+  // Prioridade: 1) WhatsApp salvo nas integrações, 2) WhatsApp do perfil do cliente
+  useEffect(() => {
+    if (!showModal || linkUrl.trim()) return; // Só preenche se modal abriu e campo vazio
+
+    // 1. WhatsApp salvo nas configurações Meta
+    const metaInt = (metaIntegration as any[])?.find(i => i.provider === "meta");
+    if (metaInt?.whatsappPhone) {
+      const digits = metaInt.whatsappPhone.replace(/\D/g, "");
+      if (digits.length >= 8) {
+        setLinkUrl(`https://wa.me/${digits}`);
+        return;
+      }
+    }
+
+    // 2. WhatsApp do perfil do cliente (socialLinks)
+    const profile = clientProfile as any;
+    if (profile?.socialLinks) {
+      try {
+        const social = JSON.parse(profile.socialLinks);
+        const waUrl = social?.whatsappUrl || social?.whatsapp;
+        if (waUrl && String(waUrl).includes("wa.me")) {
+          setLinkUrl(String(waUrl));
+          return;
+        }
+        if (waUrl) {
+          const digits = String(waUrl).replace(/\D/g, "");
+          if (digits.length >= 8) {
+            setLinkUrl(`https://wa.me/${digits.startsWith("55") ? digits : "55" + digits}`);
+            return;
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Site do cliente como fallback
+    if (profile?.websiteUrl) {
+      setLinkUrl(profile.websiteUrl);
+    }
+  }, [showModal, metaIntegration, clientProfile]);
 
   useEffect(() => {
     const campaignKey = Number((campaign as any)?.id || 0);
