@@ -1136,7 +1136,17 @@ export async function gemini(
         }
       } catch {}
     }
-    log.warn("ai", "Todos os modelos Gemini indisponíveis — usando mock response como fallback");
+    log.warn("ai", "Todos os modelos Gemini indisponíveis — tentando Claude API como fallback");
+    try {
+      const claudeResult = await callClaudeAPI(prompt, opts.systemInstruction, opts.temperature);
+      if (claudeResult) {
+        log.info("ai", "✅ Claude API fallback OK");
+        return claudeResult;
+      }
+    } catch (claudeErr: any) {
+      log.warn("ai", "Claude API fallback falhou", { message: claudeErr?.message?.slice(0, 80) });
+    }
+    log.warn("ai", "Claude API também indisponível — usando mock response");
     return mockResponse(prompt);
   }
 
@@ -1148,6 +1158,62 @@ export async function gemini(
     setCachedGemini(cacheKey, result);
   }
   return result;
+}
+
+// ── Claude API — fallback quando Gemini está totalmente indisponível ──────────
+async function callClaudeAPI(
+  prompt: string,
+  systemInstruction?: string,
+  temperature: number = 0.3,
+): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!apiKey) {
+    log.info("ai", "Claude API: ANTHROPIC_API_KEY não configurada — pulando fallback");
+    return null;
+  }
+
+  const system = systemInstruction || SYSTEM_MECPRO;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type":         "application/json",
+      "x-api-key":            apiKey,
+      "anthropic-version":    "2023-06-01",
+    },
+    body: JSON.stringify({
+      model:      "claude-sonnet-4-5",
+      max_tokens: 8192,
+      temperature,
+      system,
+      messages: [{ role: "user", content: prompt }],
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    log.warn("ai", "Claude API HTTP error", { status: res.status, preview: errText.slice(0, 150) });
+    return null;
+  }
+
+  const data: any = await res.json().catch(() => null);
+  if (!data) return null;
+
+  const text = data.content?.[0]?.text || "";
+  if (!text) {
+    log.warn("ai", "Claude API: resposta vazia", { stopReason: data.stop_reason });
+    return null;
+  }
+
+  log.info("ai", "Claude API OK", {
+    model:      data.model,
+    inputTok:   data.usage?.input_tokens,
+    outputTok:  data.usage?.output_tokens,
+    stopReason: data.stop_reason,
+  });
+
+  return text;
 }
 
 function mockResponse(prompt: string): string {
@@ -1459,6 +1525,9 @@ export function getHealthStatus() {
     },
     geminiKeys: {
       exhausted: _exhaustedKeys.size,
+    },
+    claudeFallback: {
+      configured: !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY),
     },
   };
 }
