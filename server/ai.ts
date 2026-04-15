@@ -46,7 +46,7 @@ async function fetchGoogleCompetitorInsights(
         const tokenRes  = await fetch("https://oauth2.googleapis.com/token", {
           method:  "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body:    params,
+          bodyText:   params,
           signal:  AbortSignal.timeout(10000),
         });
         const tokenData: any = await tokenRes.json();
@@ -150,19 +150,19 @@ async function fetchGoogleCompetitorInsights(
       const compLabel = comp === "HIGH" ? "🔴 Alta" : comp === "MEDIUM" ? "🟡 Média" : "🟢 Baixa";
 
       try {
-        await db.saveScrapedAd({
+        await db.createScrapedAd({
           competitorId,
           projectId,
           headline:    text,
-          body:        `Volume: ${vol} | CPC médio: ${cpcBRL} | Competição: ${compLabel}`,
+          bodyText:    `Volume: ${vol} | CPC médio: ${cpcBRL} | Competição: ${compLabel}`,
           imageUrl:    null,
           videoUrl:    null,
-          sourceUrl:   `https://ads.google.com/aw/keywordplanner/ideas/list`,
-          sourceType:  "google_keyword_planner",
+          landingPageUrl:  `https://ads.google.com/aw/keywordplanner/ideas/list`,
+          adType:      "google_keyword_planner",
           platform:    "google",
           isActive:    true,
-          startedRunningAt: new Date().toISOString(),
-          extraData:   JSON.stringify({ text, avgCpc: avgMCpc, monthlySearches: monthly, competition: comp }),
+          startDate: new Date(),
+          rawData:     JSON.stringify({ text, avgCpc: avgMCpc, monthlySearches: monthly, competition: comp }),
         });
         saved++;
       } catch (e: any) {
@@ -171,12 +171,254 @@ async function fetchGoogleCompetitorInsights(
     }
 
     log.info("ai", "[Google] Keyword Planner OK", { competitorId, saved, total: results.length });
-    return saved > 0;
+    if (saved > 0) return true;
+
+    // ── Fallback: Google Ads Transparency (sem Keyword Planner) ──────────────
+    return await fetchGoogleTransparencyInsights(competitorId, projectId, compName, websiteUrl, accessToken, developerToken, customerId);
 
   } catch (e: any) {
     log.warn("ai", "[Google] fetchGoogleCompetitorInsights erro", { competitorId, message: e?.message });
+    // Tenta Google Transparency mesmo sem Keyword Planner
+    try {
+      const googleInt2 = userId ? await db.getApiIntegration(userId, "google") : null;
+      if (googleInt2) {
+        const at2 = (googleInt2 as any).accessToken || "";
+        const dt2 = (googleInt2 as any).developerToken || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
+        const cid2 = ((googleInt2 as any).accountId || process.env.GOOGLE_ADS_CUSTOMER_ID || "").replace(/-/g, "");
+        return await fetchGoogleTransparencyInsights(competitorId, projectId, compName, websiteUrl, at2, dt2, cid2);
+      }
+    } catch {}
     return false;
   }
+}
+
+// ── Google Transparency + Search API — insights sem Keyword Planner ──────────
+async function fetchGoogleTransparencyInsights(
+  competitorId: number,
+  projectId:    number,
+  compName:     string,
+  websiteUrl:   string | null | undefined,
+  accessToken:  string,
+  developerToken: string,
+  customerId:   string,
+): Promise<boolean> {
+  let saved = 0;
+
+  // ── 1. Google Ads Transparency Center API ──────────────────────────────────
+  // Busca anúncios reais veiculados pelo concorrente no Google
+  try {
+    log.info("ai", "[Google] Transparency Center iniciado", { competitorId, compName });
+    const domain = websiteUrl
+      ? (() => { try { return new URL(websiteUrl).hostname.replace(/^www\./, ""); } catch { return null; } })()
+      : null;
+
+    const searchTerm = domain || compName;
+    const transUrl = `https://adstransparency.google.com/api/advertiser/search?query=${encodeURIComponent(searchTerm)}&region=BR&format=json`;
+
+    const transRes = await fetch(transUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)",
+        "Accept": "application/json",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (transRes.ok) {
+      const text = await transRes.text();
+      // Ads Transparency retorna JSONP ou JSON com advertisers
+      const jsonMatch = text.match(/\{[\s\S]+\}/);
+      if (jsonMatch) {
+        try {
+          const transData = JSON.parse(jsonMatch[0]);
+          const advertisers = transData?.advertisers || transData?.results || [];
+          const nameSlug = compName.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+          for (const adv of advertisers.slice(0, 5)) {
+            const advName = adv.displayName || adv.name || "";
+            const advSlug = advName.toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (!advSlug.includes(nameSlug.slice(0, 5)) && !nameSlug.includes(advSlug.slice(0, 5))) continue;
+
+            await db.createScrapedAd({
+              competitorId, projectId,
+              headline:   advName,
+              bodyText:   `Anunciante verificado no Google Ads Transparency | Domínio: ${domain || compName}`,
+              imageUrl:   null, videoUrl: null,
+              landingPageUrl: `https://adstransparency.google.com/advertiser/${adv.advertiserId || ""}`,
+              adType:     "google_transparency",
+              platform:   "google",
+              isActive:   true,
+              startDate: new Date(),
+              rawData:    JSON.stringify({ advertiserId: adv.advertiserId, verified: true, source: "google_transparency" }),
+            });
+            saved++;
+            log.info("ai", "[Google] Transparency advertiser encontrado", { competitorId, advName, advertiserId: adv.advertiserId });
+          }
+        } catch {}
+      }
+    }
+  } catch (e: any) {
+    log.info("ai", "[Google] Transparency erro", { message: e?.message?.slice(0, 80) });
+  }
+
+  // ── 2. Google Custom Search API — busca pública de anúncios ───────────────
+  // Usa GOOGLE_API_KEY + GOOGLE_CSE_ID se configurados, ou busca pública
+  try {
+    const googleApiKey = process.env.GOOGLE_API_KEY || process.env.GOOGLE_CLIENT_ID;
+    const cseId = process.env.GOOGLE_CSE_ID;
+    const domain = websiteUrl ? (() => { try { return new URL(websiteUrl).hostname; } catch { return null; } })() : null;
+    const queries = [
+      `site:${domain} anúncio`,
+      `"${compName}" publicidade Google`,
+      `"${compName}" imóveis comprar alugar`,
+    ].filter(Boolean).slice(0, 2);
+
+    for (const q of queries) {
+      if (saved >= 5) break;
+      let searchUrl = "";
+      if (googleApiKey && cseId) {
+        searchUrl = `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${cseId}&q=${encodeURIComponent(q)}&num=5&lr=lang_pt`;
+      } else {
+        // Busca pública via scraping leve do Google
+        searchUrl = `https://www.google.com/search?q=${encodeURIComponent(q)}&num=5&hl=pt-BR`;
+      }
+
+      try {
+        const sRes = await fetch(searchUrl, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)", "Accept-Language": "pt-BR" },
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (googleApiKey && cseId && sRes.ok) {
+          const sData: any = await sRes.json().catch(() => ({}));
+          const items = sData.items || [];
+          for (const item of items.slice(0, 3)) {
+            await db.createScrapedAd({
+              competitorId, projectId,
+              headline:   item.title || q,
+              bodyText:   item.snippet || "",
+              imageUrl:   item.pagemap?.cse_image?.[0]?.src || null,
+              videoUrl:   null,
+              landingPageUrl: item.link || searchUrl,
+              adType:     "google_search",
+              platform:   "google",
+              isActive:   true,
+              startDate: new Date(),
+              rawData:    JSON.stringify({ query: q, source: "google_custom_search" }),
+            });
+            saved++;
+          }
+          log.info("ai", "[Google] Custom Search OK", { competitorId, q, count: items.length });
+        }
+      } catch (e2: any) {
+        log.info("ai", "[Google] Search query erro", { q, message: e2?.message?.slice(0, 60) });
+      }
+    }
+  } catch (e: any) {
+    log.info("ai", "[Google] Custom Search erro", { message: e?.message?.slice(0, 80) });
+  }
+
+  // ── 3. Google Ads API — Auction Insights (concorrentes do usuário) ─────────
+  // Lista quais domínios competem com o usuário nos leilões do Google Ads
+  if (accessToken && developerToken && customerId) {
+    try {
+      log.info("ai", "[Google] Auction Insights iniciado", { competitorId, compName });
+      const auctionQuery = `SELECT auction_insight.display_name, auction_insight.impression_share, auction_insight.overlap_rate, auction_insight.outranking_share FROM auction_insight_campaign WHERE segments.date DURING LAST_30_DAYS LIMIT 20`;
+
+      const auctionRes = await fetch(
+        `https://googleads.googleapis.com/v17/customers/${customerId}/googleAds:search`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${accessToken}`,
+            "developer-token": developerToken,
+            "login-customer-id": customerId,
+          },
+          body: JSON.stringify({ query: auctionQuery }),
+          signal: AbortSignal.timeout(15000),
+        }
+      );
+
+      if (auctionRes.ok) {
+        const aData: any = await auctionRes.json().catch(() => ({}));
+        const rows = aData.results || [];
+        const nameSlug = compName.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+        for (const row of rows) {
+          const displayName = row.auctionInsight?.displayName || "";
+          const dSlug = displayName.toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (!dSlug.includes(nameSlug.slice(0, 4)) && !nameSlug.includes(dSlug.slice(0, 4))) continue;
+
+          const impShare = row.auctionInsight?.impressionShare;
+          const overlapRate = row.auctionInsight?.overlapRate;
+          const outrankShare = row.auctionInsight?.outrankingShare;
+
+          await db.createScrapedAd({
+            competitorId, projectId,
+            headline:   `${displayName} — Google Ads Auction Insights`,
+            bodyText:   `Impression Share: ${impShare ? (Number(impShare)*100).toFixed(1)+"%" : "N/A"} | Overlap Rate: ${overlapRate ? (Number(overlapRate)*100).toFixed(1)+"%" : "N/A"} | Outranking Share: ${outrankShare ? (Number(outrankShare)*100).toFixed(1)+"%" : "N/A"}`,
+            imageUrl:   null, videoUrl: null,
+            landingPageUrl: `https://ads.google.com/aw/campaigns`,
+            adType:     "google_auction_insights",
+            platform:   "google",
+            isActive:   true,
+            startDate: new Date(),
+            rawData:    JSON.stringify({ displayName, impShare, overlapRate, outrankShare, source: "google_auction_insights" }),
+          });
+          saved++;
+          log.info("ai", "[Google] Auction Insights match", { competitorId, displayName });
+        }
+
+        if (rows.length > 0) {
+          log.info("ai", "[Google] Auction Insights OK", { competitorId, rows: rows.length, matched: saved });
+        }
+      } else {
+        const errText = await auctionRes.text().catch(() => "");
+        log.info("ai", "[Google] Auction Insights HTTP erro", { status: auctionRes.status, preview: errText.slice(0, 150) });
+      }
+    } catch (e: any) {
+      log.info("ai", "[Google] Auction Insights erro", { message: e?.message?.slice(0, 80) });
+    }
+  }
+
+  // ── 4. Google Knowledge Graph API — dados públicos da empresa ─────────────
+  try {
+    const kgKey = process.env.GOOGLE_API_KEY;
+    if (kgKey) {
+      const kgUrl = `https://kgsearch.googleapis.com/v1/entities:search?query=${encodeURIComponent(compName)}&key=${kgKey}&limit=3&indent=True&languages=pt`;
+      const kgRes = await fetch(kgUrl, { signal: AbortSignal.timeout(8000) });
+      if (kgRes.ok) {
+        const kgData: any = await kgRes.json().catch(() => ({}));
+        const items = kgData.itemListElement || [];
+        for (const item of items.slice(0, 2)) {
+          const entity = item.result || {};
+          const desc = entity.description || entity.detailedDescription?.articleBody || "";
+          if (!desc) continue;
+
+          await db.createScrapedAd({
+            competitorId, projectId,
+            headline:   entity.name || compName,
+            bodyText:   desc.slice(0, 500),
+            imageUrl:   entity.image?.contentUrl || null,
+            videoUrl:   null,
+            landingPageUrl: entity.url || entity.detailedDescription?.url || "",
+            adType:     "google_knowledge_graph",
+            platform:   "google",
+            isActive:   true,
+            startDate: new Date(),
+            rawData:    JSON.stringify({ entityId: entity["@id"], types: entity["@type"], source: "google_knowledge_graph" }),
+          });
+          saved++;
+          log.info("ai", "[Google] Knowledge Graph OK", { competitorId, name: entity.name, desc: desc.slice(0, 60) });
+        }
+      }
+    }
+  } catch (e: any) {
+    log.info("ai", "[Google] Knowledge Graph erro", { message: e?.message?.slice(0, 80) });
+  }
+
+  log.info("ai", "[Google] fetchGoogleTransparencyInsights concluído", { competitorId, saved });
+  return saved > 0;
 }
 
 const GEMINI_API_KEY  = process.env.GEMINI_API_KEY;
@@ -733,7 +975,7 @@ async function mecproAI(endpoint: string, body: any): Promise<any | null> {
     const res  = await fetch(`${MECPRO_AI_URL}/${endpoint}`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(body),
+      bodyText:   JSON.stringify(body),
       signal:  AbortSignal.timeout(AI_TIMEOUTS.mecproAiMs),
     });
     if (!res.ok) {
