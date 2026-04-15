@@ -4427,6 +4427,57 @@ const metaCampaignsRouter = router({
       return { success: true };
     }),
 
+  // -- Ação em massa (pausar / excluir) --
+  bulkAction: protectedProcedure
+    .input(z.object({
+      campaignIds: z.array(z.string()).min(1),
+      action: z.enum(["PAUSE", "DELETE"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado." });
+      const token = (integration as any).accessToken as string;
+      const status = input.action === "PAUSE" ? "PAUSED" : "DELETED";
+      const results = await Promise.allSettled(
+        input.campaignIds.map(id =>
+          fetch(`https://graph.facebook.com/v19.0/${id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status, access_token: token }),
+          }).then(r => r.json())
+        )
+      );
+      const failed = results.filter(r => r.status === "rejected" || (r.status === "fulfilled" && (r.value as any).error));
+      return { success: true, total: input.campaignIds.length, failed: failed.length };
+    }),
+
+});
+
+const tiktokBulkRouter = router({
+  // -- Ação em massa TikTok (pausar / excluir) --
+  bulkAction: protectedProcedure
+    .input(z.object({
+      campaignIds: z.array(z.string()).min(1),
+      action: z.enum(["PAUSE", "DELETE"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "tiktok");
+      const tikTokConfig = getTikTokRuntimeConfig(integration as any);
+      if (!tikTokConfig.configured)
+        throw new TRPCError({ code: "NOT_FOUND", message: "Integração TikTok não configurada." });
+      const token = tikTokConfig.accessToken;
+      const advertiserId = tikTokConfig.accountId;
+      const status = input.action === "PAUSE" ? "DISABLE" : "DELETE";
+      const res = await fetch("https://business-api.tiktok.com/open_api/v1.3/campaign/status/update/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Access-Token": token },
+        body: JSON.stringify({ advertiser_id: advertiserId, campaign_ids: input.campaignIds, operation_status: status }),
+      });
+      const resData: any = await res.json();
+      if (resData.code !== 0) throw new TRPCError({ code: "BAD_REQUEST", message: resData.message || "TikTok bulk action falhou" });
+      return { success: true, total: input.campaignIds.length, failed: 0 };
+    }),
 });
 
 // ============ APP ROUTER ============
@@ -4903,6 +4954,39 @@ const googleCampaignsRouter = router({
 
       return { adGroups: adGroups.results || [], ads };
     }),
+
+  // -- Ação em massa (pausar / remover) --
+  bulkAction: protectedProcedure
+    .input(z.object({
+      campaignIds: z.array(z.string()).min(1),
+      action: z.enum(["PAUSE", "DELETE"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+      const status = input.action === "PAUSE" ? "PAUSED" : "REMOVED";
+      const operations = input.campaignIds.map(id => ({
+        update: { resourceName: `customers/${runtime.customerId}/campaigns/${id}`, status },
+        updateMask: { paths: ["status"] },
+      }));
+      const res = await fetch(
+        `https://googleads.googleapis.com/v17/customers/${runtime.customerId}/campaigns:mutate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${runtime.accessToken}`,
+            "developer-token": runtime.developerToken,
+            "login-customer-id": runtime.loginCustomerId,
+          },
+          body: JSON.stringify({ operations }),
+        }
+      );
+      const resData: any = await res.json();
+      if (!res.ok || resData.error) throw new TRPCError({ code: "BAD_REQUEST", message: resData.error?.message || `Google HTTP ${res.status}` });
+      return { success: true, total: input.campaignIds.length, failed: 0 };
+    }),
 });
 
 const tiktokCampaignsRouter = router({
@@ -5208,6 +5292,7 @@ export const appRouter = router({
   metaCampaigns: metaCampaignsRouter,
   googleCampaigns: googleCampaignsRouter,
   tiktokCampaigns: tiktokCampaignsRouter,
+  tiktokBulk: tiktokBulkRouter,
   unified: unifiedRouter,
   tiktokVideo: tiktokVideoRouter,
   alerts: alertsRouter,

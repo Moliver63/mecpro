@@ -3,6 +3,7 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import LiveAdPreviewModal from "@/components/LiveAdPreviewModal";
+import BulkActionBar from "@/components/BulkActionBar";
 
 type GoogleCampaign = {
   id: string;
@@ -75,11 +76,21 @@ export default function GoogleCampaigns() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [detailsData, setDetailsData] = useState<GoogleCampaignDetails | null>(null);
   const [editName, setEditName] = useState("");
   const [editBudget, setEditBudget] = useState(0);
   const [editStatus, setEditStatus] = useState<"ENABLED" | "PAUSED" | "REMOVED">("PAUSED");
 
+  const bulkMutation = (trpc as any).googleCampaigns.bulkAction.useMutation({
+    onSuccess: (data: any) => {
+      toast.success(`✅ ${data.total - data.failed} campanha(s) atualizadas${data.failed > 0 ? ` (${data.failed} falhou)` : ""}`);
+      setSelectedIds([]);
+      load();
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
   const listMutation = trpc.googleCampaigns.list.useMutation({
     onSuccess: (data: any) => setCampaigns(data.campaigns || []),
     onError: (e) => toast.error(e.message),
@@ -94,6 +105,19 @@ export default function GoogleCampaigns() {
 
   const load = () => listMutation.mutate({ period });
   useEffect(() => { load(); }, [period]);
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  async function handleBulk(action: "PAUSE" | "DELETE") {
+    if (selectedIds.length === 0) return;
+    const verb = action === "PAUSE" ? "pausar" : "excluir";
+    if (!window.confirm(`Deseja ${verb} ${selectedIds.length} campanha(s) no Google Ads?`)) return;
+    setBulkLoading(true);
+    try { await (bulkMutation as any).mutateAsync({ campaignIds: selectedIds, action }); }
+    finally { setBulkLoading(false); }
+  }
 
   const filtered = useMemo(() => campaigns.filter((c) => {
     const byText = !search.trim() || c.name.toLowerCase().includes(search.toLowerCase()) || c.id.includes(search.trim());
@@ -199,10 +223,12 @@ export default function GoogleCampaigns() {
             const s = statusBadge(c.status);
             const spend = Number(c.metrics?.costMicros || 0) / 1_000_000;
             return (
-              <div key={c.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 18, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,.04)" }}>
+              <div key={c.id} style={{ background: "#fff", border: `2px solid ${selectedIds.includes(c.id) ? "#4285f4" : "var(--border)"}`, borderRadius: 18, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,.04)", transition: "border-color .15s" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <input type="checkbox" checked={selectedIds.includes(c.id)} onChange={() => toggleSelect(c.id)}
+                        style={{ width: 17, height: 17, cursor: "pointer", accentColor: "#4285f4", flexShrink: 0 }} />
                       <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{c.name}</h3>
                       <span style={{ background: s.bg, color: s.color, padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{s.label}</span>
                       <span style={{ background: "#eff6ff", color: "#1d4ed8", padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{c.channelType || "SEARCH"}</span>
@@ -353,6 +379,17 @@ export default function GoogleCampaigns() {
           onClose={() => setPreviewOpen(false)}
         />
       )}
+
+      <BulkActionBar
+        platform="google"
+        selectedCount={selectedIds.length}
+        totalCount={filtered.length}
+        onSelectAll={() => setSelectedIds(filtered.map(c => c.id))}
+        onClearAll={() => setSelectedIds([])}
+        onPause={() => handleBulk("PAUSE")}
+        onDelete={() => handleBulk("DELETE")}
+        loading={bulkLoading}
+      />
     </Layout>
   );
 }

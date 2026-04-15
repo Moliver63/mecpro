@@ -3,6 +3,7 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import LiveAdPreviewModal from "@/components/LiveAdPreviewModal";
+import BulkActionBar from "@/components/BulkActionBar";
 
 type TikTokCampaign = {
   id: string;
@@ -69,9 +70,20 @@ export default function TikTokCampaigns() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [bulkIds, setBulkIds] = useState<string[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [editName, setEditName] = useState("");
   const [editBudget, setEditBudget] = useState(0);
   const [editStatus, setEditStatus] = useState<"ENABLE" | "DISABLE" | "DELETE">("DISABLE");
+
+  const bulkMutation = (trpc as any).tiktokBulk?.bulkAction?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast.success(`✅ ${data.total - data.failed} campanha(s) atualizadas${data.failed > 0 ? ` (${data.failed} falhou)` : ""}`);
+      setBulkIds([]);
+      load();
+    },
+    onError: (e: any) => toast.error(e.message),
+  }) ?? { mutateAsync: async () => {} };
 
   const listMutation = trpc.tiktokCampaigns.list.useMutation({
     onSuccess: (data: any) => setCampaigns(data.campaigns || []),
@@ -188,10 +200,12 @@ export default function TikTokCampaigns() {
           {filtered.map((c) => {
             const s = statusBadge(c.status);
             return (
-              <div key={c.id} style={{ background: "#fff", border: "1px solid var(--border)", borderRadius: 18, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,.04)" }}>
+              <div key={c.id} style={{ background: "#fff", border: `2px solid ${bulkIds.includes(c.id) ? "#ff0050" : "var(--border)"}`, borderRadius: 18, padding: 18, boxShadow: "0 2px 10px rgba(0,0,0,.04)", transition: "border-color .15s" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <input type="checkbox" checked={bulkIds.includes(c.id)} onChange={() => setBulkIds(prev => prev.includes(c.id) ? prev.filter(x => x !== c.id) : [...prev, c.id])}
+                        style={{ width: 17, height: 17, cursor: "pointer", accentColor: "#ff0050", flexShrink: 0 }} />
                       <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>{c.name}</h3>
                       <span style={{ background: s.bg, color: s.color, padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{s.label}</span>
                       <span style={{ background: "#f3f4f6", color: "#111827", padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>{c.objective || "TRAFFIC"}</span>
@@ -308,6 +322,27 @@ export default function TikTokCampaigns() {
           onClose={() => setPreviewOpen(false)}
         />
       )}
+
+      <BulkActionBar
+        platform="tiktok"
+        selectedCount={bulkIds.length}
+        totalCount={filtered.length}
+        onSelectAll={() => setBulkIds(filtered.map(c => c.id))}
+        onClearAll={() => setBulkIds([])}
+        onPause={async () => {
+          if (!window.confirm(`Pausar ${bulkIds.length} campanha(s) no TikTok Ads?`)) return;
+          setBulkLoading(true);
+          try { await (bulkMutation as any).mutateAsync({ campaignIds: bulkIds, action: "PAUSE" }); }
+          finally { setBulkLoading(false); }
+        }}
+        onDelete={async () => {
+          if (!window.confirm(`Excluir ${bulkIds.length} campanha(s) no TikTok Ads? Esta ação não pode ser desfeita.`)) return;
+          setBulkLoading(true);
+          try { await (bulkMutation as any).mutateAsync({ campaignIds: bulkIds, action: "DELETE" }); }
+          finally { setBulkLoading(false); }
+        }}
+        loading={bulkLoading}
+      />
     </Layout>
   );
 }
