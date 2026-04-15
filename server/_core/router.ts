@@ -5374,8 +5374,8 @@ const llmToggleRouter = router({
       const mode = getLLMMode();
       return {
         mode,
-        label:     mode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)",
-        principal: mode === "on" ? "Gemini 2.5-flash" : (process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+        label:     mode === "on" ? "🟢 IA Categoria A (máxima qualidade)" : "🟡 IA Categoria B (econômica)",
+        principal: mode === "on" ? "IA Categoria A" : "IA Categoria B",
         groqConfigured: !!process.env.GROQ_API_KEY,
         geminiConfigured: !!process.env.GEMINI_API_KEY,
       };
@@ -5396,7 +5396,7 @@ const llmToggleRouter = router({
       return {
         success: true,
         mode:    input.mode,
-        label:   input.mode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)",
+        label:   input.mode === "on" ? "🟢 IA Categoria A (máxima qualidade)" : "🟡 IA Categoria B (econômica)",
       };
     }),
 });

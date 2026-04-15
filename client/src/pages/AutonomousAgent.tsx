@@ -29,7 +29,7 @@ const ACTION_CONFIG: Record<AgentAction, { label: string; color: string; bg: str
 
 const LLM_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   claude:        { label: "Claude",        color: "#7c3aed", bg: "#f5f3ff" },
-  gemini:        { label: "Gemini",        color: "#0369a1", bg: "#eff6ff" },
+  gemini:        { label: "IA Cat. A",      color: "#0369a1", bg: "#eff6ff" },
   deterministic: { label: "Regras",        color: "#475569", bg: "#f1f5f9" },
 };
 
@@ -156,7 +156,7 @@ export default function AutonomousAgentPage() {
                 color: status.claudeEnabled ? "#7c3aed" : "#0369a1",
                 border: `1px solid ${status.claudeEnabled ? "#ddd6fe" : "#bfdbfe"}`,
               }}>
-                {status.claudeEnabled ? "Claude claude-sonnet-4-5" : "Gemini 2.5-flash"}
+                {status.claudeEnabled ? "IA Categoria A+" : "IA Categoria A"}
               </span>
             </div>
 
@@ -183,8 +183,8 @@ export default function AutonomousAgentPage() {
               </div>
               <div style={{ fontSize: 13, color: "#64748b" }}>
                 {llmMode?.mode === "on"
-                  ? "Modo ligado — usando Gemini 2.5-flash (melhor qualidade)"
-                  : "Modo desligado — usando Groq Llama (econômico, gratuito)"}
+                  ? "Modo ligado — usando IA Categoria A (máxima qualidade)"
+                  : "Modo desligado — usando IA Categoria B (econômica)"}
               </div>
             </div>
 
@@ -198,7 +198,7 @@ export default function AutonomousAgentPage() {
                   border: `1.5px solid ${llmMode?.mode === "on" ? "#bbf7d0" : "#e2e8f0"}`,
                   transition: "all .2s",
                 }}>
-                  🟢 Gemini
+                  🟢 IA Categoria A
                 </div>
                 <div style={{
                   padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700,
@@ -207,7 +207,7 @@ export default function AutonomousAgentPage() {
                   border: `1.5px solid ${llmMode?.mode === "off" ? "#fde68a" : "#e2e8f0"}`,
                   transition: "all .2s",
                 }}>
-                  🟡 Groq/Llama
+                  🟡 IA Categoria B
                 </div>
               </div>
 
@@ -249,9 +249,9 @@ export default function AutonomousAgentPage() {
             fontSize: 12, color: llmMode?.mode === "on" ? "#065f46" : "#92400e",
           }}>
             {llmMode?.mode === "on" ? (
-              <>✅ <strong>Gemini ativo</strong> — Melhor qualidade de copy e estrutura de campanha. Usa quota da API Google.</>
+              <>✅ <strong>IA Categoria A ativa</strong> — Máxima qualidade de copy e estrutura de campanha. Recomendada para clientes.</>
             ) : (
-              <>⚡ <strong>Groq/Llama ativo</strong> — 14.400 req/dia gratuitas. Ideal quando quota do Gemini esgota. Qualidade ligeiramente inferior.</>
+              <>⚡ <strong>IA Categoria B ativa</strong> — Alta disponibilidade e resposta rápida. Ideal para uso intensivo.</>
             )}
           </div>
         </div>

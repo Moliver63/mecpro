@@ -850,7 +850,7 @@ let _llmMode: "on" | "off" = "on";  // padrão: Gemini ligado
 export function getLLMMode(): "on" | "off" { return _llmMode; }
 export function setLLMMode(mode: "on" | "off") {
   _llmMode = mode;
-  log.info("ai", `🔀 LLM Mode alterado para: ${mode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)"}`);
+  log.info("ai", `🔀 MECPro AI: ${mode === "on" ? "🟢 IA Categoria A ativada" : "🟡 IA Categoria B ativada"}`);
 }
 
 // Carrega configuração salva no banco na inicialização
@@ -860,12 +860,12 @@ export async function loadLLMModeFromDB() {
     const settings = await getAdminSettings();
     if (settings["llm_mode"] === "off") {
       _llmMode = "off";
-      log.info("ai", "LLM Mode carregado do banco: 🟡 Groq/Llama");
+      log.info("ai", "MECPro AI: Categoria B carregada do banco");
     } else {
-      log.info("ai", "LLM Mode carregado do banco: 🟢 Gemini");
+      log.info("ai", "MECPro AI: Categoria A carregada do banco");
     }
   } catch {
-    log.info("ai", "LLM Mode: usando padrão (Gemini)");
+    log.info("ai", "MECPro AI: usando padrão (Categoria A)");
   }
 }
 
@@ -1070,7 +1070,7 @@ export async function gemini(
 ): Promise<string> {
   // ── Toggle: se modo "off", vai direto para Groq (sem tentar Gemini) ──────
   if (_llmMode === "off" && retryCount === 0) {
-    log.info("ai", "🟡 LLM Mode OFF — usando Groq/Llama diretamente");
+    log.info("ai", "🟡 MECPro AI Categoria B ativada");
     try {
       const groqResult = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature);
       if (groqResult) return groqResult;
@@ -1662,8 +1662,8 @@ export function getHealthStatus() {
     },
     llmMode: {
       current:    _llmMode,
-      label:      _llmMode === "on" ? "🟢 Gemini (melhor)" : "🟡 Groq/Llama (econômico)",
-      principal:  _llmMode === "on" ? "gemini-2.5-flash" : (process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+      label:      _llmMode === "on" ? "🟢 IA Categoria A" : "🟡 IA Categoria B",
+      principal:  _llmMode === "on" ? "IA Categoria A" : "IA Categoria B",
     },
     groqFallback: {
       configured: !!process.env.GROQ_API_KEY,
