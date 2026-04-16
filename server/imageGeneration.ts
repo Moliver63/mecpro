@@ -5,9 +5,12 @@ export type ImageProvider = "huggingface" | "heygen" | "mock";
 export type CreativeImageFormat = "feed" | "stories" | "square";
 
 const IMAGE_CACHE = new Map<string, string>();
+// Modelos testados na Inference API do HuggingFace
+// FLUX.1-schnell: usa nova API /v1/images/generations
+// SD 2.1: usa API legada /models/...
 const HF_MODELS = [
-  "black-forest-labs/FLUX.1-schnell",
-  "stabilityai/stable-diffusion-xl-base-1.0",
+  "stabilityai/stable-diffusion-2-1",
+  "runwayml/stable-diffusion-v1-5",
 ];
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
@@ -199,10 +202,10 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
           body: JSON.stringify({
             inputs: prompt,
             parameters: {
-              width: dim.width,
-              height: dim.height,
-              num_inference_steps: 30,
-              guidance_scale: 7,
+              width:  Math.min(dim.width,  768),
+              height: Math.min(dim.height, 768),
+              num_inference_steps: 20,
+              guidance_scale: 7.5,
             },
           }),
           signal: AbortSignal.timeout(30000),

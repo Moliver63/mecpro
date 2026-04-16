@@ -2528,19 +2528,30 @@ const campaignsRouter = router({
           // Vídeo → object_story_spec.video_data
           // Imagem → object_story_spec.link_data (com image_hash ou picture)
           if (effectiveVideoId) {
-            storySpec = {
-              page_id: input.pageId,
-              video_data: {
-                video_id:       effectiveVideoId,
-                message:        selectedMessage,
-                title:          selectedHeadline,
-                call_to_action: {
-                  type:  ctaType,
-                  value: ctaValue,
-                },
+            // Meta exige thumbnail (image_hash ou picture) no video_data
+            // Usar imageHash do criativo se disponível, senão picture da página
+            const videoThumbHash = effectiveImageHash ?? input.imageHash ?? null;
+            const videoThumbUrl  = effectiveImageUrl  ?? input.imageUrl  ?? null;
+            const videoDataPayload: Record<string, any> = {
+              video_id:       effectiveVideoId,
+              message:        selectedMessage,
+              title:          selectedHeadline,
+              call_to_action: {
+                type:  ctaType,
+                value: ctaValue,
               },
             };
-            log.info("meta", "Criativo vídeo via video_data", { videoId: effectiveVideoId, pageId: input.pageId });
+            if (videoThumbHash) {
+              videoDataPayload.image_hash = videoThumbHash;
+            } else if (videoThumbUrl) {
+              videoDataPayload.picture = videoThumbUrl;
+            }
+            // Se não há thumb, omitir — Meta às vezes gera thumbnail automático
+            storySpec = {
+              page_id: input.pageId,
+              video_data: videoDataPayload,
+            };
+            log.info("meta", "Criativo vídeo via video_data", { videoId: effectiveVideoId, pageId: input.pageId, hasThumb: !!(videoThumbHash || videoThumbUrl) });
           } else {
             storySpec = {
               page_id: input.pageId,
