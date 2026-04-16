@@ -834,8 +834,8 @@ function fmtRange(range: [number, number], prefix = "R$ "): string {
 }
 // Cascata de modelos — evita previews expirados/inválidos em produção
 const GEMINI_MODELS = [
-  "gemini-2.5-flash",        // 🥇 2.5 — cota A
-  "gemini-2.5-flash-lite",   // 🥈 2.5 lite — cota A (confirmado nos logs)
+  "gemini-2.5-flash-lite",   // 🥇 lite como primary — evita throttling constante
+  "gemini-2.5-flash",        // 🥈 flash completo como fallback
   "gemini-2.0-flash",        // 🥉 2.0 — cota B separada da 2.5
   "gemini-2.0-flash-lite",   // 4º  2.0 lite — cota B
   "gemini-2.5-pro",          // 5º  2.5 pro — último recurso
