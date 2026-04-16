@@ -5,12 +5,12 @@ export type ImageProvider = "huggingface" | "heygen" | "mock";
 export type CreativeImageFormat = "feed" | "stories" | "square";
 
 const IMAGE_CACHE = new Map<string, string>();
-// Modelos testados na Inference API do HuggingFace
-// FLUX.1-schnell: usa nova API /v1/images/generations
-// SD 2.1: usa API legada /models/...
+// API nova do HuggingFace: /v1/models/{model}/generate-image
+// Modelos disponíveis via API serverless gratuita
 const HF_MODELS = [
+  "black-forest-labs/FLUX.1-dev",
+  "stabilityai/stable-diffusion-xl-base-1.0",
   "stabilityai/stable-diffusion-2-1",
-  "runwayml/stable-diffusion-v1-5",
 ];
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
@@ -192,23 +192,28 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
   for (const model of HF_MODELS) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        // Tentar nova API primeiro, depois legada
+        const newApiUrl = "https://router.huggingface.co/hf-inference/models/" + model + "/v1/text-to-image";
+        const legacyUrl = "https://api-inference.huggingface.co/models/" + model;
+        const apiUrl = model.includes("FLUX") ? newApiUrl : legacyUrl;
+
+        const res = await fetch(apiUrl, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: "Bearer " + apiKey,
             "Content-Type": "application/json",
             Accept: "image/png",
           },
           body: JSON.stringify({
             inputs: prompt,
             parameters: {
-              width:  Math.min(dim.width,  768),
-              height: Math.min(dim.height, 768),
-              num_inference_steps: 20,
-              guidance_scale: 7.5,
+              width:  Math.min(dim.width,  1024),
+              height: Math.min(dim.height, 1024),
+              num_inference_steps: 4,  // FLUX.1-dev funciona com 4 steps
+              guidance_scale: 3.5,
             },
           }),
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(60000),
         });
 
         if (res.status === 503) {

@@ -2532,7 +2532,7 @@ const campaignsRouter = router({
             try {
               for (let attempt = 0; attempt < 5; attempt++) {
                 const statusRes = await fetch(
-                  `https://graph.facebook.com/v19.0/${effectiveVideoId}?fields=status&access_token=${token}`,
+                  "https://graph.facebook.com/v19.0/" + effectiveVideoId + "?fields=status&access_token=" + token,
                   { signal: AbortSignal.timeout(8000) }
                 );
                 if (statusRes.ok) {
@@ -2561,7 +2561,7 @@ const campaignsRouter = router({
             if (!videoThumbHash && !videoThumbUrl) {
               try {
                 const thumbRes = await fetch(
-                  \`https://graph.facebook.com/v19.0/\${effectiveVideoId}/thumbnails?access_token=\${token}\`,
+                  "https://graph.facebook.com/v19.0/" + effectiveVideoId + "/thumbnails?access_token=" + token,
                   { signal: AbortSignal.timeout(8000) }
                 );
                 if (thumbRes.ok) {
