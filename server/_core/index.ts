@@ -30,6 +30,10 @@ console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude fallback):', !!process.env.ANTHROPIC_API_KEY);
 console.log('[BOOT] ASAAS_API_KEY set (Pix pagamentos):', !!process.env.ASAAS_API_KEY);
 console.log('[BOOT] ASAAS_WEBHOOK_TOKEN set (segurança):', !!process.env.ASAAS_WEBHOOK_TOKEN);
+console.log('[BOOT] IMAGE_PROVIDER:', process.env.IMAGE_PROVIDER || 'mock (placeholders — sem imagens reais)');
+console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!process.env.HUGGINGFACE_API_KEY);
+console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET));
+console.log('[BOOT] ANTHROPIC_API_KEY set (Claude):', !!process.env.ANTHROPIC_API_KEY);
 console.log('[BOOT] PID:', process.pid);
 
 // ── Sentry — captura erros em produção ──────────────────────────────────────

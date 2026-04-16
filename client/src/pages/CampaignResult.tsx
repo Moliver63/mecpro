@@ -3,7 +3,7 @@ import PlacementSelector from "@/components/PlacementSelector";
 import AdPreviewPanel from "@/components/AdPreviewPanel";
 import { getImageDimensions, validateMediaForPlacements, getOrientationGuide, type MediaDimensions, type MediaValidationResult } from "@/components/MediaValidator";
 import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/components/PlacementConfig";
-import { useEffect, useState, useRef, useEffect} from "react";
+import { useEffect, useState, useRef } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
@@ -1485,8 +1485,12 @@ export default function CampaignResult() {
                         {creativeImage ? (
                           <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", borderRadius: 12, border: "1px solid #e5e7eb", objectFit: "cover", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }} />
                         ) : (
-                          <div style={{ width: "100%", borderRadius: 12, border: "1px dashed #cbd5e1", background: "#f8fafc", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 12, fontWeight: 700, textAlign: "center", padding: 16 }}>
-                            Sem imagem gerada ainda
+                          <div style={{ width: "100%", borderRadius: 12, border: "1px dashed #cbd5e1", background: "#f8fafc", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 12, fontWeight: 700, textAlign: "center", padding: 16 }}>
+                            <div style={{ fontSize: 24, marginBottom: 8 }}>🎨</div>
+                            <div>Imagem não gerada</div>
+                            <div style={{ fontSize: 10, fontWeight: 400, marginTop: 4, color: "#94a3b8" }}>
+                              Faça upload do seu criativo<br/>ou configure geração automática
+                            </div>
                           </div>
                         )}
                         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
