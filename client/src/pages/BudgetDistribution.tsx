@@ -66,6 +66,9 @@ export default function BudgetDistribution() {
   const { data: platforms, isLoading: loadingPlatforms } =
     (trpc as any).mediaBudget?.platformBalances?.useQuery?.() ?? { data: null, isLoading: false };
 
+  const { data: recharge, refetch: refetchRecharge } =
+    (trpc as any).mediaBudget?.rechargeNeeded?.useQuery?.() ?? { data: null, refetch: () => {} };
+
   useEffect(() => {
     if (balance?.balance > 0 && !amount) setAmount(balance.balance.toFixed(2));
   }, [balance]);
@@ -92,6 +95,7 @@ export default function BudgetDistribution() {
     onSuccess: (data: any) => {
       setApplying(false); setResult(data); setDone(true);
       refetchBalance?.();
+      refetchRecharge?.();
       if (data.applied.length) toast.success(`✅ ${data.applied.length} campanha(s) atualizadas!`);
       if (data.failed.length)  toast.error(`⚠️ ${data.failed.length} falha(s)`);
     },
@@ -479,6 +483,99 @@ export default function BudgetDistribution() {
               style={{ marginTop: 14, padding: "10px 20px", borderRadius: 10, border: "1.5px solid #7c3aed", background: "#f5f3ff", color: "#7c3aed", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               🔄 Novo rateio
             </button>
+          </div>
+        )}
+
+        {/* Painel de Recarga Necessária */}
+        {recharge?.summary && (
+          <div style={{ marginTop: 28 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
+                💳 Recarga necessária nas plataformas
+              </h2>
+              <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                Rateio de {new Date(recharge.summary.appliedAt).toLocaleDateString("pt-BR")}
+              </div>
+            </div>
+
+            {recharge.summary.allRecharged ? (
+              <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 12, padding: "14px 18px", fontSize: 13, color: "#059669", fontWeight: 700 }}>
+                ✅ Todas as plataformas estão com saldo suficiente para o rateio aprovado!
+              </div>
+            ) : (
+              <>
+                <div style={{ background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 12, padding: "12px 18px", marginBottom: 14, fontSize: 13, color: "#92400e" }}>
+                  ⚠️ Total a recarregar: <strong>R$ {recharge.summary.totalToRecharge.toLocaleString("pt-BR", {minimumFractionDigits:2})}</strong>
+                  <span style={{ fontSize: 11, marginLeft: 8 }}>= valor do rateio − saldo atual de cada plataforma</span>
+                </div>
+
+                <div style={{ display: "grid", gap: 12 }}>
+                  {recharge.summary.byPlatform.map((plt: any) => {
+                    const cfg = PLATFORM[plt.platform] || { label: plt.platform, icon: "📊", color: "#64748b", bg: "#f8fafc" };
+                    const ok = plt.toRecharge === 0;
+                    return (
+                      <div key={plt.platform} style={{
+                        background: "#fff", borderRadius: 14, padding: "16px 20px",
+                        border: `2px solid ${ok ? "#bbf7d0" : "#fde68a"}`,
+                        borderLeft: `4px solid ${ok ? "#059669" : "#f59e0b"}`,
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: cfg.color, marginBottom: 6 }}>
+                              {cfg.icon} {cfg.label}
+                            </div>
+                            <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#64748b", flexWrap: "wrap" }}>
+                              <span>Rateio alocado: <strong>R$ {plt.totalAllocated.toLocaleString("pt-BR",{minimumFractionDigits:2})}</strong></span>
+                              {plt.platform !== "google" && (
+                                <span>Saldo atual: <strong style={{ color: plt.currentBalance < plt.totalAllocated ? "#dc2626" : "#059669" }}>
+                                  R$ {plt.currentBalance.toLocaleString("pt-BR",{minimumFractionDigits:2})}
+                                </strong></span>
+                              )}
+                              {plt.platform === "google" && (
+                                <span style={{ color: "#94a3b8" }}>Google não expõe saldo via API</span>
+                              )}
+                            </div>
+                            <div style={{ marginTop: 8, fontSize: 11, color: "#64748b" }}>
+                              Campanhas: {plt.campaigns.map((c: any) => c.campaignName || c.campaignId).join(", ")}
+                            </div>
+                          </div>
+
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            {ok ? (
+                              <div style={{ fontSize: 14, fontWeight: 800, color: "#059669" }}>✅ Saldo OK</div>
+                            ) : (
+                              <>
+                                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>RECARREGAR</div>
+                                <div style={{ fontSize: 26, fontWeight: 900, color: "#f59e0b" }}>
+                                  R$ {plt.toRecharge.toLocaleString("pt-BR",{minimumFractionDigits:2})}
+                                </div>
+                                <a
+                                  href={
+                                    plt.platform === "meta"   ? platforms?.meta?.rechargeUrl :
+                                    plt.platform === "google" ? platforms?.google?.rechargeUrl :
+                                    platforms?.tiktok?.rechargeUrl || "#"
+                                  }
+                                  target="_blank" rel="noreferrer"
+                                  style={{ display: "inline-block", marginTop: 8, padding: "8px 16px", borderRadius: 8,
+                                    background: cfg.color, color: "#fff", fontSize: 12, fontWeight: 700, textDecoration: "none" }}
+                                >
+                                  Recarregar {cfg.label} →
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ marginTop: 12, fontSize: 11, color: "#94a3b8", lineHeight: 1.7 }}>
+                  ℹ️ Cálculo: <strong>A recarregar = Valor do rateio − Saldo atual da plataforma</strong><br />
+                  Após recarregar, clique em "Buscar campanhas" para atualizar os saldos.
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

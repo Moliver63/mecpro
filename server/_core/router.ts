@@ -5900,6 +5900,136 @@ const mediaBudgetRouter = router({
       };
     }),
 
+  // ── Quanto falta recarregar em cada plataforma ──────────────────────────────
+  rechargeNeeded: protectedProcedure
+    .query(async ({ ctx }) => {
+      const userId = ctx.user.id;
+      const pool   = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // Busca último rateio pendente de recarga
+      const distRes = await pool.query(`
+        SELECT d.id, d."totalAmount", d.status, d."appliedAt",
+               json_agg(json_build_object(
+                 'id',             i.id,
+                 'platform',       i.platform,
+                 'campaignId',     i."campaignId",
+                 'campaignName',   i."campaignName",
+                 'allocated',      i."allocatedAmount",
+                 'rechargeNeeded', i."rechargeNeeded",
+                 'rechargeStatus', i."rechargeStatus",
+                 'rechargedAt',    i."rechargedAt"
+               ) ORDER BY i.platform, i."allocatedAmount" DESC) as items
+        FROM media_distributions d
+        JOIN media_distribution_items i ON i."distributionId" = d.id
+        WHERE d."userId" = $1
+        GROUP BY d.id
+        ORDER BY d."appliedAt" DESC
+        LIMIT 5
+      `, [userId]);
+
+      const distributions = distRes.rows;
+      if (!distributions.length) return { distributions: [], summary: null };
+
+      // Busca saldo atual das plataformas
+      let metaBalance = 0, tiktokBalance = 0;
+      try {
+        const metaInt = await db.getApiIntegration(userId, "meta");
+        const token   = (metaInt as any)?.accessToken;
+        const rawAct  = (metaInt as any)?.adAccountId;
+        if (token && rawAct) {
+          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const res = await fetch(
+            `https://graph.facebook.com/v19.0/${act}?fields=balance&access_token=${token}`,
+            { signal: AbortSignal.timeout(6000) }
+          );
+          const d: any = await res.json();
+          metaBalance = Number(d.balance || 0) / 100;
+        }
+      } catch {}
+
+      try {
+        const _drz = await getDb();
+        const [ttInt] = await _drz!.select().from(integrations)
+          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
+        const ttCfg = getTikTokRuntimeConfig(ttInt as any);
+        if (ttCfg.configured) {
+          const res = await fetch(
+            `https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?advertiser_ids=["${ttCfg.accountId}"]&fields=["balance"]`,
+            { headers: { "Access-Token": ttCfg.accessToken! }, signal: AbortSignal.timeout(6000) }
+          );
+          const d: any = await res.json();
+          tiktokBalance = Number(d.data?.list?.[0]?.balance || 0);
+        }
+      } catch {}
+
+      // Calcula quanto falta por plataforma no rateio mais recente
+      const latest = distributions[0];
+      const items  = latest.items as any[];
+
+      const byPlatform: Record<string, {
+        platform: string; totalAllocated: number;
+        currentBalance: number; toRecharge: number;
+        campaigns: any[];
+      }> = {};
+
+      items.forEach((item: any) => {
+        const allocated = Number(item.allocated) / 100;
+        if (!byPlatform[item.platform]) {
+          const currentBalance =
+            item.platform === "meta"   ? metaBalance :
+            item.platform === "tiktok" ? tiktokBalance : 0;
+          byPlatform[item.platform] = {
+            platform: item.platform,
+            totalAllocated: 0,
+            currentBalance,
+            toRecharge: 0,
+            campaigns: [],
+          };
+        }
+        byPlatform[item.platform].totalAllocated += allocated;
+        byPlatform[item.platform].campaigns.push({
+          campaignId:   item.campaignId,
+          campaignName: item.campaignName,
+          allocated,
+          status:       item.rechargeStatus,
+        });
+      });
+
+      // Calcula quanto recarregar em cada plataforma
+      Object.values(byPlatform).forEach(plt => {
+        // Quanto falta = alocado − saldo atual (se positivo)
+        plt.toRecharge = Math.max(0, +(plt.totalAllocated - plt.currentBalance).toFixed(2));
+      });
+
+      const totalToRecharge = Object.values(byPlatform).reduce((s, p) => s + p.toRecharge, 0);
+
+      log.info("media-budget", "Recarga necessária calculada", {
+        userId, distId: latest.id, totalToRecharge,
+        meta:   byPlatform.meta?.toRecharge ?? 0,
+        google: byPlatform.google?.toRecharge ?? 0,
+        tiktok: byPlatform.tiktok?.toRecharge ?? 0,
+      });
+
+      return {
+        distributions: distributions.map(d => ({
+          id:          d.id,
+          totalAmount: Number(d.totalAmount) / 100,
+          status:      d.status,
+          appliedAt:   d.appliedAt,
+          itemCount:   (d.items as any[]).length,
+        })),
+        summary: {
+          distributionId: latest.id,
+          appliedAt:      latest.appliedAt,
+          totalAllocated: Number(latest.totalAmount) / 100,
+          totalToRecharge: +totalToRecharge.toFixed(2),
+          byPlatform: Object.values(byPlatform),
+          allRecharged: totalToRecharge === 0,
+        },
+      };
+    }),
+
   // ── Saldo real nas plataformas de mídia ─────────────────────────────────────
   platformBalances: protectedProcedure
     .query(async ({ ctx }) => {
@@ -6377,6 +6507,25 @@ const mediaBudgetRouter = router({
         `, [userId, deductCents, `Rateio aplicado: ${applied.length} campanha(s)`]);
 
         log.info("media-budget", "Orçamento aplicado + saldo debitado", { userId, applied: applied.length, failed: failed.length, deducted: appliedTotal });
+
+        // Salva rateio para rastreamento de recarga
+        try {
+          const distRes = await pool.query(
+            `INSERT INTO media_distributions ("userId", "totalAmount", status) VALUES ($1, $2, 'pending_recharge') RETURNING id`,
+            [userId, deductCents]
+          );
+          const distId = distRes.rows[0].id;
+          for (const a of applied) {
+            const allocCents = Math.round(a.amount * 100);
+            await pool.query(
+              `INSERT INTO media_distribution_items ("distributionId", platform, "campaignId", "campaignName", "allocatedAmount", "rechargeNeeded", "rechargeStatus")
+               VALUES ($1, $2, $3, $4, $5, $5, 'pending')`,
+              [distId, a.platform, a.campaignId, a.campaignId, allocCents]
+            );
+          }
+        } catch (e: any) {
+          log.warn("media-budget", "Erro ao salvar distribuição", { error: e.message });
+        }
       }
 
       return { applied, failed, totalApplied: applied.reduce((s, a) => s + a.amount, 0) };

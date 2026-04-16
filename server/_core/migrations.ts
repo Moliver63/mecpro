@@ -207,5 +207,32 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "tiktokAdGroupId"  VARCHAR(100);
   `);
 
+  // ── Rateios aprovados — rastreamento de distribuição por plataforma ─────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_distributions (
+      id              SERIAL PRIMARY KEY,
+      "userId"        INTEGER NOT NULL REFERENCES users(id),
+      "totalAmount"   INTEGER NOT NULL,
+      status          VARCHAR(20) NOT NULL DEFAULT 'pending_recharge',
+      "appliedAt"     TIMESTAMPTZ DEFAULT NOW(),
+      "updatedAt"     TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_distribution_items (
+      id                  SERIAL PRIMARY KEY,
+      "distributionId"    INTEGER NOT NULL REFERENCES media_distributions(id),
+      platform            VARCHAR(20) NOT NULL,
+      "campaignId"        VARCHAR(100) NOT NULL,
+      "campaignName"      VARCHAR(255),
+      "allocatedAmount"   INTEGER NOT NULL,
+      "rechargeNeeded"    INTEGER NOT NULL DEFAULT 0,
+      "rechargeStatus"    VARCHAR(20) NOT NULL DEFAULT 'pending',
+      "rechargedAt"       TIMESTAMPTZ,
+      "createdAt"         TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
   console.log('[migrations] ✅ Migrations applied successfully');
 }
