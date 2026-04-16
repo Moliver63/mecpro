@@ -69,10 +69,26 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
 
 function buildMockUrl(creative: any, objective: string, format: CreativeImageFormat): string {
   const dim = FORMAT_DIMENSIONS[format];
-  const title = encodeURIComponent(
-    `${creative?.headline || creative?.hook || objective || "MECPro Creative"}`.slice(0, 54),
-  );
-  return `https://placehold.co/${dim.width}x${dim.height}/0f172a/ffffff.png?text=${title}`;
+  const headline = (creative?.headline || creative?.hook || objective || "Criativo").slice(0, 54);
+  const copy     = (creative?.copy || creative?.bodyText || "").slice(0, 80);
+  const cta      = (creative?.cta || "Saiba Mais").slice(0, 30);
+  const funnel   = creative?.funnelStage || "TOF";
+
+  // Cores por funil
+  const colors: Record<string, [string, string]> = {
+    TOF: ["1877f2", "ffffff"],
+    MOF: ["7c3aed", "ffffff"],
+    BOF: ["059669", "ffffff"],
+  };
+  const [bg, fg] = colors[funnel] || colors.TOF;
+
+  // Texto do card em múltiplas linhas via placehold.co
+  const lines = [headline, copy.slice(0, 60), `→ ${cta}`]
+    .filter(Boolean)
+    .join("\n");
+  const encoded = encodeURIComponent(lines);
+
+  return `https://placehold.co/${dim.width}x${dim.height}/${bg}/${fg}/png?text=${encoded}&font=montserrat`;
 }
 
 export type ImageGenerationDiagnostics = {

@@ -1384,9 +1384,46 @@ function mockResponse(prompt: string): string {
       { name: "Remarketing — Fundo", audience: "Visitantes de páginas de produto (7 dias), carrinho abandonado", budget: "25% do total", objective: "Conversão" },
     ],
     creatives: [
-      { format: "Vídeo 15s", headline: "Descubra como conseguir resultados reais sem complicação", copy: "Milhares já transformaram seus resultados com esse método simples. Clique e veja como.", cta: "Quero saber mais", hook: "Você sabia que 9 em cada 10 pessoas cometem esse erro?" },
-      { format: "Carrossel", headline: "3 passos para transformar seus resultados hoje", copy: "Método simples e comprovado. Passo 1: identifique. Passo 2: aplique. Passo 3: escale.", cta: "Ver o método completo", hook: "Para quem quer resultado sem enrolação" },
-      { format: "Imagem estática", headline: "Material gratuito disponível por tempo limitado", copy: "Acesso imediato. Sem compromisso. Mais de 5.000 pessoas já baixaram.", cta: "Baixar grátis agora", hook: "Acesso gratuito liberado hoje" },
+      {
+        type: "direct_offer", format: "Vídeo 15s", orientation: "vertical_9_16",
+        headline: "Descubra como ter resultados reais em 30 dias",
+        copy: "Método validado por mais de 5.000 clientes. Sem enrolação, sem promessa vazia. Funciona.",
+        bodyText: "Método validado por mais de 5.000 clientes. Sem enrolação, sem promessa vazia. Funciona.",
+        cta: "Quero começar agora", hook: "Você sabia que 9 em 10 pessoas cometem esse erro?",
+        pain: "Perder tempo e dinheiro sem ver resultado concreto",
+        solution: "Método comprovado com suporte e resultado garantido",
+        funnelStage: "TOF", complianceScore: "safe",
+      },
+      {
+        type: "storytelling", format: "Carrossel", orientation: "quadrado_1_1",
+        headline: "3 passos para transformar hoje",
+        copy: "Passo 1: identifique o problema. Passo 2: aplique o método. Passo 3: escale os resultados.",
+        bodyText: "Passo 1: identifique o problema. Passo 2: aplique o método. Passo 3: escale os resultados.",
+        cta: "Ver método completo", hook: "Para quem quer resultado sem enrolação",
+        pain: "Falta de direcionamento e método claro",
+        solution: "Passo a passo validado e replicável",
+        funnelStage: "MOF", complianceScore: "safe",
+      },
+      {
+        type: "lead_magnet", format: "Imagem estática", orientation: "feed_4_5",
+        headline: "Acesso gratuito por tempo limitado",
+        copy: "Material exclusivo disponível hoje. Mais de 5.000 downloads. Sem compromisso.",
+        bodyText: "Material exclusivo disponível hoje. Mais de 5.000 downloads. Sem compromisso.",
+        cta: "Baixar grátis agora", hook: "Acesso gratuito liberado — só hoje",
+        pain: "Não saber por onde começar",
+        solution: "Guia completo com tudo que você precisa",
+        funnelStage: "TOF", complianceScore: "safe",
+      },
+      {
+        type: "social_proof", format: "Vídeo 30s", orientation: "feed_4_5",
+        headline: "Veja o que nossos clientes dizem",
+        copy: "Mais de 5.000 clientes satisfeitos. Resultados reais, pessoas reais. Garanta sua vaga.",
+        bodyText: "Mais de 5.000 clientes satisfeitos. Resultados reais, pessoas reais. Garanta sua vaga.",
+        cta: "Garantir minha vaga", hook: "Ela dobrou seus resultados em 30 dias — veja como",
+        pain: "Medo de investir e não ter retorno",
+        solution: "Prova social real com resultados verificáveis",
+        funnelStage: "BOF", complianceScore: "safe",
+      },
     ],
     creativesByObjective: {
       leads: [
@@ -3617,8 +3654,31 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     {"name": "...", "audience": "descrição detalhada do público", "budget": "R$ X/dia (Y% do total)", "objective": "...", "funnelStage": "TOF|MOF|BOF|SCALE"}
   ],
   "creatives": [
-    {"type": "testimonial|storytelling|authority|lead_magnet|social_proof|direct_offer", "format": "Vídeo 15s|Vídeo 30s|Carrossel|Imagem estática|Stories 9:16|Reels 9:16", "orientation": "vertical_9_16|quadrado_1_1|feed_4_5|horizontal_16_9", "headline": "headline REAL e específica para o nicho — NUNCA use [placeholder]", "copy": "copy REAL max 125 chars — para LEADS foque em cadastro grátis e baixo atrito, para SALES foque em oferta preço urgência garantia", "cta": "para LEADS: Quero meu guia grátis|Cadastrar grátis|Receber material. Para SALES: Comprar agora|Garantir desconto|Ver oferta. NUNCA apenas Saiba mais", "hook": "gancho real dos primeiros 3 segundos que para o scroll", "pain": "dor específica do público deste nicho", "solution": "solução que o produto oferece", "funnelStage": "TOF|MOF|BOF", "complianceScore": "safe|warning|danger", "complianceNotes": "notas Meta", "safeAlternative": "versão segura se warning/danger"}
+    {
+      "type": "testimonial|storytelling|authority|lead_magnet|social_proof|direct_offer",
+      "format": "Vídeo 15s|Vídeo 30s|Carrossel|Imagem estática|Stories 9:16|Reels 9:16",
+      "orientation": "vertical_9_16|quadrado_1_1|feed_4_5|horizontal_16_9",
+      "headline": "headline REAL max 40 chars — específica para o nicho, NUNCA use [placeholder]",
+      "copy": "copy REAL max 125 chars — texto do anúncio completo e persuasivo",
+      "bodyText": "MESMO valor de copy — campo obrigatório para compatibilidade",
+      "cta": "para LEADS: Quero meu guia grátis|Cadastrar grátis. Para SALES: Comprar agora|Garantir desconto. NUNCA apenas Saiba mais",
+      "hook": "gancho real dos primeiros 3 segundos que para o scroll",
+      "pain": "dor específica do público deste nicho",
+      "solution": "solução que o produto oferece",
+      "script": "roteiro de 30s para vídeo (se format for vídeo) — cenas, narração e CTA",
+      "funnelStage": "TOF|MOF|BOF",
+      "complianceScore": "safe|warning|danger",
+      "complianceNotes": "notas de conformidade Meta",
+      "safeAlternative": "versão alternativa segura se warning ou danger"
+    }
   ],
+  INSTRUÇÃO CRÍTICA: Gere EXATAMENTE 4 criativos com formatos DIFERENTES entre si:
+    criativo 1: Imagem Feed (4:5) — TOF (público frio)
+    criativo 2: Vídeo 15s Reels/Stories (9:16) — TOF ou MOF
+    criativo 3: Carrossel — MOF (consideração)
+    criativo 4: Imagem ou Vídeo — BOF (conversão/fundo de funil)
+  NUNCA repita o mesmo format+funnelStage. NUNCA use [placeholder] em nenhum campo.
+  TODOS os campos são obrigatórios — especialmente headline, copy, bodyText, hook, pain, solution, cta.
   "hooks": [
     {"type": "curiosidade", "text": "..."},
     {"type": "dor", "text": "..."},
@@ -3729,7 +3789,25 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     }
     strategy         = parsed.strategy || "";
     adSets           = JSON.stringify(parsed.adSets || []);
-    creatives        = JSON.stringify(parsed.creatives || []);
+    // Normalizar criativos — garantir bodyText + campos obrigatórios
+    const rawCreatives = parsed.creatives || [];
+    const normalizedCreatives = rawCreatives.map((cr: any) => ({
+      ...cr,
+      // bodyText = copy (compatibilidade com frontend)
+      bodyText: cr.bodyText || cr.copy || cr.description || "",
+      copy:     cr.copy     || cr.bodyText || cr.description || "",
+      // Garantir campos obrigatórios
+      headline:    cr.headline    || cr.hook || "Confira agora",
+      hook:        cr.hook        || cr.headline || "",
+      pain:        cr.pain        || "",
+      solution:    cr.solution    || "",
+      cta:         cr.cta         || "Saiba Mais",
+      funnelStage: cr.funnelStage || "TOF",
+      format:      cr.format      || "Imagem estática",
+      type:        cr.type        || "direct_offer",
+      orientation: cr.orientation || "feed_4_5",
+    }));
+    creatives = JSON.stringify(normalizedCreatives);
     conversionFunnel = JSON.stringify(parsed.conversionFunnel || []);
     executionPlan    = JSON.stringify(parsed.executionPlan || []);
     aiResponse = JSON.stringify({
@@ -3757,7 +3835,21 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         catch { groqParsed = JSON.parse(repairJson(groqRaw)); }
         strategy         = groqParsed.strategy || "";
         adSets           = JSON.stringify(groqParsed.adSets || []);
-        creatives        = JSON.stringify(groqParsed.creatives || []);
+        const groqRawCreatives = groqParsed.creatives || [];
+        creatives = JSON.stringify(groqRawCreatives.map((cr: any) => ({
+          ...cr,
+          bodyText: cr.bodyText || cr.copy || "",
+          copy:     cr.copy     || cr.bodyText || "",
+          headline:    cr.headline    || cr.hook || "Confira agora",
+          hook:        cr.hook        || cr.headline || "",
+          pain:        cr.pain        || "",
+          solution:    cr.solution    || "",
+          cta:         cr.cta         || "Saiba Mais",
+          funnelStage: cr.funnelStage || "TOF",
+          format:      cr.format      || "Imagem estática",
+          type:        cr.type        || "direct_offer",
+          orientation: cr.orientation || "feed_4_5",
+        })));
         conversionFunnel = JSON.stringify(groqParsed.conversionFunnel || []);
         executionPlan    = JSON.stringify(groqParsed.executionPlan || []);
         log.info("ai", "Campaign gerada via Groq fallback após parse error do Gemini");
