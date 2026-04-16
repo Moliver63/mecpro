@@ -55,6 +55,8 @@ export default function BudgetDistribution() {
   const [result,    setResult]    = useState<any>(null);
   const [errors,    setErrors]    = useState<string[]>([]);
   const [done,      setDone]      = useState(false);
+  const [excluded,  setExcluded]  = useState<Set<string>>(new Set());
+  const [editing,   setEditing]   = useState<string | null>(null);
 
   const parsedAmount = parseFloat(amount.replace(",", ".")) || 0;
 
@@ -65,8 +67,9 @@ export default function BudgetDistribution() {
     if (balance?.balance > 0 && !amount) setAmount(balance.balance.toFixed(2));
   }, [balance]);
 
-  const distributed = parsedAmount > 0 && campaigns.length > 0
-    ? distribute(campaigns, parsedAmount, overrides) : campaigns;
+  const visibleCamps = campaigns.filter(c => !excluded.has(`${c.platform}_${c.id}`));
+  const distributed  = parsedAmount > 0 && visibleCamps.length > 0
+    ? distribute(visibleCamps, parsedAmount, overrides) : visibleCamps;
   const totalAllocated = distributed.reduce((s, c) => s + c.allocation, 0);
 
   const fetchMut = (trpc as any).mediaBudget?.allPlatformCampaigns?.useMutation?.({
@@ -94,7 +97,7 @@ export default function BudgetDistribution() {
 
   function handleFetch() {
     if (parsedAmount < 1) { toast.error("Informe o valor antes de buscar"); return; }
-    setLoading(true); setCampaigns([]); setDone(false); setResult(null);
+    setLoading(true); setCampaigns([]); setDone(false); setResult(null); setExcluded(new Set()); setEditing(null);
     (fetchMut as any).mutate({ period });
   }
 
@@ -211,52 +214,135 @@ export default function BudgetDistribution() {
                 const met = METRIC[c.metric] || METRIC.ctr;
                 const key = `${c.platform}_${c.id}`;
                 const pct = parsedAmount > 0 ? (c.allocation / parsedAmount * 100).toFixed(1) : "0";
-                const isTop = i === 0;
+                const isTop = i === 0 && c.hasData;
+                const isEditing = editing === key;
+
                 return (
                   <div key={key} style={{ background: "#fff", borderRadius: 14, padding: "14px 18px",
                     border: `2px solid ${isTop ? "#7c3aed30" : "#f1f5f9"}`,
-                    borderLeft: `4px solid ${isTop ? "#7c3aed" : plt.color}` }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, fontWeight: 900, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center",
+                    borderLeft: `4px solid ${isTop ? "#7c3aed" : plt.color}`,
+                    opacity: c.hasData ? 1 : 0.75,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+
+                      {/* Rank */}
+                      <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, fontWeight: 900, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center",
                         background: isTop ? "linear-gradient(135deg,#7c3aed,#2563eb)" : "#f1f5f9",
                         color: isTop ? "#fff" : "#64748b" }}>#{i+1}</div>
+
+                      {/* Badges */}
                       <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: plt.bg, color: plt.color }}>{plt.icon} {plt.label}</span>
                       {!c.hasData && <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: "#fef9c3", color: "#854d0e" }}>⚠️ sem dados no período</span>}
+
+                      {/* Nome e métricas */}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
                         <div style={{ fontSize: 11, color: "#64748b", display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
-                          <span style={{ color: met.color, fontWeight: 700 }}>{met.icon} {met.label}: {c.metricValue}/R$100</span>
-                          <span>Score: {c.score}</span>
-                          <span>Gasto: R$ {c.spend}</span>
-                          {c.waClicks > 0 && <span>📱 {c.waClicks}</span>}
+                          {c.hasData && <span style={{ color: met.color, fontWeight: 700 }}>{met.icon} {met.label}: {c.metricValue}/R$100</span>}
+                          {c.hasData && <span>Score: {c.score}</span>}
+                          {c.spend > 0 && <span>Gasto: R$ {c.spend}</span>}
+                          {c.waClicks > 0 && <span>📱 {c.waClicks} WA</span>}
                           {c.leads > 0 && <span>📋 {c.leads} leads</span>}
-                          <span>CTR: {c.ctr}%</span>
-                          {c.currentBudget != null && c.currentBudget > 0 && <span style={{color:"#94a3b8"}}>Orç.atual: R$ {c.currentBudget.toFixed(2)}/dia</span>}
+                          {c.ctr > 0 && <span>CTR: {c.ctr}%</span>}
+                          {c.currentBudget != null && c.currentBudget > 0 && <span style={{color:"#94a3b8"}}>Atual: R$ {c.currentBudget.toFixed(2)}/dia</span>}
                         </div>
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 19, fontWeight: 900, color: "#0f172a" }}>{R(c.allocation)}</div>
-                        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{pct}%</div>
-                        <input type="number" placeholder="manual" value={overrides[key] ?? ""}
-                          onChange={e => setManual(key, e.target.value)}
-                          style={{ width: 90, padding: "5px 8px", borderRadius: 8, textAlign: "right", fontSize: 12, fontWeight: 700,
-                            border: `1.5px solid ${overrides[key] !== undefined ? "#d97706" : "#e2e8f0"}`,
-                            background: overrides[key] !== undefined ? "#fffbeb" : "#fff" }} />
-                        {overrides[key] !== undefined && (
-                          <div style={{ fontSize: 10, color: "#d97706", marginTop: 2 }}>
-                            ⚙️ manual · <span style={{ cursor: "pointer", textDecoration: "underline" }} onClick={() => setManual(key, "")}>resetar</span>
+
+                      {/* Valor + ações */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+
+                        {/* Edição inline */}
+                        {isEditing ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <input
+                              autoFocus
+                              type="number"
+                              defaultValue={overrides[key] ?? c.allocation}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") {
+                                  setManual(key, (e.target as HTMLInputElement).value);
+                                  setEditing(null);
+                                }
+                                if (e.key === "Escape") setEditing(null);
+                              }}
+                              onBlur={e => { setManual(key, e.target.value); setEditing(null); }}
+                              style={{ width: 100, padding: "6px 10px", borderRadius: 8, border: "2px solid #7c3aed", fontSize: 14, fontWeight: 800, textAlign: "right", outline: "none" }}
+                            />
+                            <span style={{ fontSize: 10, color: "#94a3b8" }}>Enter ✓</span>
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 18, fontWeight: 900, color: overrides[key] !== undefined ? "#d97706" : "#0f172a" }}>
+                              {R(c.allocation)}
+                            </div>
+                            <div style={{ fontSize: 10, color: "#64748b" }}>{pct}% do total</div>
+                            {overrides[key] !== undefined && (
+                              <div style={{ fontSize: 10, color: "#d97706", cursor: "pointer" }} onClick={() => setManual(key, "")}>
+                                ⚙️ manual · resetar
+                              </div>
+                            )}
                           </div>
                         )}
+
+                        {/* Botão editar */}
+                        <button
+                          onClick={() => setEditing(isEditing ? null : key)}
+                          title="Editar valor"
+                          style={{ width: 32, height: 32, borderRadius: 8, border: `1.5px solid ${isEditing ? "#7c3aed" : "#e2e8f0"}`,
+                            background: isEditing ? "#f5f3ff" : "#f8fafc", color: isEditing ? "#7c3aed" : "#64748b",
+                            fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          ✏️
+                        </button>
+
+                        {/* Botão excluir */}
+                        <button
+                          onClick={() => {
+                            setExcluded(prev => new Set([...prev, key]));
+                            setManual(key, "");
+                            toast.success(`"${c.name.slice(0,30)}" removida do rateio`);
+                          }}
+                          title="Remover do rateio"
+                          style={{ width: 32, height: 32, borderRadius: 8, border: "1.5px solid #fecaca",
+                            background: "#fef2f2", color: "#dc2626",
+                            fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          ✕
+                        </button>
                       </div>
                     </div>
-                    <div style={{ marginTop: 8, height: 4, background: "#f1f5f9", borderRadius: 999, overflow: "hidden" }}>
-                      <div style={{ height: "100%", borderRadius: 999, transition: "width .3s", width: `${Math.min(100, Number(pct))}%`,
-                        background: isTop ? "linear-gradient(90deg,#7c3aed,#2563eb)" : plt.color + "80" }} />
+
+                    {/* Barra de progresso */}
+                    <div style={{ marginTop: 10, height: 4, background: "#f1f5f9", borderRadius: 999, overflow: "hidden" }}>
+                      <div style={{ height: "100%", borderRadius: 999, transition: "width .3s",
+                        width: `${Math.min(100, Number(pct))}%`,
+                        background: isTop ? "linear-gradient(90deg,#7c3aed,#2563eb)" : c.hasData ? plt.color + "90" : "#e2e8f0" }} />
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            {/* Campanhas excluídas */}
+            {excluded.size > 0 && (
+              <div style={{ marginBottom: 14, padding: "10px 16px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
+                  Removidas do rateio ({excluded.size}):
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {[...excluded].map(key => {
+                    const [plt, ...idParts] = key.split("_");
+                    const id = idParts.join("_");
+                    const camp = campaigns.find(c => c.platform === plt && c.id === id);
+                    return (
+                      <button key={key}
+                        onClick={() => setExcluded(prev => { const n = new Set(prev); n.delete(key); return n; })}
+                        style={{ fontSize: 11, padding: "3px 10px", borderRadius: 999, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", cursor: "pointer" }}>
+                        {PLATFORM[plt]?.icon} {camp?.name?.slice(0,20) || id} · restaurar
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Ações */}
             <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
