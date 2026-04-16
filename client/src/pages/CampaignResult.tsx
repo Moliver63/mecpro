@@ -507,8 +507,10 @@ export default function CampaignResult() {
       const pendingImages = !singleVideoSelected && mediaFiles.some((file, idx) => isImageFile(file) && !uploadedHashes[idx]);
       if (pendingVideo || pendingImages) {
         toast.error(singleVideoSelected
-          ? "Clique em '📤 Enviar vídeo para Meta' antes de publicar."
-          : "Clique em '📤 Enviar foto(s) para Meta' antes de publicar.");
+          ? "⚠️ Envie o vídeo primeiro — clique no botão azul '📤' acima."
+          : "⚠️ Envie as fotos primeiro — clique no botão azul '📤' acima.");
+        // Scroll suave até a área de mídia
+        document.querySelector('[data-upload-area]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
     }
@@ -2559,16 +2561,26 @@ export default function CampaignResult() {
                                 }}
                                 disabled={uploading || ((mediaFiles.length === 1 && isVideoFile(mediaFiles[0])) ? !!uploadedVid : mediaFiles.every((file: any, i: number) => !isImageFile(file) || !!uploadedHashes[i]))}
                                 style={{
-                                  width: "100%", padding: "8px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
-                                  background: uploadDone ? "#dcfce7" : "#1877f2",
-                                  color: uploadDone ? "#166534" : "white", border: "none",
+                                  width: "100%", padding: "10px", borderRadius: 10, fontSize: 13, fontWeight: 700,
+                                  cursor: uploading ? "not-allowed" : uploadDone ? "default" : "pointer",
+                                  background: uploading ? "#dbeafe"
+                                    : uploadDone ? "#dcfce7"
+                                    : "linear-gradient(135deg, #1877f2, #0a5dc2)",
+                                  color: uploading ? "#1d4ed8"
+                                    : uploadDone ? "#166534"
+                                    : "white",
+                                  border: uploading ? "1.5px solid #93c5fd"
+                                    : uploadDone ? "1.5px solid #86efac"
+                                    : "none",
+                                  boxShadow: (!uploading && !uploadDone) ? "0 4px 14px rgba(24,119,242,0.35)" : "none",
+                                  transition: "all 0.2s",
                                 }}>
                                 {uploading
-                                  ? "⏳ Enviando..."
+                                  ? "⏳ Enviando... aguarde"
                                   : uploadDone
-                                    ? "✅ Enviado para Meta!"
+                                    ? "✅ Pronto! Vídeo enviado para Meta"
                                     : (mediaFiles.length === 1 && isVideoFile(mediaFiles[0]))
-                                      ? "📤 Enviar vídeo para Meta"
+                                      ? "📤 Clique para enviar vídeo à Meta"
                                       : `📤 Enviar ${mediaFiles.length} foto(s) para Meta`}
                               </button>
                             </div>
@@ -2576,7 +2588,7 @@ export default function CampaignResult() {
                         </div>
                       ) : (
                         <label htmlFor="meta-media-input-multi" style={{ cursor: "pointer" }}>
-                          <div style={{ border: "2px dashed var(--border)", borderRadius: 12, padding: 20, textAlign: "center" }}>
+                          <div data-upload-area style={{ border: "2px dashed var(--border)", borderRadius: 12, padding: 20, textAlign: "center" }}>
                             <div style={{ fontSize: 32, marginBottom: 8 }}>📸🎬🎵</div>
                             <p style={{ fontSize: 12, fontWeight: 700, color: "var(--body)", margin: "0 0 4px" }}>Clique para adicionar fotos, vídeo ou áudio</p>
                             <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>JPG, PNG, WebP, GIF · MP4, MOV, WEBM, AVI, MKV · MP3, AAC, WAV · até 10 fotos ou 1 vídeo/áudio</p>
@@ -2609,6 +2621,8 @@ export default function CampaignResult() {
                                 setUploadedVid("");
                                 setUploadDone(false);
                                 setFeaturedIndex(0);
+                                // ── Auto-upload ao selecionar vídeo ──────────
+                                setTimeout(() => handleUploadMedia(firstVideo), 100);
                                 e.target.value = "";
                                 return;
                               }
