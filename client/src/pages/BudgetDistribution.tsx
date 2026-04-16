@@ -63,6 +63,9 @@ export default function BudgetDistribution() {
   const { data: balance, refetch: refetchBalance } =
     (trpc as any).mediaBudget?.getBalance?.useQuery?.() ?? { data: null, refetch: () => {} };
 
+  const { data: platforms, isLoading: loadingPlatforms } =
+    (trpc as any).mediaBudget?.platformBalances?.useQuery?.() ?? { data: null, isLoading: false };
+
   useEffect(() => {
     if (balance?.balance > 0 && !amount) setAmount(balance.balance.toFixed(2));
   }, [balance]);
@@ -118,11 +121,86 @@ export default function BudgetDistribution() {
     <Layout>
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "28px 20px" }}>
 
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 20 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#0f172a" }}>🎯 Rateio de Verba — Multi-Plataforma</h1>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>
             Distribui seu saldo entre Meta, Google e TikTok com base no desempenho real de cada campanha
           </p>
+        </div>
+
+        {/* Painel de saldo nas plataformas */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))", gap: 12, marginBottom: 20 }}>
+          {[
+            {
+              key: "meta", label: "Meta Ads", icon: "📘", color: "#1877f2", bg: "#eff6ff",
+              data: platforms?.meta,
+            },
+            {
+              key: "google", label: "Google Ads", icon: "🔵", color: "#1a73e8", bg: "#f0f9ff",
+              data: platforms?.google,
+            },
+            {
+              key: "tiktok", label: "TikTok Ads", icon: "⬛", color: "#010101", bg: "#f8f8f8",
+              data: platforms?.tiktok,
+            },
+          ].map(({ key, label, icon, color, bg, data: pd }) => (
+            <div key={key} style={{
+              background: bg, borderRadius: 14, padding: "14px 18px",
+              border: `1.5px solid ${pd?.alert === "critical" ? "#fca5a5" : pd?.alert === "warning" ? "#fde68a" : color + "30"}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color }}>{icon} {label}</span>
+                {pd?.rechargeUrl && (
+                  <a href={pd.rechargeUrl} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: "#fff", color, border: `1px solid ${color}30`, textDecoration: "none" }}>
+                    + Recarregar
+                  </a>
+                )}
+              </div>
+
+              {loadingPlatforms && <div style={{ fontSize: 12, color: "#94a3b8" }}>Consultando...</div>}
+
+              {!loadingPlatforms && !pd && <div style={{ fontSize: 12, color: "#94a3b8" }}>Não conectado</div>}
+
+              {pd?.error && <div style={{ fontSize: 11, color: "#dc2626" }}>⚠️ {pd.error.slice(0, 60)}</div>}
+
+              {pd && !pd.error && (
+                <>
+                  {/* META e TIKTOK: mostram saldo real */}
+                  {(key === "meta" || key === "tiktok") && pd.balance != null && (
+                    <>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: pd.alert === "critical" ? "#dc2626" : pd.alert === "warning" ? "#d97706" : "#059669" }}>
+                        R$ {Number(pd.balance).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>saldo disponível</div>
+                      {pd.alert === "critical" && <div style={{ fontSize: 10, color: "#dc2626", marginTop: 4, fontWeight: 700 }}>🔴 Saldo crítico — recarregue agora</div>}
+                      {pd.alert === "warning"  && <div style={{ fontSize: 10, color: "#d97706", marginTop: 4, fontWeight: 700 }}>🟡 Saldo baixo</div>}
+                    </>
+                  )}
+                  {key === "meta" && pd.spent != null && (
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>gasto total: R$ {Number(pd.spent).toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>
+                  )}
+
+                  {/* GOOGLE: mostra gasto do mês (não expõe saldo via API) */}
+                  {key === "google" && (
+                    <>
+                      {pd.spentThisMonth != null && (
+                        <>
+                          <div style={{ fontSize: 22, fontWeight: 900, color: "#1a73e8" }}>
+                            R$ {Number(pd.spentThisMonth).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>gasto este mês</div>
+                        </>
+                      )}
+                      <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>
+                        ℹ️ Google não expõe saldo via API
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
         </div>
 
         {/* Controles */}

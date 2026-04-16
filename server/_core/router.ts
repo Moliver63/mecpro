@@ -5900,6 +5900,128 @@ const mediaBudgetRouter = router({
       };
     }),
 
+  // ── Saldo real nas plataformas de mídia ─────────────────────────────────────
+  platformBalances: protectedProcedure
+    .query(async ({ ctx }) => {
+      const userId = ctx.user.id;
+      const results: Record<string, any> = {};
+
+      // META — balance real da conta
+      try {
+        const metaInt = await db.getApiIntegration(userId, "meta");
+        const token   = (metaInt as any)?.accessToken;
+        const rawAct  = (metaInt as any)?.adAccountId;
+        if (token && rawAct) {
+          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const res = await fetch(
+            `https://graph.facebook.com/v19.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details&access_token=${token}`,
+            { signal: AbortSignal.timeout(8000) }
+          );
+          const d: any = await res.json();
+          if (!d.error) {
+            const balance   = Number(d.balance || 0) / 100;
+            const spent     = Number(d.amount_spent || 0) / 100;
+            const cap       = Number(d.spend_cap || 0) / 100;
+            const remaining = cap > 0 ? cap - spent : null;
+            results.meta = {
+              connected: true, balance, spent,
+              cap: cap > 0 ? cap : null, remaining,
+              currency: d.currency || "BRL",
+              accountStatus: d.account_status,
+              fundingSource: d.funding_source_details?.type || null,
+              rechargeUrl: `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
+              alert: balance < 50 ? "critical" : balance < 200 ? "warning" : null,
+            };
+          } else {
+            results.meta = { connected: true, error: d.error.message };
+          }
+        } else {
+          results.meta = { connected: false };
+        }
+      } catch (e: any) { results.meta = { connected: true, error: e.message }; }
+
+      // GOOGLE — saldo via GAQL customer_client
+      try {
+        const _drz = await getDb();
+        const [gInt] = await _drz!.select().from(integrations)
+          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
+        if (gInt && (gInt as any).accessToken) {
+          const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
+          const customerId = runtime.customerId.replace(/-/g, "");
+          const gHeaders = {
+            "Authorization": `Bearer ${runtime.accessToken}`,
+            "developer-token": runtime.developerToken,
+            "Content-Type": "application/json",
+            ...(runtime.loginCustomerId ? { "login-customer-id": runtime.loginCustomerId.replace(/-/g,"") } : {}),
+          };
+          // Busca total gasto no mês atual
+          const firstOfMonth = new Date(); firstOfMonth.setDate(1);
+          const monthStart = firstOfMonth.toISOString().split("T")[0];
+          const spendQuery = `SELECT metrics.cost_micros FROM customer WHERE segments.date BETWEEN '${monthStart}' AND '${today()}' LIMIT 1`;
+          try {
+            const spendRes = await fetch(buildGoogleAdsUrl(customerId, "googleAds:search"), {
+              method: "POST", headers: gHeaders,
+              body: JSON.stringify({ query: spendQuery }),
+              signal: AbortSignal.timeout(10000),
+            });
+            const spendData: any = await spendRes.json();
+            const rows = Array.isArray(spendData) ? spendData : (spendData.results || []);
+            const spentMicros = rows.reduce((s: number, r: any) => s + Number(r.metrics?.cost_micros || 0), 0);
+            results.google = {
+              connected: true,
+              spentThisMonth: +(spentMicros / 1_000_000).toFixed(2),
+              currency: "BRL",
+              note: "Google não expõe saldo disponível via API — verifique no painel",
+              rechargeUrl: `https://ads.google.com/aw/billing/summary?ocid=${customerId}`,
+            };
+          } catch {
+            results.google = { connected: true, rechargeUrl: `https://ads.google.com/aw/billing/summary` };
+          }
+        } else {
+          results.google = { connected: false };
+        }
+      } catch (e: any) { results.google = { connected: true, error: e.message }; }
+
+      // TIKTOK — saldo real da conta
+      try {
+        const _drz2 = await getDb();
+        const [ttInt] = await _drz2!.select().from(integrations)
+          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
+        const ttCfg = getTikTokRuntimeConfig(ttInt as any);
+        if (ttCfg.configured) {
+          const res = await fetch(
+            `https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?advertiser_ids=["${ttCfg.accountId}"]&fields=["balance","currency","status","name"]`,
+            { headers: { "Access-Token": ttCfg.accessToken! }, signal: AbortSignal.timeout(8000) }
+          );
+          const d: any = await res.json();
+          const info = d.data?.list?.[0];
+          if (info) {
+            const balance = Number(info.balance || 0);
+            results.tiktok = {
+              connected: true,
+              balance, currency: info.currency || "BRL",
+              status: info.status,
+              rechargeUrl: "https://ads.tiktok.com/i18n/dashboard",
+              alert: balance < 50 ? "critical" : balance < 200 ? "warning" : null,
+            };
+          } else {
+            results.tiktok = { connected: true, error: d.message };
+          }
+        } else {
+          results.tiktok = { connected: false };
+        }
+      } catch (e: any) { results.tiktok = { connected: true, error: e.message }; }
+
+      log.info("media-budget", "Saldo plataformas consultado", {
+        userId,
+        meta:   results.meta?.balance ?? "n/a",
+        tiktok: results.tiktok?.balance ?? "n/a",
+        google: results.google?.spentThisMonth ?? "n/a",
+      });
+
+      return results;
+    }),
+
   // ── Buscar campanhas de TODAS as plataformas — APENAS criadas pelo MECPro ───
   allPlatformCampaigns: protectedProcedure
     .input(z.object({ period: z.enum(["7d","30d","90d"]).default("30d") }))
