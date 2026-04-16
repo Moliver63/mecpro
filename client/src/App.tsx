@@ -83,6 +83,7 @@ import AutonomousAgent from "@/pages/AutonomousAgent";
 import MediaBudget from "@/pages/MediaBudget";
 import BudgetDistribution from "@/pages/BudgetDistribution";
 import PlatformPayment from "@/pages/PlatformPayment";
+import RechargeGuide from "@/pages/RechargeGuide";
 import GoogleAdsIntegration from "@/pages/GoogleAdsIntegration";
 import GoogleCampaignCreator from "@/pages/GoogleCampaignCreator";
 import GoogleCampaigns from "@/pages/GoogleCampaigns";
@@ -183,6 +184,7 @@ export default function App() {
             <Route path="/media-budget"><ProtectedRoute><MediaBudget /></ProtectedRoute></Route>
             <Route path="/budget-distribution"><ProtectedRoute><BudgetDistribution /></ProtectedRoute></Route>
             <Route path="/platform-payment"><ProtectedRoute><PlatformPayment /></ProtectedRoute></Route>
+            <Route path="/recharge-guide"><ProtectedRoute><RechargeGuide /></ProtectedRoute></Route>
             <Route path="/projects/:id/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/consultas"><ProtectedRoute><Consultas /></ProtectedRoute></Route>
             <Route path="/billing"><ProtectedRoute><Billing /></ProtectedRoute></Route>

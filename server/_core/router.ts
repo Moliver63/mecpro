@@ -6398,6 +6398,170 @@ const mediaBudgetRouter = router({
       return results;
     }),
 
+  // ── Guia de compra de créditos por plataforma ───────────────────────────────
+  // Recebe o rateio aprovado e devolve links diretos de recarga com valor pré-preenchido
+  generateRechargeGuide: protectedProcedure
+    .input(z.object({
+      totalAmount:  z.number().min(1),   // valor bruto depositado
+      distribution: z.array(z.object({   // rateio por plataforma
+        platform:   z.enum(["meta","google","tiktok"]),
+        amount:     z.number(),
+        campaigns:  z.array(z.string()).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const feePercent = 10;
+      const feeAmount  = input.totalAmount * feePercent / 100;
+      const netAmount  = input.totalAmount - feeAmount;
+
+      // Verifica saldo disponível na wallet
+      const balRes = await pool.query(
+        `SELECT balance FROM media_balance WHERE "userId" = $1`, [ctx.user.id]
+      );
+      const balance = Number(balRes.rows[0]?.balance || 0) / 100;
+      if (balance < netAmount) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Saldo insuficiente. Disponível: R$ ${balance.toFixed(2)}` });
+      }
+
+      // Busca contas de anúncios do usuário para montar os links corretos
+      const metaInt = await db.getApiIntegration(ctx.user.id, "meta");
+      const metaActId = ((metaInt as any)?.adAccountId || "").replace("act_", "");
+
+      const _drz = await getDb();
+      const [gInt] = _drz ? await _drz.select().from(integrations)
+        .where(and(eq(integrations.userId, ctx.user.id), eq(integrations.provider, "google"), eq(integrations.isActive, 1)))
+        : [null];
+      const googleCustomerId = (gInt as any)?.accountId || "";
+
+      const [ttInt] = _drz ? await _drz.select().from(integrations)
+        .where(and(eq(integrations.userId, ctx.user.id), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)))
+        : [null];
+      const tiktokAdvId = (ttInt as any)?.accountId || "";
+
+      // Gera guia por plataforma
+      const guide = input.distribution.map(item => {
+        const amountFmt = item.amount.toFixed(2);
+
+        let rechargeUrl = "";
+        let steps: string[] = [];
+        let notes = "";
+
+        if (item.platform === "meta") {
+          // Meta: link direto para adicionar fundos com valor sugerido
+          rechargeUrl = metaActId
+            ? `https://business.facebook.com/billing/manage/?act=${metaActId}`
+            : "https://business.facebook.com/billing/manage/";
+          steps = [
+            `Acesse o painel Meta Ads (link abaixo)`,
+            `Clique em "Adicionar fundos"`,
+            `Escolha Pix, Boleto ou Cartão`,
+            `Digite exatamente R$ ${amountFmt}`,
+            `Confirme o pagamento`,
+          ];
+          notes = `⚠️ Meta tributa ~12% sobre Pix/Boleto. Para ter R$ ${amountFmt} de mídia, considere adicionar R$ ${(item.amount * 1.1215).toFixed(2)}.`;
+        }
+
+        if (item.platform === "google") {
+          rechargeUrl = googleCustomerId
+            ? `https://ads.google.com/aw/billing/addfunds?ocid=${googleCustomerId.replace(/-/g,"")}`
+            : "https://ads.google.com/aw/billing/addfunds";
+          steps = [
+            `Acesse o painel Google Ads (link abaixo)`,
+            `Clique em "Adicionar fundos"`,
+            `Selecione Pix como forma de pagamento`,
+            `Digite exatamente R$ ${amountFmt}`,
+            `Escaneie o QR Code gerado pelo Google`,
+          ];
+          notes = `✅ Google Ads aceita Pix sem taxas extras para contas brasileiras.`;
+        }
+
+        if (item.platform === "tiktok") {
+          rechargeUrl = tiktokAdvId
+            ? `https://ads.tiktok.com/i18n/dashboard?aadvid=${tiktokAdvId}`
+            : "https://ads.tiktok.com/i18n/dashboard";
+          steps = [
+            `Acesse o TikTok Ads Manager (link abaixo)`,
+            `Vá em "Conta" → "Saldo da conta"`,
+            `Clique em "Recarregar"`,
+            `Escolha Pix ou Cartão`,
+            `Digite exatamente R$ ${amountFmt}`,
+          ];
+          notes = `✅ TikTok aceita Pix, Boleto e Cartão.`;
+        }
+
+        return {
+          platform:    item.platform,
+          amount:      item.amount,
+          amountFmt,
+          rechargeUrl,
+          steps,
+          notes,
+          completed:   false,
+        };
+      });
+
+      // Registra o guia gerado no ledger como "pending_recharge"
+      const totalDist = input.distribution.reduce((s, i) => s + i.amount, 0);
+      try {
+        await pool.query(`
+          INSERT INTO media_distributions ("userId", "totalAmount", status)
+          VALUES ($1, $2, 'guide_generated')
+        `, [ctx.user.id, Math.round(totalDist * 100)]);
+      } catch {}
+
+      log.info("media-budget", "Guia de recarga gerado", {
+        userId: ctx.user.id, totalAmount: input.totalAmount, netAmount,
+        platforms: input.distribution.map(d => `${d.platform}:${d.amount}`),
+      });
+
+      return {
+        totalAmount:  input.totalAmount,
+        feeAmount,
+        netAmount,
+        feePercent,
+        guide,
+        totalDistributed: totalDist,
+        generatedAt: new Date().toISOString(),
+      };
+    }),
+
+  // ── Confirmar que comprou crédito em uma plataforma ───────────────────────
+  confirmRecharge: protectedProcedure
+    .input(z.object({
+      platform: z.enum(["meta","google","tiktok"]),
+      amount:   z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const cents = Math.round(input.amount * 100);
+
+      // Debita da wallet
+      await pool.query(`
+        UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW() WHERE "userId" = $2
+      `, [cents, ctx.user.id]);
+
+      // Registra no ledger
+      await recordLedger(pool, {
+        userId:    ctx.user.id,
+        type:      "ad_spend",
+        amount:    cents,
+        direction: "debit",
+        platform:  input.platform,
+        notes:     `Crédito comprado pelo cliente em ${input.platform} — R$ ${input.amount.toFixed(2)}`,
+      });
+
+      log.info("media-budget", "Recarga confirmada pelo cliente", {
+        userId: ctx.user.id, platform: input.platform, amount: input.amount,
+      });
+
+      return { success: true, platform: input.platform, amount: input.amount };
+    }),
+
   // ── Buscar campanhas de TODAS as plataformas — APENAS criadas pelo MECPro ───
   allPlatformCampaigns: protectedProcedure
     .input(z.object({ period: z.enum(["7d","30d","90d"]).default("30d") }))
