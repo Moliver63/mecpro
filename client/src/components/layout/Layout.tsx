@@ -196,8 +196,16 @@ export default function Layout({ children }: LayoutProps) {
           <span className="sidebar-logo-text">
             MEC<span className="pro">PRO</span>
           </span>
-          <button className="sidebar-toggle" onClick={toggle} title={collapsed ? "Expandir" : "Recolher"}>
-            {collapsed ? "›" : "‹"}
+          <button className="sidebar-toggle" onClick={toggle} title={collapsed ? "Expandir" : "Recolher"} aria-label={collapsed ? "Expandir menu" : "Recolher menu"}>
+            <svg
+              width="16" height="16" viewBox="0 0 16 16" fill="none"
+              style={{ transition: "transform 0.3s cubic-bezier(0.34,1.56,0.64,1)", transform: collapsed ? "rotate(180deg)" : "rotate(0deg)" }}
+            >
+              {/* Duas barras verticais = painel fechado, seta = direcional */}
+              <rect x="2" y="3" width="2" height="10" rx="1" fill="currentColor" opacity="0.5"/>
+              <path d="M7 5L5 8L7 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "all 0.25s", opacity: collapsed ? 0 : 1, transform: collapsed ? "translateX(2px)" : "translateX(0)" }}/>
+              <path d="M6 5L11 8L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "all 0.25s", opacity: collapsed ? 1 : 0, transform: collapsed ? "translateX(0)" : "translateX(-2px)" }}/>
+            </svg>
           </button>
         </div>
 
@@ -241,7 +249,20 @@ export default function Layout({ children }: LayoutProps) {
         {/* Topbar */}
         <header className="app-topbar">
           <div className="app-topbar-left">
-            {/* Mobile menu toggle */}
+            {/* Sidebar toggle — visível em desktop */}
+            <button
+              className="topbar-toggle"
+              onClick={toggle}
+              title={collapsed ? "Expandir menu" : "Recolher menu"}
+              style={{ display: "none" }} // visível via CSS abaixo
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="2" y="3" width="2" height="10" rx="1" fill="currentColor" opacity="0.45"/>
+                <rect x="6" y="3" width="8" height="2" rx="1" fill="currentColor"/>
+                <rect x="6" y="7" width="8" height="2" rx="1" fill="currentColor"/>
+                <rect x="6" y="11" width="8" height="2" rx="1" fill="currentColor"/>
+              </svg>
+            </button>
             <div className="app-topbar-title">{pageTitle}</div>
           </div>
           <UserMenu />
