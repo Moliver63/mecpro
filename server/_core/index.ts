@@ -64,6 +64,7 @@ import multer from 'multer';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as db from '../db.js';
+import { getPool } from '../db.js';
 import log from './logger.js';
 import path from 'path';
 import { fileURLToPath } from 'url';

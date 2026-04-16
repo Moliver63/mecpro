@@ -4,7 +4,7 @@ import superjson from "superjson";
 import type { Context } from "./context";
 import { z } from "zod";
 import * as db from "../db";
-import { getDb } from "../db";
+import { getDb, getPool } from "../db";
 import { and, eq, max, min, or } from "drizzle-orm";
 import { apiIntegrations as integrations, userAlertConfigs } from "../schema";
 import { SignJWT } from "jose";
