@@ -39,8 +39,14 @@ export default function BudgetDistribution() {
 
   const parsedAmount = parseFloat(amount.replace(",", ".")) || 0;
 
-  // Saldo disponível
-  const { data: balance } = (trpc as any).mediaBudget?.getBalance?.useQuery?.() ?? { data: null };
+  // Saldo disponível — preenche automaticamente ao carregar
+  const { data: balance } = (trpc as any).mediaBudget?.getBalance?.useQuery?.({}, {
+    onSuccess: (data: any) => {
+      if (data?.balance > 0 && !amount) {
+        setAmount(String(data.balance.toFixed(2)));
+      }
+    }
+  }) ?? { data: null };
 
   const calcMutation = (trpc as any).mediaBudget?.calcDistribution?.useMutation?.({
     onSuccess: (data: any) => {
@@ -118,8 +124,18 @@ export default function BudgetDistribution() {
                 value={amount}
                 onChange={e => { setAmount(e.target.value); setResult(null); }}
                 placeholder="Ex: 2000"
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 16, fontWeight: 700 }}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${balance && parsedAmount > balance.balance ? "#fca5a5" : "#e2e8f0"}`, fontSize: 16, fontWeight: 700 }}
               />
+              {balance && parsedAmount > 0 && parsedAmount > balance.balance && (
+                <div style={{ fontSize: 11, color: "#dc2626", marginTop: 4, fontWeight: 600 }}>
+                  ⚠️ Valor maior que o saldo disponível ({R(balance.balance)})
+                </div>
+              )}
+              {balance && parsedAmount > 0 && parsedAmount <= balance.balance && (
+                <div style={{ fontSize: 11, color: "#059669", marginTop: 4 }}>
+                  Saldo restante após distribuição: {R(balance.balance - parsedAmount)}
+                </div>
+              )}
             </div>
             <div style={{ flex: 1, minWidth: 120 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>
