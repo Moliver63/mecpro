@@ -2581,6 +2581,37 @@ const campaignsRouter = router({
               }
             }
 
+            // Converter URL da thumbnail em image_hash via API Meta
+            // POST /{accountId}/adimages?url={thumbUrl} → retorna hash
+            if (!videoThumbHash && videoThumbUrl) {
+              try {
+                const hashRes = await fetch(
+                  "https://graph.facebook.com/v19.0/" + accountId + "/adimages"
+                  + "?url=" + encodeURIComponent(videoThumbUrl)
+                  + "&access_token=" + token,
+                  { method: "POST", signal: AbortSignal.timeout(15000) }
+                );
+                if (hashRes.ok) {
+                  const hashData = await hashRes.json() as any;
+                  // Resposta: { images: { filename: { hash, url, ... } } }
+                  const images = hashData?.images;
+                  if (images) {
+                    const firstKey = Object.keys(images)[0];
+                    const hash = images[firstKey]?.hash;
+                    if (hash) {
+                      videoThumbHash = hash;
+                      log.info("meta", "Thumbnail convertida para image_hash", { hash: hash.slice(0, 12) });
+                    }
+                  }
+                } else {
+                  const errText = await hashRes.text().catch(() => "");
+                  log.warn("meta", "Falha ao converter thumbnail para hash", { status: hashRes.status, err: errText.slice(0, 100) });
+                }
+              } catch (hashErr: any) {
+                log.warn("meta", "Erro ao converter thumbnail", { error: hashErr?.message?.slice(0, 80) });
+              }
+            }
+
             const videoDataPayload: Record<string, any> = {
               video_id:       effectiveVideoId,
               message:        selectedMessage,
@@ -2592,9 +2623,8 @@ const campaignsRouter = router({
             };
             if (videoThumbHash) {
               videoDataPayload.image_hash = videoThumbHash;
-            } else if (videoThumbUrl) {
-              videoDataPayload.picture = videoThumbUrl;
             }
+            // Nota: 'picture' não é aceito em video_data — apenas image_hash
             storySpec = {
               page_id: input.pageId,
               video_data: videoDataPayload,
