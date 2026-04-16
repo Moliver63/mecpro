@@ -789,6 +789,7 @@ tbody tr:last-child td { border-bottom: none; }
 @keyframes pulse     { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 @keyframes shimmer   { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 @keyframes glow      { 0%,100% { box-shadow: 0 0 20px rgba(0,113,227,0.2); } 50% { box-shadow: 0 0 32px rgba(0,113,227,0.4); } }
+@keyframes tooltipIn { from { opacity: 0; transform: translateY(-50%) translateX(-6px) scale(0.92); } to { opacity: 1; transform: translateY(-50%) translateX(0) scale(1); } }
 
 .animate-fade-in  { animation: fadeIn var(--t) var(--ease) both; }
 .animate-fade-up  { animation: fadeUp 0.4s var(--ease) both; }

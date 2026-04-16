@@ -131,9 +131,11 @@ function NavItem({ item, active, collapsed }: {
   const [showTip, setShowTip] = useState(false);
 
   return (
-    <div style={{ position: "relative" }}
-      onMouseEnter={() => collapsed && setShowTip(true)}
-      onMouseLeave={() => setShowTip(false)}>
+    <div
+      style={{ position: "relative" }}
+      onMouseEnter={() => setShowTip(true)}
+      onMouseLeave={() => setShowTip(false)}
+    >
       <a
         href={item.path}
         className={`sidebar-nav-item ${active ? "active" : ""}`}
@@ -142,18 +144,58 @@ function NavItem({ item, active, collapsed }: {
         <span className="nav-icon" style={{ fontSize: 18 }}>{item.icon}</span>
         <span className="nav-label">{item.label}</span>
       </a>
-      {collapsed && showTip && (
+
+      {/* Tooltip — sempre visível no hover */}
+      {showTip && (
         <div style={{
-          position: "absolute", left: "calc(100% + 10px)", top: "50%", transform: "translateY(-50%)",
-          background: "rgba(29,29,31,0.92)", backdropFilter: "blur(12px)",
-          color: "white", fontSize: 12, fontWeight: 600, padding: "6px 12px",
-          borderRadius: 8, whiteSpace: "nowrap", zIndex: 999,
-          boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
-          animation: "fadeIn 0.15s ease",
+          position: "absolute",
+          left: collapsed ? "calc(100% + 12px)" : "calc(100% + 8px)",
+          top: "50%",
+          transform: "translateY(-50%)",
           pointerEvents: "none",
+          zIndex: 9999,
+          animation: "tooltipIn 0.18s cubic-bezier(0.34,1.56,0.64,1) both",
         }}>
-          {item.label}
-          <div style={{ position: "absolute", right: "100%", top: "50%", transform: "translateY(-50%)", border: "5px solid transparent", borderRightColor: "rgba(29,29,31,0.92)" }} />
+          {/* Arrow */}
+          <div style={{
+            position: "absolute",
+            right: "100%",
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 0,
+            height: 0,
+            border: "5px solid transparent",
+            borderRightColor: "rgba(22,22,23,0.95)",
+          }} />
+          {/* Label */}
+          <div style={{
+            background: "rgba(22,22,23,0.95)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+            color: "white",
+            fontSize: 12,
+            fontWeight: 600,
+            padding: "6px 12px",
+            borderRadius: 9,
+            whiteSpace: "nowrap",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.08) inset",
+            letterSpacing: "-0.01em",
+            border: "1px solid rgba(255,255,255,0.1)",
+          }}>
+            {item.label}
+            {active && (
+              <span style={{
+                marginLeft: 6,
+                width: 5,
+                height: 5,
+                borderRadius: "50%",
+                background: "#0071e3",
+                display: "inline-block",
+                verticalAlign: "middle",
+                marginBottom: 1,
+              }} />
+            )}
+          </div>
         </div>
       )}
     </div>
