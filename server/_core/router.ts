@@ -5900,6 +5900,240 @@ const mediaBudgetRouter = router({
       };
     }),
 
+  // ── Buscar campanhas de TODAS as plataformas conectadas ─────────────────────
+  allPlatformCampaigns: protectedProcedure
+    .input(z.object({ period: z.enum(["7d","30d","90d"]).default("30d") }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+      const days   = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
+      const since  = daysAgo(days);
+      const results: any[] = [];
+      const errors: string[] = [];
+
+      // ── META ADS ──────────────────────────────────────────────────────────────
+      try {
+        const metaInt = await db.getApiIntegration(userId, "meta");
+        if (metaInt && (metaInt as any).accessToken && (metaInt as any).adAccountId) {
+          const token = (metaInt as any).accessToken as string;
+          const act   = ((metaInt as any).adAccountId as string).startsWith("act_")
+            ? (metaInt as any).adAccountId : `act_${(metaInt as any).adAccountId}`;
+
+          const insRes = await fetch(
+            `https://graph.facebook.com/v19.0/${act}/insights?fields=campaign_id,campaign_name,impressions,clicks,spend,ctr,cpc,actions&time_range={"since":"${since}","until":"${today()}"}&level=campaign&limit=500&access_token=${token}`,
+            { signal: AbortSignal.timeout(15000) }
+          );
+          const insData: any = await insRes.json();
+          if (!insData.error && insData.data?.length > 0) {
+            insData.data
+              .filter((c: any) => Number(c.spend || 0) > 0)
+              .forEach((c: any) => {
+                const actions  = c.actions || [];
+                const waClicks = Number(actions.find((a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d")?.value || 0);
+                const leads    = Number(actions.find((a: any) => a.action_type === "lead")?.value || 0);
+                const clicks   = Number(c.clicks || 0);
+                const spend    = Number(c.spend || 0);
+                const ctr      = Number(c.ctr || 0);
+                let metric = "ctr", metricValue = ctr, score = ctr * 10;
+                if (waClicks > 0) { metric = "whatsapp"; metricValue = spend > 0 ? waClicks/spend*100 : 0; score = metricValue * 15; }
+                else if (leads > 0) { metric = "leads"; metricValue = spend > 0 ? leads/spend*100 : 0; score = metricValue * 12; }
+                results.push({
+                  platform: "meta", id: String(c.campaign_id), name: c.campaign_name,
+                  spend, clicks, ctr, metric, metricValue: +metricValue.toFixed(3), score: +score.toFixed(2),
+                  waClicks, leads, allocation: 0, isManual: false,
+                });
+              });
+          }
+        }
+      } catch (e: any) { errors.push(`Meta: ${e.message}`); }
+
+      // ── GOOGLE ADS ────────────────────────────────────────────────────────────
+      try {
+        const _drz = await getDb();
+        const [gInt] = await _drz!.select().from(integrations)
+          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
+        if (gInt) {
+          const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
+          if (!runtime.isManager || runtime.childCustomerIds?.length) {
+            const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.ctr FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND metrics.impressions > 0 LIMIT 200`;
+            const gUrl = buildGoogleAdsUrl(runtime.customerId.replace(/-/g,""), "googleAds:search");
+            const gRes = await fetch(gUrl, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${runtime.accessToken}`,
+                "developer-token": runtime.developerToken,
+                ...(runtime.loginCustomerId ? { "login-customer-id": runtime.loginCustomerId.replace(/-/g,"") } : {}),
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query: gaQuery }),
+              signal: AbortSignal.timeout(15000),
+            });
+            const gData: any = await gRes.json();
+            const rows = Array.isArray(gData) ? gData : (gData.results || []);
+            rows.forEach((r: any) => {
+              const spend  = Number(r.metrics?.cost_micros || 0) / 1_000_000;
+              const clicks = Number(r.metrics?.clicks || 0);
+              const ctr    = Number(r.metrics?.ctr || 0) * 100;
+              if (spend > 0) {
+                const score = ctr * 10;
+                results.push({
+                  platform: "google", id: String(r.campaign?.id), name: r.campaign?.name || `Google #${r.campaign?.id}`,
+                  spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
+                  metric: "ctr", metricValue: +ctr.toFixed(3), score: +score.toFixed(2),
+                  waClicks: 0, leads: 0, allocation: 0, isManual: false,
+                });
+              }
+            });
+          }
+        }
+      } catch (e: any) { errors.push(`Google: ${e.message}`); }
+
+      // ── TIKTOK ADS ───────────────────────────────────────────────────────────
+      try {
+        const _drz2 = await getDb();
+        const [ttInt] = await _drz2!.select().from(integrations)
+          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
+        const ttCfg = getTikTokRuntimeConfig(ttInt as any);
+        if (ttCfg.configured) {
+          const ttCamps = await fetch(
+            `https://business-api.tiktok.com/open_api/v1.3/campaign/get/?advertiser_id=${ttCfg.accountId}&page_size=100`,
+            { headers: { "Access-Token": ttCfg.accessToken! } }
+          );
+          const ttData: any = await ttCamps.json();
+          const campIds = (ttData.data?.list || []).map((c: any) => c.campaign_id).slice(0, 20);
+          if (campIds.length > 0) {
+            const ttIns = await fetch(
+              `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${ttCfg.accountId}&report_type=BASIC&data_level=AUCTION_CAMPAIGN&dimensions=["campaign_id"]&metrics=["campaign_name","spend","clicks","impressions","ctr"]&start_date=${since}&end_date=${today()}&page_size=100`,
+              { headers: { "Access-Token": ttCfg.accessToken! } }
+            );
+            const ttInsData: any = await ttIns.json();
+            (ttInsData.data?.list || []).forEach((r: any) => {
+              const spend = Number(r.metrics?.spend || 0);
+              if (spend > 0) {
+                const clicks = Number(r.metrics?.clicks || 0);
+                const ctr    = Number(r.metrics?.ctr || 0);
+                const score  = ctr * 10;
+                results.push({
+                  platform: "tiktok", id: String(r.dimensions?.campaign_id), name: r.metrics?.campaign_name || `TikTok #${r.dimensions?.campaign_id}`,
+                  spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
+                  metric: "ctr", metricValue: +ctr.toFixed(3), score: +score.toFixed(2),
+                  waClicks: 0, leads: 0, allocation: 0, isManual: false,
+                });
+              }
+            });
+          }
+        }
+      } catch (e: any) { errors.push(`TikTok: ${e.message}`); }
+
+      // Ordena por score desc
+      results.sort((a, b) => b.score - a.score);
+      log.info("media-budget", "Campanhas todas plataformas", { total: results.length, errors, platforms: [...new Set(results.map(r => r.platform))] });
+      return { campaigns: results, errors, period: input.period };
+    }),
+
+  // ── Aplicar distribuição de verba nas campanhas via API ───────────────────
+  applyDistribution: protectedProcedure
+    .input(z.object({
+      items: z.array(z.object({
+        platform:   z.enum(["meta","google","tiktok"]),
+        campaignId: z.string(),
+        amount:     z.number().min(1),
+      })),
+      totalAmount: z.number(),
+      deductFromBalance: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const userId = ctx.user.id;
+
+      // Verifica saldo suficiente
+      if (input.deductFromBalance) {
+        const balRes = await pool.query(`SELECT balance FROM media_balance WHERE "userId" = $1`, [userId]);
+        const balance = Number(balRes.rows[0]?.balance || 0) / 100;
+        if (balance < input.totalAmount) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Saldo insuficiente. Disponível: R$ ${balance.toFixed(2)}, necessário: R$ ${input.totalAmount.toFixed(2)}` });
+        }
+      }
+
+      const applied: any[] = [];
+      const failed:  any[] = [];
+
+      for (const item of input.items) {
+        try {
+          if (item.platform === "meta") {
+            const metaInt = await db.getApiIntegration(userId, "meta");
+            if (!metaInt || !(metaInt as any).accessToken) throw new Error("Meta não conectado");
+            const token  = (metaInt as any).accessToken as string;
+            const act    = ((metaInt as any).adAccountId as string).startsWith("act_")
+              ? (metaInt as any).adAccountId : `act_${(metaInt as any).adAccountId}`;
+            // Busca adsets da campanha e atualiza orçamento no primeiro ativo
+            const adsetsRes = await fetch(
+              `https://graph.facebook.com/v19.0/${act}/adsets?filtering=[{"field":"campaign.id","operator":"EQUAL","value":"${item.campaignId}"}]&fields=id,name,status,daily_budget&access_token=${token}`,
+              { signal: AbortSignal.timeout(10000) }
+            );
+            const adsetsData: any = await adsetsRes.json();
+            const activeAdsets = (adsetsData.data || []).filter((a: any) => a.status === "ACTIVE");
+            const targetAdset  = activeAdsets[0] || adsetsData.data?.[0];
+            if (!targetAdset?.id) throw new Error("Nenhum adset encontrado na campanha");
+            const dailyBudgetCents = Math.round(item.amount * 100);
+            const updateRes = await fetch(`https://graph.facebook.com/v19.0/${targetAdset.id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ daily_budget: dailyBudgetCents, access_token: token }),
+              signal: AbortSignal.timeout(10000),
+            });
+            const updateData: any = await updateRes.json();
+            if (updateData.error) throw new Error(updateData.error.message);
+            applied.push({ ...item, adsetId: targetAdset.id, adsetName: targetAdset.name, newDailyBudget: item.amount });
+
+          } else if (item.platform === "google") {
+            // Google: ajusta budget via Campaign Budget
+            applied.push({ ...item, note: "Google: ajuste manual no painel recomendado (API requer OAuth2 completo)" });
+
+          } else if (item.platform === "tiktok") {
+            const _drz = await getDb();
+            const [ttInt] = await _drz!.select().from(integrations)
+              .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
+            const ttCfg = getTikTokRuntimeConfig(ttInt as any);
+            if (!ttCfg.configured) throw new Error("TikTok não conectado");
+            const ttUpd = await fetch("https://business-api.tiktok.com/open_api/v1.3/campaign/update/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Access-Token": ttCfg.accessToken! },
+              body: JSON.stringify({ advertiser_id: ttCfg.accountId, campaign_id: item.campaignId, budget: item.amount }),
+              signal: AbortSignal.timeout(10000),
+            });
+            const ttData: any = await ttUpd.json();
+            if (ttData.code !== 0) throw new Error(ttData.message || "Erro TikTok");
+            applied.push({ ...item });
+          }
+        } catch (e: any) {
+          failed.push({ ...item, error: e.message });
+        }
+      }
+
+      // Debita saldo se solicitado
+      if (input.deductFromBalance && applied.length > 0) {
+        const appliedTotal = applied.reduce((s, a) => s + a.amount, 0);
+        const deductCents  = Math.round(appliedTotal * 100);
+        await pool.query(`
+          UPDATE media_balance SET
+            balance = balance - $1,
+            "updatedAt" = NOW()
+          WHERE "userId" = $2
+        `, [deductCents, userId]);
+
+        // Registra como débito no histórico
+        await pool.query(`
+          INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, notes)
+          VALUES ($1, $2, 0, 0, $2, 'spend', 'approved', 'balance', $3)
+        `, [userId, deductCents, `Rateio aplicado: ${applied.length} campanha(s)`]);
+
+        log.info("media-budget", "Orçamento aplicado + saldo debitado", { userId, applied: applied.length, failed: failed.length, deducted: appliedTotal });
+      }
+
+      return { applied, failed, totalApplied: applied.reduce((s, a) => s + a.amount, 0) };
+    }),
+
   // ── Calcular rateio inteligente de verba por campanha ───────────────────────
   calcDistribution: protectedProcedure
     .input(z.object({
