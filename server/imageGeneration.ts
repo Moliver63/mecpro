@@ -112,13 +112,17 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   let reason: string | null = null;
 
   if (normalizedProvider === "mock") {
-    reason = 'IMAGE_PROVIDER está em "mock"; o sistema usa placeholder e não gera imagem real.';
+    if (hasHuggingFaceKey) {
+      reason = 'HUGGINGFACE_API_KEY detectada, mas IMAGE_PROVIDER não está configurado como "huggingface". Adicione IMAGE_PROVIDER=huggingface no Render.';
+    } else {
+      reason = 'IMAGE_PROVIDER não configurado. Adicione IMAGE_PROVIDER=huggingface e HUGGINGFACE_API_KEY no Render para ativar geração real.';
+    }
   } else if (normalizedProvider === "heygen") {
     reason = "O fluxo HeyGen deste projeto ainda cai em fallback seguro e não produz imagem real.";
   } else if (!hasHuggingFaceKey) {
-    reason = "HUGGINGFACE_API_KEY não configurada.";
+    reason = "HUGGINGFACE_API_KEY não encontrada. Verifique o nome exato da variável no Render (sem espaços).";
   } else if (!storageReady) {
-    reason = "Cloudinary não configurado; a imagem até pode ser gerada, mas não há storage público para salvar o arquivo.";
+    reason = null; // Funciona sem Cloudinary — salva como base64
   }
 
   if (normalizedProvider === "huggingface" && !hasHuggingFaceKey) {
@@ -267,9 +271,14 @@ export async function generateAdImage(
           IMAGE_CACHE.set(cacheKey, uploadedUrl);
           return uploadedUrl;
         }
-        log.warn("image-generation", "Imagem gerada mas sem storage configurado; fallback para mock URL", { format, provider });
-      }
+        // Sem Cloudinary: retornar como data URL base64 diretamente
+      log.info("image-generation", "HF gerou imagem — sem Cloudinary, usando base64 data URL", { format });
+      const b64 = buffer.toString("base64");
+      const dataUrl = "data:image/png;base64," + b64;
+      IMAGE_CACHE.set(cacheKey, dataUrl);
+      return dataUrl;
     }
+  }
 
     if (provider === "heygen") {
       const url = await generateWithHeyGen(creative, objective, format);
