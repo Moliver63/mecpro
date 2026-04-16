@@ -580,6 +580,12 @@ export async function getAuditLogs() {
   const db = await getDb(); if (!db) return [];
   return db.select().from(adminAuditLogs).orderBy(desc(adminAuditLogs.createdAt)).limit(100);
 }
+export async function getAdminSetting(key: string): Promise<string | null> {
+  const db = await getDb(); if (!db) return null;
+  const [row] = await db.select().from(appSettings).where(eq(appSettings.key, key));
+  return row?.value ?? null;
+}
+
 export async function getAdminSettings(): Promise<Record<string, string>> {
   const db = await getDb(); if (!db) return {};
   const rows = await db.select().from(appSettings);
