@@ -5456,6 +5456,130 @@ const unifiedRouter = router({
       const ctr = impressions > 0 ? clicks/impressions : 0;
       return { campaigns: camps.length, spend, impressions, clicks, cpc, cpm, ctr };
     }),
+
+  // ── Saldo e billing de cada plataforma ────────────────────────────────────
+  billing: protectedProcedure
+    .query(async ({ ctx }) => {
+      const results: Record<string, any> = {};
+
+      // ── META BILLING ──────────────────────────────────────────────────────
+      try {
+        const metaInt = await db.getApiIntegration(ctx.user.id, "meta");
+        const token   = (metaInt as any)?.accessToken;
+        const rawAct  = (metaInt as any)?.adAccountId;
+        if (token && rawAct) {
+          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const res = await fetch(
+            `https://graph.facebook.com/v19.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,min_daily_budget&access_token=${token}`,
+            { signal: AbortSignal.timeout(8000) }
+          );
+          const d: any = await res.json();
+          if (!d.error) {
+            const balance    = Number(d.balance    || 0) / 100;
+            const spent      = Number(d.amount_spent || 0) / 100;
+            const cap        = Number(d.spend_cap   || 0) / 100;
+            const remaining  = cap > 0 ? cap - spent : null;
+            const dailyAvg   = spent > 0 ? spent / 30 : 0;
+            const daysLeft   = (remaining && dailyAvg > 0) ? Math.floor(remaining / dailyAvg) : null;
+            results.meta = {
+              connected:   true,
+              balance,
+              spent,
+              cap:         cap > 0 ? cap : null,
+              remaining,
+              currency:    d.currency || "BRL",
+              status:      d.account_status,
+              daysLeft,
+              dailyAvg,
+              fundingType: d.funding_source_details?.type || null,
+              rechargeUrl: `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
+              alert:       daysLeft !== null && daysLeft <= 5 ? "critical"
+                         : daysLeft !== null && daysLeft <= 10 ? "warning" : null,
+            };
+          } else {
+            results.meta = { connected: true, error: d.error.message };
+          }
+        } else {
+          results.meta = { connected: false };
+        }
+      } catch (e: any) {
+        results.meta = { connected: true, error: e.message };
+      }
+
+      // ── GOOGLE BILLING ────────────────────────────────────────────────────
+      try {
+        const gInt = await db.getApiIntegration(ctx.user.id, "google");
+        if ((gInt as any)?.accessToken && (gInt as any)?.accountId) {
+          const customerId = String((gInt as any).accountId).replace(/-/g, "");
+          const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
+          if (!runtime.isManager) {
+            const query = `SELECT customer.descriptive_name, customer.currency_code, billing_setup.status, billing_setup.payments_account, customer_client.status FROM billing_setup WHERE billing_setup.status = 'APPROVED' LIMIT 1`;
+            try {
+              const billingRes = await googleAdsPost(
+                `customers/${customerId}/googleAds:search`,
+                { query },
+                gInt as any
+              ) as any;
+              const row = billingRes?.results?.[0];
+              results.google = {
+                connected:   true,
+                currency:    row?.customer?.currencyCode || "BRL",
+                status:      row?.billingSetup?.status || "UNKNOWN",
+                rechargeUrl: `https://ads.google.com/aw/billing/summary?ocid=${customerId}`,
+                alert:       null,
+              };
+            } catch {
+              results.google = {
+                connected: true,
+                rechargeUrl: `https://ads.google.com/aw/billing/summary`,
+                alert: null,
+              };
+            }
+          } else {
+            results.google = { connected: true, isManager: true, rechargeUrl: `https://ads.google.com/aw/billing/summary` };
+          }
+        } else {
+          results.google = { connected: false };
+        }
+      } catch (e: any) {
+        results.google = { connected: true, error: e.message };
+      }
+
+      // ── TIKTOK BILLING ────────────────────────────────────────────────────
+      try {
+        const ttInt = await db.getApiIntegration(ctx.user.id, "tiktok");
+        const ttToken = (ttInt as any)?.accessToken;
+        const ttAdvId = (ttInt as any)?.accountId;
+        if (ttToken && ttAdvId) {
+          const res = await fetch(
+            `https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?advertiser_ids=["${ttAdvId}"]&fields=["balance","currency","status","name"]`,
+            { headers: { "Access-Token": ttToken }, signal: AbortSignal.timeout(8000) }
+          );
+          const d: any = await res.json();
+          const info = d?.data?.list?.[0];
+          if (info) {
+            const balance  = Number(info.balance || 0);
+            const dailyAvg = 0; // TikTok não expõe spent diretamente neste endpoint
+            results.tiktok = {
+              connected:   true,
+              balance,
+              currency:    info.currency || "BRL",
+              status:      info.status,
+              rechargeUrl: `https://ads.tiktok.com/i18n/finance/home`,
+              alert:       balance < 50 ? "warning" : null,
+            };
+          } else {
+            results.tiktok = { connected: true, rechargeUrl: "https://ads.tiktok.com/i18n/finance/home" };
+          }
+        } else {
+          results.tiktok = { connected: false };
+        }
+      } catch (e: any) {
+        results.tiktok = { connected: true, error: e.message };
+      }
+
+      return results;
+    }),
 });
 
 // ─── Autonomous Agent Router ─────────────────────────────────────────────────
