@@ -153,8 +153,17 @@ export default function BudgetDistribution() {
 
         {/* Resultado */}
         {result && camps.length === 0 && (
-          <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "16px 20px", fontSize: 13, color: "#92400e" }}>
-            ⚠️ Nenhuma campanha ativa com métricas suficientes encontrada. Verifique se há campanhas publicadas com dados nos últimos {period === "7d" ? "7" : period === "30d" ? "30" : "90"} dias.
+          <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "16px 20px", fontSize: 13, color: "#92400e", lineHeight: 1.7 }}>
+            ⚠️ <strong>Nenhuma campanha com dados encontrada.</strong><br />
+            Possíveis causas:
+            <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
+              <li>Nenhuma campanha teve gastos nos últimos {period === "7d" ? "7" : period === "30d" ? "30" : "90"} dias</li>
+              <li>Campanhas estão com status DELETED ou ARCHIVED</li>
+              <li>A conta Meta não tem campanhas publicadas pelo MECPro</li>
+            </ul>
+            <div style={{ marginTop: 10 }}>
+              Tente ampliar o período para <strong>90 dias</strong> ou verifique o painel Meta Ads.
+            </div>
           </div>
         )}
 

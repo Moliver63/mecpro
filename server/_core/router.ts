@@ -5914,26 +5914,41 @@ const mediaBudgetRouter = router({
 
       const token  = (integration as any).accessToken as string;
       const rawAct = (integration as any).adAccountId as string;
-      if (!rawAct) throw new TRPCError({ code: "BAD_REQUEST", message: "Ad Account ID não configurado." });
+      if (!rawAct) throw new TRPCError({ code: "BAD_REQUEST", message: "Ad Account ID não configurado. Configure em Integrações → Meta Ads." });
 
       const act   = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
       const days  = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
       const since = daysAgo(days);
 
-      // Busca campanhas com métricas
+      log.info("media-budget", "Buscando campanhas Meta para rateio", {
+        userId: ctx.user.id, act, since, until: today(), period: input.period,
+      });
+
+      // Busca campanhas com métricas — sem filtro de status (pega ACTIVE e PAUSED)
       const fields = `id,name,status,insights.time_range({"since":"${since}","until":"${today()}"}){impressions,clicks,spend,cpc,cpm,ctr,actions}`;
       const res = await fetch(
-        `https://graph.facebook.com/v19.0/${act}/campaigns?fields=${encodeURIComponent(fields)}&limit=200&access_token=${token}`,
-        { signal: AbortSignal.timeout(15000) }
+        `https://graph.facebook.com/v19.0/${act}/campaigns?fields=${encodeURIComponent(fields)}&limit=500&access_token=${token}`,
+        { signal: AbortSignal.timeout(20000) }
       );
       const raw: any = await res.json();
-      if (raw.error) throw new TRPCError({ code: "BAD_REQUEST", message: raw.error.message });
+
+      if (raw.error) {
+        log.warn("media-budget", "Meta API erro no rateio", { error: raw.error.message, code: raw.error.code });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Meta API: ${raw.error.message}` });
+      }
 
       const camps = (raw.data || []) as any[];
 
-      // Calcula score de cada campanha
+      log.info("media-budget", "Campanhas Meta retornadas", {
+        total: camps.length,
+        active: camps.filter((c: any) => c.status === "ACTIVE").length,
+        withInsights: camps.filter((c: any) => c.insights?.data?.[0]).length,
+        statuses: [...new Set(camps.map((c: any) => c.status))],
+      });
+
+      // Inclui ACTIVE e PAUSED (com dados históricos do período)
       const scored = camps
-        .filter((c: any) => c.status === "ACTIVE" && c.insights?.data?.[0])
+        .filter((c: any) => ["ACTIVE", "PAUSED"].includes(c.status) && c.insights?.data?.[0])
         .map((c: any) => {
           const ins = c.insights.data[0];
           const clicks      = Number(ins.clicks      || 0);
