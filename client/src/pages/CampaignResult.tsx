@@ -977,89 +977,83 @@ export default function CampaignResult() {
 
   // ── Gera SVG rico como preview quando não há imagem real ───────────────────
   function buildCreativeSvg(creative: any, format: "feed" | "stories" | "square"): string {
-    const headline = ((creative?.headline || creative?.hook || "Criativo") as string).slice(0, 50);
-    const copy     = ((creative?.copy || creative?.bodyText || "") as string).slice(0, 90);
-    const cta      = ((creative?.cta || "Saiba Mais") as string).slice(0, 28);
+    const headline = ((creative?.headline || creative?.hook || "Criativo") as string).slice(0, 48);
+    const copy     = ((creative?.copy || creative?.bodyText || "") as string).slice(0, 100);
+    const cta      = ((creative?.cta || "Saiba Mais") as string).slice(0, 26);
     const funnel   = (creative?.funnelStage || "TOF") as string;
     const angle    = (creative?.angle || creative?.type || "") as string;
 
-    const palettes: Record<string, { bg: string; accent: string; text: string; badge: string }> = {
-      TOF: { bg: "#0f172a", accent: "#3b82f6", text: "#e2e8f0", badge: "#1d4ed8" },
-      MOF: { bg: "#1e1b4b", accent: "#8b5cf6", text: "#e2e8f0", badge: "#6d28d9" },
-      BOF: { bg: "#052e16", accent: "#22c55e", text: "#dcfce7", badge: "#15803d" },
+    const palettes: Record<string, { bg: string; accent: string; text: string; sub: string }> = {
+      TOF: { bg: "#0f172a", accent: "#3b82f6", text: "#f1f5f9", sub: "#94a3b8" },
+      MOF: { bg: "#1e1b4b", accent: "#a78bfa", text: "#f1f5f9", sub: "#c4b5fd" },
+      BOF: { bg: "#052e16", accent: "#4ade80", text: "#f0fdf4", sub: "#86efac" },
     };
     const pal = palettes[funnel] || palettes["TOF"];
-    const dims: Record<string, [number, number]> = {
-      feed: [800, 1000], stories: [600, 1067], square: [800, 800],
-    };
-    const [w, h] = dims[format] || dims["feed"];
 
-    // Quebrar copy em linhas
-    const words = copy.split(" ");
-    const lines: string[] = [];
-    let line = "";
-    for (const word of words) {
-      if ((line + " " + word).trim().length > 42) { lines.push(line.trim()); line = word; }
-      else line = (line + " " + word).trim();
+    // Dimensões menores para renderização nítida em containers pequenos
+    const W = 400;
+    const H = format === "stories" ? 711 : format === "square" ? 400 : 500;
+
+    // Quebrar headline em linhas de 22 chars (fonte maior)
+    const hlWords = headline.split(" ");
+    const hlLines: string[] = [];
+    let hlLine = "";
+    for (const w of hlWords) {
+      if ((hlLine + " " + w).trim().length > 22) { hlLines.push(hlLine.trim()); hlLine = w; }
+      else hlLine = (hlLine + " " + w).trim();
     }
-    if (line) lines.push(line.trim());
-    const copyLines = lines.slice(0, 3);
-    const angleLabel = angle ? angle.replace(/_/g, " ").toUpperCase() : "";
+    if (hlLine) hlLines.push(hlLine.trim());
+    const hlSlice = hlLines.slice(0, 3);
 
-    const yBase = angleLabel ? 60 : 30;
-    const yH1   = yBase + 60;
-    const yH2   = yH1 + 36;
-    const yCopy = (angleLabel ? 220 : 190);
+    // Quebrar copy em linhas de 38 chars
+    const cpWords = copy.split(" ");
+    const cpLines: string[] = [];
+    let cpLine = "";
+    for (const w of cpWords) {
+      if ((cpLine + " " + w).trim().length > 38) { cpLines.push(cpLine.trim()); cpLine = w; }
+      else cpLine = (cpLine + " " + w).trim();
+    }
+    if (cpLine) cpLines.push(cpLine.trim());
+    const cpSlice = cpLines.slice(0, 3);
 
-    // Construir SVG por concatenação (evita template literals aninhados)
-    let svg = '<svg xmlns="http://www.w3.org/2000/svg"'
-      + ' width="' + w + '" height="' + h + '"'
-      + ' viewBox="0 0 ' + w + ' ' + h + '">'
-      + '<defs>'
-      + '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
-      + '<stop offset="0%" stop-color="' + pal.bg + '"/>'
-      + '<stop offset="100%" stop-color="' + pal.accent + '33"/>'
-      + '</linearGradient>'
-      + '<linearGradient id="strip" x1="0" y1="0" x2="1" y2="0">'
-      + '<stop offset="0%" stop-color="' + pal.accent + '"/>'
-      + '<stop offset="100%" stop-color="' + pal.accent + '88"/>'
-      + '</linearGradient>'
-      + '</defs>'
-      + '<rect width="' + w + '" height="' + h + '" fill="url(#bg)"/>'
-      + '<rect x="0" y="0" width="5" height="' + h + '" fill="url(#strip)"/>'
-      + '<rect x="0" y="' + (h - 110) + '" width="' + w + '" height="110" fill="rgba(0,0,0,0.45)"/>';
+    const angleLabel = angle ? angle.replace(/_/g, " ").toUpperCase().slice(0, 20) : "";
+    const yStart = angleLabel ? 60 : 32;
+    const yHl    = yStart + 44;
+    const yCp    = yHl + hlSlice.length * 36 + 20;
+
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\">"
+      + "<defs>"
+      + "<linearGradient id=\"gbg\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\">"
+      + "<stop offset=\"0%\" stop-color=\"" + pal.bg + "\"/>"
+      + "<stop offset=\"100%\" stop-color=\"" + pal.accent + "\" stop-opacity=\"0.18\"/>"
+      + "</linearGradient>"
+      + "</defs>"
+      + "<rect width=\"" + W + "\" height=\"" + H + "\" fill=\"url(#gbg)\"/>"
+      + "<rect x=\"0\" y=\"0\" width=\"4\" height=\"" + H + "\" fill=\"" + pal.accent + "\"/>"
+      + "<rect x=\"0\" y=\"" + (H - 90) + "\" width=\"" + W + "\" height=\"90\" fill=\"rgba(0,0,0,0.5)\"/>";
 
     if (angleLabel) {
-      svg += '<rect x="20" y="20" rx="6" ry="6"'
-        + ' width="' + (angleLabel.length * 8 + 20) + '" height="24"'
-        + ' fill="' + pal.badge + 'cc"/>'
-        + '<text x="30" y="37" font-family="Arial" font-size="11"'
-        + ' font-weight="700" fill="' + pal.text + '">' + angleLabel + '</text>';
+      svg += "<rect x=\"16\" y=\"16\" rx=\"5\" ry=\"5\" width=\"" + Math.min(angleLabel.length * 8 + 18, W - 32) + "\" height=\"22\" fill=\"" + pal.accent + "\" fill-opacity=\"0.25\"/>"
+        + "<text x=\"25\" y=\"31\" font-family=\"Arial,sans-serif\" font-size=\"11\" font-weight=\"700\" fill=\"" + pal.accent + "\">" + esc(angleLabel) + "</text>";
     }
 
-    svg += '<rect x="20" y="' + yBase + '" rx="4" ry="4" width="50" height="3" fill="' + pal.accent + '"/>'
-      + '<text x="20" y="' + yH1 + '" font-family="Arial" font-size="' + (w > 700 ? 26 : 22) + '"'
-      + ' font-weight="800" fill="' + pal.text + '">' + headline.slice(0, 30).replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>';
+    svg += "<rect x=\"16\" y=\"" + yStart + "\" width=\"40\" height=\"3\" rx=\"2\" fill=\"" + pal.accent + "\"/>";
 
-    if (headline.length > 30) {
-      svg += '<text x="20" y="' + yH2 + '" font-family="Arial" font-size="' + (w > 700 ? 26 : 22) + '"'
-        + ' font-weight="800" fill="' + pal.text + '">' + headline.slice(30, 60).replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>';
-    }
-
-    copyLines.forEach((l, i) => {
-      svg += '<text x="20" y="' + (yCopy + i * 28) + '"'
-        + ' font-family="Arial" font-size="14" fill="' + pal.text + 'cc">'
-        + l.replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>';
+    hlSlice.forEach((line, i) => {
+      svg += "<text x=\"16\" y=\"" + (yHl + i * 36) + "\" font-family=\"Arial,sans-serif\" font-size=\"22\" font-weight=\"800\" fill=\"" + pal.text + "\">" + esc(line) + "</text>";
     });
 
-    svg += '<rect x="20" y="' + (h - 95) + '" rx="8" ry="8"'
-      + ' width="' + (cta.length * 10 + 30) + '" height="36" fill="' + pal.accent + '"/>'
-      + '<text x="35" y="' + (h - 71) + '" font-family="Arial" font-size="14"'
-      + ' font-weight="700" fill="white">' + cta.replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>'
-      + '<text x="' + (w - 20) + '" y="' + (h - 15) + '"'
-      + ' font-family="Arial" font-size="10" fill="' + pal.text + '66"'
-      + ' text-anchor="end">MECPro AI · ' + funnel + '</text>'
-      + '</svg>';
+    cpSlice.forEach((line, i) => {
+      svg += "<text x=\"16\" y=\"" + (yCp + i * 22) + "\" font-family=\"Arial,sans-serif\" font-size=\"13\" fill=\"" + pal.sub + "\">" + esc(line) + "</text>";
+    });
+
+    const btnW = Math.min(cta.length * 10 + 24, W - 32);
+    svg += "<rect x=\"16\" y=\"" + (H - 72) + "\" rx=\"7\" ry=\"7\" width=\"" + btnW + "\" height=\"32\" fill=\"" + pal.accent + "\"/>"
+      + "<text x=\"28\" y=\"" + (H - 50) + "\" font-family=\"Arial,sans-serif\" font-size=\"13\" font-weight=\"700\" fill=\"" + pal.bg + "\">" + esc(cta) + "</text>"
+      + "<text x=\"" + (W - 12) + "\" y=\"" + (H - 8) + "\" font-family=\"Arial,sans-serif\" font-size=\"9\" fill=\"" + pal.sub + "\" text-anchor=\"end\">MECPro AI · " + funnel + "</text>"
+      + "</svg>";
 
     return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   }
@@ -1690,7 +1684,7 @@ export default function CampaignResult() {
                             ))}
                           </div>
                         ) : null}
-                        {cr.imageGenerationReason && (
+                        {cr.imageGenerationReason && !creativeImage.startsWith("data:image/svg") && !creativeImage.startsWith("data:image/png") && (
                           <div style={{ background: "#fff7ed", border: "1px solid #fdba74", borderRadius: 10, padding: 10, marginBottom: 12 }}>
                             <p style={{ fontSize: 11, fontWeight: 800, color: "#9a3412", marginBottom: 4 }}>Diagnóstico da imagem</p>
                             <p style={{ fontSize: 12, color: "#7c2d12", margin: 0 }}>{cr.imageGenerationReason}</p>
