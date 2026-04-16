@@ -65,6 +65,7 @@ import AdminAnalytics from "@/pages/AdminAnalytics";
 import AdminInvites from "@/pages/AdminInvites";
 import AdminManageAdmins from "@/pages/AdminManageAdmins";
 import AdminManageSubscriptions from "@/pages/AdminManageSubscriptions";
+import Financeiro from "@/pages/Financeiro";
 import AdminFinanceiro from "@/pages/AdminFinanceiro";
 import AdminPlans from "@/pages/AdminPlans";
 import AdminModeration from "@/pages/AdminModeration";
@@ -181,6 +182,7 @@ export default function App() {
             <Route path="/unified-dashboard"><ProtectedRoute><UnifiedDashboard /></ProtectedRoute></Route>
             <Route path="/facebook-campaign/new"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/autonomous-agent"><ProtectedRoute><AutonomousAgent /></ProtectedRoute></Route>
+            <Route path="/financeiro"><ProtectedRoute><Financeiro /></ProtectedRoute></Route>
             <Route path="/media-budget"><ProtectedRoute><MediaBudget /></ProtectedRoute></Route>
             <Route path="/budget-distribution"><ProtectedRoute><BudgetDistribution /></ProtectedRoute></Route>
             <Route path="/platform-payment"><ProtectedRoute><PlatformPayment /></ProtectedRoute></Route>
