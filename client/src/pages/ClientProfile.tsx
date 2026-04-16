@@ -88,13 +88,18 @@ export default function ClientProfile() {
   const [docType, setDocType]     = useState<"cnpj" | "cpf">("cnpj");
   const [lookupState, setLookup]  = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [lookupMsg, setLookupMsg] = useState("");
-  const [waPhone,   setWaPhone]   = useState(() => {
-    try {
-      const social = JSON.parse(form.socialLinks || "{}");
-      return social.whatsapp || "";
-    } catch { return ""; }
-  });
+  const [waPhone,   setWaPhone]   = useState("");
   const initialized               = useRef(false);
+
+  // Sincroniza waPhone quando profile carrega
+  useEffect(() => {
+    if (profile?.socialLinks) {
+      try {
+        const s = JSON.parse(profile.socialLinks);
+        if (s.whatsapp) setWaPhone(s.whatsapp);
+      } catch {}
+    }
+  }, [profile?.socialLinks]);
 
   useEffect(() => {
     if (profile && !initialized.current) {
