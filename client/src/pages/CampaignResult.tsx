@@ -612,6 +612,12 @@ export default function CampaignResult() {
   async function handleUploadMedia(fileOverride?: File): Promise<{ kind: "image"; hash: string } | { kind: "video"; videoId: string } | null> {
     const targetFile = fileOverride || mediaFile;
     if (!targetFile) return null;
+    // Guard: não re-fazer upload se vídeo já foi enviado
+    if (isVideoFile(targetFile) && uploadedVid) {
+      log?.debug?.("upload já realizado, ignorando re-upload");
+      return { kind: "video", videoId: uploadedVid };
+    }
+    if (uploading) return null; // evita duplo clique
     setUploading(true);
 
     const isVid = isVideoFile(targetFile);
@@ -2559,10 +2565,10 @@ export default function CampaignResult() {
                                   const allDone = newHashes.filter(Boolean).length === totalImages;
                                   if (allDone) toast.success(`✅ ${totalImages} foto(s) enviadas para a Meta!`);
                                 }}
-                                disabled={uploading || ((mediaFiles.length === 1 && isVideoFile(mediaFiles[0])) ? !!uploadedVid : mediaFiles.every((file: any, i: number) => !isImageFile(file) || !!uploadedHashes[i]))}
+                                disabled={uploading || uploadDone || ((mediaFiles.length === 1 && isVideoFile(mediaFiles[0])) ? !!uploadedVid : mediaFiles.every((file: any, i: number) => !isImageFile(file) || !!uploadedHashes[i]))}
                                 style={{
                                   width: "100%", padding: "10px", borderRadius: 10, fontSize: 13, fontWeight: 700,
-                                  cursor: uploading ? "not-allowed" : uploadDone ? "default" : "pointer",
+                                  cursor: (uploading || uploadDone) ? "not-allowed" : "pointer",
                                   background: uploading ? "#dbeafe"
                                     : uploadDone ? "#dcfce7"
                                     : "linear-gradient(135deg, #1877f2, #0a5dc2)",
@@ -2620,9 +2626,10 @@ export default function CampaignResult() {
                                 setUploadedHash("");
                                 setUploadedVid("");
                                 setUploadDone(false);
+                                setUploading(false);
                                 setFeaturedIndex(0);
                                 // ── Auto-upload ao selecionar vídeo ──────────
-                                setTimeout(() => handleUploadMedia(firstVideo), 100);
+                                setTimeout(() => handleUploadMedia(firstVideo), 150);
                                 e.target.value = "";
                                 return;
                               }
