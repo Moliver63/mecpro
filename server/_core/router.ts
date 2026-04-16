@@ -5739,7 +5739,7 @@ const mediaBudgetRouter = router({
       const netAmount    = amountCents - feeAmount;
 
       // Gera chave Pix dinâmica (simplificado — em produção usar API de pagamento)
-      const pixKey       = process.env.PIX_KEY || "morebemimoveisbc@gmail.com";
+      const pixKey       = process.env.PIX_KEY || "contato@mecproai.com";
       const pixAmount    = (amountCents / 100).toFixed(2);
       const pixExpiry    = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
