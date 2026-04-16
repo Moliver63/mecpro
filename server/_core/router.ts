@@ -5954,7 +5954,7 @@ const mediaBudgetRouter = router({
         if (gInt) {
           const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
           if (!runtime.isManager || runtime.childCustomerIds?.length) {
-            const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.ctr FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND metrics.impressions > 0 LIMIT 200`;
+            const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, campaign.campaign_budget, campaign_budget.resource_name, campaign_budget.amount_micros, metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.ctr FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND metrics.impressions > 0 LIMIT 200`;
             const gUrl = buildGoogleAdsUrl(runtime.customerId.replace(/-/g,""), "googleAds:search");
             const gRes = await fetch(gUrl, {
               method: "POST",
@@ -5980,6 +5980,8 @@ const mediaBudgetRouter = router({
                   spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
                   metric: "ctr", metricValue: +ctr.toFixed(3), score: +score.toFixed(2),
                   waClicks: 0, leads: 0, allocation: 0, isManual: false,
+                  budgetResourceName: r.campaignBudget?.resourceName || r.campaign_budget?.resource_name,
+                  currentBudget: Number(r.campaignBudget?.amountMicros || r.campaign_budget?.amount_micros || 0) / 1_000_000,
                 });
               }
             });
@@ -6087,8 +6089,66 @@ const mediaBudgetRouter = router({
             applied.push({ ...item, adsetId: targetAdset.id, adsetName: targetAdset.name, newDailyBudget: item.amount });
 
           } else if (item.platform === "google") {
-            // Google: ajusta budget via Campaign Budget
-            applied.push({ ...item, note: "Google: ajuste manual no painel recomendado (API requer OAuth2 completo)" });
+            // Google Ads: busca campaign → resource_name do budget → atualiza via mutate
+            const _drz = await getDb();
+            const [gInt] = await _drz!.select().from(integrations)
+              .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
+            if (!gInt) throw new Error("Google Ads não conectado");
+
+            const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
+            const customerId = runtime.customerId.replace(/-/g, "");
+            const gHeaders = {
+              "Authorization":   `Bearer ${runtime.accessToken}`,
+              "developer-token": runtime.developerToken,
+              "Content-Type":    "application/json",
+              ...(runtime.loginCustomerId ? { "login-customer-id": runtime.loginCustomerId.replace(/-/g, "") } : {}),
+            };
+
+            // 1. Busca resource_name do campaign_budget da campanha
+            const budgetQuery = `SELECT campaign.id, campaign.name, campaign.campaign_budget, campaign_budget.id, campaign_budget.resource_name, campaign_budget.amount_micros FROM campaign WHERE campaign.id = ${item.campaignId} LIMIT 1`;
+            const searchUrl = buildGoogleAdsUrl(customerId, "googleAds:search");
+            const searchRes = await fetch(searchUrl, {
+              method: "POST",
+              headers: gHeaders,
+              body: JSON.stringify({ query: budgetQuery }),
+              signal: AbortSignal.timeout(12000),
+            });
+            const searchData: any = await searchRes.json();
+            const rows = Array.isArray(searchData) ? searchData : (searchData.results || []);
+            if (!rows.length) throw new Error(`Campanha Google ${item.campaignId} não encontrada`);
+
+            const budgetResourceName = rows[0]?.campaignBudget?.resourceName || rows[0]?.campaign_budget?.resource_name;
+            if (!budgetResourceName) throw new Error("Não foi possível localizar o budget da campanha");
+
+            // 2. Atualiza o amount_micros do budget (amount em R$ → micros)
+            const newAmountMicros = Math.round(item.amount * 1_000_000);
+            const mutateUrl = buildGoogleAdsUrl(customerId, "googleAds:mutate");
+            const mutateRes = await fetch(mutateUrl, {
+              method: "POST",
+              headers: gHeaders,
+              body: JSON.stringify({
+                mutateOperations: [{
+                  campaignBudgetOperation: {
+                    update: {
+                      resourceName:  budgetResourceName,
+                      amountMicros:  String(newAmountMicros),
+                    },
+                    updateMask: "amount_micros",
+                  },
+                }],
+              }),
+              signal: AbortSignal.timeout(12000),
+            });
+            const mutateData: any = await mutateRes.json();
+
+            if (mutateData.error || mutateData.partialFailureError) {
+              const errMsg = mutateData.error?.message
+                || mutateData.partialFailureError?.message
+                || JSON.stringify(mutateData.partialFailureError || mutateData.error);
+              throw new Error(`Google Ads mutate: ${errMsg}`);
+            }
+
+            applied.push({ ...item, budgetResourceName, newAmountMicros });
 
           } else if (item.platform === "tiktok") {
             const _drz = await getDb();

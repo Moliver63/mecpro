@@ -27,6 +27,7 @@ interface Campaign {
   id: string; name: string; spend: number; clicks: number; ctr: number;
   metric: string; metricValue: number; score: number;
   waClicks: number; leads: number; allocation: number; isManual: boolean;
+  currentBudget?: number; budgetResourceName?: string;
 }
 
 function distribute(campaigns: Campaign[], total: number, overrides: Record<string, number>): Campaign[] {
@@ -228,6 +229,7 @@ export default function BudgetDistribution() {
                           {c.waClicks > 0 && <span>📱 {c.waClicks}</span>}
                           {c.leads > 0 && <span>📋 {c.leads} leads</span>}
                           <span>CTR: {c.ctr}%</span>
+                          {c.currentBudget != null && c.currentBudget > 0 && <span style={{color:"#94a3b8"}}>Orç.atual: R$ {c.currentBudget.toFixed(2)}/dia</span>}
                         </div>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
