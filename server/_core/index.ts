@@ -29,6 +29,7 @@ console.log('[BOOT] GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY);
 console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_KEY);
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude fallback):', !!process.env.ANTHROPIC_API_KEY);
 console.log('[BOOT] ASAAS_API_KEY set (Pix pagamentos):', !!process.env.ASAAS_API_KEY);
+console.log('[BOOT] ASAAS_WEBHOOK_TOKEN set (segurança):', !!process.env.ASAAS_WEBHOOK_TOKEN);
 console.log('[BOOT] PID:', process.pid);
 
 // ── Sentry — captura erros em produção ──────────────────────────────────────
@@ -468,6 +469,18 @@ app.post('/api/meta/upload-media', upload.single('file'), async (req: Request, r
 // ─── Webhook Asaas — confirmação automática de Pix ──────────
 app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Response) => {
   try {
+    // Valida token de autenticação do Asaas
+    const asaasToken = process.env.ASAAS_WEBHOOK_TOKEN;
+    if (asaasToken) {
+      const receivedToken = req.headers['asaas-access-token'] as string;
+      if (!receivedToken || receivedToken !== asaasToken) {
+        log.warn('asaas-webhook', 'Token inválido — requisição rejeitada', {
+          ip: req.ip, hasToken: !!receivedToken,
+        });
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    }
+
     const event = req.body;
     log.info('asaas-webhook', 'Evento recebido', { event: event?.event, paymentId: event?.payment?.id });
 
