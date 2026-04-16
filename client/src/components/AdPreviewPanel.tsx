@@ -38,7 +38,8 @@ interface Props {
   objective?:   string;
   clientName?:  string;
   mediaPreview?: string; // URL de imagem/vídeo uploadada
-  primaryColor?: string; // cor da marca (opcional)
+  primaryColor?: string;  // cor da marca (opcional)
+  creativeImageDataUrl?: string; // SVG gerado quando não há imagem real
 }
 
 type PreviewPlacement =
@@ -190,11 +191,13 @@ function FeedPreview({
         width: config.width + 40, height: config.height,
         background: mediaPreview
           ? `url(${mediaPreview}) center/cover no-repeat`
-          : `linear-gradient(135deg, ${accent}22, ${accent}44)`,
+          : creativeImageDataUrl
+            ? `url(${creativeImageDataUrl}) center/cover no-repeat`
+            : `linear-gradient(135deg, ${accent}22, ${accent}44)`,
         position: "relative", overflow: "hidden",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
-        {!mediaPreview && (
+        {!mediaPreview && !creativeImageDataUrl && (
           <div style={{ textAlign: "center", padding: 20 }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>🖼️</div>
             <div style={{ fontSize: 11, color: accent, fontWeight: 700, maxWidth: 180, lineHeight: 1.4 }}>
@@ -474,7 +477,7 @@ function GoogleDisplayPreview({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdPreviewPanel({
-  creative, platform, objective, clientName, mediaPreview, primaryColor,
+  creative, platform, objective, clientName, mediaPreview, primaryColor, creativeImageDataUrl,
 }: Props) {
   const [activePreview, setActivePreview] = useState<PreviewPlacement>("ig_feed");
   const [showAll, setShowAll] = useState(false);

@@ -973,9 +973,104 @@ export default function CampaignResult() {
     return "feed";
   }
 
+
+
+  // ── Gera SVG rico como preview quando não há imagem real ───────────────────
+  function buildCreativeSvg(creative: any, format: "feed" | "stories" | "square"): string {
+    const headline = ((creative?.headline || creative?.hook || "Criativo") as string).slice(0, 50);
+    const copy     = ((creative?.copy || creative?.bodyText || "") as string).slice(0, 90);
+    const cta      = ((creative?.cta || "Saiba Mais") as string).slice(0, 28);
+    const funnel   = (creative?.funnelStage || "TOF") as string;
+    const angle    = (creative?.angle || creative?.type || "") as string;
+
+    const palettes: Record<string, { bg: string; accent: string; text: string; badge: string }> = {
+      TOF: { bg: "#0f172a", accent: "#3b82f6", text: "#e2e8f0", badge: "#1d4ed8" },
+      MOF: { bg: "#1e1b4b", accent: "#8b5cf6", text: "#e2e8f0", badge: "#6d28d9" },
+      BOF: { bg: "#052e16", accent: "#22c55e", text: "#dcfce7", badge: "#15803d" },
+    };
+    const pal = palettes[funnel] || palettes["TOF"];
+    const dims: Record<string, [number, number]> = {
+      feed: [800, 1000], stories: [600, 1067], square: [800, 800],
+    };
+    const [w, h] = dims[format] || dims["feed"];
+
+    // Quebrar copy em linhas
+    const words = copy.split(" ");
+    const lines: string[] = [];
+    let line = "";
+    for (const word of words) {
+      if ((line + " " + word).trim().length > 42) { lines.push(line.trim()); line = word; }
+      else line = (line + " " + word).trim();
+    }
+    if (line) lines.push(line.trim());
+    const copyLines = lines.slice(0, 3);
+    const angleLabel = angle ? angle.replace(/_/g, " ").toUpperCase() : "";
+
+    const yBase = angleLabel ? 60 : 30;
+    const yH1   = yBase + 60;
+    const yH2   = yH1 + 36;
+    const yCopy = (angleLabel ? 220 : 190);
+
+    // Construir SVG por concatenação (evita template literals aninhados)
+    let svg = '<svg xmlns="http://www.w3.org/2000/svg"'
+      + ' width="' + w + '" height="' + h + '"'
+      + ' viewBox="0 0 ' + w + ' ' + h + '">'
+      + '<defs>'
+      + '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
+      + '<stop offset="0%" stop-color="' + pal.bg + '"/>'
+      + '<stop offset="100%" stop-color="' + pal.accent + '33"/>'
+      + '</linearGradient>'
+      + '<linearGradient id="strip" x1="0" y1="0" x2="1" y2="0">'
+      + '<stop offset="0%" stop-color="' + pal.accent + '"/>'
+      + '<stop offset="100%" stop-color="' + pal.accent + '88"/>'
+      + '</linearGradient>'
+      + '</defs>'
+      + '<rect width="' + w + '" height="' + h + '" fill="url(#bg)"/>'
+      + '<rect x="0" y="0" width="5" height="' + h + '" fill="url(#strip)"/>'
+      + '<rect x="0" y="' + (h - 110) + '" width="' + w + '" height="110" fill="rgba(0,0,0,0.45)"/>';
+
+    if (angleLabel) {
+      svg += '<rect x="20" y="20" rx="6" ry="6"'
+        + ' width="' + (angleLabel.length * 8 + 20) + '" height="24"'
+        + ' fill="' + pal.badge + 'cc"/>'
+        + '<text x="30" y="37" font-family="Arial" font-size="11"'
+        + ' font-weight="700" fill="' + pal.text + '">' + angleLabel + '</text>';
+    }
+
+    svg += '<rect x="20" y="' + yBase + '" rx="4" ry="4" width="50" height="3" fill="' + pal.accent + '"/>'
+      + '<text x="20" y="' + yH1 + '" font-family="Arial" font-size="' + (w > 700 ? 26 : 22) + '"'
+      + ' font-weight="800" fill="' + pal.text + '">' + headline.slice(0, 30).replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>';
+
+    if (headline.length > 30) {
+      svg += '<text x="20" y="' + yH2 + '" font-family="Arial" font-size="' + (w > 700 ? 26 : 22) + '"'
+        + ' font-weight="800" fill="' + pal.text + '">' + headline.slice(30, 60).replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>';
+    }
+
+    copyLines.forEach((l, i) => {
+      svg += '<text x="20" y="' + (yCopy + i * 28) + '"'
+        + ' font-family="Arial" font-size="14" fill="' + pal.text + 'cc">'
+        + l.replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>';
+    });
+
+    svg += '<rect x="20" y="' + (h - 95) + '" rx="8" ry="8"'
+      + ' width="' + (cta.length * 10 + 30) + '" height="36" fill="' + pal.accent + '"/>'
+      + '<text x="35" y="' + (h - 71) + '" font-family="Arial" font-size="14"'
+      + ' font-weight="700" fill="white">' + cta.replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</text>'
+      + '<text x="' + (w - 20) + '" y="' + (h - 15) + '"'
+      + ' font-family="Arial" font-size="10" fill="' + pal.text + '66"'
+      + ' text-anchor="end">MECPro AI · ' + funnel + '</text>'
+      + '</svg>';
+
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  }
+
   function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
     const mergedCreative = mergeCreativeWithProjectedLegacy(creative);
-    return resolveLegacyImageUrlByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined) || "";
+    const real = resolveLegacyImageUrlByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined) || "";
+    if (!real || real.includes("placehold.co")) {
+      return buildCreativeSvg(creative, preferredFormat || "feed");
+    }
+    return real;
   }
 
   function getScoreBadge(score?: number) {
@@ -1617,7 +1712,8 @@ export default function CampaignResult() {
                         platform={(campaign as any)?.platform || "meta"}
                         objective={(campaign as any)?.objective}
                         clientName={(clientProfile as any)?.companyName}
-                        mediaPreview={creativeFormat === "stories" ? (cr.storyImageUrl || creativeImage) : creativeImage}
+                        mediaPreview={creativeFormat === "stories" ? (cr.storyImageUrl || undefined) : (cr.feedImageUrl || cr.squareImageUrl || undefined)}
+                        creativeImageDataUrl={creativeImage}
                       />
                     </div>
                   </>
