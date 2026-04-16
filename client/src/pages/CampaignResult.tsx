@@ -3,7 +3,7 @@ import PlacementSelector from "@/components/PlacementSelector";
 import AdPreviewPanel from "@/components/AdPreviewPanel";
 import { getImageDimensions, validateMediaForPlacements, getOrientationGuide, type MediaDimensions, type MediaValidationResult } from "@/components/MediaValidator";
 import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/components/PlacementConfig";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useEffect} from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
@@ -85,6 +85,7 @@ export default function CampaignResult() {
   const [mediaType,    setMediaType]    = useState<"image" | "video" | null>(null);
   const [uploadedHash, setUploadedHash] = useState<string>("");
   const [uploadedVid,  setUploadedVid]  = useState<string>("");
+  const pendingAutoUploadRef = useRef<File | null>(null); // arquivo aguardando auto-upload
   const [uploading,    setUploading]    = useState(false);
   const [uploadDone,   setUploadDone]   = useState(false);
   const [mediaMode,    setMediaMode]    = useState<"none" | "url" | "upload">("none");
@@ -609,15 +610,27 @@ export default function CampaignResult() {
   }
 
   // ── Upload de mídia via FormData (sem base64 — sem limite de tamanho) ──────
+  // ── Auto-upload: dispara quando pendingAutoUploadRef é preenchido ──────────
+  useEffect(() => {
+    const file = pendingAutoUploadRef.current;
+    if (!file) return;
+    pendingAutoUploadRef.current = null;
+    // Pequeno delay para garantir que React commitou os estados
+    const timer = setTimeout(() => {
+      handleUploadMedia(file);
+    }, 200);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mediaFiles]); // dispara quando mediaFiles muda (novo arquivo selecionado)
+
   async function handleUploadMedia(fileOverride?: File): Promise<{ kind: "image"; hash: string } | { kind: "video"; videoId: string } | null> {
     const targetFile = fileOverride || mediaFile;
     if (!targetFile) return null;
     // Guard: não re-fazer upload se vídeo já foi enviado
     if (isVideoFile(targetFile) && uploadedVid) {
-      log?.debug?.("upload já realizado, ignorando re-upload");
       return { kind: "video", videoId: uploadedVid };
     }
-    if (uploading) return null; // evita duplo clique
+    if (uploading) return null; // evita duplo clique simultâneo
     setUploading(true);
 
     const isVid = isVideoFile(targetFile);
@@ -2628,8 +2641,8 @@ export default function CampaignResult() {
                                 setUploadDone(false);
                                 setUploading(false);
                                 setFeaturedIndex(0);
-                                // ── Auto-upload ao selecionar vídeo ──────────
-                                setTimeout(() => handleUploadMedia(firstVideo), 150);
+                                // ── Auto-upload via ref (mais confiável que setTimeout) ──
+                                pendingAutoUploadRef.current = firstVideo;
                                 e.target.value = "";
                                 return;
                               }
