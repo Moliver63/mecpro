@@ -3192,6 +3192,78 @@ const adminRouter = router({
   getSettings:    adminProcedure.query(() => db.getAdminSettings()),
   saveSettings:   superadminProcedure.input(z.object({ key: z.string(), value: z.string() })).mutation(({ input }) => db.saveAdminSetting(input.key, input.value)),
 
+  // ── Payment mode settings ──────────────────────────────────────────────
+  getPaymentSettings: adminProcedure
+    .query(async () => {
+      const [modeA, modeB, feePercent, defaultDist] = await Promise.all([
+        db.getAdminSetting("payment_mode_wallet"),    // wallet interna (Modo A)
+        db.getAdminSetting("payment_mode_guide"),     // guia de compra (Modo B)
+        db.getAdminSetting("payment_fee_percent"),    // taxa %
+        db.getAdminSetting("payment_default_dist"),   // distribuição padrão
+      ]);
+      return {
+        modeWallet:   modeA !== "false",   // Modo A — default ON
+        modeGuide:    modeB !== "false",   // Modo B — default ON
+        feePercent:   Number(feePercent || "10"),
+        defaultDist:  defaultDist ? JSON.parse(defaultDist) : { meta: 50, google: 30, tiktok: 20 },
+      };
+    }),
+
+  savePaymentSettings: adminProcedure
+    .input(z.object({
+      modeWallet:  z.boolean(),
+      modeGuide:   z.boolean(),
+      feePercent:  z.number().min(0).max(50),
+      defaultDist: z.object({ meta: z.number(), google: z.number(), tiktok: z.number() }),
+    }))
+    .mutation(async ({ input }) => {
+      await Promise.all([
+        db.saveAdminSetting("payment_mode_wallet",  String(input.modeWallet)),
+        db.saveAdminSetting("payment_mode_guide",   String(input.modeGuide)),
+        db.saveAdminSetting("payment_fee_percent",  String(input.feePercent)),
+        db.saveAdminSetting("payment_default_dist", JSON.stringify(input.defaultDist)),
+      ]);
+      log.info("admin", "Payment settings atualizadas", input);
+      return { success: true };
+    }),
+
+  // ── Financial summary para o admin ────────────────────────────────────
+  financialOverview: adminProcedure
+    .query(async () => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const [totalBalance, totalDeposited, totalFees, totalSpend, recentTx, topUsers] = await Promise.all([
+        pool.query(`SELECT COALESCE(SUM(balance),0) as total FROM media_balance`),
+        pool.query(`SELECT COALESCE(SUM("totalDeposited"),0) as total FROM media_balance`),
+        pool.query(`SELECT COALESCE(SUM("totalFees"),0) as total FROM media_balance`),
+        pool.query(`SELECT COALESCE(SUM(amount),0) as total FROM media_budget WHERE type='deposit' AND status='approved'`),
+        pool.query(`SELECT mb."userId", u.email, mb.amount, mb.type, mb.method, mb."createdAt"
+          FROM media_budget mb JOIN users u ON u.id = mb."userId"
+          ORDER BY mb."createdAt" DESC LIMIT 20`),
+        pool.query(`SELECT mb."userId", u.email, u.name, mb.balance, mb."totalDeposited"
+          FROM media_balance mb JOIN users u ON u.id = mb."userId"
+          ORDER BY mb.balance DESC LIMIT 10`),
+      ]);
+
+      return {
+        totalBalance:   Number(totalBalance.rows[0]?.total || 0) / 100,
+        totalDeposited: Number(totalDeposited.rows[0]?.total || 0) / 100,
+        totalFees:      Number(totalFees.rows[0]?.total || 0) / 100,
+        totalSpend:     Number(totalSpend.rows[0]?.total || 0) / 100,
+        recentTx: recentTx.rows.map((r: any) => ({
+          userId:    r.userId, email: r.email,
+          amount:    Number(r.amount) / 100,
+          type:      r.type, method: r.method, createdAt: r.createdAt,
+        })),
+        topUsers: topUsers.rows.map((r: any) => ({
+          userId:         r.userId, email: r.email, name: r.name,
+          balance:        Number(r.balance) / 100,
+          totalDeposited: Number(r.totalDeposited) / 100,
+        })),
+      };
+    }),
+
   // -- Perfis (Superadmin-only) ---------------------------------------------
   setUserProfile: adminProcedure
     .input(z.object({

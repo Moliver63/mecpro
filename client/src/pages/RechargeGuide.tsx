@@ -50,6 +50,8 @@ interface GuideItem {
 }
 
 export default function RechargeGuide() {
+  // Verifica se Modo B está habilitado pelo admin
+  const { data: ps } = (trpc as any).admin?.getPaymentSettings?.useQuery?.() ?? { data: null };
   const [amount,    setAmount]    = useState("");
   const [guide,     setGuide]     = useState<any>(null);
   const [completed, setCompleted] = useState<Set<Platform>>(new Set());
@@ -57,6 +59,21 @@ export default function RechargeGuide() {
   const [step,      setStep]      = useState<"input"|"guide"|"done">("input");
 
   const parsedAmount = parseFloat(amount.replace(",", ".")) || 0;
+
+  if (ps && !ps.modeGuide) {
+    return (
+      <Layout>
+        <div style={{ maxWidth: 600, margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Modo indisponível</h2>
+          <p style={{ color: "#64748b", fontSize: 14 }}>
+            O guia de compra está temporariamente desativado pelo administrador.<br />
+            Use a <a href="/media-budget" style={{ color: "#0071e3" }}>Wallet de Mídia</a> para investir.
+          </p>
+        </div>
+      </Layout>
+    );
+  }
   const feeAmount    = parsedAmount * 0.1;
   const netAmount    = parsedAmount - feeAmount;
 

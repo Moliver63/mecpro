@@ -20,6 +20,23 @@ type Method = "pix" | "card";
 
 export default function MediaBudget() {
   const { user } = useAuth();
+
+  // Verifica se Modo A está habilitado pelo admin
+  const { data: ps } = (trpc as any).admin?.getPaymentSettings?.useQuery?.() ?? { data: null };
+  if (ps && !ps.modeWallet) {
+    return (
+      <Layout>
+        <div style={{ maxWidth: 600, margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Modo indisponível</h2>
+          <p style={{ color: "#64748b", fontSize: 14 }}>
+            O depósito via wallet interna está temporariamente desativado pelo administrador.<br />
+            Use o <a href="/recharge-guide" style={{ color: "#0071e3" }}>Guia de Compra</a> para investir em anúncios.
+          </p>
+        </div>
+      </Layout>
+    );
+  }
   const isAdmin = ["admin", "superadmin"].includes((user as any)?.role || "");
 
   const [amount,    setAmount]  = useState("");
