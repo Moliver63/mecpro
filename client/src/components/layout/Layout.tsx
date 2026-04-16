@@ -12,6 +12,7 @@ const NAV_USER = [
   { icon: "🤖", label: "Agente Autônomo",  path: "/autonomous-agent" },
   { icon: "📊", label: "Mídia Paga",       path: "/unified-dashboard" },
   { icon: "💰", label: "Verba de Mídia",   path: "/media-budget" },
+  { icon: "🎯", label: "Rateio de Verba",   path: "/budget-distribution" },
   { icon: "🎓", label: "Academia",        path: "/academy" },
   { icon: "🔔", label: "Notificações",    path: "/notifications" },
   { icon: "💬", label: "Mensagens",       path: "/messages" },

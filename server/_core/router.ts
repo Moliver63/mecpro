@@ -5900,6 +5900,137 @@ const mediaBudgetRouter = router({
       };
     }),
 
+  // ── Calcular rateio inteligente de verba por campanha ───────────────────────
+  calcDistribution: protectedProcedure
+    .input(z.object({
+      amount:   z.number().min(1),         // valor total a distribuir (R$)
+      period:   z.enum(["7d","30d","90d"]).default("30d"),
+      overrides: z.record(z.string(), z.number()).optional(), // metaCampaignId -> valor manual
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Meta Ads não conectado." });
+
+      const token  = (integration as any).accessToken as string;
+      const rawAct = (integration as any).adAccountId as string;
+      if (!rawAct) throw new TRPCError({ code: "BAD_REQUEST", message: "Ad Account ID não configurado." });
+
+      const act   = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+      const days  = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
+      const since = daysAgo(days);
+
+      // Busca campanhas com métricas
+      const fields = `id,name,status,insights.time_range({"since":"${since}","until":"${today()}"}){impressions,clicks,spend,cpc,cpm,ctr,actions}`;
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/${act}/campaigns?fields=${encodeURIComponent(fields)}&limit=200&access_token=${token}`,
+        { signal: AbortSignal.timeout(15000) }
+      );
+      const raw: any = await res.json();
+      if (raw.error) throw new TRPCError({ code: "BAD_REQUEST", message: raw.error.message });
+
+      const camps = (raw.data || []) as any[];
+
+      // Calcula score de cada campanha
+      const scored = camps
+        .filter((c: any) => c.status === "ACTIVE" && c.insights?.data?.[0])
+        .map((c: any) => {
+          const ins = c.insights.data[0];
+          const clicks      = Number(ins.clicks      || 0);
+          const impressions = Number(ins.impressions  || 0);
+          const spend       = Number(ins.spend        || 0);
+          const ctr         = Number(ins.ctr          || 0);
+
+          // Detecta melhor métrica automaticamente
+          const actions = ins.actions || [];
+          const waClicks   = actions.find((a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d")?.value || 0;
+          const leads      = actions.find((a: any) => a.action_type === "lead")?.value || 0;
+          const purchases  = actions.find((a: any) => a.action_type === "purchase")?.value || 0;
+
+          // Score composto — normalizado por gasto (ROAS de resultado)
+          let primaryMetric = "ctr";
+          let primaryValue  = ctr;
+          let score         = ctr * 10;
+
+          if (Number(waClicks) > 0) {
+            primaryMetric = "whatsapp";
+            primaryValue  = spend > 0 ? Number(waClicks) / spend * 100 : 0; // cliques WA por R$100
+            score = primaryValue * 15; // WA tem peso maior
+          } else if (Number(leads) > 0) {
+            primaryMetric = "leads";
+            primaryValue  = spend > 0 ? Number(leads) / spend * 100 : 0; // leads por R$100
+            score = primaryValue * 12;
+          } else if (Number(purchases) > 0) {
+            primaryMetric = "roas";
+            primaryValue  = spend > 0 ? Number(purchases) / spend : 0;
+            score = primaryValue * 20;
+          }
+
+          return {
+            id:            c.id,
+            name:          c.name,
+            status:        c.status,
+            primaryMetric,
+            primaryValue:  +primaryValue.toFixed(4),
+            score:         +score.toFixed(2),
+            spend:         +spend.toFixed(2),
+            clicks,
+            impressions,
+            ctr:           +ctr.toFixed(3),
+            waClicks:      Number(waClicks),
+            leads:         Number(leads),
+          };
+        })
+        .filter((c: any) => c.score > 0)
+        .sort((a: any, b: any) => b.score - a.score);
+
+      if (scored.length === 0) {
+        return { campaigns: [], totalAmount: input.amount, hasOverrides: false };
+      }
+
+      // Aplica overrides manuais
+      const overrides = input.overrides || {};
+      const totalOverride = Object.values(overrides).reduce((s: number, v: any) => s + Number(v), 0);
+      const remainingAmount = Math.max(0, input.amount - totalOverride);
+
+      // Distribui restante proporcionalmente por score (com bônus para top performer)
+      const scoredWithoutOverrides = scored.filter((c: any) => !overrides[c.id]);
+      const totalScore = scoredWithoutOverrides.reduce((s: any, c: any) => s + c.score, 0);
+
+      const distribution = scored.map((c: any, i: number) => {
+        if (overrides[c.id] !== undefined) {
+          return {
+            ...c,
+            allocation:    +Number(overrides[c.id]).toFixed(2),
+            allocationPct: totalOverride > 0 ? +(Number(overrides[c.id]) / input.amount * 100).toFixed(1) : 0,
+            isManual:      true,
+            rank:          i + 1,
+          };
+        }
+
+        // Peso exponencial — top performer recebe mais
+        const expScore  = Math.pow(c.score, 1.5);
+        const totalExp  = scoredWithoutOverrides.reduce((s: any, x: any) => s + Math.pow(x.score, 1.5), 0);
+        const allocation = totalScore > 0 ? (expScore / totalExp) * remainingAmount : remainingAmount / scoredWithoutOverrides.length;
+
+        return {
+          ...c,
+          allocation:    +allocation.toFixed(2),
+          allocationPct: +(allocation / input.amount * 100).toFixed(1),
+          isManual:      false,
+          rank:          i + 1,
+        };
+      });
+
+      return {
+        campaigns:    distribution,
+        totalAmount:  input.amount,
+        distributed:  +distribution.reduce((s: any, c: any) => s + c.allocation, 0).toFixed(2),
+        hasOverrides: Object.keys(overrides).length > 0,
+        period:       input.period,
+      };
+    }),
+
   // Admin: listar todos os depósitos pendentes
   adminListPending: protectedProcedure
     .query(async ({ ctx }) => {
