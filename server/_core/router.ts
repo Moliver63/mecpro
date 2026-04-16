@@ -5946,11 +5946,46 @@ const mediaBudgetRouter = router({
         statuses: [...new Set(camps.map((c: any) => c.status))],
       });
 
-      // Inclui ACTIVE e PAUSED (com dados históricos do período)
+      // Se nenhuma campanha tem insights via campaign-level, busca via account-level insights
+      const campsWithInsights = camps.filter((c: any) => c.insights?.data?.[0]);
+      let insightsByCampaign: Record<string, any> = {};
+
+      if (campsWithInsights.length === 0 && camps.length > 0) {
+        log.info("media-budget", "Sem insights no nível campanha — buscando via account insights breakdown");
+        try {
+          const acctInsightsRes = await fetch(
+            `https://graph.facebook.com/v19.0/${act}/insights?fields=campaign_id,campaign_name,impressions,clicks,spend,ctr,cpm,cpc,actions&time_range={"since":"${since}","until":"${today()}"}&level=campaign&limit=500&access_token=${token}`,
+            { signal: AbortSignal.timeout(15000) }
+          );
+          const acctData: any = await acctInsightsRes.json();
+          if (!acctData.error && acctData.data?.length > 0) {
+            log.info("media-budget", "Insights via account level OK", { count: acctData.data.length });
+            acctData.data.forEach((ins: any) => {
+              insightsByCampaign[ins.campaign_id] = ins;
+            });
+          } else {
+            log.warn("media-budget", "Account insights também vazio", { error: acctData.error?.message });
+          }
+        } catch (e: any) {
+          log.warn("media-budget", "Erro ao buscar account insights", { message: e.message });
+        }
+      }
+
+      // Inclui todas as campanhas (ACTIVE e PAUSED) — usa insights de qualquer fonte
       const scored = camps
-        .filter((c: any) => ["ACTIVE", "PAUSED"].includes(c.status) && c.insights?.data?.[0])
+        .filter((c: any) => {
+          const hasDirectInsights = c.insights?.data?.[0];
+          const hasAccountInsights = insightsByCampaign[c.id];
+          return hasDirectInsights || hasAccountInsights;
+        })
         .map((c: any) => {
-          const ins = c.insights.data[0];
+          // Usa insights diretos ou do account-level
+          const ins = c.insights?.data?.[0] || insightsByCampaign[c.id];
+          return { ...c, _ins: ins };
+        })
+        .filter((c: any) => c._ins)
+        .map((c: any) => {
+          const ins = c._ins;
           const clicks      = Number(ins.clicks      || 0);
           const impressions = Number(ins.impressions  || 0);
           const spend       = Number(ins.spend        || 0);
