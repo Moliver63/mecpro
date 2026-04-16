@@ -655,12 +655,12 @@ export default function CampaignResult() {
 
       if (isMedia) {
         if (!data.videoId) { toast.error("❌ Upload concluído mas sem videoId retornado."); return null; }
-        if (!fileOverride) { setUploadedVid(data.videoId); setUploadedHash(""); setUploadDone(true); }
+        setUploadedVid(data.videoId); setUploadedHash(""); setUploadDone(true);
         toast.success(`✅ ${isAud ? "Áudio" : "Vídeo"} enviado! (${targetFile.name.slice(0, 20)})`);
         return { kind: "video", videoId: data.videoId };
       } else {
         if (!data.hash) { toast.error("❌ Upload concluído mas sem hash retornado."); return null; }
-        if (!fileOverride) { setUploadedHash(data.hash); setUploadedVid(""); setUploadDone(true); }
+        setUploadedHash(data.hash); setUploadedVid(""); setUploadDone(true);
         toast.success(`✅ Foto enviada! (${targetFile.name.slice(0, 20)})`);
         return { kind: "image", hash: data.hash };
       }
