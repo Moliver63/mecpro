@@ -5753,8 +5753,20 @@ const mediaBudgetRouter = router({
           { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
         );
         const searchData: any = await searchRes.json();
+        const cleanCpf = input.cpfCnpj?.replace(/\D/g, "") || "";
+        if (!cleanCpf || cleanCpf.length < 11) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "CPF ou CNPJ inválido. Informe corretamente para gerar o Pix." });
+        }
+
         if (searchData.data?.[0]?.id) {
           asaasCustomerId = searchData.data[0].id;
+          // Atualiza CPF no cliente existente (pode não ter sido cadastrado antes)
+          await fetch(`https://api.asaas.com/v3/customers/${asaasCustomerId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({ cpfCnpj: cleanCpf }),
+            signal: AbortSignal.timeout(8000),
+          });
         } else {
           // Cria novo cliente no Asaas
           const createRes = await fetch("https://api.asaas.com/v3/customers", {
@@ -5763,7 +5775,7 @@ const mediaBudgetRouter = router({
             body: JSON.stringify({
               name:              userRes.name || userRes.email,
               email:             userRes.email,
-              cpfCnpj:           input.cpfCnpj?.replace(/\D/g, "") || (userRes as any).cpf || "00000000000",
+              cpfCnpj:           cleanCpf,
               externalReference: String(ctx.user.id),
               notificationDisabled: true,
             }),
