@@ -1,178 +1,120 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import UserMenu from "@/components/shared/UserMenu";
 
+// ── Nav items ──────────────────────────────────────────────────────────────
 const NAV_USER = [
-  { icon: "📊", label: "Dashboard",       path: "/dashboard" },
-  { icon: "📁", label: "Projetos",        path: "/projects" },
-  { icon: "📘", label: "Campanhas Meta",  path: "/meta-campaigns" },
-  { icon: "🔵", label: "Campanhas Google", path: "/google-campaigns" },
-  { icon: "🎵", label: "Campanhas TikTok", path: "/tiktok-campaigns" },
-  { icon: "🤖", label: "Agente Autônomo",  path: "/autonomous-agent" },
-  { icon: "📊", label: "Mídia Paga",       path: "/unified-dashboard" },
-  { icon: "💰", label: "Verba de Mídia",   path: "/media-budget" },
-  { icon: "🎯", label: "Rateio de Verba",   path: "/budget-distribution" },
-  { icon: "💳", label: "Pagar Plataformas",  path: "/platform-payment" },
-  { icon: "🎓", label: "Academia",        path: "/academy" },
-  { icon: "🔔", label: "Notificações",    path: "/notifications" },
-  { icon: "💬", label: "Mensagens",       path: "/messages" },
-  { icon: "💳", label: "Assinatura",      path: "/my-subscription" },
-  { icon: "⚙️", label: "Configurações",  path: "/settings" },
+  { icon: "⊞",  label: "Dashboard",        path: "/dashboard" },
+  { icon: "◫",  label: "Projetos",          path: "/projects" },
+  { icon: "◈",  label: "Meta Ads",          path: "/meta-campaigns" },
+  { icon: "◉",  label: "Google Ads",        path: "/google-campaigns" },
+  { icon: "◍",  label: "TikTok Ads",        path: "/tiktok-campaigns" },
+  { icon: "⟳",  label: "Agente Autônomo",   path: "/autonomous-agent" },
+  { icon: "▣",  label: "Mídia Paga",        path: "/unified-dashboard" },
+  { icon: "◎",  label: "Verba de Mídia",    path: "/media-budget" },
+  { icon: "⊛",  label: "Rateio de Verba",   path: "/budget-distribution" },
+  { icon: "⋈",  label: "Pagar Plataformas", path: "/platform-payment" },
+  { icon: "⊙",  label: "Academia",          path: "/academy" },
+  { icon: "◻",  label: "Notificações",      path: "/notifications" },
+  { icon: "◷",  label: "Mensagens",         path: "/messages" },
+  { icon: "⊘",  label: "Assinatura",        path: "/my-subscription" },
+  { icon: "⚙",  label: "Configurações",     path: "/settings" },
 ];
 
 const NAV_ADMIN = [
-  { icon: "🛡️", label: "Admin",          path: "/admin" },
-  { icon: "👥", label: "Usuários",        path: "/admin/users" },
-  { icon: "📁", label: "Projetos",        path: "/admin/projects" },
-  { icon: "📊", label: "Analytics",       path: "/admin/analytics" },
-  { icon: "💳", label: "Assinaturas",     path: "/admin/manage-subscriptions" },
-  { icon: "🏷️", label: "Planos",          path: "/admin/plans" },
-  { icon: "💰", label: "Financeiro",      path: "/admin/financeiro" },
-  { icon: "👑", label: "Admins",          path: "/admin/manage-admins" },
-  { icon: "✉️", label: "Convites",        path: "/admin/invites" },
-  { icon: "🔒", label: "Moderação",       path: "/admin/moderation" },
+  { icon: "⊛",  label: "Admin",             path: "/admin" },
+  { icon: "⊞",  label: "Usuários",          path: "/admin/users" },
+  { icon: "◫",  label: "Projetos",          path: "/admin/projects" },
+  { icon: "▣",  label: "Analytics",         path: "/admin/analytics" },
+  { icon: "⋈",  label: "Assinaturas",       path: "/admin/manage-subscriptions" },
+  { icon: "◎",  label: "Planos",            path: "/admin/plans" },
+  { icon: "◉",  label: "Financeiro",        path: "/admin/financeiro" },
+  { icon: "◷",  label: "Admins",            path: "/admin/manage-admins" },
+  { icon: "◻",  label: "Convites",          path: "/admin/invites" },
+  { icon: "⊙",  label: "Moderação",         path: "/admin/moderation" },
 ];
 
-// ── Botão flutuante WhatsApp ───────────────────────────────────────────────
-const WA_NUMBER = "554799465824";
-const WA_MESSAGE = "Olá! Preciso de ajuda com o MECPro. 😊";
-
+// ── WhatsApp Button ────────────────────────────────────────────────────────
 function WhatsAppButton() {
   const [expanded, setExpanded] = useState(false);
+  const WA_NUMBER  = "554799465824";
+  const WA_MESSAGE = "Olá! Preciso de ajuda com o MECPro. 😊";
 
   return (
     <>
       <style>{`
-        @keyframes wa-pulse-ring {
-          0%   { transform: scale(1);   opacity: 0.5; }
-          100% { transform: scale(1.6); opacity: 0; }
-        }
-        @keyframes wa-shake {
-          0%,100% { transform: translateY(-50%) rotate(0deg); }
-          15%     { transform: translateY(-50%) rotate(-12deg) scale(1.08); }
-          30%     { transform: translateY(-50%) rotate(12deg) scale(1.08); }
-          45%     { transform: translateY(-50%) rotate(-8deg); }
-          60%     { transform: translateY(-50%) rotate(8deg); }
-          75%     { transform: translateY(-50%) rotate(0deg); }
+        @keyframes wa-pulse {
+          0%,100% { transform: translateY(-50%) scale(1); }
+          50%      { transform: translateY(-50%) scale(1.04); }
         }
         .wa-tab {
-          position: fixed;
-          right: -2px;
-          top: 50%;
-          transform: translateY(-50%);
-          z-index: 9999;
-          display: flex;
-          align-items: center;
-          cursor: pointer;
-          border: none;
-          background: none;
-          padding: 0;
-          transition: right 0.2s ease;
+          position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+          z-index: 9999; cursor: pointer; border: none; background: none; padding: 0;
+          animation: wa-pulse 3s ease-in-out infinite;
         }
-        .wa-tab:hover {
-          right: 0;
+        .wa-tab-pill {
+          background: linear-gradient(180deg, #30d158, #1a9e3f);
+          color: white; font-size: 11px; font-weight: 700;
+          padding: 16px 7px; border-radius: 12px 0 0 12px;
+          writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg);
+          letter-spacing: 1.5px; box-shadow: -4px 0 20px rgba(48,209,88,0.35);
+          user-select: none; white-space: nowrap; transition: all 0.2s;
         }
-        .wa-tab-label {
-          background: linear-gradient(180deg, #25d366, #128c7e);
-          color: white;
-          font-size: 11px;
-          font-weight: 800;
-          padding: 14px 6px;
-          border-radius: 8px 0 0 8px;
-          writing-mode: vertical-rl;
-          text-orientation: mixed;
-          transform: rotate(180deg);
-          letter-spacing: 1.5px;
-          box-shadow: -2px 0 10px rgba(37,211,102,0.3);
-          user-select: none;
-          white-space: nowrap;
-          display: flex;
-          align-items: center;
-          gap: 4px;
+        .wa-tab:hover .wa-tab-pill {
+          padding: 18px 8px; box-shadow: -6px 0 28px rgba(48,209,88,0.5);
         }
-        .wa-tab-circle {
-          display: none;
+        .wa-panel {
+          position: fixed; right: 0; top: 50%; transform: translateY(-50%);
+          z-index: 9998; width: 260px;
+          background: rgba(255,255,255,0.92);
+          backdrop-filter: blur(32px) saturate(200%);
+          border: 1px solid rgba(255,255,255,0.7);
+          border-radius: 20px 0 0 20px;
+          box-shadow: -8px 0 40px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.8) inset;
+          padding: 22px;
+          animation: slideInRight 0.3s cubic-bezier(0.34,1.56,0.64,1);
         }
-        .wa-tab:hover .wa-tab-label {
-          padding: 16px 7px;
-          box-shadow: -4px 0 16px rgba(37,211,102,0.45);
-        }
-        .wa-expanded-panel {
-          position: fixed;
-          right: 0;
-          top: 50%;
-          transform: translateY(-50%);
-          z-index: 9998;
-          background: white;
-          border-radius: 16px 0 0 16px;
-          box-shadow: -8px 0 40px rgba(0,0,0,0.15);
-          padding: 20px 20px 20px 24px;
-          width: 240px;
-          border-left: 4px solid #25d366;
-          animation: slideIn 0.3s cubic-bezier(0.4,0,0.2,1);
-        }
-        @keyframes slideIn {
-          from { opacity: 0; transform: translateY(-50%) translateX(20px); }
+        @keyframes slideInRight {
+          from { opacity: 0; transform: translateY(-50%) translateX(30px); }
           to   { opacity: 1; transform: translateY(-50%) translateX(0); }
         }
       `}</style>
 
-      {/* Aba recolhida — tab fina colada na borda */}
       {!expanded && (
-        <div className="wa-tab" onClick={() => setExpanded(true)} title="Suporte via WhatsApp">
-          <span className="wa-tab-label">💬 AJUDA</span>
-        </div>
+        <button className="wa-tab" onClick={() => setExpanded(true)} title="Suporte via WhatsApp">
+          <span className="wa-tab-pill">💬 AJUDA</span>
+        </button>
       )}
 
-      {/* Painel expandido */}
       {expanded && (
-        <div className="wa-expanded-panel">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg,#25d366,#128c7e)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-                  <path fillRule="evenodd" clipRule="evenodd" d="M16 2C8.268 2 2 8.268 2 16c0 2.428.651 4.704 1.788 6.668L2 30l7.54-1.764A13.93 13.93 0 0016 30c7.732 0 14-6.268 14-14S23.732 2 16 2z" fill="white"/>
-                  <path fillRule="evenodd" clipRule="evenodd" d="M22.003 18.978c-.32-.16-1.892-.932-2.185-1.038-.293-.107-.506-.16-.72.16-.213.32-.826 1.038-.013 1.305.293.107.586.267.88.427.907.48 1.893.64 2.612.32.4-.16.64-.427.8-.747.16-.32.16-.693 0-.88-.16-.186-.373-.293-.693-.293-.32 0-.614.053-.907.267zm-6.003 3.89c-1.413 0-2.8-.373-4-.107-1.2.267-2.293 1.173-3.52.747-1.707-.613-3.2-1.84-4.427-3.253-1.227-1.413-2.08-3.04-2.08-4.8 0-3.04 1.76-5.707 4.48-7.04 2.72-1.333 5.76-.96 8.16.48 1.28.8 2.4 1.92 3.2 3.2.8 1.28 1.28 2.773 1.28 4.32 0 2.88-1.6 5.493-4.093 6.933z" fill="#25d366"/>
-                </svg>
+        <div className="wa-panel">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg,#30d158,#1a9e3f)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 12px rgba(48,209,88,0.3)" }}>
+                <svg width="22" height="22" viewBox="0 0 32 32" fill="white"><path d="M16 2C8.268 2 2 8.268 2 16c0 2.428.651 4.704 1.788 6.668L2 30l7.54-1.764A13.93 13.93 0 0016 30c7.732 0 14-6.268 14-14S23.732 2 16 2z"/></svg>
               </div>
               <div>
-                <p style={{ fontSize: 13, fontWeight: 800, color: "#111", margin: 0 }}>Michel Leal</p>
-                <p style={{ fontSize: 11, color: "#25d366", fontWeight: 600, margin: 0 }}>● Gerente de Relacionamento</p>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#1d1d1f", margin: 0 }}>Michel Leal</p>
+                <p style={{ fontSize: 11, color: "#30d158", fontWeight: 600, margin: 0 }}>● Gerente de Relacionamento</p>
               </div>
             </div>
-            <button onClick={() => setExpanded(false)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: 18, lineHeight: 1, padding: 4 }}>
-              ×
-            </button>
+            <button onClick={() => setExpanded(false)} style={{ background: "rgba(0,0,0,0.06)", border: "none", borderRadius: "50%", width: 28, height: 28, cursor: "pointer", color: "#86868b", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
           </div>
 
-          <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
-            <p style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, margin: 0 }}>
-              👋 Olá! Precisa de ajuda com o MECPro? Fale diretamente com nossa equipe no WhatsApp.
+          <div style={{ background: "rgba(48,209,88,0.08)", borderRadius: 12, padding: "10px 14px", marginBottom: 14, border: "1px solid rgba(48,209,88,0.15)" }}>
+            <p style={{ fontSize: 13, color: "#1d1d1f", lineHeight: 1.55, margin: 0 }}>
+              👋 Precisa de ajuda com o MECPro? Nossa equipe responde rápido.
             </p>
           </div>
 
-          <a
-            href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(WA_MESSAGE)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              background: "linear-gradient(135deg,#25d366,#128c7e)",
-              color: "white", borderRadius: 10, padding: "11px 16px",
-              fontWeight: 800, fontSize: 13, textDecoration: "none",
-              boxShadow: "0 4px 14px rgba(37,211,102,0.4)",
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
-              <path fillRule="evenodd" clipRule="evenodd" d="M16 2C8.268 2 2 8.268 2 16c0 2.428.651 4.704 1.788 6.668L2 30l7.54-1.764A13.93 13.93 0 0016 30c7.732 0 14-6.268 14-14S23.732 2 16 2z" fill="white"/>
-            </svg>
+          <a href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(WA_MESSAGE)}`} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "linear-gradient(135deg,#30d158,#1a9e3f)", color: "white", borderRadius: 12, padding: "12px 16px", fontWeight: 700, fontSize: 14, textDecoration: "none", boxShadow: "0 4px 16px rgba(48,209,88,0.35)" }}>
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="white"><path d="M16 2C8.268 2 2 8.268 2 16c0 2.428.651 4.704 1.788 6.668L2 30l7.54-1.764A13.93 13.93 0 0016 30c7.732 0 14-6.268 14-14S23.732 2 16 2z"/></svg>
             Chamar no WhatsApp
           </a>
 
-          <p style={{ fontSize: 10, color: "#9ca3af", textAlign: "center", marginTop: 10, margin: "10px 0 0" }}>
-            Seg–Sex, 9h–18h · Resp. em até 24h
+          <p style={{ fontSize: 11, color: "#86868b", textAlign: "center", marginTop: 10 }}>
+            Seg–Sex, 9h–18h · Resposta em até 24h
           </p>
         </div>
       )}
@@ -180,62 +122,138 @@ function WhatsAppButton() {
   );
 }
 
+// ── Sidebar nav item with tooltip ─────────────────────────────────────────
+function NavItem({ item, active, collapsed }: {
+  item: { icon: string; label: string; path: string };
+  active: boolean;
+  collapsed: boolean;
+}) {
+  const [showTip, setShowTip] = useState(false);
+
+  return (
+    <div style={{ position: "relative" }}
+      onMouseEnter={() => collapsed && setShowTip(true)}
+      onMouseLeave={() => setShowTip(false)}>
+      <a
+        href={item.path}
+        className={`sidebar-nav-item ${active ? "active" : ""}`}
+        style={{ justifyContent: collapsed ? "center" : undefined }}
+      >
+        <span className="nav-icon" style={{ fontSize: 18 }}>{item.icon}</span>
+        <span className="nav-label">{item.label}</span>
+      </a>
+      {collapsed && showTip && (
+        <div style={{
+          position: "absolute", left: "calc(100% + 10px)", top: "50%", transform: "translateY(-50%)",
+          background: "rgba(29,29,31,0.92)", backdropFilter: "blur(12px)",
+          color: "white", fontSize: 12, fontWeight: 600, padding: "6px 12px",
+          borderRadius: 8, whiteSpace: "nowrap", zIndex: 999,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+          animation: "fadeIn 0.15s ease",
+          pointerEvents: "none",
+        }}>
+          {item.label}
+          <div style={{ position: "absolute", right: "100%", top: "50%", transform: "translateY(-50%)", border: "5px solid transparent", borderRightColor: "rgba(29,29,31,0.92)" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Layout ─────────────────────────────────────────────────────────────────
 interface LayoutProps { children: React.ReactNode; }
 
 export default function Layout({ children }: LayoutProps) {
   const [location] = useLocation();
   const { user } = useAuth();
-  const isAdmin = ["admin", "superadmin"].includes(user?.role ?? "");
+  const isAdmin  = ["admin","superadmin"].includes(user?.role ?? "");
   const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : NAV_USER;
+
+  // Persist collapse state
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebar-collapsed") === "1"; } catch { return false; }
+  });
+
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { localStorage.setItem("sidebar-collapsed", next ? "1" : "0"); } catch {}
+  };
+
+  // Active page title
+  const activeItem = navItems.find(i => location === i.path || location.startsWith(i.path + "/"));
+  const pageTitle  = activeItem?.label ?? "MECPro";
 
   return (
     <div className="app-layout">
-      {/* Sidebar */}
-      <aside className="sidebar">
+
+      {/* ── Sidebar ── */}
+      <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+
+        {/* Logo + toggle */}
         <div className="sidebar-logo">
-          <img src="/logo.jpg" alt="MECPro" style={{ width: 44, height: 44, borderRadius: 10, objectFit: "cover" }} />
-          <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: 1 }}>MEC<span className="pro">PRO</span></span>
+          <img src="/logo.jpg" alt="MECPro" />
+          <span className="sidebar-logo-text">
+            MEC<span className="pro">PRO</span>
+          </span>
+          <button className="sidebar-toggle" onClick={toggle} title={collapsed ? "Expandir" : "Recolher"}>
+            {collapsed ? "›" : "‹"}
+          </button>
         </div>
+
+        {/* Nav */}
         <nav>
           {navItems.map(item => (
-            <a
+            <NavItem
               key={item.path}
-              href={item.path}
-              className={`sidebar-nav-item ${location === item.path || location.startsWith(item.path + "/") ? "active" : ""}`}
-            >
-              <span className="icon">{item.icon}</span>
-              {item.label}
-            </a>
+              item={item}
+              collapsed={collapsed}
+              active={location === item.path || location.startsWith(item.path + "/")}
+            />
           ))}
+
+          {/* Admin shortcut */}
           {isAdmin && !location.startsWith("/admin") && (
             <>
               <div className="sidebar-section-label">Admin</div>
-              <a href="/admin" className="sidebar-nav-item">
-                <span className="icon">🛡️</span>Painel Admin
-              </a>
+              <NavItem
+                item={{ icon: "⊛", label: "Painel Admin", path: "/admin" }}
+                collapsed={collapsed}
+                active={location === "/admin"}
+              />
             </>
           )}
         </nav>
-        <div style={{ marginTop: "auto", paddingTop: "16px", borderTop: "1px solid var(--border)" }}>
-          <a href="/profile" className="sidebar-nav-item">
-            <span className="icon">👤</span>Perfil
-          </a>
+
+        {/* Footer */}
+        <div className="sidebar-footer">
+          <NavItem
+            item={{ icon: "◷", label: "Perfil", path: "/profile" }}
+            collapsed={collapsed}
+            active={location === "/profile"}
+          />
         </div>
       </aside>
-      {/* Main */}
+
+      {/* ── Main ── */}
       <div className="app-main">
+
+        {/* Topbar */}
         <header className="app-topbar">
-          <span className="app-topbar-title">
-            {navItems.find(i => location.startsWith(i.path))?.label ?? "MECPro"}
-          </span>
+          <div className="app-topbar-left">
+            {/* Mobile menu toggle */}
+            <div className="app-topbar-title">{pageTitle}</div>
+          </div>
           <UserMenu />
         </header>
-        <main className="app-content">
+
+        {/* Content */}
+        <main className="app-content animate-fade-in">
           {children}
         </main>
       </div>
 
-      {/* Botão flutuante WhatsApp */}
+      {/* WhatsApp */}
       <WhatsAppButton />
     </div>
   );
