@@ -431,6 +431,7 @@ app.post('/api/meta/upload-video', upload.single('file'), async (req: Request, r
 
     const uploadResp = await fetch(`https://graph.facebook.com/v19.0/${act}/advideos`, {
       method: 'POST', body: form as any,
+      signal: AbortSignal.timeout(120_000), // 120s timeout para vídeos grandes
     });
     const uploadData = await uploadResp.json() as any;
     if (!uploadResp.ok || uploadData.error) {

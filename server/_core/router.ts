@@ -3218,6 +3218,80 @@ const adminRouter = router({
   auditLogs:      adminProcedure.query(() => db.getAuditLogs()),
   // Configurações
   getSettings:    adminProcedure.query(() => db.getAdminSettings()),
+  // ── Auditoria de campanhas ───────────────────────────────────────────────────
+  auditCampaigns: adminProcedure
+    .query(async ({ ctx }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const rows = await pool.query(`
+        SELECT
+          c.id, c.name, c.platform, c."publishStatus", c."publishedAt",
+          c."metaCampaignId", c."googleCampaignId", c."tiktokCampaignId",
+          c."metaAdSetId", c."metaAdId",
+          p."userId", u.email,
+          -- Gasto real do dia
+          COALESCE(s."spendToday", 0) as "spendToday",
+          s."lastSyncAt"
+        FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        JOIN users u ON u.id = p."userId"
+        LEFT JOIN campaign_spend_snapshots s
+          ON s."userId" = p."userId"
+          AND s.platform = COALESCE(
+            CASE WHEN c."metaCampaignId" IS NOT NULL THEN 'meta' END,
+            CASE WHEN c."googleCampaignId" IS NOT NULL THEN 'google' END,
+            'tiktok'
+          )
+          AND s."campaignId" = COALESCE(c."metaCampaignId", c."googleCampaignId", c."tiktokCampaignId")
+          AND s.date = CURRENT_DATE
+        WHERE c."publishStatus" IN ('success', 'partial', 'error')
+        ORDER BY c."publishedAt" DESC
+        LIMIT 100
+      `);
+
+      const campaigns = rows.rows.map((r: any) => {
+        const platformId = r.metaCampaignId || r.googleCampaignId || r.tiktokCampaignId;
+        const platform   = r.metaCampaignId ? "meta" : r.googleCampaignId ? "google" : "tiktok";
+
+        // Classificação de saúde
+        let health: "ok" | "partial" | "error" = "ok";
+        let issues: string[] = [];
+
+        if (r.publishStatus === "error")   { health = "error"; issues.push("Publicação falhou"); }
+        if (r.publishStatus === "partial")  { health = "partial"; issues.push("Publicação parcial"); }
+        if (!platformId)                    { health = "error"; issues.push("ID da plataforma ausente"); }
+        if (!r.metaAdId && platform === "meta") { health = "partial"; issues.push("Ad ID ausente"); }
+        if (r.spendToday === 0 && r.publishStatus === "success") {
+          issues.push("Sem gasto hoje — campanha pode estar pausada");
+          if (health === "ok") health = "partial";
+        }
+
+        return {
+          id:           r.id,
+          name:         r.name,
+          platform,
+          status:       r.publishStatus,
+          health,
+          issues,
+          platformId,
+          publishedAt:  r.publishedAt,
+          spendToday:   Number(r.spendToday) / 100,
+          lastSyncAt:   r.lastSyncAt,
+          userEmail:    r.email,
+        };
+      });
+
+      return {
+        total:   campaigns.length,
+        ok:      campaigns.filter(c => c.health === "ok").length,
+        partial: campaigns.filter(c => c.health === "partial").length,
+        error:   campaigns.filter(c => c.health === "error").length,
+        campaigns,
+        generatedAt: new Date().toISOString(),
+      };
+    }),
+
   saveSettings:   superadminProcedure.input(z.object({ key: z.string(), value: z.string() })).mutation(({ input }) => db.saveAdminSetting(input.key, input.value)),
 
   // ── Payment mode settings ──────────────────────────────────────────────

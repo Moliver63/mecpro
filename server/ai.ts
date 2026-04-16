@@ -1002,7 +1002,7 @@ async function mecproAI(endpoint: string, body: any): Promise<any | null> {
     const res  = await fetch(`${MECPRO_AI_URL}/${endpoint}`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      bodyText:   JSON.stringify(body),
+      body:    JSON.stringify(body),
       signal:  AbortSignal.timeout(AI_TIMEOUTS.mecproAiMs),
     });
     if (!res.ok) {
