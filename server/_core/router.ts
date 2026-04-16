@@ -5900,6 +5900,116 @@ const mediaBudgetRouter = router({
       };
     }),
 
+  // ── Transferir saldo Asaas para conta bancária ───────────────────────────────
+  asaasTransfer: protectedProcedure
+    .input(z.object({
+      amount:      z.number().min(1),
+      pixKeyType:  z.enum(["CPF","CNPJ","EMAIL","PHONE","EVP"]).default("EMAIL"),
+      pixKey:      z.string().min(3),
+      description: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Asaas não configurado" });
+
+      // Verifica saldo no banco MECPro
+      const balRes = await pool.query(
+        `SELECT balance FROM media_balance WHERE "userId" = $1`, [ctx.user.id]
+      );
+      const balanceCents = Number(balRes.rows[0]?.balance || 0);
+      const balanceReal  = balanceCents / 100;
+      if (balanceReal < input.amount) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Saldo insuficiente. Disponível: R$ ${balanceReal.toFixed(2)}` });
+      }
+
+      // Verifica saldo real no Asaas
+      let asaasBalance = 0;
+      try {
+        const balRes2 = await fetch("https://api.asaas.com/v3/finance/getCurrentBalance", {
+          headers: { access_token: asaasKey },
+          signal: AbortSignal.timeout(8000),
+        });
+        const balData: any = await balRes2.json();
+        asaasBalance = Number(balData.balance || balData.totalBalance || 0);
+        if (asaasBalance < input.amount) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Saldo Asaas insuficiente. Disponível no Asaas: R$ ${asaasBalance.toFixed(2)}` });
+        }
+      } catch (e: any) {
+        if (e instanceof TRPCError) throw e;
+        log.warn("media-budget", "Não foi possível verificar saldo Asaas", { error: e.message });
+      }
+
+      // Executa transferência via Asaas
+      const transferRes = await fetch("https://api.asaas.com/v3/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", access_token: asaasKey },
+        body: JSON.stringify({
+          value:           input.amount,
+          pixAddressKey:   input.pixKey,
+          pixAddressKeyType: input.pixKeyType,
+          description:     input.description || `MECPro — Recarga de mídia R$ ${input.amount.toFixed(2)}`,
+          scheduleDate:    new Date().toISOString().split("T")[0],
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const transferData: any = await transferRes.json();
+
+      if (transferData.errors?.length || transferData.status === "FAILED") {
+        const msg = transferData.errors?.[0]?.description || transferData.failReason || "Erro na transferência Asaas";
+        log.warn("media-budget", "Asaas transfer error", { msg, data: transferData });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Asaas: ${msg}` });
+      }
+
+      // Debita do saldo MECPro
+      const deductCents = Math.round(input.amount * 100);
+      await pool.query(`
+        UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW()
+        WHERE "userId" = $2
+      `, [deductCents, ctx.user.id]);
+
+      // Registra no histórico
+      await pool.query(`
+        INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, notes)
+        VALUES ($1, $2, 0, 0, $2, 'transfer', 'approved', 'pix', $3)
+      `, [ctx.user.id, deductCents, `Transferência Pix para ${input.pixKey} — ${input.description || "recarga de mídia"}`]);
+
+      log.info("media-budget", "Transferência Asaas realizada", {
+        userId: ctx.user.id, amount: input.amount, pixKey: input.pixKey,
+        asaasId: transferData.id, status: transferData.status,
+      });
+
+      return {
+        success:     true,
+        asaasId:     transferData.id,
+        amount:      input.amount,
+        pixKey:      input.pixKey,
+        status:      transferData.status,
+        scheduledAt: transferData.transferDate || transferData.scheduleDate,
+        message:     `Transferência de R$ ${input.amount.toFixed(2)} iniciada para ${input.pixKey}. Use esse valor para recarregar as plataformas.`,
+      };
+    }),
+
+  // ── Consultar saldo Asaas em tempo real ───────────────────────────────────
+  asaasBalance: protectedProcedure
+    .query(async ({ ctx }) => {
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) return { balance: 0, error: "Asaas não configurado" };
+      try {
+        const res = await fetch("https://api.asaas.com/v3/finance/getCurrentBalance", {
+          headers: { access_token: asaasKey },
+          signal: AbortSignal.timeout(8000),
+        });
+        const data: any = await res.json();
+        return { balance: Number(data.balance || data.totalBalance || 0) };
+      } catch (e: any) {
+        return { balance: 0, error: e.message };
+      }
+    }),
+
   // ── Quanto falta recarregar em cada plataforma ──────────────────────────────
   rechargeNeeded: protectedProcedure
     .query(async ({ ctx }) => {
