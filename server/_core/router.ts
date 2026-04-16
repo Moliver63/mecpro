@@ -5959,9 +5959,14 @@ const mediaBudgetRouter = router({
           );
           const acctData: any = await acctInsightsRes.json();
           if (!acctData.error && acctData.data?.length > 0) {
-            log.info("media-budget", "Insights via account level OK", { count: acctData.data.length });
+            log.info("media-budget", "Insights via account level OK", {
+              count: acctData.data.length,
+              campaignIds: acctData.data.map((x: any) => x.campaign_id),
+              campIds: camps.map((c: any) => c.id),
+            });
             acctData.data.forEach((ins: any) => {
-              insightsByCampaign[ins.campaign_id] = ins;
+              // Asaas pode retornar campaign_id como string ou número — normaliza
+              insightsByCampaign[String(ins.campaign_id)] = ins;
             });
           } else {
             log.warn("media-budget", "Account insights também vazio", { error: acctData.error?.message });
@@ -5975,12 +5980,12 @@ const mediaBudgetRouter = router({
       const scored = camps
         .filter((c: any) => {
           const hasDirectInsights = c.insights?.data?.[0];
-          const hasAccountInsights = insightsByCampaign[c.id];
+          const hasAccountInsights = insightsByCampaign[String(c.id)];
           return hasDirectInsights || hasAccountInsights;
         })
         .map((c: any) => {
           // Usa insights diretos ou do account-level
-          const ins = c.insights?.data?.[0] || insightsByCampaign[c.id];
+          const ins = c.insights?.data?.[0] || insightsByCampaign[String(c.id)];
           return { ...c, _ins: ins };
         })
         .filter((c: any) => c._ins)
