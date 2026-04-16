@@ -28,6 +28,7 @@ interface Campaign {
   metric: string; metricValue: number; score: number;
   waClicks: number; leads: number; allocation: number; isManual: boolean;
   currentBudget?: number; budgetResourceName?: string;
+  hasData?: boolean;
 }
 
 function distribute(campaigns: Campaign[], total: number, overrides: Record<string, number>): Campaign[] {
@@ -220,6 +221,7 @@ export default function BudgetDistribution() {
                         background: isTop ? "linear-gradient(135deg,#7c3aed,#2563eb)" : "#f1f5f9",
                         color: isTop ? "#fff" : "#64748b" }}>#{i+1}</div>
                       <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: plt.bg, color: plt.color }}>{plt.icon} {plt.label}</span>
+                      {!c.hasData && <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999, background: "#fef9c3", color: "#854d0e" }}>⚠️ sem dados no período</span>}
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
                         <div style={{ fontSize: 11, color: "#64748b", display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2 }}>

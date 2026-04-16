@@ -5900,7 +5900,7 @@ const mediaBudgetRouter = router({
       };
     }),
 
-  // ── Buscar campanhas de TODAS as plataformas conectadas ─────────────────────
+  // ── Buscar campanhas de TODAS as plataformas — APENAS criadas pelo MECPro ───
   allPlatformCampaigns: protectedProcedure
     .input(z.object({ period: z.enum(["7d","30d","90d"]).default("30d") }))
     .mutation(async ({ ctx, input }) => {
@@ -5910,125 +5910,191 @@ const mediaBudgetRouter = router({
       const results: any[] = [];
       const errors: string[] = [];
 
-      // ── META ADS ──────────────────────────────────────────────────────────────
-      try {
-        const metaInt = await db.getApiIntegration(userId, "meta");
-        if (metaInt && (metaInt as any).accessToken && (metaInt as any).adAccountId) {
-          const token = (metaInt as any).accessToken as string;
-          const act   = ((metaInt as any).adAccountId as string).startsWith("act_")
-            ? (metaInt as any).adAccountId : `act_${(metaInt as any).adAccountId}`;
+      // ── Busca TODAS as campanhas publicadas pelo MECPro no banco ─────────────
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
-          const insRes = await fetch(
-            `https://graph.facebook.com/v19.0/${act}/insights?fields=campaign_id,campaign_name,impressions,clicks,spend,ctr,cpc,actions&time_range={"since":"${since}","until":"${today()}"}&level=campaign&limit=500&access_token=${token}`,
-            { signal: AbortSignal.timeout(15000) }
-          );
-          const insData: any = await insRes.json();
-          if (!insData.error && insData.data?.length > 0) {
-            insData.data
-              .filter((c: any) => Number(c.spend || 0) > 0)
-              .forEach((c: any) => {
-                const actions  = c.actions || [];
-                const waClicks = Number(actions.find((a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d")?.value || 0);
-                const leads    = Number(actions.find((a: any) => a.action_type === "lead")?.value || 0);
-                const clicks   = Number(c.clicks || 0);
-                const spend    = Number(c.spend || 0);
-                const ctr      = Number(c.ctr || 0);
-                let metric = "ctr", metricValue = ctr, score = ctr * 10;
-                if (waClicks > 0) { metric = "whatsapp"; metricValue = spend > 0 ? waClicks/spend*100 : 0; score = metricValue * 15; }
-                else if (leads > 0) { metric = "leads"; metricValue = spend > 0 ? leads/spend*100 : 0; score = metricValue * 12; }
-                results.push({
-                  platform: "meta", id: String(c.campaign_id), name: c.campaign_name,
-                  spend, clicks, ctr, metric, metricValue: +metricValue.toFixed(3), score: +score.toFixed(2),
-                  waClicks, leads, allocation: 0, isManual: false,
-                });
+      // Busca campanhas publicadas com sucesso do usuário (via projetos)
+      const mecproCamps = await pool.query(`
+        SELECT c.id, c.name, c."metaCampaignId", c."googleCampaignId", c."tiktokCampaignId",
+               c."metaAdSetId", c."googleAdGroupId", c."tiktokAdGroupId",
+               c.platform, c."publishStatus", c."publishedAt"
+        FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE p."userId" = $1
+          AND c."publishStatus" = 'success'
+          AND (c."metaCampaignId" IS NOT NULL OR c."googleCampaignId" IS NOT NULL OR c."tiktokCampaignId" IS NOT NULL)
+        ORDER BY c."publishedAt" DESC
+      `, [userId]);
+
+      const dbCamps = mecproCamps.rows;
+      log.info("media-budget", "Campanhas MECPro no banco", {
+        total: dbCamps.length,
+        meta:    dbCamps.filter((c: any) => c.metaCampaignId).length,
+        google:  dbCamps.filter((c: any) => c.googleCampaignId).length,
+        tiktok:  dbCamps.filter((c: any) => c.tiktokCampaignId).length,
+      });
+
+      // IDs por plataforma
+      const metaIds    = dbCamps.filter((c: any) => c.metaCampaignId).map((c: any) => String(c.metaCampaignId));
+      const googleIds  = dbCamps.filter((c: any) => c.googleCampaignId).map((c: any) => String(c.googleCampaignId));
+      const tiktokIds  = dbCamps.filter((c: any) => c.tiktokCampaignId).map((c: any) => String(c.tiktokCampaignId));
+
+      // Nome MECPro por ID de plataforma
+      const mecproName: Record<string, string> = {};
+      dbCamps.forEach((c: any) => {
+        if (c.metaCampaignId)   mecproName[String(c.metaCampaignId)]   = c.name;
+        if (c.googleCampaignId) mecproName[String(c.googleCampaignId)] = c.name;
+        if (c.tiktokCampaignId) mecproName[String(c.tiktokCampaignId)] = c.name;
+      });
+
+      // ── META ADS ──────────────────────────────────────────────────────────────
+      if (metaIds.length > 0) {
+        try {
+          const metaInt = await db.getApiIntegration(userId, "meta");
+          if (metaInt && (metaInt as any).accessToken && (metaInt as any).adAccountId) {
+            const token = (metaInt as any).accessToken as string;
+            const act   = ((metaInt as any).adAccountId as string).startsWith("act_")
+              ? (metaInt as any).adAccountId : `act_${(metaInt as any).adAccountId}`;
+
+            // Busca insights apenas das campanhas MECPro
+            const filterParam = encodeURIComponent(JSON.stringify([{ field: "campaign.id", operator: "IN", value: metaIds }]));
+            const insRes = await fetch(
+              `https://graph.facebook.com/v19.0/${act}/insights?fields=campaign_id,campaign_name,impressions,clicks,spend,ctr,cpc,actions&time_range={"since":"${since}","until":"${today()}"}&level=campaign&filtering=${filterParam}&limit=200&access_token=${token}`,
+              { signal: AbortSignal.timeout(15000) }
+            );
+            const insData: any = await insRes.json();
+            const metaRows = insData.data || [];
+
+            // Para campanhas sem dados no período, inclui mesmo assim com spend=0
+            const metaWithData = new Set(metaRows.map((r: any) => String(r.campaign_id)));
+            metaIds.forEach(id => {
+              if (!metaWithData.has(id)) {
+                metaRows.push({ campaign_id: id, campaign_name: mecproName[id] || `Meta #${id}`, spend: "0", clicks: "0", ctr: "0", impressions: "0" });
+              }
+            });
+
+            metaRows.forEach((c: any) => {
+              const actions  = c.actions || [];
+              const waClicks = Number(actions.find((a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d")?.value || 0);
+              const leads    = Number(actions.find((a: any) => a.action_type === "lead")?.value || 0);
+              const clicks   = Number(c.clicks || 0);
+              const spend    = Number(c.spend || 0);
+              const ctr      = Number(c.ctr || 0);
+              let metric = "ctr", metricValue = ctr, score = ctr * 10;
+              if (waClicks > 0) { metric = "whatsapp"; metricValue = spend > 0 ? waClicks/spend*100 : 0; score = metricValue * 15; }
+              else if (leads > 0) { metric = "leads"; metricValue = spend > 0 ? leads/spend*100 : 0; score = metricValue * 12; }
+              results.push({
+                platform: "meta", id: String(c.campaign_id),
+                name: mecproName[String(c.campaign_id)] || c.campaign_name,
+                spend, clicks, ctr, metric, metricValue: +metricValue.toFixed(3), score: +score.toFixed(2),
+                waClicks, leads, allocation: 0, isManual: false,
+                hasData: spend > 0,
               });
+            });
           }
-        }
-      } catch (e: any) { errors.push(`Meta: ${e.message}`); }
+        } catch (e: any) { errors.push(`Meta: ${e.message}`); }
+      }
 
       // ── GOOGLE ADS ────────────────────────────────────────────────────────────
-      try {
-        const _drz = await getDb();
-        const [gInt] = await _drz!.select().from(integrations)
-          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
-        if (gInt) {
-          const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
-          if (!runtime.isManager || runtime.childCustomerIds?.length) {
-            const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, campaign.campaign_budget, campaign_budget.resource_name, campaign_budget.amount_micros, metrics.clicks, metrics.impressions, metrics.cost_micros, metrics.ctr FROM campaign WHERE segments.date BETWEEN '${since}' AND '${today()}' AND metrics.impressions > 0 LIMIT 200`;
-            const gUrl = buildGoogleAdsUrl(runtime.customerId.replace(/-/g,""), "googleAds:search");
-            const gRes = await fetch(gUrl, {
-              method: "POST",
-              headers: {
-                "Authorization": `Bearer ${runtime.accessToken}`,
-                "developer-token": runtime.developerToken,
-                ...(runtime.loginCustomerId ? { "login-customer-id": runtime.loginCustomerId.replace(/-/g,"") } : {}),
-                "Content-Type": "application/json",
-              },
+      if (googleIds.length > 0) {
+        try {
+          const _drz = await getDb();
+          const [gInt] = await _drz!.select().from(integrations)
+            .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
+          if (gInt) {
+            const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
+            const customerId = runtime.customerId.replace(/-/g, "");
+            const gHeaders = {
+              "Authorization": `Bearer ${runtime.accessToken}`,
+              "developer-token": runtime.developerToken,
+              "Content-Type": "application/json",
+              ...(runtime.loginCustomerId ? { "login-customer-id": runtime.loginCustomerId.replace(/-/g,"") } : {}),
+            };
+            // Filtra pelas campanhas MECPro
+            const idList = googleIds.join(",");
+            const gaQuery = `SELECT campaign.id, campaign.name, campaign.status, campaign.campaign_budget, campaign_budget.resource_name, campaign_budget.amount_micros, metrics.clicks, metrics.cost_micros, metrics.ctr FROM campaign WHERE campaign.id IN (${idList}) AND segments.date BETWEEN '${since}' AND '${today()}' LIMIT 200`;
+            const gRes = await fetch(buildGoogleAdsUrl(customerId, "googleAds:search"), {
+              method: "POST", headers: gHeaders,
               body: JSON.stringify({ query: gaQuery }),
               signal: AbortSignal.timeout(15000),
             });
             const gData: any = await gRes.json();
             const rows = Array.isArray(gData) ? gData : (gData.results || []);
-            rows.forEach((r: any) => {
-              const spend  = Number(r.metrics?.cost_micros || 0) / 1_000_000;
-              const clicks = Number(r.metrics?.clicks || 0);
-              const ctr    = Number(r.metrics?.ctr || 0) * 100;
-              if (spend > 0) {
-                const score = ctr * 10;
-                results.push({
-                  platform: "google", id: String(r.campaign?.id), name: r.campaign?.name || `Google #${r.campaign?.id}`,
-                  spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
-                  metric: "ctr", metricValue: +ctr.toFixed(3), score: +score.toFixed(2),
-                  waClicks: 0, leads: 0, allocation: 0, isManual: false,
-                  budgetResourceName: r.campaignBudget?.resourceName || r.campaign_budget?.resource_name,
-                  currentBudget: Number(r.campaignBudget?.amountMicros || r.campaign_budget?.amount_micros || 0) / 1_000_000,
-                });
+
+            // Para campanhas sem dados no período, inclui mesmo assim
+            const googleWithData = new Set(rows.map((r: any) => String(r.campaign?.id)));
+            googleIds.forEach(id => {
+              if (!googleWithData.has(id)) {
+                rows.push({ campaign: { id, name: mecproName[id] || `Google #${id}`, status: "UNKNOWN" }, metrics: {}, campaignBudget: {} });
               }
             });
+
+            rows.forEach((r: any) => {
+              const spend = Number(r.metrics?.cost_micros || 0) / 1_000_000;
+              const clicks = Number(r.metrics?.clicks || 0);
+              const ctr = Number(r.metrics?.ctr || 0) * 100;
+              const score = ctr * 10;
+              results.push({
+                platform: "google", id: String(r.campaign?.id),
+                name: mecproName[String(r.campaign?.id)] || r.campaign?.name || `Google #${r.campaign?.id}`,
+                spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
+                metric: "ctr", metricValue: +ctr.toFixed(3), score: +score.toFixed(2),
+                waClicks: 0, leads: 0, allocation: 0, isManual: false,
+                budgetResourceName: r.campaignBudget?.resourceName || r.campaign_budget?.resource_name,
+                currentBudget: Number(r.campaignBudget?.amountMicros || r.campaign_budget?.amount_micros || 0) / 1_000_000,
+                hasData: spend > 0,
+              });
+            });
           }
-        }
-      } catch (e: any) { errors.push(`Google: ${e.message}`); }
+        } catch (e: any) { errors.push(`Google: ${e.message}`); }
+      }
 
       // ── TIKTOK ADS ───────────────────────────────────────────────────────────
-      try {
-        const _drz2 = await getDb();
-        const [ttInt] = await _drz2!.select().from(integrations)
-          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
-        const ttCfg = getTikTokRuntimeConfig(ttInt as any);
-        if (ttCfg.configured) {
-          const ttCamps = await fetch(
-            `https://business-api.tiktok.com/open_api/v1.3/campaign/get/?advertiser_id=${ttCfg.accountId}&page_size=100`,
-            { headers: { "Access-Token": ttCfg.accessToken! } }
-          );
-          const ttData: any = await ttCamps.json();
-          const campIds = (ttData.data?.list || []).map((c: any) => c.campaign_id).slice(0, 20);
-          if (campIds.length > 0) {
+      if (tiktokIds.length > 0) {
+        try {
+          const _drz2 = await getDb();
+          const [ttInt] = await _drz2!.select().from(integrations)
+            .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
+          const ttCfg = getTikTokRuntimeConfig(ttInt as any);
+          if (ttCfg.configured) {
             const ttIns = await fetch(
               `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${ttCfg.accountId}&report_type=BASIC&data_level=AUCTION_CAMPAIGN&dimensions=["campaign_id"]&metrics=["campaign_name","spend","clicks","impressions","ctr"]&start_date=${since}&end_date=${today()}&page_size=100`,
               { headers: { "Access-Token": ttCfg.accessToken! } }
             );
             const ttInsData: any = await ttIns.json();
-            (ttInsData.data?.list || []).forEach((r: any) => {
-              const spend = Number(r.metrics?.spend || 0);
-              if (spend > 0) {
-                const clicks = Number(r.metrics?.clicks || 0);
-                const ctr    = Number(r.metrics?.ctr || 0);
-                const score  = ctr * 10;
-                results.push({
-                  platform: "tiktok", id: String(r.dimensions?.campaign_id), name: r.metrics?.campaign_name || `TikTok #${r.dimensions?.campaign_id}`,
-                  spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
-                  metric: "ctr", metricValue: +ctr.toFixed(3), score: +score.toFixed(2),
-                  waClicks: 0, leads: 0, allocation: 0, isManual: false,
-                });
-              }
+            const ttWithData = new Set((ttInsData.data?.list || []).map((r: any) => String(r.dimensions?.campaign_id)));
+
+            // Inclui todas as campanhas MECPro, com ou sem dados
+            tiktokIds.forEach(id => {
+              const insRow = (ttInsData.data?.list || []).find((r: any) => String(r.dimensions?.campaign_id) === id);
+              const spend  = Number(insRow?.metrics?.spend || 0);
+              const clicks = Number(insRow?.metrics?.clicks || 0);
+              const ctr    = Number(insRow?.metrics?.ctr || 0);
+              results.push({
+                platform: "tiktok", id,
+                name: mecproName[id] || insRow?.metrics?.campaign_name || `TikTok #${id}`,
+                spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
+                metric: "ctr", metricValue: +ctr.toFixed(3), score: +(ctr * 10).toFixed(2),
+                waClicks: 0, leads: 0, allocation: 0, isManual: false,
+                hasData: spend > 0,
+              });
             });
           }
-        }
-      } catch (e: any) { errors.push(`TikTok: ${e.message}`); }
+        } catch (e: any) { errors.push(`TikTok: ${e.message}`); }
+      }
 
-      // Ordena por score desc
-      results.sort((a, b) => b.score - a.score);
-      log.info("media-budget", "Campanhas todas plataformas", { total: results.length, errors, platforms: [...new Set(results.map(r => r.platform))] });
+      // Ordena: com dados primeiro, depois por score desc, depois por nome
+      results.sort((a, b) => {
+        if (a.hasData !== b.hasData) return a.hasData ? -1 : 1;
+        return b.score - a.score;
+      });
+
+      log.info("media-budget", "Campanhas MECPro retornadas", {
+        total: results.length, errors,
+        platforms: [...new Set(results.map((r: any) => r.platform))],
+        comDados: results.filter((r: any) => r.hasData).length,
+      });
       return { campaigns: results, errors, period: input.period };
     }),
 

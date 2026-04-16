@@ -157,7 +157,11 @@ export const campaigns = pgTable("campaigns", {
   metaCampaignId: varchar("metaCampaignId", { length: 100 }),
   metaAdSetId:    varchar("metaAdSetId",    { length: 100 }),
   metaAdId:       varchar("metaAdId",       { length: 100 }),
-  metaCreativeId: varchar("metaCreativeId", { length: 100 }),
+  metaCreativeId:   varchar("metaCreativeId",   { length: 100 }),
+  googleCampaignId: varchar("googleCampaignId", { length: 100 }),
+  googleAdGroupId:  varchar("googleAdGroupId",  { length: 100 }),
+  tiktokCampaignId: varchar("tiktokCampaignId", { length: 100 }),
+  tiktokAdGroupId:  varchar("tiktokAdGroupId",  { length: 100 }),
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

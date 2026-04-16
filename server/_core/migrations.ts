@@ -198,5 +198,14 @@ export async function runMigrations(): Promise<void> {
     );
   `);
 
+  // ── Colunas Google e TikTok nas campanhas ───────────────────────────────────
+  await pool.query(`
+    ALTER TABLE campaigns
+      ADD COLUMN IF NOT EXISTS "googleCampaignId" VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS "googleAdGroupId"  VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS "tiktokCampaignId" VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS "tiktokAdGroupId"  VARCHAR(100);
+  `);
+
   console.log('[migrations] ✅ Migrations applied successfully');
 }
