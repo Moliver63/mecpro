@@ -5993,6 +5993,142 @@ const mediaBudgetRouter = router({
       };
     }),
 
+  // ── Ledger completo do usuário ───────────────────────────────────────────────
+  getLedger: protectedProcedure
+    .input(z.object({
+      limit:    z.number().min(1).max(200).default(50),
+      type:     z.enum(["all","deposit","fee","ad_spend","transfer"]).default("all"),
+      platform: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const conditions: string[] = [`"userId" = $1`];
+      const params: any[] = [ctx.user.id];
+
+      if (input.type !== "all") {
+        params.push(input.type);
+        conditions.push(`type = $${params.length}`);
+      }
+      if (input.platform) {
+        params.push(input.platform);
+        conditions.push(`platform = $${params.length}`);
+      }
+
+      params.push(input.limit);
+      const rows = await pool.query(`
+        SELECT id, type, amount, direction, platform, "campaignId", "campaignName",
+               reference, notes, "balanceBefore", "balanceAfter", "createdAt"
+        FROM wallet_ledger
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY "createdAt" DESC
+        LIMIT $${params.length}
+      `, params);
+
+      // Totais por tipo
+      const totalsRes = await pool.query(`
+        SELECT type, direction, SUM(amount) as total
+        FROM wallet_ledger WHERE "userId" = $1
+        GROUP BY type, direction
+      `, [ctx.user.id]);
+
+      const totals: Record<string, number> = {};
+      totalsRes.rows.forEach((r: any) => {
+        const key = `${r.type}_${r.direction}`;
+        totals[key] = Number(r.total) / 100;
+      });
+
+      return {
+        entries: rows.rows.map((r: any) => ({
+          id:           r.id,
+          type:         r.type,
+          amount:       Number(r.amount) / 100,
+          direction:    r.direction,
+          platform:     r.platform,
+          campaignId:   r.campaignId,
+          campaignName: r.campaignName,
+          reference:    r.reference,
+          notes:        r.notes,
+          balanceBefore: Number(r.balanceBefore) / 100,
+          balanceAfter:  Number(r.balanceAfter) / 100,
+          createdAt:    r.createdAt,
+        })),
+        totals: {
+          deposited:  totals["deposit_credit"]    || 0,
+          fees:       totals["fee_debit"]          || 0,
+          adSpend:    totals["ad_spend_debit"]     || 0,
+          transferred: totals["transfer_debit"]    || 0,
+        },
+      };
+    }),
+
+  // ── Dashboard financeiro consolidado ─────────────────────────────────────────
+  financialSummary: protectedProcedure
+    .query(async ({ ctx }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // Saldo atual
+      const balRes = await pool.query(
+        `SELECT balance, "totalDeposited", "totalFees" FROM media_balance WHERE "userId" = $1`,
+        [ctx.user.id]
+      );
+      const bal = balRes.rows[0] || { balance: 0, totalDeposited: 0, totalFees: 0 };
+
+      // Gasto hoje por plataforma (snapshots)
+      const spendTodayRes = await pool.query(`
+        SELECT platform, SUM("spendToday") as total
+        FROM campaign_spend_snapshots
+        WHERE "userId" = $1 AND date = CURRENT_DATE
+        GROUP BY platform
+      `, [ctx.user.id]);
+
+      const spendToday: Record<string, number> = {};
+      spendTodayRes.rows.forEach((r: any) => {
+        spendToday[r.platform] = Number(r.total) / 100;
+      });
+
+      // Gasto últimos 30 dias
+      const spendMonthRes = await pool.query(`
+        SELECT platform, SUM("spendTotal") as total
+        FROM campaign_spend_snapshots
+        WHERE "userId" = $1 AND date >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY platform
+      `, [ctx.user.id]);
+
+      const spendMonth: Record<string, number> = {};
+      spendMonthRes.rows.forEach((r: any) => {
+        spendMonth[r.platform] = Number(r.total) / 100;
+      });
+
+      // Últimas 10 movimentações
+      const recentRes = await pool.query(`
+        SELECT type, amount, direction, platform, "campaignName", "balanceAfter", "createdAt"
+        FROM wallet_ledger WHERE "userId" = $1
+        ORDER BY "createdAt" DESC LIMIT 10
+      `, [ctx.user.id]);
+
+      return {
+        balance:        Number(bal.balance) / 100,
+        totalDeposited: Number(bal.totalDeposited) / 100,
+        totalFees:      Number(bal.totalFees) / 100,
+        spendToday,
+        spendMonth,
+        totalSpendToday:  Object.values(spendToday).reduce((s, v) => s + v, 0),
+        totalSpendMonth:  Object.values(spendMonth).reduce((s, v) => s + v, 0),
+        recentMovements:  recentRes.rows.map((r: any) => ({
+          type:         r.type,
+          amount:       Number(r.amount) / 100,
+          direction:    r.direction,
+          platform:     r.platform,
+          campaignName: r.campaignName,
+          balanceAfter: Number(r.balanceAfter) / 100,
+          createdAt:    r.createdAt,
+        })),
+      };
+    }),
+
   // ── Consultar saldo Asaas em tempo real ───────────────────────────────────
   asaasBalance: protectedProcedure
     .query(async ({ ctx }) => {

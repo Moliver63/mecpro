@@ -10,6 +10,13 @@ services:
         value: observe  # Mude para 'semi' ou 'active' quando pronto
 
   - type: cron
+    name: mecpro-financial-engine
+    env: node
+    buildCommand: npm install
+    schedule: "0 * * * *"  # A cada 1 hora
+    startCommand: npx tsx server/financialWorker.ts
+
+  - type: cron
     name: mecpro-autonomous-agent
     env: node
     buildCommand: npm install

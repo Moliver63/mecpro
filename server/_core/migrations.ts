@@ -234,5 +234,44 @@ export async function runMigrations(): Promise<void> {
     );
   `);
 
+  // ── Ledger unificado de movimentações financeiras ───────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_ledger (
+      id              SERIAL PRIMARY KEY,
+      "userId"        INTEGER NOT NULL REFERENCES users(id),
+      type            VARCHAR(20) NOT NULL, -- deposit | fee | ad_spend | transfer | refund
+      amount          INTEGER NOT NULL,     -- centavos, sempre positivo
+      direction       VARCHAR(10) NOT NULL, -- credit | debit
+      platform        VARCHAR(20),          -- meta | google | tiktok | null
+      "campaignId"    VARCHAR(100),
+      "campaignName"  VARCHAR(255),
+      reference       VARCHAR(255),         -- ID externo (asaasId, paymentIntentId, etc)
+      notes           TEXT,
+      "balanceBefore" INTEGER NOT NULL DEFAULT 0,
+      "balanceAfter"  INTEGER NOT NULL DEFAULT 0,
+      "createdAt"     TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_wallet_ledger_user ON wallet_ledger("userId");
+    CREATE INDEX IF NOT EXISTS idx_wallet_ledger_type ON wallet_ledger(type);
+    CREATE INDEX IF NOT EXISTS idx_wallet_ledger_created ON wallet_ledger("createdAt");
+  `);
+
+  // ── Snapshots de gasto por campanha (sincronização periódica) ────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS campaign_spend_snapshots (
+      id              SERIAL PRIMARY KEY,
+      "userId"        INTEGER NOT NULL REFERENCES users(id),
+      platform        VARCHAR(20) NOT NULL,
+      "campaignId"    VARCHAR(100) NOT NULL,
+      "campaignName"  VARCHAR(255),
+      "spendToday"    INTEGER NOT NULL DEFAULT 0,   -- centavos gastos hoje
+      "spendTotal"    INTEGER NOT NULL DEFAULT 0,   -- centavos gastos no período
+      "lastDebitedAt" TIMESTAMPTZ,
+      "lastSyncAt"    TIMESTAMPTZ DEFAULT NOW(),
+      date            DATE NOT NULL DEFAULT CURRENT_DATE,
+      UNIQUE("userId", platform, "campaignId", date)
+    );
+  `);
+
   console.log('[migrations] ✅ Migrations applied successfully');
 }
