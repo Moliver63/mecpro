@@ -15,6 +15,7 @@ const NAV_USER = [
   { icon: "◎",  label: "Verba de Mídia",    path: "/media-budget" },
   { icon: "⊛",  label: "Rateio de Verba",   path: "/budget-distribution" },
   { icon: "⋈",  label: "Pagar Plataformas", path: "/platform-payment" },
+  { icon: "🛒", label: "Comprar Créditos",   path: "/recharge-guide" },
   { icon: "⊙",  label: "Academia",          path: "/academy" },
   { icon: "◻",  label: "Notificações",      path: "/notifications" },
   { icon: "◷",  label: "Mensagens",         path: "/messages" },

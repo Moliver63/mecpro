@@ -60,6 +60,9 @@ export default function BudgetDistribution() {
 
   const parsedAmount = parseFloat(amount.replace(",", ".")) || 0;
 
+  // Settings do admin — distribuição padrão dinâmica
+  const { data: ps } = (trpc as any).admin?.getPaymentSettings?.useQuery?.() ?? { data: null };
+
   const { data: balance, refetch: refetchBalance } =
     (trpc as any).mediaBudget?.getBalance?.useQuery?.() ?? { data: null, refetch: () => {} };
 
@@ -479,10 +482,16 @@ export default function BudgetDistribution() {
                 {PLATFORM[f.platform]?.icon} {f.campaignId}: {f.error}
               </div>
             ))}
-            <button onClick={() => { setDone(false); setResult(null); setCampaigns([]); setAmount(""); }}
-              style={{ marginTop: 14, padding: "10px 20px", borderRadius: 10, border: "1.5px solid #7c3aed", background: "#f5f3ff", color: "#7c3aed", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              🔄 Novo rateio
-            </button>
+            <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+              <button onClick={() => { setDone(false); setResult(null); setCampaigns([]); setAmount(""); }}
+                style={{ padding: "10px 20px", borderRadius: 10, border: "1.5px solid #7c3aed", background: "#f5f3ff", color: "#7c3aed", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                🔄 Novo rateio
+              </button>
+              <a href="/recharge-guide"
+                style={{ padding: "10px 20px", borderRadius: 10, border: "1.5px solid #059669", background: "#f0fdf4", color: "#059669", fontSize: 13, fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                🛒 Comprar créditos agora →
+              </a>
+            </div>
           </div>
         )}
 

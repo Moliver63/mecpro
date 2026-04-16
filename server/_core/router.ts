@@ -6049,6 +6049,18 @@ const mediaBudgetRouter = router({
         VALUES ($1, $2, 0, 0, $2, 'transfer', 'approved', 'pix', $3)
       `, [ctx.user.id, deductCents, `Transferência Pix para ${input.pixKey} — ${input.description || "recarga de mídia"}`]);
 
+      // Registra no wallet_ledger
+      try {
+        await recordLedger(pool, {
+          userId:    ctx.user.id,
+          type:      "transfer",
+          amount:    deductCents,
+          direction: "debit",
+          reference: transferData.id,
+          notes:     `Transferência Pix para ${input.pixKey}`,
+        });
+      } catch {}
+
       log.info("media-budget", "Transferência Asaas realizada", {
         userId: ctx.user.id, amount: input.amount, pixKey: input.pixKey,
         asaasId: transferData.id, status: transferData.status,
@@ -6485,7 +6497,9 @@ const mediaBudgetRouter = router({
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
-      const feePercent = 10;
+      // Usa taxa configurada pelo admin (default 10%)
+      const feeConfig  = await db.getAdminSetting("payment_fee_percent");
+      const feePercent = Number(feeConfig || "10");
       const feeAmount  = input.totalAmount * feePercent / 100;
       const netAmount  = input.totalAmount - feeAmount;
 
@@ -6612,6 +6626,15 @@ const mediaBudgetRouter = router({
 
       const cents = Math.round(input.amount * 100);
 
+      // Verifica saldo disponível antes de debitar
+      const balRes = await pool.query(
+        `SELECT balance FROM media_balance WHERE "userId" = $1`, [ctx.user.id]
+      );
+      const currentBalance = Number(balRes.rows[0]?.balance || 0);
+      if (currentBalance < cents) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Saldo insuficiente. Disponível: R$ ${(currentBalance/100).toFixed(2)}` });
+      }
+
       // Debita da wallet
       await pool.query(`
         UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW() WHERE "userId" = $2
@@ -6619,12 +6642,13 @@ const mediaBudgetRouter = router({
 
       // Registra no ledger
       await recordLedger(pool, {
-        userId:    ctx.user.id,
-        type:      "ad_spend",
-        amount:    cents,
-        direction: "debit",
-        platform:  input.platform,
-        notes:     `Crédito comprado pelo cliente em ${input.platform} — R$ ${input.amount.toFixed(2)}`,
+        userId:      ctx.user.id,
+        type:        "ad_spend",
+        amount:      cents,
+        direction:   "debit",
+        platform:    input.platform,
+        reference:   `recharge-guide-${Date.now()}`,
+        notes:       `Crédito comprado pelo cliente em ${input.platform} — R$ ${input.amount.toFixed(2)}`,
       });
 
       log.info("media-budget", "Recarga confirmada pelo cliente", {
@@ -6988,6 +7012,17 @@ const mediaBudgetRouter = router({
           VALUES ($1, $2, 0, 0, $2, 'spend', 'approved', 'balance', $3)
         `, [userId, deductCents, `Rateio aplicado: ${applied.length} campanha(s)`]);
 
+        // Registra no wallet_ledger para rastreabilidade completa
+        try {
+          await recordLedger(pool, {
+            userId,
+            type:      "ad_spend",
+            amount:    deductCents,
+            direction: "debit",
+            notes:     `Rateio: ${applied.map((a: any) => `${a.platform} R$${a.amount?.toFixed(2)}`).join(", ")}`,
+          });
+        } catch {}
+
         log.info("media-budget", "Orçamento aplicado + saldo debitado", { userId, applied: applied.length, failed: failed.length, deducted: appliedTotal });
 
         // Salva rateio para rastreamento de recarga
@@ -7008,6 +7043,20 @@ const mediaBudgetRouter = router({
         } catch (e: any) {
           log.warn("media-budget", "Erro ao salvar distribuição", { error: e.message });
         }
+      }
+
+      // Registra no wallet_ledger para rastreabilidade
+      if (input.deductFromBalance && applied.length > 0) {
+        try {
+          const appliedTotal = applied.reduce((s: number, a: any) => s + a.amount, 0);
+          await recordLedger(pool, {
+            userId,
+            type:      "ad_spend",
+            amount:    Math.round(appliedTotal * 100),
+            direction: "debit",
+            notes:     `Rateio: ${applied.map((a: any) => `${a.platform} R$${Number(a.amount).toFixed(2)}`).join(", ")}`,
+          });
+        } catch {}
       }
 
       return { applied, failed, totalApplied: applied.reduce((s, a) => s + a.amount, 0) };

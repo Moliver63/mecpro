@@ -46,12 +46,13 @@ export default function MediaBudget() {
   const [pixData,   setPixData] = useState<any>(null);
   const [loading,   setLoading] = useState(false);
 
-  const feePercent = 10;
+  const feePercent = ps?.feePercent ?? 10;
   const parsedAmount = parseFloat(amount.replace(",", ".")) || 0;
   const feeAmount  = parsedAmount * feePercent / 100;
   const netAmount  = parsedAmount - feeAmount;
 
   // Saldo e histórico do cliente
+  const { data: psSettings } = (trpc as any).admin?.getPaymentSettings?.useQuery?.() ?? { data: null };
   const { data: balance, refetch: refetchBalance } =
     (trpc as any).mediaBudget?.getBalance?.useQuery?.() ?? { data: null, refetch: () => {} };
 
@@ -105,7 +106,19 @@ export default function MediaBudget() {
           </p>
         </div>
 
-        {/* Saldo atual */}
+        {/* Banner modo B disponível */}
+      {psSettings?.modeGuide && (
+        <div style={{ marginBottom: 16, padding: "12px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: 13, color: "#059669" }}>
+            💡 <strong>Dica:</strong> Você também pode comprar créditos diretamente nas plataformas com o Guia de Compra — sem intermediação.
+          </div>
+          <a href="/recharge-guide" style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 8, background: "#059669", color: "#fff", textDecoration: "none", whiteSpace: "nowrap" }}>
+            Ver guia →
+          </a>
+        </div>
+      )}
+
+      {/* Saldo atual */}
         {balance && (
           <div style={{
             display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px,1fr))",
