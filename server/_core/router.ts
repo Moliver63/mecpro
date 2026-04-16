@@ -5726,8 +5726,9 @@ const mediaBudgetRouter = router({
   // Solicitar depósito via Pix — integrado com Asaas (QR Code real)
   requestPixDeposit: protectedProcedure
     .input(z.object({
-      amount: z.number().min(50).max(100000),
-      notes:  z.string().optional(),
+      amount:   z.number().min(50).max(100000),
+      cpfCnpj: z.string().min(11).max(18).optional(),
+      notes:    z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = await getPool();
@@ -5760,9 +5761,11 @@ const mediaBudgetRouter = router({
             method: "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
             body: JSON.stringify({
-              name:  userRes.name || userRes.email,
-              email: userRes.email,
+              name:              userRes.name || userRes.email,
+              email:             userRes.email,
+              cpfCnpj:           input.cpfCnpj?.replace(/\D/g, "") || (userRes as any).cpf || "00000000000",
               externalReference: String(ctx.user.id),
+              notificationDisabled: true,
             }),
             signal: AbortSignal.timeout(10000),
           });

@@ -25,6 +25,7 @@ export default function MediaBudget() {
   const [amount,    setAmount]  = useState("");
   const [method,    setMethod]  = useState<Method>("pix");
   const [notes,     setNotes]   = useState("");
+  const [cpf,       setCpf]     = useState("");
   const [pixData,   setPixData] = useState<any>(null);
   const [loading,   setLoading] = useState(false);
 
@@ -61,10 +62,12 @@ export default function MediaBudget() {
 
   function handleDeposit() {
     if (parsedAmount < 50) { toast.error("Valor mínimo: R$ 50,00"); return; }
+    const cpfDigits = cpf.replace(/\D/g, "");
+    if (cpfDigits.length < 11) { toast.error("Informe um CPF ou CNPJ válido"); return; }
     setLoading(true);
     setPixData(null);
     if (method === "pix") {
-      (pixMutation as any).mutate({ amount: parsedAmount, notes: notes.trim() || undefined });
+      (pixMutation as any).mutate({ amount: parsedAmount, cpfCnpj: cpf.trim() || undefined, notes: notes.trim() || undefined });
     } else {
       toast.info("Pagamento por cartão em breve.");
       setLoading(false);
@@ -169,6 +172,20 @@ export default function MediaBudget() {
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* CPF/CNPJ */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>
+                CPF ou CNPJ <span style={{ color: "#dc2626" }}>*</span>
+              </label>
+              <input
+                value={cpf}
+                onChange={e => setCpf(e.target.value)}
+                placeholder="000.000.000-00 ou 00.000.000/0001-00"
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #e2e8f0", fontSize: 14 }}
+              />
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>Necessário para emissão da cobrança Pix</span>
             </div>
 
             {/* Observações */}
