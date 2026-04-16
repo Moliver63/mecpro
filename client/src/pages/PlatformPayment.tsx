@@ -73,6 +73,9 @@ export default function PlatformPayment() {
 
   const parsedAmount = parseFloat(amount.replace(",", ".")) || 0;
 
+  // Settings do admin
+  const { data: ps } = (trpc as any).admin?.getPaymentSettings?.useQuery?.() ?? { data: null };
+
   // Saldo MECPro
   const { data: mecproBalance, refetch: refetchBalance } =
     (trpc as any).mediaBudget?.getBalance?.useQuery?.() ?? { data: null };
@@ -95,6 +98,19 @@ export default function PlatformPayment() {
     },
     onError: (e: any) => { setLoading(false); toast.error(e.message); },
   }) ?? { mutate: () => {} };
+
+  // Bloquear se nenhum modo de pagamento ativo
+  if (ps && !ps.modeWallet && !ps.modeGuide) {
+    return (
+      <Layout>
+        <div style={{ maxWidth: 600, margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Sistema temporariamente indisponível</h2>
+          <p style={{ color: "#64748b", fontSize: 14 }}>Os pagamentos estão desativados pelo administrador. Tente novamente mais tarde.</p>
+        </div>
+      </Layout>
+    );
+  }
 
   function handleTransfer() {
     if (!pixKey.trim()) { toast.error("Informe a chave Pix de destino"); return; }

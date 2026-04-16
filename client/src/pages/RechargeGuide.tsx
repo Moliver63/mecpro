@@ -104,11 +104,12 @@ export default function RechargeGuide() {
     onError: (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {} };
 
-  // Rateio padrão baseado em dados do sistema (50/30/20)
+  // Rateio baseado na configuração do admin (padrão 50/30/20)
+  const adminDist = ps?.defaultDist ?? { meta: 50, google: 30, tiktok: 20 };
   const defaultDistribution = [
-    { platform: "meta"   as Platform, amount: +(netAmount * 0.5).toFixed(2) },
-    { platform: "google" as Platform, amount: +(netAmount * 0.3).toFixed(2) },
-    { platform: "tiktok" as Platform, amount: +(netAmount * 0.2).toFixed(2) },
+    { platform: "meta"   as Platform, amount: +(netAmount * adminDist.meta   / 100).toFixed(2) },
+    { platform: "google" as Platform, amount: +(netAmount * adminDist.google / 100).toFixed(2) },
+    { platform: "tiktok" as Platform, amount: +(netAmount * adminDist.tiktok / 100).toFixed(2) },
   ].filter(d => d.amount > 0);
 
   function handleGenerate() {
@@ -200,7 +201,7 @@ export default function RechargeGuide() {
                 <div style={{ marginTop: 20, padding: "16px", background: "#f8fafc", borderRadius: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
                   {[
                     { label: "Valor total",     value: R(parsedAmount), color: "#0f172a" },
-                    { label: "Taxa MECPro 10%", value: `− ${R(feeAmount)}`, color: "#dc2626" },
+                    { label: `Taxa MECPro ${ps?.feePercent ?? 10}%`, value: `− ${R(feeAmount)}`, color: "#dc2626" },
                     { label: "Para anúncios",   value: R(netAmount), color: "#059669" },
                   ].map(m => (
                     <div key={m.label} style={{ textAlign: "center" }}>
