@@ -11,6 +11,7 @@ const NAV_USER = [
   { icon: "🎵", label: "Campanhas TikTok", path: "/tiktok-campaigns" },
   { icon: "🤖", label: "Agente Autônomo",  path: "/autonomous-agent" },
   { icon: "📊", label: "Mídia Paga",       path: "/unified-dashboard" },
+  { icon: "💰", label: "Verba de Mídia",   path: "/media-budget" },
   { icon: "🎓", label: "Academia",        path: "/academy" },
   { icon: "🔔", label: "Notificações",    path: "/notifications" },
   { icon: "💬", label: "Mensagens",       path: "/messages" },

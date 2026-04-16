@@ -80,6 +80,7 @@ import AdminRoles from "@/pages/AdminRoles";
 import AdminPlanRequests from "@/pages/AdminPlanRequests";
 import FacebookCampaignCreator from "@/pages/FacebookCampaignCreator";
 import AutonomousAgent from "@/pages/AutonomousAgent";
+import MediaBudget from "@/pages/MediaBudget";
 import GoogleAdsIntegration from "@/pages/GoogleAdsIntegration";
 import GoogleCampaignCreator from "@/pages/GoogleCampaignCreator";
 import GoogleCampaigns from "@/pages/GoogleCampaigns";
@@ -177,6 +178,7 @@ export default function App() {
             <Route path="/unified-dashboard"><ProtectedRoute><UnifiedDashboard /></ProtectedRoute></Route>
             <Route path="/facebook-campaign/new"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/autonomous-agent"><ProtectedRoute><AutonomousAgent /></ProtectedRoute></Route>
+            <Route path="/media-budget"><ProtectedRoute><MediaBudget /></ProtectedRoute></Route>
             <Route path="/projects/:id/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/consultas"><ProtectedRoute><Consultas /></ProtectedRoute></Route>
             <Route path="/billing"><ProtectedRoute><Billing /></ProtectedRoute></Route>

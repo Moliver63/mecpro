@@ -5680,6 +5680,215 @@ const llmToggleRouter = router({
     }),
 });
 
+// ─── Media Budget Router ─────────────────────────────────────────────────────
+const mediaBudgetRouter = router({
+
+  // Retorna saldo e histórico do cliente
+  getBalance: protectedProcedure
+    .query(async ({ ctx }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // Saldo atual
+      const balRes = await pool.query(
+        `SELECT balance, "totalDeposited", "totalFees" FROM media_balance WHERE "userId" = $1`,
+        [ctx.user.id]
+      );
+      const balance = balRes.rows[0] || { balance: 0, totalDeposited: 0, totalFees: 0 };
+
+      // Histórico de depósitos (últimos 20)
+      const histRes = await pool.query(
+        `SELECT id, amount, "feePercent", "feeAmount", "netAmount", type, status, method, notes, "createdAt", "approvedAt"
+         FROM media_budget WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 20`,
+        [ctx.user.id]
+      );
+
+      return {
+        balance:        Math.round(Number(balance.balance)) / 100,
+        totalDeposited: Math.round(Number(balance.totalDeposited)) / 100,
+        totalFees:      Math.round(Number(balance.totalFees)) / 100,
+        history:        histRes.rows.map(r => ({
+          id:         r.id,
+          amount:     Number(r.amount) / 100,
+          feePercent: r.feePercent,
+          feeAmount:  Number(r.feeAmount) / 100,
+          netAmount:  Number(r.netAmount) / 100,
+          type:       r.type,
+          status:     r.status,
+          method:     r.method,
+          notes:      r.notes,
+          createdAt:  r.createdAt,
+          approvedAt: r.approvedAt,
+        })),
+      };
+    }),
+
+  // Solicitar depósito via Pix
+  requestPixDeposit: protectedProcedure
+    .input(z.object({
+      amount: z.number().min(50).max(100000),  // R$ mínimo R$50
+      notes:  z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const amountCents  = Math.round(input.amount * 100);
+      const feePercent   = 10;
+      const feeAmount    = Math.round(amountCents * feePercent / 100);
+      const netAmount    = amountCents - feeAmount;
+
+      // Gera chave Pix dinâmica (simplificado — em produção usar API de pagamento)
+      const pixKey       = process.env.PIX_KEY || "morebemimoveisbc@gmail.com";
+      const pixAmount    = (amountCents / 100).toFixed(2);
+      const pixExpiry    = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
+      // Payload Pix estático (simplificado)
+      const pixPayload = `00020126480014BR.GOV.BCB.PIX0126${pixKey}5204000053039865406${pixAmount}5802BR5906MECPro6304`;
+
+      const res = await pool.query(
+        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, "pixPayload", "pixExpiry", notes)
+         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'pix', $6, $7, $8)
+         RETURNING id, "createdAt"`,
+        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount, pixPayload, pixExpiry, input.notes || null]
+      );
+
+      log.info("media-budget", "Depósito Pix solicitado", {
+        userId: ctx.user.id, amount: input.amount, netAmount: netAmount / 100,
+      });
+
+      return {
+        id:         res.rows[0].id,
+        amount:     input.amount,
+        feePercent,
+        feeAmount:  feeAmount / 100,
+        netAmount:  netAmount / 100,
+        pixKey,
+        pixPayload,
+        pixExpiry,
+        instructions: `Transfira R$ ${pixAmount} via Pix para a chave acima. Após confirmação pelo admin (até 2h), R$ ${(netAmount/100).toFixed(2)} serão creditados no seu saldo de mídia (taxa de gestão de ${feePercent}% deduzida).`,
+      };
+    }),
+
+  // Solicitar depósito via Stripe (cartão)
+  requestCardDeposit: protectedProcedure
+    .input(z.object({
+      amount: z.number().min(50).max(100000),
+      notes:  z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      if (!stripe) throw new TRPCError({ code: "BAD_REQUEST", message: "Pagamento por cartão não configurado." });
+
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const amountCents = Math.round(input.amount * 100);
+      const feePercent  = 10;
+      const feeAmount   = Math.round(amountCents * feePercent / 100);
+      const netAmount   = amountCents - feeAmount;
+
+      // Cria PaymentIntent no Stripe
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount:   amountCents,
+        currency: "brl",
+        metadata: { userId: String(ctx.user.id), type: "media_budget", feePercent: String(feePercent) },
+        description: `MECPro — Recarga de verba de mídia (R$ ${(amountCents/100).toFixed(2)})`,
+      });
+
+      // Registra no banco como pendente
+      await pool.query(
+        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, "stripeId", notes)
+         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'card', $6, $7)`,
+        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount, paymentIntent.id, input.notes || null]
+      );
+
+      return {
+        clientSecret: paymentIntent.client_secret,
+        amount:       input.amount,
+        feePercent,
+        feeAmount:    feeAmount / 100,
+        netAmount:    netAmount / 100,
+      };
+    }),
+
+  // Admin: listar todos os depósitos pendentes
+  adminListPending: protectedProcedure
+    .query(async ({ ctx }) => {
+      if (!["admin", "superadmin"].includes((ctx.user as any)?.role || "")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas admins." });
+      }
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const res = await pool.query(`
+        SELECT mb.*, u.email, u.name
+        FROM media_budget mb
+        JOIN users u ON u.id = mb."userId"
+        WHERE mb.status = 'pending'
+        ORDER BY mb."createdAt" DESC
+      `);
+
+      return res.rows.map(r => ({
+        id:        r.id,
+        userId:    r.userId,
+        email:     r.email,
+        name:      r.name,
+        amount:    Number(r.amount) / 100,
+        netAmount: Number(r.netAmount) / 100,
+        feeAmount: Number(r.feeAmount) / 100,
+        method:    r.method,
+        notes:     r.notes,
+        createdAt: r.createdAt,
+        pixPayload: r.pixPayload,
+      }));
+    }),
+
+  // Admin: aprovar depósito e creditar saldo
+  adminApprove: protectedProcedure
+    .input(z.object({ depositId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!["admin", "superadmin"].includes((ctx.user as any)?.role || "")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Apenas admins." });
+      }
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // Busca o depósito
+      const depRes = await pool.query(
+        `SELECT * FROM media_budget WHERE id = $1 AND status = 'pending'`,
+        [input.depositId]
+      );
+      if (!depRes.rows[0]) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Depósito não encontrado ou já aprovado." });
+      }
+      const dep = depRes.rows[0];
+
+      // Marca como aprovado
+      await pool.query(
+        `UPDATE media_budget SET status = 'approved', "approvedAt" = NOW(), "approvedBy" = $1, "updatedAt" = NOW() WHERE id = $2`,
+        [ctx.user.id, input.depositId]
+      );
+
+      // Credita saldo líquido no cliente
+      await pool.query(`
+        INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees")
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT ("userId") DO UPDATE SET
+          balance = media_balance.balance + $2,
+          "totalDeposited" = media_balance."totalDeposited" + $3,
+          "totalFees" = media_balance."totalFees" + $4,
+          "updatedAt" = NOW()
+      `, [dep.userId, dep.netAmount, dep.amount, dep.feeAmount]);
+
+      log.info("media-budget", "Depósito aprovado pelo admin", {
+        depositId: input.depositId, userId: dep.userId,
+        netAmount: Number(dep.netAmount) / 100,
+      });
+
+      return { success: true, creditedAmount: Number(dep.netAmount) / 100 };
+    }),
+});
+
 export const appRouter = router({
   auth: authRouter,
   projects: projectsRouter,
@@ -5698,6 +5907,7 @@ export const appRouter = router({
   tiktokBulk: tiktokBulkRouter,
   agent: autonomousAgentRouter,
   llm: llmToggleRouter,
+  mediaBudget: mediaBudgetRouter,
   unified: unifiedRouter,
   tiktokVideo: tiktokVideoRouter,
   alerts: alertsRouter,

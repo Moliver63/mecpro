@@ -163,5 +163,40 @@ export async function runMigrations(): Promise<void> {
     );
   `);
 
+  // ── Verba de Mídia — gestão financeira da agência ───────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_budget (
+      id              SERIAL PRIMARY KEY,
+      "userId"        INTEGER NOT NULL REFERENCES users(id),
+      "projectId"     INTEGER REFERENCES projects(id),
+      amount          INTEGER NOT NULL,
+      "feePercent"    INTEGER NOT NULL DEFAULT 10,
+      "feeAmount"     INTEGER NOT NULL,
+      "netAmount"     INTEGER NOT NULL,
+      type            VARCHAR(20) NOT NULL DEFAULT 'deposit',
+      status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+      method          VARCHAR(20) NOT NULL DEFAULT 'pix',
+      "stripeId"      VARCHAR(255),
+      "pixPayload"    TEXT,
+      "pixExpiry"     TIMESTAMPTZ,
+      notes           TEXT,
+      "approvedAt"    TIMESTAMPTZ,
+      "approvedBy"    INTEGER REFERENCES users(id),
+      "createdAt"     TIMESTAMPTZ DEFAULT NOW(),
+      "updatedAt"     TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_balance (
+      id              SERIAL PRIMARY KEY,
+      "userId"        INTEGER NOT NULL UNIQUE REFERENCES users(id),
+      balance         INTEGER NOT NULL DEFAULT 0,
+      "totalDeposited" INTEGER NOT NULL DEFAULT 0,
+      "totalFees"     INTEGER NOT NULL DEFAULT 0,
+      "updatedAt"     TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
   console.log('[migrations] ✅ Migrations applied successfully');
 }
