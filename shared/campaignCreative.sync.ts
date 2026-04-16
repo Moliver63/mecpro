@@ -162,23 +162,25 @@ export function syncCreativeImageToV2(
   payload: {
     imageUrl?: string | null;
     imageHash?: string | null;
+    videoId?: string | null;
   },
 ): CampaignCreative {
   const v2 = ensureCreativeSystemV2(creative);
   const assetId = `legacy_${format}_primary`;
   const aspectRatio = format === "stories" ? "9:16" : format === "square" ? "1:1" : "4:5";
+  const isVideo = !!payload.videoId;
 
   const existingIdx = (v2.assetLibrary.assets || []).findIndex((a: any) => a.id === assetId);
   const nextAsset = {
     id: assetId,
-    kind: "image",
+    kind: isVideo ? "video" : "image",
     label: `${format} primary`,
-    url: payload.imageUrl ?? null,
-    previewUrl: payload.imageUrl ?? null,
-    imageHash: payload.imageHash ?? null,
-    videoId: null,
+    url: isVideo ? null : (payload.imageUrl ?? null),
+    previewUrl: isVideo ? null : (payload.imageUrl ?? null),
+    imageHash: isVideo ? null : (payload.imageHash ?? null),
+    videoId: payload.videoId ?? null,
     aspectRatio,
-    source: payload.imageHash ? "upload" : "manual_url",
+    source: isVideo ? "upload" : (payload.imageHash ? "upload" : "manual_url"),
   };
 
   if (existingIdx >= 0) {

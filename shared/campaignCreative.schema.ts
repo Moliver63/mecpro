@@ -294,14 +294,16 @@ export const updateCreativeInputSchema = z.object({
 }).passthrough();
 
 export const updateCreativeImageInputSchema = z.object({
-  campaignId: z.number().int().positive(),
+  campaignId:    z.number().int().positive(),
   creativeIndex: z.number().int().min(0),
-  format: creativeImageEditFormatSchema,
-  imageUrl: optionalHttpsUrl,
-  imageHash: optionalString,
+  format:        creativeImageEditFormatSchema,
+  imageUrl:      optionalHttpsUrl,
+  imageHash:     optionalString,
+  videoId:       z.string().optional(),   // Meta video_id após upload
+  audioId:       z.string().optional(),   // Meta audio_id após upload
 }).superRefine((value, ctx) => {
-  if (!value.imageUrl && !value.imageHash) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Informe imageUrl ou imageHash" });
+  if (!value.imageUrl && !value.imageHash && !value.videoId && !value.audioId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Informe imageUrl, imageHash ou videoId" });
   }
 });
 

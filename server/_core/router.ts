@@ -1628,10 +1628,7 @@ const campaignsRouter = router({
   updateCreativeImage: protectedProcedure
     .input(updateCreativeImageInputSchema)
     .mutation(async ({ input }) => {
-      if (!input.imageUrl && !input.imageHash) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Informe imageUrl ou imageHash para atualizar a imagem do criativo." });
-      }
-
+      // Validação já feita pelo superRefine do schema
       const campaign = await db.getCampaignById(input.campaignId) as any;
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
 
@@ -1649,22 +1646,53 @@ const campaignsRouter = router({
         : input.format === "square"
           ? "squareImageHash"
           : "feedImageHash";
+      const videoKey = input.format === "stories"
+        ? "storyVideoId"
+        : input.format === "square"
+          ? "squareVideoId"
+          : "feedVideoId";
 
-      if (input.imageUrl) creative[urlKey] = input.imageUrl;
-      if (input.imageHash) creative[hashKey] = input.imageHash;
-      creative.imageUpdatedAt = new Date().toISOString();
-      creative.imageProviderUsed = input.imageHash ? "meta_manual_upload" : "manual_url";
-      creative.imageGenerationReason = null;
+      const isVideo = !!input.videoId;
+
+      if (isVideo) {
+        // Vídeo: salva videoId, limpa imageHash/imageUrl para evitar conflito
+        creative[videoKey]  = input.videoId;
+        creative[hashKey]   = null;
+        creative[urlKey]    = null;
+        creative.imageProviderUsed = "meta_video_upload";
+      } else {
+        if (input.imageUrl)  creative[urlKey]  = input.imageUrl;
+        if (input.imageHash) creative[hashKey] = input.imageHash;
+        creative[videoKey]  = null; // limpa vídeo anterior se havia
+        creative.imageProviderUsed = input.imageHash ? "meta_manual_upload" : "manual_url";
+      }
+
+      creative.imageUpdatedAt          = new Date().toISOString();
+      creative.imageGenerationReason   = null;
       creative.imageGenerationWarnings = [];
-      creative.manualImageOverride = true;
+      creative.manualImageOverride     = true;
 
       creatives[input.creativeIndex] = syncCreativeImageToV2(creative, input.format, {
-        imageUrl: input.imageUrl ?? null,
-        imageHash: input.imageHash ?? null,
+        imageUrl:  isVideo ? null : (input.imageUrl  ?? null),
+        imageHash: isVideo ? null : (input.imageHash ?? null),
+        videoId:   input.videoId ?? null,
       });
 
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
-      return { ok: true, creative: creatives[input.creativeIndex], imageUrl: creative[urlKey] || null, imageHash: creative[hashKey] || null };
+
+      log.info("campaigns", "updateCreativeImage", {
+        campaignId: input.campaignId, creativeIndex: input.creativeIndex,
+        format: input.format, type: isVideo ? "video" : "image",
+        videoId: input.videoId, imageHash: input.imageHash,
+      });
+
+      return {
+        ok: true,
+        creative: creatives[input.creativeIndex],
+        imageUrl:  creative[urlKey]   || null,
+        imageHash: creative[hashKey]  || null,
+        videoId:   creative[videoKey] || null,
+      };
     }),
 
   regenerateCreativeImage: protectedProcedure
