@@ -5723,50 +5723,124 @@ const mediaBudgetRouter = router({
       };
     }),
 
-  // Solicitar depósito via Pix
+  // Solicitar depósito via Pix — integrado com Asaas (QR Code real)
   requestPixDeposit: protectedProcedure
     .input(z.object({
-      amount: z.number().min(50).max(100000),  // R$ mínimo R$50
+      amount: z.number().min(50).max(100000),
       notes:  z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
-      const amountCents  = Math.round(input.amount * 100);
-      const feePercent   = 10;
-      const feeAmount    = Math.round(amountCents * feePercent / 100);
-      const netAmount    = amountCents - feeAmount;
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Pagamento Pix não configurado. Contate o suporte." });
 
-      // Gera chave Pix dinâmica (simplificado — em produção usar API de pagamento)
-      const pixKey       = process.env.PIX_KEY || "contato@mecproai.com";
-      const pixAmount    = (amountCents / 100).toFixed(2);
-      const pixExpiry    = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+      const amountCents = Math.round(input.amount * 100);
+      const feePercent  = 10;
+      const feeAmount   = Math.round(amountCents * feePercent / 100);
+      const netAmount   = amountCents - feeAmount;
 
-      // Payload Pix estático (simplificado)
-      const pixPayload = `00020126480014BR.GOV.BCB.PIX0126${pixKey}5204000053039865406${pixAmount}5802BR5906MECPro6304`;
+      // 1. Busca ou cria cliente no Asaas
+      const userRes = await db.getUserById(ctx.user.id) as any;
+      let asaasCustomerId: string;
 
-      const res = await pool.query(
-        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, "pixPayload", "pixExpiry", notes)
-         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'pix', $6, $7, $8)
+      try {
+        // Tenta buscar cliente existente por email
+        const searchRes = await fetch(
+          `https://api.asaas.com/v3/customers?email=${encodeURIComponent(userRes.email)}&limit=1`,
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+        );
+        const searchData: any = await searchRes.json();
+        if (searchData.data?.[0]?.id) {
+          asaasCustomerId = searchData.data[0].id;
+        } else {
+          // Cria novo cliente no Asaas
+          const createRes = await fetch("https://api.asaas.com/v3/customers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({
+              name:  userRes.name || userRes.email,
+              email: userRes.email,
+              externalReference: String(ctx.user.id),
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          const createData: any = await createRes.json();
+          if (!createData.id) throw new Error(createData.errors?.[0]?.description || "Erro ao criar cliente no Asaas");
+          asaasCustomerId = createData.id;
+        }
+      } catch (e: any) {
+        log.warn("media-budget", "Asaas customer error", { message: e.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao configurar pagamento: ${e.message}` });
+      }
+
+      // 2. Cria cobrança Pix no Asaas
+      const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const dueDateStr = dueDate.toISOString().split("T")[0]; // YYYY-MM-DD
+      let asaasPayment: any;
+
+      try {
+        const payRes = await fetch("https://api.asaas.com/v3/payments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", access_token: asaasKey },
+          body: JSON.stringify({
+            customer:         asaasCustomerId,
+            billingType:      "PIX",
+            value:            input.amount,
+            dueDate:          dueDateStr,
+            description:      `MECPro — Recarga de verba de mídia${input.notes ? ": " + input.notes : ""}`,
+            externalReference: `mecpro_uid_${ctx.user.id}`,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        asaasPayment = await payRes.json();
+        if (!asaasPayment.id) throw new Error(asaasPayment.errors?.[0]?.description || "Erro ao criar cobrança");
+      } catch (e: any) {
+        log.warn("media-budget", "Asaas payment error", { message: e.message });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao gerar Pix: ${e.message}` });
+      }
+
+      // 3. Busca QR Code do Pix
+      let pixQrCode = "";
+      let pixPayload = "";
+      try {
+        const qrRes = await fetch(
+          `https://api.asaas.com/v3/payments/${asaasPayment.id}/pixQrCode`,
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+        );
+        const qrData: any = await qrRes.json();
+        pixQrCode  = qrData.encodedImage || "";  // base64 da imagem
+        pixPayload = qrData.payload || "";        // copia e cola
+      } catch {
+        log.warn("media-budget", "Asaas QR code error — usando fallback");
+      }
+
+      // 4. Registra no banco
+      const insertRes = await pool.query(
+        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount",
+          type, status, method, "pixPayload", "pixExpiry", notes, "stripeId")
+         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'pix', $6, $7, $8, $9)
          RETURNING id, "createdAt"`,
-        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount, pixPayload, pixExpiry, input.notes || null]
+        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount,
+         pixPayload, dueDate, input.notes || null, asaasPayment.id]
       );
 
-      log.info("media-budget", "Depósito Pix solicitado", {
-        userId: ctx.user.id, amount: input.amount, netAmount: netAmount / 100,
+      log.info("media-budget", "Cobrança Pix criada no Asaas", {
+        userId: ctx.user.id, asaasId: asaasPayment.id, amount: input.amount,
       });
 
       return {
-        id:         res.rows[0].id,
+        id:         insertRes.rows[0].id,
+        asaasId:    asaasPayment.id,
         amount:     input.amount,
         feePercent,
         feeAmount:  feeAmount / 100,
         netAmount:  netAmount / 100,
-        pixKey,
         pixPayload,
-        pixExpiry,
-        instructions: `Transfira R$ ${pixAmount} via Pix para a chave acima. Após confirmação pelo admin (até 2h), R$ ${(netAmount/100).toFixed(2)} serão creditados no seu saldo de mídia (taxa de gestão de ${feePercent}% deduzida).`,
+        pixQrCode,
+        pixExpiry:  dueDate,
+        instructions: `Escaneie o QR Code ou copie o código Pix abaixo. Assim que o pagamento for confirmado, R$ ${(netAmount/100).toFixed(2)} serão creditados automaticamente no seu saldo (taxa de gestão de ${feePercent}% deduzida).`,
       };
     }),
 

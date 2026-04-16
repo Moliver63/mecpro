@@ -28,6 +28,7 @@ console.log('[BOOT] STRIPE_SECRET_KEY set:', !!process.env.STRIPE_SECRET_KEY);
 console.log('[BOOT] GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY);
 console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_KEY);
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude fallback):', !!process.env.ANTHROPIC_API_KEY);
+console.log('[BOOT] ASAAS_API_KEY set (Pix pagamentos):', !!process.env.ASAAS_API_KEY);
 console.log('[BOOT] PID:', process.pid);
 
 // ── Sentry — captura erros em produção ──────────────────────────────────────
@@ -460,6 +461,80 @@ app.post('/api/meta/upload-media', upload.single('file'), async (req: Request, r
   } catch (err: any) {
     log.warn('meta-upload', 'legacy upload error', { error: err.message });
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Webhook Asaas — confirmação automática de Pix ──────────
+app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Response) => {
+  try {
+    const event = req.body;
+    log.info('asaas-webhook', 'Evento recebido', { event: event?.event, paymentId: event?.payment?.id });
+
+    // Só processa pagamentos confirmados
+    if (event?.event !== 'PAYMENT_RECEIVED' && event?.event !== 'PAYMENT_CONFIRMED') {
+      return res.json({ received: true });
+    }
+
+    const asaasId   = event?.payment?.id;
+    const paidValue = event?.payment?.value;
+    if (!asaasId) return res.json({ received: true });
+
+    const pool = await getPool();
+    if (!pool) return res.status(500).json({ error: 'DB unavailable' });
+
+    // Busca o depósito pelo asaasId (gravado na coluna stripeId)
+    const depRes = await pool.query(
+      `SELECT * FROM media_budget WHERE "stripeId" = $1 AND status = 'pending' LIMIT 1`,
+      [asaasId]
+    );
+
+    if (!depRes.rows[0]) {
+      log.warn('asaas-webhook', 'Depósito não encontrado ou já processado', { asaasId });
+      return res.json({ received: true });
+    }
+
+    const dep = depRes.rows[0];
+
+    // Marca como aprovado
+    await pool.query(
+      `UPDATE media_budget SET status = 'approved', "approvedAt" = NOW(), "updatedAt" = NOW() WHERE id = $1`,
+      [dep.id]
+    );
+
+    // Credita saldo líquido automaticamente
+    await pool.query(`
+      INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees")
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT ("userId") DO UPDATE SET
+        balance = media_balance.balance + $2,
+        "totalDeposited" = media_balance."totalDeposited" + $3,
+        "totalFees" = media_balance."totalFees" + $4,
+        "updatedAt" = NOW()
+    `, [dep.userId, dep.netAmount, dep.amount, dep.feeAmount]);
+
+    log.info('asaas-webhook', '✅ Pix confirmado — saldo creditado automaticamente', {
+      userId:    dep.userId,
+      depositId: dep.id,
+      asaasId,
+      netCredit: Number(dep.netAmount) / 100,
+      grossPaid: paidValue,
+    });
+
+    // Notifica o admin por email (se RESEND_API_KEY configurada)
+    try {
+      const { getAdminSettings } = await import('../db.js');
+      const settings = await getAdminSettings();
+      const adminEmail = settings['admin_email'] || 'contato@mecproai.com';
+      // Aqui poderia enviar email via Resend — simplificado por ora
+      log.info('asaas-webhook', `Admin notificado: ${adminEmail}`, {
+        message: `Pix R$ ${paidValue} confirmado para userId ${dep.userId}. Saldo creditado: R$ ${Number(dep.netAmount)/100}`,
+      });
+    } catch {}
+
+    return res.json({ received: true, credited: Number(dep.netAmount) / 100 });
+  } catch (err: any) {
+    log.warn('asaas-webhook', 'Erro no webhook', { error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 

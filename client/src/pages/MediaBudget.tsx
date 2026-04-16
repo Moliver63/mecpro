@@ -207,14 +207,16 @@ export default function MediaBudget() {
                   🟢 Pix gerado — realize o pagamento
                 </h2>
 
-                <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "12px 16px", marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, color: "#065f46", fontWeight: 600, marginBottom: 8 }}>
-                    Chave Pix:
+                {/* QR Code */}
+                {pixData.pixQrCode && (
+                  <div style={{ textAlign: "center", marginBottom: 16 }}>
+                    <img
+                      src={`data:image/png;base64,${pixData.pixQrCode}`}
+                      alt="QR Code Pix"
+                      style={{ width: 180, height: 180, borderRadius: 8, border: "2px solid #bbf7d0" }}
+                    />
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "#059669", wordBreak: "break-all" }}>
-                    {pixData.pixKey}
-                  </div>
-                </div>
+                )}
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
                   {[
@@ -234,12 +236,14 @@ export default function MediaBudget() {
                   ℹ️ {pixData.instructions}
                 </div>
 
-                <button
-                  onClick={() => { navigator.clipboard.writeText(pixData.pixKey); toast.success("Chave Pix copiada!"); }}
-                  style={{ marginTop: 12, width: "100%", padding: "10px", borderRadius: 10, border: "1.5px solid #059669", background: "#fff", color: "#059669", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
-                >
-                  📋 Copiar chave Pix
-                </button>
+                {pixData.pixPayload && (
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(pixData.pixPayload); toast.success("Código Pix copiado!"); }}
+                    style={{ marginTop: 12, width: "100%", padding: "10px", borderRadius: 10, border: "1.5px solid #059669", background: "#fff", color: "#059669", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    📋 Copiar código Pix (Copia e Cola)
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", color: "#94a3b8", textAlign: "center", padding: 20 }}>
