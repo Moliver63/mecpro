@@ -232,23 +232,71 @@ export default function Layout({ children }: LayoutProps) {
       {/* ── Sidebar ── */}
       <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
 
-        {/* Logo + toggle */}
-        <div className="sidebar-logo">
-          <img src="/logo.jpg" alt="MECPro" />
-          <span className="sidebar-logo-text">
-            MEC<span className="pro">PRO</span>
-          </span>
-          <button className="sidebar-toggle" onClick={toggle} title={collapsed ? "Expandir" : "Recolher"} aria-label={collapsed ? "Expandir menu" : "Recolher menu"}>
-            <svg
-              width="16" height="16" viewBox="0 0 16 16" fill="none"
-              style={{ transition: "transform 0.3s cubic-bezier(0.34,1.56,0.64,1)", transform: collapsed ? "rotate(180deg)" : "rotate(0deg)" }}
-            >
-              {/* Duas barras verticais = painel fechado, seta = direcional */}
-              <rect x="2" y="3" width="2" height="10" rx="1" fill="currentColor" opacity="0.5"/>
-              <path d="M7 5L5 8L7 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "all 0.25s", opacity: collapsed ? 0 : 1, transform: collapsed ? "translateX(2px)" : "translateX(0)" }}/>
-              <path d="M6 5L11 8L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "all 0.25s", opacity: collapsed ? 1 : 0, transform: collapsed ? "translateX(0)" : "translateX(-2px)" }}/>
+        {/* Logo — clique expande/recolhe */}
+        <div
+          className="sidebar-logo"
+          onClick={toggle}
+          title={collapsed ? "Expandir menu" : "Recolher menu"}
+          style={{ cursor: "pointer", userSelect: "none" }}
+        >
+          {/* Logo com indicador de estado */}
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <img src="/logo.jpg" alt="MECPro" />
+            {/* Seta animada sobre a logo quando recolhido */}
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: 10,
+              background: "rgba(0,113,227,0.85)",
+              backdropFilter: "blur(4px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: collapsed ? 1 : 0,
+              transition: "opacity 0.25s ease",
+              pointerEvents: "none",
+            }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M5 8h6M8 5l3 3-3 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+          </div>
+
+          {/* Nome + subtítulo */}
+          <div className="sidebar-logo-text" style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1.1 }}>
+              MEC<span className="pro">PRO</span>
+            </div>
+            <div style={{
+              fontSize: 10,
+              color: "#86868b",
+              fontWeight: 500,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              marginTop: 2,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+            }}>
+              Marketing AI Platform
+            </div>
+          </div>
+
+          {/* Chevron animado */}
+          <div style={{
+            flexShrink: 0,
+            width: 20,
+            height: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#86868b",
+            transition: "transform 0.3s cubic-bezier(0.34,1.56,0.64,1)",
+            transform: collapsed ? "rotate(0deg)" : "rotate(180deg)",
+          }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 4.5L6 8L10 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ transform: "rotate(-90deg)", transformOrigin: "6px 6px" }}/>
             </svg>
-          </button>
+          </div>
         </div>
 
         {/* Nav */}
