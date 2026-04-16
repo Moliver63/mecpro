@@ -2528,10 +2528,59 @@ const campaignsRouter = router({
           // Vídeo → object_story_spec.video_data
           // Imagem → object_story_spec.link_data (com image_hash ou picture)
           if (effectiveVideoId) {
+            // ── Aguardar vídeo ficar READY antes de criar anúncio ────────────
+            try {
+              for (let attempt = 0; attempt < 5; attempt++) {
+                const statusRes = await fetch(
+                  `https://graph.facebook.com/v19.0/${effectiveVideoId}?fields=status&access_token=${token}`,
+                  { signal: AbortSignal.timeout(8000) }
+                );
+                if (statusRes.ok) {
+                  const statusData = await statusRes.json() as any;
+                  const videoStatus = statusData?.status?.video_status || statusData?.status;
+                  log.info("meta", "Status do vídeo", { videoId: effectiveVideoId, status: videoStatus });
+                  if (videoStatus === "ready" || videoStatus === "READY") break;
+                  if (videoStatus === "error" || videoStatus === "ERROR") {
+                    throw new Error("Vídeo com erro no processamento da Meta");
+                  }
+                }
+                // Ainda processando — aguardar 3s e tentar novamente
+                await new Promise(r => setTimeout(r, 3000));
+              }
+            } catch (statusErr: any) {
+              if (statusErr.message?.includes("erro no processamento")) throw statusErr;
+              log.warn("meta", "Não foi possível verificar status do vídeo", { error: statusErr?.message?.slice(0, 80) });
+            }
+
             // Meta exige thumbnail (image_hash ou picture) no video_data
-            // Usar imageHash do criativo se disponível, senão picture da página
-            const videoThumbHash = effectiveImageHash ?? input.imageHash ?? null;
-            const videoThumbUrl  = effectiveImageUrl  ?? input.imageUrl  ?? null;
+            // Usar imageHash do criativo se disponível, senão buscar via API
+            let videoThumbHash: string | null = effectiveImageHash ?? input.imageHash ?? null;
+            let videoThumbUrl:  string | null = effectiveImageUrl  ?? input.imageUrl  ?? null;
+
+            // ── Buscar thumbnail automática via API do Meta se não há imagem ──
+            if (!videoThumbHash && !videoThumbUrl) {
+              try {
+                const thumbRes = await fetch(
+                  \`https://graph.facebook.com/v19.0/\${effectiveVideoId}/thumbnails?access_token=\${token}\`,
+                  { signal: AbortSignal.timeout(8000) }
+                );
+                if (thumbRes.ok) {
+                  const thumbData = await thumbRes.json() as any;
+                  const thumbs = thumbData?.data;
+                  if (Array.isArray(thumbs) && thumbs.length > 0) {
+                    // Preferir thumb marcado como is_preferred, senão pegar o primeiro
+                    const preferred = thumbs.find((t: any) => t.is_preferred) || thumbs[0];
+                    if (preferred?.uri) {
+                      videoThumbUrl = preferred.uri as string;
+                      log.info("meta", "Thumbnail automática obtida via API", { videoId: effectiveVideoId, thumbUrl: videoThumbUrl?.slice(0, 60) });
+                    }
+                  }
+                }
+              } catch (thumbErr: any) {
+                log.warn("meta", "Falha ao buscar thumbnail automática", { error: thumbErr?.message?.slice(0, 80) });
+              }
+            }
+
             const videoDataPayload: Record<string, any> = {
               video_id:       effectiveVideoId,
               message:        selectedMessage,
@@ -2546,7 +2595,6 @@ const campaignsRouter = router({
             } else if (videoThumbUrl) {
               videoDataPayload.picture = videoThumbUrl;
             }
-            // Se não há thumb, omitir — Meta às vezes gera thumbnail automático
             storySpec = {
               page_id: input.pageId,
               video_data: videoDataPayload,
