@@ -1,5 +1,7 @@
 import { useLocation, useParams } from "wouter";
 import PlacementSelector from "@/components/PlacementSelector";
+import { PlacementPresetSelector } from "@/components/PlacementPresetSelector";
+import VSLGeneratorPanel from "@/components/VSLGeneratorPanel";
 import AdPreviewPanel from "@/components/AdPreviewPanel";
 import { getImageDimensions, validateMediaForPlacements, getOrientationGuide, type MediaDimensions, type MediaValidationResult } from "@/components/MediaValidator";
 import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/components/PlacementConfig";
@@ -35,6 +37,8 @@ export default function CampaignResult() {
   const [uploadedVid,  setUploadedVid]  = useState<string>("");
   const [uploading,    setUploading]    = useState(false);
   const [uploadDone,   setUploadDone]   = useState(false);
+  const [placementPreset, setPlacementPreset] = useState("ecommerce");
+  const [showVSL,       setShowVSL]       = useState(false);
   const [mediaMode,    setMediaMode]    = useState<"none" | "url" | "upload">("none");
   const [mediaDims,    setMediaDims]    = useState<MediaDimensions | null>(null);
   const [mediaValidation, setMediaValidation] = useState<MediaValidationResult | null>(null);
@@ -1247,7 +1251,44 @@ export default function CampaignResult() {
         </div>
       )}
 
-      {/* ── Tracking & Pixel ── */}
+      {/* ── Gerador de Vídeo VSL ── */}
+      {campaign && (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: showVSL ? 20 : 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fdf4ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🎬</div>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Gerador de Vídeo VSL</p>
+                <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Gemini gera o roteiro · ElevenLabs narra</p>
+              </div>
+            </div>
+            <button onClick={() => setShowVSL((v: boolean) => !v)} style={{
+              fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 8,
+              border: "1px solid var(--border)", background: showVSL ? "#f8fafc" : "#7c3aed",
+              color: showVSL ? "var(--muted)" : "white", cursor: "pointer",
+            }}>
+              {showVSL ? "▲ Fechar" : "🎬 Gerar vídeo"}
+            </button>
+          </div>
+          {showVSL && (
+            <VSLGeneratorPanel
+              campaignId={(campaign as any)?.id}
+              platform={(campaign as any)?.platform}
+              objective={(campaign as any)?.objective}
+              niche={(clientProfile as any)?.niche}
+              productName={(clientProfile as any)?.companyName}
+              targetAudience={(clientProfile as any)?.targetAudience}
+              mainBenefit={(clientProfile as any)?.uniqueValueProposition}
+              onVideoReady={(videoUrl: string) => {
+                setImageUrl(videoUrl);
+                toast.success("✅ Vídeo pronto!");
+              }}
+            />
+          )}
+        </div>
+      )}
+
+   {/* ── Tracking & Pixel ── */}
       {tracking && (
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginTop: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
@@ -1444,6 +1485,26 @@ export default function CampaignResult() {
 
               {/* COLUNA ESQUERDA — configurações */}
               <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", borderRight: "1px solid var(--border)", minWidth: 0 }}>
+
+                {/* Preset de posicionamento por nicho */}
+                <div style={{ marginBottom: 16 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", marginBottom: 8 }}>
+                    🎯 Preset por nicho
+                  </p>
+                  <PlacementPresetSelector
+                    value={placementPreset}
+                    onChange={(presetId, placements) => {
+                      setPlacementPreset(presetId);
+                      if (placements && placements.length > 0) {
+                        setSelectedPlacements(placements);
+                        setPlacementMode("manual");
+                      } else {
+                        setPlacementMode("auto");
+                        setSelectedPlacements([]);
+                      }
+                    }}
+                  />
+                </div>
 
                 {/* Placement Selector */}
                 <PlacementSelector
