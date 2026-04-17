@@ -1710,8 +1710,8 @@ export default function CampaignResult() {
                         platform={(campaign as any)?.platform || "meta"}
                         objective={(campaign as any)?.objective}
                         clientName={(clientProfile as any)?.companyName}
-                        creativeImageDataUrl={!creativeImage || creativeImage.includes("placehold.co") ? buildCreativeSvg(cr, creativeFormat as "feed" | "stories" | "square") : undefined}
-                        mediaPreview={creativeImage && !creativeImage.includes("placehold.co") ? creativeImage : undefined}
+                        creativeImageDataUrl={creativeImage || undefined}
+                        mediaPreview={creativeImage && !creativeImage.startsWith("data:") ? creativeImage : undefined}
                         creativeImageDataUrl={creativeImage || undefined}
                       />
                     </div>
