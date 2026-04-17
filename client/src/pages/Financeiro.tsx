@@ -516,6 +516,104 @@ export default function Financeiro() {
           ))}
         </div>
 
+        {/* ── Saldo por Plataforma ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 22 }}>
+          {PLATS.map(p => {
+            const today  = (summary as any)?.spendToday?.[p.key]  || 0;
+            const month  = (summary as any)?.spendMonth?.[p.key]  || 0;
+            const budget = (summary as any)?.platformBudget?.[p.key];
+            const dailyBudget  = budget?.budgetDaily    || 0;
+            const monthBudget  = budget?.budgetMonthly  || 0;
+            const campaigns    = budget?.campaignCount  || 0;
+            const pctToday = dailyBudget  > 0 ? Math.min(100, Math.round(today / dailyBudget * 100))  : null;
+            const pctMonth = monthBudget  > 0 ? Math.min(100, Math.round(month / monthBudget * 100)) : null;
+            return (
+              <div key={p.key} style={{ ...glass, padding: "18px 20px", transition: "all .2s" }}
+                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "var(--shadow-md)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "var(--glass-shadow)"; }}>
+
+                {/* Header plataforma */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 9, background: p.color + "18", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>
+                      {p.icon}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: p.color }}>{p.label}</div>
+                      <div style={{ fontSize: 10, color: "var(--muted)" }}>
+                        {campaigns > 0 ? `${campaigns} campanha${campaigns > 1 ? "s" : ""} ativa${campaigns > 1 ? "s" : ""}` : "Sem campanhas"}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: campaigns > 0 ? "#30d158" : "var(--border2)", boxShadow: campaigns > 0 ? "0 0 0 3px #30d15830" : "none" }} />
+                </div>
+
+                {/* Gasto hoje */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Gasto hoje</span>
+                    {pctToday !== null && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: pctToday > 80 ? "var(--red)" : pctToday > 50 ? "#ff9f0a" : "#30d158" }}>
+                        {pctToday}% do diário
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: "var(--dark)", letterSpacing: "-0.04em", marginBottom: 6 }}>
+                    {R(today)}
+                  </div>
+                  {dailyBudget > 0 && (
+                    <>
+                      <div style={{ height: 4, background: "var(--border2)", borderRadius: 99, overflow: "hidden" }}>
+                        <div style={{
+                          width: (pctToday || 0) + "%", height: "100%", borderRadius: 99,
+                          background: (pctToday || 0) > 80 ? "var(--red)" : (pctToday || 0) > 50 ? "#ff9f0a" : p.color,
+                          transition: "width .5s var(--ease)",
+                        }} />
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>
+                        Budget diário: {R(dailyBudget)}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Divisor */}
+                <div style={{ height: 1, background: "var(--border)", margin: "12px 0" }} />
+
+                {/* Gasto no mês */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Mês atual</span>
+                    {pctMonth !== null && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)" }}>{pctMonth}% do mensal</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: p.color, letterSpacing: "-0.03em", marginBottom: monthBudget > 0 ? 6 : 0 }}>
+                    {R(month)}
+                  </div>
+                  {monthBudget > 0 && (
+                    <>
+                      <div style={{ height: 4, background: "var(--border2)", borderRadius: 99, overflow: "hidden" }}>
+                        <div style={{
+                          width: (pctMonth || 0) + "%", height: "100%", borderRadius: 99,
+                          background: `linear-gradient(90deg, ${p.color}, ${p.color}aa)`,
+                          transition: "width .6s var(--ease)",
+                        }} />
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>
+                        Budget mensal: {R(monthBudget)}
+                      </div>
+                    </>
+                  )}
+                  {!monthBudget && !month && (
+                    <div style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic" }}>Sem dados ainda</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {/* Layout: nav lateral + conteúdo */}
         <div style={{ display: "grid", gridTemplateColumns: "210px 1fr", gap: 14, marginBottom: 16 }}>
 

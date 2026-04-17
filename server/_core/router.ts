@@ -6395,6 +6395,28 @@ const mediaBudgetRouter = router({
         ORDER BY "createdAt" DESC LIMIT 10
       `, [ctx.user.id]);
 
+      // Budget planejado por plataforma (soma das campanhas ativas)
+      const budgetRes = await pool.query(`
+        SELECT c.platform,
+               COALESCE(SUM(c."suggestedBudgetDaily"), 0)   AS budget_daily,
+               COALESCE(SUM(c."suggestedBudgetMonthly"), 0) AS budget_monthly,
+               COUNT(*)::int                                  AS campaign_count
+        FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE p."userId" = $1
+          AND c.status NOT IN ('archived', 'deleted')
+        GROUP BY c.platform
+      `, [ctx.user.id]);
+
+      const platformBudget: Record<string, { budgetDaily: number; budgetMonthly: number; campaignCount: number }> = {};
+      budgetRes.rows.forEach((r: any) => {
+        platformBudget[r.platform] = {
+          budgetDaily:    Number(r.budget_daily)   / 100,
+          budgetMonthly:  Number(r.budget_monthly) / 100,
+          campaignCount:  Number(r.campaign_count),
+        };
+      });
+
       return {
         balance:        Number(bal.balance) / 100,
         totalDeposited: Number(bal.totalDeposited) / 100,
@@ -6403,6 +6425,7 @@ const mediaBudgetRouter = router({
         spendMonth,
         totalSpendToday:  Object.values(spendToday).reduce((s, v) => s + v, 0),
         totalSpendMonth:  Object.values(spendMonth).reduce((s, v) => s + v, 0),
+        platformBudget,
         recentMovements:  recentRes.rows.map((r: any) => ({
           type:         r.type,
           amount:       Number(r.amount) / 100,
