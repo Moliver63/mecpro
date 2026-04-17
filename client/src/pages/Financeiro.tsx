@@ -90,137 +90,268 @@ function InfoCard({ color, children }: { color: string; children: React.ReactNod
 ═══════════════════════════════════════════════════════════════ */
 
 function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: () => void }) {
-  const [amount, setAmount] = useState("");
-  const [step, setStep]     = useState<"form" | "pix">("form");
+  const [amount, setAmount]   = useState("");
+  const [cpf,    setCpf]      = useState("");
+  const [method, setMethod]   = useState<"pix" | "card">("pix");
+  const [step,   setStep]     = useState<"form" | "pix" | "card">("form");
   const [pixData, setPixData] = useState<any>(null);
-  const feePercent = ps?.feePercent ?? 10;
+  const [polling, setPolling] = useState(false);
+  const [paid,    setPaid]    = useState(false);
+
+  const feePercent = (ps as any)?.feePercent ?? 10;
   const parsed     = parseFloat(String(amount).replace(",", ".")) || 0;
   const fee        = parsed * feePercent / 100;
   const credited   = parsed - fee;
 
   const pixMutation = (trpc as any).mediaBudget?.requestPixDeposit?.useMutation?.({
-    onSuccess: (data: any) => { setPixData(data); setStep("pix"); },
-    onError:   (e: any)    => toast.error(e.message),
+    onSuccess: (data: any) => {
+      setPixData(data);
+      setStep("pix");
+      // Polling automático — verifica pagamento a cada 5s por 10min
+      let tries = 0;
+      setPolling(true);
+      const interval = setInterval(async () => {
+        tries++;
+        if (tries > 120) { clearInterval(interval); setPolling(false); return; }
+        try {
+          // Verifica saldo — se aumentou, foi aprovado
+          const res = await fetch("/trpc/mediaBudget.getBalance", { credentials: "include" });
+          if (res.ok) {
+            const json = await res.json();
+            const newBal = json?.result?.data?.balance ?? 0;
+            if (newBal > ((balance as any)?.balance ?? 0)) {
+              clearInterval(interval);
+              setPolling(false);
+              setPaid(true);
+              toast.success("🎉 Pix confirmado! Saldo creditado automaticamente.");
+            }
+          }
+        } catch { /* silencioso */ }
+      }, 5000);
+    },
+    onError: (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
 
-  if (!ps?.modeWallet) {
+  if (!(ps as any)?.modeWallet) {
     return (
       <div>
-        <SectionHeader icon="◫" color="#0071e3" title="Depositar via Pix" sub="Adicione saldo à sua wallet" onBack={onBack} />
+        <SectionHeader icon="◫" color="#0071e3" title="Depositar" sub="Adicione saldo à sua wallet" onBack={onBack} />
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.3 }}>🔒</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--muted)" }}>Modo wallet desabilitado</div>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Configure em Admin → Financeiro</div>
+          <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.25 }}>◻</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--muted)" }}>Depósito temporariamente desabilitado</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>Contate o administrador para habilitar</div>
         </div>
       </div>
     );
   }
 
+  /* ── Tela de sucesso ── */
+  if (paid) return (
+    <div>
+      <SectionHeader icon="◫" color="#0071e3" title="Depositar" sub="" onBack={onBack} />
+      <div style={{ textAlign: "center", padding: "32px 20px" }}>
+        <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#30d15820", border: "2px solid #30d158", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, margin: "0 auto 20px" }}>✓</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>Pagamento confirmado!</div>
+        <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 24 }}>
+          <strong style={{ color: "#30d158" }}>{R(credited)}</strong> creditados no seu saldo
+        </div>
+        <button onClick={() => { setPaid(false); setStep("form"); setAmount(""); setCpf(""); setPixData(null); }}
+          style={{ ...primaryBtn(), maxWidth: 280, margin: "0 auto", display: "block" }}>
+          Fazer outro depósito
+        </button>
+      </div>
+    </div>
+  );
+
+  /* ── Tela do QR Code Pix ── */
+  if (step === "pix" && pixData) return (
+    <div>
+      <SectionHeader icon="◫" color="#0071e3" title="Pague com Pix" sub="Escaneie o QR Code ou copie o código" onBack={() => setStep("form")} />
+      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 28, alignItems: "start" }}>
+
+        {/* QR Code */}
+        <div style={{ textAlign: "center" }}>
+          {pixData.pixQrCode ? (
+            <img src={`data:image/png;base64,${pixData.pixQrCode}`} alt="QR Pix"
+              style={{ width: 200, height: 200, borderRadius: 16, border: "2px solid var(--border)", display: "block" }} />
+          ) : (
+            <div style={{ width: 200, height: 200, borderRadius: 16, background: "var(--off)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48 }}>
+              📱
+            </div>
+          )}
+          <div style={{ marginTop: 12, fontSize: 11, color: "var(--muted)" }}>
+            {polling ? (
+              <span style={{ color: "#0071e3", fontWeight: 700 }}>⏳ Aguardando confirmação...</span>
+            ) : "Válido por 24 horas"}
+          </div>
+        </div>
+
+        {/* Detalhes */}
+        <div>
+          {/* Resumo do pagamento */}
+          {[
+            { label: "Valor do Pix",       value: R(pixData.amount),    color: "var(--dark)" },
+            { label: `Taxa (${feePercent}%)`, value: `− ${R(pixData.feeAmount)}`, color: "var(--red)" },
+            { label: "Crédito na wallet",   value: R(pixData.netAmount), color: "#30d158" },
+          ].map(row => (
+            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ fontSize: 13, color: "var(--muted)" }}>{row.label}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: row.color }}>{row.value}</span>
+            </div>
+          ))}
+
+          <div style={{ marginTop: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+              Código Pix (copia e cola)
+            </div>
+            <div style={{ background: "var(--off)", borderRadius: 10, padding: "10px 14px", fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--dark)", wordBreak: "break-all", lineHeight: 1.5 }}>
+              {pixData.pixPayload || "—"}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { navigator.clipboard.writeText(pixData.pixPayload || ""); toast.success("Código copiado!"); }}
+              style={{ ...primaryBtn(), flex: 1, fontSize: 13 }}>
+              📋 Copiar código Pix
+            </button>
+          </div>
+
+          <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(0,113,227,0.06)", border: "1px solid rgba(0,113,227,0.15)", borderRadius: 10, fontSize: 11, color: "#1d4ed8", lineHeight: 1.5 }}>
+            ◈ O saldo é creditado <strong>automaticamente</strong> em até 15 minutos após a confirmação do Pix pelo Asaas.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── Formulário principal ── */
   return (
     <div>
-      <SectionHeader icon="◫" color="#0071e3" title="Depositar via Pix"
-        sub="Adicione saldo à sua wallet. Taxa de gestão descontada automaticamente." onBack={onBack} />
+      <SectionHeader icon="◫" color="#0071e3" title="Depositar créditos"
+        sub="Pague com Pix e o saldo é creditado automaticamente" onBack={onBack} />
 
-      {step === "form" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          {/* Formulário */}
-          <div>
-            <InfoCard color="#0071e3">
-              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Saldo atual</div>
-              <div style={{ fontSize: 28, fontWeight: 900, color: "#0071e3", letterSpacing: "-0.04em" }}>{R(balance?.balance)}</div>
-            </InfoCard>
-
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
-                Valor a depositar (R$)
-              </label>
-              <input
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                placeholder="Ex: 500"
-                style={{ width: "100%", padding: "12px 16px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 20, fontWeight: 800, fontFamily: "var(--font)", background: "white", outline: "none", transition: "border .15s", boxSizing: "border-box" }}
-                onFocus={e => e.target.style.borderColor = "#0071e3"}
-                onBlur={e  => e.target.style.borderColor = "var(--border)"}
-              />
-            </div>
-
-            {/* Valores rápidos */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: 16 }}>
-              {QUICK_AMOUNTS.map(a => (
-                <button key={a} onClick={() => setAmount(String(a))}
-                  style={{
-                    padding: "7px 4px", borderRadius: 8, border: "1.5px solid var(--border)",
-                    background: amount === String(a) ? "#0071e314" : "white",
-                    color: amount === String(a) ? "#0071e3" : "var(--muted)",
-                    fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--font)",
-                    borderColor: amount === String(a) ? "#0071e3" : "var(--border)",
-                    transition: "all .15s",
-                  }}>
-                  {R(a)}
-                </button>
-              ))}
-            </div>
-
-            <button onClick={() => pixMutation.mutate({ amount: parsed, method: "pix" })}
-              disabled={parsed < 50 || pixMutation.isPending}
-              style={{ ...primaryBtn(), opacity: parsed < 50 ? 0.45 : 1, cursor: parsed < 50 ? "not-allowed" : "pointer" }}>
-              {pixMutation.isPending ? "Gerando Pix..." : `Gerar Pix de ${R(parsed)}`}
-            </button>
-            {parsed > 0 && parsed < 50 && (
-              <div style={{ fontSize: 11, color: "var(--red)", textAlign: "center", marginTop: 6 }}>Valor mínimo: R$ 50,00</div>
-            )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+        {/* Coluna esquerda — form */}
+        <div>
+          {/* Saldo atual */}
+          <div style={{ background: "rgba(0,113,227,0.06)", border: "1.5px solid rgba(0,113,227,0.2)", borderRadius: 14, padding: "14px 18px", marginBottom: 20 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Saldo atual na wallet</div>
+            <div style={{ fontSize: 28, fontWeight: 900, color: "#0071e3", letterSpacing: "-0.04em" }}>{R((balance as any)?.balance)}</div>
           </div>
 
-          {/* Preview da taxa */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Simulação</div>
+          {/* Método */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 18 }}>
+            {(["pix", "card"] as const).map(m => (
+              <button key={m} onClick={() => setMethod(m)} style={{
+                padding: "12px 8px", borderRadius: 11, border: `2px solid ${method === m ? "#0071e3" : "var(--border)"}`,
+                background: method === m ? "rgba(0,113,227,0.07)" : "white",
+                color: method === m ? "#0071e3" : "var(--muted)",
+                fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "var(--font)", transition: "all .15s",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}>
+                {m === "pix" ? "◎ Pix" : "▣ Cartão"}
+                {m === "pix" && <span style={{ fontSize: 10, background: "#30d158", color: "white", padding: "1px 5px", borderRadius: 4, fontWeight: 800 }}>GRÁTIS</span>}
+              </button>
+            ))}
+          </div>
+
+          {/* Valor */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+              Valor (R$)
+            </label>
+            <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="Ex: 500"
+              style={{ width: "100%", padding: "13px 16px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 22, fontWeight: 900, fontFamily: "var(--font)", boxSizing: "border-box", outline: "none", transition: "border .15s", color: "var(--black)" }}
+              onFocus={e => e.target.style.borderColor = "#0071e3"}
+              onBlur={e  => e.target.style.borderColor = "var(--border)"}
+            />
+          </div>
+
+          {/* Valores rápidos */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: method === "pix" ? 14 : 0 }}>
+            {QUICK_AMOUNTS.map(a => (
+              <button key={a} onClick={() => setAmount(String(a))} style={{
+                padding: "8px 4px", borderRadius: 9,
+                border: `1.5px solid ${amount === String(a) ? "#0071e3" : "var(--border)"}`,
+                background: amount === String(a) ? "rgba(0,113,227,0.08)" : "white",
+                color: amount === String(a) ? "#0071e3" : "var(--muted)",
+                fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--font)", transition: "all .15s",
+              }}>
+                {R(a)}
+              </button>
+            ))}
+          </div>
+
+          {/* CPF (só Pix) */}
+          {method === "pix" && (
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+                CPF / CNPJ
+              </label>
+              <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00 ou 00.000.000/0001-00"
+                style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 14, fontFamily: "var(--font)", boxSizing: "border-box" }}
+              />
+              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>Obrigatório para emissão do Pix pelo Asaas</div>
+            </div>
+          )}
+
+          {/* Botão */}
+          <button
+            onClick={() => {
+              if (method === "pix") {
+                pixMutation.mutate({ amount: parsed, cpfCnpj: cpf });
+              } else {
+                toast.info("Pagamento por cartão em breve. Use o Pix por enquanto.");
+              }
+            }}
+            disabled={parsed < 50 || pixMutation.isPending || (method === "pix" && cpf.replace(/\D/g,"").length < 11)}
+            style={{
+              ...primaryBtn(), marginTop: 4,
+              opacity: (parsed < 50 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? 0.45 : 1,
+              cursor:  (parsed < 50 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? "not-allowed" : "pointer",
+            }}>
+            {pixMutation.isPending ? "Gerando..." : method === "pix" ? `Gerar Pix de ${parsed >= 50 ? R(parsed) : "R$ ——"}` : `Pagar ${parsed >= 50 ? R(parsed) : ""} com Cartão`}
+          </button>
+
+          {parsed > 0 && parsed < 50 && (
+            <div style={{ fontSize: 11, color: "var(--red)", textAlign: "center", marginTop: 6 }}>Valor mínimo: R$ 50,00</div>
+          )}
+        </div>
+
+        {/* Coluna direita — simulação */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 }}>Simulação</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
             {[
-              { label: "Valor depositado", value: R(parsed || 0), color: "var(--dark)" },
-              { label: `Taxa de gestão (${feePercent}%)`, value: parsed ? `− ${R(fee)}` : "—", color: "var(--red)" },
-              { label: "Crédito na wallet", value: parsed ? R(credited) : "—", color: "#30d158" },
+              { label: "Valor pago",              val: R(parsed || 0),   color: "var(--dark)" },
+              { label: `Taxa gestão (${feePercent}%)`, val: parsed ? `− ${R(fee)}` : "—", color: "var(--red)" },
+              { label: "💰 Crédito na wallet",    val: parsed ? R(credited) : "—", color: "#30d158", big: true },
             ].map(row => (
-              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "var(--off)", borderRadius: 11 }}>
-                <span style={{ fontSize: 13, color: "var(--muted)" }}>{row.label}</span>
-                <span style={{ fontSize: 15, fontWeight: 800, color: row.color }}>{row.value}</span>
+              <div key={row.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", background: "var(--off)", borderRadius: 11 }}>
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>{row.label}</span>
+                <span style={{ fontSize: row.big ? 18 : 14, fontWeight: 900, color: row.color }}>{row.val}</span>
               </div>
             ))}
-            <div style={{ marginTop: 4, padding: "12px 16px", background: "var(--blue-l)", border: "1px solid #bfdbfe", borderRadius: 11 }}>
-              <div style={{ fontSize: 11, color: "#1d4ed8", lineHeight: 1.5 }}>
-                ◈ Pix aprovado em até <strong>15 minutos</strong> em horário comercial.
-                Processamento pelo <strong>Asaas</strong>.
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[
+              { icon: "⚡", title: "Aprovação automática", desc: "Pix confirmado pelo Asaas em até 15min" },
+              { icon: "🔒", title: "Pagamento seguro",     desc: "Processado via Asaas (certificado PCI)" },
+              { icon: "◈",  title: "Sem juros",            desc: "Pix é isento de taxas bancárias" },
+              { icon: "📱", title: "QR Code na tela",      desc: "Não precisa sair do MECPro" },
+            ].map(info => (
+              <div key={info.title} style={{ display: "flex", gap: 10, padding: "10px 14px", background: "var(--off)", borderRadius: 10 }}>
+                <span style={{ fontSize: 16, flexShrink: 0, lineHeight: 1.4 }}>{info.icon}</span>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)", marginBottom: 1 }}>{info.title}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>{info.desc}</div>
+                </div>
               </div>
-            </div>
+            ))}
           </div>
         </div>
-      ) : (
-        /* Exibir QR code Pix */
-        <div style={{ textAlign: "center" }}>
-          <InfoCard color="#30d158">
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d", marginBottom: 4 }}>✅ Solicitação criada</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>Realize o Pix abaixo para prosseguir</div>
-          </InfoCard>
-          {pixData?.qrCodeImage && (
-            <img src={pixData.qrCodeImage} alt="QR Code Pix" style={{ width: 200, height: 200, borderRadius: 12, margin: "0 auto 16px", display: "block" }} />
-          )}
-          {pixData?.pixKey && (
-            <div style={{ background: "var(--off)", borderRadius: 11, padding: "12px 16px", marginBottom: 16, fontFamily: "var(--font-mono)", fontSize: 12, wordBreak: "break-all", color: "var(--dark)" }}>
-              {pixData.pixKey}
-            </div>
-          )}
-          <div style={{ display: "flex", gap: 10 }}>
-            {pixData?.pixKey && (
-              <button onClick={() => { navigator.clipboard.writeText(pixData.pixKey); toast.success("Chave copiada!"); }}
-                style={{ ...primaryBtn(), flex: 1 }}>
-                📋 Copiar chave Pix
-              </button>
-            )}
-            <button onClick={() => { setStep("form"); setAmount(""); setPixData(null); }}
-              style={{ ...backBtn, marginBottom: 0, flex: "0 0 auto" }}>
-              Nova solicitação
-            </button>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
