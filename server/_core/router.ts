@@ -1705,14 +1705,18 @@ const campaignsRouter = router({
       const creative = creatives[input.creativeIndex] as CampaignCreative;
       if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
 
-      const provider = ((process.env.IMAGE_PROVIDER || "mock").toLowerCase() as ImageProvider);
-      const apiKey = provider === "heygen"
-        ? process.env.HEYGEN_API_KEY || ""
-        : provider === "huggingface"
-          ? process.env.HUGGINGFACE_API_KEY || ""
-          : "";
-      const normalizedProvider: ImageProvider = provider === "huggingface" || provider === "heygen" ? provider : "mock";
-      const diagnostics = getImageGenerationDiagnostics(normalizedProvider);
+      // Auto-detectar provider: HeyGen > HuggingFace > mock
+      const heygenKey = (process.env.HEYGEN_API_KEY || "").trim();
+      const hfKey     = (process.env.HUGGINGFACE_API_KEY || "").trim();
+      const explicitProvider = (process.env.IMAGE_PROVIDER || "").toLowerCase();
+      let normalizedProvider: ImageProvider = "mock";
+      let apiKey = "";
+      if (explicitProvider === "heygen" || (!explicitProvider && heygenKey)) {
+        normalizedProvider = "heygen"; apiKey = heygenKey;
+      } else if (explicitProvider === "huggingface" || (!explicitProvider && hfKey)) {
+        normalizedProvider = "huggingface"; apiKey = hfKey;
+      }
+      log.info("image-generation", "regenerateCreativeImage provider", { provider: normalizedProvider, hasKey: !!apiKey });
       const imageUrl = await generateAdImage(
         creative,
         campaign.name || "segmento geral",

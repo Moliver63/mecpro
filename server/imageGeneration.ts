@@ -267,69 +267,90 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
   const dim    = FORMAT_DIMENSIONS[format];
   const prompt = inferPrompt(creative, "", objective, format);
 
-  try {
-    log.info("image-generation", "HeyGen: gerando imagem", { format, objective });
-
-    // HeyGen Photo Realistic API — gera foto realista a partir de prompt
-    // Endpoint: POST /v1/photo.realistic
-    const res = await fetch("https://api.heygen.com/v1/photo.realistic", {
-      method: "POST",
-      headers: {
-        "X-Api-Key":    apiKey,
-        "Content-Type": "application/json",
-        Accept:         "application/json",
-      },
-      body: JSON.stringify({
+  // Endpoints do HeyGen em ordem de prioridade
+  const endpoints = [
+    {
+      url:  "https://api.heygen.com/v1/photo.realistic",
+      body: {
         prompt,
         negative_prompt: "blurry, low quality, text overlay, watermark, nsfw, cartoon",
-        width:  Math.min(dim.width,  1024),
-        height: Math.min(dim.height, 1024),
-        seed:   Math.floor(Math.random() * 999999),
+        width:   Math.min(dim.width,  1024),
+        height:  Math.min(dim.height, 1024),
         quality: "high",
-      }),
-      signal: AbortSignal.timeout(90000),
-    });
+        seed:    Math.floor(Math.random() * 999999),
+      },
+    },
+    {
+      url:  "https://api.heygen.com/v1/image.generate",
+      body: { prompt, negative_prompt: "blurry, watermark", width: 1024, height: 1024 },
+    },
+  ];
 
-    if (!res.ok) {
-      const err = await res.text().catch(() => "");
-      log.warn("image-generation", "HeyGen erro", { status: res.status, err: err.slice(0, 150) });
+  for (const ep of endpoints) {
+    try {
+      log.info("image-generation", "HeyGen: tentando endpoint", { url: ep.url, format });
 
-      // Tentar endpoint alternativo
-      const res2 = await fetch("https://api.heygen.com/v2/photo_avatar/generate_photo", {
-        method: "POST",
-        headers: { "X-Api-Key": apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, negative_prompt: "blurry, low quality, watermark" }),
-        signal: AbortSignal.timeout(60000),
-      }).catch(() => null);
+      const res = await fetch(ep.url, {
+        method:  "POST",
+        headers: { "X-Api-Key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
+        body:    JSON.stringify(ep.body),
+        signal:  AbortSignal.timeout(90000),
+      });
 
-      if (res2?.ok) {
-        const data2 = await res2.json() as any;
-        const url2 = data2?.data?.photo_url || data2?.photo_url;
-        if (url2) {
-          log.info("image-generation", "HeyGen v2 OK", { url: url2.slice(0, 60) });
-          return url2 as string;
+      const raw = await res.text().catch(() => "");
+      log.info("image-generation", "HeyGen resposta", {
+        status: res.status,
+        preview: raw.slice(0, 300),
+      });
+
+      if (!res.ok) continue;
+
+      let data: any = {};
+      try { data = JSON.parse(raw); } catch { continue; }
+
+      // HeyGen pode retornar imagem direta OU job_id (assíncrono)
+      const directUrl = data?.data?.photo_url || data?.data?.image_url
+        || data?.data?.url || data?.photo_url || data?.image_url || data?.url;
+
+      if (directUrl) {
+        log.info("image-generation", "HeyGen OK (sync)", { url: (directUrl as string).slice(0, 80) });
+        return directUrl as string;
+      }
+
+      // Resposta assíncrona — HeyGen retorna job_id
+      const jobId = data?.data?.job_id || data?.job_id || data?.id;
+      if (jobId) {
+        log.info("image-generation", "HeyGen job_id detectado, aguardando...", { jobId });
+
+        // Polling do resultado por até 60s
+        for (let i = 0; i < 12; i++) {
+          await new Promise(r => setTimeout(r, 5000));
+          const pollRes = await fetch("https://api.heygen.com/v1/photo.realistic/" + jobId, {
+            headers: { "X-Api-Key": apiKey },
+            signal:  AbortSignal.timeout(10000),
+          }).catch(() => null);
+
+          if (pollRes?.ok) {
+            const pollData = await pollRes.json().catch(() => ({})) as any;
+            const pollUrl = pollData?.data?.photo_url || pollData?.data?.image_url || pollData?.url;
+            if (pollUrl) {
+              log.info("image-generation", "HeyGen job concluido", { url: (pollUrl as string).slice(0, 80) });
+              return pollUrl as string;
+            }
+            const status = pollData?.data?.status || pollData?.status;
+            log.info("image-generation", "HeyGen job status", { status, attempt: i + 1 });
+            if (status === "failed" || status === "error") break;
+          }
         }
       }
-      return null;
+
+    } catch (err: any) {
+      log.warn("image-generation", "HeyGen endpoint exception", { url: ep.url, error: err?.message?.slice(0, 100) });
     }
-
-    const data = await res.json() as any;
-    // HeyGen retorna: { code: 100, data: { photo_url: "..." } }
-    const imageUrl = data?.data?.photo_url || data?.data?.image_url
-      || data?.photo_url || data?.image_url || data?.url;
-
-    if (imageUrl) {
-      log.info("image-generation", "HeyGen OK", { format, url: (imageUrl as string).slice(0, 60) });
-      return imageUrl as string;
-    }
-
-    log.warn("image-generation", "HeyGen: resposta sem photo_url", { keys: Object.keys(data?.data || data || {}).join(",") });
-    return null;
-
-  } catch (err: any) {
-    log.warn("image-generation", "HeyGen exception", { error: err?.message?.slice(0, 100) });
-    return null;
   }
+
+  log.warn("image-generation", "HeyGen: todos os endpoints falharam");
+  return null;
 }
 
 export async function generateAdImage(

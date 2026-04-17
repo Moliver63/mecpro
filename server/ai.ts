@@ -4178,7 +4178,7 @@ function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string
   const heygenKey = (process.env.HEYGEN_API_KEY      || "").trim();
 
   // Prioridade: IMAGE_PROVIDER explícito > HeyGen (se tem key) > HuggingFace > mock
-  if (explicitProvider === "heygen" || (!explicitProvider && heygenKey && !hfKey)) {
+  if (explicitProvider === "heygen" || (!explicitProvider && heygenKey)) {
     return { provider: "heygen", apiKey: heygenKey };
   }
   if (explicitProvider === "huggingface" || (!explicitProvider && hfKey)) {

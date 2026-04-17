@@ -33,11 +33,11 @@ console.log('[BOOT] ASAAS_WEBHOOK_TOKEN set (segurança):', !!process.env.ASAAS_
 const _hfKey     = (process.env.HUGGINGFACE_API_KEY || '').trim();
 const _heygenKey = (process.env.HEYGEN_API_KEY      || '').trim();
 const _imgProvider = (process.env.IMAGE_PROVIDER || '').toLowerCase();
-const _effectiveProvider = _imgProvider === 'heygen' ? 'heygen'
-  : _imgProvider === 'huggingface' ? 'huggingface'
-  : (!_imgProvider && _heygenKey && !_hfKey) ? 'heygen (auto)'
-  : (!_imgProvider && _hfKey) ? 'huggingface (auto)'
-  : 'mock (SVG)';
+const _effectiveProvider = _imgProvider === 'heygen' ? 'heygen ✅'
+  : _imgProvider === 'huggingface' ? 'huggingface ✅'
+  : (!_imgProvider && _heygenKey) ? 'heygen (auto-detectado) ✅'
+  : (!_imgProvider && _hfKey) ? 'huggingface (auto-detectado) ✅'
+  : 'mock → SVG inline';
 console.log('[BOOT] IMAGE_PROVIDER (efetivo):', _effectiveProvider);
 console.log('[BOOT] HEYGEN_API_KEY set:', !!_heygenKey, _heygenKey ? '(' + _heygenKey.slice(0,8) + '...)' : '— nao configurada');
 console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? '(' + _hfKey.slice(0,8) + '...)' : '— nao configurada');
