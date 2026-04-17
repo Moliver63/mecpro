@@ -548,6 +548,26 @@ export default function VSLGeneratorPanel({
                 }}>
                   🔄 Regenerar roteiro
                 </button>
+                {/* Aviso quando serviço VSL offline */}
+                {serviceAvailable === false && (
+                  <div style={{
+                    flex: 2, padding: 12, borderRadius: 10, background: "#fef2f2",
+                    border: "1px solid #fca5a5", fontSize: 11, color: "#7f1d1d",
+                  }}>
+                    <p style={{ fontWeight: 800, marginBottom: 6 }}>⚙️ VSL Service não configurado</p>
+                    <p style={{ margin: "4px 0" }}>Para gerar vídeos, configure no Render:</p>
+                    <code style={{ display: "block", background: "#fee2e2", padding: "4px 8px", borderRadius: 4, margin: "4px 0", fontSize: 10 }}>
+                      VSL_SERVICE_URL=https://arcane-embryologic-tiffiny.ngrok-free.dev
+                    </code>
+                    <code style={{ display: "block", background: "#fee2e2", padding: "4px 8px", borderRadius: 4, fontSize: 10 }}>
+                      VSL_SECRET_KEY=mecpro-vsl-2026
+                    </code>
+                    <p style={{ margin: "6px 0 0", color: "#991b1b", fontSize: 10 }}>
+                      E rode <strong>vsl_service.py + ngrok</strong> na sua máquina local.
+                    </p>
+                  </div>
+                )}
+                {serviceAvailable !== false && (
                 <button
                   onClick={handleStartGeneration}
                   disabled={startGenerationMutation?.isPending || !serviceAvailable}
@@ -562,6 +582,7 @@ export default function VSLGeneratorPanel({
                    !serviceAvailable ? "⚠️ Serviço offline" :
                    `🎬 Gerar vídeo ${fmtInfo.icon} ${form.draft ? "(rascunho)" : "(final)"}`}
                 </button>
+                )}
               </div>
             </div>
           )}
