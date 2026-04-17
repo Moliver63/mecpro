@@ -10,9 +10,9 @@ const IMAGE_CACHE = new Map<string, string>();
 // SD 3.5 Large: alta qualidade, nova API
 // SDXL Turbo: fallback rápido
 const HF_MODELS = [
+  // Mantemos apenas o modelo confirmado neste endpoint.
+  // Os demais estavam retornando 400 "Model not supported by provider hf-inference".
   "black-forest-labs/FLUX.1-schnell",
-  "stabilityai/stable-diffusion-3-5-large",
-  "stabilityai/sdxl-turbo",
 ];
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
@@ -131,9 +131,13 @@ export type ImageGenerationDiagnostics = {
 };
 
 export function getImageGenerationDiagnostics(providerInput?: string): ImageGenerationDiagnostics {
-  const provider = (String(providerInput || process.env.IMAGE_PROVIDER || "mock").toLowerCase() as ImageProvider);
-  const normalizedProvider: ImageProvider = provider === "huggingface" || provider === "heygen" ? provider : "mock";
+  const provider = String(providerInput || process.env.IMAGE_PROVIDER || "mock").toLowerCase();
+  const normalizedProvider: ImageProvider = (
+    provider === "huggingface" || provider === "heygen" || provider === "genspark"
+  ) ? (provider as ImageProvider) : "mock";
   const hasHuggingFaceKey = !!String(process.env.HUGGINGFACE_API_KEY || "").trim();
+  const hasGensparkKey = !!String(process.env.GENSPARK_API_KEY || "").trim();
+  const hasHeygenKey = !!String(process.env.HEYGEN_API_KEY || "").trim();
   const storageReady = !!(
     String(process.env.CLOUDINARY_CLOUD_NAME || "").trim()
     && String(process.env.CLOUDINARY_API_KEY || "").trim()
@@ -143,13 +147,15 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   let reason: string | null = null;
 
   if (normalizedProvider === "mock") {
-    if (hasHuggingFaceKey) {
-      reason = 'HUGGINGFACE_API_KEY detectada, mas IMAGE_PROVIDER não está configurado como "huggingface". Adicione IMAGE_PROVIDER=huggingface no Render.';
+    if (hasGensparkKey || hasHuggingFaceKey || hasHeygenKey) {
+      reason = 'Há chave de provedor configurada, mas IMAGE_PROVIDER não está apontando para um provider válido (genspark, huggingface ou heygen).';
     } else {
-      reason = 'IMAGE_PROVIDER não configurado. Adicione IMAGE_PROVIDER=huggingface e HUGGINGFACE_API_KEY no Render para ativar geração real.';
+      reason = 'IMAGE_PROVIDER não configurado. Defina IMAGE_PROVIDER e a chave correspondente para ativar geração real.';
     }
   } else if (normalizedProvider === "heygen") {
-    reason = "O fluxo HeyGen deste projeto ainda cai em fallback seguro e não produz imagem real.";
+    reason = hasHeygenKey ? null : "HEYGEN_API_KEY não encontrada.";
+  } else if (normalizedProvider === "genspark") {
+    reason = hasGensparkKey ? null : "GENSPARK_API_KEY não encontrada.";
   } else if (!hasHuggingFaceKey) {
     reason = "HUGGINGFACE_API_KEY não encontrada. Verifique o nome exato da variável no Render (sem espaços).";
   } else if (!storageReady) {
@@ -162,14 +168,20 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   if (normalizedProvider === "huggingface" && !storageReady) {
     warnings.push("Defina CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY e CLOUDINARY_API_SECRET.");
   }
-  if (normalizedProvider === "heygen") {
-    warnings.push("Troque IMAGE_PROVIDER para huggingface para geração de imagem real neste projeto.");
+  if (normalizedProvider === "genspark" && !hasGensparkKey) {
+    warnings.push("Defina GENSPARK_API_KEY para habilitar a geração real via Genspark.");
+  }
+  if (normalizedProvider === "heygen" && !hasHeygenKey) {
+    warnings.push("Defina HEYGEN_API_KEY para habilitar a geração real via HeyGen.");
   }
 
   return {
     provider: normalizedProvider,
     storageReady,
-    canGenerateRealImages: normalizedProvider === "huggingface" && hasHuggingFaceKey && storageReady,
+    canGenerateRealImages:
+      (normalizedProvider === "huggingface" && hasHuggingFaceKey)
+      || (normalizedProvider === "genspark" && hasGensparkKey)
+      || (normalizedProvider === "heygen" && hasHeygenKey),
     reason,
     warnings,
   };
@@ -261,6 +273,13 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
         if (!res.ok) {
           const preview = await res.text().catch(() => "");
           log.warn("image-generation", "HF retornou erro", { model, attempt, status: res.status, preview: preview.slice(0, 160) });
+
+          // 402 = créditos esgotados no provider. É falha fatal para esta execução.
+          if (res.status === 402 || /depleted your monthly included credits/i.test(preview)) {
+            log.warn("image-generation", "HF sem créditos — interrompendo tentativas neste provider", { model, format });
+            return null;
+          }
+
           break;
         }
 
@@ -471,37 +490,58 @@ export async function generateAdImage(
   const cached = IMAGE_CACHE.get(cacheKey);
   if (cached) return cached;
 
-  try {
-    if (provider === "huggingface" && config.apiKey) {
+  const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
+    if (providerToTry === "huggingface" && apiKey) {
       const prompt = inferPrompt(creative, segment, objective, format);
-      const buffer = await generateWithHuggingFace(prompt, config.apiKey, format);
-      if (buffer) {
-        const fileName = "creative-" + Date.now() + "-" + format + ".png";
-        const uploadedUrl = await uploadImageBufferToCloudinary(buffer, fileName);
-        if (uploadedUrl) {
-          IMAGE_CACHE.set(cacheKey, uploadedUrl);
-          return uploadedUrl;
+      const buffer = await generateWithHuggingFace(prompt, apiKey, format);
+      if (!buffer) return null;
+
+      const fileName = "creative-" + Date.now() + "-" + format + ".png";
+      const uploadedUrl = await uploadImageBufferToCloudinary(buffer, fileName);
+      if (uploadedUrl) return uploadedUrl;
+
+      log.info("image-generation", "HF gerou imagem — usando base64 data URL", { format });
+      const b64 = buffer.toString("base64");
+      return "data:image/png;base64," + b64;
+    }
+
+    if (providerToTry === "genspark") {
+      return await generateWithGenspark(creative, objective, format);
+    }
+
+    if (providerToTry === "heygen") {
+      return await generateWithHeyGen(creative, objective, format);
+    }
+
+    return null;
+  };
+
+  try {
+    const candidates: Array<{ provider: ImageProvider; apiKey: string }> = [];
+    const pushCandidate = (providerToPush: ImageProvider, apiKey: string) => {
+      if (!apiKey && providerToPush !== "mock") return;
+      if (candidates.some((item) => item.provider === providerToPush)) return;
+      candidates.push({ provider: providerToPush, apiKey });
+    };
+
+    // Primeiro tenta o provider configurado.
+    pushCandidate(provider, config.apiKey || "");
+
+    // Depois tenta fallbacks reais disponíveis no ambiente.
+    pushCandidate("genspark", (process.env.GENSPARK_API_KEY || "").trim());
+    pushCandidate("huggingface", (process.env.HUGGINGFACE_API_KEY || "").trim());
+    pushCandidate("heygen", (process.env.HEYGEN_API_KEY || "").trim());
+
+    for (const candidate of candidates) {
+      const url = await tryProvider(candidate.provider, candidate.apiKey);
+      if (url) {
+        if (candidate.provider !== provider) {
+          log.warn("image-generation", "Fallback de provider aplicado", {
+            requestedProvider: provider,
+            fallbackProvider: candidate.provider,
+            format,
+          });
         }
-        // Sem Cloudinary: retornar como base64 data URL
-        log.info("image-generation", "HF gerou imagem — usando base64 data URL", { format });
-        const b64 = buffer.toString("base64");
-        const dataUrl = "data:image/png;base64," + b64;
-        IMAGE_CACHE.set(cacheKey, dataUrl);
-        return dataUrl;
-      }
-    }
-
-    if (provider === "heygen") {
-      const url = await generateWithHeyGen(creative, objective, format);
-      if (url) {
-        IMAGE_CACHE.set(cacheKey, url);
-        return url;
-      }
-    }
-
-    if (provider === "genspark") {
-      const url = await generateWithGenspark(creative, objective, format);
-      if (url) {
         IMAGE_CACHE.set(cacheKey, url);
         return url;
       }

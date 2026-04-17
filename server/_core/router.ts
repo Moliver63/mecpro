@@ -1880,20 +1880,44 @@ const campaignsRouter = router({
         if (o === "leads")      return "LEAD_GENERATION";
         // OUTCOME_SALES: com pixel → OFFSITE_CONVERSIONS; sem pixel → LANDING_PAGE_VIEWS
         if (o === "sales")      return pixelId ? "OFFSITE_CONVERSIONS" : "LANDING_PAGE_VIEWS";
-        if (o === "engagement") return "ENGAGED_USERS";  // POST_ENGAGEMENT causa erro 2490408
+        if (o === "engagement") return "ENGAGED_USERS";  // resolvido via fallback contextual em resolveObjectiveAndGoal
         if (o === "branding")   return "REACH";
         if (o === "traffic")    return "LINK_CLICKS";
         return "LINK_CLICKS";
       }
 
-      // Para OUTCOME_SALES sem pixel, usamos OUTCOME_TRAFFIC internamente
-      // pois OUTCOME_SALES + LANDING_PAGE_VIEWS pode ainda falhar sem URL válida
-      function resolveObjectiveAndGoal(obj: string, pixelId?: string, hasUrl?: boolean): { campaignObj: string; optimizationGoal: string } {
+      // Resolve combinações válidas de Campaign Objective + Optimization Goal
+      // com base no destino final (site, WhatsApp, pixel etc.).
+      function resolveObjectiveAndGoal(
+        obj: string,
+        pixelId?: string,
+        opts?: { isWhatsAppDestination?: boolean; hasLink?: boolean },
+      ): { campaignObj: string; optimizationGoal: string } {
         const o = (obj || "").toLowerCase();
+        const isWhatsAppDestination = !!opts?.isWhatsAppDestination;
+        const hasLink = !!opts?.hasLink;
+
         if (o === "sales" && !pixelId) {
-          // Sem pixel: usa OUTCOME_TRAFFIC + LANDING_PAGE_VIEWS (sempre funciona)
-          return { campaignObj: "OUTCOME_TRAFFIC", optimizationGoal: "LANDING_PAGE_VIEWS" };
+          // Sem pixel: usa TRAFFIC com LPV (ou LINK_CLICKS se não houver URL)
+          return {
+            campaignObj: "OUTCOME_TRAFFIC",
+            optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
+          };
         }
+
+        if (o === "engagement") {
+          // Click-to-WhatsApp pode usar Engagement + Conversations.
+          if (isWhatsAppDestination) {
+            return { campaignObj: "OUTCOME_ENGAGEMENT", optimizationGoal: "CONVERSATIONS" };
+          }
+          // Se caiu para website/página, ENGAGED_USERS costuma falhar (#2490408).
+          // Fazemos fallback técnico para uma combinação estável.
+          return {
+            campaignObj: "OUTCOME_TRAFFIC",
+            optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
+          };
+        }
+
         return {
           campaignObj: toOutcomeObjective(obj),
           optimizationGoal: toOptimizationGoal(obj, "", pixelId),
@@ -2185,7 +2209,6 @@ const campaignsRouter = router({
       });
       const budgetDaily = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
       const endTime = new Date(Date.now() + (c.durationDays ?? 30) * 24 * 60 * 60 * 1000).toISOString();
-      const { campaignObj: resolvedCampaignObj, optimizationGoal: resolvedOptGoal } = resolveObjectiveAndGoal(objective, input.pixelId);
       const dest = input.destination;
       const preferredCtaText = placementKey === "stories" || placementKey === "reels"
         ? String((adCopy as any).stories?.cta || adCopy.feed.cta || "")
@@ -2235,9 +2258,20 @@ const campaignsRouter = router({
       const finalLink = isWhatsAppDestination
         ? whatsappDestination.link!
         : (effectiveLink || `https://www.facebook.com/${input.pageId}`);
-      const adSetOptimizationGoal = isWhatsAppDestination && String(objective || "").toLowerCase() === "engagement"
-        ? "CONVERSATIONS"
-        : resolvedOptGoal;
+      const { campaignObj: resolvedCampaignObj, optimizationGoal: adSetOptimizationGoal } = resolveObjectiveAndGoal(
+        objective,
+        input.pixelId,
+        { isWhatsAppDestination, hasLink: !!finalLink },
+      );
+      if (String(objective || "").toLowerCase() === "engagement" && !isWhatsAppDestination) {
+        log.warn("meta", "Engagement sem WhatsApp válido — fallback técnico aplicado", {
+          originalObjective: "OUTCOME_ENGAGEMENT",
+          fallbackObjective: resolvedCampaignObj,
+          fallbackOptimizationGoal: adSetOptimizationGoal,
+          pageId: input.pageId,
+          destinationSource,
+        });
+      }
       const resolvedBrazilRegionKeys = input.locationMode === "brasil" && (input.regions?.length || 0) > 0
         ? await resolveBrazilRegionKeys(token, input.regions || [])
         : [];
@@ -2366,14 +2400,16 @@ const campaignsRouter = router({
             };
           })(),
         },
-        // promoted_object obrigatório para OUTCOME_LEADS e OUTCOME_SALES
-        ...((["leads","sales","engagement"].includes(objective) || isWhatsAppDestination) && input.pageId ? {
+        // promoted_object apenas quando realmente exigido pela combinação final
+        ...((((resolvedCampaignObj === "OUTCOME_LEADS")
+          || (resolvedCampaignObj === "OUTCOME_SALES" && !!input.pixelId)
+          || isWhatsAppDestination) && input.pageId) ? {
           promoted_object: isWhatsAppDestination
             ? {
                 page_id: input.pageId,
                 ...(whatsappDestination.phone ? { whatsapp_phone_number: whatsappDestination.phone } : {}),
               }
-            : input.pixelId && objective === "sales"
+            : resolvedCampaignObj === "OUTCOME_SALES" && input.pixelId
               ? { page_id: input.pageId, pixel_id: input.pixelId, custom_event_type: "PURCHASE" }
               : { page_id: input.pageId }
         } : {}),
