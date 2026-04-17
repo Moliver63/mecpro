@@ -49,27 +49,53 @@ function getCacheKey(
 }
 
 function inferPrompt(creative: any, segment: string, objective: string, format: CreativeImageFormat): string {
-  const dim = FORMAT_DIMENSIONS[format];
-  const headline = toText(creative?.headline);
-  const hook = toText(creative?.hook);
-  const copy = toText(creative?.copy);
-  const pain = toText(creative?.pain);
-  const solution = toText(creative?.solution);
-  const visualType = toText(creative?.type || creative?.format || "performance ad");
+  const dim       = FORMAT_DIMENSIONS[format];
+  const headline  = toText(creative?.headline);
+  const hook      = toText(creative?.hook);
+  const copy      = toText(creative?.copy);
+  const pain      = toText(creative?.pain);
+  const solution  = toText(creative?.solution);
+  const angle     = toText(creative?.angle || "");
+  const niche     = toText(segment || "");
+  const crType    = toText(creative?.type || creative?.format || "");
 
-  return [
-    `Create a premium Brazilian ad creative for ${dim.label} in ${dim.ratio} ratio.`,
-    `Objective: ${objective || "performance marketing"}.`,
-    `Audience segment: ${segment || "broad audience"}.`,
-    `Creative angle: ${visualType || "direct response"}.`,
-    hook ? `Main hook: ${hook}.` : "",
-    headline ? `Headline reference: ${headline}.` : "",
-    copy ? `Support copy context: ${copy}.` : "",
-    pain ? `Audience pain point: ${pain}.` : "",
-    solution ? `Promised solution: ${solution}.` : "",
-    "Use high-contrast composition, strong focal point, polished lighting, clean typography area, no watermarks, no UI chrome.",
-    "Keep the scene realistic, conversion-oriented, brand-safe, and suitable for Meta Ads.",
+  // Mapear ângulo para visual
+  const angleToVisual: Record<string, string> = {
+    exclusividade:   "luxury lifestyle, premium aesthetics, sophisticated atmosphere",
+    urgencia:        "dynamic energy, bold colors, action-oriented composition",
+    prova_social:    "people smiling, testimonial feel, trust and community",
+    educacao:        "clean informative layout, professional setting, knowledge",
+    oferta:          "sale atmosphere, value emphasis, bold offer presentation",
+    transformacao:   "before-after concept, aspirational lifestyle, positive change",
+    dor:             "relatable problem scenario, empathetic mood",
+    autoridade:      "professional expert setting, credible environment",
+  };
+  const visualStyle = angleToVisual[angle] || "modern professional advertising, clean composition";
+
+  // Mapear objetivo para mood
+  const objToMood: Record<string, string> = {
+    leads:    "welcoming, approachable, lead generation focused",
+    sales:    "conversion-driven, product showcase, purchase intent",
+    branding: "brand awareness, memorable visual identity",
+    traffic:  "curiosity-inducing, click-worthy composition",
+  };
+  const mood = objToMood[objective] || "performance marketing";
+
+  const parts = [
+    `Professional Brazilian advertising photo for ${dim.label} (${dim.ratio} ratio).`,
+    `Visual style: ${visualStyle}.`,
+    `Mood: ${mood}.`,
+    niche    ? `Industry context: ${niche}.` : "",
+    hook     ? `Visual concept based on: "${hook.slice(0, 80)}".` : "",
+    headline ? `Supporting message: "${headline.slice(0, 60)}".` : "",
+    pain     ? `Addresses pain point: ${pain.slice(0, 60)}.` : "",
+    solution ? `Shows solution: ${solution.slice(0, 60)}.` : "",
+    "Photorealistic, high-end production quality, cinematic lighting.",
+    "Leave clean space for text overlay. No text, logos or watermarks in image.",
+    "Suitable for Meta Ads, Instagram Feed and Stories.",
   ].filter(Boolean).join(" ");
+
+  return parts;
 }
 
 function buildMockUrl(creative: any, objective: string, format: CreativeImageFormat): string {
@@ -264,92 +290,106 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
     return null;
   }
 
-  const dim    = FORMAT_DIMENSIONS[format];
   const prompt = inferPrompt(creative, "", objective, format);
 
-  // Endpoints do HeyGen em ordem de prioridade
-  const endpoints = [
-    {
-      url:  "https://api.heygen.com/v1/photo.realistic",
-      body: {
-        prompt,
-        negative_prompt: "blurry, low quality, text overlay, watermark, nsfw, cartoon",
-        width:   Math.min(dim.width,  1024),
-        height:  Math.min(dim.height, 1024),
-        quality: "high",
-        seed:    Math.floor(Math.random() * 999999),
+  // Aspect ratio baseado no formato
+  const aspectMap: Record<CreativeImageFormat, string> = {
+    feed:    "4:5",
+    stories: "9:16",
+    square:  "1:1",
+  };
+  const aspect = aspectMap[format] || "4:5";
+
+  log.info("image-generation", "HeyGen: iniciando geracao", { format, aspect, promptLen: prompt.length });
+
+  try {
+    // Endpoint oficial HeyGen text-to-image: POST /v1/image.generation
+    const res = await fetch("https://api.heygen.com/v1/image.generation", {
+      method:  "POST",
+      headers: {
+        "X-Api-Key":    apiKey,
+        "Content-Type": "application/json",
+        Accept:         "application/json",
       },
-    },
-    {
-      url:  "https://api.heygen.com/v1/image.generate",
-      body: { prompt, negative_prompt: "blurry, watermark", width: 1024, height: 1024 },
-    },
-  ];
+      body: JSON.stringify({
+        prompt,
+        aspect_ratio: aspect,
+        model:        "photorealism_v1",  // modelo de imagem realista do HeyGen
+      }),
+      signal: AbortSignal.timeout(120000),
+    });
 
-  for (const ep of endpoints) {
-    try {
-      log.info("image-generation", "HeyGen: tentando endpoint", { url: ep.url, format });
+    const raw = await res.text().catch(() => "{}");
+    log.info("image-generation", "HeyGen /v1/image.generation resposta", {
+      status: res.status,
+      preview: raw.slice(0, 400),
+    });
 
-      const res = await fetch(ep.url, {
-        method:  "POST",
-        headers: { "X-Api-Key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
-        body:    JSON.stringify(ep.body),
-        signal:  AbortSignal.timeout(90000),
-      });
-
-      const raw = await res.text().catch(() => "");
-      log.info("image-generation", "HeyGen resposta", {
-        status: res.status,
-        preview: raw.slice(0, 300),
-      });
-
-      if (!res.ok) continue;
-
+    if (res.ok) {
       let data: any = {};
-      try { data = JSON.parse(raw); } catch { continue; }
+      try { data = JSON.parse(raw); } catch { /* raw inválido */ }
 
-      // HeyGen pode retornar imagem direta OU job_id (assíncrono)
-      const directUrl = data?.data?.photo_url || data?.data?.image_url
-        || data?.data?.url || data?.photo_url || data?.image_url || data?.url;
-
+      // Resposta síncrona
+      const directUrl = data?.data?.image_url || data?.data?.url
+        || data?.image_url || data?.url;
       if (directUrl) {
-        log.info("image-generation", "HeyGen OK (sync)", { url: (directUrl as string).slice(0, 80) });
+        log.info("image-generation", "HeyGen OK (sincrono)", { url: (directUrl as string).slice(0, 80) });
         return directUrl as string;
       }
 
-      // Resposta assíncrona — HeyGen retorna job_id
-      const jobId = data?.data?.job_id || data?.job_id || data?.id;
-      if (jobId) {
-        log.info("image-generation", "HeyGen job_id detectado, aguardando...", { jobId });
+      // Resposta assíncrona — retorna job_id ou token
+      const jobId = data?.data?.token || data?.data?.job_id || data?.data?.id
+        || data?.token || data?.job_id || data?.id;
 
-        // Polling do resultado por até 60s
-        for (let i = 0; i < 12; i++) {
+      if (jobId) {
+        log.info("image-generation", "HeyGen job detectado, fazendo polling", { jobId });
+
+        // Polling até 90s (18 tentativas × 5s)
+        for (let i = 0; i < 18; i++) {
           await new Promise(r => setTimeout(r, 5000));
-          const pollRes = await fetch("https://api.heygen.com/v1/photo.realistic/" + jobId, {
+
+          const pollRes = await fetch("https://api.heygen.com/v1/image.generation/" + jobId, {
             headers: { "X-Api-Key": apiKey },
-            signal:  AbortSignal.timeout(10000),
+            signal:  AbortSignal.timeout(15000),
           }).catch(() => null);
 
-          if (pollRes?.ok) {
-            const pollData = await pollRes.json().catch(() => ({})) as any;
-            const pollUrl = pollData?.data?.photo_url || pollData?.data?.image_url || pollData?.url;
-            if (pollUrl) {
-              log.info("image-generation", "HeyGen job concluido", { url: (pollUrl as string).slice(0, 80) });
-              return pollUrl as string;
-            }
-            const status = pollData?.data?.status || pollData?.status;
-            log.info("image-generation", "HeyGen job status", { status, attempt: i + 1 });
-            if (status === "failed" || status === "error") break;
+          if (!pollRes) continue;
+
+          const pollRaw = await pollRes.text().catch(() => "{}");
+          let pollData: any = {};
+          try { pollData = JSON.parse(pollRaw); } catch { /* continua */ }
+
+          const status    = pollData?.data?.status || pollData?.status;
+          const resultUrl = pollData?.data?.image_url || pollData?.data?.url || pollData?.url;
+
+          log.info("image-generation", "HeyGen poll", { i: i + 1, status, hasUrl: !!resultUrl });
+
+          if (resultUrl) {
+            log.info("image-generation", "HeyGen job concluido", { url: (resultUrl as string).slice(0, 80) });
+            return resultUrl as string;
+          }
+
+          if (status === "failed" || status === "error") {
+            log.warn("image-generation", "HeyGen job falhou", { status, raw: pollRaw.slice(0, 200) });
+            break;
           }
         }
+
+        log.warn("image-generation", "HeyGen polling timeout após 90s", { jobId });
+        return null;
       }
 
-    } catch (err: any) {
-      log.warn("image-generation", "HeyGen endpoint exception", { url: ep.url, error: err?.message?.slice(0, 100) });
+      log.warn("image-generation", "HeyGen: sem image_url nem job_id na resposta", {
+        keys: Object.keys((data as any)?.data || data || {}).join(","),
+      });
+    } else {
+      log.warn("image-generation", "HeyGen HTTP erro", { status: res.status, preview: raw.slice(0, 200) });
     }
+
+  } catch (err: any) {
+    log.warn("image-generation", "HeyGen exception", { error: err?.message?.slice(0, 120) });
   }
 
-  log.warn("image-generation", "HeyGen: todos os endpoints falharam");
   return null;
 }
 
