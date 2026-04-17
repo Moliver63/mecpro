@@ -154,6 +154,7 @@ export default function App() {
             <Route path="/google-campaigns"><ProtectedRoute><GoogleCampaigns /></ProtectedRoute></Route>
             <Route path="/tiktok-campaigns"><ProtectedRoute><TikTokCampaigns /></ProtectedRoute></Route>
             <Route path="/meta-integration"><ProtectedRoute><MetaIntegration /></ProtectedRoute></Route>
+            <Route path="/auth/meta/callback"><MetaOAuthCallback /></Route>
             <Route path="/google-ads"><ProtectedRoute><GoogleAdsIntegration /></ProtectedRoute></Route>
             <Route path="/google-campaign"><ProtectedRoute><GoogleCampaignCreator /></ProtectedRoute></Route>
             <Route path="/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>

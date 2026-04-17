@@ -115,6 +115,16 @@ export default function MetaIntegration() {
     onError: (e) => toast.error(`❌ Token inválido: ${e.message}`),
   });
 
+  const getMetaAuthUrl   = (trpc as any).integrations?.getMetaAuthUrl?.useMutation?.();
+  const exchangeMetaCode = (trpc as any).integrations?.exchangeMetaCode?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast.success(`✅ Conectado como ${data.userName}! ${data.adAccounts?.length || 0} conta(s) de anúncio.`);
+      setOauthResult(data);
+      setOauthLoading(false);
+      refetch?.();
+    },
+    onError: (e: any) => { toast.error("❌ " + e.message); setOauthLoading(false); },
+  });
   const exchangeToken = trpc.integrations.exchangeToken.useMutation({
     onSuccess: (d: any) => {
       toast.success(`✅ Token longo gerado! Válido por ${d.expiresInDays} dias (até ${new Date(d.expiresAt).toLocaleDateString("pt-BR")})`);
@@ -129,9 +139,36 @@ export default function MetaIntegration() {
   const [adAccountId, setAdAccountId] = useState("");
   const [appId,       setAppId]       = useState("");
   const [appSecret,   setAppSecret]   = useState("");
-  const [saving,      setSaving]      = useState(false);
+  const [saving,       setSaving]      = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthResult,  setOauthResult]  = useState<any>(null);
   const [waPhone,     setWaPhone]     = useState((existing as any)?.whatsappPhone || "");
   const [testing,     setTesting]     = useState(false);
+
+  // Handler OAuth Facebook
+  const handleFacebookOAuth = async () => {
+    setOauthLoading(true);
+    try {
+      const REDIRECT_URI = window.location.origin + "/auth/meta/callback";
+      const result = await (getMetaAuthUrl as any)?.mutateAsync({ redirectUri: REDIRECT_URI });
+      if (!result?.url) throw new Error("Não foi possível gerar a URL de autorização.");
+
+      const popup = window.open(result.url, "fb_oauth", "width=620,height=700,left=200,top=80");
+      if (!popup) { toast.error("Popup bloqueado — permita popups para este site."); setOauthLoading(false); return; }
+
+      const onMsg = async (e: MessageEvent) => {
+        if (e.origin !== window.location.origin) return;
+        if (e.data?.type !== "META_OAUTH_CODE") return;
+        window.removeEventListener("message", onMsg);
+        popup.close();
+        if (!e.data.code) { toast.error("Autorização cancelada."); setOauthLoading(false); return; }
+        await (exchangeMetaCode as any)?.mutateAsync({ code: e.data.code, redirectUri: REDIRECT_URI });
+      };
+      window.addEventListener("message", onMsg);
+      setTimeout(() => { window.removeEventListener("message", onMsg); if (!popup.closed) popup.close(); setOauthLoading(false); }, 300000);
+
+    } catch (e: any) { toast.error(e.message); setOauthLoading(false); }
+  };
 
   async function handleSave() {
     if (!accessToken.trim()) { toast.error("Access Token é obrigatório"); return; }
@@ -325,6 +362,62 @@ export default function MetaIntegration() {
           <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", marginBottom: 16 }}>
             {existing ? "Atualizar credenciais" : "Conectar conta Meta Ads"}
           </p>
+
+          {/* ── Botão OAuth Facebook ── */}
+          <div style={{ marginBottom: 24 }}>
+            <button
+              onClick={handleFacebookOAuth}
+              disabled={oauthLoading}
+              style={{
+                width: "100%", padding: "14px 20px", borderRadius: 12, border: "none",
+                background: oauthLoading ? "#94a3b8" : "linear-gradient(135deg,#1877f2,#0d5bd1)",
+                color: "white", fontWeight: 800, fontSize: 15, cursor: oauthLoading ? "wait" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
+                boxShadow: oauthLoading ? "none" : "0 4px 20px rgba(24,119,242,0.4)",
+                transition: "all .2s",
+              }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+              {oauthLoading ? "Aguardando autorização..." : existing ? "Reconectar com Facebook" : "Conectar com Facebook"}
+            </button>
+            <p style={{ fontSize: 11, color: "var(--muted)", textAlign: "center", marginTop: 8 }}>
+              Autoriza automaticamente: token, contas de anúncio e páginas vinculadas
+            </p>
+          </div>
+
+          {/* Resultado do OAuth */}
+          {oauthResult && (
+            <div style={{ background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d", marginBottom: 10 }}>
+                ✅ Conectado como <strong>{oauthResult.userName}</strong>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Contas de anúncio</div>
+                  {oauthResult.adAccounts?.map((acc: any) => (
+                    <div key={acc.id} style={{ fontSize: 12, color: "#0f172a", marginBottom: 2 }}>
+                      📘 {acc.name} <span style={{ color: "#64748b" }}>({acc.id})</span>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase", marginBottom: 4 }}>Páginas</div>
+                  {oauthResult.pages?.slice(0,3).map((pg: any) => (
+                    <div key={pg.id} style={{ fontSize: 12, color: "#0f172a", marginBottom: 2 }}>
+                      📄 {pg.name}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+            <span style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>ou configure manualmente</span>
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          </div>
 
           {/* Alerta de permissões obrigatórias */}
           <div style={{ background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
