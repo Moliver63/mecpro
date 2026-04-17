@@ -1699,7 +1699,6 @@ export default function CampaignResult() {
                         clientName={(clientProfile as any)?.companyName}
                         creativeImageDataUrl={creativeImage || undefined}
                         mediaPreview={creativeImage && !creativeImage.startsWith("data:") ? creativeImage : undefined}
-                        creativeImageDataUrl={creativeImage || undefined}
                       />
                     </div>
                   </>
