@@ -1716,7 +1716,9 @@ const campaignsRouter = router({
       } else if (explicitProvider === "huggingface" || (!explicitProvider && hfKey)) {
         normalizedProvider = "huggingface"; apiKey = hfKey;
       }
-      log.info("image-generation", "regenerateCreativeImage provider", { provider: normalizedProvider, hasKey: !!apiKey });
+      const diagnostics = getImageGenerationDiagnostics(normalizedProvider);
+      log.info("image-generation", "regenerateCreativeImage", { provider: normalizedProvider, hasKey: !!apiKey });
+
       const imageUrl = await generateAdImage(
         creative,
         campaign.name || "segmento geral",
@@ -1725,15 +1727,20 @@ const campaignsRouter = router({
         input.format as CreativeImageFormat,
       );
 
-      if (!imageUrl) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar imagem" });
+      if (!imageUrl) throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: normalizedProvider === "mock"
+          ? "Configure HEYGEN_API_KEY ou HUGGINGFACE_API_KEY no Render para gerar imagens reais."
+          : "Falha ao gerar imagem via " + normalizedProvider + ". Verifique os logs.",
+      });
 
       if (input.format === "stories") creatives[input.creativeIndex].storyImageUrl = imageUrl;
-      if (input.format === "feed") creatives[input.creativeIndex].feedImageUrl = imageUrl;
-      if (input.format === "square") creatives[input.creativeIndex].squareImageUrl = imageUrl;
+      else if (input.format === "feed") creatives[input.creativeIndex].feedImageUrl = imageUrl;
+      else if (input.format === "square") creatives[input.creativeIndex].squareImageUrl = imageUrl;
       creatives[input.creativeIndex].imageUpdatedAt = new Date().toISOString();
       creatives[input.creativeIndex].imageProviderUsed = diagnostics.provider;
       creatives[input.creativeIndex].imageGenerationReason = diagnostics.reason;
-      creatives[input.creativeIndex].imageGenerationWarnings = diagnostics.warnings;
+      creatives[input.creativeIndex].imageGenerationWarnings = diagnostics.warnings ?? [];
 
       creatives[input.creativeIndex] = syncCreativeImageToV2(creatives[input.creativeIndex], input.format, {
         imageUrl,

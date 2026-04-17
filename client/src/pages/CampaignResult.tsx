@@ -979,76 +979,145 @@ export default function CampaignResult() {
 
 
 
-  // ── Gera SVG inline como preview de criativo ────────────────────────────────
+  // ── SVG premium como preview de criativo ────────────────────────────────────
   function buildCreativeSvg(creative: any, format: "feed" | "stories" | "square"): string {
     try {
       const headline = String(creative?.headline || creative?.hook || "Criativo").slice(0, 44);
-      const copy     = String(creative?.copy || creative?.bodyText || "").slice(0, 90);
-      const cta      = String(creative?.cta || "Saiba Mais").slice(0, 26);
+      const copy     = String(creative?.copy || creative?.bodyText || "").slice(0, 110);
+      const cta      = String(creative?.cta || "Saiba Mais").slice(0, 28);
       const funnel   = String(creative?.funnelStage || "TOF");
+      const type     = String(creative?.type || creative?.format || "");
+      const angle    = String(creative?.angle || "");
 
-      const pals: Record<string, [string, string, string, string]> = {
-        TOF: ["#0f172a", "#3b82f6", "#f1f5f9", "#94a3b8"],
-        MOF: ["#1e1b4b", "#a78bfa", "#f1f5f9", "#c4b5fd"],
-        BOF: ["#052e16", "#4ade80", "#f0fdf4", "#86efac"],
+      // Paletas premium por funil
+      const pals: Record<string, { bg: string; bg2: string; ac: string; tx: string; sub: string; btn: string }> = {
+        TOF: { bg: "#0a0f1e", bg2: "#0d1b3e", ac: "#4f8ef7", tx: "#f0f4ff", sub: "#8fa3cc", btn: "#1a56db" },
+        MOF: { bg: "#12082a", bg2: "#1e0f40", ac: "#9d6ef9", tx: "#f3f0ff", sub: "#9b85c8", btn: "#6d28d9" },
+        BOF: { bg: "#031a0e", bg2: "#062d18", ac: "#22d07a", tx: "#f0fff7", sub: "#71c998", btn: "#059652" },
       };
-      const [bg, ac, tx, sb] = pals[funnel] || pals["TOF"];
+      const p = pals[funnel] || pals["TOF"];
+
       const W = 400;
       const H = format === "stories" ? 711 : format === "square" ? 400 : 500;
 
-      // Escape XML — sem chars especiais problemáticos no btoa
+      // Escape XML seguro — sem chars não-ASCII no btoa
       const x = (s: string) => s
-        .replace(/&/g, "e")
-        .replace(/</g, " ")
-        .replace(/>/g, " ")
-        .replace(/"/g, " ")
-        .replace(/[^ -]/g, (c) => "&#" + c.charCodeAt(0) + ";");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/[^ -]/g, c => "&#" + c.charCodeAt(0) + ";");
 
-      // Quebrar headline em 2 linhas de 22 chars
-      const words = headline.split(" ");
-      const lines: string[] = [];
-      let cur = "";
-      for (const w of words) {
-        if ((cur + " " + w).trim().length > 22) { lines.push(cur.trim()); cur = w; }
-        else cur = (cur + " " + w).trim();
+      // Quebrar headline em linhas
+      const hlWords = headline.split(" ");
+      const hlLines: string[] = [];
+      let hlCur = "";
+      for (const w of hlWords) {
+        const test = (hlCur ? hlCur + " " : "") + w;
+        if (test.length > 20) { if (hlCur) hlLines.push(hlCur); hlCur = w; }
+        else hlCur = test;
       }
-      if (cur) lines.push(cur.trim());
-      const hl = lines.slice(0, 2);
+      if (hlCur) hlLines.push(hlCur);
+      const hl = hlLines.slice(0, 3);
 
-      const yH = 100;
-      const yC = yH + hl.length * 36 + 16;
-      const yBtn = H - 72;
-
-      let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
-      svg += '<rect width="' + W + '" height="' + H + '" fill="' + bg + '"/>';
-      svg += '<rect x="0" y="0" width="4" height="' + H + '" fill="' + ac + '"/>';
-      svg += '<rect x="0" y="' + (H - 80) + '" width="' + W + '" height="80" fill="rgba(0,0,0,0.45)"/>';
-      svg += '<rect x="16" y="60" width="40" height="3" rx="2" fill="' + ac + '"/>';
-      hl.forEach((line, i) => {
-        svg += '<text x="16" y="' + (yH + i * 36) + '" font-family="Arial" font-size="22" font-weight="800" fill="' + tx + '">' + x(line) + '</text>';
-      });
+      // Quebrar copy
       const cpWords = copy.split(" ");
       const cpLines: string[] = [];
       let cpCur = "";
       for (const w of cpWords) {
-        if ((cpCur + " " + w).trim().length > 40) { cpLines.push(cpCur.trim()); cpCur = w; }
-        else cpCur = (cpCur + " " + w).trim();
+        const test = (cpCur ? cpCur + " " : "") + w;
+        if (test.length > 42) { if (cpCur) cpLines.push(cpCur); cpCur = w; }
+        else cpCur = test;
       }
-      if (cpCur) cpLines.push(cpCur.trim());
-      cpLines.slice(0, 3).forEach((line, i) => {
-        svg += '<text x="16" y="' + (yC + i * 22) + '" font-family="Arial" font-size="13" fill="' + sb + '">' + x(line) + '</text>';
-      });
-      const btnW = Math.min(cta.length * 10 + 24, W - 32);
-      svg += '<rect x="16" y="' + yBtn + '" rx="7" ry="7" width="' + btnW + '" height="32" fill="' + ac + '"/>';
-      svg += '<text x="28" y="' + (yBtn + 21) + '" font-family="Arial" font-size="13" font-weight="700" fill="' + bg + '">' + x(cta) + '</text>';
-      svg += '</svg>';
+      if (cpCur) cpLines.push(cpCur);
+      const cp = cpLines.slice(0, 3);
 
-      // encodeURIComponent é mais seguro que btoa para SVG com chars especiais
-      return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      const yHL   = 115;
+      const yCP   = yHL + hl.length * 34 + 18;
+      const yBTN  = H - 68;
+
+      // Tipo de criativo como badge
+      const typeLabel = type.includes("video") ? "VIDEO" : type.includes("carousel") ? "CARROSSEL"
+        : type.includes("story") ? "STORY" : "IMAGEM";
+      const angleLabel = angle ? angle.replace(/_/g, " ").toUpperCase().slice(0, 18) : "";
+
+      let s = "";
+      s += `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+      s += "<defs>";
+      // Gradiente de fundo
+      s += `<linearGradient id="bg" x1="0" y1="0" x2="0.3" y2="1">`;
+      s += `<stop offset="0%" stop-color="${p.bg}"/>`;
+      s += `<stop offset="100%" stop-color="${p.bg2}"/>`;
+      s += "</linearGradient>";
+      // Gradiente de brilho superior
+      s += `<linearGradient id="glow" x1="0" y1="0" x2="1" y2="0">`;
+      s += `<stop offset="0%" stop-color="${p.ac}" stop-opacity="0.25"/>`;
+      s += `<stop offset="100%" stop-color="${p.ac}" stop-opacity="0"/>`;
+      s += "</linearGradient>";
+      // Gradiente inferior overlay
+      s += `<linearGradient id="bot" x1="0" y1="0" x2="0" y2="1">`;
+      s += `<stop offset="0%" stop-color="rgba(0,0,0,0)" stop-opacity="0"/>`;
+      s += `<stop offset="100%" stop-color="rgba(0,0,0,0.65)" stop-opacity="1"/>`;
+      s += "</linearGradient>";
+      s += `<filter id="blur"><feGaussianBlur stdDeviation="18"/></filter>`;
+      s += "</defs>";
+
+      // Fundo
+      s += `<rect width="${W}" height="${H}" fill="url(#bg)"/>`;
+      // Círculo de brilho decorativo
+      s += `<circle cx="${W * 0.75}" cy="${H * 0.18}" r="120" fill="${p.ac}" opacity="0.06" filter="url(#blur)"/>`;
+      s += `<circle cx="${W * 0.15}" cy="${H * 0.75}" r="90" fill="${p.ac}" opacity="0.05" filter="url(#blur)"/>`;
+      // Overlay brilho lateral
+      s += `<rect x="0" y="0" width="${W * 0.5}" height="${H}" fill="url(#glow)"/>`;
+      // Overlay escuro inferior
+      s += `<rect x="0" y="${H * 0.55}" width="${W}" height="${H * 0.45}" fill="url(#bot)"/>`;
+      // Linha decorativa lateral
+      s += `<rect x="0" y="0" width="3" height="${H}" fill="${p.ac}" opacity="0.9"/>`;
+      // Linha horizontal sutil no topo
+      s += `<rect x="0" y="0" width="${W}" height="1" fill="${p.ac}" opacity="0.2"/>`;
+
+      // Badge de tipo/funil (topo esquerda)
+      s += `<rect x="16" y="18" rx="5" ry="5" width="${typeLabel.length * 7 + 16}" height="20" fill="${p.ac}" opacity="0.2"/>`;
+      s += `<text x="24" y="32" font-family="Arial,Helvetica,sans-serif" font-size="10" font-weight="700" fill="${p.ac}" letter-spacing="1">${x(typeLabel)}</text>`;
+
+      // Badge de ângulo (se existir)
+      if (angleLabel) {
+        const ax = typeLabel.length * 7 + 40;
+        s += `<rect x="${ax}" y="18" rx="5" ry="5" width="${angleLabel.length * 6 + 14}" height="20" fill="${p.ac}" opacity="0.12"/>`;
+        s += `<text x="${ax + 7}" y="32" font-family="Arial,Helvetica,sans-serif" font-size="9" font-weight="600" fill="${p.sub}">${x(angleLabel)}</text>`;
+      }
+
+      // Separador
+      s += `<rect x="16" y="52" width="32" height="2" rx="1" fill="${p.ac}" opacity="0.8"/>`;
+
+      // Funil badge
+      s += `<text x="56" y="65" font-family="Arial,Helvetica,sans-serif" font-size="10" fill="${p.sub}" opacity="0.8">${x(funnel)} · MECPro AI</text>`;
+
+      // Headline
+      hl.forEach((line, i) => {
+        s += `<text x="16" y="${yHL + i * 34}" font-family="Arial,Helvetica,sans-serif" font-size="${i === 0 ? 24 : 22}" font-weight="800" fill="${p.tx}">${x(line)}</text>`;
+      });
+
+      // Copy
+      cp.forEach((line, i) => {
+        s += `<text x="16" y="${yCP + i * 20}" font-family="Arial,Helvetica,sans-serif" font-size="13" fill="${p.sub}">${x(line)}</text>`;
+      });
+
+      // Botão CTA
+      const btnW = Math.min(cta.length * 9 + 28, W - 32);
+      s += `<rect x="16" y="${yBTN}" rx="8" ry="8" width="${btnW}" height="34" fill="${p.btn}"/>`;
+      s += `<rect x="16" y="${yBTN}" rx="8" ry="8" width="${btnW}" height="34" fill="${p.ac}" opacity="0.2"/>`;
+      s += `<text x="${16 + btnW / 2}" y="${yBTN + 22}" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">${x(cta)}</text>`;
+
+      // Watermark sutil
+      s += `<text x="${W - 12}" y="${H - 10}" font-family="Arial,Helvetica,sans-serif" font-size="9" fill="${p.sub}" opacity="0.4" text-anchor="end">mecproai.com</text>`;
+
+      s += "</svg>";
+
+      return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s);
     } catch {
-      // Fallback absoluto — retorna placeholder simples
       return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#0f172a"/><text x="20" y="60" font-family="Arial" font-size="18" fill="white">Criativo</text></svg>'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#0a0f1e"/><text x="20" y="60" font-family="Arial" font-size="18" font-weight="800" fill="white">Criativo</text></svg>'
       );
     }
   }
@@ -1582,7 +1651,7 @@ export default function CampaignResult() {
                             onClick={() => regenerateCreativeImageMutation.mutate({ campaignId: id, creativeIndex: i, format: creativeFormat })}
                             disabled={regenerateCreativeImageMutation.isLoading}
                             style={{ fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>
-                            🖼️ {creativeImage ? "Regenerar imagem" : "Gerar imagem"}
+                            🖼️ {regenerateCreativeImageMutation.isLoading ? "Gerando..." : creativeImage && !creativeImage.includes("placehold") ? "Regenerar imagem" : "Gerar com HeyGen"}
                           </button>
                           <label
                             htmlFor={`creative-image-input-${i}`}
