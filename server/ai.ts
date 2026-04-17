@@ -1077,7 +1077,12 @@ export async function gemini(
     } catch (e: any) {
       log.warn("ai", "Groq falhou no modo OFF", { message: e?.message?.slice(0, 80) });
     }
-    log.warn("ai", "Groq indisponível no modo OFF — usando mock");
+    // Genspark como último recurso no modo OFF
+    try {
+      const gsResult = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature);
+      if (gsResult) { log.info("ai", "✅ Genspark fallback OK (modo OFF)"); return gsResult; }
+    } catch { /* silencioso */ }
+    log.warn("ai", "Groq e Genspark indisponíveis no modo OFF — usando mock");
     return mockResponse(prompt);
   }
 
@@ -1098,6 +1103,8 @@ export async function gemini(
     log.warn("ai", "Nenhuma GEMINI_API_KEY configurada — usando Groq como fallback");
     const groqResult = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature);
     if (groqResult) return groqResult;
+    const gsResult2 = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature);
+    if (gsResult2) { log.info("ai", "✅ Genspark fallback OK (sem Gemini key)"); return gsResult2; }
     return mockResponse(prompt);
   }
 
@@ -1184,6 +1191,12 @@ export async function gemini(
       if (groqResult) {
         log.info("ai", "✅ Groq API fallback OK");
         return groqResult;
+      }
+      // Groq também falhou — tentar Genspark
+      const gsResult3 = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature);
+      if (gsResult3) {
+        log.info("ai", "✅ Genspark fallback OK (Gemini indisponível)");
+        return gsResult3;
       }
     } catch (groqErr: any) {
       log.warn("ai", "Groq API fallback falhou", { message: groqErr?.message?.slice(0, 80) });
@@ -1291,6 +1304,62 @@ async function callGroqAPI(
     }
   }
 
+  return null;
+}
+
+// ── Genspark API — fallback OpenAI-compatível com modelos avançados ─────────
+async function callGensparkAPI(
+  prompt: string,
+  systemInstruction?: string,
+  temperature: number = 0.35,
+): Promise<string | null> {
+  const apiKey = (process.env.GENSPARK_API_KEY || "").trim();
+  if (!apiKey) return null;
+
+  // Genspark suporta múltiplos modelos via API compatível com OpenAI
+  const models = [
+    process.env.GENSPARK_MODEL || "genspark-auto",
+  ];
+
+  for (const model of models) {
+    try {
+      log.info("ai", "Genspark: tentando", { model });
+      const res = await fetch("https://api.genspark.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature,
+          max_tokens: 8192,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemInstruction || "Você é um assistente de marketing digital especializado. Responda sempre em JSON válido." },
+            { role: "user",   content: prompt },
+          ],
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+
+      if (!res.ok) {
+        const err = await res.text().catch(() => "");
+        log.warn("ai", "Genspark HTTP erro", { status: res.status, preview: err.slice(0, 120) });
+        continue;
+      }
+
+      const data = await res.json() as any;
+      const text = data?.choices?.[0]?.message?.content?.trim();
+
+      if (text) {
+        log.info("ai", "Genspark OK", { model, chars: text.length });
+        return text;
+      }
+    } catch (err: any) {
+      log.warn("ai", "Genspark exception", { model, error: err?.message?.slice(0, 80) });
+    }
+  }
   return null;
 }
 
@@ -4177,9 +4246,14 @@ function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string
   const hfKey     = (process.env.HUGGINGFACE_API_KEY || "").trim();
   const heygenKey = (process.env.HEYGEN_API_KEY      || "").trim();
 
-  // Prioridade: IMAGE_PROVIDER explícito > HeyGen (se tem key) > HuggingFace > mock
+  const gsKey = (process.env.GENSPARK_API_KEY || "").trim();
+
+  // Prioridade: IMAGE_PROVIDER explícito > HeyGen > Genspark > HuggingFace > mock
   if (explicitProvider === "heygen" || (!explicitProvider && heygenKey)) {
     return { provider: "heygen", apiKey: heygenKey };
+  }
+  if (explicitProvider === "genspark" || (!explicitProvider && gsKey && !heygenKey)) {
+    return { provider: "genspark" as any, apiKey: gsKey };
   }
   if (explicitProvider === "huggingface" || (!explicitProvider && hfKey)) {
     return { provider: "huggingface", apiKey: hfKey };

@@ -43,8 +43,10 @@ console.log('[BOOT] HEYGEN_API_KEY set:', !!_heygenKey, _heygenKey ? '(' + _heyg
 console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? '(' + _hfKey.slice(0,8) + '...)' : '— nao configurada');
 console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET), '(storage para HF)');
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude):', !!process.env.ANTHROPIC_API_KEY);
-const _elevenKey = (process.env.ELEVENLABS_API_KEY || '').trim();
-console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey, _elevenKey ? '(' + _elevenKey.slice(0,8) + '...)' : '— nao configurada');
+const _elevenKey  = (process.env.ELEVENLABS_API_KEY || '').trim();
+const _gensparkKey = (process.env.GENSPARK_API_KEY   || '').trim();
+console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey,  _elevenKey  ? '(' + _elevenKey.slice(0,12)  + '...)' : '— nao configurada');
+console.log('[BOOT] GENSPARK_API_KEY set:',   !!_gensparkKey, _gensparkKey ? '(' + _gensparkKey.slice(0,12) + '...)' : '— nao configurada');
 console.log('[BOOT] PID:', process.pid);
 
 // ── Sentry — captura erros em produção ──────────────────────────────────────

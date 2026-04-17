@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { log } from "./logger";
 
-export type ImageProvider = "huggingface" | "heygen" | "mock";
+export type ImageProvider = "huggingface" | "heygen" | "genspark" | "mock";
 export type CreativeImageFormat = "feed" | "stories" | "square";
 
 const IMAGE_CACHE = new Map<string, string>();
@@ -393,6 +393,72 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
   return null;
 }
 
+async function generateWithGenspark(
+  creative: any,
+  objective: string,
+  format: CreativeImageFormat,
+): Promise<string | null> {
+  const apiKey = (process.env.GENSPARK_API_KEY || "").trim();
+  if (!apiKey) return null;
+
+  const prompt = inferPrompt(creative, "", objective, format);
+  const dim    = FORMAT_DIMENSIONS[format];
+
+  // Genspark usa API compatível com OpenAI para imagens
+  // Endpoint: POST /v1/images/generations
+  try {
+    log.info("image-generation", "Genspark: gerando imagem", { format });
+
+    const res = await fetch("https://api.genspark.ai/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type":  "application/json",
+        Accept:          "application/json",
+      },
+      body: JSON.stringify({
+        prompt,
+        model:   process.env.GENSPARK_IMAGE_MODEL || "genspark-image-auto",
+        n:       1,
+        size:    `${Math.min(dim.width, 1024)}x${Math.min(dim.height, 1024)}`,
+        quality: "hd",
+        style:   "natural",
+      }),
+      signal: AbortSignal.timeout(90000),
+    });
+
+    const raw = await res.text().catch(() => "{}");
+    log.info("image-generation", "Genspark resposta", { status: res.status, preview: raw.slice(0, 300) });
+
+    if (!res.ok) return null;
+
+    let data: any = {};
+    try { data = JSON.parse(raw); } catch { return null; }
+
+    // Resposta DALL-E compatible: data[0].url ou data[0].b64_json
+    const url    = data?.data?.[0]?.url;
+    const b64    = data?.data?.[0]?.b64_json;
+
+    if (url) {
+      log.info("image-generation", "Genspark OK (url)", { url: (url as string).slice(0, 80) });
+      return url as string;
+    }
+    if (b64) {
+      const dataUrl = "data:image/png;base64," + b64;
+      log.info("image-generation", "Genspark OK (b64)", { bytes: b64.length });
+      return dataUrl;
+    }
+
+    log.warn("image-generation", "Genspark: sem url nem b64 na resposta", {
+      keys: Object.keys(data?.data?.[0] || {}).join(","),
+    });
+  } catch (err: any) {
+    log.warn("image-generation", "Genspark exception", { error: err?.message?.slice(0, 100) });
+  }
+  return null;
+}
+
+
 export async function generateAdImage(
   creative: any,
   segment: string,
@@ -427,6 +493,14 @@ export async function generateAdImage(
 
     if (provider === "heygen") {
       const url = await generateWithHeyGen(creative, objective, format);
+      if (url) {
+        IMAGE_CACHE.set(cacheKey, url);
+        return url;
+      }
+    }
+
+    if (provider === "genspark") {
+      const url = await generateWithGenspark(creative, objective, format);
       if (url) {
         IMAGE_CACHE.set(cacheKey, url);
         return url;
