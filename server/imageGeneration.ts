@@ -5,12 +5,14 @@ export type ImageProvider = "huggingface" | "heygen" | "mock";
 export type CreativeImageFormat = "feed" | "stories" | "square";
 
 const IMAGE_CACHE = new Map<string, string>();
-// API nova do HuggingFace: /v1/models/{model}/generate-image
-// Modelos disponíveis via API serverless gratuita
+// API nova HuggingFace router: /v1/text-to-image
+// FLUX.1-schnell: gratuito, rápido (4 steps), nova API
+// SD 3.5 Large: alta qualidade, nova API
+// SDXL Turbo: fallback rápido
 const HF_MODELS = [
-  "black-forest-labs/FLUX.1-dev",
-  "stabilityai/stable-diffusion-xl-base-1.0",
-  "stabilityai/stable-diffusion-2-1",
+  "black-forest-labs/FLUX.1-schnell",
+  "stabilityai/stable-diffusion-3-5-large",
+  "stabilityai/sdxl-turbo",
 ];
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
@@ -192,28 +194,36 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
   for (const model of HF_MODELS) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        // Tentar nova API primeiro, depois legada
-        const newApiUrl = "https://router.huggingface.co/hf-inference/models/" + model + "/v1/text-to-image";
-        const legacyUrl = "https://api-inference.huggingface.co/models/" + model;
-        const apiUrl = model.includes("FLUX") ? newApiUrl : legacyUrl;
+        // Todos os modelos usam a nova API do router HF
+        const apiUrl = "https://router.huggingface.co/hf-inference/models/" + model + "/v1/text-to-image";
+
+        // Payload adapta por modelo:
+        // FLUX.1-schnell: sem guidance_scale, poucos steps
+        // SD 3.5 / SDXL: com width/height e guidance
+        const isFlux   = model.includes("FLUX");
+        const isTurbo  = model.includes("turbo");
+        const params: Record<string, any> = { inputs: prompt };
+        if (!isFlux) {
+          params.parameters = {
+            width:               Math.min(dim.width,  1024),
+            height:              Math.min(dim.height, 1024),
+            num_inference_steps: isTurbo ? 4 : 28,
+            guidance_scale:      isTurbo ? 0 : 7,
+          };
+        } else {
+          // FLUX.1-schnell: apenas steps (sem guidance_scale)
+          params.parameters = { num_inference_steps: 4 };
+        }
 
         const res = await fetch(apiUrl, {
           method: "POST",
           headers: {
             Authorization: "Bearer " + apiKey,
             "Content-Type": "application/json",
-            Accept: "image/png",
+            Accept: "image/jpeg,image/png,image/*",
           },
-          body: JSON.stringify({
-            inputs: prompt,
-            parameters: {
-              width:  Math.min(dim.width,  1024),
-              height: Math.min(dim.height, 1024),
-              num_inference_steps: 4,  // FLUX.1-dev funciona com 4 steps
-              guidance_scale: 3.5,
-            },
-          }),
-          signal: AbortSignal.timeout(60000),
+          body: JSON.stringify(params),
+          signal: AbortSignal.timeout(90000),
         });
 
         if (res.status === 503) {
@@ -248,12 +258,59 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
 }
 
 async function generateWithHeyGen(creative: any, objective: string, format: CreativeImageFormat): Promise<string | null> {
-  log.warn("image-generation", "HeyGen não possui fluxo estável de imagem neste projeto; usando mock seguro", {
-    objective,
-    format,
-    creativeType: creative?.type || null,
-  });
-  return buildMockUrl(creative, objective, format);
+  const apiKey = (process.env.HEYGEN_API_KEY || "").trim();
+  if (!apiKey) {
+    log.warn("image-generation", "HEYGEN_API_KEY nao configurada");
+    return null;
+  }
+
+  const dim    = FORMAT_DIMENSIONS[format];
+  const prompt = inferPrompt(creative, "", objective, format);
+
+  try {
+    log.info("image-generation", "HeyGen: gerando imagem", { format, objective });
+
+    // HeyGen usa geração de imagem via talking photo / AI image
+    // Endpoint: /v2/ai_avatar/generate_image
+    const res = await fetch("https://api.heygen.com/v2/ai_avatar/generate_image", {
+      method: "POST",
+      headers: {
+        "X-Api-Key":    apiKey,
+        "Content-Type": "application/json",
+        Accept:         "application/json",
+      },
+      body: JSON.stringify({
+        prompt,
+        negative_prompt: "blurry, low quality, text, watermark, nsfw",
+        width:  Math.min(dim.width,  1024),
+        height: Math.min(dim.height, 1024),
+        seed:   Math.floor(Math.random() * 999999),
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      log.warn("image-generation", "HeyGen erro", { status: res.status, err: err.slice(0, 150) });
+      return null;
+    }
+
+    const data = await res.json() as any;
+    const imageUrl = data?.data?.image_url || data?.image_url || data?.url;
+
+    if (imageUrl) {
+      log.info("image-generation", "HeyGen OK", { format, url: imageUrl.slice(0, 60) });
+      IMAGE_CACHE.set("", imageUrl);
+      return imageUrl;
+    }
+
+    log.warn("image-generation", "HeyGen: resposta sem image_url", { data: JSON.stringify(data).slice(0, 200) });
+    return null;
+
+  } catch (err: any) {
+    log.warn("image-generation", "HeyGen exception", { error: err?.message?.slice(0, 100) });
+    return null;
+  }
 }
 
 export async function generateAdImage(

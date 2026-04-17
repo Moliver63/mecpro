@@ -30,12 +30,18 @@ console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude fallback):', !!process.env.ANTHROPIC_API_KEY);
 console.log('[BOOT] ASAAS_API_KEY set (Pix pagamentos):', !!process.env.ASAAS_API_KEY);
 console.log('[BOOT] ASAAS_WEBHOOK_TOKEN set (segurança):', !!process.env.ASAAS_WEBHOOK_TOKEN);
-const _hfKey = (process.env.HUGGINGFACE_API_KEY || '').trim();
+const _hfKey     = (process.env.HUGGINGFACE_API_KEY || '').trim();
+const _heygenKey = (process.env.HEYGEN_API_KEY      || '').trim();
 const _imgProvider = (process.env.IMAGE_PROVIDER || '').toLowerCase();
-const _effectiveProvider = _imgProvider === 'huggingface' || (!_imgProvider && _hfKey) ? 'huggingface' : _imgProvider || 'mock';
-console.log('[BOOT] IMAGE_PROVIDER (efetivo):', _effectiveProvider, _effectiveProvider === 'huggingface' && _hfKey ? '✅ HF ativo' : '⚠️  usando SVG/mock');
-console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? `(${_hfKey.slice(0,8)}...)` : '— NÃO CONFIGURADA');
-console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET), '(opcional — HF funciona sem)');
+const _effectiveProvider = _imgProvider === 'heygen' ? 'heygen'
+  : _imgProvider === 'huggingface' ? 'huggingface'
+  : (!_imgProvider && _heygenKey && !_hfKey) ? 'heygen (auto)'
+  : (!_imgProvider && _hfKey) ? 'huggingface (auto)'
+  : 'mock (SVG)';
+console.log('[BOOT] IMAGE_PROVIDER (efetivo):', _effectiveProvider);
+console.log('[BOOT] HEYGEN_API_KEY set:', !!_heygenKey, _heygenKey ? '(' + _heygenKey.slice(0,8) + '...)' : '— nao configurada');
+console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? '(' + _hfKey.slice(0,8) + '...)' : '— nao configurada');
+console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET), '(storage para HF)');
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude):', !!process.env.ANTHROPIC_API_KEY);
 const _elevenKey = (process.env.ELEVENLABS_API_KEY || '').trim();
 console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey, _elevenKey ? '(' + _elevenKey.slice(0,8) + '...)' : '— nao configurada');

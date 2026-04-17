@@ -4174,14 +4174,18 @@ function resolveCreativeImageFormat(creative: any): CreativeImageFormat {
 
 function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string } {
   const explicitProvider = String(process.env.IMAGE_PROVIDER || "").toLowerCase();
-  const hfKey = (process.env.HUGGINGFACE_API_KEY || "").trim();
+  const hfKey     = (process.env.HUGGINGFACE_API_KEY || "").trim();
+  const heygenKey = (process.env.HEYGEN_API_KEY      || "").trim();
 
-  // Auto-detecção: se tem HUGGINGFACE_API_KEY, ativa HF mesmo sem IMAGE_PROVIDER definido
+  // Prioridade: IMAGE_PROVIDER explícito > HeyGen (se tem key) > HuggingFace > mock
+  if (explicitProvider === "heygen" || (!explicitProvider && heygenKey && !hfKey)) {
+    return { provider: "heygen", apiKey: heygenKey };
+  }
   if (explicitProvider === "huggingface" || (!explicitProvider && hfKey)) {
     return { provider: "huggingface", apiKey: hfKey };
   }
   if (explicitProvider === "heygen") {
-    return { provider: "heygen", apiKey: process.env.HEYGEN_API_KEY || "" };
+    return { provider: "heygen", apiKey: heygenKey };
   }
   return { provider: "mock", apiKey: "" };
 }
