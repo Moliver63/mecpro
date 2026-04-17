@@ -3595,6 +3595,128 @@ const notificationsRouter = router({
 const integrationsRouter = router({
   list: protectedProcedure.query(({ ctx }) => db.listApiIntegrations(ctx.user.id)),
 
+  // ── Meta OAuth — URL de autorização ────────────────────────────────────────
+  getMetaAuthUrl: protectedProcedure
+    .input(z.object({ redirectUri: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Busca App ID da integração do usuário ou do ambiente
+      const integration = await db.getApiIntegration(ctx.user.id, "meta").catch(() => null) as any;
+      const appId = integration?.appId || process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "";
+      if (!appId) throw new TRPCError({ code: "BAD_REQUEST", message: "App ID do Facebook não configurado. Configure em Integrações → Meta Ads." });
+
+      const scope = [
+        "ads_management",
+        "ads_read",
+        "business_management",
+        "pages_read_engagement",
+        "pages_show_list",
+        "leads_retrieval",
+        "whatsapp_business_management",
+        "public_profile",
+      ].join(",");
+
+      const state = Buffer.from(JSON.stringify({ userId: ctx.user.id, ts: Date.now() })).toString("base64url");
+
+      const params = new URLSearchParams({
+        client_id:     appId,
+        redirect_uri:  input.redirectUri,
+        scope,
+        response_type: "code",
+        state,
+      });
+
+      return { url: `https://www.facebook.com/v20.0/dialog/oauth?${params.toString()}`, state };
+    }),
+
+  // ── Meta OAuth — Trocar code por token ───────────────────────────────────
+  exchangeMetaCode: protectedProcedure
+    .input(z.object({
+      code:        z.string(),
+      redirectUri: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta").catch(() => null) as any;
+      const appId     = integration?.appId     || process.env.META_APP_ID     || process.env.FACEBOOK_APP_ID     || "";
+      const appSecret = integration?.appSecret || process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "";
+
+      if (!appId || !appSecret) throw new TRPCError({ code: "BAD_REQUEST", message: "App ID e App Secret não configurados." });
+
+      // 1. Trocar code por short-lived token
+      const tokenRes = await fetch(
+        `https://graph.facebook.com/v20.0/oauth/access_token?` +
+        `client_id=${appId}&client_secret=${appSecret}` +
+        `&redirect_uri=${encodeURIComponent(input.redirectUri)}` +
+        `&code=${input.code}`,
+        { signal: AbortSignal.timeout(15000) }
+      );
+      const tokenData: any = await tokenRes.json();
+      if (tokenData.error) throw new TRPCError({ code: "BAD_REQUEST", message: tokenData.error.message });
+
+      const shortToken = tokenData.access_token;
+
+      // 2. Trocar por long-lived token (válido por 60 dias)
+      const longRes = await fetch(
+        `https://graph.facebook.com/v20.0/oauth/access_token?` +
+        `grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}` +
+        `&fb_exchange_token=${shortToken}`,
+        { signal: AbortSignal.timeout(15000) }
+      );
+      const longData: any = await longRes.json();
+      const longToken  = longData.access_token || shortToken;
+      const expiresIn  = longData.expires_in   || 5184000; // 60 dias padrão
+
+      // 3. Buscar dados do usuário (nome, páginas, contas de anúncio)
+      const meRes = await fetch(
+        `https://graph.facebook.com/v20.0/me?fields=id,name,picture&access_token=${longToken}`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+      const meData: any = await meRes.json();
+
+      // 4. Buscar contas de anúncios vinculadas
+      const adAccountsRes = await fetch(
+        `https://graph.facebook.com/v20.0/me/adaccounts?fields=id,name,account_status,currency&access_token=${longToken}&limit=50`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+      const adAccountsData: any = await adAccountsRes.json();
+      const adAccounts = adAccountsData.data || [];
+
+      // 5. Buscar páginas do Facebook
+      const pagesRes = await fetch(
+        `https://graph.facebook.com/v20.0/me/accounts?fields=id,name,access_token,picture&access_token=${longToken}&limit=50`,
+        { signal: AbortSignal.timeout(10000) }
+      );
+      const pagesData: any = await pagesRes.json();
+      const pages = pagesData.data || [];
+
+      // 6. Salvar token no banco (atualiza integração existente)
+      const tokenExpiry = new Date(Date.now() + expiresIn * 1000);
+      await db.upsertApiIntegration({
+        userId:         ctx.user.id,
+        provider:       "meta",
+        accessToken:    longToken,
+        adAccountId:    adAccounts[0]?.id || integration?.adAccountId || null,
+        tokenExpiresAt: tokenExpiry,
+      });
+
+      log.info("meta-oauth", "Token Meta salvo via OAuth", {
+        userId:      ctx.user.id,
+        userName:    meData.name,
+        adAccounts:  adAccounts.length,
+        pages:       pages.length,
+        expiresAt:   tokenExpiry.toISOString(),
+      });
+
+      return {
+        success:    true,
+        userName:   meData.name,
+        userId:     meData.id,
+        adAccounts,
+        pages,
+        expiresAt:  tokenExpiry.toISOString(),
+        tokenPrefix: longToken.slice(0, 8) + "...",
+      };
+    }),
+
   // ── Salvar e validar WhatsApp na conta Meta ──────────────────────────────
   saveWhatsApp: protectedProcedure
     .input(z.object({
