@@ -37,6 +37,8 @@ console.log('[BOOT] IMAGE_PROVIDER (efetivo):', _effectiveProvider, _effectivePr
 console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? `(${_hfKey.slice(0,8)}...)` : '— NÃO CONFIGURADA');
 console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET), '(opcional — HF funciona sem)');
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude):', !!process.env.ANTHROPIC_API_KEY);
+const _elevenKey = (process.env.ELEVENLABS_API_KEY || '').trim();
+console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey, _elevenKey ? '(' + _elevenKey.slice(0,8) + '...)' : '— nao configurada');
 console.log('[BOOT] PID:', process.pid);
 
 // ── Sentry — captura erros em produção ──────────────────────────────────────

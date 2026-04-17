@@ -96,8 +96,10 @@ export default function VSLGeneratorPanel({
   });
 
   // tRPC
-  const healthQuery     = (trpc as any).vsl?.serviceHealth?.useQuery?.();
-  const formatsQuery    = (trpc as any).vsl?.listFormats?.useQuery?.();
+  const healthQuery       = (trpc as any).vsl?.serviceHealth?.useQuery?.();
+  const formatsQuery      = (trpc as any).vsl?.listFormats?.useQuery?.();
+  const voicesQuery       = (trpc as any).vsl?.listVoices?.useQuery?.();
+  const generateTTSMutation = (trpc as any).vsl?.generateSceneTTS?.useMutation?.();
   const statusQuery     = (trpc as any).vsl?.jobStatus?.useQuery?.(
     { jobId: activeJobId! },
     { enabled: !!activeJobId, refetchInterval: activeJobId ? 3000 : false }
@@ -349,6 +351,27 @@ export default function VSLGeneratorPanel({
                   </div>
                 </div>
 
+                {/* Seletor de voz ElevenLabs */}
+                <div style={{ marginTop: 14 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b", display: "block", marginBottom: 4 }}>
+                    🎙️ Voz da narração {voicesQuery?.data?.configured ? "(ElevenLabs ativo)" : "(configure ELEVENLABS_API_KEY)"}
+                  </label>
+                  <select className="input" value={form.voice}
+                    onChange={e => setForm((prev: any) => ({ ...prev, voice: e.target.value }))}
+                    style={{ fontSize: 12, width: "100%" }}>
+                    {(voicesQuery?.data?.voices || [
+                      { id: "hpp4J3VqNfWAUOO0d1Us", name: "Alex (masculino, confiante)" },
+                      { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (feminina, profissional)" },
+                      { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi (feminina, energética)" },
+                      { id: "ErXwobaYiN019PkySvjV", name: "Antoni (masculino, suave)" },
+                      { id: "VR6AewLTigWG4xSOukaG", name: "Arnold (masculino, forte)" },
+                      { id: "pNInz6obpgDQGcFmaJgB", name: "Adam (masculino, narrador)" },
+                    ]).map((v: any) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8 }}>
                   <input type="checkbox" id="draft-mode" checked={form.draft}
                     onChange={e => setForm(prev => ({ ...prev, draft: e.target.checked }))} />
@@ -456,6 +479,53 @@ export default function VSLGeneratorPanel({
                         </div>
                         <div style={{ fontSize: 10, color: "#94a3b8", fontStyle: "italic" }}>
                           🖼️ {scene.prompt.slice(0, 80)}{scene.prompt.length > 80 ? "..." : ""}
+                        </div>
+                        {/* Botão de preview de áudio ElevenLabs */}
+                        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                          <button
+                            onClick={async () => {
+                              if (ttsPreview?.sceneIdx === idx) {
+                                setTtsPreview(null); return;
+                              }
+                              setTtsLoading(idx);
+                              try {
+                                const result = await generateTTSMutation?.mutateAsync({
+                                  text:    scene.narration,
+                                  voiceId: form.voice,
+                                });
+                                if (result?.audioBase64) {
+                                  const blob = new Blob(
+                                    [Uint8Array.from(atob(result.audioBase64), c => c.charCodeAt(0))],
+                                    { type: "audio/mpeg" }
+                                  );
+                                  const url = URL.createObjectURL(blob);
+                                  setTtsPreview({ sceneIdx: idx, url });
+                                }
+                              } catch (e: any) {
+                                toast.error("❌ TTS: " + (e?.message || "Erro ao gerar áudio"));
+                              } finally {
+                                setTtsLoading(null);
+                              }
+                            }}
+                            disabled={ttsLoading === idx}
+                            style={{
+                              fontSize: 11, padding: "4px 12px", borderRadius: 8, cursor: "pointer",
+                              background: ttsPreview?.sceneIdx === idx ? "#dcfce7" : "#f0f9ff",
+                              color:      ttsPreview?.sceneIdx === idx ? "#15803d" : "#0369a1",
+                              border:     "1px solid " + (ttsPreview?.sceneIdx === idx ? "#86efac" : "#bae6fd"),
+                              fontWeight: 700,
+                            }}>
+                            {ttsLoading === idx ? "⏳ Gerando..." : ttsPreview?.sceneIdx === idx ? "⏹ Parar" : "🎙️ Ouvir narração"}
+                          </button>
+                          {ttsPreview?.sceneIdx === idx && (
+                            <audio
+                              src={ttsPreview.url}
+                              autoPlay
+                              controls
+                              style={{ height: 28, flex: 1 }}
+                              onEnded={() => setTtsPreview(null)}
+                            />
+                          )}
                         </div>
                         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                           <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 10, background: "#f1f5f9", color: "#64748b" }}>

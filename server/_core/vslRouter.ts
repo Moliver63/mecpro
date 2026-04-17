@@ -18,6 +18,7 @@ import { TRPCError }  from "@trpc/server";
 import { router, protectedProcedure } from "./trpc";
 import { log }        from "../logger";
 import { gemini }     from "../ai";
+import { generateTTS, listElevenLabsVoices, estimateTTSChars, DEFAULT_VOICES } from "../elevenlabs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONFIG
@@ -356,6 +357,57 @@ export const vslRouter = router({
       }
 
       return { jobs, total: jobs.length };
+    }),
+
+  // ── Listar vozes ElevenLabs ──────────────────────────────────────────────
+  listVoices: protectedProcedure
+    .query(async () => {
+      const key = (process.env.ELEVENLABS_API_KEY || "").trim();
+      if (!key) return { voices: DEFAULT_VOICES, configured: false };
+      const voices = await listElevenLabsVoices();
+      return { voices, configured: true };
+    }),
+
+  // ── Gerar narração TTS para uma cena ─────────────────────────────────────
+  generateSceneTTS: protectedProcedure
+    .input(z.object({
+      text:            z.string().min(1).max(3000),
+      voiceId:         z.string().default("hpp4J3VqNfWAUOO0d1Us"),
+      stability:       z.number().min(0).max(1).default(0.5),
+      similarityBoost: z.number().min(0).max(1).default(0.75),
+      style:           z.number().min(0).max(1).default(0.3),
+      modelId:         z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const key = (process.env.ELEVENLABS_API_KEY || "").trim();
+      if (!key) throw new TRPCError({ code: "BAD_REQUEST", message: "ELEVENLABS_API_KEY nao configurada." });
+      const buffer = await generateTTS(input.text, {
+        voiceId:         input.voiceId,
+        stability:       input.stability,
+        similarityBoost: input.similarityBoost,
+        style:           input.style,
+        modelId:         input.modelId,
+      });
+      if (!buffer) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha ao gerar narracao. Verifique a key do ElevenLabs." });
+      const base64 = buffer.toString("base64");
+      log.info("vsl", "TTS gerado OK", { chars: input.text.length, bytes: buffer.length });
+      return {
+        audioBase64: base64,
+        mimeType:    "audio/mpeg",
+        bytes:       buffer.length,
+        durationEstimated: Math.round(input.text.split(" ").length / 2.5),
+      };
+    }),
+
+  // ── Estimar custo TTS ────────────────────────────────────────────────────
+  estimateTTS: protectedProcedure
+    .input(z.object({
+      scenes: z.array(z.object({ narration: z.string() })),
+    }))
+    .query(({ input }) => {
+      const totalChars = estimateTTSChars(input.scenes);
+      const configured = !!(process.env.ELEVENLABS_API_KEY || "").trim();
+      return { totalChars, configured, estimatedSeconds: Math.round(totalChars / 15) };
     }),
 
   // ── Deletar job ───────────────────────────────────────────────────────────
