@@ -975,91 +975,78 @@ export default function CampaignResult() {
 
 
 
-  // ── Gera SVG rico como preview quando não há imagem real ───────────────────
+  // ── Gera SVG inline como preview de criativo ────────────────────────────────
   function buildCreativeSvg(creative: any, format: "feed" | "stories" | "square"): string {
-    const headline = ((creative?.headline || creative?.hook || "Criativo") as string).slice(0, 48);
-    const copy     = ((creative?.copy || creative?.bodyText || "") as string).slice(0, 100);
-    const cta      = ((creative?.cta || "Saiba Mais") as string).slice(0, 26);
-    const funnel   = (creative?.funnelStage || "TOF") as string;
-    const angle    = (creative?.angle || creative?.type || "") as string;
+    try {
+      const headline = String(creative?.headline || creative?.hook || "Criativo").slice(0, 44);
+      const copy     = String(creative?.copy || creative?.bodyText || "").slice(0, 90);
+      const cta      = String(creative?.cta || "Saiba Mais").slice(0, 26);
+      const funnel   = String(creative?.funnelStage || "TOF");
 
-    const palettes: Record<string, { bg: string; accent: string; text: string; sub: string }> = {
-      TOF: { bg: "#0f172a", accent: "#3b82f6", text: "#f1f5f9", sub: "#94a3b8" },
-      MOF: { bg: "#1e1b4b", accent: "#a78bfa", text: "#f1f5f9", sub: "#c4b5fd" },
-      BOF: { bg: "#052e16", accent: "#4ade80", text: "#f0fdf4", sub: "#86efac" },
-    };
-    const pal = palettes[funnel] || palettes["TOF"];
+      const pals: Record<string, [string, string, string, string]> = {
+        TOF: ["#0f172a", "#3b82f6", "#f1f5f9", "#94a3b8"],
+        MOF: ["#1e1b4b", "#a78bfa", "#f1f5f9", "#c4b5fd"],
+        BOF: ["#052e16", "#4ade80", "#f0fdf4", "#86efac"],
+      };
+      const [bg, ac, tx, sb] = pals[funnel] || pals["TOF"];
+      const W = 400;
+      const H = format === "stories" ? 711 : format === "square" ? 400 : 500;
 
-    // Dimensões menores para renderização nítida em containers pequenos
-    const W = 400;
-    const H = format === "stories" ? 711 : format === "square" ? 400 : 500;
+      // Escape XML — sem chars especiais problemáticos no btoa
+      const x = (s: string) => s
+        .replace(/&/g, "e")
+        .replace(/</g, " ")
+        .replace(/>/g, " ")
+        .replace(/"/g, " ")
+        .replace(/[^ -]/g, (c) => "&#" + c.charCodeAt(0) + ";");
 
-    // Quebrar headline em linhas de 22 chars (fonte maior)
-    const hlWords = headline.split(" ");
-    const hlLines: string[] = [];
-    let hlLine = "";
-    for (const w of hlWords) {
-      if ((hlLine + " " + w).trim().length > 22) { hlLines.push(hlLine.trim()); hlLine = w; }
-      else hlLine = (hlLine + " " + w).trim();
+      // Quebrar headline em 2 linhas de 22 chars
+      const words = headline.split(" ");
+      const lines: string[] = [];
+      let cur = "";
+      for (const w of words) {
+        if ((cur + " " + w).trim().length > 22) { lines.push(cur.trim()); cur = w; }
+        else cur = (cur + " " + w).trim();
+      }
+      if (cur) lines.push(cur.trim());
+      const hl = lines.slice(0, 2);
+
+      const yH = 100;
+      const yC = yH + hl.length * 36 + 16;
+      const yBtn = H - 72;
+
+      let svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
+      svg += '<rect width="' + W + '" height="' + H + '" fill="' + bg + '"/>';
+      svg += '<rect x="0" y="0" width="4" height="' + H + '" fill="' + ac + '"/>';
+      svg += '<rect x="0" y="' + (H - 80) + '" width="' + W + '" height="80" fill="rgba(0,0,0,0.45)"/>';
+      svg += '<rect x="16" y="60" width="40" height="3" rx="2" fill="' + ac + '"/>';
+      hl.forEach((line, i) => {
+        svg += '<text x="16" y="' + (yH + i * 36) + '" font-family="Arial" font-size="22" font-weight="800" fill="' + tx + '">' + x(line) + '</text>';
+      });
+      const cpWords = copy.split(" ");
+      const cpLines: string[] = [];
+      let cpCur = "";
+      for (const w of cpWords) {
+        if ((cpCur + " " + w).trim().length > 40) { cpLines.push(cpCur.trim()); cpCur = w; }
+        else cpCur = (cpCur + " " + w).trim();
+      }
+      if (cpCur) cpLines.push(cpCur.trim());
+      cpLines.slice(0, 3).forEach((line, i) => {
+        svg += '<text x="16" y="' + (yC + i * 22) + '" font-family="Arial" font-size="13" fill="' + sb + '">' + x(line) + '</text>';
+      });
+      const btnW = Math.min(cta.length * 10 + 24, W - 32);
+      svg += '<rect x="16" y="' + yBtn + '" rx="7" ry="7" width="' + btnW + '" height="32" fill="' + ac + '"/>';
+      svg += '<text x="28" y="' + (yBtn + 21) + '" font-family="Arial" font-size="13" font-weight="700" fill="' + bg + '">' + x(cta) + '</text>';
+      svg += '</svg>';
+
+      // encodeURIComponent é mais seguro que btoa para SVG com chars especiais
+      return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    } catch {
+      // Fallback absoluto — retorna placeholder simples
+      return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#0f172a"/><text x="20" y="60" font-family="Arial" font-size="18" fill="white">Criativo</text></svg>'
+      );
     }
-    if (hlLine) hlLines.push(hlLine.trim());
-    const hlSlice = hlLines.slice(0, 3);
-
-    // Quebrar copy em linhas de 38 chars
-    const cpWords = copy.split(" ");
-    const cpLines: string[] = [];
-    let cpLine = "";
-    for (const w of cpWords) {
-      if ((cpLine + " " + w).trim().length > 38) { cpLines.push(cpLine.trim()); cpLine = w; }
-      else cpLine = (cpLine + " " + w).trim();
-    }
-    if (cpLine) cpLines.push(cpLine.trim());
-    const cpSlice = cpLines.slice(0, 3);
-
-    const angleLabel = angle ? angle.replace(/_/g, " ").toUpperCase().slice(0, 20) : "";
-    const yStart = angleLabel ? 60 : 32;
-    const yHl    = yStart + 44;
-    const yCp    = yHl + hlSlice.length * 36 + 20;
-
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-    let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" + W + "\" height=\"" + H + "\" viewBox=\"0 0 " + W + " " + H + "\">"
-      + "<defs>"
-      + "<linearGradient id=\"gbg\" x1=\"0\" y1=\"0\" x2=\"0.6\" y2=\"1\">"
-      + "<stop offset=\"0%\" stop-color=\"" + pal.bg + "\"/>"
-      + "<stop offset=\"100%\" stop-color=\"" + pal.accent + "\" stop-opacity=\"0.18\"/>"
-      + "</linearGradient>"
-      + "</defs>"
-      + "<rect width=\"" + W + "\" height=\"" + H + "\" fill=\"url(#gbg)\"/>"
-      + "<rect x=\"0\" y=\"0\" width=\"4\" height=\"" + H + "\" fill=\"" + pal.accent + "\"/>"
-      + "<rect x=\"0\" y=\"" + (H - 90) + "\" width=\"" + W + "\" height=\"90\" fill=\"rgba(0,0,0,0.5)\"/>";
-
-    if (angleLabel) {
-      svg += "<rect x=\"16\" y=\"16\" rx=\"5\" ry=\"5\" width=\"" + Math.min(angleLabel.length * 8 + 18, W - 32) + "\" height=\"22\" fill=\"" + pal.accent + "\" fill-opacity=\"0.25\"/>"
-        + "<text x=\"25\" y=\"31\" font-family=\"Arial,sans-serif\" font-size=\"11\" font-weight=\"700\" fill=\"" + pal.accent + "\">" + esc(angleLabel) + "</text>";
-    }
-
-    svg += "<rect x=\"16\" y=\"" + yStart + "\" width=\"40\" height=\"3\" rx=\"2\" fill=\"" + pal.accent + "\"/>";
-
-    hlSlice.forEach((line, i) => {
-      svg += "<text x=\"16\" y=\"" + (yHl + i * 36) + "\" font-family=\"Arial,sans-serif\" font-size=\"22\" font-weight=\"800\" fill=\"" + pal.text + "\">" + esc(line) + "</text>";
-    });
-
-    cpSlice.forEach((line, i) => {
-      svg += "<text x=\"16\" y=\"" + (yCp + i * 22) + "\" font-family=\"Arial,sans-serif\" font-size=\"13\" fill=\"" + pal.sub + "\">" + esc(line) + "</text>";
-    });
-
-    const btnW = Math.min(cta.length * 10 + 24, W - 32);
-    svg += "<rect x=\"16\" y=\"" + (H - 72) + "\" rx=\"7\" ry=\"7\" width=\"" + btnW + "\" height=\"32\" fill=\"" + pal.accent + "\"/>"
-      + "<text x=\"28\" y=\"" + (H - 50) + "\" font-family=\"Arial,sans-serif\" font-size=\"13\" font-weight=\"700\" fill=\"" + pal.bg + "\">" + esc(cta) + "</text>"
-      + "<text x=\"" + (W - 12) + "\" y=\"" + (H - 8) + "\" font-family=\"Arial,sans-serif\" font-size=\"9\" fill=\"" + pal.sub + "\" text-anchor=\"end\">MECPro AI · " + funnel + "</text>"
-      + "</svg>";
-
-    // base64 é mais compatível com img tags em todos os browsers
-    const b64 = typeof btoa !== "undefined"
-      ? btoa(unescape(encodeURIComponent(svg)))
-      : Buffer.from(svg).toString("base64");
-    return "data:image/svg+xml;base64," + b64;
   }
 
   function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
