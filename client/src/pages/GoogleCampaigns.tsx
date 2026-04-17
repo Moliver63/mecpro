@@ -190,7 +190,7 @@ export default function GoogleCampaigns() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>🔵 Google Ads</h1>
-            <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>Agora com detalhes da campanha e edição básica sem depender de prompts soltos.</p>
+            <p style={{ margin: "6px 0 0", color: "var(--muted)" }}>Agora com detalhes da campanha.</p>
           </div>
           <button className="btn btn-primary" onClick={load} disabled={listMutation.isPending}>Atualizar</button>
         </div>
