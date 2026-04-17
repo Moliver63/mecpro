@@ -1055,7 +1055,11 @@ export default function CampaignResult() {
       + "<text x=\"" + (W - 12) + "\" y=\"" + (H - 8) + "\" font-family=\"Arial,sans-serif\" font-size=\"9\" fill=\"" + pal.sub + "\" text-anchor=\"end\">MECPro AI · " + funnel + "</text>"
       + "</svg>";
 
-    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    // base64 é mais compatível com img tags em todos os browsers
+    const b64 = typeof btoa !== "undefined"
+      ? btoa(unescape(encodeURIComponent(svg)))
+      : Buffer.from(svg).toString("base64");
+    return "data:image/svg+xml;base64," + b64;
   }
 
   function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
@@ -1707,8 +1711,8 @@ export default function CampaignResult() {
                         objective={(campaign as any)?.objective}
                         clientName={(clientProfile as any)?.companyName}
                         creativeImageDataUrl={!creativeImage || creativeImage.includes("placehold.co") ? buildCreativeSvg(cr, creativeFormat as "feed" | "stories" | "square") : undefined}
-                        mediaPreview={creativeFormat === "stories" ? (cr.storyImageUrl || undefined) : (cr.feedImageUrl || cr.squareImageUrl || undefined)}
-                        creativeImageDataUrl={creativeImage}
+                        mediaPreview={creativeImage && !creativeImage.includes("placehold.co") ? creativeImage : undefined}
+                        creativeImageDataUrl={creativeImage || undefined}
                       />
                     </div>
                   </>

@@ -330,20 +330,20 @@ export async function generateAdImage(
       const prompt = inferPrompt(creative, segment, objective, format);
       const buffer = await generateWithHuggingFace(prompt, config.apiKey, format);
       if (buffer) {
-        const fileName = `creative-${Date.now()}-${format}.png`;
+        const fileName = "creative-" + Date.now() + "-" + format + ".png";
         const uploadedUrl = await uploadImageBufferToCloudinary(buffer, fileName);
         if (uploadedUrl) {
           IMAGE_CACHE.set(cacheKey, uploadedUrl);
           return uploadedUrl;
         }
-        // Sem Cloudinary: retornar como data URL base64 diretamente
-      log.info("image-generation", "HF gerou imagem — sem Cloudinary, usando base64 data URL", { format });
-      const b64 = buffer.toString("base64");
-      const dataUrl = "data:image/png;base64," + b64;
-      IMAGE_CACHE.set(cacheKey, dataUrl);
-      return dataUrl;
+        // Sem Cloudinary: retornar como base64 data URL
+        log.info("image-generation", "HF gerou imagem — usando base64 data URL", { format });
+        const b64 = buffer.toString("base64");
+        const dataUrl = "data:image/png;base64," + b64;
+        IMAGE_CACHE.set(cacheKey, dataUrl);
+        return dataUrl;
+      }
     }
-  }
 
     if (provider === "heygen") {
       const url = await generateWithHeyGen(creative, objective, format);
