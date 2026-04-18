@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BackButton from "@/components/BackButton";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -187,6 +188,7 @@ export default function Consultas() {
 
   return (
     <Layout>
+      <BackButton to="/dashboard" label="Dashboard" style={{ marginBottom: 20 }} />
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
 
         {/* Header */}

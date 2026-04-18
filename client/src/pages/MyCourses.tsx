@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BackButton from "@/components/BackButton";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,6 +42,7 @@ export default function MyCourses() {
 
   return (
     <Layout>
+      <BackButton to="/academy" label="Academia" style={{ marginBottom: 20 }} />
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>
           Meus Cursos

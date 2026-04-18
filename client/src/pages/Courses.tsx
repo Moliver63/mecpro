@@ -1,3 +1,4 @@
+import BackButton from "@/components/BackButton";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
@@ -132,6 +133,7 @@ export default function Courses() {
 
   return (
     <Layout>
+      <BackButton to="/academy" label="Academia" style={{ marginBottom: 16 }} />
       <SEO
         title="MECPro Academy — Cursos Práticos de Campanha com IA"
         description={`${freeCount} cursos gratuitos + cursos PRO de como criar campanhas com o MECPro. Aprenda análise de concorrentes, copy com IA, Meta Ads, Google Ads e muito mais. ${totalLessons}+ aulas disponíveis.`}

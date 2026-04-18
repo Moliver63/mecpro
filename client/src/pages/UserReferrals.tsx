@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BackButton from "@/components/BackButton";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { useAuth } from "@/hooks/useAuth";
@@ -130,7 +131,8 @@ export default function UserReferrals() {
 
       {/* Histórico */}
       <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden" }}>
-        <div style={{ padding: "16px 24px", borderBottom: "1px solid var(--border)" }}>
+        <BackButton to="/dashboard" label="Dashboard" style={{ marginBottom: 20 }} />
+      <div style={{ padding: "16px 24px", borderBottom: "1px solid var(--border)" }}>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 700, color: "var(--black)" }}>
             Histórico de indicações
           </h2>

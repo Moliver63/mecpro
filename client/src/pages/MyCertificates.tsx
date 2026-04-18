@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BackButton from "@/components/BackButton";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { useAuth } from "@/hooks/useAuth";
@@ -104,7 +105,8 @@ export default function MyCertificates() {
                 </div>
 
                 {/* Info do certificado */}
-                <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <BackButton to="/academy" label="Academia" style={{ marginBottom: 20 }} />
+      <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div style={{ display: "flex", gap: 24 }}>
                     <div>
                       <p style={{ fontSize: 11, color: "var(--muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: .5, marginBottom: 2 }}>Instrutor</p>

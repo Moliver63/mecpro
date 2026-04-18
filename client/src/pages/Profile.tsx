@@ -1,4 +1,5 @@
 import Layout from "@/components/layout/Layout";
+import BackButton from "@/components/BackButton";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 
@@ -35,7 +36,8 @@ export default function Profile() {
         <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
           {/* Info */}
           <div style={{ background:"white", border:"1px solid var(--border)", borderRadius:16, overflow:"hidden" }}>
-            <div style={{ padding:"16px 24px", borderBottom:"1px solid var(--border)" }}>
+            <BackButton to="/settings" label="Configurações" style={{ marginBottom: 20 }} />
+      <div style={{ padding:"16px 24px", borderBottom:"1px solid var(--border)" }}>
               <h2 style={{ fontFamily:"var(--font-display)", fontSize:15, fontWeight:700, color:"var(--black)" }}>Informações da conta</h2>
             </div>
             <div style={{ padding:"8px 0" }}>

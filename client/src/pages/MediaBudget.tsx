@@ -8,6 +8,7 @@
  */
 
 import { useState } from "react";
+import BackButton from "@/components/BackButton";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -26,7 +27,8 @@ export default function MediaBudget() {
   if (ps && !ps.modeWallet) {
     return (
       <Layout>
-        <div style={{ maxWidth: 600, margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
+        <BackButton to="/financeiro" label="Financeiro" style={{ marginBottom: 20 }} />
+      <div style={{ maxWidth: 600, margin: "80px auto", padding: "0 20px", textAlign: "center" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
           <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Modo indisponível</h2>
           <p style={{ color: "#64748b", fontSize: 14 }}>

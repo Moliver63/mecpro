@@ -2,6 +2,7 @@
  * BudgetDistribution.tsx — Rateio Inteligente Multi-Plataforma
  */
 import { useState, useEffect } from "react";
+import BackButton from "@/components/BackButton";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -126,6 +127,7 @@ export default function BudgetDistribution() {
 
   return (
     <Layout>
+      <BackButton to="/financeiro" label="Financeiro" style={{ marginBottom: 20 }} />
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "28px 20px" }}>
 
         <div style={{ marginBottom: 20 }}>

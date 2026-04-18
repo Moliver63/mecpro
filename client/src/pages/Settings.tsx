@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BackButton from "@/components/BackButton";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { useAuth } from "@/hooks/useAuth";
@@ -47,6 +48,7 @@ export default function Settings() {
 
   return (
     <Layout>
+      <BackButton to="/dashboard" label="Dashboard" style={{ marginBottom: 20 }} />
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>Configurações</h1>
         <p style={{ fontSize: 13, color: "var(--muted)" }}>Gerencie sua conta e preferências</p>
@@ -111,7 +113,7 @@ export default function Settings() {
 
       {/* Segurança */}
       {tab === "Segurança" && (
-        <div style={{ maxWidth: 480 }}>
+      <div style={{ maxWidth: 480 }}>
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 24, marginBottom: 16 }}>
             <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", marginBottom: 20, fontFamily: "var(--font-display)" }}>Alterar senha</p>
             {["current", "next", "confirm"].map((k, i) => (
