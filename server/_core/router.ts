@@ -7283,6 +7283,87 @@ const mediaBudgetRouter = router({
       }));
     }),
 
+  // ── Sincronizar saldo Asaas → Wallet MECPro ─────────────────────────────────
+  // Puxa o saldo disponível no Asaas e credita na wallet do usuário
+  syncAsaasBalance: protectedProcedure
+    .input(z.object({
+      amountReais: z.number().min(1).optional(), // se omitido, usa o saldo total do Asaas
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Asaas não configurado." });
+
+      // 1. Buscar saldo atual no Asaas
+      let asaasBalance = 0;
+      try {
+        const balRes = await fetch("https://api.asaas.com/v3/finance/getCurrentBalance", {
+          headers: { access_token: asaasKey },
+          signal: AbortSignal.timeout(10000),
+        });
+        const balData: any = await balRes.json();
+        asaasBalance = Number(balData.balance || balData.totalBalance || 0);
+      } catch (e: any) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao buscar saldo Asaas: ${e.message}` });
+      }
+
+      if (asaasBalance <= 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Saldo no Asaas está zerado ou indisponível." });
+      }
+
+      // 2. Valor a creditar — o que foi passado ou o saldo total disponível
+      const amountReais   = input?.amountReais ?? asaasBalance;
+      const amountCents   = Math.round(amountReais * 100);
+      const feeConfig     = await db.getAdminSetting("payment_fee_percent");
+      const feePercent    = Number(feeConfig || "10");
+      const feeAmount     = Math.round(amountCents * feePercent / 100);
+      const netAmount     = amountCents - feeAmount;
+
+      if (amountReais > asaasBalance + 0.01) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Valor (R$ ${amountReais.toFixed(2)}) maior que o saldo Asaas (R$ ${asaasBalance.toFixed(2)}).`,
+        });
+      }
+
+      // 3. Creditar na wallet MECPro
+      await pool.query(`
+        INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees")
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT ("userId") DO UPDATE SET
+          balance          = media_balance.balance + $2,
+          "totalDeposited" = media_balance."totalDeposited" + $3,
+          "totalFees"      = media_balance."totalFees" + $4,
+          "updatedAt"      = NOW()
+      `, [ctx.user.id, netAmount, amountCents, feeAmount]);
+
+      // 4. Registrar no histórico
+      await pool.query(`
+        INSERT INTO media_budget
+          ("userId", amount, "feePercent", "feeAmount", "netAmount",
+           type, status, method, notes, "approvedAt")
+        VALUES ($1, $2, $3, $4, $5, 'deposit', 'approved', 'asaas_sync', $6, NOW())
+      `, [
+        ctx.user.id, amountCents, feePercent, feeAmount, netAmount,
+        `Sincronização manual do saldo Asaas — R$ ${amountReais.toFixed(2)}`,
+      ]);
+
+      log.info("media-budget", "✅ Saldo Asaas sincronizado para wallet", {
+        userId: ctx.user.id, asaasBalance, amountReais, netCredit: netAmount / 100,
+      });
+
+      return {
+        success:      true,
+        asaasBalance,
+        credited:     netAmount / 100,
+        fee:          feeAmount / 100,
+        feePercent,
+        gross:        amountReais,
+      };
+    }),
+
   // ── Buscar campanhas de TODAS as plataformas — APENAS criadas pelo MECPro ───
   allPlatformCampaigns: protectedProcedure
     .input(z.object({ period: z.enum(["7d","30d","90d"]).default("30d") }))

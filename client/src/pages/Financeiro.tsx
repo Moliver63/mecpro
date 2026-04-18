@@ -103,6 +103,14 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
   const fee        = parsed * feePercent / 100;
   const credited   = parsed - fee;
 
+  const syncMutation = (trpc as any).mediaBudget?.syncAsaasBalance?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast.success(`◎ R$ ${data.credited.toFixed(2)} creditados na sua wallet!`);
+      refetchBalance?.();
+    },
+    onError: (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+
   const pixMutation = (trpc as any).mediaBudget?.requestPixDeposit?.useMutation?.({
     onSuccess: (data: any) => {
       setPixData(data);
@@ -533,6 +541,22 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
           <InfoCard color="#ff9f0a">
             <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Saldo disponível Asaas</div>
             <div style={{ fontSize: 32, fontWeight: 900, color: "#ff9f0a", letterSpacing: "-0.04em" }}>{R(asaas?.balance)}</div>
+            {(asaas?.balance ?? 0) > 0 && (
+              <button
+                className="btn btn-sm"
+                onClick={() => syncMutation.mutate({ amountReais: asaas?.balance })}
+                disabled={syncMutation.isPending}
+                style={{
+                  marginTop: 10, width: "100%",
+                  background: "var(--orange)", color: "white",
+                  fontWeight: 700, fontSize: 12,
+                  opacity: syncMutation.isPending ? 0.7 : 1,
+                }}>
+                {syncMutation.isPending
+                  ? "Transferindo..."
+                  : `Transferir R$ ${(asaas?.balance ?? 0).toFixed(2)} para wallet`}
+              </button>
+            )}
           </InfoCard>
 
           <div style={{ marginBottom: 14 }}>
