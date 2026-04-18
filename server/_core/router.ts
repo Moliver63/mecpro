@@ -6772,17 +6772,29 @@ const mediaBudgetRouter = router({
   // ── Consultar saldo Asaas em tempo real ───────────────────────────────────
   asaasBalance: protectedProcedure
     .query(async ({ ctx }) => {
-      const asaasKey = process.env.ASAAS_API_KEY;
-      if (!asaasKey) return { balance: 0, error: "Asaas não configurado" };
+      // ⚠️  ISOLAMENTO: nunca retornar saldo GLOBAL do Asaas.
+      // Cada usuário só vê o total de depósitos PENDENTES que ele mesmo gerou.
+      // O saldo da conta Asaas é consolidado (todos os clientes juntos) — expô-lo
+      // quebraria privacidade entre usuários.
+      const pool = await getPool();
+      if (!pool) return { balance: 0, pendingCount: 0 };
       try {
-        const res = await fetch("https://api.asaas.com/v3/finance/getCurrentBalance", {
-          headers: { access_token: asaasKey },
-          signal: AbortSignal.timeout(8000),
-        });
-        const data: any = await res.json();
-        return { balance: Number(data.balance || data.totalBalance || 0) };
+        const res = await pool.query(`
+          SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+          FROM media_budget
+          WHERE "userId" = $1
+            AND type   = 'deposit'
+            AND status = 'pending'
+            AND method = 'pix'
+            AND "pixExpiry" > NOW()
+        `, [ctx.user.id]);
+        const row = res.rows[0];
+        return {
+          balance:      Number(row.total) / 100,  // saldo PIX pendente deste usuário
+          pendingCount: Number(row.cnt),
+        };
       } catch (e: any) {
-        return { balance: 0, error: e.message };
+        return { balance: 0, pendingCount: 0, error: e.message };
       }
     }),
 
@@ -7296,37 +7308,57 @@ const mediaBudgetRouter = router({
       const asaasKey = process.env.ASAAS_API_KEY;
       if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Asaas não configurado." });
 
-      // 1. Buscar saldo atual no Asaas
-      let asaasBalance = 0;
-      try {
-        const balRes = await fetch("https://api.asaas.com/v3/finance/getCurrentBalance", {
-          headers: { access_token: asaasKey },
-          signal: AbortSignal.timeout(10000),
+      // ⚠️  ISOLAMENTO: validar contra depósitos DO USUÁRIO, não saldo global do Asaas.
+      // Busca os depósitos Pix PENDENTES que este usuário gerou e que ainda não
+      // foram confirmados pelo webhook — esse é o "saldo dele no Asaas".
+      const pendingRes = await pool.query(`
+        SELECT COALESCE(SUM("netAmount"), 0) AS total_net,
+               COALESCE(SUM(amount), 0)      AS total_gross
+        FROM media_budget
+        WHERE "userId" = $1
+          AND type   = 'deposit'
+          AND status = 'pending'
+          AND method = 'pix'
+          AND "pixExpiry" > NOW()
+      `, [ctx.user.id]);
+
+      const userPendingNet   = Number(pendingRes.rows[0]?.total_net   || 0) / 100;
+      const userPendingGross = Number(pendingRes.rows[0]?.total_gross || 0) / 100;
+
+      if (userPendingGross <= 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Você não tem depósitos Pix pendentes de confirmação. Gere um novo Pix ou aguarde a confirmação automática.",
         });
-        const balData: any = await balRes.json();
-        asaasBalance = Number(balData.balance || balData.totalBalance || 0);
-      } catch (e: any) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao buscar saldo Asaas: ${e.message}` });
       }
 
-      if (asaasBalance <= 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Saldo no Asaas está zerado ou indisponível." });
+      // Valor a creditar: o líquido pendente do usuário (já deduzida a taxa na criação do Pix)
+      const amountReais = input?.amountReais ?? userPendingGross;
+      if (amountReais > userPendingGross + 0.01) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Valor (R$ ${amountReais.toFixed(2)}) maior que seus depósitos pendentes (R$ ${userPendingGross.toFixed(2)}).`,
+        });
       }
 
-      // 2. Valor a creditar — o que foi passado ou o saldo total disponível
-      const amountReais   = input?.amountReais ?? asaasBalance;
+      // Recalcular fee com base no valor solicitado
       const amountCents   = Math.round(amountReais * 100);
       const feeConfig     = await db.getAdminSetting("payment_fee_percent");
       const feePercent    = Number(feeConfig || "10");
       const feeAmount     = Math.round(amountCents * feePercent / 100);
       const netAmount     = amountCents - feeAmount;
 
-      if (amountReais > asaasBalance + 0.01) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Valor (R$ ${amountReais.toFixed(2)}) maior que o saldo Asaas (R$ ${asaasBalance.toFixed(2)}).`,
-        });
-      }
+      // Marcar os depósitos pendentes como aprovados (até cobrir o valor)
+      await pool.query(`
+        UPDATE media_budget SET status = 'approved', "approvedAt" = NOW(), "updatedAt" = NOW()
+        WHERE "userId" = $1
+          AND type   = 'deposit'
+          AND status = 'pending'
+          AND method = 'pix'
+          AND "pixExpiry" > NOW()
+      `, [ctx.user.id]);
+
+      const asaasBalance = userPendingGross
 
       // 3. Creditar na wallet MECPro
       await pool.query(`

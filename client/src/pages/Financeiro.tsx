@@ -542,20 +542,25 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
             <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Saldo disponível Asaas</div>
             <div style={{ fontSize: 32, fontWeight: 900, color: "#ff9f0a", letterSpacing: "-0.04em" }}>{R(asaas?.balance)}</div>
             {(asaas?.balance ?? 0) > 0 && (
-              <button
-                className="btn btn-sm"
-                onClick={() => syncMutation.mutate({ amountReais: asaas?.balance })}
-                disabled={syncMutation.isPending}
-                style={{
-                  marginTop: 10, width: "100%",
-                  background: "var(--orange)", color: "white",
-                  fontWeight: 700, fontSize: 12,
-                  opacity: syncMutation.isPending ? 0.7 : 1,
-                }}>
-                {syncMutation.isPending
-                  ? "Transferindo..."
-                  : `Transferir R$ ${(asaas?.balance ?? 0).toFixed(2)} para wallet`}
-              </button>
+              <>
+                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 6 }}>
+                  {asaas?.pendingCount ?? 0} Pix pendente{(asaas?.pendingCount ?? 0) !== 1 ? "s" : ""} aguardando confirmação
+                </div>
+                <button
+                  className="btn btn-sm"
+                  onClick={() => syncMutation.mutate({ amountReais: asaas?.balance })}
+                  disabled={syncMutation.isPending}
+                  style={{
+                    marginTop: 8, width: "100%",
+                    background: "var(--orange)", color: "white",
+                    fontWeight: 700, fontSize: 12,
+                    opacity: syncMutation.isPending ? 0.7 : 1,
+                  }}>
+                  {syncMutation.isPending
+                    ? "Confirmando..."
+                    : `Confirmar Pix de R$ ${(asaas?.balance ?? 0).toFixed(2)}`}
+                </button>
+              </>
             )}
           </InfoCard>
 
