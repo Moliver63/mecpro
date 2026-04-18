@@ -4853,6 +4853,101 @@ const subscriptionsRouter = router({
       });
       return { url: portal.url };
     }),
+  // ── getSettings — configurações de pagamento (usado pelo Financeiro) ────
+  getSettings: protectedProcedure
+    .query(async () => {
+      const [modeA, modeB, feePct, defDist] = await Promise.all([
+        db.getAdminSetting("payment_mode_wallet"),
+        db.getAdminSetting("payment_mode_guide"),
+        db.getAdminSetting("payment_fee_percent"),
+        db.getAdminSetting("payment_default_dist"),
+      ]);
+      return {
+        modeWallet:  modeA !== "false",
+        modeGuide:   modeB !== "false",
+        feePercent:  Number(feePct || "10"),
+        defaultDist: defDist ? JSON.parse(defDist) : { meta: 50, google: 30, tiktok: 20 },
+      };
+    }),
+
+  // ── updateDistribution — salva rateio de verba por plataforma ─────────
+  updateDistribution: protectedProcedure
+    .input(z.object({
+      dist: z.object({
+        meta:   z.number().min(0).max(100),
+        google: z.number().min(0).max(100),
+        tiktok: z.number().min(0).max(100),
+      }),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const total = input.dist.meta + input.dist.google + input.dist.tiktok;
+      if (Math.abs(total - 100) > 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `A soma do rateio deve ser 100% (atual: ${total}%)` });
+      }
+      // Salva por usuário — upsert em user_budget_dist
+      await pool.query(`
+        INSERT INTO user_budget_dist ("userId", meta, google, tiktok, "updatedAt")
+        VALUES ($1, $2, $3, $4, NOW())
+        ON CONFLICT ("userId") DO UPDATE SET
+          meta = $2, google = $3, tiktok = $4, "updatedAt" = NOW()
+      `, [ctx.user.id, input.dist.meta, input.dist.google, input.dist.tiktok]);
+      log.info("media-budget", "Rateio atualizado", { userId: ctx.user.id, dist: input.dist });
+      return { success: true };
+    }),
+
+  // ── transferAsaas — alias de asaasTransfer para compatibilidade ───────
+  transferAsaas: protectedProcedure
+    .input(z.object({
+      amount:      z.number().min(1),
+      pixKeyType:  z.enum(["CPF","CNPJ","EMAIL","PHONE","EVP"]).default("EMAIL"),
+      pixKey:      z.string().min(3),
+      description: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Asaas não configurado" });
+      const amountCents = Math.round(input.amount * 100);
+      // Verifica saldo
+      const balRes = await pool.query(`SELECT balance FROM media_balance WHERE "userId" = $1`, [ctx.user.id]);
+      const bal = Number(balRes.rows[0]?.balance || 0);
+      if (bal < amountCents) throw new TRPCError({ code: "BAD_REQUEST", message: `Saldo insuficiente. Disponível: R$ ${(bal/100).toFixed(2)}` });
+      // Faz transferência via Asaas
+      const transferRes = await fetch("https://api.asaas.com/v3/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", access_token: asaasKey },
+        body: JSON.stringify({
+          value:       input.amount,
+          pixAddressKey: input.pixKey,
+          pixAddressKeyType: input.pixKeyType,
+          description: input.description || "Transferência MECPro",
+          operationType: "PIX",
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const transferData: any = await transferRes.json();
+      if (!transferData.id && transferData.errors) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: transferData.errors[0]?.description || "Erro na transferência" });
+      }
+      // Debita saldo
+      await pool.query(`
+        UPDATE media_balance SET
+          balance = balance - $1,
+          "updatedAt" = NOW()
+        WHERE "userId" = $2
+      `, [amountCents, ctx.user.id]);
+      // Registra no histórico
+      await pool.query(`
+        INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, notes, "stripeId", "approvedAt")
+        VALUES ($1, $2, 0, 0, $2, 'withdrawal', 'approved', 'pix', $3, $4, NOW())
+      `, [ctx.user.id, amountCents, input.description || null, transferData.id || null]);
+      log.info("media-budget", "Transferência realizada", { userId: ctx.user.id, amount: input.amount, asaasId: transferData.id });
+      return { success: true, transferId: transferData.id };
+    }),
+
 });
 
 // ============ META CAMPAIGNS ROUTER ============

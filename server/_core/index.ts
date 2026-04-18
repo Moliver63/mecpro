@@ -232,22 +232,136 @@ const stripe = process.env.STRIPE_SECRET_KEY
 
 // ─── Stripe webhook (raw body BEFORE json parser) ─────────
 app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
-  if (!stripe) {
-    return res.status(503).json({ error: 'Stripe not configured' });
+  if (!stripe) return res.status(503).json({ error: 'Stripe not configured' });
+
+  const sig            = req.headers['stripe-signature']!;
+  const webhookSecret  = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    log.warn('stripe', 'STRIPE_WEBHOOK_SECRET não configurado — aceitando sem validação (dev)');
   }
-  const sig = req.headers['stripe-signature']!;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+  let event: Stripe.Event;
   try {
-    const event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    event = webhookSecret
+      ? stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
+      : JSON.parse(req.body.toString());
+  } catch (err: any) {
+    log.error('stripe', `Webhook signature error: ${err.message}`);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  try {
+    log.info('stripe', `Webhook recebido: ${event.type}`);
+
+    // ── Checkout concluído (assinatura nova) ─────────────────────────────
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
-      log.info('stripe', `Payment completed: ${session.id}`);
+      const userId   = session.metadata?.user_id;
+      const planSlug = session.metadata?.plan_slug as 'basic' | 'premium' | 'vip' | undefined;
+      const stripeCustomerId    = session.customer as string;
+      const stripeSubscriptionId = session.subscription as string;
+
+      if (userId && planSlug) {
+        // 1. Atualiza plano do usuário
+        await db.updateUserPlan(Number(userId), planSlug);
+
+        // 2. Salva stripeCustomerId no usuário
+        const pool = await getPool();
+        if (pool) {
+          await pool.query(
+            `UPDATE users SET "stripeCustomerId" = $1, "updatedAt" = NOW() WHERE id = $2`,
+            [stripeCustomerId, Number(userId)]
+          );
+
+          // 3. Cria/atualiza registro de subscription
+          if (stripeSubscriptionId) {
+            // Busca o planId pelo slug
+            const planRes = await pool.query(
+              `SELECT id FROM subscription_plans WHERE slug = $1 LIMIT 1`,
+              [planSlug]
+            );
+            const planId = planRes.rows[0]?.id;
+            if (planId) {
+              // Verifica se já tem subscription ativa para esse usuário
+              const existingSub = await pool.query(
+                `SELECT id FROM user_subscriptions WHERE "userId" = $1 LIMIT 1`,
+                [Number(userId)]
+              );
+              if (existingSub.rows[0]) {
+                await pool.query(`
+                  UPDATE user_subscriptions SET
+                    "planId" = $2, "stripeSubscriptionId" = $3, "stripeCustomerId" = $4,
+                    status = 'active', "currentPeriodStart" = NOW(),
+                    "currentPeriodEnd" = NOW() + INTERVAL '30 days', "updatedAt" = NOW()
+                  WHERE "userId" = $1
+                `, [Number(userId), planId, stripeSubscriptionId, stripeCustomerId]);
+              } else {
+                await pool.query(`
+                  INSERT INTO user_subscriptions
+                    ("userId", "planId", "stripeSubscriptionId", "stripeCustomerId",
+                     status, "currentPeriodStart", "currentPeriodEnd", "createdAt", "updatedAt")
+                  VALUES ($1, $2, $3, $4, 'active', NOW(), NOW() + INTERVAL '30 days', NOW(), NOW())
+                `, [Number(userId), planId, stripeSubscriptionId, stripeCustomerId]);
+              }
+            }
+          }
+        }
+
+        log.info('stripe', '✅ Plano ativado após checkout', { userId, planSlug, stripeCustomerId });
+      } else {
+        log.warn('stripe', 'checkout.session.completed sem metadata userId/planSlug', { sessionId: session.id });
+      }
     }
-    res.json({ received: true });
+
+    // ── Assinatura renovada ───────────────────────────────────────────────
+    if (event.type === 'invoice.payment_succeeded') {
+      const invoice = event.data.object as any;
+      const subscriptionId = invoice.subscription;
+      if (subscriptionId) {
+        const pool = await getPool();
+        if (pool) {
+          await pool.query(`
+            UPDATE user_subscriptions SET
+              status = 'active',
+              "currentPeriodEnd" = NOW() + INTERVAL '30 days',
+              "updatedAt" = NOW()
+            WHERE "stripeSubscriptionId" = $1
+          `, [subscriptionId]);
+          log.info('stripe', '✅ Assinatura renovada', { subscriptionId });
+        }
+      }
+    }
+
+    // ── Assinatura cancelada ou com falha ─────────────────────────────────
+    if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
+      const obj = event.data.object as any;
+      const stripeCustomerId = obj.customer;
+      if (stripeCustomerId) {
+        const pool = await getPool();
+        if (pool) {
+          // Rebaixa para plano free
+          const userRes = await pool.query(
+            `SELECT id FROM users WHERE "stripeCustomerId" = $1 LIMIT 1`,
+            [stripeCustomerId]
+          );
+          if (userRes.rows[0]) {
+            await db.updateUserPlan(userRes.rows[0].id, 'free');
+            await pool.query(`
+              UPDATE user_subscriptions SET status = 'canceled', "updatedAt" = NOW()
+              WHERE "stripeCustomerId" = $1
+            `, [stripeCustomerId]);
+            log.info('stripe', '⚠️ Plano rebaixado para free', { userId: userRes.rows[0].id });
+          }
+        }
+      }
+    }
+
   } catch (err: any) {
-    log.error('stripe', `Webhook error: ${err.message}`);
-    res.status(400).send(`Webhook Error: ${err.message}`);
+    log.error('stripe', `Erro ao processar webhook: ${err.message}`, { type: event.type });
+    // Retorna 200 mesmo com erro interno para evitar retries do Stripe
   }
+
+  res.json({ received: true });
 });
 
 // ─── Site Verifications ───────────────────────────────────

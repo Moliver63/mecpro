@@ -419,4 +419,12 @@ export const appSettings = pgTable("app_settings", {
   value:     text("value").notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
+export const userBudgetDist = pgTable("user_budget_dist", {
+  userId:    integer("userId").primaryKey(),
+  meta:      integer("meta").default(50).notNull(),
+  google:    integer("google").default(30).notNull(),
+  tiktok:    integer("tiktok").default(20).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow(),
+});
+
 export type AppSetting = typeof appSettings.$inferSelect;

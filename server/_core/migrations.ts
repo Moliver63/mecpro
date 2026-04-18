@@ -273,5 +273,17 @@ export async function runMigrations(): Promise<void> {
     );
   `);
 
-  console.log('[migrations] ✅ Migrations applied successfully');
+
+  // user_budget_dist — rateio de verba por plataforma
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_budget_dist (
+      "userId"    INTEGER PRIMARY KEY,
+      meta        INTEGER NOT NULL DEFAULT 50,
+      google      INTEGER NOT NULL DEFAULT 30,
+      tiktok      INTEGER NOT NULL DEFAULT 20,
+      "updatedAt" TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+    console.log('[migrations] ✅ Migrations applied successfully');
 }
