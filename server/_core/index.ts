@@ -364,6 +364,84 @@ app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async
   res.json({ received: true });
 });
 
+// ─── Diagnóstico do webhook Asaas (sem autenticação — apenas leitura) ─────────
+app.get('/api/webhook/asaas/status', async (req: Request, res: Response) => {
+  try {
+    const pool = await getPool();
+    if (!pool) return res.status(500).json({ error: 'DB unavailable' });
+
+    const deposits = await pool.query(`
+      SELECT id, "userId", amount, "feeAmount", "netAmount",
+             status, "stripeId" as "asaasId", "createdAt", "approvedAt"
+      FROM media_budget WHERE type = 'deposit'
+      ORDER BY "createdAt" DESC LIMIT 20
+    `);
+    const balances = await pool.query(`
+      SELECT "userId", balance, "totalDeposited", "updatedAt"
+      FROM media_balance ORDER BY "updatedAt" DESC LIMIT 20
+    `);
+
+    res.json({
+      webhook_url:     (process.env.APP_URL || 'https://www.mecproai.com') + '/api/webhook/asaas',
+      token_configured: !!process.env.ASAAS_WEBHOOK_TOKEN,
+      asaas_key_set:    !!process.env.ASAAS_API_KEY,
+      events_expected:  ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'],
+      deposits: deposits.rows.map((r: any) => ({
+        id: r.id, userId: r.userId,
+        amount: Number(r.amount) / 100, net: Number(r.netAmount) / 100,
+        status: r.status, asaasId: r.asaasId,
+        createdAt: r.createdAt, approvedAt: r.approvedAt,
+      })),
+      balances: balances.rows.map((r: any) => ({
+        userId: r.userId, balance: Number(r.balance) / 100,
+        deposited: Number(r.totalDeposited) / 100, updatedAt: r.updatedAt,
+      })),
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Crédito manual de saldo (admin — resolver webhook falhou) ─────────────────
+app.post('/api/admin/credit-balance', async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET || process.env.JWT_SECRET || '';
+  const auth = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!auth || auth !== adminSecret) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { userId, amountReais, notes, depositId } = req.body;
+  if (!userId || !amountReais) return res.status(400).json({ error: 'userId e amountReais obrigatorios' });
+
+  try {
+    const pool = await getPool();
+    if (!pool) return res.status(500).json({ error: 'DB unavailable' });
+
+    const amountCents = Math.round(Number(amountReais) * 100);
+
+    if (depositId) {
+      await pool.query(
+        `UPDATE media_budget SET status='approved', "approvedAt"=NOW(), "updatedAt"=NOW() WHERE id=$1`,
+        [depositId]
+      );
+    }
+
+    await pool.query(`
+      INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees")
+      VALUES ($1, $2, $2, 0)
+      ON CONFLICT ("userId") DO UPDATE SET
+        balance = media_balance.balance + $2,
+        "totalDeposited" = media_balance."totalDeposited" + $2,
+        "updatedAt" = NOW()
+    `, [userId, amountCents]);
+
+    await pool.query(`
+      INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount",
+        type, status, method, notes, "approvedAt")
+      VALUES ($1, $2, 0, 0, $2, 'deposit', 'approved', 'manual', $3, NOW())
+    `, [userId, amountCents, notes || 'Credito manual admin']);
+
+    log.info('admin', 'Credito manual aplicado', { userId, amountReais });
+    return res.json({ success: true, userId: Number(userId), credited: Number(amountReais) });
+  } catch (err: any) { return res.status(500).json({ error: err.message }); }
+});
+
 // ─── Site Verifications ───────────────────────────────────
 // TikTok — método "upload de arquivo" (nome do arquivo = token)
 app.get("/tiktokGmTH14mA1YdrvwoTJJyJeSzROidi1LnE.txt", (_req, res) => {
