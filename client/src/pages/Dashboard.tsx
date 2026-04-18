@@ -15,6 +15,31 @@ const OBJ_LABEL: Record<string, string> = {
   branding: "Branding", app: "App", video_views: "Visualizações",
 };
 
+function EmailResendButton({ email }: { email: string }) {
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const send = async () => {
+    setLoading(true);
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setSent(true);
+    } catch { /* silencioso */ } finally { setLoading(false); }
+  };
+
+  if (sent) return <span style={{ fontSize: 12, color: "var(--green-d)", fontWeight: 700, flexShrink: 0 }}>◎ Enviado!</span>;
+  return (
+    <button onClick={send} disabled={loading} className="btn btn-sm"
+      style={{ background: "var(--orange)", color: "white", fontWeight: 700, flexShrink: 0, opacity: loading ? 0.7 : 1 }}>
+      {loading ? "Enviando…" : "Reenviar"}
+    </button>
+  );
+}
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -98,6 +123,26 @@ export default function Dashboard() {
             + Novo projeto
           </button>
         </div>
+
+        {/* Banner: email não verificado */}
+        {user && !(user as any).emailVerified && (user as any).loginMethod === "manual" && (
+          <div style={{
+            background: "rgba(255,159,10,0.08)", border: "1.5px solid rgba(255,159,10,0.25)",
+            borderRadius: "var(--r)", padding: "14px 18px", marginBottom: 20,
+            display: "flex", alignItems: "center", gap: 14,
+          }}>
+            <div style={{ fontSize: 20, color: "var(--orange)", flexShrink: 0 }}>◬</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#b25000", marginBottom: 2 }}>
+                Confirme seu email para desbloquear todos os recursos
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                Enviamos um link para <strong>{(user as any).email}</strong>. Verifique também a pasta de spam.
+              </div>
+            </div>
+            <EmailResendButton email={(user as any).email} />
+          </div>
+        )}
 
         {/* Stats */}
         <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginBottom: 20 }}>

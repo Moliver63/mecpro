@@ -22,21 +22,52 @@ export default function Register() {
   };
 
   if (done) return (
-    <div style={{ minHeight:"100vh", background:"var(--off)", display:"flex", flexDirection:"column" }}>
-      <nav style={{ height:60, background:"white", borderBottom:"1px solid var(--border)", display:"flex", alignItems:"center", padding:"0 32px" }}>
-        <span style={{ fontFamily:"var(--font-display)", fontSize:20, fontWeight:800, color:"var(--black)" }}>MEC<span style={{ color:"var(--green-d)" }}>PRO</span></span>
+    <div style={{ minHeight:"100vh", background:"var(--off)", display:"flex", flexDirection:"column", fontFamily:"var(--font)" }}>
+      <nav style={{ height:56, background:"var(--glass-bg)", backdropFilter:"var(--glass-blur)", borderBottom:"1px solid var(--border)", display:"flex", alignItems:"center", padding:"0 32px" }}>
+        <a href="/" style={{ fontSize:18, fontWeight:800, color:"var(--black)", textDecoration:"none", letterSpacing:"-0.04em" }}>
+          MEC<span style={{ color:"var(--green-d)" }}>PRO</span>
+        </a>
       </nav>
-      <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
-        <div style={{ background:"white", border:"1px solid var(--border)", borderRadius:20, padding:48, maxWidth:440, width:"100%", textAlign:"center", boxShadow:"var(--shadow-sm)" }}>
-          <div style={{ width:64, height:64, borderRadius:"50%", background:"var(--green-l)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, margin:"0 auto 20px" }}>✉️</div>
-          <h2 style={{ fontFamily:"var(--font-display)", fontSize:22, fontWeight:800, color:"var(--black)", marginBottom:10 }}>Verifique seu e-mail</h2>
-          <p style={{ fontSize:14, color:"var(--muted)", lineHeight:1.7, marginBottom:28 }}>
-            Enviamos um link de confirmação para <strong style={{ color:"var(--dark)" }}>{email}</strong>.<br/>
-            Clique no link para ativar sua conta.
+      <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", padding:"clamp(16px,4vw,40px)" }}>
+        <div style={{ background:"var(--glass-bg)", backdropFilter:"var(--glass-blur)", border:"1px solid var(--glass-border)", borderRadius:"var(--r-xl)", padding:"clamp(28px,5vw,52px)", maxWidth:440, width:"100%", textAlign:"center", boxShadow:"var(--glass-shadow)" }}>
+
+          {/* Ícone */}
+          <div style={{ width:72, height:72, borderRadius:"50%", background:"var(--blue-l)", border:"1.5px solid rgba(0,113,227,0.2)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, color:"var(--blue)", margin:"0 auto 24px", fontWeight:300 }}>
+            ◉
+          </div>
+
+          <h2 style={{ fontSize:22, fontWeight:800, color:"var(--black)", marginBottom:10, letterSpacing:"-0.03em" }}>
+            Confirme seu e-mail
+          </h2>
+
+          <p style={{ fontSize:14, color:"var(--muted)", lineHeight:1.7, marginBottom:8 }}>
+            Enviamos um link de ativação para:
           </p>
-          <p style={{ fontSize:13, color:"#adb5bd" }}>Não recebeu? Verifique a pasta de spam.</p>
-          <div style={{ height:1, background:"var(--border)", margin:"24px 0" }} />
-          <a href="/login" style={{ fontSize:14, color:"var(--green-d)", fontWeight:600, textDecoration:"none" }}>← Ir para o login</a>
+          <div style={{ background:"var(--off)", borderRadius:"var(--r-sm)", padding:"10px 16px", marginBottom:20, fontSize:15, fontWeight:700, color:"var(--dark)" }}>
+            {email}
+          </div>
+
+          <div style={{ background:"rgba(0,113,227,0.06)", border:"1px solid rgba(0,113,227,0.15)", borderRadius:"var(--r-sm)", padding:"14px 16px", marginBottom:24, textAlign:"left" }}>
+            {["Abra seu email", "Clique no botão 'Ativar conta'", "Você será redirecionado automaticamente"].map((step, i) => (
+              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, marginBottom: i < 2 ? 10 : 0 }}>
+                <div style={{ width:22, height:22, borderRadius:"50%", background:"var(--blue)", color:"white", fontSize:11, fontWeight:800, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>{i+1}</div>
+                <span style={{ fontSize:13, color:"var(--body)" }}>{step}</span>
+              </div>
+            ))}
+          </div>
+
+          <p style={{ fontSize:12, color:"var(--muted)", marginBottom:20 }}>
+            Não recebeu? Verifique a pasta de <strong>spam</strong> ou{" "}
+            <button onClick={async () => {
+              await fetch("/api/auth/resend-verification", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ email }) });
+              alert("Novo link enviado!");
+            }} style={{ background:"none", border:"none", color:"var(--blue)", fontWeight:700, cursor:"pointer", padding:0, fontSize:12 }}>
+              reenvie o link
+            </button>
+          </p>
+
+          <div style={{ height:1, background:"var(--border)", margin:"20px 0" }} />
+          <a href="/login" style={{ fontSize:13, color:"var(--muted)", fontWeight:600, textDecoration:"none" }}>← Voltar ao login</a>
         </div>
       </div>
     </div>
@@ -45,7 +76,7 @@ export default function Register() {
   return (
     <div style={{ minHeight:"100vh", background:"var(--off)", display:"flex", flexDirection:"column" }}>
       <nav style={{ height:60, background:"white", borderBottom:"1px solid var(--border)", display:"flex", alignItems:"center", padding:"0 32px" }}>
-        <a href="/" style={{ fontFamily:"var(--font-display)", fontSize:20, fontWeight:800, color:"var(--black)", textDecoration:"none" }}>
+        <a href="/" style={{ fontFamily:"var(--font)", fontSize:20, fontWeight:800, color:"var(--black)", textDecoration:"none" }}>
           MEC<span style={{ color:"var(--green-d)" }}>PRO</span>
         </a>
       </nav>
@@ -53,7 +84,7 @@ export default function Register() {
         <div style={{ width:"100%", maxWidth:440 }}>
           <div style={{ background:"white", border:"1px solid var(--border)", borderRadius:20, padding:40, boxShadow:"var(--shadow-sm)" }}>
             <div className="badge badge-green" style={{ marginBottom:16 }}>Grátis para sempre no plano básico</div>
-            <h1 style={{ fontFamily:"var(--font-display)", fontSize:26, fontWeight:800, color:"var(--black)", marginBottom:6 }}>Criar conta</h1>
+            <h1 style={{ fontFamily:"var(--font)", fontSize:26, fontWeight:800, color:"var(--black)", marginBottom:6 }}>Criar conta</h1>
             <p style={{ fontSize:14, color:"var(--muted)", marginBottom:24 }}>Comece a gerar campanhas inteligentes hoje</p>
 
             {/* Google OAuth */}

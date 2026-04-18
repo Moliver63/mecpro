@@ -7,6 +7,22 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [emailNotVerified, setEmailNotVerified] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resentOk,  setResentOk]  = useState(false);
+
+  const handleResend = async () => {
+    if (!email) return;
+    setResending(true);
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setResentOk(true);
+    } catch { /* silencioso */ } finally { setResending(false); }
+  };
   const [loading, setLoading] = useState(false);
 
   // Verificar erro OAuth na URL
@@ -21,7 +37,14 @@ export default function Login() {
       const dest = ["admin","superadmin"].includes(user.role) ? "/admin" : "/dashboard";
       window.location.replace(dest);
     },
-    onError: (err: any) => { setError(err.message || "Email ou senha incorretos"); setLoading(false); },
+    onError: (err: any) => {
+      if (err.message === "EMAIL_NOT_VERIFIED") {
+        setEmailNotVerified(true);
+      } else {
+        setError(err.message || "Email ou senha incorretos");
+      }
+      setLoading(false);
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -46,6 +69,24 @@ export default function Login() {
             <h1 style={{ fontFamily:"var(--font-display)", fontSize:26, fontWeight:800, color:"var(--black)", marginBottom:6 }}>Bem-vindo de volta</h1>
             <p style={{ fontSize:14, color:"var(--muted)", marginBottom:28 }}>Entre na sua conta MECPro</p>
 
+            {emailNotVerified && (
+              <div style={{ background: "rgba(255,159,10,0.08)", border: "1.5px solid rgba(255,159,10,0.3)", borderRadius: 12, padding: "16px 18px", marginBottom: 16 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#b25000", marginBottom: 6 }}>◬ Email não verificado</div>
+                <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.5 }}>
+                  Confirme seu email antes de entrar. Verifique sua caixa de entrada (ou spam).
+                </p>
+                {resentOk ? (
+                  <div style={{ fontSize: 13, color: "var(--green-d)", fontWeight: 600 }}>◎ Novo link enviado!</div>
+                ) : (
+                  <button
+                    onClick={handleResend}
+                    disabled={resending}
+                    style={{ fontSize: 13, fontWeight: 700, color: "var(--blue)", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}>
+                    {resending ? "Enviando…" : "Reenviar link de verificação →"}
+                  </button>
+                )}
+              </div>
+            )}
             {error && (
               <div style={{ background:"var(--error-l)", border:"1px solid #fecaca", borderRadius:10, padding:"10px 14px", fontSize:13, color:"var(--error)", marginBottom:20 }}>
                 ⚠️ {error}

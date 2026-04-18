@@ -562,6 +562,15 @@ const authRouter = router({
     .mutation(async ({ input, ctx }) => {
       log.auth("login", "Attempt", { email: input.email });
       const user = await db.loginUser(input.email, input.password);
+
+      // Bloquear login se email não foi verificado (apenas cadastro manual — Google OAuth pula)
+      if ((user as any).loginMethod === "manual" && !(user as any).emailVerified) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "EMAIL_NOT_VERIFIED",
+        });
+      }
+
       log.auth("login", "Success", { userId: user.id, role: (user as any).role });
       const token = await new SignJWT({ userId: user.id })
         .setProtectedHeader({ alg: "HS256" }).setExpirationTime("7d")

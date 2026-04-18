@@ -585,6 +585,52 @@ app.use(
 
 
 // ─── /api/auth/me — REST endpoint para useAuth hook ───────
+// ─── Verificação de email via link ───────────────────────────────────────
+app.get('/api/auth/verify-email', async (req: Request, res: Response) => {
+  const token = req.query.token as string;
+  if (!token || token.length < 32) {
+    return res.status(400).json({ success: false, error: 'Token inválido ou ausente.' });
+  }
+  try {
+    const pool = await getPool();
+    if (!pool) return res.status(500).json({ success: false, error: 'DB indisponível.' });
+
+    const user = await db.verifyEmailToken(token);
+    if (!user) {
+      return res.status(400).json({ success: false, error: 'Token inválido ou já utilizado. Solicite um novo link.' });
+    }
+
+    log.info('auth', 'Email verificado com sucesso', { userId: (user as any).id, email: (user as any).email });
+    return res.json({ success: true, email: (user as any).email });
+  } catch (err: any) {
+    log.error('auth', 'Erro ao verificar email', { error: err?.message });
+    return res.status(500).json({ success: false, error: 'Erro interno. Tente novamente.' });
+  }
+});
+
+// ─── Reenviar email de verificação ───────────────────────────────────────
+app.post('/api/auth/resend-verification', async (req: Request, res: Response) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ success: false, error: 'Email obrigatório.' });
+  try {
+    const user = await db.getUserByEmail(email);
+    if (!user) return res.json({ success: true }); // silencioso por segurança
+
+    if ((user as any).emailVerified) {
+      return res.json({ success: true, alreadyVerified: true });
+    }
+
+    const verifyToken = await db.createEmailVerificationToken((user as any).id);
+    const { sendVerificationEmail } = await import('../email');
+    await sendVerificationEmail((user as any).email, (user as any).name ?? 'Usuário', verifyToken);
+    log.info('auth', 'Email de verificação reenviado', { email });
+    return res.json({ success: true });
+  } catch (err: any) {
+    log.error('auth', 'Erro ao reenviar verificação', { error: err?.message });
+    return res.status(500).json({ success: false, error: 'Erro ao reenviar.' });
+  }
+});
+
 app.get('/api/auth/me', async (req: Request, res: Response) => {
   try {
     const token = (req as any).cookies?.token;

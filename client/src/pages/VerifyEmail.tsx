@@ -1,153 +1,140 @@
 /**
- * client/src/pages/VerifyEmail.tsx
- * Compatível com: GET /api/auth/verify-email?token=XXX (index.ts)
+ * VerifyEmail.tsx — Verificação de email
+ * Design: Liquid Glass · MECPro AI Design System
  */
-
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
 type Status = "loading" | "success" | "error" | "missing";
 
 export default function VerifyEmail() {
-  const [status, setStatus]   = useState<Status>("loading");
+  const [status,  setStatus]  = useState<Status>("loading");
   const [message, setMessage] = useState("");
-  const [, navigate]          = useLocation();
+  const [email,   setEmail]   = useState("");
+  const [resent,  setResent]  = useState(false);
+  const [, navigate] = useLocation();
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get("token");
+    if (!token) { setStatus("missing"); return; }
 
-    if (!token) {
-      setStatus("missing");
-      return;
-    }
-
-    async function verify() {
-      try {
-        // index.ts usa GET /api/auth/verify-email?token=
-        const res  = await fetch(`/api/auth/verify-email?token=${encodeURIComponent(token!)}`);
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          setStatus("error");
-          setMessage(data.error ?? "Falha na verificação.");
-        } else {
-          setStatus("success");
-        }
-      } catch {
-        setStatus("error");
-        setMessage("Erro de conexão. Tente novamente.");
-      }
-    }
-
-    verify();
+    fetch(`/api/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) { setStatus("success"); setEmail(data.email || ""); }
+        else { setStatus("error"); setMessage(data.error ?? "Token inválido ou expirado."); }
+      })
+      .catch(() => { setStatus("error"); setMessage("Erro de conexão. Tente novamente."); });
   }, []);
 
+  const handleResend = async () => {
+    const emailParam = new URLSearchParams(window.location.search).get("email") || "";
+    if (!emailParam) return;
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailParam }),
+      });
+      setResent(true);
+    } catch { /* silencioso */ }
+  };
+
+  const STATUS_CONFIG = {
+    loading: { icon: "◷", color: "var(--blue)",   bg: "var(--blue-l)",         title: "Verificando…",         sub: "Aguarde um instante." },
+    success: { icon: "◎", color: "var(--green-d)", bg: "rgba(48,209,88,0.1)",   title: "Email confirmado",     sub: "Sua conta está ativa." },
+    error:   { icon: "✕", color: "var(--red)",     bg: "rgba(255,59,48,0.08)",  title: "Link inválido",        sub: message },
+    missing: { icon: "◬", color: "var(--orange)",  bg: "rgba(255,159,10,0.08)", title: "Link incompleto",      sub: "Verifique seu email e tente novamente." },
+  };
+
+  const cfg = STATUS_CONFIG[status];
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-10
-                      max-w-md w-full text-center">
+    <div style={{ minHeight: "100vh", background: "var(--off)", display: "flex", flexDirection: "column", fontFamily: "var(--font)" }}>
 
-        {/* Loading */}
-        {status === "loading" && (
-          <>
-            <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center
-                            justify-center mx-auto mb-6">
-              <svg className="w-8 h-8 text-indigo-500 animate-spin"
-                   fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10"
-                        stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor"
-                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
-              </svg>
-            </div>
-            <h1 className="text-xl font-semibold text-gray-800 mb-2">
-              Verificando seu email…
-            </h1>
-            <p className="text-gray-500 text-sm">Aguarde um instante.</p>
-          </>
-        )}
+      {/* Nav */}
+      <nav style={{ height: 56, background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 32px" }}>
+        <a href="/" style={{ fontSize: 18, fontWeight: 800, color: "var(--black)", textDecoration: "none", letterSpacing: "-0.04em" }}>
+          MEC<span style={{ color: "var(--green-d)" }}>PRO</span>
+        </a>
+      </nav>
 
-        {/* Sucesso */}
-        {status === "success" && (
-          <>
-            <div className="w-16 h-16 rounded-full bg-green-50 flex items-center
-                            justify-center mx-auto mb-6">
-              <svg className="w-8 h-8 text-green-500" fill="none"
-                   stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round"
-                      strokeWidth={2.5} d="M5 13l4 4L19 7"/>
-              </svg>
-            </div>
-            <h1 className="text-xl font-semibold text-gray-800 mb-2">
-              Email verificado! 🎉
-            </h1>
-            <p className="text-gray-500 text-sm mb-8">
-              Sua conta está ativa. Você já pode acessar a plataforma.
+      {/* Content */}
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(16px, 4vw, 40px)" }}>
+        <div style={{
+          background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)",
+          border: "1px solid var(--glass-border)", borderRadius: "var(--r-xl)",
+          padding: "clamp(28px,5vw,52px)", maxWidth: 440, width: "100%",
+          textAlign: "center", boxShadow: "var(--glass-shadow)",
+        }}>
+
+          {/* Ícone de status */}
+          <div style={{
+            width: 64, height: 64, borderRadius: "50%",
+            background: cfg.bg, border: `1.5px solid ${cfg.color}30`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 28, color: cfg.color, margin: "0 auto 24px",
+            fontWeight: 300, lineHeight: 1,
+            animation: status === "loading" ? "spin 1.5s linear infinite" : undefined,
+          }}>
+            {cfg.icon}
+          </div>
+
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: "var(--black)", marginBottom: 8, letterSpacing: "-0.03em" }}>
+            {cfg.title}
+          </h1>
+
+          {status === "success" && email && (
+            <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 4 }}>
+              <strong style={{ color: "var(--dark)" }}>{email}</strong>
             </p>
+          )}
+
+          <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.6, marginBottom: 28 }}>
+            {cfg.sub}
+          </p>
+
+          {/* Ações por status */}
+          {status === "success" && (
             <button
               onClick={() => navigate("/dashboard")}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white
-                         font-semibold py-3 rounded-lg transition-colors"
-            >
-              Ir para o Dashboard
+              className="btn btn-primary btn-lg btn-full"
+              style={{ marginBottom: 16 }}>
+              Acessar plataforma →
             </button>
-          </>
-        )}
+          )}
 
-        {/* Erro */}
-        {status === "error" && (
-          <>
-            <div className="w-16 h-16 rounded-full bg-red-50 flex items-center
-                            justify-center mx-auto mb-6">
-              <svg className="w-8 h-8 text-red-500" fill="none"
-                   stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round"
-                      strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/>
-              </svg>
+          {(status === "error" || status === "missing") && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {!resent ? (
+                <button onClick={handleResend} className="btn btn-primary btn-md btn-full">
+                  Reenviar link de verificação
+                </button>
+              ) : (
+                <div style={{ padding: "12px 16px", background: "rgba(48,209,88,0.08)", border: "1px solid rgba(48,209,88,0.2)", borderRadius: "var(--r-sm)", fontSize: 13, color: "var(--green-d)", fontWeight: 600 }}>
+                  ◎ Novo link enviado para seu email
+                </div>
+              )}
+              <button onClick={() => navigate("/login")} className="btn btn-ghost btn-md btn-full">
+                ← Voltar ao login
+              </button>
             </div>
-            <h1 className="text-xl font-semibold text-gray-800 mb-2">
-              Falha na verificação
-            </h1>
-            <p className="text-gray-500 text-sm mb-8">{message}</p>
-            <button
-              onClick={() => navigate("/login")}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white
-                         font-semibold py-3 rounded-lg transition-colors"
-            >
-              Voltar ao login
-            </button>
-          </>
-        )}
+          )}
 
-        {/* Token ausente */}
-        {status === "missing" && (
-          <>
-            <div className="w-16 h-16 rounded-full bg-yellow-50 flex items-center
-                            justify-center mx-auto mb-6">
-              <svg className="w-8 h-8 text-yellow-500" fill="none"
-                   stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94
-                     a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-              </svg>
-            </div>
-            <h1 className="text-xl font-semibold text-gray-800 mb-2">
-              Link inválido
-            </h1>
-            <p className="text-gray-500 text-sm mb-8">
-              O link de verificação está incompleto ou foi copiado incorretamente.
-              Verifique seu email e tente novamente.
+          {status === "loading" && (
+            <p style={{ fontSize: 12, color: "var(--muted)" }}>Verificando token…</p>
+          )}
+
+          {/* Footer */}
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 12, color: "var(--muted)" }}>
+              Precisa de ajuda?{" "}
+              <a href="/contact" style={{ color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}>Fale conosco</a>
             </p>
-            <button
-              onClick={() => navigate("/login")}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white
-                         font-semibold py-3 rounded-lg transition-colors"
-            >
-              Voltar ao login
-            </button>
-          </>
-        )}
-
+          </div>
+        </div>
       </div>
     </div>
   );
