@@ -917,3 +917,213 @@ tbody tr:last-child td { border-bottom: none; }
   .btn:hover, .card:hover, .sidebar-nav-item:hover { transform: none; }
   .sidebar-nav-item.active { background: rgba(0,113,227,0.1); }
 }
+
+
+/* ════════════════════════════════════════════════
+   UTILITÁRIOS DE PÁGINA — padrão global MECPro
+   Usar em TODAS as páginas para consistência
+   ════════════════════════════════════════════════ */
+
+/* Container padrão de página */
+.page-container {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 28px 20px;
+  font-family: var(--font);
+}
+
+/* Header padrão de página */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.page-header-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--grad-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  box-shadow: var(--shadow-blue);
+  flex-shrink: 0;
+  color: white;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--black);
+  letter-spacing: -0.04em;
+  font-family: var(--font);
+}
+
+.page-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Seção label */
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+
+/* KPI card padrão */
+.kpi-card {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s var(--ease);
+  cursor: default;
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.kpi-value {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-family: var(--font);
+}
+
+.kpi-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 4px;
+}
+
+/* Nav card (atalho clicável) */
+.nav-card {
+  padding: 14px 12px;
+  border-radius: var(--r);
+  border: 1.5px solid var(--border);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s var(--ease);
+  font-family: var(--font);
+}
+
+.nav-card:hover {
+  border-color: var(--blue);
+  box-shadow: var(--shadow-blue);
+  transform: translateY(-2px);
+}
+
+/* Row interativa (lista) */
+.list-row {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.list-row:hover { background: var(--off); }
+.list-row:last-child { border-bottom: none; }
+
+/* Ícone box padrão */
+.icon-box {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+/* Empty state */
+.empty-state {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-state-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+  opacity: 0.25;
+}
+
+.empty-state-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--dark);
+  margin-bottom: 6px;
+  font-family: var(--font);
+}
+
+.empty-state-sub {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+
+/* Divider com label */
+.divider-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.divider-label::before,
+.divider-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Info card colorido */
+.info-card {
+  border-radius: var(--r);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+/* Status dot */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.online  { background: var(--green); box-shadow: 0 0 0 3px rgba(48,209,88,0.2); }
+.status-dot.offline { background: var(--muted); }
+.status-dot.warning { background: var(--orange); box-shadow: 0 0 0 3px rgba(255,159,10,0.2); }
+.status-dot.error   { background: var(--red);    box-shadow: 0 0 0 3px rgba(255,59,48,0.2); }
+
+/* Eliminar font-display legada — usar var(--font) */
+/* DEPRECATED: var(--font-display) → usar var(--font) */
