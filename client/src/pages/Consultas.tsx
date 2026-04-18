@@ -189,7 +189,7 @@ export default function Consultas() {
   return (
     <Layout>
       <BackButton to="/dashboard" label="Dashboard" style={{ marginBottom: 20 }} />
-      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto" }}>
 
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
@@ -229,7 +229,7 @@ export default function Consultas() {
         )}
 
         {mainTab === "consulta" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 20, alignItems: "start" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(220px,28%,300px)", gap: 20, alignItems: "start" }}>
 
             {/* ── Coluna principal ── */}
             <div>

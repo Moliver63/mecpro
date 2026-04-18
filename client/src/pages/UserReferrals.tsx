@@ -105,7 +105,7 @@ export default function UserReferrals() {
       </div>
 
       {/* Como funciona */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
         {[
           { step: "1", icon: "🔗", title: "Compartilhe seu link", desc: "Envie seu link único para amigos e contatos." },
           { step: "2", icon: "✅", title: "Eles se cadastram", desc: "Seu amigo cria uma conta usando seu link." },

@@ -218,7 +218,7 @@ export default function CourseDetail() {
   return (
     <Layout>
       <button className="btn btn-sm btn-ghost" onClick={() => setLocation("/academy")} style={{ paddingLeft: 0, marginBottom: 16 }}>← Academy</button>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 28, alignItems: "flex-start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(260px,32%,340px)", gap: 28, alignItems: "flex-start" }}>
         <div>
           {/* Header */}
           <div style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)", borderRadius: 18, padding: "32px 28px", marginBottom: 24, color: "white" }}>

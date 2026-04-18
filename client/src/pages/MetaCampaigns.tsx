@@ -875,7 +875,7 @@ function CampaignDetailPanel({
                       {s.daily_budget && <div style={{ fontSize: 12, color: "var(--body)", marginTop: 4 }}>💰 {R(s.daily_budget)}/dia</div>}
                     </div>
                     {si && (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, minWidth: 260 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, minWidth: 260 }}>
                         {[
                           { l: "Impressões", v: N(si.impressions) },
                           { l: "Cliques",    v: N(si.clicks) },

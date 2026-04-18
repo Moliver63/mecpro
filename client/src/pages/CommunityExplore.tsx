@@ -39,7 +39,7 @@ export default function CommunityExplore() {
         <p style={{ fontSize: 14, color: "var(--muted)" }}>Conecte-se com profissionais de marketing e compartilhe conhecimento</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(240px,30%,320px)", gap: 24 }}>
         {/* Conteúdo principal */}
         <div>
           {/* Posts em destaque */}

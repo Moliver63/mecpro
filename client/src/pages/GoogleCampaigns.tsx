@@ -186,7 +186,7 @@ export default function GoogleCampaigns() {
 
   return (
     <Layout>
-      <div className="page-shell" style={{ padding: 24, maxWidth: 1200, margin: "0 auto" }}>
+      <div className="page-shell" style={{ padding: 24, maxWidth: "100%", margin: "0 auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>🔵 Google Ads</h1>

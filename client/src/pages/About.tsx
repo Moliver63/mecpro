@@ -111,7 +111,7 @@ export default function About() {
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
           Funcionalidades da Plataforma
         </h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
           {[
             {
               icon: "🤖", title: "Geração Automática de Campanhas",
@@ -170,7 +170,7 @@ export default function About() {
         <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>
           O MECProAI integra-se com as principais plataformas de publicidade digital via API oficial.
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
           {[
             {
               icon: "📘", name: "Meta Ads API", color: "#1877f2",
@@ -210,7 +210,7 @@ export default function About() {
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 20 }}>
           Planos e Preços
         </h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
           {[
             { name: "Free",    price: "Gratuito", color: "#64748b", features: ["3 projetos", "5 campanhas/mês", "Análise básica"] },
             { name: "Basic",   price: "R$ 97/mês", color: "#0891b2", features: ["10 projetos", "20 campanhas/mês", "Análise de concorrentes"] },

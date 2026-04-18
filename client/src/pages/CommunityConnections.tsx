@@ -47,7 +47,7 @@ export default function CommunityConnections() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14, marginBottom: 24 }}>
         {[
           { icon: "👥", label: "Conexões", value: MY_CONNECTIONS.length, color: "#eff6ff" },
           { icon: "💬", label: "Grupos", value: MY_GROUPS.length, color: "#f0fdf4" },

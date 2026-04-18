@@ -1268,7 +1268,7 @@ export default function CampaignResult() {
             <div style={{ fontWeight: 700, fontSize: 13, color: "#3730a3", marginBottom: 10 }}>
               🧠 Inteligência Competitiva Aplicada nesta Campanha
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, fontSize: 12 }}>
               {ci.competitors && (
                 <div style={{ background: "#fff", borderRadius: 8, padding: 10, border: "1px solid #e0e7ff" }}>
                   <div style={{ color: "#6366f1", fontWeight: 700, marginBottom: 4 }}>🏢 Concorrentes Analisados</div>
@@ -1361,7 +1361,7 @@ export default function CampaignResult() {
             </div>
 
             {/* Métricas principais */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 14 }}>
               {[
                 { label: "CPL estimado",    value: cpl    ? `R$ ${parseFloat(String(cpl).replace(/[^0-9.,]/g,"").replace(",",".")).toFixed(0)}` : "—", status: cplStatus,   icon: "🎯" },
                 { label: "CTR estimado",    value: ctr    ? `${parseFloat(String(ctr).replace(/[^0-9.,]/g,"").replace(",",".")).toFixed(2)}%`    : "—", status: ctrStatus,   icon: "📉" },
@@ -1431,7 +1431,7 @@ export default function CampaignResult() {
       })()}
 
       {/* KPIs orçamento — redesign premium */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 24 }}>
         {[
           { label: "Budget diário",  value: budgetDaily ? `R$ ${budgetDaily.toLocaleString("pt-BR")}` : "—", sub: "por dia de veiculação", icon: "📅", accent: "#16a34a", bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)" },
           { label: "Budget mensal",  value: c.suggestedBudgetMonthly ? `R$ ${c.suggestedBudgetMonthly.toLocaleString("pt-BR")}` : "—", sub: "investimento total", icon: "💰", accent: "#2563eb", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)" },
@@ -1633,7 +1633,7 @@ export default function CampaignResult() {
                   </div>
                 ) : (
                   <>
-                    <div style={{ display: "grid", gridTemplateColumns: creativeImage ? "220px 1fr" : "1fr", gap: 16, alignItems: "start" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: creativeImage ? "clamp(160px,22%,220px) 1fr" : "1fr", gap: 16, alignItems: "start" }}>
                       <div>
                         {creativeImage ? (
                           <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", borderRadius: 12, border: "1px solid #e5e7eb", objectFit: "cover", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }} />
@@ -1883,7 +1883,7 @@ export default function CampaignResult() {
               <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Projeções baseadas no nicho e dados históricos da conta</p>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 14 }}>
             {[
               { key: "estimatedCPC",  label: "CPC",   icon: "🖱️", bg: "#eff6ff",        fg: "#1e40af" },
               { key: "estimatedCPL",  label: "CPL",   icon: "🎯", bg: "var(--green-l)", fg: "var(--green-dk)" },
@@ -1913,7 +1913,7 @@ export default function CampaignResult() {
       {glossary && Array.isArray(glossary) && (
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginTop: 20 }}>
           <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", marginBottom: 16 }}>📖 Glossário da campanha</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
             {glossary.map((g: any, i: number) => (
               <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
                 <span style={{ fontSize: 12, fontWeight: 800, background: "var(--navy)", color: "white", padding: "2px 8px", borderRadius: 5, display: "inline-block", marginBottom: 6 }}>{g.term}</span>
@@ -1970,7 +1970,7 @@ export default function CampaignResult() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {abTests.map((t: any, i: number) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr 80px", gap: 10, alignItems: "center", padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 10 }}>
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "clamp(80px,12%,120px) 1fr 1fr clamp(60px,8%,80px)", gap: 10, alignItems: "center", padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: "var(--navy)" }}>Teste {i + 1}: {t.test}</span>
                 <div style={{ background: "#f0fdf4", borderRadius: 8, padding: "8px 12px" }}>
                   <div style={{ fontSize: 10, color: "var(--green-d)", fontWeight: 700, marginBottom: 2 }}>VARIAÇÃO A</div>
@@ -2204,7 +2204,7 @@ export default function CampaignResult() {
 
       {showModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflowY: "auto" }}>
-          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: 960, boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
+          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: "100%", boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
 
             {/* HEADER */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 24px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -2649,7 +2649,7 @@ export default function CampaignResult() {
                     <div>
                       {mediaFiles.length > 0 ? (
                         <div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, marginBottom: 12 }}>
                             {mediaFiles.map((file, idx) => (
                               <div
                                 key={idx}
@@ -2974,7 +2974,7 @@ export default function CampaignResult() {
       {/* ── Modal Post Orgânico ── */}
       {showOrganicModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflowY: "auto" }}>
-          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: 960, boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
+          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: "100%", boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
 
             {/* HEADER */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 24px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>

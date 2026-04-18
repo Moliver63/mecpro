@@ -51,7 +51,7 @@ export default function MyCourses() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14, marginBottom: 24 }}>
         {[
           { icon: "📚", label: "Cursos matriculados", value: ENROLLED_COURSES.length, color: "#eff6ff" },
           { icon: "✅", label: "Cursos concluídos", value: ENROLLED_COURSES.filter(c => c.progress === 100).length, color: "#f0fdf4" },

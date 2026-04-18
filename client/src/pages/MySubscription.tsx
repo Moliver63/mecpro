@@ -85,7 +85,7 @@ export default function MySubscription() {
       {plan !== "vip" && (
         <>
           <p style={{ fontSize: 15, fontWeight: 800, color: "var(--black)", fontFamily: "var(--font-display)", marginBottom: 16 }}>Fazer upgrade</p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
             {plans?.filter((p: any) => p.slug !== plan && p.slug !== "free").map((p: any) => (
               <div key={p.id} style={{ background: "white", border: `2px solid ${p.slug === "premium" ? "var(--green)" : "var(--border)"}`, borderRadius: 14, padding: 20, position: "relative" }}>
                 {p.slug === "premium" && (

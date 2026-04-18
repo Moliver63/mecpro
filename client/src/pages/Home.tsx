@@ -24,7 +24,7 @@ export default function Home() {
       {/* Hero */}
       <div style={{
         background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)",
-        borderRadius: 20, padding: "32px 36px", marginBottom: 28, color: "white"
+        borderRadius: 20, padding: "clamp(16px, 3vw, 32px) clamp(16px, 3vw, 36px)", marginBottom: 28, color: "white"
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -64,7 +64,7 @@ export default function Home() {
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 700, color: "var(--black)", marginBottom: 14 }}>
         Acesso rápido
       </h2>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 28 }}>
         {quickLinks.map(link => (
           <div
             key={link.path + link.label}

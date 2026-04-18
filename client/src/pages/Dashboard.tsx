@@ -81,7 +81,7 @@ export default function Dashboard() {
         .arc-btn:hover { background: rgba(255,159,10,0.1) !important; color: var(--orange) !important; }
       `}</style>
 
-      <div style={{ maxWidth: 1040, margin: "0 auto", padding: "28px 20px", fontFamily: "var(--font)" }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)", fontFamily: "var(--font)", paddingBottom: "env(safe-area-inset-bottom, 0)" }}>
 
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
@@ -100,7 +100,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 20 }}>
+        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginBottom: 20 }}>
           {STATS.map(s => (
             <div key={s.label} className="dash-stat card"
               onClick={() => s.tab && setActiveTab(s.tab as any)}
@@ -116,7 +116,7 @@ export default function Dashboard() {
         </div>
 
         {/* Layout: lista principal + acesso rápido */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: 16, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(220px,26%,280px)", gap: 16, marginBottom: 20 }}>
 
           {/* Painel principal com abas */}
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>

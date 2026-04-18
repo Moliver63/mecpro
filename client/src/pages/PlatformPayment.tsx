@@ -136,7 +136,7 @@ export default function PlatformPayment() {
 
   return (
     <Layout>
-      <div style={{ maxWidth: 920, margin: "0 auto", padding: "28px 20px" }}>
+      <div style={{ maxWidth: 920, margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)" }}>
 
         {/* Header */}
         <div style={{ marginBottom: 24 }}>
@@ -206,7 +206,7 @@ export default function PlatformPayment() {
             {/* Tipo de chave */}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>Tipo de chave Pix</label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 6 }}>
                 {(["EMAIL","CPF","CNPJ","PHONE","EVP"] as PixKeyType[]).map(t => (
                   <button key={t} onClick={() => setPixKeyType(t)}
                     style={{ padding: "6px 4px", borderRadius: 8, border: `1.5px solid ${pixKeyType === t ? "#7c3aed" : "#e2e8f0"}`,

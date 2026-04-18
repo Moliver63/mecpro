@@ -171,7 +171,7 @@ export default function Billing() {
       </div>
 
       {/* Cards */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20, marginBottom:40 }}>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))", gap:20, marginBottom:40 }}>
         {PLANS.map(p => {
           const price     = billing === "yearly" ? Math.round(p.price * 0.8) : p.price;
           const isCurrent = currentPlan === p.slug;

@@ -1080,7 +1080,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
 
         {/* KPIs */}
         {ads.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 18 }}>
             {[
               { label: "Total", value: ads.length, color: "var(--navy)", bg: "#f0f4ff" },
               { label: "Ativos", value: adsAtivos.length, color: "#166534", bg: "#dcfce7" },
@@ -1345,7 +1345,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                       )}
 
                       {/* KPIs */}
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 14 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, marginBottom: 14 }}>
                         {[
                           { icon: "👁️", label: "Views médias",    value: avgViews.toLocaleString("pt-BR"),       color: "#fe2c55" },
                           { icon: "❤️", label: "Eng. Rate",        value: `${engRate}%`,                         color: "#ff9f43" },
@@ -2700,7 +2700,7 @@ function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
           {hasTikTok && (
             <div style={{ background:"#0f172a",borderRadius:14,padding:16 }}>
               <p style={{ margin:"0 0 12px",fontSize:13,fontWeight:800,color:"white" }}>🎵 TikTok — dados reais de {comp.name}</p>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:10 }}>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(220px, 1fr))",gap:10,marginBottom:10 }}>
                 {[
                   { label:"Anúncios",     value:tiktokCount },
                   { label:"Total Views",  value:tiktokViews>1000000?`${(tiktokViews/1000000).toFixed(1)}M`:tiktokViews>1000?`${(tiktokViews/1000).toFixed(0)}k`:tiktokViews },

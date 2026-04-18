@@ -54,7 +54,7 @@ export default function MyCertificates() {
       ) : (
         <>
           {/* Stats */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
             {[
               { icon: "🏆", label: "Certificados obtidos", value: MOCK_CERTS.length, color: "#fef3c7" },
               { icon: "📚", label: "Cursos concluídos", value: MOCK_CERTS.length, color: "#f0fdf4" },

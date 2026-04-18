@@ -128,7 +128,7 @@ export default function BudgetDistribution() {
   return (
     <Layout>
       <BackButton to="/financeiro" label="Financeiro" style={{ marginBottom: 20 }} />
-      <div style={{ maxWidth: 1000, margin: "0 auto", padding: "28px 20px" }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)" }}>
 
         <div style={{ marginBottom: 20 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#0f172a" }}>🎯 Rateio de Verba — Multi-Plataforma</h1>
@@ -213,7 +213,7 @@ export default function BudgetDistribution() {
         </div>
 
         {/* Controles */}
-        <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 16, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "clamp(160px, 20%, 200px) 1fr", gap: 16, marginBottom: 20 }}>
           <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 14, padding: "14px 18px" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", marginBottom: 4 }}>SALDO DISPONÍVEL</div>
             <div style={{ fontSize: 24, fontWeight: 900, color: "#059669" }}>{balance ? R(balance.balance) : "—"}</div>

@@ -326,7 +326,7 @@ export default function CampaignBuilder() {
           <p style={{ color: "var(--muted)", fontSize: 14 }}>Acesse a partir de um projeto.</p>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(280px,34%,360px)", gap: 20 }}>
 
           {/* Builder */}
           <div>

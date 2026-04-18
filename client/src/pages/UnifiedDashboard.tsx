@@ -212,7 +212,7 @@ export default function UnifiedDashboard() {
 
   return (
     <Layout>
-      <div style={{ maxWidth: 960, margin: "0 auto", padding: "28px 20px" }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap" as const, gap: 12 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#0f172a" }}>📊 Dashboard de Mídia Paga</h1>

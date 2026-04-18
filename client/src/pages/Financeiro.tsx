@@ -268,7 +268,7 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
           </div>
 
           {/* Valores rápidos */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 6, marginBottom: method === "pix" ? 14 : 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 6, marginBottom: method === "pix" ? 14 : 0 }}>
             {QUICK_AMOUNTS.map(a => (
               <button key={a} onClick={() => setAmount(String(a))} style={{
                 padding: "8px 4px", borderRadius: 9,
@@ -369,7 +369,7 @@ function TabCredits({ summary, onBack }: { summary: any; onBack: () => void }) {
       <SectionHeader icon="◈" color="#30d158" title="Comprar Créditos"
         sub="Adicione créditos diretamente nas plataformas de anúncios" onBack={onBack} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 20 }}>
         {PLATS.map(p => {
           const isOpen = selected === p.key;
           return (
@@ -548,7 +548,7 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
             <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
               Tipo de chave Pix
             </label>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 6, marginBottom: 10 }}>
               {["cpf", "cnpj", "email", "phone"].map(t => (
                 <button key={t} onClick={() => setKeyType(t)}
                   style={{ padding: "7px 4px", borderRadius: 8, border: `1.5px solid ${keyType === t ? "#ff9f0a" : "var(--border)"}`, background: keyType === t ? "#ff9f0a14" : "white", color: keyType === t ? "#d97706" : "var(--muted)", fontWeight: 700, fontSize: 11, cursor: "pointer", fontFamily: "var(--font)", transition: "all .15s" }}>
@@ -623,7 +623,7 @@ export default function Financeiro() {
         .fn-ab:hover { opacity: .88; }
       `}</style>
 
-      <div style={{ maxWidth: 1060, margin: "0 auto", padding: "28px 20px", fontFamily: "var(--font)" }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)", fontFamily: "var(--font)" }}>
 
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
@@ -635,7 +635,7 @@ export default function Financeiro() {
         </div>
 
         {/* KPIs */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 22 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 22 }}>
           {KPIS.map(k => (
             <div key={k.label} className="fn-kpi" style={{ ...glass, padding: "14px 16px", transition: "all .2s", cursor: "default" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -648,7 +648,7 @@ export default function Financeiro() {
         </div>
 
         {/* ── Saldo por Plataforma ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 22 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 22 }}>
           {PLATS.map(p => {
             const today  = (summary as any)?.spendToday?.[p.key]  || 0;
             const month  = (summary as any)?.spendMonth?.[p.key]  || 0;
@@ -746,7 +746,7 @@ export default function Financeiro() {
         </div>
 
         {/* Layout: nav lateral + conteúdo */}
-        <div style={{ display: "grid", gridTemplateColumns: "210px 1fr", gap: 14, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "clamp(160px, 20%, 210px) 1fr", gap: 14, marginBottom: 16 }}>
 
           {/* Nav lateral — estilo sidebar */}
           <div style={{ ...glass, padding: "10px 10px", height: "fit-content", position: "sticky", top: 20 }}>
@@ -782,7 +782,7 @@ export default function Financeiro() {
             {tab === 0 && (
               <div>
                 <SectionHeader icon="▣" color="#0071e3" title="Visão Geral" sub="Resumo financeiro e acesso rápido" />
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 22 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 22 }}>
                   <div style={{ background: "var(--off)", borderRadius: 12, padding: 16 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)", marginBottom: 12 }}>Gasto por plataforma</div>
                     {PLATS.map((p, i) => (
@@ -820,7 +820,7 @@ export default function Financeiro() {
 
                 {/* Atalhos */}
                 <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Acesso rápido</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8 }}>
                   {TABS.slice(1).map((t, i) => (
                     <button key={t.id} onClick={() => setTab(i + 1)}
                       style={{ padding: "14px 10px", borderRadius: 12, border: "1.5px solid var(--border)", background: "white", cursor: "pointer", textAlign: "center", transition: "all .2s", fontFamily: "var(--font)" }}

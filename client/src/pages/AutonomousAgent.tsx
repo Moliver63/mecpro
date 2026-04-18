@@ -106,7 +106,7 @@ export default function AutonomousAgentPage() {
 
   return (
     <Layout>
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "28px 20px" }}>
+      <div style={{ maxWidth: 900, margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)" }}>
 
         {/* ── Header ── */}
         <div style={{ marginBottom: 28 }}>

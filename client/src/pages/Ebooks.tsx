@@ -36,7 +36,7 @@ export default function Ebooks() {
       </div>
 
       {/* Stats rápidos */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
         {[
           { icon: "📚", label: "E-books disponíveis", value: MOCK_EBOOKS.length, color: "#eff6ff" },
           { icon: "🆓", label: "E-books gratuitos", value: MOCK_EBOOKS.filter(e => !e.isPro).length, color: "#f0fdf4" },
@@ -84,7 +84,7 @@ export default function Ebooks() {
           <p style={{ fontSize: 14, color: "var(--muted)" }}>Nenhum e-book encontrado</p>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 18 }}>
           {filtered.map(ebook => (
             <div key={ebook.id}
               style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden", display: "flex" }}
