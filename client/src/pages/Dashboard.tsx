@@ -7,16 +7,6 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 
-const NAV_CARDS = [
-  { icon: "◈", label: "Meta Ads",       sub: "Campanhas e criativos",      path: "/meta-campaigns",     color: "#1877f2" },
-  { icon: "◉", label: "Google Ads",     sub: "Search e Display",           path: "/google-campaigns",   color: "#1a73e8" },
-  { icon: "◍", label: "TikTok Ads",     sub: "Vídeos e performance",       path: "/tiktok-campaigns",   color: "#333"   },
-  { icon: "⟳", label: "Agente IA",      sub: "Automação autônoma",         path: "/autonomous-agent",   color: "#5856d6" },
-  { icon: "▣", label: "Financeiro",     sub: "Saldo e verba de mídia",     path: "/financeiro",         color: "#30d158" },
-  { icon: "⊙", label: "Academia",       sub: "Cursos e certificados",      path: "/academy",            color: "#ff9f0a" },
-  { icon: "◻", label: "Notificações",   sub: "Alertas e mensagens",        path: "/notifications",      color: "#0071e3" },
-  { icon: "⊘", label: "Assinatura",     sub: "Plano e cobrança",           path: "/my-subscription",   color: "#ff3b30" },
-];
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -37,9 +27,6 @@ export default function Dashboard() {
       <style>{`
         .dash-card   { transition: all .2s var(--ease); }
         .dash-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md) !important; border-color: var(--border2) !important; }
-        .dash-nav:hover  { border-color: var(--blue) !important; box-shadow: var(--shadow-blue) !important; }
-        .dash-nav:hover .dash-nav-icon { transform: scale(1.1); }
-        .dash-nav-icon   { transition: transform .15s; }
         .proj-row:hover  { background: var(--off) !important; }
         .dash-stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-md) !important; }
         .dash-stat { transition: all .2s; }
@@ -168,53 +155,49 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Acesso rápido vertical */}
+          {/* Acesso rápido — apenas o que não está no menu lateral */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", padding: "2px 0 6px" }}>
               Acesso rápido
             </div>
 
+            {/* Dashboard Unificado — métricas consolidadas */}
+            <div className="card dash-card" onClick={() => setLocation("/unified-dashboard")}
+              style={{ padding: "14px 16px", cursor: "pointer", background: "var(--blue-l)", borderColor: "rgba(0,113,227,0.2)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--blue)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>
+                  📊
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--blue)" }}>Dashboard Unificado</div>
+                  <div style={{ fontSize: 10, color: "var(--muted)" }}>Métricas consolidadas em tempo real</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {["Meta", "Google", "TikTok"].map(p => (
+                  <span key={p} className="badge badge-blue" style={{ fontSize: 10 }}>{p}</span>
+                ))}
+              </div>
+            </div>
+
             {/* Consulta CPF/CNPJ */}
             <div className="card dash-card" onClick={() => setLocation("/consultas")}
-              style={{ padding: "12px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 8, background: "var(--blue-l)",
-                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0,
-              }}>🔍</div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)" }}>Consulta CPF/CNPJ</div>
-                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>Receita · CNJ · Gratuito</div>
+              style={{ padding: "14px 16px", cursor: "pointer" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--blue-l)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, flexShrink: 0 }}>
+                  🔍
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--dark)" }}>Consulta CPF / CNPJ</div>
+                  <div style={{ fontSize: 10, color: "var(--muted)" }}>Dados cadastrais e processos judiciais</div>
+                </div>
               </div>
-              <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>→</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                {["Receita Federal", "CNJ", "Gratuito"].map(t => (
+                  <span key={t} className="badge badge-gray" style={{ fontSize: 10 }}>{t}</span>
+                ))}
+              </div>
             </div>
-
-            {/* Dashboard unificado */}
-            <div className="card dash-card" onClick={() => setLocation("/unified-dashboard")}
-              style={{ padding: "12px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, background: "var(--blue-l)", borderColor: "rgba(0,113,227,0.2)" }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: 8, background: "var(--blue)",
-                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0,
-              }}>📊</div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--blue)" }}>Dashboard Unificado</div>
-                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>Meta · Google · TikTok</div>
-              </div>
-              <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--blue)", flexShrink: 0 }}>→</span>
-            </div>
-
-            {/* Plataformas */}
-            {[
-              { icon: "📘", label: "Meta Ads",   path: "/meta-campaigns",   color: "#1877f2", bg: "rgba(24,119,242,0.08)" },
-              { icon: "🔵", label: "Google Ads", path: "/google-campaigns", color: "#1a73e8", bg: "rgba(26,115,232,0.08)" },
-              { icon: "◼",  label: "TikTok Ads", path: "/tiktok-campaigns", color: "#111",    bg: "rgba(0,0,0,0.04)"     },
-            ].map(p => (
-              <div key={p.path} className="card dash-card" onClick={() => setLocation(p.path)}
-                style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 30, height: 30, borderRadius: 8, background: p.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{p.icon}</div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--dark)" }}>{p.label}</div>
-                <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>→</span>
-              </div>
-            ))}
           </div>
         </div>
 
@@ -258,30 +241,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Grid de módulos ── */}
-        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-          Módulos
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 20 }}>
-          {NAV_CARDS.map(card => (
-            <button key={card.path} onClick={() => setLocation(card.path)} className="dash-nav"
-              style={{
-                padding: "16px 14px", borderRadius: "var(--r)", border: "1.5px solid var(--border)",
-                background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)",
-                cursor: "pointer", textAlign: "center", transition: "all .2s",
-                fontFamily: "var(--font)",
-              }}>
-              <div className="dash-nav-icon" style={{
-                width: 38, height: 38, borderRadius: 10, margin: "0 auto 10px",
-                background: card.color + "14",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 18, color: card.color,
-              }}>{card.icon}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)", marginBottom: 3 }}>{card.label}</div>
-              <div style={{ fontSize: 10, color: "var(--muted)" }}>{card.sub}</div>
-            </button>
-          ))}
-        </div>
 
         {/* ── CTA upgrade ── */}
         {user?.plan === "free" && (
