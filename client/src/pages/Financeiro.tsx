@@ -436,7 +436,7 @@ function TabRateio({ ps, summary, onBack }: { ps: any; summary: any; onBack: () 
   const total = Object.values(dist).reduce((a, b) => a + b, 0);
 
   const updateMutation = (trpc as any).mediaBudget?.updateDistribution?.useMutation?.({
-    onSuccess: () => toast.success("✅ Rateio atualizado!"),
+    onSuccess: () => toast.success("◎ Rateio atualizado!"),
     onError:   (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
 
@@ -518,7 +518,7 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
   const parsed = parseFloat(String(amount).replace(",", ".")) || 0;
 
   const transferMutation = (trpc as any).mediaBudget?.transferAsaas?.useMutation?.({
-    onSuccess: () => { toast.success("✅ Transferência realizada!"); setAmount(""); setKey(""); },
+    onSuccess: () => { toast.success("◎ Transferência realizada!"); setAmount(""); setKey(""); },
     onError:   (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
 
@@ -800,7 +800,7 @@ export default function Financeiro() {
                     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontSize: 12, fontWeight: 700 }}>Últimas movimentações</div>
                     {(summary as any)?.recentMovements?.slice(0, 5).map((m: any, i: number) => (
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: i < 4 ? "1px solid var(--border)" : "none" }}>
-                        <span>{m.type === "deposit" ? "📥" : m.type === "fee" ? "🏷️" : m.type === "transfer" ? "💸" : "📢"}</span>
+                        <span>{m.type === "deposit" ? "📥" : m.type === "fee" ? "🏷️" : m.type === "transfer" ? "◍" : "📢"}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {m.type === "deposit" ? "Depósito" : m.type === "fee" ? "Taxa" : m.type === "transfer" ? "Transferência" : m.platform || "Gasto"}

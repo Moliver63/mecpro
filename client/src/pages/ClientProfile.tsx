@@ -308,7 +308,7 @@ export default function ClientProfile() {
           }}>
             <div>
               <p style={{ fontSize: 15, fontWeight: 700, color: "white", marginBottom: 4 }}>
-                ✅ Perfil salvo! Próximo passo:
+                ◎ Perfil salvo! Próximo passo:
               </p>
               <p style={{ fontSize: 13, color: "rgba(255,255,255,.7)", lineHeight: 1.5 }}>
                 Adicione os concorrentes para a IA ter dados reais para analisar.

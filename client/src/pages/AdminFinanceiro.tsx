@@ -33,7 +33,7 @@ export default function AdminFinanceiro() {
   // Payment settings
   const { data: ps, refetch: refetchPS } = (trpc as any).admin?.getPaymentSettings?.useQuery?.() ?? { data: null };
   const savePS = (trpc as any).admin?.savePaymentSettings?.useMutation?.({
-    onSuccess: () => { toast.success("✅ Configurações salvas!"); refetchPS?.(); },
+    onSuccess: () => { toast.success("◎ Configurações salvas!"); refetchPS?.(); },
     onError:   (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
 
@@ -105,7 +105,7 @@ export default function AdminFinanceiro() {
             {/* KPIs */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 24 }}>
               {[
-                { label: "Saldo total (todos usuários)", value: R(overview?.totalBalance),   icon: "💰", color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
+                { label: "Saldo total (todos usuários)", value: R(overview?.totalBalance),   icon: "◈", color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
                 { label: "Total depositado",             value: R(overview?.totalDeposited),  icon: "📥", color: "#0071e3", bg: "#eff6ff", border: "#bfdbfe" },
                 { label: "Total de taxas (receita)",     value: R(overview?.totalFees),        icon: "🏷️", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
                 { label: "Total em anúncios",            value: R(overview?.totalSpend),       icon: "📢", color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
@@ -189,8 +189,8 @@ export default function AdminFinanceiro() {
                       Cliente deposita Pix/Cartão no MECPro → MECPro controla saldo → Transfere para conta bancária → Cliente recarrega as plataformas
                     </p>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" }}>✅ Controle total do saldo</span>
-                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" }}>✅ Pausa automática</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" }}>◎ Controle total do saldo</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" }}>◎ Pausa automática</span>
                       <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#fef2f2", color: "#dc2626" }}>⚠️ Intermediação financeira</span>
                     </div>
                   </div>
@@ -213,9 +213,9 @@ export default function AdminFinanceiro() {
                       MECPro cobra 10% de taxa → calcula rateio → guia o cliente a comprar crédito direto em cada plataforma com o valor exato
                     </p>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f0fdf4", color: "#059669" }}>✅ Zero intermediação</span>
-                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f0fdf4", color: "#059669" }}>✅ Cliente paga direto</span>
-                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f0fdf4", color: "#059669" }}>✅ 100% legal</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f0fdf4", color: "#059669" }}>◎ Zero intermediação</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f0fdf4", color: "#059669" }}>◎ Cliente paga direto</span>
+                      <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 999, background: "#f0fdf4", color: "#059669" }}>◎ 100% legal</span>
                     </div>
                   </div>
                   <Toggle value={modeGuide} onChange={setModeGuide} color="#059669" />

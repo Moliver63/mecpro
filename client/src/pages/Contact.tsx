@@ -132,7 +132,7 @@ export default function Contact() {
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 20, padding: "32px 30px" }}>
             {sent ? (
               <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                <div style={{ fontSize: 56, marginBottom: 16 }}>✅</div>
+                <div style={{ fontSize: 56, marginBottom: 16 }}>◎</div>
                 <h3 style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>
                   Mensagem enviada!
                 </h3>

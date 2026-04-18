@@ -431,7 +431,7 @@ export function EscavadorSearch() {
               {/* Nenhum dado */}
               {(result.participacoes?.length ?? 0) === 0 && !result.socios?.length && (
                 <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 12, padding: 24, textAlign: "center" }}>
-                  <p style={{ fontSize: 32, marginBottom: 8 }}>✅</p>
+                  <p style={{ fontSize: 32, marginBottom: 8 }}>◎</p>
                   <p style={{ fontSize: 14, fontWeight: 700, color: "#15803d" }}>Nenhum processo encontrado</p>
                   <p style={{ fontSize: 12, color: "#16a34a" }}>Sem participações em processos judiciais</p>
                 </div>
@@ -444,7 +444,7 @@ export function EscavadorSearch() {
             <div>
               {(result.participacoes?.length ?? 0) === 0 ? (
                 <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 12, padding: 24, textAlign: "center" }}>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: "#15803d" }}>✅ Sem participações em processos</p>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: "#15803d" }}>◎ Sem participações em processos</p>
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>

@@ -9,9 +9,9 @@ export default function Home() {
   const { data: projects } = trpc.projects.list.useQuery();
 
   const quickLinks = [
-    { icon: "📁", label: "Meus Projetos", desc: "Gerencie todos os seus projetos", path: "/projects", color: "#eff6ff" },
+    { icon: "◫", label: "Meus Projetos", desc: "Gerencie todos os seus projetos", path: "/projects", color: "#eff6ff" },
     { icon: "🔍", label: "Análise Competidores", desc: "Monitore concorrentes no Meta", path: "/projects", color: "#f0fdf4" },
-    { icon: "🚀", label: "Criar Campanha", desc: "Gere campanhas com IA", path: "/projects", color: "#fef3c7" },
+    { icon: "◈", label: "Criar Campanha", desc: "Gere campanhas com IA", path: "/projects", color: "#fef3c7" },
     { icon: "📊", label: "Inteligência de Mercado", desc: "Análise completa do seu nicho", path: "/projects", color: "#fdf4ff" },
     { icon: "🔎", label: "Consulta CPF/CNPJ", desc: "Dados da Receita Federal", path: "/consultas", color: "#fff7ed" },
     { icon: "⚙️", label: "Configurações", desc: "Perfil e integrações", path: "/settings", color: "#f8fafc" },
@@ -92,7 +92,7 @@ export default function Home() {
           </div>
           {!recentProjects.length ? (
             <div style={{ padding: 32, textAlign: "center" }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>📁</div>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>◫</div>
               <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12 }}>Nenhum projeto ainda</p>
               <button className="btn btn-sm btn-green" onClick={() => setLocation("/projects/new")}>
                 + Criar projeto
@@ -105,7 +105,7 @@ export default function Home() {
                 onMouseEnter={e => (e.currentTarget.style.background = "var(--off)")}
                 onMouseLeave={e => (e.currentTarget.style.background = "white")}>
                 <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "var(--green-l)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>📁</div>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "var(--green-l)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>◫</div>
                   <div>
                     <p style={{ fontSize: 13, fontWeight: 600, color: "var(--dark)" }}>{p.name}</p>
                     <p style={{ fontSize: 11, color: "var(--muted)" }}>{p.status}</p>

@@ -85,7 +85,7 @@ export default function GoogleCampaigns() {
 
   const bulkMutation = (trpc as any).googleCampaigns.bulkAction.useMutation({
     onSuccess: (data: any) => {
-      toast.success(`✅ ${data.total - data.failed} campanha(s) atualizadas${data.failed > 0 ? ` (${data.failed} falhou)` : ""}`);
+      toast.success(`◎ ${data.total - data.failed} campanha(s) atualizadas${data.failed > 0 ? ` (${data.failed} falhou)` : ""}`);
       setSelectedIds([]);
       load();
     },

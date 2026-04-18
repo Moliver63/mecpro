@@ -86,13 +86,13 @@ export default function MetaIntegration() {
   const { data: integrations, refetch, isLoading } = trpc.integrations.list.useQuery();
 
   const upsert = trpc.integrations.upsertMeta.useMutation({
-    onSuccess: () => { toast.success("✅ Integração Meta salva com sucesso!"); refetch(); },
-    onError:   (e) => toast.error(`❌ Erro ao salvar: ${e.message}`),
+    onSuccess: () => { toast.success("◎ Integração Meta salva com sucesso!"); refetch(); },
+    onError:   (e) => toast.error(`✕ Erro ao salvar: ${e.message}`),
   });
 
   const remove = trpc.integrations.delete.useMutation({
     onSuccess: () => { toast.success("Integração removida."); refetch(); },
-    onError:   (e) => toast.error(`❌ Erro ao remover: ${e.message}`),
+    onError:   (e) => toast.error(`✕ Erro ao remover: ${e.message}`),
   });
 
   const [diagResult, setDiagResult] = useState<DiagResult | null>(null);
@@ -103,34 +103,34 @@ export default function MetaIntegration() {
       const adsOk = d.adsLibraryTest?.ok && d.adsLibraryTest?.found >= 0;
       const permsOk = d.permissions?.ads_read;
       if (adsOk && permsOk) {
-        toast.success(`✅ Conexão OK — ${d.name} · Ads Library funcionando!`);
+        toast.success(`◎ Conexão OK — ${d.name} · Ads Library funcionando!`);
       } else if (!permsOk) {
         toast.error("⚠️ Token sem permissão ads_read — veja o diagnóstico abaixo");
       } else if (d.adsLibraryTest?.error) {
         toast.error(`⚠️ Ads Library: ${d.adsLibraryTest.error}`);
       } else {
-        toast.success(`✅ Token OK — ${d.name}`);
+        toast.success(`◎ Token OK — ${d.name}`);
       }
     },
-    onError: (e) => toast.error(`❌ Token inválido: ${e.message}`),
+    onError: (e) => toast.error(`✕ Token inválido: ${e.message}`),
   });
 
   const getMetaAuthUrl   = (trpc as any).integrations?.getMetaAuthUrl?.useMutation?.();
   const exchangeMetaCode = (trpc as any).integrations?.exchangeMetaCode?.useMutation?.({
     onSuccess: (data: any) => {
-      toast.success(`✅ Conectado como ${data.userName}! ${data.adAccounts?.length || 0} conta(s) de anúncio.`);
+      toast.success(`◎ Conectado como ${data.userName}! ${data.adAccounts?.length || 0} conta(s) de anúncio.`);
       setOauthResult(data);
       setOauthLoading(false);
       refetch?.();
     },
-    onError: (e: any) => { toast.error("❌ " + e.message); setOauthLoading(false); },
+    onError: (e: any) => { toast.error("✕ " + e.message); setOauthLoading(false); },
   });
   const exchangeToken = trpc.integrations.exchangeToken.useMutation({
     onSuccess: (d: any) => {
-      toast.success(`✅ Token longo gerado! Válido por ${d.expiresInDays} dias (até ${new Date(d.expiresAt).toLocaleDateString("pt-BR")})`);
+      toast.success(`◎ Token longo gerado! Válido por ${d.expiresInDays} dias (até ${new Date(d.expiresAt).toLocaleDateString("pt-BR")})`);
       refetch();
     },
-    onError: (e) => toast.error(`❌ ${e.message}`),
+    onError: (e) => toast.error(`✕ ${e.message}`),
   });
 
   const existing = (integrations as ApiIntegration[] | undefined)?.find(i => i.provider === "meta");
@@ -242,7 +242,7 @@ export default function MetaIntegration() {
           <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 14, padding: 18, marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: "#15803d", marginBottom: 6 }}>✅ Meta Ads conectado</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: "#15803d", marginBottom: 6 }}>◎ Meta Ads conectado</p>
                 <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 2 }}>
                   Conta: <strong>{existing.adAccountId || "—"}</strong>
                 </p>
@@ -286,10 +286,10 @@ export default function MetaIntegration() {
                   {/* Identidade */}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: "#dcfce7", color: "#166534" }}>
-                      ✅ Conta: {diagResult.name}
+                      ◎ Conta: {diagResult.name}
                     </span>
                     <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: diagResult.tokenExpired ? "#fee2e2" : "#dcfce7", color: diagResult.tokenExpired ? "#dc2626" : "#166534" }}>
-                      {diagResult.tokenExpired ? "❌" : "✅"} Token válido até {diagResult.tokenExpiry}
+                      {diagResult.tokenExpired ? "✕" : "◎"} Token válido até {diagResult.tokenExpiry}
                     </span>
                   </div>
 
@@ -302,7 +302,7 @@ export default function MetaIntegration() {
                       { label: "pages_read",  ok: diagResult.permissions.pages_read,  required: false },
                     ].map(p => (
                       <span key={p.label} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: p.ok ? "#dcfce7" : p.required ? "#fee2e2" : "#fef9c3", color: p.ok ? "#166534" : p.required ? "#dc2626" : "#92400e" }}>
-                        {p.ok ? "✅" : "❌"} {p.label}{p.required && !p.ok ? " (obrigatório!)" : ""}
+                        {p.ok ? "◎" : "✕"} {p.label}{p.required && !p.ok ? " (obrigatório!)" : ""}
                       </span>
                     ))}
                   </div>
@@ -312,12 +312,12 @@ export default function MetaIntegration() {
                   <div style={{ background: diagResult.adsLibraryTest.ok ? "#f0fdf4" : "#fef2f2", border: `1px solid ${diagResult.adsLibraryTest.ok ? "#86efac" : "#fca5a5"}`, borderRadius: 10, padding: "10px 14px" }}>
                     {diagResult.adsLibraryTest.ok ? (
                       <p style={{ margin: 0, fontSize: 12, color: "#166534" }}>
-                        ✅ Ads Library API funcionando — {diagResult.adsLibraryTest.found} anúncio(s) encontrado(s) para Page ID {diagResult.adsLibraryTest.pageId}
+                        ◎ Ads Library API funcionando — {diagResult.adsLibraryTest.found} anúncio(s) encontrado(s) para Page ID {diagResult.adsLibraryTest.pageId}
                         {diagResult.adsLibraryTest.found === 0 && " (página sem anúncios ativos ou visibilidade restrita)"}
                       </p>
                     ) : (
                       <div>
-                        <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "#dc2626" }}>❌ Ads Library API não funcionando</p>
+                        <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "#dc2626" }}>✕ Ads Library API não funcionando</p>
                         <p style={{ margin: 0, fontSize: 11, color: "#991b1b" }}>{diagResult.adsLibraryTest.error}</p>
                         {diagResult.adsLibraryTest.error?.includes("10") && (
                           <p style={{ margin: "6px 0 0", fontSize: 11, color: "#92400e", background: "#fef9c3", padding: "6px 10px", borderRadius: 6 }}>
@@ -390,7 +390,7 @@ export default function MetaIntegration() {
           {oauthResult && (
             <div style={{ background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#15803d", marginBottom: 10 }}>
-                ✅ Conectado como <strong>{oauthResult.userName}</strong>
+                ◎ Conectado como <strong>{oauthResult.userName}</strong>
               </div>
               <div style={{ display: "flex", gap: 16 }}>
                 <div>

@@ -99,7 +99,7 @@ export default function RechargeGuide() {
     onSuccess: (data: any) => {
       setCompleted(prev => new Set([...prev, data.platform as Platform]));
       refetchBalance?.();
-      toast.success(`✅ ${PLATFORMS[data.platform].label} — R$ ${data.amount.toFixed(2)} confirmado!`);
+      toast.success(`◎ ${PLATFORMS[data.platform].label} — R$ ${data.amount.toFixed(2)} confirmado!`);
     },
     onError: (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {} };
@@ -285,7 +285,7 @@ export default function RechargeGuide() {
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 16, fontWeight: 800, color: plt.color }}>{plt.label}</div>
                         <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-                          {done ? "✅ Crédito confirmado" : "Aguardando compra"}
+                          {done ? "◎ Crédito confirmado" : "Aguardando compra"}
                         </div>
                       </div>
                       <div style={{ textAlign: "right" }}>
@@ -349,7 +349,7 @@ export default function RechargeGuide() {
                             onClick={() => handleConfirm(item)}
                             style={{ padding: "12px 16px", borderRadius: 12, border: "1.5px solid #bbf7d0", background: "#f0fdf4", color: "#059669", fontSize: 13, fontWeight: 700, cursor: "pointer" }}
                           >
-                            ✅ Confirmei a compra
+                            ◎ Confirmei a compra
                           </button>
                         </div>
                       </div>
@@ -358,7 +358,7 @@ export default function RechargeGuide() {
                     {/* Concluído */}
                     {done && (
                       <div style={{ padding: "12px 22px 16px", borderTop: "1px solid #bbf7d0", background: "#f0fdf4", display: "flex", alignItems: "center", gap: 10 }}>
-                        <div style={{ fontSize: 20 }}>🎉</div>
+                        <div style={{ fontSize: 20 }}>◈</div>
                         <div style={{ fontSize: 13, color: "#059669", fontWeight: 600 }}>
                           R$ {item.amountFmt} em créditos confirmados — campanhas liberadas!
                         </div>
@@ -372,7 +372,7 @@ export default function RechargeGuide() {
             {/* Todos concluídos */}
             {allDone && (
               <div style={{ background: "linear-gradient(135deg,#059669,#10b981)", borderRadius: 16, padding: "24px", textAlign: "center", color: "#fff" }}>
-                <div style={{ fontSize: 40, marginBottom: 12 }}>🚀</div>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>◈</div>
                 <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Tudo pronto!</div>
                 <div style={{ fontSize: 14, opacity: .9, marginBottom: 20 }}>
                   {R(guide.netAmount)} em créditos comprados. Suas campanhas estão rodando.

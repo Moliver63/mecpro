@@ -109,9 +109,9 @@ export default function VSLGeneratorPanel({
     onSuccess: (data: any) => {
       setScript(data);
       setStep("script");
-      toast.success(`✅ Roteiro gerado com ${data.scenes.length} cenas!`);
+      toast.success(`◎ Roteiro gerado com ${data.scenes.length} cenas!`);
     },
-    onError: (e: any) => toast.error(`❌ ${e.message}`),
+    onError: (e: any) => toast.error(`✕ ${e.message}`),
   });
 
   const startGenerationMutation = (trpc as any).vsl?.startGeneration?.useMutation?.({
@@ -120,7 +120,7 @@ export default function VSLGeneratorPanel({
       setStep("generate");
       toast.success(`🎬 Geração iniciada! Estimativa: ${data.estimatedMin} minutos`);
     },
-    onError: (e: any) => toast.error(`❌ ${e.message}`),
+    onError: (e: any) => toast.error(`✕ ${e.message}`),
   });
 
   // Verifica status do job
@@ -134,7 +134,7 @@ export default function VSLGeneratorPanel({
       toast.success("🎉 Vídeo pronto!");
       if (onVideoReady && s.videoUrl) onVideoReady(s.videoUrl, selectedFormat);
     } else if (s.status === "error") {
-      toast.error(`❌ Erro na geração: ${s.error?.slice(0, 100)}`);
+      toast.error(`✕ Erro na geração: ${s.error?.slice(0, 100)}`);
     }
   }, [statusQuery?.data]);
 
@@ -211,7 +211,7 @@ export default function VSLGeneratorPanel({
               color: serviceAvailable ? "#16a34a" : "#dc2626",
               border: `1px solid ${serviceAvailable ? "#86efac" : "#fca5a5"}`,
             }}>
-              {serviceAvailable ? "✅ Serviço online" : "❌ Serviço offline"}
+              {serviceAvailable ? "◎ Serviço online" : "✕ Serviço offline"}
             </div>
           )}
           <button onClick={() => setExpanded(v => !v)} style={{
@@ -502,7 +502,7 @@ export default function VSLGeneratorPanel({
                                   setTtsPreview({ sceneIdx: idx, url });
                                 }
                               } catch (e: any) {
-                                toast.error("❌ TTS: " + (e?.message || "Erro ao gerar áudio"));
+                                toast.error("✕ TTS: " + (e?.message || "Erro ao gerar áudio"));
                               } finally {
                                 setTtsLoading(null);
                               }
@@ -616,7 +616,7 @@ export default function VSLGeneratorPanel({
                   { icon: "🎙️", label: "Narração",      threshold: 20 },
                   { icon: "🖼️", label: "Imagens FLUX",  threshold: 40 },
                   { icon: "🎬", label: "Montagem",       threshold: 75 },
-                  { icon: "✅", label: "Export final",   threshold: 90 },
+                  { icon: "◎", label: "Export final",   threshold: 90 },
                 ].map(phase => {
                   const done    = (jobStatus?.progress || 0) >= phase.threshold;
                   const active  = (jobStatus?.progress || 0) >= phase.threshold - 20 && !done;
@@ -627,7 +627,7 @@ export default function VSLGeneratorPanel({
                       border: `1px solid ${done ? "#86efac" : active ? "#93c5fd" : "#e2e8f0"}`,
                       display: "flex", alignItems: "center", gap: 8,
                     }}>
-                      <span style={{ fontSize: 18 }}>{done ? "✅" : active ? "⏳" : phase.icon}</span>
+                      <span style={{ fontSize: 18 }}>{done ? "◎" : active ? "⏳" : phase.icon}</span>
                       <span style={{ fontSize: 12, fontWeight: done ? 700 : 500, color: done ? "#16a34a" : "#64748b" }}>
                         {phase.label}
                       </span>
@@ -646,7 +646,7 @@ export default function VSLGeneratorPanel({
           {step === "result" && jobStatus?.videoUrl && (
             <div>
               <div style={{ textAlign: "center", marginBottom: 20 }}>
-                <div style={{ fontSize: 48, marginBottom: 8 }}>🎉</div>
+                <div style={{ fontSize: 48, marginBottom: 8 }}>◈</div>
                 <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>
                   Vídeo pronto!
                 </div>

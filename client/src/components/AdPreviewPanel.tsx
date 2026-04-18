@@ -619,7 +619,7 @@ export default function AdPreviewPanel({
                   fontSize: 11, padding: "8px 12px", borderRadius: 8,
                   background: "#fef2f2", border: "1px solid #fca5a5", color: "#dc2626",
                 }}>
-                  ❌ Reels e TikTok exigem vídeo — imagens não são aceitas neste placement
+                  ✕ Reels e TikTok exigem vídeo — imagens não são aceitas neste placement
                 </div>
               )
             ) : null}

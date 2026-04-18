@@ -19,7 +19,7 @@ export default function TikTokIntegration() {
   );
 
   const upsert = trpc.integrations.upsertTikTok.useMutation({
-    onSuccess: () => { toast.success("✅ TikTok Ads conectado!"); refetch(); setLoading(false); },
+    onSuccess: () => { toast.success("◎ TikTok Ads conectado!"); refetch(); setLoading(false); },
     onError:   (e) => { toast.error("Erro: " + e.message); setLoading(false); },
   });
 
@@ -28,7 +28,7 @@ export default function TikTokIntegration() {
   });
 
   const test = trpc.integrations.testTikTok.useMutation({
-    onSuccess: (d: any) => toast.success(`✅ Token válido — conta: ${d.name}`),
+    onSuccess: (d: any) => toast.success(`◎ Token válido — conta: ${d.name}`),
     onError:   (e)      => toast.error("Token inválido: " + e.message),
   });
 

@@ -9,7 +9,7 @@ import CreativeDistributionPanel from "@/components/CreativeDistributionPanel";
 
 const OBJECTIVES = [
   { value: "leads",       label: "Captação de leads",    icon: "🎯", desc: "Formulários, landing pages" },
-  { value: "sales",       label: "Vendas diretas",        icon: "💰", desc: "E-commerce, checkout" },
+  { value: "sales",       label: "Vendas diretas",        icon: "◈", desc: "E-commerce, checkout" },
   { value: "branding",    label: "Branding / alcance",    icon: "📢", desc: "Reconhecimento de marca" },
   { value: "traffic",     label: "Tráfego para site",     icon: "🌐", desc: "Blog, conteúdo, SEO" },
   { value: "engagement",  label: "Engajamento",           icon: "❤️", desc: "Curtidas, comentários, shares" },
@@ -20,7 +20,7 @@ const PLATFORMS = [
   { value: "google",  label: "Google Ads",     icon: "🔍", desc: "Search, Display, YouTube" },
   { value: "tiktok",  label: "TikTok Ads",     icon: "🎵", desc: "TikTok + Reels + Shorts" },
   { value: "both",    label: "Meta + Google",  icon: "⚡", desc: "Meta + Google integrados" },
-  { value: "all",     label: "Todas",          icon: "🚀", desc: "Meta + Google + TikTok" },
+  { value: "all",     label: "Todas",          icon: "◈", desc: "Meta + Google + TikTok" },
 ];
 
 const BUDGETS = [
@@ -183,7 +183,7 @@ export default function CampaignBuilder() {
   );
   const generate = trpc.campaigns.generate.useMutation({
     onSuccess: (data: any) => {
-      toast.success("✅ Campanha gerada com sucesso!");
+      toast.success("◎ Campanha gerada com sucesso!");
       refetch();
       setLocation(`/projects/${projectId}/campaign/result/${data.id}`);
     },
@@ -629,7 +629,7 @@ export default function CampaignBuilder() {
                           ? f.extraContext
                           : `Formato recomendado: ${rec.recommendedFormat}. Gatilho: ${rec.recommendedTrigger}. CTA: ${rec.recommendedCta}. Baseado em campanhas reais do segmento ${currentNiche}.`,
                       }));
-                      toast.success("✅ Parâmetros da inteligência aplicados!");
+                      toast.success("◎ Parâmetros da inteligência aplicados!");
                     }}
                   />
 
@@ -827,7 +827,7 @@ export default function CampaignBuilder() {
                         </div>
                         {form.regions.length > 0 && (
                           <p style={{ fontSize: 11, color: "var(--green-d)", fontWeight: 600 }}>
-                            ✅ {form.regions.join(", ")}
+                            ◎ {form.regions.join(", ")}
                           </p>
                         )}
                       </div>
@@ -883,7 +883,7 @@ export default function CampaignBuilder() {
                         </div>
                         {((form as any).countries || []).length > 0 && (
                           <p style={{ fontSize: 11, color: "var(--green-d)", fontWeight: 600 }}>
-                            ✅ {((form as any).countries || []).join(", ")}
+                            ◎ {((form as any).countries || []).join(", ")}
                           </p>
                         )}
                       </div>
@@ -913,7 +913,7 @@ export default function CampaignBuilder() {
                         </div>
                         {(form as any).geoCity && (
                           <p style={{ fontSize: 11, color: "var(--green-d)", fontWeight: 600, gridColumn: "1/-1" }}>
-                            ✅ Raio de {(form as any).geoRadius || 15}km em torno de {(form as any).geoCity}
+                            ◎ Raio de {(form as any).geoRadius || 15}km em torno de {(form as any).geoCity}
                           </p>
                         )}
                       </div>
@@ -1115,7 +1115,7 @@ export default function CampaignBuilder() {
                       ))}
                       {matchResult.recommended?.warnings?.map((w: string, i: number) => (
                         <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                          <span style={{ flexShrink: 0 }}>⚠️</span>
+                          <span style={{ flexShrink: 0 }}>◬</span>
                           <p style={{ fontSize: 12, color: "#92400e" }}>{w}</p>
                         </div>
                       ))}

@@ -11,7 +11,7 @@ const FB_OBJECTIVES = [
   { value: "ENGAGEMENT",         label: "Engajamento",              icon: "❤️", desc: "Curtidas, comentários, compartilhamentos" },
   { value: "LEADS",              label: "Geração de Leads",         icon: "🎯", desc: "Formulários de captura nativos do Facebook" },
   { value: "APP_PROMOTION",      label: "Promoção de App",          icon: "📱", desc: "Instações e eventos de aplicativo" },
-  { value: "SALES",              label: "Vendas",                   icon: "💰", desc: "Conversões, catálogo, WhatsApp" },
+  { value: "SALES",              label: "Vendas",                   icon: "◈", desc: "Conversões, catálogo, WhatsApp" },
   { value: "VIDEO_VIEWS",        label: "Visualizações de Vídeo",   icon: "▶️", desc: "Maximize o alcance do seu conteúdo em vídeo" },
 ];
 
@@ -52,7 +52,7 @@ const STEPS = [
   { id: 3, label: "Conjunto de Anúncios", icon: "🎯" },
   { id: 4, label: "Criativo",             icon: "🎨" },
   { id: 5, label: "Preview",              icon: "👁️" },
-  { id: 6, label: "Publicar",             icon: "🚀" },
+  { id: 6, label: "Publicar",             icon: "◈" },
 ];
 
 // ─── UTM Builder ─────────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ export default function FacebookCampaignCreator() {
       setPages(list);
       if (list.length === 1) {
         setAccount(a => ({ ...a, fbPageId: list[0].id }));
-        toast.success(`✅ Página detectada: ${list[0].name}`);
+        toast.success(`◎ Página detectada: ${list[0].name}`);
       } else if (list.length === 0) {
         toast.error("Nenhuma página encontrada nesta conta Meta.");
       }
@@ -337,10 +337,10 @@ export default function FacebookCampaignCreator() {
           const result = await uploadImageMutation.mutateAsync({ imageBase64: base64, fileName });
           setImageHash(result.hash);
           setImageHashUrl(result.url);
-          toast.success(`✅ Imagem enviada! Hash: ${result.hash.slice(0, 12)}...`);
+          toast.success(`◎ Imagem enviada! Hash: ${result.hash.slice(0, 12)}...`);
           resolve(result.hash);
         } catch (err: any) {
-          toast.error(`❌ Erro no upload da imagem: ${err.message}`);
+          toast.error(`✕ Erro no upload da imagem: ${err.message}`);
           reject(err);
         } finally {
           setUploadingImage(false);
@@ -1062,7 +1062,7 @@ export default function FacebookCampaignCreator() {
   function renderStep6() {
     return (
       <div style={{ textAlign: "center", padding: "24px 0" }}>
-        <div style={{ fontSize: 60, marginBottom: 16 }}>🚀</div>
+        <div style={{ fontSize: 60, marginBottom: 16 }}>◈</div>
         {publishResult ? (
           <>
             <h2 style={{ fontSize: 22, fontWeight: 800, color: "#16a34a", marginBottom: 8 }}>Campanha publicada com sucesso!</h2>

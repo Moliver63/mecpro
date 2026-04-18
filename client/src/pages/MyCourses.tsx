@@ -54,7 +54,7 @@ export default function MyCourses() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14, marginBottom: 24 }}>
         {[
           { icon: "📚", label: "Cursos matriculados", value: ENROLLED_COURSES.length, color: "#eff6ff" },
-          { icon: "✅", label: "Cursos concluídos", value: ENROLLED_COURSES.filter(c => c.progress === 100).length, color: "#f0fdf4" },
+          { icon: "◎", label: "Cursos concluídos", value: ENROLLED_COURSES.filter(c => c.progress === 100).length, color: "#f0fdf4" },
           { icon: "📈", label: "Progresso médio", value: `${avgProgress}%`, color: "#fef3c7" },
           { icon: "🕐", label: "Total assistido", value: "15h", color: "#fdf4ff" },
         ].map(s => (
@@ -112,7 +112,7 @@ export default function MyCourses() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                   <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", background: "var(--off)", padding: "2px 8px", borderRadius: 5 }}>{course.category}</span>
-                  {course.progress === 100 && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)", background: "var(--green-l)", padding: "2px 8px", borderRadius: 5 }}>✅ Concluído</span>}
+                  {course.progress === 100 && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)", background: "var(--green-l)", padding: "2px 8px", borderRadius: 5 }}>◎ Concluído</span>}
                 </div>
                 <p style={{ fontSize: 15, fontWeight: 700, color: "var(--dark)", marginBottom: 4 }}>{course.title}</p>
                 <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>

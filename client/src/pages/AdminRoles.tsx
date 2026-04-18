@@ -19,7 +19,7 @@ const PROFILES = [
   {
     key: "financeiro",
     label: "Financeiro",
-    icon: "💰",
+    icon: "◈",
     color: "#10b981",
     bg: "#f0fdf4",
     desc: "Acesso a relatórios financeiros. Pode solicitar mudanças de plano (pendente aprovação do Superadmin).",
@@ -111,9 +111,9 @@ export default function AdminRoles() {
               </div>
               <p style={{ fontSize: 13, color: "#374151", marginBottom: 10 }}>{p.desc}</p>
               <div style={{ fontSize: 12 }}>
-                <div style={{ fontWeight: 600, color: "#16a34a", marginBottom: 4 }}>✅ Pode:</div>
+                <div style={{ fontWeight: 600, color: "#16a34a", marginBottom: 4 }}>◎ Pode:</div>
                 {p.can.map(c => <div key={c} style={{ color: "#374151", paddingLeft: 8, marginBottom: 2 }}>• {c}</div>)}
-                <div style={{ fontWeight: 600, color: "#dc2626", marginTop: 8, marginBottom: 4 }}>❌ Não pode:</div>
+                <div style={{ fontWeight: 600, color: "#dc2626", marginTop: 8, marginBottom: 4 }}>✕ Não pode:</div>
                 {p.cannot.map(c => <div key={c} style={{ color: "#374151", paddingLeft: 8, marginBottom: 2 }}>• {c}</div>)}
               </div>
             </div>
@@ -232,7 +232,7 @@ export default function AdminRoles() {
             {confirmModal.profile && (
               <div style={{ background: "#f8fafc", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
                 {PROFILES.find(p => p.key === confirmModal.profile)?.can.map(c => (
-                  <div key={c} style={{ fontSize: 12, color: "#374151", marginBottom: 4 }}>✅ {c}</div>
+                  <div key={c} style={{ fontSize: 12, color: "#374151", marginBottom: 4 }}>◎ {c}</div>
                 ))}
               </div>
             )}

@@ -8,8 +8,8 @@ import { trpc } from "@/lib/trpc";
 const PLAN_META: Record<string, { color: string; bg: string; icon: string; highlight?: boolean }> = {
   free:    { color: "#64748b", bg: "#f8fafc",       icon: "🆓" },
   basic:   { color: "#2563eb", bg: "#eff6ff",       icon: "⚡" },
-  premium: { color: "#16a34a", bg: "var(--green-l)", icon: "🚀", highlight: true },
-  vip:     { color: "#7c3aed", bg: "#f5f3ff",       icon: "👑" },
+  premium: { color: "#16a34a", bg: "var(--green-l)", icon: "◈", highlight: true },
+  vip:     { color: "#7c3aed", bg: "#f5f3ff",       icon: "◇" },
 };
 
 const FEATURE_LABELS: Record<string, string> = {
@@ -378,7 +378,7 @@ export default function AdminPlans() {
       {/* Aviso Stripe */}
       {!isLoading && (
         <div style={{ marginTop: 20, background: "#fef9c3", border: "1px solid #fde047", borderRadius: 12, padding: "14px 18px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <span style={{ fontSize: 20 }}>⚠️</span>
+          <span style={{ fontSize: 20 }}>◬</span>
           <div>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#713f12", marginBottom: 2 }}>Configure os Stripe Price IDs para ativar o checkout</p>
             <p style={{ fontSize: 12, color: "#92400e" }}>No Stripe Dashboard → Products → copie o Price ID de cada plano e cole no campo "Stripe Price ID" acima. Rode <code style={{ background: "#fef08a", padding: "1px 4px", borderRadius: 3 }}>pnpm seed:plans</code> para criar os planos padrão no banco.</p>

@@ -77,7 +77,7 @@ export default function UserReferrals() {
             {referralLink}
           </div>
           <button className="btn btn-md btn-green" onClick={copyLink} style={{ flexShrink: 0 }}>
-            {copied ? "✅ Copiado!" : "📋 Copiar"}
+            {copied ? "◎ Copiado!" : "📋 Copiar"}
           </button>
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -108,8 +108,8 @@ export default function UserReferrals() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
         {[
           { step: "1", icon: "🔗", title: "Compartilhe seu link", desc: "Envie seu link único para amigos e contatos." },
-          { step: "2", icon: "✅", title: "Eles se cadastram", desc: "Seu amigo cria uma conta usando seu link." },
-          { step: "3", icon: "💰", title: "Você ganha comissão", desc: "Receba até R$ 60 por cada assinatura paga." },
+          { step: "2", icon: "◎", title: "Eles se cadastram", desc: "Seu amigo cria uma conta usando seu link." },
+          { step: "3", icon: "◈", title: "Você ganha comissão", desc: "Receba até R$ 60 por cada assinatura paga." },
         ].map(s => (
           <div key={s.step} style={{
             background: "white", border: "1px solid var(--border)", borderRadius: 14,
@@ -162,7 +162,7 @@ export default function UserReferrals() {
                   <td style={{ padding: "12px 20px", fontSize: 13, fontWeight: 700, color: "var(--green-dk)" }}>{r.reward}</td>
                   <td style={{ padding: "12px 20px" }}>
                     <span className={`badge ${r.status === "paid" ? "badge-green" : "badge-gray"}`} style={{ fontSize: 10 }}>
-                      {r.status === "paid" ? "✅ Pago" : "⏳ Pendente"}
+                      {r.status === "paid" ? "◎ Pago" : "⏳ Pendente"}
                     </span>
                   </td>
                 </tr>

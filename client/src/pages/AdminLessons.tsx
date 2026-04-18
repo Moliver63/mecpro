@@ -93,7 +93,7 @@ export default function AdminLessons() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
         {[
           { label: "Total de aulas", value: lessons.length, icon: "📖", color: "#eff6ff" },
-          { label: "Publicadas", value: lessons.filter(l => l.published).length, icon: "✅", color: "#f0fdf4" },
+          { label: "Publicadas", value: lessons.filter(l => l.published).length, icon: "◎", color: "#f0fdf4" },
           { label: "Não publicadas", value: lessons.filter(l => !l.published).length, icon: "⏸️", color: "#fef3c7" },
           { label: "Aulas gratuitas", value: lessons.filter(l => l.free).length, icon: "🆓", color: "#fdf4ff" },
         ].map(s => (
@@ -175,7 +175,7 @@ export default function AdminLessons() {
             </div>
             <div style={{ display: "flex", gap: 10, marginTop: 24 }}>
               <button className="btn btn-md btn-green btn-full" onClick={saveLesson} disabled={saving}>
-                {saving ? "Salvando..." : editLesson ? "💾 Salvar alterações" : "✅ Criar aula"}
+                {saving ? "Salvando..." : editLesson ? "💾 Salvar alterações" : "◎ Criar aula"}
               </button>
               <button className="btn btn-md btn-outline" onClick={() => setShowForm(false)}>Cancelar</button>
             </div>
@@ -222,7 +222,7 @@ export default function AdminLessons() {
                   </td>
                   <td style={{ padding: "12px 16px" }}>
                     <span className={`badge ${lesson.published ? "badge-green" : "badge-gray"}`} style={{ fontSize: 10 }}>
-                      {lesson.published ? "✅ Publicada" : "⏸️ Rascunho"}
+                      {lesson.published ? "◎ Publicada" : "⏸️ Rascunho"}
                     </span>
                   </td>
                   <td style={{ padding: "12px 16px" }}>

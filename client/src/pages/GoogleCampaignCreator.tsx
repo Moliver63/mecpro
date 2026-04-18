@@ -214,7 +214,7 @@ export default function GoogleCampaignCreator() {
   // ── Publish mutation ─────────────────────────────────────────────────────
   const publishMutation = trpc.campaigns.publishToGoogle.useMutation({
     onSuccess: (d: any) => {
-      toast.success(`✅ Campanha criada! Google ID: ${d.googleCampaignId}`);
+      toast.success(`◎ Campanha criada! Google ID: ${d.googleCampaignId}`);
       setForm(f => ({ ...f, publishingState: "success" }));
     },
     onError: (e) => {
@@ -479,7 +479,7 @@ export default function GoogleCampaignCreator() {
         {form.publishingState === "success" ? (
           <div style={{ background: "#dcfce7", border: "1.5px solid #86efac",
             borderRadius: 14, padding: 20, textAlign: "center" }}>
-            <p style={{ fontSize: 28 }}>🎉</p>
+            <p style={{ fontSize: 28 }}>◈</p>
             <p style={{ fontWeight: 800, fontSize: 16 }}>Campanha publicada no Google Ads!</p>
             <button style={{ ...btn("#1a73e8"), marginTop: 12 }}
               onClick={() => setLocation(`/projects/${projectId}/campaign/result/${campaignId}`)}>
@@ -505,7 +505,7 @@ export default function GoogleCampaignCreator() {
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>🔵 Google Ads Creator</h2>
           <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
             {aiFilled
-              ? "✅ Pré-preenchido com dados da IA e inteligência competitiva"
+              ? "◎ Pré-preenchido com dados da IA e inteligência competitiva"
               : campaignId ? `Carregando campanha #${campaignId}…` : "Nova campanha manual"}
           </p>
         </div>

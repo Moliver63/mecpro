@@ -20,7 +20,7 @@ export default function Projects() {
         <div style={{ background:"white", border:"1px solid var(--border)", borderRadius:16, padding:48, textAlign:"center", color:"var(--muted)" }}>Carregando...</div>
       ) : !projects?.length ? (
         <div style={{ background:"white", border:"1px solid var(--border)", borderRadius:20, padding:64, textAlign:"center" }}>
-          <div style={{ fontSize:48, marginBottom:16 }}>📁</div>
+          <div style={{ fontSize:48, marginBottom:16 }}>◫</div>
           <h2 style={{ fontFamily:"var(--font-display)", fontSize:20, fontWeight:800, color:"var(--black)", marginBottom:8 }}>Nenhum projeto ainda</h2>
           <p style={{ fontSize:14, color:"var(--muted)", maxWidth:360, margin:"0 auto 24px", lineHeight:1.6 }}>
             Crie seu primeiro projeto para começar a analisar concorrentes e gerar campanhas com IA.
@@ -35,7 +35,7 @@ export default function Projects() {
               onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--green)";e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 0 0 3px rgba(34,197,94,.06),var(--shadow-sm)";}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow="none";}}>
               <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:12 }}>
-                <div style={{ width:42, height:42, borderRadius:12, background:"var(--green-l)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>📁</div>
+                <div style={{ width:42, height:42, borderRadius:12, background:"var(--green-l)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:20 }}>◫</div>
                 <span className={`badge ${p.status==="completed"?"badge-green":p.status==="analyzing"?"badge-navy":"badge-gray"}`} style={{ fontSize:11 }}>
                   {p.status==="completed"?"Concluído":p.status==="analyzing"?"Analisando":p.status==="draft"?"Rascunho":"Arquivado"}
                 </span>

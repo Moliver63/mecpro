@@ -1,6 +1,6 @@
 /**
  * AdminAuditoria.tsx — Auditoria de campanhas
- * Classifica todas as campanhas em: ✅ OK | ⚠️ Parcial | ❌ Erro
+ * Classifica todas as campanhas em: ◎ OK | ⚠️ Parcial | ✕ Erro
  */
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -12,9 +12,9 @@ const PLATFORM: Record<string, { label: string; icon: string; color: string }> =
 };
 
 const HEALTH: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-  ok:      { label: "Funcionando",  icon: "✅", color: "#059669", bg: "#f0fdf4" },
-  partial: { label: "Parcial",      icon: "⚠️", color: "#d97706", bg: "#fffbeb" },
-  error:   { label: "Com erro",     icon: "❌", color: "#dc2626", bg: "#fef2f2" },
+  ok:      { label: "Funcionando",  icon: "◎", color: "#059669", bg: "#f0fdf4" },
+  partial: { label: "Parcial",      icon: "◬", color: "#d97706", bg: "#fffbeb" },
+  error:   { label: "Com erro",     icon: "✕", color: "#dc2626", bg: "#fef2f2" },
 };
 
 export default function AdminAuditoria() {
@@ -49,9 +49,9 @@ export default function AdminAuditoria() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 24 }}>
             {[
               { label: "Total",       value: data.total,   color: "#0f172a", bg: "#f8fafc", border: "#e2e8f0" },
-              { label: "✅ OK",        value: data.ok,      color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
+              { label: "◎ OK",        value: data.ok,      color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
               { label: "⚠️ Parcial",   value: data.partial, color: "#d97706", bg: "#fffbeb", border: "#fde68a" },
-              { label: "❌ Com erro",  value: data.error,   color: "#dc2626", bg: "#fef2f2", border: "#fecaca" },
+              { label: "✕ Com erro",  value: data.error,   color: "#dc2626", bg: "#fef2f2", border: "#fecaca" },
             ].map(k => (
               <div key={k.label} style={{ background: k.bg, border: `1.5px solid ${k.border}`, borderRadius: 12, padding: "14px 18px" }}>
                 <div style={{ fontSize: 26, fontWeight: 900, color: k.color }}>{k.value}</div>

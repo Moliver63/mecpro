@@ -183,7 +183,7 @@ function ActionDropdown({ campaign, onRename, onDelete, onToggleStatus, onView, 
   const items = [
     { icon: "🔍", label: "Ver detalhes", action: onView },
     { icon: "✏️", label: "Renomear", action: onRename },
-    { icon: "💰", label: "Editar orçamento", action: onEditBudget },
+    { icon: "◈", label: "Editar orçamento", action: onEditBudget },
     { icon: isActive ? "⏸️" : "▶️", label: isActive ? "Pausar campanha" : "Ativar campanha", action: onToggleStatus },
     { icon: "🗑️", label: "Excluir campanha", action: onDelete, danger: true },
   ];
@@ -341,7 +341,7 @@ function PerformancePanel({ campaigns }: { campaigns: Campaign[] }) {
   const METRIC_CONFIG: Record<string, { label: string; icon: string; color: string; format: (v: number) => string }> = {
     impressions: { label: "Impressões",  icon: "👁️",  color: "#3b82f6", format: v => N(v) },
     clicks:      { label: "Cliques",     icon: "🖱️",  color: "#8b5cf6", format: v => N(v) },
-    spend:       { label: "Gasto (R$)",  icon: "💰",  color: "#ef4444", format: v => `R$\u00a0${v.toFixed(2)}` },
+    spend:       { label: "Gasto (R$)",  icon: "◈",  color: "#ef4444", format: v => `R$\u00a0${v.toFixed(2)}` },
     ctr:         { label: "CTR (%)",     icon: "📈",  color: "#10b981", format: v => `${v.toFixed(2)}%` },
     cpc:         { label: "CPC (R$)",    icon: "💳",  color: "#f59e0b", format: v => `R$\u00a0${v.toFixed(2)}` },
     cpm:         { label: "CPM (R$)",    icon: "📣",  color: "#0891b2", format: v => `R$\u00a0${v.toFixed(2)}` },
@@ -396,7 +396,7 @@ function PerformancePanel({ campaigns }: { campaigns: Campaign[] }) {
         {[
           { label: "Impressões",  value: N(totals.impressions), icon: "👁️",  color: "#3b82f6" },
           { label: "Cliques",     value: N(totals.clicks),      icon: "🖱️",  color: "#8b5cf6" },
-          { label: "Total gasto", value: `R$ ${totals.spend.toFixed(2)}`, icon: "💰", color: "#ef4444" },
+          { label: "Total gasto", value: `R$ ${totals.spend.toFixed(2)}`, icon: "◈", color: "#ef4444" },
           { label: "CTR médio",   value: `${avgCtr.toFixed(2)}%`, icon: "📈", color: "#10b981" },
           { label: "CPC médio",   value: `R$ ${avgCpc.toFixed(2)}`, icon: "💳", color: "#f59e0b" },
           { label: "CPM médio",   value: `R$ ${avgCpm.toFixed(2)}`, icon: "📣", color: "#0891b2" },
@@ -516,8 +516,8 @@ function PerformancePanel({ campaigns }: { campaigns: Campaign[] }) {
               {metric === "impressions" && `"${ranked[0].name}" lidera em alcance com ${N(ranked[0].val)} impressões — ${ranked.length > 1 ? `${((ranked[0].val / ranked[ranked.length-1].val)).toFixed(1)}x mais que a última colocada.` : "única campanha com dados."}`}
               {metric === "clicks" && `"${ranked[0].name}" gera o maior volume de tráfego com ${N(ranked[0].val)} cliques.`}
               {metric === "spend" && `"${ranked[0].name}" é a campanha com maior investimento: R$ ${ranked[0].val.toFixed(2)}.`}
-              {metric === "ctr" && (ranked[0].val > 2 ? `✅ "${ranked[0].name}" tem CTR excelente de ${ranked[0].val.toFixed(2)}% — bem acima da média do setor (1-2%).` : `"${ranked[0].name}" lidera em CTR com ${ranked[0].val.toFixed(2)}%.`)}
-              {metric === "cpc" && (ranked[0].val < 2 ? `✅ "${ranked[0].name}" tem o menor CPC: R$ ${ranked[0].val.toFixed(2)} — custo por clique eficiente.` : `"${ranked[0].name}" apresenta o CPC mais alto: R$ ${ranked[0].val.toFixed(2)}. Considere revisar os criativos.`)}
+              {metric === "ctr" && (ranked[0].val > 2 ? `◎ "${ranked[0].name}" tem CTR excelente de ${ranked[0].val.toFixed(2)}% — bem acima da média do setor (1-2%).` : `"${ranked[0].name}" lidera em CTR com ${ranked[0].val.toFixed(2)}%.`)}
+              {metric === "cpc" && (ranked[0].val < 2 ? `◎ "${ranked[0].name}" tem o menor CPC: R$ ${ranked[0].val.toFixed(2)} — custo por clique eficiente.` : `"${ranked[0].name}" apresenta o CPC mais alto: R$ ${ranked[0].val.toFixed(2)}. Considere revisar os criativos.`)}
               {metric === "cpm" && `"${ranked[0].name}" tem CPM de R$ ${ranked[0].val.toFixed(2)} — custo por mil impressões.`}
             </div>
           </div>
@@ -545,7 +545,7 @@ function CampaignComparator({ campaigns, onClose }: { campaigns: Campaign[]; onC
   const METRICS = [
     { key: "impressions", label: "Impressões",   format: (v: number) => N(v),                  icon: "👁️" },
     { key: "clicks",      label: "Cliques",       format: (v: number) => N(v),                  icon: "🖱️" },
-    { key: "spend",       label: "Gasto (R$)",    format: (v: number) => `R$ ${v.toFixed(2)}`,  icon: "💰" },
+    { key: "spend",       label: "Gasto (R$)",    format: (v: number) => `R$ ${v.toFixed(2)}`,  icon: "◈" },
     { key: "ctr",         label: "CTR (%)",        format: (v: number) => `${v.toFixed(2)}%`,    icon: "📈" },
     { key: "cpc",         label: "CPC (R$)",       format: (v: number) => `R$ ${v.toFixed(2)}`,  icon: "💳" },
     { key: "cpm",         label: "CPM (R$)",       format: (v: number) => `R$ ${v.toFixed(2)}`,  icon: "📣" },
@@ -685,7 +685,7 @@ function CampaignComparator({ campaigns, onClose }: { campaigns: Campaign[]; onC
                                 {val > 0 ? m.format(val) : "—"}
                               </span>
                               {isWinner && selectedCampaigns.length > 1 && val > 0 && (
-                                <span style={{ marginLeft: 6, fontSize: 14 }}>🏆</span>
+                                <span style={{ marginLeft: 6, fontSize: 14 }}>◆</span>
                               )}
                             </td>
                           );
@@ -783,12 +783,12 @@ function CampaignDetailPanel({
 
   const updatePlacementsMutation = (trpc as any).metaCampaigns?.updateAdSetPlacements?.useMutation?.({
     onSuccess: () => {
-      toast.success("✅ Posicionamentos atualizados na Meta!");
+      toast.success("◎ Posicionamentos atualizados na Meta!");
       setPlacementAdSetId(null);
       setSavingPlacements(false);
     },
     onError: (e: any) => {
-      toast.error("❌ " + (e?.message || "Erro ao atualizar placements"));
+      toast.error("✕ " + (e?.message || "Erro ao atualizar placements"));
       setSavingPlacements(false);
     },
   }) ?? { mutate: () => {}, isPending: false };
@@ -848,7 +848,7 @@ function CampaignDetailPanel({
             <MetricCard label="CTR" value={PCT(ins.ctr)} icon="📈" color="#7c3aed" sub="taxa de clique" />
             <MetricCard label="CPC médio" value={R(ins.cpc ? Number(ins.cpc) * 100 : undefined)} icon="💳" color="#0891b2" />
             <MetricCard label="CPM" value={R(ins.cpm ? Number(ins.cpm) * 100 : undefined)} icon="📣" color="#059669" sub="custo por mil" />
-            <MetricCard label="Total gasto" value={R(ins.spend ? Number(ins.spend) * 100 : undefined)} icon="💰" color="#dc2626" />
+            <MetricCard label="Total gasto" value={R(ins.spend ? Number(ins.spend) * 100 : undefined)} icon="◈" color="#dc2626" />
           </div>
         </>
       )}
@@ -1070,21 +1070,21 @@ export default function MetaCampaigns() {
       setStats({ total: d.total, mecproCount: d.mecproCount, facebookCount: d.facebookCount });
       setLoaded(true);
     },
-    onError: (e) => toast.error(`❌ ${e.message}`),
+    onError: (e) => toast.error(`✕ ${e.message}`),
   });
 
   const deleteMutation = trpc.metaCampaigns.delete.useMutation({
     onSuccess: () => {
-      toast.success("✅ Campanha excluída com sucesso!");
+      toast.success("◎ Campanha excluída com sucesso!");
       setDeleteModal(null);
       listMutation.mutate();
     },
-    onError: (e) => toast.error(`❌ ${e.message}`),
+    onError: (e) => toast.error(`✕ ${e.message}`),
   });
 
   const bulkMutation = (trpc as any).metaCampaigns?.bulkAction?.useMutation?.({
     onSuccess: (data: any) => {
-      toast.success(`✅ ${data.total - data.failed} campanha(s) atualizadas${data.failed > 0 ? ` (${data.failed} falhou)` : ""}`);
+      toast.success(`◎ ${data.total - data.failed} campanha(s) atualizadas${data.failed > 0 ? ` (${data.failed} falhou)` : ""}`);
       setBulkIds([]);
     },
     onError: (e: any) => toast.error(e.message),
@@ -1093,19 +1093,19 @@ export default function MetaCampaigns() {
   const statusMutation = trpc.metaCampaigns.updateStatus.useMutation({
     onSuccess: (_, vars) => {
       const action = vars.status === "ACTIVE" ? "ativada" : "pausada";
-      toast.success(`✅ Campanha ${action}!`);
+      toast.success(`◎ Campanha ${action}!`);
       listMutation.mutate();
     },
-    onError: (e) => toast.error(`❌ ${e.message}`),
+    onError: (e) => toast.error(`✕ ${e.message}`),
   });
 
   const renameMutation = trpc.metaCampaigns.rename.useMutation({
     onSuccess: () => {
-      toast.success("✅ Campanha renomeada!");
+      toast.success("◎ Campanha renomeada!");
       setRenameModal(null);
       listMutation.mutate();
     },
-    onError: (e) => toast.error(`❌ ${e.message}`),
+    onError: (e) => toast.error(`✕ ${e.message}`),
   });
 
   const detailsMutation = trpc.metaCampaigns.details.useMutation({
@@ -1114,16 +1114,16 @@ export default function MetaCampaigns() {
       setDetailAds(d.ads);
       setDetailLoading(false);
     },
-    onError: (e) => { toast.error(`❌ ${e.message}`); setDetailLoading(false); },
+    onError: (e) => { toast.error(`✕ ${e.message}`); setDetailLoading(false); },
   });
 
   const budgetMutation = trpc.metaCampaigns.updateBudget.useMutation({
     onSuccess: () => {
-      toast.success("✅ Orçamento atualizado!");
+      toast.success("◎ Orçamento atualizado!");
       setBudgetModal(null);
       listMutation.mutate();
     },
-    onError: (e) => toast.error(`❌ ${e.message}`),
+    onError: (e) => toast.error(`✕ ${e.message}`),
   });
 
   const openDetail = (c: Campaign) => {
@@ -1173,11 +1173,11 @@ export default function MetaCampaigns() {
         await statusMutation.mutateAsync({ campaignId: editModal.id, status: editStatus });
       }
 
-      toast.success("✅ Campanha Meta atualizada!");
+      toast.success("◎ Campanha Meta atualizada!");
       setEditModal(null);
       listMutation.mutate();
     } catch (e: any) {
-      toast.error(`❌ ${e?.message || "Erro ao atualizar campanha"}`);
+      toast.error(`✕ ${e?.message || "Erro ao atualizar campanha"}`);
     } finally {
       setEditSaving(false);
     }
@@ -1313,7 +1313,7 @@ export default function MetaCampaigns() {
             { label: "Total", value: String(stats.total), icon: "📊", bg: "var(--navy)", color: "white", sub: "campanhas" },
             { label: "MECPro AI", value: String(stats.mecproCount), icon: "🤖", bg: "#f0fdf4", color: "#15803d", sub: "criadas aqui" },
             { label: "Facebook", value: String(stats.facebookCount), icon: "📘", bg: "#eff6ff", color: "#1d4ed8", sub: "criadas lá" },
-            { label: "Total gasto", value: `R$\u00a0${totalSpend.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, icon: "💰", bg: "#fff7ed", color: "#c2410c", sub: "no período" },
+            { label: "Total gasto", value: `R$\u00a0${totalSpend.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, icon: "◈", bg: "#fff7ed", color: "#c2410c", sub: "no período" },
             { label: "Impressões", value: N(totalImpressions), icon: "👁️", bg: "#f5f3ff", color: "#7c3aed", sub: "total" },
             { label: "Cliques", value: N(totalClicks), icon: "🖱️", bg: "#ecfdf5", color: "#059669", sub: "total" },
           ].map(s => (
@@ -1510,7 +1510,7 @@ export default function MetaCampaigns() {
                 disabled={renameValue.trim().length < 2 || renameMutation.isPending}
                 onClick={() => renameMutation.mutate({ campaignId: renameModal.id, name: renameValue.trim() })}
               >
-                {renameMutation.isPending ? "Salvando..." : "✅ Salvar nome"}
+                {renameMutation.isPending ? "Salvando..." : "◎ Salvar nome"}
               </button>
             </div>
           </div>

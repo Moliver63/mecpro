@@ -165,7 +165,7 @@ export default function CampaignResult() {
   // ── mutations edição ──
   const updateCreativeMutation = (trpc as any).campaigns?.updateCreative?.useMutation?.({
     onSuccess: (data: any) => {
-      toast.success("✅ Criativo atualizado!");
+      toast.success("◎ Criativo atualizado!");
       setEditingCreative(null);
       setEditDraft({});
       refetchCampaign?.();
@@ -175,7 +175,7 @@ export default function CampaignResult() {
 
   const updateAdSetMutation = (trpc as any).campaigns?.updateAdSet?.useMutation?.({
     onSuccess: () => {
-      toast.success("✅ Conjunto atualizado!");
+      toast.success("◎ Conjunto atualizado!");
       setEditingAdSet(null);
       setEditDraft({});
       refetchCampaign?.();
@@ -185,7 +185,7 @@ export default function CampaignResult() {
 
   const regenerateMutation = (trpc as any).campaigns?.regeneratePart?.useMutation?.({
     onSuccess: (data: any) => {
-      toast.success(`✅ ${data.part === "creatives" ? "Criativos" : data.part === "adSets" ? "Públicos" : data.part === "hooks" ? "Hooks" : data.part === "abTests" ? "Testes A/B" : "Copies"} regenerados!`);
+      toast.success(`◎ ${data.part === "creatives" ? "Criativos" : data.part === "adSets" ? "Públicos" : data.part === "hooks" ? "Hooks" : data.part === "abTests" ? "Testes A/B" : "Copies"} regenerados!`);
       setRegenerating(null);
       setShowRegenModal(null);
       setRegenContext("");
@@ -259,7 +259,7 @@ export default function CampaignResult() {
       // Preenche linkUrl se vazio
       if (!linkUrl.trim()) {
         setLinkUrl(waUrl);
-        toast.success(`✅ WhatsApp detectado: +${fullDigits}`);
+        toast.success(`◎ WhatsApp detectado: +${fullDigits}`);
       }
 
       // Salva como padrão na integração Meta via tRPC (silencioso)
@@ -282,12 +282,12 @@ export default function CampaignResult() {
       if (Array.isArray(data?.warnings) && data.warnings.length > 0) {
         toast.warning(`⚠️ ${data.warnings[0]}`);
       } else {
-        toast.success("✅ Campanha publicada no Meta Ads!");
+        toast.success("◎ Campanha publicada no Meta Ads!");
       }
     },
     onError: (e: any) => {
       const msg = e?.message || e?.data?.message || "Erro desconhecido ao publicar";
-      toast.error(`❌ ${msg}`);
+      toast.error(`✕ ${msg}`);
       setPublishing(false);
     },
   });
@@ -328,10 +328,10 @@ export default function CampaignResult() {
         setOrganicPageId(data.pageId);
         setOrganicPageName(data.pageName || "");
         setDiscoverError("");
-        toast.success(`✅ Page ID encontrado: ${data.pageId}${data.pageName ? ` (${data.pageName})` : ""}`);
+        toast.success(`◎ Page ID encontrado: ${data.pageId}${data.pageName ? ` (${data.pageName})` : ""}`);
       } else {
         setDiscoverError("Não foi possível encontrar o Page ID automaticamente. Informe manualmente.");
-        toast.error("❌ Page ID não encontrado. Informe manualmente.");
+        toast.error("✕ Page ID não encontrado. Informe manualmente.");
       }
     },
     onError: (e: any) => {
@@ -344,10 +344,10 @@ export default function CampaignResult() {
     onSuccess: (data: any) => {
       setOrganicResult(data);
       setOrganicPosting(false);
-      toast.success("✅ Post publicado com sucesso na Página!");
+      toast.success("◎ Post publicado com sucesso na Página!");
     },
     onError: (e: any) => {
-      toast.error("❌ " + (e?.message || "Erro ao publicar post orgânico"));
+      toast.error("✕ " + (e?.message || "Erro ao publicar post orgânico"));
       setOrganicPosting(false);
     },
   }) ?? { mutate: () => {}, isPending: false };
@@ -405,11 +405,11 @@ export default function CampaignResult() {
       const result = await complianceMutation.mutateAsync({ texts });
       setComplianceResult(result);
       if (result.score === "danger") {
-        toast.error("❌ Campanha com risco alto de rejeição pela Meta! Revise os criativos.");
+        toast.error("✕ Campanha com risco alto de rejeição pela Meta! Revise os criativos.");
       } else if (result.score === "warning") {
         toast.warning("⚠️ Atenção: há pontos sensíveis. Revise antes de publicar.");
       } else {
-        toast.success("✅ Compliance OK! Campanha dentro das políticas Meta.");
+        toast.success("◎ Compliance OK! Campanha dentro das políticas Meta.");
       }
       setShowModal(true);
       fetchPages();
@@ -492,7 +492,7 @@ export default function CampaignResult() {
       setLeadForms((prev) => prev.some((form) => form.id === createdForm.id) ? prev : [createdForm, ...prev]);
       setLeadFormId(createdForm.id);
       await Promise.resolve(leadFormsQuery.refetch?.());
-      toast.success("✅ Formulário criado na Meta e selecionado para o publish.");
+      toast.success("◎ Formulário criado na Meta e selecionado para o publish.");
       return createdForm.id;
     }
 
@@ -653,23 +653,23 @@ export default function CampaignResult() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok || data.error) {
-        toast.error(`❌ Upload falhou: ${data.error || "Erro desconhecido"}`);
+        toast.error(`✕ Upload falhou: ${data.error || "Erro desconhecido"}`);
         return null;
       }
 
       if (isMedia) {
-        if (!data.videoId) { toast.error("❌ Upload concluído mas sem videoId retornado."); return null; }
+        if (!data.videoId) { toast.error("✕ Upload concluído mas sem videoId retornado."); return null; }
         setUploadedVid(data.videoId); setUploadedHash(""); setUploadDone(true);
-        toast.success(`✅ ${isAud ? "Áudio" : "Vídeo"} enviado! (${targetFile.name.slice(0, 20)})`);
+        toast.success(`◎ ${isAud ? "Áudio" : "Vídeo"} enviado! (${targetFile.name.slice(0, 20)})`);
         return { kind: "video", videoId: data.videoId };
       } else {
-        if (!data.hash) { toast.error("❌ Upload concluído mas sem hash retornado."); return null; }
+        if (!data.hash) { toast.error("✕ Upload concluído mas sem hash retornado."); return null; }
         setUploadedHash(data.hash); setUploadedVid(""); setUploadDone(true);
-        toast.success(`✅ Foto enviada! (${targetFile.name.slice(0, 20)})`);
+        toast.success(`◎ Foto enviada! (${targetFile.name.slice(0, 20)})`);
         return { kind: "image", hash: data.hash };
       }
     } catch (e: any) {
-      toast.error(`❌ Upload falhou: ${e?.message || "Erro de rede"}`);
+      toast.error(`✕ Upload falhou: ${e?.message || "Erro de rede"}`);
       return null;
     } finally {
       setUploading(false);
@@ -709,11 +709,11 @@ export default function CampaignResult() {
       if (isVid || isAud) {
         if (!data.videoId) { toast.error("Upload concluído mas sem videoId retornado."); return; }
         await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, videoId: data.videoId });
-        toast.success(`✅ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
+        toast.success(`◎ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
       } else {
         if (!data.hash) { toast.error("Upload concluído mas sem hash retornado."); return; }
         await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, imageUrl: undefined, imageHash: data.hash });
-        toast.success(`✅ Imagem atualizada no criativo ${creativeIndex + 1}!`);
+        toast.success(`◎ Imagem atualizada no criativo ${creativeIndex + 1}!`);
       }
     } catch (e: any) {
       toast.error(`Erro ao trocar mídia: ${e?.message || "falha desconhecida"}`);
@@ -752,7 +752,7 @@ export default function CampaignResult() {
       } else if (validation.warnings.length > 0) {
         toast.warning?.("⚠️ " + validation.warnings[0]);
       } else {
-        toast.success("✅ Mídia compatível: " + dims.width + "×" + dims.height + "px (" + dims.ratio + ")");
+        toast.success("◎ Mídia compatível: " + dims.width + "×" + dims.height + "px (" + dims.ratio + ")");
       }
     }).catch(() => setMediaDims(null));
     if (isImage) {
@@ -943,7 +943,7 @@ export default function CampaignResult() {
       LEARN_MORE:    "👉 Saiba mais",
       SIGN_UP:       "📝 Cadastre-se agora",
       CONTACT_US:    "📞 Entre em contato",
-      APPLY_NOW:     "✅ Solicite agora",
+      APPLY_NOW:     "◎ Solicite agora",
       GET_QUOTE:     "💬 Peça um orçamento",
       BOOK_NOW:      "📅 Agende agora",
       SHOP_NOW:      "🛒 Compre agora",
@@ -1179,8 +1179,8 @@ export default function CampaignResult() {
               const s = (c as any).publishStatus;
               const cfg: Record<string, { label: string; bg: string; color: string }> = {
                 processing: { label: "⏳ Publicando...", bg: "#fef3c7", color: "#92400e" },
-                success:    { label: "✅ Publicado",    bg: "#dcfce7", color: "#166534" },
-                error:      { label: "❌ Erro",         bg: "#fee2e2", color: "#dc2626" },
+                success:    { label: "◎ Publicado",    bg: "#dcfce7", color: "#166534" },
+                error:      { label: "✕ Erro",         bg: "#fee2e2", color: "#dc2626" },
               };
               const c2 = cfg[s];
               if (!c2) return null;
@@ -1322,7 +1322,7 @@ export default function CampaignResult() {
 
         const statusColor = (s: string) => s === "good" ? "#16a34a" : s === "warning" ? "#d97706" : s === "danger" ? "#dc2626" : "#64748b";
         const statusBg    = (s: string) => s === "good" ? "#f0fdf4" : s === "warning" ? "#fffbeb" : s === "danger" ? "#fef2f2" : "#f8fafc";
-        const statusIcon  = (s: string) => s === "good" ? "✅" : s === "warning" ? "⚠️" : s === "danger" ? "🔴" : "📊";
+        const statusIcon  = (s: string) => s === "good" ? "◎" : s === "warning" ? "◬" : s === "danger" ? "🔴" : "📊";
 
         const cplStatus   = getStatus("cpl", cpl);
         const ctrStatus   = getStatus("ctr", ctr);
@@ -1366,7 +1366,7 @@ export default function CampaignResult() {
                 { label: "CPL estimado",    value: cpl    ? `R$ ${parseFloat(String(cpl).replace(/[^0-9.,]/g,"").replace(",",".")).toFixed(0)}` : "—", status: cplStatus,   icon: "🎯" },
                 { label: "CTR estimado",    value: ctr    ? `${parseFloat(String(ctr).replace(/[^0-9.,]/g,"").replace(",",".")).toFixed(2)}%`    : "—", status: ctrStatus,   icon: "📉" },
                 { label: "Leads/mês est.", value: leads  ? `${Math.round(parseFloat(String(leads).replace(/[^0-9.,]/g,"").replace(",",".")))}`   : "—", status: leadsStatus, icon: "🔥" },
-                { label: "Budget/mês",      value: budget ? `R$ ${budget.toLocaleString("pt-BR")}`                                                     : "—", status: "neutral",  icon: "💰" },
+                { label: "Budget/mês",      value: budget ? `R$ ${budget.toLocaleString("pt-BR")}`                                                     : "—", status: "neutral",  icon: "◈" },
               ].map(m => (
                 <div key={m.label} style={{ background: statusBg(m.status), borderRadius: 12, padding: "12px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -1386,7 +1386,7 @@ export default function CampaignResult() {
               borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10,
             }}>
               <span style={{ fontSize: 18, flexShrink: 0 }}>
-                {actionUrgency === "alta" ? "🚨" : actionUrgency === "média" ? "⚡" : "✅"}
+                {actionUrgency === "alta" ? "🚨" : actionUrgency === "média" ? "⚡" : "◎"}
               </span>
               <div>
                 <p style={{ fontSize: 10, fontWeight: 800, color: "rgba(255,255,255,.5)", margin: 0, textTransform: "uppercase" }}>
@@ -1434,7 +1434,7 @@ export default function CampaignResult() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 24 }}>
         {[
           { label: "Budget diário",  value: budgetDaily ? `R$ ${budgetDaily.toLocaleString("pt-BR")}` : "—", sub: "por dia de veiculação", icon: "📅", accent: "#16a34a", bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)" },
-          { label: "Budget mensal",  value: c.suggestedBudgetMonthly ? `R$ ${c.suggestedBudgetMonthly.toLocaleString("pt-BR")}` : "—", sub: "investimento total", icon: "💰", accent: "#2563eb", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)" },
+          { label: "Budget mensal",  value: c.suggestedBudgetMonthly ? `R$ ${c.suggestedBudgetMonthly.toLocaleString("pt-BR")}` : "—", sub: "investimento total", icon: "◈", accent: "#2563eb", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)" },
           { label: "Duração",        value: c.durationDays ? `${c.durationDays}d` : "—", sub: c.durationDays ? `${Math.round(c.durationDays/7)} semanas` : "", icon: "⏱", accent: "#d97706", bg: "linear-gradient(135deg,#fffbeb,#fef3c7)" },
           { label: "Plataforma",     value: c.platform === "both" ? "Meta+Google" : c.platform === "all" ? "Multi" : (c.platform||"meta").toUpperCase(), sub: c.platform === "tiktok" ? "TikTok Ads" : c.platform === "both" ? "Meta + Google Ads" : c.platform === "all" ? "Meta+Google+TikTok" : "Facebook + Instagram", icon: c.platform === "tiktok" ? "🎵" : c.platform === "google" ? "🔍" : "📘", accent: "#7c3aed", bg: "linear-gradient(135deg,#faf5ff,#ede9fe)" },
         ].map(k => (
@@ -1523,7 +1523,7 @@ export default function CampaignResult() {
                       <button onClick={() => { updateAdSetMutation.mutate({ campaignId: id, index: i, ...editDraft }); }}
                         disabled={updateAdSetMutation.isLoading}
                         className="btn btn-sm btn-green">
-                        {updateAdSetMutation.isLoading ? "Salvando..." : "✅ Salvar"}
+                        {updateAdSetMutation.isLoading ? "Salvando..." : "◎ Salvar"}
                       </button>
                       <button onClick={() => { setEditingAdSet(null); setEditDraft({}); }} className="btn btn-sm btn-ghost">Cancelar</button>
                     </div>
@@ -1626,7 +1626,7 @@ export default function CampaignResult() {
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => updateCreativeMutation.mutate({ campaignId: id, index: i, ...editDraft })}
                         disabled={updateCreativeMutation.isLoading} className="btn btn-sm btn-green">
-                        {updateCreativeMutation.isLoading ? "Salvando..." : "✅ Salvar"}
+                        {updateCreativeMutation.isLoading ? "Salvando..." : "◎ Salvar"}
                       </button>
                       <button onClick={() => { setEditingCreative(null); setEditDraft({}); }} className="btn btn-sm btn-ghost">Cancelar</button>
                     </div>
@@ -1709,7 +1709,7 @@ export default function CampaignResult() {
                             <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6,
                               background: cr.complianceRisk === "Baixo" ? "#dcfce7" : cr.complianceRisk === "Médio" ? "#fef3c7" : "#fee2e2",
                               color: cr.complianceRisk === "Baixo" ? "#166534" : cr.complianceRisk === "Médio" ? "#92400e" : "#dc2626" }}>
-                              {cr.complianceRisk === "Baixo" ? "✅ Risco baixo" : cr.complianceRisk === "Médio" ? "⚠️ Risco médio" : "❌ Risco alto"}
+                              {cr.complianceRisk === "Baixo" ? "◎ Risco baixo" : cr.complianceRisk === "Médio" ? "⚠️ Risco médio" : "✕ Risco alto"}
                             </span>
                           )}
                         </div>
@@ -1792,7 +1792,7 @@ export default function CampaignResult() {
             {[
               { icon: "📘", label: "Publicar campanha",    action: "Clique em 'Publicar no Meta Ads'",           color: "#1877f2" },
               { icon: "🧪", label: "Testar criativos A/B", action: "Use variações de hook para testes A/B",      color: "#7c3aed" },
-              { icon: "💰", label: "Ajustar orçamento",    action: "Revise o budget conforme CPL real pós-lançamento", color: "#d97706" },
+              { icon: "◈", label: "Ajustar orçamento",    action: "Revise o budget conforme CPL real pós-lançamento", color: "#d97706" },
               { icon: "👥", label: "Criar públicos",       action: "Adicione públicos lookalike após 50+ leads", color: "#16a34a" },
             ].map(step => (
               <div key={step.label} style={{
@@ -1862,7 +1862,7 @@ export default function CampaignResult() {
       {/* ── Banner resultado publicação ── */}
       {publishResult && (
         <div style={{ background: "var(--green-l)", border: "1px solid var(--green-xl)", borderRadius: 14, padding: 20, marginBottom: 20 }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: "var(--green-dk)", marginBottom: 8 }}>✅ Campanha publicada no Meta Ads!</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: "var(--green-dk)", marginBottom: 8 }}>◎ Campanha publicada no Meta Ads!</p>
           <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 10 }}>
             {publishResult.campaignId && <p style={{ fontSize: 12, color: "var(--muted)" }}>Campaign ID: <strong>{publishResult.campaignId}</strong></p>}
             {publishResult.adSetId    && <p style={{ fontSize: 12, color: "var(--muted)" }}>Ad Set ID: <strong>{publishResult.adSetId}</strong></p>}
@@ -1891,7 +1891,7 @@ export default function CampaignResult() {
               { key: "estimatedCTR",  label: "CTR",   icon: "📈", bg: "#fef2f2",        fg: "#991b1b" },
               { key: "expectedROAS",  label: "ROAS",  icon: "💹", bg: "var(--green-l)", fg: "var(--green-dk)" },
               { key: "breakEvenROAS", label: "Break-even", icon: "⚖️", bg: "#fff7ed",  fg: "#9a3412" },
-              { key: "estimatedCPA",  label: "CPA",   icon: "💸", bg: "#fff7ed",        fg: "#9a3412" },
+              { key: "estimatedCPA",  label: "CPA",   icon: "◍", bg: "#fff7ed",        fg: "#9a3412" },
               { key: "leadsPerMonth", label: "Leads/mês", icon: "👥", bg: "#eff6ff",   fg: "#1e40af" },
             ].filter(m => metrics[m.key]).map(m => (
               <div key={m.key} style={{ background: m.bg, borderRadius: 12, padding: "14px 16px" }}>
@@ -2017,7 +2017,7 @@ export default function CampaignResult() {
               mainBenefit={(clientProfile as any)?.uniqueValueProposition}
               onVideoReady={(videoUrl: string) => {
                 setImageUrl(videoUrl);
-                toast.success("✅ Vídeo pronto!");
+                toast.success("◎ Vídeo pronto!");
               }}
             />
           )}
@@ -2086,7 +2086,7 @@ export default function CampaignResult() {
       {scaling && (
         <div style={{ background: "var(--navy)", borderRadius: 16, padding: 22, marginTop: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(74,222,128,.15)", border: "1px solid rgba(74,222,128,.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🚀</div>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(74,222,128,.15)", border: "1px solid rgba(74,222,128,.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>◈</div>
             <div>
               <p style={{ fontSize: 14, fontWeight: 800, color: "white", margin: 0 }}>Estratégia de Escala</p>
               <p style={{ fontSize: 11, color: "rgba(255,255,255,.5)", margin: 0 }}>Escale o que funciona após os primeiros 7 dias</p>
@@ -2161,7 +2161,7 @@ export default function CampaignResult() {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
             <span style={{ fontSize: 20 }}>
-              {complianceResult.score === "safe" ? "✅" : complianceResult.score === "warning" ? "⚠️" : "❌"}
+              {complianceResult.score === "safe" ? "◎" : complianceResult.score === "warning" ? "◬" : "✕"}
             </span>
             <strong style={{ fontSize: 14 }}>
               {complianceResult.score === "safe" ? "Compliance OK — dentro das políticas Meta" :
@@ -2530,7 +2530,7 @@ export default function CampaignResult() {
                                 ))}
                               </div>
                               <p style={{ fontSize: 11, color: regions.length ? "var(--green-d)" : "var(--muted)", margin: "8px 0 0" }}>
-                                {regions.length ? `✅ Estados enviados: ${regions.join(", ")}` : "✅ Fallback para Brasil inteiro"}
+                                {regions.length ? `◎ Estados enviados: ${regions.join(", ")}` : "◎ Fallback para Brasil inteiro"}
                               </p>
                             </>
                           )}
@@ -2555,7 +2555,7 @@ export default function CampaignResult() {
                                 ))}
                               </div>
                               <p style={{ fontSize: 11, color: countries.length ? "var(--green-d)" : "#b45309", margin: "8px 0 0" }}>
-                                {countries.length ? `✅ Países enviados: ${countries.join(", ")}` : "Selecione ao menos um país para publish internacional."}
+                                {countries.length ? `◎ Países enviados: ${countries.join(", ")}` : "Selecione ao menos um país para publish internacional."}
                               </p>
                             </>
                           )}
@@ -2573,7 +2573,7 @@ export default function CampaignResult() {
                                 </select>
                               </div>
                               <p style={{ fontSize: 11, color: geoCity.trim() ? "var(--green-d)" : "#b45309", margin: 0, gridColumn: "1 / -1" }}>
-                                {geoCity.trim() ? `✅ Raio de ${geoRadius}km em torno de ${geoCity}` : "Informe a cidade para montar custom_locations na Meta."}
+                                {geoCity.trim() ? `◎ Raio de ${geoRadius}km em torno de ${geoCity}` : "Informe a cidade para montar custom_locations na Meta."}
                               </p>
                             </div>
                           )}
@@ -2599,7 +2599,7 @@ export default function CampaignResult() {
                             </select>
                           </div>
                           <p style={{ fontSize: 11, color: ageMin < ageMax ? "var(--green-d)" : "#dc2626", margin: 0, gridColumn: "1 / -1" }}>
-                            {ageMin < ageMax ? `✅ A Meta receberá ${ageMin}–${ageMax} anos no ad set.` : "A idade mínima precisa ser menor do que a máxima."}
+                            {ageMin < ageMax ? `◎ A Meta receberá ${ageMin}–${ageMax} anos no ad set.` : "A idade mínima precisa ser menor do que a máxima."}
                           </p>
                         </div>
                       </div>
@@ -2670,7 +2670,7 @@ export default function CampaignResult() {
                                 )}
                                 {uploadedHashes[idx] && (
                                   <div style={{ position: "absolute", bottom: 4, right: 4, background: "#15803d", color: "white",
-                                    fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4 }}>✅</div>
+                                    fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4 }}>◎</div>
                                 )}
                                 {uploadingIndex === idx && (
                                   <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)",
@@ -2769,7 +2769,7 @@ export default function CampaignResult() {
                                     const uploadResult = await handleUploadMedia(mediaFiles[0]);
                                     setUploadingIndex(null);
                                     if (uploadResult?.kind === "video") {
-                                      toast.success("✅ Vídeo enviado para a Meta!");
+                                      toast.success("◎ Vídeo enviado para a Meta!");
                                     }
                                     return;
                                   }
@@ -2792,7 +2792,7 @@ export default function CampaignResult() {
                                   setUploadingIndex(null);
                                   const totalImages = mediaFiles.filter(file => isImageFile(file)).length;
                                   const allDone = newHashes.filter(Boolean).length === totalImages;
-                                  if (allDone) toast.success(`✅ ${totalImages} foto(s) enviadas para a Meta!`);
+                                  if (allDone) toast.success(`◎ ${totalImages} foto(s) enviadas para a Meta!`);
                                 }}
                                 disabled={uploading || uploadDone || ((mediaFiles.length === 1 && isVideoFile(mediaFiles[0])) ? !!uploadedVid : mediaFiles.every((file: any, i: number) => !isImageFile(file) || !!uploadedHashes[i]))}
                                 style={{
@@ -2813,7 +2813,7 @@ export default function CampaignResult() {
                                 {uploading
                                   ? "⏳ Enviando... aguarde"
                                   : uploadDone
-                                    ? "✅ Pronto! Vídeo enviado para Meta"
+                                    ? "◎ Pronto! Vídeo enviado para Meta"
                                     : (mediaFiles.length === 1 && isVideoFile(mediaFiles[0]))
                                       ? "📤 Clique para enviar vídeo à Meta"
                                       : `📤 Enviar ${mediaFiles.length} foto(s) para Meta`}
@@ -2990,7 +2990,7 @@ export default function CampaignResult() {
               // ── Tela de sucesso ──
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 40, textAlign: "center" }}>
                 <div>
-                  <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
+                  <div style={{ fontSize: 56, marginBottom: 16 }}>◈</div>
                   <p style={{ fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>Post publicado!</p>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24 }}>{organicResult.message}</p>
                   {organicResult.postUrl && (
@@ -3021,7 +3021,7 @@ export default function CampaignResult() {
                     </label>
                     {organicPageId ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 10 }}>
-                        <span style={{ fontSize: 16 }}>✅</span>
+                        <span style={{ fontSize: 16 }}>◎</span>
                         <div style={{ flex: 1 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#166534" }}>{organicPageName || `Página ${organicPageId}`}</p>
                           <p style={{ margin: 0, fontSize: 11, color: "#15803d", fontFamily: "monospace" }}>ID: {organicPageId}</p>
@@ -3172,16 +3172,16 @@ export default function CampaignResult() {
                                   reader.readAsDataURL(organicImageFile);
                                 });
                                 setOrganicImageBase64(b64);
-                                toast.success("✅ Imagem pronta para o post!");
-                              } catch { toast.error("❌ Erro ao processar imagem"); }
+                                toast.success("◎ Imagem pronta para o post!");
+                              } catch { toast.error("✕ Erro ao processar imagem"); }
                               setOrganicUploading(false);
                             }}
                               style={{ flex: 1, padding: "7px", borderRadius: 8, fontSize: 12, fontWeight: 700, background: organicUploading ? "#93c5fd" : "#1877f2", color: "white", border: "none", cursor: "pointer" }}>
-                              {organicUploading ? "⏳ Processando..." : "✅ Usar esta imagem"}
+                              {organicUploading ? "⏳ Processando..." : "◎ Usar esta imagem"}
                             </button>
                           ) : (
                             <div style={{ flex: 1, padding: "7px 12px", borderRadius: 8, background: "#f0fdf4", border: "1px solid #86efac", fontSize: 12, fontWeight: 700, color: "#16a34a", textAlign: "center" }}>
-                              ✅ Imagem pronta
+                              ◎ Imagem pronta
                             </div>
                           )}
                           <button onClick={() => { setOrganicImageFile(null); setOrganicImagePreview(""); setOrganicImageBase64(""); }}

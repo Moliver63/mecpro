@@ -95,7 +95,7 @@ export default function PlatformPayment() {
       setLoading(false);
       refetchBalance?.();
       refetchAsaas?.();
-      toast.success(`✅ R$ ${data.amount.toFixed(2)} transferidos!`);
+      toast.success(`◎ R$ ${data.amount.toFixed(2)} transferidos!`);
     },
     onError: (e: any) => { setLoading(false); toast.error(e.message); },
   }) ?? { mutate: () => {} };
@@ -264,11 +264,11 @@ export default function PlatformPayment() {
             {/* Resultado */}
             {done && (
               <div style={{ marginTop: 14, background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: "12px 16px" }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#059669", marginBottom: 6 }}>✅ Transferência realizada!</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#059669", marginBottom: 6 }}>◎ Transferência realizada!</div>
                 <div style={{ fontSize: 12, color: "#064e3b", lineHeight: 1.7 }}>
                   Valor: <strong>{R(done.amount)}</strong><br />
                   Destino: <strong>{done.pixKey}</strong><br />
-                  Status: <strong>{done.status === "PENDING" ? "⏳ Processando" : done.status === "DONE" ? "✅ Concluída" : done.status}</strong><br />
+                  Status: <strong>{done.status === "PENDING" ? "⏳ Processando" : done.status === "DONE" ? "◎ Concluída" : done.status}</strong><br />
                   ID Asaas: <code style={{ fontSize: 10 }}>{done.asaasId}</code>
                 </div>
                 <div style={{ marginTop: 8, fontSize: 11, color: "#059669" }}>

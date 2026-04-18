@@ -61,7 +61,7 @@ const LANDING_JSONLD = {
 const MINI_COURSES = [
   {
     slug: "campanha-zero-mecpro",
-    icon: "🚀",
+    icon: "◈",
     tag: "GRATUITO",
     tagColor: "#16a34a",
     title: "Campanha do Zero com MECPro",
@@ -316,8 +316,8 @@ export default function Landing() {
               {n:"01",icon:"🎯",t:"Perfil do Cliente",d:"Mapeie dores, desejos, objeções e proposta de valor com profundidade estratégica. A base da campanha ideal."},
               {n:"02",icon:"🔍",t:"Análise de Concorrentes",d:"Monitore anúncios ativos via Meta Ads Library. Extraia copy, criativos e estratégias dos concorrentes em tempo real."},
               {n:"03",icon:"📊",t:"Inteligência de Mercado",d:"A IA cruza todos os dados e revela gaps, oportunidades e o posicionamento ideal para vencer."},
-              {n:"04",icon:"🚀",t:"Campanha Automática",d:"Gere estrutura completa: ad sets, copy, orçamento sugerido e funil de conversão prontos para rodar."},
-              {n:"05",icon:"📄",t:"Exportação PDF & XLSX",d:"Relatórios profissionais para apresentar a clientes ou implementar diretamente na plataforma de anúncios."},
+              {n:"04",icon:"◈",t:"Campanha Automática",d:"Gere estrutura completa: ad sets, copy, orçamento sugerido e funil de conversão prontos para rodar."},
+              {n:"05",icon:"◻",t:"Exportação PDF & XLSX",d:"Relatórios profissionais para apresentar a clientes ou implementar diretamente na plataforma de anúncios."},
               {n:"06",icon:"⚡",t:"Meta & Google Ads",d:"Integração nativa. Conecte suas contas e publique campanhas direto do MECPro, sem copiar e colar."},
             ].map(f=>(
               <article key={f.n} style={{ background:"white",padding:"28px 26px",transition:"background .2s",cursor:"default" }}
@@ -344,7 +344,7 @@ export default function Landing() {
               {[
                 {step:"1",icon:"🎯",t:"Preencha o perfil do cliente",d:"Informe segmento, público, proposta de valor e objetivos. O MECPro organiza tudo estrategicamente."},
                 {step:"2",icon:"🔍",t:"IA analisa o mercado e concorrentes",d:"Pipeline de 7 camadas coleta dados reais de anúncios, estratégias e copies da concorrência automaticamente."},
-                {step:"3",icon:"🚀",t:"Receba a campanha pronta",d:"Copy, ad sets, orçamento e funil de conversão gerados e prontos para rodar no Meta Ads e Google Ads."},
+                {step:"3",icon:"◈",t:"Receba a campanha pronta",d:"Copy, ad sets, orçamento e funil de conversão gerados e prontos para rodar no Meta Ads e Google Ads."},
               ].map(s=>(
                 <div key={s.step} style={{ background:"white",borderRadius:16,padding:"32px 28px",border:"1px solid var(--border)" }}>
                   <div style={{ fontSize:28,marginBottom:14 }}>{s.icon}</div>

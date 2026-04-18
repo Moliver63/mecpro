@@ -15,8 +15,8 @@ const PLAN_COLORS: Record<string, { color: string; bg: string }> = {
 };
 const STATUS_STYLES: Record<string, { color: string; bg: string; label: string }> = {
   pending:  { color: "#d97706", bg: "#fef3c7", label: "⏳ Pendente" },
-  approved: { color: "#16a34a", bg: "#d1fae5", label: "✅ Aprovado" },
-  rejected: { color: "#dc2626", bg: "#fee2e2", label: "❌ Recusado" },
+  approved: { color: "#16a34a", bg: "#d1fae5", label: "◎ Aprovado" },
+  rejected: { color: "#dc2626", bg: "#fee2e2", label: "✕ Recusado" },
 };
 
 export default function AdminPlanRequests() {
@@ -72,11 +72,11 @@ export default function AdminPlanRequests() {
       {/* Flow explainer */}
       <div style={{ background: "#1a2744", borderRadius: 14, padding: "16px 20px", marginBottom: 24, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         {[
-          { icon: "💰", label: "Financeiro solicita", desc: "mudança de plano" },
+          { icon: "◈", label: "Financeiro solicita", desc: "mudança de plano" },
           { icon: "→", label: "", desc: "" },
           { icon: "🔔", label: "Superadmin notificado", desc: "via notificação" },
           { icon: "→", label: "", desc: "" },
-          { icon: "✅", label: "Aprova ou recusa", desc: "com motivo" },
+          { icon: "◎", label: "Aprova ou recusa", desc: "com motivo" },
           { icon: "→", label: "", desc: "" },
           { icon: "📬", label: "Financeiro notificado", desc: "do resultado" },
         ].map((s, i) => s.icon === "→" ? (
@@ -108,7 +108,7 @@ export default function AdminPlanRequests() {
       <div style={{ background: "#fff", borderRadius: 14, border: "1px solid #e2e8f0", overflow: "hidden" }}>
         {displayed.length === 0 ? (
           <div style={{ padding: "48px", textAlign: "center" }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>◎</div>
             <div style={{ fontWeight: 600, color: "#1e293b", marginBottom: 4 }}>
               {tab === "pending" ? "Nenhuma solicitação pendente" : "Nenhuma solicitação encontrada"}
             </div>
@@ -171,14 +171,14 @@ export default function AdminPlanRequests() {
                           style={{ background: "#16a34a", color: "#fff", border: "none" }}
                           onClick={() => setApproveModal({ id: req.id, userName: `#${req.targetUserId}`, plan: req.requestedPlan })}
                         >
-                          ✅ Aprovar
+                          ◎ Aprovar
                         </button>
                         <button
                           className="btn btn-sm btn-outline"
                           style={{ color: "#dc2626", borderColor: "#dc2626" }}
                           onClick={() => setRejectModal({ id: req.id, userName: `#${req.targetUserId}` })}
                         >
-                          ❌ Recusar
+                          ✕ Recusar
                         </button>
                       </div>
                     )}
@@ -194,7 +194,7 @@ export default function AdminPlanRequests() {
       {approveModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <div style={{ background: "#fff", borderRadius: 16, padding: 28, maxWidth: 400, width: "90%" }}>
-            <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>✅</div>
+            <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>◎</div>
             <h3 style={{ fontWeight: 700, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Aprovar mudança de plano</h3>
             <p style={{ fontSize: 14, color: "#6b7280", textAlign: "center", marginBottom: 16 }}>
               Usuário {approveModal.userName} será atualizado para o plano <strong>{PLAN_LABELS[approveModal.plan]}</strong>.
@@ -226,7 +226,7 @@ export default function AdminPlanRequests() {
       {rejectModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <div style={{ background: "#fff", borderRadius: 16, padding: 28, maxWidth: 400, width: "90%" }}>
-            <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>❌</div>
+            <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>✕</div>
             <h3 style={{ fontWeight: 700, fontSize: 18, textAlign: "center", marginBottom: 8 }}>Recusar solicitação</h3>
             <p style={{ fontSize: 14, color: "#6b7280", textAlign: "center", marginBottom: 16 }}>
               Informe o motivo da recusa. O perfil Financeiro será notificado.

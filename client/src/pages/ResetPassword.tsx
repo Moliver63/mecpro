@@ -31,7 +31,7 @@ export default function ResetPassword() {
   if (done) return (
     <div style={{ minHeight:"100vh", background:"var(--off)", display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
       <div style={{ background:"white", border:"1px solid var(--border)", borderRadius:20, padding:48, maxWidth:420, width:"100%", textAlign:"center" }}>
-        <div style={{ fontSize:40, marginBottom:16 }}>✅</div>
+        <div style={{ fontSize:40, marginBottom:16 }}>◎</div>
         <h2 style={{ fontFamily:"var(--font-display)", fontSize:22, fontWeight:800, marginBottom:8 }}>Senha redefinida!</h2>
         <p style={{ fontSize:14, color:"var(--muted)", marginBottom:24 }}>Sua senha foi atualizada com sucesso.</p>
         <button className="btn btn-lg btn-green btn-full" onClick={() => setLocation("/login")}>Ir para o login →</button>

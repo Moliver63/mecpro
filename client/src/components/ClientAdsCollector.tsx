@@ -28,12 +28,12 @@ export function ClientAdsCollector({ competitorId, projectId, compName, pageId, 
     onSuccess: (data: any) => {
       setSaving(false);
       setStep("done");
-      toast.success(data.message || `✅ ${data.saved} anúncios salvos!`);
+      toast.success(data.message || `◎ ${data.saved} anúncios salvos!`);
       onSuccess?.();
     },
     onError: (e: any) => {
       setSaving(false);
-      toast.error("❌ Erro ao salvar: " + (e?.message || "tente novamente"));
+      toast.error("✕ Erro ao salvar: " + (e?.message || "tente novamente"));
     },
   }) ?? { mutate: () => {}, isPending: false };
 
@@ -76,14 +76,14 @@ try{
     body:JSON.stringify({json:{competitorId:${competitorId},projectId:${projectId},ads:ads,source:'bookmarklet'}})
   }).then(function(r){return r.json();}).then(function(d){
     var saved=d?.result?.data?.json?.saved??ads.length;
-    alert('✅ '+saved+' anúncio(s) enviados para o MECPro! Volte à aba do MECPro e atualize.');
+    alert('◎ '+saved+' anúncio(s) enviados para o MECPro! Volte à aba do MECPro e atualize.');
   }).catch(function(e){alert('Erro ao enviar: '+e.message);});
 }catch(e){alert('Erro: '+e.message);}
 })();`;
 
   const copyBookmarklet = () => {
     navigator.clipboard.writeText(inlineScript).then(() => {
-      toast.success("✅ Script copiado! Cole no console do navegador.");
+      toast.success("◎ Script copiado! Cole no console do navegador.");
     }).catch(() => {
       toast.error("Erro ao copiar — copie manualmente");
     });
@@ -108,7 +108,7 @@ try{
       {step === "done" ? (
         <div style={{ background: "#dcfce7", borderRadius: 8, padding: "10px 14px", textAlign: "center" }}>
           <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#15803d" }}>
-            ✅ Dados coletados e salvos com sucesso!
+            ◎ Dados coletados e salvos com sucesso!
           </p>
           <button onClick={() => setStep("idle")}
             style={{ marginTop: 6, fontSize: 11, color: "#16a34a", background: "none", border: "none", cursor: "pointer" }}>

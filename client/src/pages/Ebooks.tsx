@@ -40,7 +40,7 @@ export default function Ebooks() {
         {[
           { icon: "📚", label: "E-books disponíveis", value: MOCK_EBOOKS.length, color: "#eff6ff" },
           { icon: "🆓", label: "E-books gratuitos", value: MOCK_EBOOKS.filter(e => !e.isPro).length, color: "#f0fdf4" },
-          { icon: "⭐", label: "E-books exclusivos Pro", value: MOCK_EBOOKS.filter(e => e.isPro).length, color: "#fef3c7" },
+          { icon: "◈", label: "E-books exclusivos Pro", value: MOCK_EBOOKS.filter(e => e.isPro).length, color: "#fef3c7" },
         ].map(s => (
           <div key={s.label} style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, padding: "18px 20px", display: "flex", gap: 12, alignItems: "center" }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: s.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{s.icon}</div>

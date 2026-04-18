@@ -174,7 +174,7 @@ export default function TikTokCampaignCreator() {
 
   const publishMutation = trpc.campaigns.publishToTikTok.useMutation({
     onSuccess: (d: any) => {
-      toast.success(`✅ Campanha TikTok criada! ID: ${d.tiktokCampaignId}`);
+      toast.success(`◎ Campanha TikTok criada! ID: ${d.tiktokCampaignId}`);
       setForm(f => ({ ...f, publishingState: "success" }));
     },
     onError: (e) => {
@@ -399,7 +399,7 @@ export default function TikTokCampaignCreator() {
         {form.publishingState === "success" ? (
           <div style={{ background: "#dcfce7", border: "1.5px solid #86efac",
             borderRadius: 14, padding: 20, textAlign: "center" as const }}>
-            <p style={{ fontSize: 28 }}>🎉</p>
+            <p style={{ fontSize: 28 }}>◈</p>
             <p style={{ fontWeight: 800, fontSize: 16 }}>Campanha TikTok publicada!</p>
             <button style={{ ...btn("#010101"), marginTop: 12 }}
               onClick={() => setLocation(`/projects/${projectId}/campaign/result/${campaignId}`)}>
@@ -424,7 +424,7 @@ export default function TikTokCampaignCreator() {
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>🎵 TikTok Ads Creator</h2>
           <p style={{ margin: 0, fontSize: 13, color: "#64748b" }}>
-            {aiFilled ? "✅ Pré-preenchido com IA e inteligência competitiva" : "Nova campanha TikTok"}
+            {aiFilled ? "◎ Pré-preenchido com IA e inteligência competitiva" : "Nova campanha TikTok"}
           </p>
         </div>
       </div>

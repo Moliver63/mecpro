@@ -49,7 +49,7 @@ export default function AlertsSettings() {
   }, [saved]);
 
   const saveMutation = trpc.alerts.save.useMutation({
-    onSuccess: () => { toast.success("✅ Alertas salvos!"); refetch(); setSaving(false); },
+    onSuccess: () => { toast.success("◎ Alertas salvos!"); refetch(); setSaving(false); },
     onError:   (e) => { toast.error("Erro: " + e.message); setSaving(false); },
   });
 

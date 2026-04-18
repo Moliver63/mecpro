@@ -8,7 +8,7 @@ const MODULES = [
   { key: "client",      num: 1, title: "Perfil do Cliente",       icon: "👤", desc: "Dados estratégicos do cliente",      path: "client" },
   { key: "competitors", num: 2, title: "Análise de Concorrentes", icon: "🔍", desc: "Inteligência competitiva",            path: "competitors" },
   { key: "market",      num: 3, title: "Análise de Mercado",      icon: "📊", desc: "Insights de mercado com IA",         path: "market" },
-  { key: "campaign",    num: 4, title: "Gerar Campanha",          icon: "🚀", desc: "Campanha completa gerada pela IA",   path: "campaign" },
+  { key: "campaign",    num: 4, title: "Gerar Campanha",          icon: "◈", desc: "Campanha completa gerada pela IA",   path: "campaign" },
 ];
 
 export default function ProjectDetail() {
@@ -110,17 +110,17 @@ export default function ProjectDetail() {
             <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700,
               background: publishedMeta ? "#dcfce7" : "#f1f5f9",
               color: publishedMeta ? "#166534" : "#94a3b8" }}>
-              {publishedMeta ? "✅" : "⭕"} Meta Ads
+              {publishedMeta ? "◎" : "⭕"} Meta Ads
             </span>
             <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700,
               background: publishedGoogle ? "#dcfce7" : "#f1f5f9",
               color: publishedGoogle ? "#166534" : "#94a3b8" }}>
-              {publishedGoogle ? "✅" : "⭕"} Google Ads
+              {publishedGoogle ? "◎" : "⭕"} Google Ads
             </span>
             <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700,
               background: publishedTikTok ? "#dcfce7" : "#f1f5f9",
               color: publishedTikTok ? "#166534" : "#94a3b8" }}>
-              {publishedTikTok ? "✅" : "⭕"} TikTok Ads
+              {publishedTikTok ? "◎" : "⭕"} TikTok Ads
             </span>
             {totalPublished > 0 && (
               <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8" }}>
@@ -149,7 +149,7 @@ export default function ProjectDetail() {
                 </div>
                 <div style={{ flexShrink: 0 }}>
                   {done ? (
-                    <span style={{ fontSize: 11, fontWeight: 700, background: "var(--green-l)", color: "var(--green-d)", padding: "3px 10px", borderRadius: 20 }}>✅ Concluído</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, background: "var(--green-l)", color: "var(--green-d)", padding: "3px 10px", borderRadius: 20 }}>◎ Concluído</span>
                   ) : (
                     <button className="btn btn-sm btn-primary"
                       disabled={i > 0 && !progress[i-1]}>

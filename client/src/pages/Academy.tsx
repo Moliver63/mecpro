@@ -19,7 +19,7 @@ const COURSES = [
     isPro: false,
     badge: "GRATUITO",
     badgeColor: "#10b981",
-    thumb: "🚀",
+    thumb: "◈",
     tags: ["campanha", "IA", "do zero"],
   },
   {
@@ -197,7 +197,7 @@ const SOCIAL_STRATEGY = {
         "[20-25s] PDF sendo exportado — logo profissional",
         "[25-30s] CTA: 'Link na bio — começa grátis hoje'",
       ],
-      caption: "Da análise à campanha em minutos. Sem agência. Sem retrabalho. Com IA. 🤖✨\n\nO MECPro faz todo o trabalho pesado por você:\n✅ Perfil do cliente automático\n✅ Análise de concorrentes com IA\n✅ Campanha gerada em 1 clique\n✅ PDF profissional para o cliente\n\n👉 Link na bio para começar GRÁTIS",
+      caption: "Da análise à campanha em minutos. Sem agência. Sem retrabalho. Com IA. 🤖✨\n\nO MECPro faz todo o trabalho pesado por você:\n◎ Perfil do cliente automático\n◎ Análise de concorrentes com IA\n◎ Campanha gerada em 1 clique\n◎ PDF profissional para o cliente\n\n👉 Link na bio para começar GRÁTIS",
       hashtags: "#MarketingDigital #IA #Campanhas #MECPro #AgênciaDigital #SaaS #InteligênciaArtificial #TráfegoPago",
     },
     {
@@ -221,10 +221,10 @@ const SOCIAL_STRATEGY = {
       type: "Post Estático — Comparação",
       hook: "SEM MECPro vs COM MECPro ⚡",
       content: [
-        "❌ Sem MECPro: 3 dias de briefing | ✅ Com MECPro: 18 minutos",
-        "❌ Sem MECPro: Análise manual de concorrentes | ✅ Com MECPro: IA automática",
-        "❌ Sem MECPro: Copy genérico | ✅ Com MECPro: Copy personalizado por IA",
-        "❌ Sem MECPro: Relatório manual | ✅ Com MECPro: PDF profissional",
+        "✕ Sem MECPro: 3 dias de briefing | ◎ Com MECPro: 18 minutos",
+        "✕ Sem MECPro: Análise manual de concorrentes | ◎ Com MECPro: IA automática",
+        "✕ Sem MECPro: Copy genérico | ◎ Com MECPro: Copy personalizado por IA",
+        "✕ Sem MECPro: Relatório manual | ◎ Com MECPro: PDF profissional",
       ],
       hashtags: "#MECPro #MarketingDigital #AutomaçãoMarketing #IA",
     },

@@ -44,7 +44,7 @@ export default function AcceptAdminInvite() {
     return (
       <div style={{ minHeight: "100vh", background: "var(--white)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <div style={{ textAlign: "center", maxWidth: 400 }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>❌</div>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>✕</div>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>Token inválido</h1>
           <p style={{ color: "var(--muted)", fontSize: 14, marginBottom: 20 }}>Link de convite inválido ou expirado.</p>
           <button className="btn btn-md btn-green" onClick={() => setLocation("/login")}>Ir para Login</button>
@@ -80,7 +80,7 @@ export default function AcceptAdminInvite() {
 
         {status === "success" ? (
           <>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🎉</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>◈</div>
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>
               Convite aceito!
             </h1>
@@ -93,7 +93,7 @@ export default function AcceptAdminInvite() {
           </>
         ) : status === "invalid" ? (
           <>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>❌</div>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>✕</div>
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>
               Convite inválido
             </h1>
@@ -140,7 +140,7 @@ export default function AcceptAdminInvite() {
 
             <div style={{ display: "flex", gap: 12 }}>
               <button className="btn btn-md btn-green btn-full" onClick={handleAccept}>
-                ✅ Aceitar convite
+                ◎ Aceitar convite
               </button>
               <button className="btn btn-md btn-outline" style={{ flexShrink: 0 }} onClick={() => setLocation("/login")}>
                 Recusar

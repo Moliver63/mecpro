@@ -16,7 +16,7 @@ export default function AdminDashboard() {
   const [myPlanValue, setMyPlanValue] = useState((user as any)?.plan || "free");
 
   const updatePlan = trpc.admin.updateUserPlan.useMutation({
-    onSuccess: () => { toast.success("âœ… Seu plano foi atualizado!"); setShowMyPlan(false); window.location.reload(); },
+    onSuccess: () => { toast.success("â—Ž Seu plano foi atualizado!"); setShowMyPlan(false); window.location.reload(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -32,7 +32,7 @@ export default function AdminDashboard() {
         <p style={{ fontSize:14, color:"var(--muted)" }}>VisÃ£o geral da plataforma MECPro</p>
       </div>
 
-      {/* Banner Inteligência de Campanhas */}
+      {/* Banner Inteligï¿½ncia de Campanhas */}
       <div
         onClick={() => setLocation("/admin/intelligence")}
         style={{
@@ -47,10 +47,10 @@ export default function AdminDashboard() {
           <div style={{ fontSize: 42 }}>??</div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 900, color: "white", marginBottom: 4 }}>
-              Inteligência de Campanhas
+              Inteligï¿½ncia de Campanhas
             </div>
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)" }}>
-              Ranking · Score · Padrões vencedores · Aprendizado · Dataset ML
+              Ranking ï¿½ Score ï¿½ Padrï¿½es vencedores ï¿½ Aprendizado ï¿½ Dataset ML
             </div>
           </div>
         </div>
@@ -61,9 +61,9 @@ export default function AdminDashboard() {
       <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:16, marginBottom:28 }}>
         {[
           { label:"Total de usuÃ¡rios", value:totalUsers, icon:"ðŸ‘¥", color:"#eff6ff", onClick:()=>setLocation("/admin/users") },
-          { label:"UsuÃ¡rios premium", value:premiumUsers, icon:"â­", color:"var(--green-l)", onClick:()=>setLocation("/admin/manage-subscriptions") },
-          { label:"Total de projetos", value:totalProjects, icon:"ðŸ“", color:"#fef3c7", onClick:()=>setLocation("/admin/projects") },
-          { label:"Projetos ativos", value:activeProjects, icon:"ðŸš€", color:"var(--off2)", onClick:null },
+          { label:"UsuÃ¡rios premium", value:premiumUsers, icon:"â—ˆ", color:"var(--green-l)", onClick:()=>setLocation("/admin/manage-subscriptions") },
+          { label:"Total de projetos", value:totalProjects, icon:"â—«", color:"#fef3c7", onClick:()=>setLocation("/admin/projects") },
+          { label:"Projetos ativos", value:activeProjects, icon:"â—ˆ", color:"var(--off2)", onClick:null },
         ].map(s => (
           <div key={s.label} onClick={s.onClick ?? undefined}
             style={{ background:"white", border:"1px solid var(--border)", borderRadius:16, padding:22, cursor:s.onClick?"pointer":"default", transition:"all .15s" }}

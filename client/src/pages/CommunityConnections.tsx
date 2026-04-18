@@ -132,7 +132,7 @@ export default function CommunityConnections() {
                     onClick={() => sendMessage(conn.id)}
                     disabled={messagingSent.includes(conn.id)}
                   >
-                    {messagingSent.includes(conn.id) ? "✅ Enviado" : "💬 Mensagem"}
+                    {messagingSent.includes(conn.id) ? "◎ Enviado" : "💬 Mensagem"}
                   </button>
                   <button className="btn btn-sm btn-outline" style={{ flexShrink: 0 }}>Perfil</button>
                 </div>
@@ -202,8 +202,8 @@ export default function CommunityConnections() {
                 <p style={{ fontSize: 12, color: "var(--muted)" }}>{req.role} • {req.mutual} conexões em comum</p>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn-sm btn-green">✅ Aceitar</button>
-                <button className="btn btn-sm btn-outline">❌ Recusar</button>
+                <button className="btn btn-sm btn-green">◎ Aceitar</button>
+                <button className="btn btn-sm btn-outline">✕ Recusar</button>
               </div>
             </div>
           ))}

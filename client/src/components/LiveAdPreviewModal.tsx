@@ -281,7 +281,7 @@ function MetaFeedPreview({ ad, placement, device }: { ad: MetaAd; placement: Met
               boxShadow: "0 2px 8px rgba(0,0,0,.25)",
             }}
           >
-            {ctaLabel(ctaType)} {landingUrl ? "↗" : "⚠️"}
+            {ctaLabel(ctaType)} {landingUrl ? "↗" : "◬"}
           </button>
           <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.6)" }}>
             {landingUrl ? "👆 Clique para abrir o destino real" : "⚠️ URL não encontrada neste anúncio"}
@@ -341,7 +341,7 @@ function MetaFeedPreview({ ad, placement, device }: { ad: MetaAd; placement: Met
             onClick={() => landingUrl ? window.open(landingUrl, "_blank", "noopener,noreferrer") : alert("URL de destino não encontrada nos dados desta campanha.")}
             style={{ background: isIG ? accentColor : "#e4e6eb", color: isIG ? "#fff" : "#1c1e21", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}
           >
-            {ctaLabel(ctaType)} {landingUrl ? "↗" : "⚠️"}
+            {ctaLabel(ctaType)} {landingUrl ? "↗" : "◬"}
           </button>
         </div>
       </div>
@@ -415,7 +415,7 @@ function TikTokPreview({ ad, device }: { ad: TikTokAd; device: DeviceMode }) {
           onClick={() => ad.landingUrl ? window.open(ad.landingUrl, "_blank", "noopener,noreferrer") : alert("URL de destino não encontrada neste anúncio TikTok.")}
           style={{ display: "block", width: "100%", background: "#ff0050", borderRadius: 4, padding: "7px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#fff", border: "none", cursor: "pointer" }}
         >
-          Saiba mais {ad.landingUrl ? "↗" : "⚠️"}
+          Saiba mais {ad.landingUrl ? "↗" : "◬"}
         </button>
         <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.5)" }}>
           {ad.landingUrl ? "👆 Clique para testar destino" : "⚠️ URL não encontrada"}

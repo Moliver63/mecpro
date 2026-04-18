@@ -17,7 +17,7 @@ interface Message {
 const MOCK_MESSAGES: Message[] = [
   { id: 1, from: "Suporte MECPro", fromAvatar: "🛡️", subject: "Bem-vindo ao MECPro!", preview: "Olá! Seja bem-vindo à plataforma. Se precisar de ajuda com qualquer funcionalidade...", time: "Hoje 09:12", read: false, type: "support" },
   { id: 2, from: "Sistema", fromAvatar: "⚙️", subject: "Sua análise de concorrentes foi concluída", preview: "A análise dos concorrentes para o projeto 'Minha Empresa' foi concluída com sucesso...", time: "Ontem 14:35", read: false, type: "system" },
-  { id: 3, from: "Sistema", fromAvatar: "🚀", subject: "Campanha gerada com sucesso", preview: "Sua campanha 'Lançamento de Produto Q1' foi gerada pela IA e está pronta para revisão...", time: "23/03 11:20", read: true, type: "notification" },
+  { id: 3, from: "Sistema", fromAvatar: "◈", subject: "Campanha gerada com sucesso", preview: "Sua campanha 'Lançamento de Produto Q1' foi gerada pela IA e está pronta para revisão...", time: "23/03 11:20", read: true, type: "notification" },
   { id: 4, from: "Suporte MECPro", fromAvatar: "🛡️", subject: "Dica: Use a cascata 7 camadas", preview: "Para obter os melhores resultados na análise de concorrentes, recomendamos conectar...", time: "22/03 16:45", read: true, type: "support" },
   { id: 5, from: "Sistema", fromAvatar: "💳", subject: "Fatura do mês disponível", preview: "Sua fatura referente ao mês de março já está disponível. Acesse a seção de assinatura...", time: "01/03 08:00", read: true, type: "notification" },
 ];

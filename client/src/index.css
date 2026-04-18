@@ -1324,3 +1324,51 @@ tbody tr:last-child td { border-bottom: none; }
 @media (max-width: 768px) {
   .app-content { -webkit-overflow-scrolling: touch; }
 }
+
+/* ════════════════════════════════════════════════
+   ICON SYMBOLS — Sistema premium de ícones
+   Símbolos Unicode elegantes em vez de emojis
+   ════════════════════════════════════════════════ */
+
+/* Símbolo de status genérico */
+.icon-sym {
+  font-size: 13px;
+  line-height: 1;
+  font-family: var(--font);
+  font-weight: 500;
+}
+
+/* Ícones de plano — identidade visual */
+.plan-icon {
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.plan-icon-core  { color: #0071e3; }
+.plan-icon-pro   { color: #5856d6; }
+.plan-icon-elite { color: var(--black); }
+
+/* Badge de plano premium */
+.plan-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+
+.plan-badge-core  { background: rgba(0,113,227,0.1);   color: #0071e3; border: 1px solid rgba(0,113,227,0.2);   }
+.plan-badge-pro   { background: rgba(88,86,214,0.1);   color: #5856d6; border: 1px solid rgba(88,86,214,0.2);   }
+.plan-badge-elite { background: rgba(29,29,31,0.08);   color: var(--black); border: 1px solid rgba(0,0,0,0.15); }
+
+/* Status symbols */
+.sym-ok      { color: var(--green-d);   }
+.sym-err     { color: var(--red);       }
+.sym-warn    { color: var(--orange);    }
+.sym-locked  { color: var(--muted);     }
+.sym-premium { color: var(--indigo);    }

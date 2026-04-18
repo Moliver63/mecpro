@@ -23,7 +23,7 @@ const PLATFORM_ICONS: Record<string, string> = {
 const NICHE_ICONS: Record<string, string> = {
   imobiliario: "🏠", juridico: "⚖️", saude: "💊", educacao: "📚",
   estetica: "💄", varejo: "🛍️", automotivo: "🚗", servicos: "🔧",
-  infoprodutos: "💻", lancamentos: "🚀", geral: "🌐",
+  infoprodutos: "💻", lancamentos: "◈", geral: "🌐",
 };
 
 const N   = (v?: number) => v == null ? "—" : Number(v).toLocaleString("pt-BR");
@@ -136,16 +136,16 @@ function TabDashboard() {
   if (stats?.isLoading) return <Loader />;
 
   const mlColor = s?.mlReadiness === "ready" ? "#16a34a" : s?.mlReadiness === "preparing" ? "#d97706" : "#64748b";
-  const mlLabel = s?.mlReadiness === "ready" ? "✅ Pronto para treino" : s?.mlReadiness === "preparing" ? "⚙️ Coletando dados" : "📊 Iniciando coleta";
+  const mlLabel = s?.mlReadiness === "ready" ? "◎ Pronto para treino" : s?.mlReadiness === "preparing" ? "⚙️ Coletando dados" : "📊 Iniciando coleta";
 
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px,1fr))", gap: 14, marginBottom: 32 }}>
         <KpiCard icon="👥" label="Usuários"         value={N(s?.users)                      || "0"} color="#1d4ed8" bg="#eff6ff" />
-        <KpiCard icon="📁" label="Projetos"          value={N(s?.projects)                   || "0"} color="#7c3aed" bg="#f5f3ff" />
+        <KpiCard icon="◫" label="Projetos"          value={N(s?.projects)                   || "0"} color="#7c3aed" bg="#f5f3ff" />
         <KpiCard icon="🎯" label="Campanhas"         value={N(s?.campaigns)                  || "0"} color="#0f172a" bg="#f8fafc" />
         <KpiCard icon="⚡" label="Com Score"         value={N(s?.scoreStats?.totalScored)    || "0"} sub="calculados"             color="#0891b2" bg="#ecfeff" />
-        <KpiCard icon="🏆" label="Vencedoras"        value={N(s?.scoreStats?.winners)        || "0"} sub="score ≥ 70"             color="#16a34a" bg="#f0fdf4" />
+        <KpiCard icon="◆" label="Vencedoras"        value={N(s?.scoreStats?.winners)        || "0"} sub="score ≥ 70"             color="#16a34a" bg="#f0fdf4" />
         <KpiCard icon="🧠" label="Padrões"           value={N(s?.patternStats?.total)        || "0"} sub={`${s?.patternStats?.approved || 0} aprovados`} color="#7c3aed" bg="#fdf4ff" />
         <KpiCard icon="📚" label="Base aprendizado"  value={N(s?.learningStats?.total)       || "0"} sub={`${s?.learningStats?.niches || 0} nichos`}     color="#d97706" bg="#fffbeb" />
         <KpiCard icon="🔬" label="Dataset ML"        value={N(s?.mlStats?.totalSamples)      || "0"} sub="amostras"               color={mlColor}  bg={s?.mlReadiness === "ready" ? "#f0fdf4" : "#fffbeb"} />
@@ -184,7 +184,7 @@ function TabDashboard() {
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{layer.label}</div>
                   <div style={{ fontSize: 11, color: "#94a3b8" }}>{layer.detail}</div>
                 </div>
-                <span style={{ fontSize: 12, color: layer.ready ? "#16a34a" : "#94a3b8" }}>{layer.ready ? "✅" : "⏳"}</span>
+                <span style={{ fontSize: 12, color: layer.ready ? "#16a34a" : "#94a3b8" }}>{layer.ready ? "◎" : "⏳"}</span>
               </div>
             ))}
           </div>
@@ -198,10 +198,10 @@ function TabDashboard() {
           {[
             { icon: "🎯", label: "Campanhas criadas" },
             { icon: "⚡", label: "Score calculado" },
-            { icon: "🏆", label: "Vencedoras identificadas" },
+            { icon: "◆", label: "Vencedoras identificadas" },
             { icon: "🔍", label: "Parâmetros extraídos" },
             { icon: "🧠", label: "Learning base atualizada" },
-            { icon: "✨", label: "Futuras campanhas melhoram" },
+            { icon: "◇", label: "Futuras campanhas melhoram" },
           ].map((step, i, arr) => (
             <div key={i} style={{ display: "flex", alignItems: "center" }}>
               <div style={{ textAlign: "center", padding: "10px 12px" }}>
@@ -419,7 +419,7 @@ function TabRanking() {
                   ))}
                 </div>
                 {c.is_winner === 1 && (
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: "#fef9c3", color: "#854d0e" }}>🏆</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: "#fef9c3", color: "#854d0e" }}>◆</span>
                 )}
               </div>
             ))}
@@ -475,7 +475,7 @@ function TabPatterns({ onApprove }: { onApprove: (id: number) => void }) {
                 background: p.approved_by_admin ? "#dcfce7" : "#fef9c3",
                 color: p.approved_by_admin ? "#15803d" : "#854d0e",
               }}>
-                {p.approved_by_admin ? "✅ Aprovado" : "⏳ Pendente"}
+                {p.approved_by_admin ? "◎ Aprovado" : "⏳ Pendente"}
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
@@ -544,7 +544,7 @@ function TabPatterns({ onApprove }: { onApprove: (id: number) => void }) {
                   background: "linear-gradient(135deg,#16a34a,#15803d)",
                   color: "white", fontWeight: 700, fontSize: 12, border: "none", cursor: "pointer",
                 }}>
-                  ✅ Aprovar e ativar padrão
+                  ◎ Aprovar e ativar padrão
                 </button>
               )}
             </div>
@@ -695,7 +695,7 @@ function TabML() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>
-              {mlReadiness === "ready" ? "✅ Dataset pronto para treino" : mlReadiness === "preparing" ? "⚙️ Coletando amostras" : "📊 Iniciando coleta"}
+              {mlReadiness === "ready" ? "◎ Dataset pronto para treino" : mlReadiness === "preparing" ? "⚙️ Coletando amostras" : "📊 Iniciando coleta"}
             </div>
             <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
               {mlReadiness === "ready"
@@ -727,9 +727,9 @@ function TabML() {
         <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", marginBottom: 16 }}>🏗️ Arquitetura de ML</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px,1fr))", gap: 16 }}>
           {[
-            { layer: "Camada 1", title: "Score ponderado",       desc: "Ranking por métricas com pesos configuráveis",               status: "✅ Ativo",     color: "#16a34a" },
-            { layer: "Camada 2", title: "Análise estatística",   desc: "Correlações, clusters, padrões por nicho",                   status: total >= 10 ? "✅ Ativo" : "⏳ Coletando", color: total >= 10 ? "#16a34a" : "#d97706" },
-            { layer: "Camada 3", title: "Dataset ML",             desc: "Features normalizadas para modelos preditivos",             status: mlReadiness === "ready" ? "✅ Pronto" : "📊 Coletando", color: mlReadiness === "ready" ? "#16a34a" : "#64748b" },
+            { layer: "Camada 1", title: "Score ponderado",       desc: "Ranking por métricas com pesos configuráveis",               status: "◎ Ativo",     color: "#16a34a" },
+            { layer: "Camada 2", title: "Análise estatística",   desc: "Correlações, clusters, padrões por nicho",                   status: total >= 10 ? "◎ Ativo" : "⏳ Coletando", color: total >= 10 ? "#16a34a" : "#d97706" },
+            { layer: "Camada 3", title: "Dataset ML",             desc: "Features normalizadas para modelos preditivos",             status: mlReadiness === "ready" ? "◎ Pronto" : "📊 Coletando", color: mlReadiness === "ready" ? "#16a34a" : "#64748b" },
             { layer: "Camada 4", title: "ML Supervisionado",     desc: "Modelos de classificação e regressão (futuro)",              status: "🔮 Futuro",   color: "#7c3aed" },
           ].map(l => (
             <div key={l.layer} style={{ background: "#f8fafc", borderRadius: 12, padding: "16px 18px" }}>
@@ -781,7 +781,7 @@ function TabML() {
                     <td style={{ padding: "9px 12px" }}><span style={{ fontWeight: 800, color: SCORE_COLOR(row.label_score) }}>{(row.label_score || 0).toFixed(1)}</span></td>
                     <td style={{ padding: "9px 12px" }}>{(row.label_ctr || 0).toFixed(2)}</td>
                     <td style={{ padding: "9px 12px" }}>{(row.label_cpc || 0).toFixed(2)}</td>
-                    <td style={{ padding: "9px 12px" }}>{row.label_is_winner ? <span style={{ color: "#16a34a", fontWeight: 700 }}>✅</span> : <span style={{ color: "#94a3b8" }}>—</span>}</td>
+                    <td style={{ padding: "9px 12px" }}>{row.label_is_winner ? <span style={{ color: "#16a34a", fontWeight: 700 }}>◎</span> : <span style={{ color: "#94a3b8" }}>—</span>}</td>
                     <td style={{ padding: "9px 12px" }}>
                       <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 10, background: row.split_group === "train" ? "#eff6ff" : "#f5f3ff", color: row.split_group === "train" ? "#1d4ed8" : "#7c3aed", fontWeight: 700 }}>
                         {row.split_group}
@@ -808,7 +808,7 @@ function TabCompare() {
 
   const compareMutation = (trpc as any).intelligence?.compareCampaigns?.useMutation?.({
     onSuccess: (d: any) => { setResult(d); setLoading(false); },
-    onError:   (e: any) => { toast.error(`❌ ${e.message}`); setLoading(false); },
+    onError:   (e: any) => { toast.error(`✕ ${e.message}`); setLoading(false); },
   });
 
   const handleCompare = () => {
@@ -848,7 +848,7 @@ function TabCompare() {
           {/* Campanha vencedora */}
           <div style={{ background: "linear-gradient(135deg,#fef9c3,#fde68a)", border: "2px solid #f59e0b", borderRadius: 20, padding: 28, marginBottom: 24, boxShadow: "0 8px 32px rgba(245,158,11,0.15)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-              <span style={{ fontSize: 32 }}>🏆</span>
+              <span style={{ fontSize: 32 }}>◆</span>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#854d0e", textTransform: "uppercase" }}>Campanha Vencedora</div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: "#0f172a" }}>{result.winner?.context?.name}</div>
@@ -952,29 +952,29 @@ export default function AdminCampaignIntelligence() {
   const [activeTab, setActiveTab] = useState<TabMain>("dashboard");
 
   const scoreMutation = (trpc as any).intelligence?.calculateCampaignScore?.useMutation?.({
-    onSuccess: (d: any) => toast.success(`✅ Score calculado: ${d.score.total}/100`),
-    onError:   (e: any) => toast.error(`❌ ${e.message}`),
+    onSuccess: (d: any) => toast.success(`◎ Score calculado: ${d.score.total}/100`),
+    onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
   const extractMutation = (trpc as any).intelligence?.extractAndSavePattern?.useMutation?.({
-    onSuccess: (d: any) => toast.success(`✅ Padrão extraído! Score ${d.score.total}/100`),
-    onError:   (e: any) => toast.error(`❌ ${e.message}`),
+    onSuccess: (d: any) => toast.success(`◎ Padrão extraído! Score ${d.score.total}/100`),
+    onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
   const approveMutation = (trpc as any).intelligence?.approvePattern?.useMutation?.({
-    onSuccess: () => toast.success("✅ Padrão aprovado e ativo no MECProAI!"),
-    onError:   (e: any) => toast.error(`❌ ${e.message}`),
+    onSuccess: () => toast.success("◎ Padrão aprovado e ativo no MECProAI!"),
+    onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
   const batchMutation = (trpc as any).intelligence?.calculateBatchScores?.useMutation?.({
-    onSuccess: (d: any) => toast.success(`✅ ${d.processed} campanhas processadas!`),
-    onError:   (e: any) => toast.error(`❌ ${e.message}`),
+    onSuccess: (d: any) => toast.success(`◎ ${d.processed} campanhas processadas!`),
+    onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
   const TABS: Array<{ key: TabMain; icon: string; label: string }> = [
     { key: "dashboard", icon: "📊", label: "Dashboard"  },
     { key: "campaigns", icon: "🎯", label: "Campanhas"  },
-    { key: "ranking",   icon: "🏆", label: "Ranking"    },
+    { key: "ranking",   icon: "◆", label: "Ranking"    },
     { key: "compare",   icon: "⚖️",  label: "Comparar"   },
     { key: "patterns",  icon: "🔍", label: "Padrões"    },
     { key: "learning",  icon: "🧠", label: "Aprendizado" },

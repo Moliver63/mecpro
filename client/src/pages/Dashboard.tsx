@@ -63,7 +63,7 @@ export default function Dashboard() {
   const STATS = [
     { icon: "◫",  label: "Projetos ativos",  value: String(active.length),  color: "var(--green)",  bg: "rgba(48,209,88,0.1)",  tab: null },
     { icon: "▣",  label: "Campanhas geradas", value: String(totalCamp),      color: "var(--blue)",   bg: "var(--blue-l)",         tab: "campaigns" },
-    { icon: "⭐", label: "Plano atual",        value: (user?.plan ?? "FREE").toUpperCase(), color: "var(--orange)", bg: "rgba(255,159,10,0.1)", tab: null },
+    { icon: "◈", label: "Plano atual",        value: (user?.plan ?? "FREE").toUpperCase(), color: "var(--orange)", bg: "rgba(255,159,10,0.1)", tab: null },
   ];
 
   return (

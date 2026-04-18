@@ -56,9 +56,9 @@ interface Props {
 const STATUS_CONFIG: Record<ValidationStatus, {
   icon: string; label: string; color: string; bg: string; border: string;
 }> = {
-  approved:            { icon: "✅", label: "Compatível",        color: "#16a34a", bg: "#f0fdf4", border: "#86efac" },
-  warning:             { icon: "⚠️", label: "Ajuste recomendado", color: "#d97706", bg: "#fffbeb", border: "#fcd34d" },
-  blocked:             { icon: "❌", label: "Bloqueado",          color: "#dc2626", bg: "#fef2f2", border: "#fca5a5" },
+  approved:            { icon: "◎", label: "Compatível",        color: "#16a34a", bg: "#f0fdf4", border: "#86efac" },
+  warning:             { icon: "◬", label: "Ajuste recomendado", color: "#d97706", bg: "#fffbeb", border: "#fcd34d" },
+  blocked:             { icon: "✕", label: "Bloqueado",          color: "#dc2626", bg: "#fef2f2", border: "#fca5a5" },
   requires_adjustment: { icon: "🔧", label: "Ajuste necessário",  color: "#7c3aed", bg: "#fdf4ff", border: "#d8b4fe" },
 };
 
@@ -253,7 +253,7 @@ export default function MetaPlacementValidatorPanel({
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
         {approved > 0 && (
           <div style={{ fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 20, background: "#f0fdf4", color: "#16a34a", border: "1px solid #86efac" }}>
-            ✅ {approved} compatível{approved !== 1 ? "s" : ""}
+            ◎ {approved} compatível{approved !== 1 ? "s" : ""}
           </div>
         )}
         {warning > 0 && (
@@ -263,7 +263,7 @@ export default function MetaPlacementValidatorPanel({
         )}
         {blocked > 0 && (
           <div style={{ fontSize: 11, fontWeight: 700, padding: "4px 12px", borderRadius: 20, background: "#fef2f2", color: "#dc2626", border: "1px solid #fca5a5" }}>
-            ❌ {blocked} bloqueado{blocked !== 1 ? "s" : ""}
+            ✕ {blocked} bloqueado{blocked !== 1 ? "s" : ""}
           </div>
         )}
       </div>
@@ -304,7 +304,7 @@ export default function MetaPlacementValidatorPanel({
         }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#dc2626", marginBottom: 2 }}>
-              ❌ {blocked} placement{blocked !== 1 ? "s bloqueados" : " bloqueado"} serão ignorados pela Meta
+              ✕ {blocked} placement{blocked !== 1 ? "s bloqueados" : " bloqueado"} serão ignorados pela Meta
             </div>
             <div style={{ fontSize: 11, color: "#64748b" }}>
               Remova-os para evitar erros de veiculação
@@ -358,7 +358,7 @@ export default function MetaPlacementValidatorPanel({
                   color: isAlreadySelected ? "#16a34a" : "#64748b",
                   border: `1px solid ${isAlreadySelected ? "#86efac" : "#e2e8f0"}`,
                 }}>
-                  {isAlreadySelected ? "✅ " : ""}{rule.label}
+                  {isAlreadySelected ? "◎ " : ""}{rule.label}
                 </div>
               );
             })}
@@ -368,7 +368,7 @@ export default function MetaPlacementValidatorPanel({
 
       {autoRemovedCount > 0 && (
         <div style={{ marginTop: 10, fontSize: 11, color: "#16a34a", fontWeight: 600, textAlign: "center" }}>
-          ✅ {autoRemovedCount} placement{autoRemovedCount !== 1 ? "s removidos" : " removido"} automaticamente
+          ◎ {autoRemovedCount} placement{autoRemovedCount !== 1 ? "s removidos" : " removido"} automaticamente
         </div>
       )}
     </div>

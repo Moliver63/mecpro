@@ -61,7 +61,7 @@ function BillingCard({ platform, billing }: { platform: Platform; billing: Billi
         )}
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
-        {billing.balance != null && <MetricPill label="Saldo disponível" value={R(billing.balance)} icon="💰" />}
+        {billing.balance != null && <MetricPill label="Saldo disponível" value={R(billing.balance)} icon="◈" />}
         {billing.spent   != null && <MetricPill label="Gasto total"      value={R(billing.spent)}   icon="📤" />}
         {billing.remaining != null && <MetricPill label="Limite restante" value={R(billing.remaining)} icon="🎯" />}
         {billing.dailyAvg != null && billing.dailyAvg > 0 && <MetricPill label="Média diária" value={R(billing.dailyAvg)} icon="📅" />}
@@ -147,7 +147,7 @@ function PlatformBlock({ platform, metrics, billing, onRefresh }: { platform: Pl
           <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 10 }}>Performance</div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const, marginBottom: 20 }}>
             <MetricPill label="Campanhas"  value={String(metrics.campaigns)}     icon="📊" />
-            <MetricPill label="Gasto"      value={R(metrics.spend/100)}          icon="💸" />
+            <MetricPill label="Gasto"      value={R(metrics.spend/100)}          icon="◍" />
             <MetricPill label="Impressões" value={N(metrics.impressions)}        icon="👁️" />
             <MetricPill label="Cliques"    value={N(metrics.clicks)}             icon="👆" />
             <MetricPill label="CPC"        value={R(metrics.cpc/100)}            icon="💳" />
@@ -233,7 +233,7 @@ export default function UnifiedDashboard() {
               const isCrit = billing[p].alert === "critical";
               return (
                 <div key={p} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 18px", borderRadius: 12, background: isCrit ? "#fef2f2" : "#fffbeb", border: `1.5px solid ${isCrit ? "#fecaca" : "#fde68a"}`, marginBottom: 8 }}>
-                  <span style={{ fontSize: 20 }}>{isCrit ? "🚨" : "⚠️"}</span>
+                  <span style={{ fontSize: 20 }}>{isCrit ? "🚨" : "◬"}</span>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: isCrit ? "#dc2626" : "#d97706" }}>
                       Saldo {isCrit ? "crítico" : "baixo"} — {PLATFORMS[p].label}
@@ -257,7 +257,7 @@ export default function UnifiedDashboard() {
           <div style={{ fontSize: 13, fontWeight: 700, opacity: .8, marginBottom: 16 }}>🌐 Consolidado — todas as plataformas</div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" as const }}>
             {[
-              { label: "Total Gasto", value: R(totalSpend/100), icon: "💰" },
+              { label: "Total Gasto", value: R(totalSpend/100), icon: "◈" },
               { label: "Impressões",  value: N(totalImpr),      icon: "👁️" },
               { label: "Cliques",     value: N(totalClicks),    icon: "👆" },
               { label: "Campanhas",   value: String(totalCamps),icon: "📊" },

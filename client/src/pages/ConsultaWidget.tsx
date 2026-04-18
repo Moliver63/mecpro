@@ -322,7 +322,7 @@ export default function ConsultaWidget() {
             <>
               {(resultado.totalProcessos || 0) === 0 ? (
                 <div style={{ textAlign: "center", padding: 32, color: "var(--muted)" }}>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>✅</div>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>◎</div>
                   <p style={{ fontSize: 14, fontWeight: 600, color: "var(--black)", marginBottom: 4 }}>Nenhum processo encontrado</p>
                   <p style={{ fontSize: 12 }}>Consulta realizada no CNJ Datajud (TJSP)</p>
                 </div>

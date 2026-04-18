@@ -39,7 +39,7 @@ export default function MyCertificates() {
       {MOCK_CERTS.length === 0 ? (
         /* Estado vazio */
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 20, padding: "60px 40px", textAlign: "center" }}>
-          <div style={{ fontSize: 56, marginBottom: 16 }}>🏆</div>
+          <div style={{ fontSize: 56, marginBottom: 16 }}>◆</div>
           <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>
             Nenhum certificado ainda
           </h2>
@@ -56,7 +56,7 @@ export default function MyCertificates() {
           {/* Stats */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 24 }}>
             {[
-              { icon: "🏆", label: "Certificados obtidos", value: MOCK_CERTS.length, color: "#fef3c7" },
+              { icon: "◆", label: "Certificados obtidos", value: MOCK_CERTS.length, color: "#fef3c7" },
               { icon: "📚", label: "Cursos concluídos", value: MOCK_CERTS.length, color: "#f0fdf4" },
               { icon: "🔗", label: "Compartilhados", value: 0, color: "#eff6ff" },
             ].map(s => (
@@ -126,7 +126,7 @@ export default function MyCertificates() {
                       className="btn btn-sm btn-green"
                       onClick={() => downloadCert(cert.id, cert.course)}
                     >
-                      {downloaded === cert.id ? "✅ Baixado!" : "⬇️ Baixar PDF"}
+                      {downloaded === cert.id ? "◎ Baixado!" : "⬇️ Baixar PDF"}
                     </button>
                     <button
                       className="btn btn-sm btn-outline"

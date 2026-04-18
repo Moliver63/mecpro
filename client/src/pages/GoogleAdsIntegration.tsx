@@ -21,7 +21,7 @@ export default function GoogleAdsIntegration() {
 
   const upsertGoogle = trpc.integrations.upsertGoogle.useMutation({
     onSuccess: () => {
-      toast.success("✅ Google Ads conectado com sucesso!");
+      toast.success("◎ Google Ads conectado com sucesso!");
       refetch();
       setLoading(false);
     },
@@ -39,7 +39,7 @@ export default function GoogleAdsIntegration() {
   });
 
   const testGoogle = trpc.integrations.testGoogle.useMutation({
-    onSuccess: (d: any) => toast.success(`✅ Token válido — conta: ${d.name}`),
+    onSuccess: (d: any) => toast.success(`◎ Token válido — conta: ${d.name}`),
     onError: (e) => toast.error("Token inválido: " + e.message),
   });
 

@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 
 const MOCK_COURSES = [
-  { id: 1, title: "Tráfego Pago do Zero",        category: "Marketing",  lessons: 24, students: 142, status: "published", thumb: "🚀" },
+  { id: 1, title: "Tráfego Pago do Zero",        category: "Marketing",  lessons: 24, students: 142, status: "published", thumb: "◈" },
   { id: 2, title: "Copywriting Avançado",         category: "Conteúdo",   lessons: 18, students: 89,  status: "published", thumb: "✍️" },
   { id: 3, title: "Meta Ads para Agências",       category: "Marketing",  lessons: 32, students: 63,  status: "draft",     thumb: "📘" },
   { id: 4, title: "Análise de Dados com IA",      category: "Tecnologia", lessons: 15, students: 0,   status: "draft",     thumb: "🤖" },

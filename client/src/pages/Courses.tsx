@@ -10,7 +10,7 @@ const MOCK_COURSES = [
     title: "Campanha do Zero com MECPro",
     desc: "Aprenda a criar sua primeira campanha completa usando a plataforma — passo a passo em 45 minutos. Do perfil do cliente à publicação no Meta Ads.",
     instructor: "Equipe MECPro", duration: "45 min", lessons: 6, category: "MECPro Essentials",
-    level: "Iniciante", rating: 4.9, students: 2140, thumb: "🚀",
+    level: "Iniciante", rating: 4.9, students: 2140, thumb: "◈",
     tags: ["MECPro", "Campanha", "Iniciante", "IA"],
     price: 0, isPro: false,
     badge: "NOVO",

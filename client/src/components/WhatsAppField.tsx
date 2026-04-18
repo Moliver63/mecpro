@@ -39,13 +39,13 @@ export default function WhatsAppField({ value, onChange, pageId, onSaved, compac
       if (data.linked) {
         setStatus("linked");
         setLinkedPage(data.linkedPageName || "");
-        toast.success(`✅ WhatsApp +${data.phone} vinculado${data.linkedPageName ? ` à página "${data.linkedPageName}"` : ""}!`);
+        toast.success(`◎ WhatsApp +${data.phone} vinculado${data.linkedPageName ? ` à página "${data.linkedPageName}"` : ""}!`);
       } else {
         setStatus("saved");
         if (data.warning) {
           toast.warning(`⚠️ ${data.warning}`);
         } else {
-          toast.success(`✅ WhatsApp salvo: ${data.phone}`);
+          toast.success(`◎ WhatsApp salvo: ${data.phone}`);
         }
       }
       onSaved?.(data.phone, data.waUrl, data.linked);
@@ -142,7 +142,7 @@ export default function WhatsAppField({ value, onChange, pageId, onSaved, compac
           {checking
             ? "⏳ Validando..."
             : status === "linked"
-              ? "✅ Vinculado"
+              ? "◎ Vinculado"
               : status === "saved"
                 ? "💾 Salvo"
                 : "💾 Salvar"}
@@ -153,7 +153,7 @@ export default function WhatsAppField({ value, onChange, pageId, onSaved, compac
       <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         {status === "linked" && (
           <span style={{ fontSize: 11, color: "#059669", fontWeight: 600 }}>
-            ✅ Vinculado{linkedPage ? ` à página "${linkedPage}"` : " na Meta"}
+            ◎ Vinculado{linkedPage ? ` à página "${linkedPage}"` : " na Meta"}
           </span>
         )}
         {status === "saved" && (

@@ -8,7 +8,7 @@ const COURSES: Record<string, any> = {
     slug: "campanha-do-zero-com-mecpro", title: "Campanha do Zero com MECPro",
     desc: "Aprenda a criar uma campanha completa do zero usando todos os módulos da plataforma.",
     instructor: "Time MECPro", duration: "3h 20min", category: "Plataforma",
-    level: "Iniciante", rating: 4.9, students: 2140, thumb: "🚀", isPro: false,
+    level: "Iniciante", rating: 4.9, students: 2140, thumb: "◈", isPro: false,
     modules: [
       { title: "Módulo 1 – Introdução ao MECPro", lessons: [
         { id: "m1-1", title: "Visão geral da plataforma", duration: "12min", free: true, videoId: "dQw4w9WgXcQ" },
@@ -287,7 +287,7 @@ export default function CourseDetail() {
                       onMouseLeave={e => { e.currentTarget.style.background = "white"; }}
                     >
                       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                        <span style={{ fontSize: 14 }}>{done ? "✅" : canAccess ? "▶️" : "🔒"}</span>
+                        <span style={{ fontSize: 14 }}>{done ? "◎" : canAccess ? "▶️" : "🔒"}</span>
                         <span style={{ fontSize: 13, color: "var(--body)" }}>{lesson.title}</span>
                         {lesson.free && <span style={{ fontSize: 10, background: "var(--green-l)", color: "var(--green-dk)", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>GRÁTIS</span>}
                         {done && <span style={{ fontSize: 10, background: "#dcfce7", color: "#16a34a", padding: "1px 6px", borderRadius: 4, fontWeight: 600 }}>CONCLUÍDA</span>}
@@ -323,8 +323,8 @@ export default function CourseDetail() {
                   { icon: "🕐", text: `${course.duration} de conteúdo` },
                   { icon: "📖", text: `${totalLessons} aulas` },
                   { icon: "📱", text: "Acesso em qualquer dispositivo" },
-                  { icon: "🏆", text: "Certificado de conclusão" },
-                  { icon: "⭐", text: `${course.rating}/5 (${course.students.toLocaleString()} alunos)` },
+                  { icon: "◆", text: "Certificado de conclusão" },
+                  { icon: "◈", text: `${course.rating}/5 (${course.students.toLocaleString()} alunos)` },
                   { icon: "📊", text: `Seu progresso: ${progressPct}%` },
                 ].map((f, i) => (
                   <div key={i} style={{ display: "flex", gap: 10, alignItems: "center" }}>

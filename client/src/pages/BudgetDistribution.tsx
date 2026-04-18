@@ -19,7 +19,7 @@ const PLATFORM: Record<string, { label: string; icon: string; color: string; bg:
 const METRIC: Record<string, { label: string; icon: string; color: string }> = {
   whatsapp: { label: "WhatsApp", icon: "📱", color: "#25d366" },
   leads:    { label: "Leads",    icon: "📋", color: "#1a73e8" },
-  roas:     { label: "ROAS",     icon: "💰", color: "#059669" },
+  roas:     { label: "ROAS",     icon: "◈", color: "#059669" },
   ctr:      { label: "CTR",      icon: "📈", color: "#7c3aed" },
 };
 
@@ -100,7 +100,7 @@ export default function BudgetDistribution() {
       setApplying(false); setResult(data); setDone(true);
       refetchBalance?.();
       refetchRecharge?.();
-      if (data.applied.length) toast.success(`✅ ${data.applied.length} campanha(s) atualizadas!`);
+      if (data.applied.length) toast.success(`◎ ${data.applied.length} campanha(s) atualizadas!`);
       if (data.failed.length)  toast.error(`⚠️ ${data.failed.length} falha(s)`);
     },
     onError: (e: any) => { setApplying(false); toast.error(e.message); },
@@ -437,7 +437,7 @@ export default function BudgetDistribution() {
                 style={{ padding: "12px 28px", borderRadius: 12, border: "none", fontSize: 14, fontWeight: 800, cursor: applying ? "not-allowed" : "pointer",
                   background: applying ? "#e2e8f0" : "linear-gradient(135deg,#059669,#10b981)",
                   color: applying ? "#94a3b8" : "#fff" }}>
-                {applying ? "⏳ Aplicando..." : `✅ Aplicar ${R(totalAllocated)} nas campanhas`}
+                {applying ? "⏳ Aplicando..." : `◎ Aplicar ${R(totalAllocated)} nas campanhas`}
               </button>
               {Object.keys(overrides).length > 0 && (
                 <button onClick={() => setOverrides({})}
@@ -466,7 +466,7 @@ export default function BudgetDistribution() {
         {done && result && (
           <div>
             <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 14, padding: "20px 24px", marginBottom: 14 }}>
-              <div style={{ fontSize: 17, fontWeight: 800, color: "#059669", marginBottom: 10 }}>✅ Rateio aplicado!</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#059669", marginBottom: 10 }}>◎ Rateio aplicado!</div>
               <div style={{ display: "flex", gap: 20, fontSize: 13, flexWrap: "wrap" }}>
                 <span>Aplicado: <strong>{R(result.totalApplied)}</strong></span>
                 <span>Campanhas: <strong>{result.applied.length}</strong></span>
@@ -511,7 +511,7 @@ export default function BudgetDistribution() {
 
             {recharge.summary.allRecharged ? (
               <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 12, padding: "14px 18px", fontSize: 13, color: "#059669", fontWeight: 700 }}>
-                ✅ Todas as plataformas estão com saldo suficiente para o rateio aprovado!
+                ◎ Todas as plataformas estão com saldo suficiente para o rateio aprovado!
               </div>
             ) : (
               <>
@@ -553,7 +553,7 @@ export default function BudgetDistribution() {
 
                           <div style={{ textAlign: "right", flexShrink: 0 }}>
                             {ok ? (
-                              <div style={{ fontSize: 14, fontWeight: 800, color: "#059669" }}>✅ Saldo OK</div>
+                              <div style={{ fontSize: 14, fontWeight: 800, color: "#059669" }}>◎ Saldo OK</div>
                             ) : (
                               <>
                                 <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>RECARREGAR</div>

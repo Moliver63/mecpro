@@ -46,7 +46,7 @@ function sourceBadge(source?: string) {
   if (!source || source === "unknown")    return { label: "⚠️ Estimado",            color: "#92400e", bg: "#fef3c7", isEstimated: true,  layer: 7 };
   if (source === "estimated")             return { label: "⚠️ Estimado",            color: "#92400e", bg: "#fef3c7", isEstimated: true,  layer: 7 };
   if (source === "estimated_ai")          return { label: "🤖 IA Estimado",         color: "#6d28d9", bg: "#ede9fe", isEstimated: true,  layer: 7 };
-  if (source === "meta_ads_archive")      return { label: "✅ Meta API Oficial",    color: "#166534", bg: "#dcfce7", isEstimated: false, layer: 1 };
+  if (source === "meta_ads_archive")      return { label: "◎ Meta API Oficial",    color: "#166534", bg: "#dcfce7", isEstimated: false, layer: 1 };
   if (source === "ads_library_public" || source === "ads_library_public_regex")
                                           return { label: "🔎 Ads Library",         color: "#1e40af", bg: "#dbeafe", isEstimated: false, layer: 2 };
   if (source === "meta_api" || source === "meta")
@@ -147,7 +147,7 @@ function CascadeStatus({ analyzing, successLayer, hasAds }: {
             display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
             animation: analyzing ? "pulse 1.5s infinite" : "none",
           }}>
-            {analyzing ? "⏳" : isGood ? "✅" : "⚠️"}
+            {analyzing ? "⏳" : isGood ? "◎" : "◬"}
           </div>
           <div>
             <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>
@@ -329,7 +329,7 @@ function AdDetailModal({ ad, onClose }: { ad: any; onClose: () => void }) {
           const isEstimated = (ad.source||"").includes("estimated") || (ad.source||"").includes("seo_") || (ad.source||"").includes("ws_");
           if (isEstimated) return (
             <div style={{ background:"#fef9c3", border:"1px solid #fde68a", borderRadius:10, padding:"8px 12px", marginBottom:14, display:"flex", alignItems:"center", gap:8 }}>
-              <span>⚠️</span>
+              <span>◬</span>
               <p style={{ margin:0, fontSize:11, color:"#92400e" }}>
                 <strong>Anúncio estimado por IA</strong> — não é um anúncio real coletado. Fonte: {ad.source || "estimado"}
               </p>
@@ -338,7 +338,7 @@ function AdDetailModal({ ad, onClose }: { ad: any; onClose: () => void }) {
           if (verify) return (
             <div style={{ background:"#f0fdf4", border:"1px solid #86efac", borderRadius:10, padding:"8px 12px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <span style={{ fontSize:16 }}>✅</span>
+                <span style={{ fontSize:16 }}>◎</span>
                 <div>
                   <p style={{ margin:0, fontSize:11, fontWeight:700, color:"#15803d" }}>Anúncio verificável</p>
                   <p style={{ margin:0, fontSize:10, color:"#166534" }}>Clique para confirmar que este anúncio existe</p>
@@ -356,7 +356,7 @@ function AdDetailModal({ ad, onClose }: { ad: any; onClose: () => void }) {
         {/* Ações */}
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <button className="btn btn-sm btn-green" onClick={handleCopy} style={{ flex: 1, justifyContent: "center" }}>
-            {copied ? "✅ Copiado!" : "📋 Copiar texto"}
+            {copied ? "◎ Copiado!" : "📋 Copiar texto"}
           </button>
           {ad.landingPageUrl && (
             <a href={ad.landingPageUrl} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-ghost" style={{ fontSize: 12 }}>
@@ -478,7 +478,7 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
   const createComp = trpc.competitors.create.useMutation({
     onSuccess: () => {
       setSaveError("");
-      toast.success("✅ Concorrente adicionado!");
+      toast.success("◎ Concorrente adicionado!");
       onDone();
     },
     onError: (e) => {
@@ -491,7 +491,7 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
         raw.includes("DB")           ? "Erro de banco de dados — tente novamente" :
         "Erro ao salvar — tente novamente";
       setSaveError(msg);
-      toast.error("❌ " + msg);
+      toast.error("✕ " + msg);
     },
   });
   const [mode, setMode]         = useState<AddMode>("url");
@@ -517,12 +517,12 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
         };
         const via = methodLabel[data.method] || data.method || "auto";
         const conf = data.confidence === "medium" ? " (confiança média — confirme o nome)" : "";
-        toast.success(`✅ Page ID encontrado via ${via}: ${data.pageId}${data.pageName ? " — " + data.pageName : ""}${conf}`);
+        toast.success(`◎ Page ID encontrado via ${via}: ${data.pageId}${data.pageName ? " — " + data.pageName : ""}${conf}`);
       } else {
-        toast.error("❌ Page ID não encontrado automaticamente. Dica: tente usar o nome exato da Página do Facebook (ex: 'Triadi Imóveis') em vez do @instagram.");
+        toast.error("✕ Page ID não encontrado automaticamente. Dica: tente usar o nome exato da Página do Facebook (ex: 'Triadi Imóveis') em vez do @instagram.");
       }
     },
-    onError: () => toast.error("❌ Erro ao buscar Page ID. Verifique se a integração Meta está ativa."),
+    onError: () => toast.error("✕ Erro ao buscar Page ID. Verifique se a integração Meta está ativa."),
   }) ?? { mutate: () => {}, isPending: false };
   const [country, setCountry]   = useState("BR");
   const [website,      setWebsite]      = useState("");
@@ -608,7 +608,7 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
               borderRadius: 12, background: urlInput ? (urlValid ? "#f0fdf4" : "#fefce8") : "#f8fafc", padding: 14, marginBottom: 10,
             }}>
               <p style={{ fontSize: 11, fontWeight: 800, color: urlInput ? (urlValid ? "var(--green-dk)" : "#92400e") : "#64748b", marginBottom: 8, textTransform: "uppercase" }}>
-                {urlInput ? (urlValid ? "✅ URL válida — Page ID detectado" : "⚠️ Cole a URL completa da Ads Library") : "📋 Cole a URL da Ads Library aqui"}
+                {urlInput ? (urlValid ? "◎ URL válida — Page ID detectado" : "⚠️ Cole a URL completa da Ads Library") : "📋 Cole a URL da Ads Library aqui"}
               </p>
               <textarea rows={4} placeholder={"https://www.facebook.com/ads/library/?...&view_all_page_id=248724168983172..."} value={urlInput} onChange={e => setUrlInput(e.target.value)}
                 style={{ width: "100%", resize: "none", border: "none", outline: "none", background: "transparent", fontSize: 12, fontFamily: "monospace", lineHeight: 1.6, color: "var(--body)", boxSizing: "border-box" }} />
@@ -694,7 +694,7 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
               </button>
               {discoveredPageId && (
                 <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, color: "#15803d" }}>
-                  ✅ Page ID: {discoveredPageId}
+                  ◎ Page ID: {discoveredPageId}
                 </div>
               )}
             </div>
@@ -784,9 +784,9 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
       </div>
 
       <button className="btn btn-lg btn-green" onClick={handleAdd} disabled={!canSave || createComp.isPending} style={{ width: "100%", justifyContent: "center" }}>
-        {createComp.isPending ? "⏳ Salvando..." : !name.trim() ? "Preencha o nome" : !hasInput ? "Preencha como localizar" : "✅ Adicionar concorrente"}
+        {createComp.isPending ? "⏳ Salvando..." : !name.trim() ? "Preencha o nome" : !hasInput ? "Preencha como localizar" : "◎ Adicionar concorrente"}
       </button>
-      {saveError && <p style={{ fontSize: 12, color: "#dc2626", marginTop: 8, textAlign: "center" }}>❌ {saveError}</p>}
+      {saveError && <p style={{ fontSize: 12, color: "#dc2626", marginTop: 8, textAlign: "center" }}>✕ {saveError}</p>}
     </div>
   );
 }
@@ -797,24 +797,24 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
 function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDone: () => void; onCancel: () => void }) {
   const updateComp = trpc.competitors.update.useMutation({
     onSuccess: () => {
-      toast.success("✅ Concorrente atualizado!");
+      toast.success("◎ Concorrente atualizado!");
       onDone();
     },
     onError: (e) => {
       const msg = e.message?.includes("url") ? "URL inválida — use https://..." : "Erro ao salvar";
-      toast.error("❌ " + msg);
+      toast.error("✕ " + msg);
     },
   });
   const discoverPageId = (trpc as any).competitors?.discoverPageId?.useMutation?.({
     onSuccess: (data: any) => {
       if (data?.found && data?.pageId) {
         setPageId(data.pageId);
-        toast.success(`✅ Page ID encontrado: ${data.pageId} (${data.pageName || "via " + data.method})`);
+        toast.success(`◎ Page ID encontrado: ${data.pageId} (${data.pageName || "via " + data.method})`);
       } else {
-        toast.error("❌ Não foi possível encontrar o Page ID automaticamente. Cadastre manualmente.");
+        toast.error("✕ Não foi possível encontrar o Page ID automaticamente. Cadastre manualmente.");
       }
     },
-    onError: () => toast.error("❌ Erro ao buscar Page ID."),
+    onError: () => toast.error("✕ Erro ao buscar Page ID."),
   }) ?? { mutate: () => {}, isPending: false };
 
   const [name, setName]             = useState(comp.name || "");
@@ -848,7 +848,7 @@ function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDone: () 
         <div>
           <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", display: "block", marginBottom: 4 }}>
             FACEBOOK PAGE ID
-            {pageId && <span style={{ marginLeft: 6, color: "#15803d", fontWeight: 600 }}>✅ Configurado</span>}
+            {pageId && <span style={{ marginLeft: 6, color: "#15803d", fontWeight: 600 }}>◎ Configurado</span>}
           </label>
           <div style={{ display: "flex", gap: 6 }}>
             <input className="input" value={pageId} onChange={e => setPageId(e.target.value)}
@@ -899,7 +899,7 @@ function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDone: () 
       </div>
       {updateComp.isError && (
         <p style={{ fontSize: 12, color: "#dc2626", marginTop: 8 }}>
-          ❌ {(updateComp.error as any)?.message?.includes("url") ? "URL inválida — use https://..." : "Erro ao salvar. Tente novamente."}
+          ✕ {(updateComp.error as any)?.message?.includes("url") ? "URL inválida — use https://..." : "Erro ao salvar. Tente novamente."}
         </p>
       )}
     </div>
@@ -1002,13 +1002,13 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
   // Banner qualidade
   type DataBanner = { icon: string; title: string; desc: string; bg: string; border: string; titleColor: string; descColor: string; };
   const dataBanner: DataBanner | null = ads.length === 0 ? null :
-    hasOfficial  ? { icon: "✅", title: "Dados reais — Meta Ads API Oficial (camada 1)", desc: `${realCount} anúncio(s) via API oficial. Dados confiáveis e atualizados.`, bg: "#f0fdf4", border: "#86efac", titleColor: "#166534", descColor: "#15803d" } :
+    hasOfficial  ? { icon: "◎", title: "Dados reais — Meta Ads API Oficial (camada 1)", desc: `${realCount} anúncio(s) via API oficial. Dados confiáveis e atualizados.`, bg: "#f0fdf4", border: "#86efac", titleColor: "#166534", descColor: "#15803d" } :
     hasLibrary && !mixed ? { icon: "🔎", title: "Dados reais — Ads Library pública (camada 2-3)", desc: `${realCount} anúncio(s) da Ads Library${comp.facebookPageId ? " · Page ID: " + comp.facebookPageId : ""}`, bg: "#eff6ff", border: "#93c5fd", titleColor: "#1e40af", descColor: "#1d4ed8" } :
     hasWebsite   ? { icon: "🌐", title: "Inferido do site (camada 5)", desc: `${realCount} anúncio(s) gerado(s) a partir do site de ${comp.name} — headlines e CTAs reais.`, bg: "#e0f2fe", border: "#7dd3fc", titleColor: "#0e7490", descColor: "#0369a1" } :
     hasSEO       ? { icon: "🔍", title: "Análise SEO/IA (camada 6)", desc: `${realCount} anúncio(s) inferido(s) via análise digital de ${comp.name}.`, bg: "#ede9fe", border: "#a78bfa", titleColor: "#7c3aed", descColor: "#6d28d9" } :
     mixed        ? { icon: "⚡", title: "Dados mistos (reais + estimados)", desc: `${realCount} real(is) + ${estimatedCount} estimado(s).`, bg: "#fefce8", border: "#fde047", titleColor: "#854d0e", descColor: "#92400e" } :
     hasEstAI     ? { icon: "🤖", title: "Estimativas IA — camada 7", desc: `Coleta bloqueada. MECPro AI gerou ${estimatedCount} anúncio(s) representativos do nicho.`, bg: "#faf5ff", border: "#c4b5fd", titleColor: "#6d28d9", descColor: "#7c3aed" } :
-    { icon: "⚠️", title: "Estimativas por nicho — camada 7",
+    { icon: "◬", title: "Estimativas por nicho — camada 7",
       desc: `Todas as camadas de coleta falharam para ${comp.name}. Causa mais provável: o App Meta ainda não tem aprovação para Ads Library API (code=10). Solução: acesse facebook.com/ads/library/api → "Get Access" com o mesmo App do seu token. O token de publicação de campanhas está funcionando normalmente — é apenas a leitura de anúncios de concorrentes que requer aprovação separada.`,
       bg: "#fef3c7", border: "#fcd34d", titleColor: "#92400e", descColor: "#b45309" };
 
@@ -1027,7 +1027,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
             </h2>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11, color: "var(--muted)" }}>{ads.length} anúncios · {adsAtivos.length} ativos</span>
-              {realCount > 0      && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#e8f0fe", color: "#1877f2" }}>✅ {realCount} reais</span>}
+              {realCount > 0      && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#e8f0fe", color: "#1877f2" }}>◎ {realCount} reais</span>}
               {estimatedCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#fef3c7", color: "#92400e" }}>⚠️ {estimatedCount} estimados</span>}
               {successLayer && CASCADE_LAYERS[successLayer-1] && (
                 <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: CASCADE_LAYERS[successLayer-1]?.bg || "#f1f5f9", color: CASCADE_LAYERS[successLayer-1]?.color || "#64748b" }}>
@@ -1326,7 +1326,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <p style={{ margin: 0, fontWeight: 800, fontSize: 13, color: "white" }}>{profileData.displayName || comp.name}</p>
-                              {profileData.isVerified && <span style={{ fontSize: 12 }}>✅</span>}
+                              {profileData.isVerified && <span style={{ fontSize: 12 }}>◎</span>}
                             </div>
                             <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
                               {[
@@ -1472,7 +1472,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                     🤖 Análise gerada em {formatDate(comp.aiGeneratedAt)}
                   </p>
                   <button className="btn btn-sm btn-ghost" onClick={handleCopyInsights} style={{ fontSize: 11 }}>
-                    {copyInsightsDone ? "✅ Copiado!" : "📋 Copiar"}
+                    {copyInsightsDone ? "◎ Copiado!" : "📋 Copiar"}
                   </button>
                 </div>
 
@@ -1692,7 +1692,7 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
 
   const analyzeMut = (trpc as any).competitors?.analyzeAdInput?.useMutation?.({
     onSuccess: (d: any) => { setResult(d?.data || null); setTab("resumo"); },
-    onError:   (e: any) => { toast.error("❌ " + (e.message || "Erro ao analisar")); },
+    onError:   (e: any) => { toast.error("✕ " + (e.message || "Erro ao analisar")); },
   }) ?? { mutate: () => {}, isPending: false };
 
   function handleCopy(text: string, key: string) {
@@ -1802,7 +1802,7 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
                   <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 8px", background: "white", borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 10, flexShrink: 0,
                       background: isReal ? "#dcfce7" : "#fef9c3", color: isReal ? "#166534" : "#92400e" }}>
-                      {isReal ? "✅ Real" : "⚠️ Est"}
+                      {isReal ? "◎ Real" : "⚠️ Est"}
                     </span>
                     <p style={{ margin: 0, fontSize: 11, color: "var(--black)", lineHeight: 1.4 }}>
                       <strong>{ad.headline || "—"}</strong>
@@ -1908,13 +1908,13 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
                 {/* Falhas e Oportunidades */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
                   <div style={{ background: "#fef2f2", borderRadius: 10, padding: 12 }}>
-                    <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#dc2626" }}>❌ Falhas</p>
+                    <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#dc2626" }}>✕ Falhas</p>
                     {(result.falhas || []).map((f: string, i: number) => (
                       <p key={i} style={{ margin: "0 0 4px", fontSize: 11, color: "#991b1b" }}>• {f}</p>
                     ))}
                   </div>
                   <div style={{ background: "#f0fdf4", borderRadius: 10, padding: 12 }}>
-                    <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#16a34a" }}>✅ Oportunidades</p>
+                    <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#16a34a" }}>◎ Oportunidades</p>
                     {(result.oportunidades || []).map((o: string, i: number) => (
                       <p key={i} style={{ margin: "0 0 4px", fontSize: 11, color: "#15803d" }}>• {o}</p>
                     ))}
@@ -1958,7 +1958,7 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {result.gatilhos.map((g: any, i: number) => (
                         <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 12px", borderRadius: 8, background: g.status === "forte" ? "#f0fdf4" : g.status === "fraco" ? "#fefce8" : "#fef2f2" }}>
-                          <span style={{ fontSize: 14, flexShrink: 0 }}>{g.status === "forte" ? "✅" : g.status === "fraco" ? "⚠️" : "❌"}</span>
+                          <span style={{ fontSize: 14, flexShrink: 0 }}>{g.status === "forte" ? "◎" : g.status === "fraco" ? "◬" : "✕"}</span>
                           <div>
                             <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--black)" }}>{g.nome}</p>
                             {g.observacao && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--muted)" }}>{g.observacao}</p>}
@@ -1981,7 +1981,7 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
                   { key: "texto",       label: "📝 Texto principal",   icon: "📝" },
                   { key: "cta",         label: "👆 CTA ideal",         icon: "👆" },
                   { key: "criativo",    label: "🎨 Sugestão criativo", icon: "🎨" },
-                  { key: "prova_social",label: "⭐ Prova social",      icon: "⭐" },
+                  { key: "prova_social",label: "⭐ Prova social",      icon: "◈" },
                   { key: "urgencia",    label: "⏰ Urgência/Escassez", icon: "⏰" },
                 ].map(item => {
                   const val = result.campanha_melhorada[item.key];
@@ -1992,7 +1992,7 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
                         <p style={{ margin: 0, fontSize: 10, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>{item.label}</p>
                         <button onClick={() => handleCopy(val, item.key)}
                           style={{ fontSize: 10, color: copied === item.key ? "#16a34a" : "#7c3aed", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}>
-                          {copied === item.key ? "✅ Copiado" : "📋 Copiar"}
+                          {copied === item.key ? "◎ Copiado" : "📋 Copiar"}
                         </button>
                       </div>
                       <p style={{ margin: 0, fontSize: 13, color: "var(--black)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{val}</p>
@@ -2034,7 +2034,7 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
                         <p style={{ margin: 0, fontSize: 13, color: "var(--black)", flex: 1, lineHeight: 1.5 }}>{i + 1}. {item}</p>
                         <button onClick={() => handleCopy(item, `${group.label}-${i}`)}
                           style={{ fontSize: 10, color: copied === `${group.label}-${i}` ? "#16a34a" : "#7c3aed", background: "none", border: "none", cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>
-                          {copied === `${group.label}-${i}` ? "✅" : "📋"}
+                          {copied === `${group.label}-${i}` ? "◎" : "📋"}
                         </button>
                       </div>
                     ))}
@@ -2089,7 +2089,7 @@ function TikTokVerifier({ handle, onConfirm, onClear }: {
           <div style={{ display: "flex", gap: 5 }}>
             <button onClick={() => { onConfirm(`@${raw}`); setStatus("done"); }}
               style={{ fontSize: 11, fontWeight: 700, background: "#dcfce7", color: "#16a34a", border: "1px solid #86efac", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
-              ✅ É esse!
+              ◎ É esse!
             </button>
             <button onClick={() => { setStatus("idle"); onClear(); }}
               style={{ fontSize: 11, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
@@ -2100,7 +2100,7 @@ function TikTokVerifier({ handle, onConfirm, onClear }: {
       )}
       {status === "done" && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#16a34a", fontWeight: 700 }}>
-          <span>✅</span> @{raw} confirmado
+          <span>◎</span> @{raw} confirmado
           <button onClick={() => setStatus("idle")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#64748b", textDecoration: "underline", marginLeft: 4 }}>alterar</button>
         </div>
       )}
@@ -2144,7 +2144,7 @@ function GoogleVerifier({ query, onConfirm, onClear }: {
           <div style={{ display: "flex", gap: 5 }}>
             <button onClick={() => { onConfirm(q); setStatus("done"); }}
               style={{ fontSize: 11, fontWeight: 700, background: "#dcfce7", color: "#16a34a", border: "1px solid #86efac", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
-              ✅ Confirmado
+              ◎ Confirmado
             </button>
             <button onClick={() => { setStatus("idle"); onClear(); }}
               style={{ fontSize: 11, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
@@ -2155,7 +2155,7 @@ function GoogleVerifier({ query, onConfirm, onClear }: {
       )}
       {status === "done" && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#16a34a", fontWeight: 700 }}>
-          <span>✅</span> "{q}" confirmado no Google Ads
+          <span>◎</span> "{q}" confirmado no Google Ads
           <button onClick={() => setStatus("idle")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: "#64748b", textDecoration: "underline", marginLeft: 4 }}>alterar</button>
         </div>
       )}
@@ -2232,7 +2232,7 @@ function InstagramVerifier({ handle, onConfirm, onClear }: {
           <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0 }}>
             <button onClick={() => { onConfirm(`@${rawHandle}`); setStatus("idle"); }}
               style={{ fontSize: 11, fontWeight: 700, background: "#dcfce7", color: "#16a34a", border: "1px solid #86efac", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
-              ✅ É essa!
+              ◎ É essa!
             </button>
             <button onClick={() => { setStatus("idle"); setProfile(null); onClear(); }}
               style={{ fontSize: 11, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>
@@ -2246,7 +2246,7 @@ function InstagramVerifier({ handle, onConfirm, onClear }: {
       {status === "exists" && (
         <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 16 }}>✅</span>
+            <span style={{ fontSize: 16 }}>◎</span>
             <div>
               <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#15803d" }}>Perfil encontrado: @{rawHandle}</p>
               <p style={{ margin: 0, fontSize: 10, color: "#16a34a" }}>Perfil existe no Instagram</p>
@@ -2269,7 +2269,7 @@ function InstagramVerifier({ handle, onConfirm, onClear }: {
       {status === "not_found" && (
         <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span>❌</span>
+            <span>✕</span>
             <p style={{ margin: 0, fontSize: 12, color: "#dc2626" }}>@{rawHandle} não encontrado no Instagram</p>
           </div>
           <button onClick={() => { setStatus("idle"); onClear(); }}
@@ -2283,7 +2283,7 @@ function InstagramVerifier({ handle, onConfirm, onClear }: {
       {status === "unverified" && (
         <div style={{ background: "#fefce8", border: "1px solid #fde68a", borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span>⚠️</span>
+            <span>◬</span>
             <div>
               <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "#92400e" }}>Não foi possível verificar automaticamente</p>
               <p style={{ margin: 0, fontSize: 10, color: "#a16207" }}>O Instagram pode estar com acesso restrito</p>
@@ -2590,7 +2590,7 @@ function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
               {myCompany.instagram && <p style={{ margin:"2px 0 6px",fontSize:11,color:"var(--muted)" }}>{myCompany.instagram}</p>}
               <p style={{ margin:"8px 0 2px",fontSize:30,fontWeight:900,color:myWins?"#16a34a":"#0f172a" }}>{myAvg.toFixed(1)}</p>
               <p style={{ margin:0,fontSize:10,color:"var(--muted)" }}>média / 10</p>
-              {myWins && <div style={{ marginTop:8,display:"inline-block",fontSize:11,fontWeight:700,color:"#16a34a",background:"#dcfce7",padding:"3px 10px",borderRadius:20 }}>✅ Vantagem</div>}
+              {myWins && <div style={{ marginTop:8,display:"inline-block",fontSize:11,fontWeight:700,color:"#16a34a",background:"#dcfce7",padding:"3px 10px",borderRadius:20 }}>◎ Vantagem</div>}
             </div>
             <div style={{ textAlign:"center" }}>
               <div style={{ width:46,height:46,borderRadius:"50%",background:"#f1f5f9",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto",fontSize:12,fontWeight:900,color:"#64748b" }}>VS</div>
@@ -2682,7 +2682,7 @@ function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
                 {compVantagens.map(d=>(<p key={d.key} style={{ fontSize:11,color:"#1e40af",margin:"0 0 4px" }}>→ Melhorar <strong>{d.label}</strong> ({d.platform})</p>))}
                 {!hasTikTok && <p style={{ fontSize:11,color:"#1e40af",margin:"0 0 4px" }}>→ Verificar TikTok — canal não analisado</p>}
                 {hasGoogle
-                  ? <p style={{ fontSize:11,color:"#16a34a",margin:"0 0 4px",fontWeight:700 }}>✅ {googleKeywords.length} keywords Google coletadas</p>
+                  ? <p style={{ fontSize:11,color:"#16a34a",margin:"0 0 4px",fontWeight:700 }}>◎ {googleKeywords.length} keywords Google coletadas</p>
                   : <p style={{ fontSize:11,color:"#1e40af",margin:"0 0 4px" }}>→ Configure Google Ads em Integrações para coletar keywords</p>
                 }
                 {empates.length>0 && <p style={{ fontSize:11,color:"#1e40af",margin:0 }}>→ Empate em: {empates.map(d=>d.label).join(", ")}</p>}
@@ -2747,7 +2747,7 @@ function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
 
           {/* VEREDICTO */}
           <div style={{ background:myWins?"linear-gradient(135deg,#f0fdf4,#dcfce7)":"linear-gradient(135deg,#fef2f2,#fee2e2)", border:`2px solid ${myWins?"#4ade80":"#f87171"}`, borderRadius:14, padding:16, textAlign:"center" }}>
-            <p style={{ margin:"0 0 6px",fontSize:22 }}>{myWins?"🏆":"💪"}</p>
+            <p style={{ margin:"0 0 6px",fontSize:22 }}>{myWins?"◆":"💪"}</p>
             <p style={{ margin:"0 0 6px",fontSize:15,fontWeight:900,color:"var(--black)" }}>
               {myWins?`${myCompany.name} tem vantagem de ${diff} pontos`:`${comp.name} lidera por ${diff} pontos — hora de agir`}
             </p>
@@ -2791,10 +2791,10 @@ export default function CompetitorAnalysis() {
         toast.success(data.message);
         refetch();
       } else {
-        toast.error(data?.message || "❌ Nenhum vídeo TikTok encontrado.");
+        toast.error(data?.message || "✕ Nenhum vídeo TikTok encontrado.");
       }
     },
-    onError: (e: any) => toast.error("❌ TikTok: " + (e?.message || "Erro ao buscar")),
+    onError: (e: any) => toast.error("✕ TikTok: " + (e?.message || "Erro ao buscar")),
   }) ?? { mutate: () => {}, isPending: false };
 
   const fetchAdsByPageIdMutation = (trpc as any).competitors?.fetchAdsByPageId?.useMutation?.({
@@ -2803,10 +2803,10 @@ export default function CompetitorAnalysis() {
         toast.success(data.message);
         refetch();
       } else {
-        toast.error(data?.message || "❌ Nenhum dado encontrado. Verifique permissões do token Meta.");
+        toast.error(data?.message || "✕ Nenhum dado encontrado. Verifique permissões do token Meta.");
       }
     },
-    onError: (e: any) => toast.error("❌ " + (e?.message || "Erro ao buscar pelo Page ID")),
+    onError: (e: any) => toast.error("✕ " + (e?.message || "Erro ao buscar pelo Page ID")),
   }) ?? { mutate: () => {}, isPending: false };
 
   const [adding,    setAdding]    = useState(false);
@@ -2908,7 +2908,7 @@ export default function CompetitorAnalysis() {
       {/* Error state */}
       {isError && (
         <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 12, padding: 16, marginBottom: 16, textAlign: "center" }}>
-          <p style={{ fontSize: 14, color: "#dc2626", fontWeight: 700 }}>❌ Erro ao carregar concorrentes</p>
+          <p style={{ fontSize: 14, color: "#dc2626", fontWeight: 700 }}>✕ Erro ao carregar concorrentes</p>
           <button className="btn btn-sm btn-ghost" onClick={() => refetch()} style={{ marginTop: 8 }}>Tentar novamente</button>
         </div>
       )}
@@ -2954,7 +2954,7 @@ export default function CompetitorAnalysis() {
             {(competitors?.length || 0) > 1 && !adding && (
               <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, padding: 18, marginBottom: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{"💰"}</div>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{"◈"}</div>
                   <div>
                     <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Estimativa de Investimento em Tráfego Pago</p>
                     <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Baseado em anúncios ativos, dias no ar, formato e CPM do nicho</p>
@@ -3211,7 +3211,7 @@ export default function CompetitorAnalysis() {
                   }}>
                     <div>
                       <p style={{ fontSize: 14, fontWeight: 700, color: "white", marginBottom: 4 }}>
-                        ✅ Concorrentes cadastrados! Próximo passo:
+                        ◎ Concorrentes cadastrados! Próximo passo:
                       </p>
                       <p style={{ fontSize: 12, color: "rgba(255,255,255,.7)", lineHeight: 1.5 }}>
                         Use os dados coletados para gerar a Análise de Mercado com IA.

@@ -283,7 +283,7 @@ export default function TikTokVideoCreator() {
                 <button onClick={handleCopy}
                   style={{ background: "rgba(255,255,255,.15)", color: "#fff", border: "none",
                     borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>
-                  {copied ? "✅ Copiado!" : "📋 Copiar"}
+                  {copied ? "◎ Copiado!" : "📋 Copiar"}
                 </button>
               </div>
               <div style={{ marginTop: 12, background: "rgba(255,255,255,.1)",

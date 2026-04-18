@@ -99,7 +99,7 @@ export default function AdminAnalytics() {
   const [tab, setTab] = useState<"overview" | "planos" | "financeiro">("overview");
 
   const planColors: Record<string, string> = { free: "#94a3b8", basic: "#3b82f6", premium: "var(--green)", vip: "#8b5cf6" };
-  const planEmoji:  Record<string, string> = { free: "🆓", basic: "⚡", premium: "⭐", vip: "👑" };
+  const planEmoji:  Record<string, string> = { free: "🆓", basic: "⚡", premium: "◈", vip: "◇" };
 
   const planSegments = useMemo(() => {
     if (!stats?.planBreakdown) return [];
@@ -159,13 +159,13 @@ export default function AdminAnalytics() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 14 }}>
             <KpiCard label="Total de usuários"    value={stats?.totalUsers ?? 0}      icon="👥" color="#eff6ff"        sparkValues={mockSpark} sub="vs mês anterior" trend={12} />
             <KpiCard label="Novos este mês"        value={stats?.newUsersMonth ?? 0}   icon="🆕" color="var(--green-l)" sub="crescimento"       trend={8}  />
-            <KpiCard label="Projetos ativos"       value={stats?.activeProjects ?? 0}  icon="🚀" color="#fef3c7" />
+            <KpiCard label="Projetos ativos"       value={stats?.activeProjects ?? 0}  icon="◈" color="#fef3c7" />
             <KpiCard label="Assinaturas ativas"    value={stats?.activeSubsCount ?? 0} icon="💳" color="#fff7ed"        sub="churn estimado"   trend={-2} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
-            <KpiCard label="Usuários premium+"     value={stats?.premiumUsers ?? 0}    icon="⭐" color="#f5f3ff" />
+            <KpiCard label="Usuários premium+"     value={stats?.premiumUsers ?? 0}    icon="◈" color="#f5f3ff" />
             <KpiCard label="Taxa de conversão"     value={`${conversionRate}%`}        icon="📊" color="#fef2f2" sub="free → pago" trend={conversionRate > 10 ? 5 : -3} />
-            <KpiCard label="Total de projetos"     value={stats?.totalProjects ?? 0}   icon="📁" color="#f0fdf4" />
+            <KpiCard label="Total de projetos"     value={stats?.totalProjects ?? 0}   icon="◫" color="#f0fdf4" />
             <KpiCard label="ARPU mensal"           value={`R$ ${arpu}`}                icon="💡" color="#ecfdf5" sub="por assinante" trend={3} />
           </div>
 
@@ -177,8 +177,8 @@ export default function AdminAnalytics() {
             <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
               <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", marginBottom: 20, fontFamily: "var(--font-display)" }}>Saúde da plataforma</p>
               {[
-                { label: "Ativação (criou projeto)",    value: stats?.totalProjects ?? 0,   max: stats?.totalUsers ?? 1, color: "var(--green)", icon: "📁" },
-                { label: "Engajamento (premium+)",      value: stats?.premiumUsers ?? 0,    max: stats?.totalUsers ?? 1, color: "#8b5cf6",      icon: "⭐" },
+                { label: "Ativação (criou projeto)",    value: stats?.totalProjects ?? 0,   max: stats?.totalUsers ?? 1, color: "var(--green)", icon: "◫" },
+                { label: "Engajamento (premium+)",      value: stats?.premiumUsers ?? 0,    max: stats?.totalUsers ?? 1, color: "#8b5cf6",      icon: "◈" },
                 { label: "Retenção (assinatura ativa)", value: stats?.activeSubsCount ?? 0, max: stats?.totalUsers ?? 1, color: "#3b82f6",      icon: "💳" },
               ].map(m => {
                 const pct = m.max > 0 ? Math.round((m.value / m.max) * 100) : 0;
@@ -260,7 +260,7 @@ export default function AdminAnalytics() {
       {tab === "financeiro" && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
-            <KpiCard label="Receita total acumulada" value={`R$ ${((stats?.totalRevenue ?? 0) / 100).toFixed(2)}`} icon="💰" color="#ecfdf5" sparkValues={mockSpark.map(v => v * 10)} />
+            <KpiCard label="Receita total acumulada" value={`R$ ${((stats?.totalRevenue ?? 0) / 100).toFixed(2)}`} icon="◈" color="#ecfdf5" sparkValues={mockSpark.map(v => v * 10)} />
             <KpiCard label="Receita este mês"        value={`R$ ${((stats?.revenueMonth ?? 0) / 100).toFixed(2)}`} icon="📈" color="#fef2f2" sub="vs mês anterior" trend={5} />
             <KpiCard label="ARPU por assinante"      value={`R$ ${arpu}`}                                          icon="💡" color="#eff6ff" sub="ticket médio" trend={3} />
           </div>

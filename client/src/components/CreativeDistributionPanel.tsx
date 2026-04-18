@@ -323,9 +323,9 @@ export default function CreativeDistributionPanel({
               {/* Placements por categoria */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
                 {[
-                  { label: "✅ Prioritários", items: distribution.priorityPlacements, color: "#16a34a", bg: "#f0fdf4" },
+                  { label: "◎ Prioritários", items: distribution.priorityPlacements, color: "#16a34a", bg: "#f0fdf4" },
                   { label: "⚡ Compatíveis", items: distribution.compatiblePlacements, color: "#0891b2", bg: "#ecfeff" },
-                  { label: "❌ Bloqueados",  items: distribution.blockedPlacements,   color: "#dc2626", bg: "#fef2f2" },
+                  { label: "✕ Bloqueados",  items: distribution.blockedPlacements,   color: "#dc2626", bg: "#fef2f2" },
                 ].map(cat => (
                   <div key={cat.label} style={{ background: cat.bg, borderRadius: 10, padding: "10px 12px" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: cat.color, marginBottom: 6 }}>{cat.label}</div>

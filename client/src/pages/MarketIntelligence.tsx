@@ -22,9 +22,9 @@ export default function MarketIntelligence() {
 
   const sections = [
     { key: "competitiveGaps",         icon: "🕳",  label: "Gaps competitivos",          color: "#fff7ed", border: "#fed7aa", text: "#9a3412" },
-    { key: "unexploredOpportunities", icon: "🚀",  label: "Oportunidades inexploradas", color: "var(--green-l)", border: "var(--green-xl)", text: "var(--green-dk)" },
+    { key: "unexploredOpportunities", icon: "◈",  label: "Oportunidades inexploradas", color: "var(--green-l)", border: "var(--green-xl)", text: "var(--green-dk)" },
     { key: "suggestedPositioning",    icon: "🎯",  label: "Posicionamento sugerido",    color: "#eff6ff", border: "#bfdbfe", text: "#1e40af" },
-    { key: "threats",                 icon: "⚠️",  label: "Ameaças identificadas",      color: "#fef2f2", border: "#fecaca", text: "#991b1b" },
+    { key: "threats",                 icon: "◬",  label: "Ameaças identificadas",      color: "#fef2f2", border: "#fecaca", text: "#991b1b" },
   ];
 
   const hasData = analysis && (
@@ -125,7 +125,7 @@ export default function MarketIntelligence() {
               {/* CTA para próximo módulo */}
               <div style={{ background: "linear-gradient(135deg, var(--navy) 0%, #1a3a6e 100%)", borderRadius: 16, padding: 24, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: "white", marginBottom: 4 }}>✅ Análise concluída! Próximo passo:</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "white", marginBottom: 4 }}>◎ Análise concluída! Próximo passo:</p>
                   <p style={{ fontSize: 13, color: "rgba(255,255,255,.7)" }}>
                     Use esses insights para gerar uma campanha otimizada no Módulo 4.
                   </p>

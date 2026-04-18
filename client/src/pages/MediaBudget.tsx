@@ -73,7 +73,7 @@ export default function MediaBudget() {
 
   const approveMutation = (trpc as any).mediaBudget?.adminApprove?.useMutation?.({
     onSuccess: (data: any) => {
-      toast.success(`✅ Depósito aprovado! ${R(data.creditedAmount)} creditados.`);
+      toast.success(`◎ Depósito aprovado! ${R(data.creditedAmount)} creditados.`);
       refetchPending?.();
       refetchBalance?.();
     },
@@ -127,7 +127,7 @@ export default function MediaBudget() {
             gap: 14, marginBottom: 24,
           }}>
             {[
-              { label: "Saldo disponível", value: balance.balance,        color: "#059669", bg: "#f0fdf4", border: "#bbf7d0", icon: "💰" },
+              { label: "Saldo disponível", value: balance.balance,        color: "#059669", bg: "#f0fdf4", border: "#bbf7d0", icon: "◈" },
               { label: "Total depositado", value: balance.totalDeposited,  color: "#1a73e8", bg: "#eff6ff", border: "#bfdbfe", icon: "📥" },
               { label: "Total de taxas",   value: balance.totalFees,       color: "#d97706", bg: "#fffbeb", border: "#fde68a", icon: "🏷️" },
             ].map(m => (
@@ -296,7 +296,7 @@ export default function MediaBudget() {
               </div>
             ) : (
               <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", color: "#94a3b8", textAlign: "center", padding: 20 }}>
-                <div style={{ fontSize: 48, marginBottom: 16 }}>💰</div>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>◈</div>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>Como funciona</div>
                 <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.7 }}>
                   1. Informe o valor e clique em solicitar<br />

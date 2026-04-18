@@ -154,7 +154,7 @@ export default function LessonView() {
       {/* ── TOAST ── */}
       {showDoneToast && (
         <div style={{ position: "fixed", top: 20, right: 20, background: "#16a34a", color: "white", borderRadius: 12, padding: "14px 20px", fontWeight: 700, fontSize: 14, zIndex: 999, boxShadow: "0 4px 20px rgba(0,0,0,0.3)" }}>
-          ✅ Aula marcada como concluída!
+          ◎ Aula marcada como concluída!
         </div>
       )}
 
@@ -219,7 +219,7 @@ export default function LessonView() {
             <div style={{ display: "flex", gap: 10, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
               <span style={{ background: "#1e293b", color: "#94a3b8", fontSize: 12, padding: "4px 12px", borderRadius: 8 }}>🕐 {lesson.duration}</span>
               {(isAlreadyDone || markedDone) && (
-                <span style={{ background: "#16a34a", color: "white", fontSize: 11, padding: "4px 10px", borderRadius: 8, fontWeight: 700 }}>✅ Concluída</span>
+                <span style={{ background: "#16a34a", color: "white", fontSize: 11, padding: "4px 10px", borderRadius: 8, fontWeight: 700 }}>◎ Concluída</span>
               )}
             </div>
 
@@ -260,10 +260,10 @@ export default function LessonView() {
                 <button onClick={handleComplete}
                   disabled={completeLessonMutation.isLoading}
                   style={{ background: "#16a34a", border: "none", color: "white", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 13, fontWeight: 700, opacity: completeLessonMutation.isLoading ? 0.7 : 1 }}>
-                  {completeLessonMutation.isLoading ? "Salvando..." : "✅ Marcar como concluída"}
+                  {completeLessonMutation.isLoading ? "Salvando..." : "◎ Marcar como concluída"}
                 </button>
               ) : (
-                <span style={{ color: "#10b981", fontSize: 13, fontWeight: 700 }}>✅ Aula concluída</span>
+                <span style={{ color: "#10b981", fontSize: 13, fontWeight: 700 }}>◎ Aula concluída</span>
               )}
             </div>
           </div>
@@ -297,7 +297,7 @@ export default function LessonView() {
                   onMouseLeave={e => { if (itemId !== lessonId) e.currentTarget.style.background = "transparent"; }}
                 >
                   <span style={{ fontSize: 14, marginTop: 1, flexShrink: 0 }}>
-                    {isDone ? "✅" : itemId === lessonId ? "▶️" : "⭕"}
+                    {isDone ? "◎" : itemId === lessonId ? "▶️" : "⭕"}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 12, color: itemId === lessonId ? "white" : "#94a3b8", fontWeight: itemId === lessonId ? 700 : 400, lineHeight: 1.4, marginBottom: 3 }}>

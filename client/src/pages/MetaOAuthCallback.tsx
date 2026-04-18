@@ -47,7 +47,7 @@ export default function MetaOAuthCallback() {
     }}>
       <div style={{ textAlign: "center", padding: 32 }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>
-          {status === "processing" ? "⏳" : status === "success" ? "✅" : "❌"}
+          {status === "processing" ? "⏳" : status === "success" ? "◎" : "✕"}
         </div>
         <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>
           {status === "processing" ? "Processando..." : status === "success" ? "Conectado!" : "Erro"}

@@ -109,7 +109,7 @@ export default function PlacementSelector({
           border: "1.5px solid #86efac", borderRadius: 12, padding: "12px 16px",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: 16 }}>✅</span>
+            <span style={{ fontSize: 16 }}>◎</span>
             <div>
               <p style={{ fontSize: 12, fontWeight: 800, color: "#166534", margin: 0 }}>
                 Recomendado pelo MECPro
@@ -250,7 +250,7 @@ export default function PlacementSelector({
               borderRadius: 8, padding: "6px 10px", fontSize: 11,
               color: w.requiresVideo ? "#dc2626" : "#92400e",
             }}>
-              {w.requiresVideo ? "❌" : "⚠️"} {w.warning}
+              {w.requiresVideo ? "✕" : "◬"} {w.warning}
             </div>
           ))}
         </div>

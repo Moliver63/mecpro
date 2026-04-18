@@ -6,9 +6,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 const PLANS = [
-  { slug: "basic",   name: "Basic",   price: 97,  desc: "Para profissionais autônomos",  color: "#2563eb",        features: ["3 projetos ativos", "5 concorrentes/projeto", "3 campanhas IA/mês", "Integração Meta Ads", "Suporte por e-mail"] },
-  { slug: "premium", name: "Premium", price: 197, desc: "Para agências e times",          color: "var(--green-d)", highlight: true, features: ["10 projetos ativos", "Concorrentes ilimitados", "Campanhas IA ilimitadas", "Meta + Google Ads", "Export PDF e XLSX", "Suporte prioritário"] },
-  { slug: "vip",     name: "VIP",     price: 397, desc: "Para grandes operações",         color: "#7c3aed",        features: ["Projetos ilimitados", "Tudo do Premium", "API access", "Manager dedicado", "Onboarding personalizado"] },
+  { slug: "basic",   name: "Core",    icon: "◈", price: 97,  desc: "Para profissionais autônomos",  color: "#0071e3", features: ["3 projetos ativos", "5 concorrentes/projeto", "3 campanhas IA/mês", "Integração Meta Ads", "Suporte por e-mail"] },
+  { slug: "premium", name: "Pro",     icon: "◆", price: 197, desc: "Para agências e times",          color: "#5856d6", highlight: true, features: ["10 projetos ativos", "Concorrentes ilimitados", "Campanhas IA ilimitadas", "Meta + Google Ads", "Export PDF e XLSX", "Suporte prioritário"] },
+  { slug: "vip",     name: "Elite",   icon: "◇", price: 397, desc: "Para grandes operações",         color: "#1d1d1f", features: ["Projetos ilimitados", "Tudo do Pro", "API access", "Manager dedicado", "Onboarding personalizado"] },
 ];
 
 // Payloads Pix Copia e Cola — chave: contato@mecproai.com
@@ -21,7 +21,7 @@ const PIX_DATA: Record<string, { payload: string; qr?: string; valor: number }> 
   "vip_yearly": { payload: "00020126480014BR.GOV.BCB.PIX0126contato@mecproai.com52040000530398654073811.205802BR5906MECPro6015Blneario Cambor62180514MECProVIPAnual6304452C", valor: 3811.2 },
 };
 
-const PLAN_EMOJI: Record<string, string> = { basic: "⚡", premium: "⭐", vip: "👑" };
+const PLAN_EMOJI: Record<string, string> = { basic: "⚡", premium: "◈", vip: "◇" };
 
 interface PixModalProps {
   plan: typeof PLANS[0];
@@ -69,7 +69,7 @@ function PixModal({ plan, billing, onClose }: PixModalProps) {
             R$ {pix.valor.toFixed(2).replace(".", ",")}
           </p>
           {billing === "yearly" && (
-            <p style={{ fontSize:12, color:"#16a34a", marginTop:4 }}>✅ 12 meses com 20% de desconto (R$ {price}/mês)</p>
+            <p style={{ fontSize:12, color:"#16a34a", marginTop:4 }}>◎ 12 meses com 20% de desconto (R$ {price}/mês)</p>
           )}
         </div>
 
@@ -108,7 +108,7 @@ function PixModal({ plan, billing, onClose }: PixModalProps) {
           color:"white", fontWeight:700, fontSize:14,
           border:"none", cursor:"pointer", marginBottom:12, transition:"background .2s"
         }}>
-          {copied ? "✅ Código copiado! Cole no seu app" : "📋 Copiar código Pix"}
+          {copied ? "◎ Código copiado! Cole no seu app" : "📋 Copiar código Pix"}
         </button>
 
         {/* Aviso comprovante */}

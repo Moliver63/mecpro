@@ -21,10 +21,10 @@ interface Decision {
 
 const ACTION_CONFIG: Record<AgentAction, { label: string; color: string; bg: string; icon: string }> = {
   pause_campaign:   { label: "Pausar",          color: "#dc2626", bg: "#fef2f2", icon: "⏸️" },
-  adjust_budget:    { label: "Ajustar Orçamento", color: "#d97706", bg: "#fffbeb", icon: "💰" },
+  adjust_budget:    { label: "Ajustar Orçamento", color: "#d97706", bg: "#fffbeb", icon: "◈" },
   suggest_creative: { label: "Novo Criativo",   color: "#7c3aed", bg: "#f5f3ff", icon: "🎨" },
   scale_budget:     { label: "Escalar",         color: "#059669", bg: "#f0fdf4", icon: "📈" },
-  no_action:        { label: "OK",              color: "#64748b", bg: "#f8fafc", icon: "✅" },
+  no_action:        { label: "OK",              color: "#64748b", bg: "#f8fafc", icon: "◎" },
 };
 
 const LLM_BADGE: Record<string, { label: string; color: string; bg: string }> = {
@@ -58,7 +58,7 @@ export default function AutonomousAgentPage() {
     onSuccess: (data: any) => {
       setDecisions(data.decisions || []);
       setSummary(data.summary);
-      toast.success(`✅ Agente concluído: ${data.total} campanha(s) analisada(s)`);
+      toast.success(`◎ Agente concluído: ${data.total} campanha(s) analisada(s)`);
     },
     onError: (e: any) => toast.error(e.message),
   }) ?? { mutateAsync: async () => {} };
@@ -249,7 +249,7 @@ export default function AutonomousAgentPage() {
             fontSize: 12, color: llmMode?.mode === "on" ? "#065f46" : "#92400e",
           }}>
             {llmMode?.mode === "on" ? (
-              <>✅ <strong>IA Categoria A ativa</strong> — Máxima qualidade de copy e estrutura de campanha. Recomendada para clientes.</>
+              <>◎ <strong>IA Categoria A ativa</strong> — Máxima qualidade de copy e estrutura de campanha. Recomendada para clientes.</>
             ) : (
               <>⚡ <strong>IA Categoria B ativa</strong> — Alta disponibilidade e resposta rápida. Ideal para uso intensivo.</>
             )}
@@ -351,9 +351,9 @@ export default function AutonomousAgentPage() {
             {[
               { label: "Pausadas",  value: summary.paused,    color: "#dc2626", icon: "⏸️" },
               { label: "Escaladas", value: summary.scaled,    color: "#059669", icon: "📈" },
-              { label: "Ajustadas", value: summary.adjusted,  color: "#d97706", icon: "💰" },
+              { label: "Ajustadas", value: summary.adjusted,  color: "#d97706", icon: "◈" },
               { label: "Criativos", value: summary.creatives,  color: "#7c3aed", icon: "🎨" },
-              { label: "Executadas",value: summary.executed,  color: "#0369a1", icon: "✅" },
+              { label: "Executadas",value: summary.executed,  color: "#0369a1", icon: "◎" },
             ].map(s => (
               <div key={s.label} style={{
                 background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12,

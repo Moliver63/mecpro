@@ -68,7 +68,7 @@ export function PlacementPresetSelector({ value, onChange }: Props) {
                   key={p}
                   className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
                 >
-                  ✅ {PLACEMENT_LABELS[p] || p}
+                  ◎ {PLACEMENT_LABELS[p] || p}
                 </span>
               ))}
             </div>

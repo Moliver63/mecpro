@@ -566,7 +566,7 @@ export default function Consultas() {
                       <>
                         {resultado.totalProcessos === 0 ? (
                           <div style={{ textAlign: "center", padding: "40px 20px" }}>
-                            <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+                            <div style={{ fontSize: 40, marginBottom: 10 }}>◎</div>
                             <p style={{ fontSize: 15, fontWeight: 700, color: "var(--black)", marginBottom: 6 }}>
                               Nenhum processo encontrado
                             </p>
@@ -670,7 +670,7 @@ export default function Consultas() {
                                   background: resultado.simplesNacional.simples?.optante ? "#dcfce7" : "#fef2f2",
                                   color: resultado.simplesNacional.simples?.optante ? "#15803d" : "#dc2626",
                                 }}>
-                                  {resultado.simplesNacional.simples?.optante ? "✅ Optante" : "❌ Não Optante"}
+                                  {resultado.simplesNacional.simples?.optante ? "◎ Optante" : "✕ Não Optante"}
                                 </span>
                                 {resultado.simplesNacional.simples?.dataOpcao && (
                                   <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
@@ -696,7 +696,7 @@ export default function Consultas() {
                                   background: resultado.simplesNacional.simei?.optante ? "#dcfce7" : "#fef2f2",
                                   color: resultado.simplesNacional.simei?.optante ? "#15803d" : "#dc2626",
                                 }}>
-                                  {resultado.simplesNacional.simei?.optante ? "✅ Optante" : "❌ Não MEI"}
+                                  {resultado.simplesNacional.simei?.optante ? "◎ Optante" : "✕ Não MEI"}
                                 </span>
                                 {resultado.simplesNacional.simei?.dataOpcao && (
                                   <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
@@ -768,7 +768,7 @@ export default function Consultas() {
                             </div>
                           ) : (
                             <div style={{ padding: 20, textAlign: "center" }}>
-                              <p style={{ fontSize: 13, color: "#15803d", fontWeight: 600 }}>✅ Nenhum registro no CEIS</p>
+                              <p style={{ fontSize: 13, color: "#15803d", fontWeight: 600 }}>◎ Nenhum registro no CEIS</p>
                               <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Empresa não está cadastrada como inidônea ou suspensa</p>
                             </div>
                           )}
@@ -780,7 +780,7 @@ export default function Consultas() {
                             background: resultado.sancoesCNEP && resultado.sancoesCNEP.length > 0 ? "#7c3aed" : "#64748b",
                             padding: "10px 16px", display: "flex", alignItems: "center", gap: 8,
                           }}>
-                            <span style={{ fontSize: 16 }}>⚠️</span>
+                            <span style={{ fontSize: 16 }}>◬</span>
                             <p style={{ fontSize: 13, fontWeight: 700, color: "white" }}>
                               CNEP — Cadastro Nacional de Empresas Punidas
                               {resultado.sancoesCNEP && resultado.sancoesCNEP.length > 0 && (
@@ -835,7 +835,7 @@ export default function Consultas() {
                             </div>
                           ) : (
                             <div style={{ padding: 20, textAlign: "center" }}>
-                              <p style={{ fontSize: 13, color: "#15803d", fontWeight: 600 }}>✅ Nenhum registro no CNEP</p>
+                              <p style={{ fontSize: 13, color: "#15803d", fontWeight: 600 }}>◎ Nenhum registro no CNEP</p>
                               <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Empresa não está cadastrada como punida pela Lei Anticorrupção</p>
                             </div>
                           )}
@@ -878,7 +878,7 @@ export default function Consultas() {
                   <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
                     {["27 TJs Estaduais", "6 TRFs", "24 TRTs", "5 Superiores", "27 TREs"].map(b => (
                       <span key={b} style={{ fontSize: 11, fontWeight: 600, background: "#f0fdf4", color: "#15803d", padding: "4px 10px", borderRadius: 20, border: "1px solid #bbf7d0" }}>
-                        ✅ {b}
+                        ◎ {b}
                       </span>
                     ))}
                   </div>
@@ -948,7 +948,7 @@ export default function Consultas() {
                   { icon: "🏛️", name: "Receita Federal",  desc: "ReceitaWS · CNPJ.ws · BrasilAPI · MinhaReceita (cascata automática)" },
                   { icon: "⚖️", name: "CNJ Datajud",      desc: "80+ tribunais em paralelo: TJs, TRFs, TRTs, TREs, Superiores" },
                   { icon: "🚫", name: "CGU — CEIS",        desc: "Empresas inidôneas e suspensas (Portal da Transparência)" },
-                  { icon: "⚠️", name: "CGU — CNEP",        desc: "Empresas punidas pela Lei Anticorrupção (Portal da Transparência)" },
+                  { icon: "◬", name: "CGU — CNEP",        desc: "Empresas punidas pela Lei Anticorrupção (Portal da Transparência)" },
                   { icon: "🟢", name: "Simples Nacional",  desc: "Status de optante e MEI — BrasilAPI" },
                 ].map(f => (
                   <div key={f.name} style={{ display: "flex", gap: 8, marginBottom: 10 }}>

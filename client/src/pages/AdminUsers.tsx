@@ -21,7 +21,7 @@ const ROLE_COLORS: Record<string, string> = {
 };
 const PROFILE_LABELS: Record<string, { label: string; icon: string; color: string }> = {
   marketing:  { label: "Marketing",  icon: "📢", color: "bg-green-100 text-green-700" },
-  financeiro: { label: "Financeiro", icon: "💰", color: "bg-yellow-100 text-yellow-700" },
+  financeiro: { label: "Financeiro", icon: "◈", color: "bg-yellow-100 text-yellow-700" },
   rh:         { label: "RH",         icon: "👥", color: "bg-pink-100 text-pink-700" },
 };
 
@@ -74,7 +74,7 @@ export default function AdminUsers() {
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const updatePlan = trpc.admin.updateUserPlan.useMutation({
-    onSuccess: () => { refetch(); toast.success("✅ Plano atualizado!"); setPlanModal(null); },
+    onSuccess: () => { refetch(); toast.success("◎ Plano atualizado!"); setPlanModal(null); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -87,21 +87,21 @@ export default function AdminUsers() {
   });
 
   const setProfile = trpc.admin.setUserProfile.useMutation({
-    onSuccess: () => { refetch(); toast.success("✅ Perfil atualizado!"); setProfileModal(null); },
+    onSuccess: () => { refetch(); toast.success("◎ Perfil atualizado!"); setProfileModal(null); },
     onError: (e) => toast.error(e.message),
   });
 
   const promote = trpc.admin.promoteToAdmin.useMutation({
-    onSuccess: () => { refetch(); toast.success("✅ Usuário promovido a Admin!"); setPromoteModal(null); },
+    onSuccess: () => { refetch(); toast.success("◎ Usuário promovido a Admin!"); setPromoteModal(null); },
     onError: (e) => toast.error(e.message),
   });
   const demote = trpc.admin.demoteFromAdmin.useMutation({
-    onSuccess: () => { refetch(); toast.success("✅ Admin rebaixado a Usuário!"); setDemoteModal(null); },
+    onSuccess: () => { refetch(); toast.success("◎ Admin rebaixado a Usuário!"); setDemoteModal(null); },
     onError: (e) => toast.error(e.message),
   });
 
   const approvePlan = trpc.admin.approvePlanRequest.useMutation({
-    onSuccess: () => { refetchReqs(); toast.success("✅ Solicitação aprovada!"); },
+    onSuccess: () => { refetchReqs(); toast.success("◎ Solicitação aprovada!"); },
   });
   const rejectPlan = trpc.admin.rejectPlanRequest.useMutation({
     onSuccess: () => { refetchReqs(); toast.success("🚫 Solicitação rejeitada!"); },
@@ -305,7 +305,7 @@ export default function AdminUsers() {
                               onClick={() => unsuspendUser.mutate({ userId: u.id })}
                               className="px-2 py-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100"
                             >
-                              ✅ Reativar
+                              ◎ Reativar
                             </button>
                           ) : (
                             <button
@@ -419,7 +419,7 @@ export default function AdminUsers() {
               {[
                 { value: null,         icon: "🚫", label: "Sem Perfil",  color: "border-gray-200" },
                 { value: "marketing",  icon: "📢", label: "Marketing",   color: "border-green-300 bg-green-50" },
-                { value: "financeiro", icon: "💰", label: "Financeiro",  color: "border-yellow-300 bg-yellow-50" },
+                { value: "financeiro", icon: "◈", label: "Financeiro",  color: "border-yellow-300 bg-yellow-50" },
                 { value: "rh",         icon: "👥", label: "RH",          color: "border-pink-300 bg-pink-50" },
               ].map((opt) => (
                 <button
@@ -525,7 +525,7 @@ export default function AdminUsers() {
                         onClick={() => approvePlan.mutate({ requestId: r.id })}
                         className="px-3 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
                       >
-                        ✅ Aprovar
+                        ◎ Aprovar
                       </button>
                       <button
                         onClick={() => rejectPlan.mutate({ requestId: r.id, note: "Rejeitado pelo Superadmin" })}

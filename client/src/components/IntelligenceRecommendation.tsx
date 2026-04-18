@@ -53,11 +53,11 @@ const TRIGGER_ICONS: Record<string, string> = {
   urgência:        "⏰",
   gratuidade:      "🎁",
   prova_social:    "👥",
-  prova_resultado: "✅",
+  prova_resultado: "◎",
   escassez:        "⚡",
   garantia:        "🛡️",
-  desconto:        "💸",
-  autoridade:      "🏆",
+  desconto:        "◍",
+  autoridade:      "◆",
   informacional:   "📋",
 };
 
@@ -123,7 +123,7 @@ export default function IntelligenceRecommendation({ platform, objective, niche,
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div style={{ fontSize: 24 }}>✨</div>
+        <div style={{ fontSize: 24 }}>◇</div>
         <div>
           <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>
             Recomendação Inteligente
@@ -171,7 +171,7 @@ export default function IntelligenceRecommendation({ platform, objective, niche,
           { icon: FORMAT_ICONS[rec.recommendedFormat] || "🎯", label: "Formato",    value: rec.recommendedFormat },
           { icon: TRIGGER_ICONS[rec.recommendedTrigger] || "⚡", label: "Gatilho",  value: rec.recommendedTrigger },
           { icon: "📣",                                           label: "CTA",       value: rec.recommendedCta },
-          { icon: "💰",                                           label: "Orçamento", value: BUDGET_LABELS[rec.recommendedBudget] || rec.recommendedBudget },
+          { icon: "◈",                                           label: "Orçamento", value: BUDGET_LABELS[rec.recommendedBudget] || rec.recommendedBudget },
           { icon: "📅",                                           label: "Duração",   value: DURATION_LABELS[rec.recommendedDuration] || rec.recommendedDuration },
           { icon: "📍",                                           label: "Placement", value: rec.recommendedPlacement },
         ].map(item => (
@@ -227,7 +227,7 @@ export default function IntelligenceRecommendation({ platform, objective, niche,
               border: "none", cursor: "pointer", transition: "background 0.2s",
             }}
           >
-            {applied ? "✅ Parâmetros aplicados!" : "⚡ Aplicar parâmetros recomendados"}
+            {applied ? "◎ Parâmetros aplicados!" : "⚡ Aplicar parâmetros recomendados"}
           </button>
         )}
         <button

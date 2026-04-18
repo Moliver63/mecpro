@@ -35,7 +35,7 @@ export default function AdminCashbackRequests() {
           { label: "A pagar",    value: `R$ ${(totalPending/100).toFixed(2)}`,             color: "#fef2f2" },
         ].map(s => (
           <div key={s.label} style={{ background: "white", border: "1px solid var(--border)", borderRadius: 12, padding: 18 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: s.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 8 }}>💰</div>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: s.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, marginBottom: 8 }}>◈</div>
             <p style={{ fontSize: 22, fontWeight: 800, color: "var(--black)", fontFamily: "var(--font-display)", marginBottom: 2 }}>{s.value}</p>
             <p style={{ fontSize: 12, color: "var(--muted)" }}>{s.label}</p>
           </div>
