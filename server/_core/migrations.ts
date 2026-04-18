@@ -285,5 +285,17 @@ export async function runMigrations(): Promise<void> {
     )
   `);
 
+  
+  // media_budget: adicionar colunas de controle de lembrete e cancelamento automático
+  await pool.query(`
+    ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "reminderSentAt" TIMESTAMPTZ
+  `);
+  await pool.query(`
+    ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "cancelledAt" TIMESTAMPTZ
+  `);
+  await pool.query(`
+    ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "platform" VARCHAR(20)
+  `);
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

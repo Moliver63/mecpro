@@ -7207,11 +7207,80 @@ const mediaBudgetRouter = router({
         notes:       `Crédito comprado pelo cliente em ${input.platform} — R$ ${input.amount.toFixed(2)}`,
       });
 
+      // Registra como spend pendente (cron monitora para lembrete/cancelamento)
+      await pool.query(`
+        INSERT INTO media_budget
+          ("userId", amount, "feePercent", "feeAmount", "netAmount",
+           type, status, method, platform, notes)
+        VALUES ($1, $2, 0, 0, $2, 'spend', 'pending', 'guide', $3, $4)
+      `, [
+        ctx.user.id, cents, input.platform,
+        `Recarga manual ${input.platform} — R$ ${input.amount.toFixed(2)}`,
+      ]);
+
       log.info("media-budget", "Recarga confirmada pelo cliente", {
         userId: ctx.user.id, platform: input.platform, amount: input.amount,
       });
 
       return { success: true, platform: input.platform, amount: input.amount };
+    }),
+
+  // ── Marcar recarga manual como efetivada (usuário confirma que pagou) ────────
+  markRechargeConfirmed: protectedProcedure
+    .input(z.object({ budgetId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const check = await pool.query(`
+        SELECT id, amount, platform FROM media_budget
+        WHERE id = $1 AND "userId" = $2 AND status = 'pending' AND method = 'guide'
+      `, [input.budgetId, ctx.user.id]);
+
+      if (!check.rows[0]) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Recarga não encontrada ou já confirmada." });
+      }
+
+      await pool.query(`
+        UPDATE media_budget
+        SET status = 'approved', "approvedAt" = NOW(), "updatedAt" = NOW()
+        WHERE id = $1
+      `, [input.budgetId]);
+
+      log.info("media-budget", "Recarga manual confirmada pelo usuário", {
+        userId: ctx.user.id, budgetId: input.budgetId,
+        platform: check.rows[0].platform, amount: check.rows[0].amount,
+      });
+
+      return { success: true };
+    }),
+
+  // ── Listar recargas pendentes do usuário (para o painel Financeiro) ────────
+  listPendingRecharges: protectedProcedure
+    .query(async ({ ctx }) => {
+      const pool = await getPool();
+      if (!pool) return [];
+
+      const res = await pool.query(`
+        SELECT id, amount, platform, "createdAt", "reminderSentAt",
+               EXTRACT(EPOCH FROM (NOW() - "createdAt")) / 3600 AS hours_pending
+        FROM media_budget
+        WHERE "userId" = $1
+          AND status   = 'pending'
+          AND method   = 'guide'
+          AND "cancelledAt" IS NULL
+        ORDER BY "createdAt" DESC
+      `, [ctx.user.id]);
+
+      return res.rows.map(r => ({
+        id:            r.id,
+        amount:        Number(r.amount) / 100,
+        platform:      r.platform,
+        createdAt:     r.createdAt,
+        reminderSent:  !!r.reminderSentAt,
+        hoursPending:  Math.floor(Number(r.hours_pending)),
+        expiresIn:     Math.max(0, 24 - Math.floor(Number(r.hours_pending))),
+      }));
     }),
 
   // ── Buscar campanhas de TODAS as plataformas — APENAS criadas pelo MECPro ───

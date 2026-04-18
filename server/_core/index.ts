@@ -1103,6 +1103,115 @@ async function main() {
     }
   }
 
+  // ── Cron: verificar recargas manuais pendentes ───────────────────────────
+  // Roda a cada 30 minutos
+  // - Envia lembrete após 2h sem confirmação (uma vez)
+  // - Cancela e devolve saldo após 24h sem confirmação
+  async function checkPendingRecharges() {
+    try {
+      const pool = await getPool();
+      if (!pool) return;
+
+      const now = new Date();
+
+      // Busca recargas tipo 'guide_generated' com status 'pending' e com plataforma
+      // (registradas quando o usuário gera o guia via confirmRecharge ou generateRechargeGuide)
+      const pendingRes = await pool.query(`
+        SELECT
+          mb.id, mb."userId", mb.amount, mb.platform, mb."createdAt",
+          mb."reminderSentAt", mb."cancelledAt",
+          u.email, u.name,
+          EXTRACT(EPOCH FROM (NOW() - mb."createdAt")) / 3600 AS hours_pending
+        FROM media_budget mb
+        JOIN users u ON u.id = mb."userId"
+        WHERE mb.status = 'pending'
+          AND mb.type    = 'spend'
+          AND mb.method  = 'guide'
+          AND mb."cancelledAt" IS NULL
+        ORDER BY mb."createdAt" ASC
+      `);
+
+      for (const row of pendingRes.rows) {
+        const hoursPending = Number(row.hours_pending);
+        const amountFmt    = (Number(row.amount) / 100).toFixed(2);
+
+        // 1. Cancelamento automático após 24h
+        if (hoursPending >= 24) {
+          // Devolve o saldo
+          await pool.query(`
+            INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees")
+            VALUES ($1, $2, 0, 0)
+            ON CONFLICT ("userId") DO UPDATE SET
+              balance = media_balance.balance + $2,
+              "updatedAt" = NOW()
+          `, [row.userId, row.amount]);
+
+          // Marca como cancelado
+          await pool.query(`
+            UPDATE media_budget
+            SET status = 'cancelled', "cancelledAt" = NOW(), "updatedAt" = NOW()
+            WHERE id = $1
+          `, [row.id]);
+
+          log.info('recharge-cron', 'Recarga cancelada após 24h — saldo devolvido', {
+            userId: row.userId, budgetId: row.id, amount: amountFmt, platform: row.platform,
+          });
+
+          // Envia email de cancelamento
+          try {
+            const { sendRechargeCancelledEmail } = await import('../email.js');
+            await sendRechargeCancelledEmail(
+              row.email, row.name || 'Usuário',
+              row.platform || 'plataforma', amountFmt,
+            );
+          } catch (emailErr: any) {
+            log.warn('recharge-cron', 'Email cancelamento falhou', { error: emailErr.message });
+          }
+          continue;
+        }
+
+        // 2. Lembrete após 2h (apenas uma vez)
+        if (hoursPending >= 2 && !row.reminderSentAt) {
+          const confirmUrl = `${process.env.APP_URL || 'https://www.mecproai.com'}/financeiro`;
+
+          try {
+            const { sendRechargeReminderEmail } = await import('../email.js');
+            await sendRechargeReminderEmail(
+              row.email, row.name || 'Usuário',
+              row.platform || 'plataforma', amountFmt,
+              confirmUrl, Math.floor(hoursPending),
+            );
+
+            // Marca que lembrete foi enviado
+            await pool.query(`
+              UPDATE media_budget SET "reminderSentAt" = NOW(), "updatedAt" = NOW() WHERE id = $1
+            `, [row.id]);
+
+            log.info('recharge-cron', 'Lembrete de recarga enviado', {
+              userId: row.userId, budgetId: row.id, platform: row.platform,
+              hoursPending: Math.floor(hoursPending),
+            });
+          } catch (emailErr: any) {
+            log.warn('recharge-cron', 'Email lembrete falhou', { error: emailErr.message });
+          }
+        }
+      }
+
+      if (pendingRes.rows.length > 0) {
+        log.info('recharge-cron', `Verificação concluída: ${pendingRes.rows.length} recarga(s) pendente(s)`, {
+          cancelled: pendingRes.rows.filter(r => Number(r.hours_pending) >= 24).length,
+          reminded:  pendingRes.rows.filter(r => Number(r.hours_pending) >= 2 && !r.reminderSentAt).length,
+        });
+      }
+    } catch (err: any) {
+      log.error('recharge-cron', 'Erro no cron de recargas', { error: err.message });
+    }
+  }
+
+  // Executa imediatamente e depois a cada 30 minutos
+  checkPendingRecharges();
+  setInterval(checkPendingRecharges, 30 * 60 * 1000);
+
   // Executa imediatamente e depois a cada 6 horas
   refreshExpiringMetaTokens();
   setInterval(refreshExpiringMetaTokens, 6 * 60 * 60 * 1000);

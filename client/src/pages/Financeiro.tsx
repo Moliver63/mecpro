@@ -594,6 +594,64 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
 /* ══════════════════════════════════════════════════════════════
    COMPONENTE PRINCIPAL
 ═══════════════════════════════════════════════════════════════ */
+
+function PendingRechargesPanel() {
+  const { data: pending = [], refetch } =
+    (trpc as any).mediaBudget?.listPendingRecharges?.useQuery?.() ?? { data: [] };
+
+  const confirmMut = (trpc as any).mediaBudget?.markRechargeConfirmed?.useMutation?.({
+    onSuccess: () => { toast.success("◎ Recarga confirmada!"); refetch(); },
+    onError:   (e: any) => toast.error(e.message),
+  });
+
+  if (!pending.length) return null;
+
+  const PLAT: Record<string, string> = { meta: "📘 Meta", google: "🔵 Google", tiktok: "◼ TikTok" };
+
+  return (
+    <div style={{
+      background: "rgba(255,159,10,0.06)", border: "1.5px solid rgba(255,159,10,0.3)",
+      borderRadius: "var(--r)", padding: "16px 20px", marginBottom: 16,
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: "#b25000", marginBottom: 12 }}>
+        ◬ {pending.length} recarga{pending.length > 1 ? "s" : ""} aguardando confirmação
+      </div>
+      {pending.map((r: any) => (
+        <div key={r.id} style={{
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "10px 0", borderBottom: "1px solid rgba(255,159,10,0.15)",
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)" }}>
+              {PLAT[r.platform] || r.platform} — R$ {r.amount.toFixed(2)}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+              {r.hoursPending}h pendente · expira em {r.expiresIn}h
+              {r.reminderSent && " · lembrete enviado"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <div style={{
+              height: 4, width: `${Math.min(100, (r.hoursPending / 24) * 100)}%`,
+              background: r.expiresIn < 4 ? "var(--red)" : "var(--orange)",
+              borderRadius: 99, minWidth: 40, maxWidth: 80,
+            }} />
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => confirmMut?.mutate({ budgetId: r.id })}
+              style={{ fontSize: 11, padding: "4px 12px" }}>
+              Confirmar
+            </button>
+          </div>
+        </div>
+      ))}
+      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 10 }}>
+        Confirme após realizar o pagamento na plataforma. Não confirmadas em 24h são canceladas e o saldo é devolvido.
+      </div>
+    </div>
+  );
+}
+
 export default function Financeiro() {
   const [tab, setTab] = useState(0);
 
@@ -624,6 +682,8 @@ export default function Financeiro() {
       `}</style>
 
       <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)", fontFamily: "var(--font)" }}>
+
+        <PendingRechargesPanel />
 
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>

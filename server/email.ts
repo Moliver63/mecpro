@@ -143,4 +143,100 @@ export async function sendWeeklyReport(
       </div>
     `,
   });
+
+export function sendRechargeReminderEmail(
+  email:      string,
+  name:       string,
+  platform:   string,
+  amount:     string,
+  confirmUrl: string,
+  hoursAgo:   number,
+) {
+  const platLabel: Record<string, string> = {
+    meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads",
+  };
+  const label = platLabel[platform] || platform;
+
+  return resend.emails.send({
+    from: FROM,
+    to:   email,
+    subject: `Lembrete: confirme sua recarga em ${label} — MECPro`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+        <h2 style="font-size:20px;font-weight:800;color:#0a0a0a;margin-bottom:8px">
+          Sua recarga em ${label} está pendente
+        </h2>
+        <p style="color:#495057;font-size:15px;line-height:1.6;margin-bottom:8px">
+          Olá ${name},
+        </p>
+        <p style="color:#495057;font-size:15px;line-height:1.6;margin-bottom:20px">
+          Há <strong>${hoursAgo} hora${hoursAgo !== 1 ? "s" : ""}</strong>, você solicitou uma
+          recarga de <strong>R$ ${amount}</strong> em <strong>${label}</strong>, mas ainda não
+          confirmou que o pagamento foi realizado.
+        </p>
+
+        <div style="background:#fff8e1;border:1px solid #f59e0b;border-radius:10px;padding:16px;margin-bottom:24px">
+          <p style="margin:0;font-size:14px;color:#92400e;font-weight:700;">◬ O que fazer agora</p>
+          <ol style="margin:10px 0 0;padding-left:18px;font-size:14px;color:#78350f;line-height:1.8">
+            <li>Acesse o painel de ${label}</li>
+            <li>Adicione exatamente <strong>R$ ${amount}</strong></li>
+            <li>Volte ao MECPro e clique em <strong>"Confirmar recarga"</strong></li>
+          </ol>
+        </div>
+
+        <a href="${confirmUrl}"
+          style="display:inline-block;padding:14px 28px;background:#0071e3;color:white;
+                 border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;margin-bottom:20px">
+          Confirmar recarga →
+        </a>
+
+        <p style="color:#adb5bd;font-size:13px;margin-top:24px">
+          Se você não realizou essa solicitação ou já cancelou, ignore este email.
+          Recargas não confirmadas em 24h são canceladas automaticamente e o saldo é devolvido.
+        </p>
+
+        <div style="border-top:1px solid #e9ecef;margin-top:24px;padding-top:16px">
+          <p style="color:#adb5bd;font-size:12px;margin:0">MECPro · Plataforma de Inteligência de Campanhas</p>
+        </div>
+      </div>
+    `,
+  });
+}
+
+export function sendRechargeCancelledEmail(
+  email:    string,
+  name:     string,
+  platform: string,
+  amount:   string,
+) {
+  const platLabel: Record<string, string> = {
+    meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads",
+  };
+  const label = platLabel[platform] || platform;
+
+  return resend.emails.send({
+    from: FROM,
+    to:   email,
+    subject: `Recarga cancelada — saldo devolvido — MECPro`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+        <h2 style="font-size:20px;font-weight:800;color:#0a0a0a;margin-bottom:8px">
+          Recarga cancelada e saldo devolvido
+        </h2>
+        <p style="color:#495057;font-size:15px;line-height:1.6;margin-bottom:20px">
+          Olá ${name}, sua solicitação de recarga de <strong>R$ ${amount}</strong> em
+          <strong>${label}</strong> foi cancelada automaticamente após 24h sem confirmação.
+          O valor foi devolvido ao seu saldo MECPro.
+        </p>
+        <p style="color:#495057;font-size:14px;line-height:1.6">
+          Para realizar uma nova recarga, acesse <a href="${APP_URL}/financeiro"
+          style="color:#0071e3;font-weight:600">Financeiro → Depositar</a>.
+        </p>
+        <div style="border-top:1px solid #e9ecef;margin-top:24px;padding-top:16px">
+          <p style="color:#adb5bd;font-size:12px;margin:0">MECPro · Plataforma de Inteligência de Campanhas</p>
+        </div>
+      </div>
+    `,
+  });
+}
 }
