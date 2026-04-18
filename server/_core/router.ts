@@ -1576,6 +1576,75 @@ const marketRouter = router({
 // ============ CAMPAIGNS ROUTER ============
 const campaignsRouter = router({
   list: protectedProcedure.input(z.object({ projectId: z.number() })).query(({ input }) => db.getCampaignsByProjectId(input.projectId)),
+
+  // Lista todas as campanhas do usuário (sem filtro de projeto)
+  listAll: protectedProcedure.query(async ({ ctx }) => {
+    const pool = await getPool();
+    if (!pool) return [];
+    const res = await pool.query(`
+      SELECT c.id, c.name, c.platform, c.objective, c.status,
+             c."generatedAt", c."suggestedBudgetDaily", c."suggestedBudgetMonthly",
+             p.name AS "projectName", p.id AS "projectId"
+      FROM campaigns c
+      JOIN projects p ON p.id = c."projectId"
+      WHERE p."userId" = $1
+        AND c.status != 'archived'
+      ORDER BY c."generatedAt" DESC
+      LIMIT 50
+    `, [ctx.user.id]);
+    return res.rows;
+  }),
+
+  // Conta total de campanhas do usuário
+  countAll: protectedProcedure.query(async ({ ctx }) => {
+    const pool = await getPool();
+    if (!pool) return { total: 0, byPlatform: {} };
+    const res = await pool.query(`
+      SELECT c.platform, COUNT(*)::int AS count
+      FROM campaigns c
+      JOIN projects p ON p.id = c."projectId"
+      WHERE p."userId" = $1 AND c.status != 'archived'
+      GROUP BY c.platform
+    `, [ctx.user.id]);
+    const byPlatform: Record<string, number> = {};
+    let total = 0;
+    res.rows.forEach((r: any) => { byPlatform[r.platform] = r.count; total += r.count; });
+    return { total, byPlatform };
+  }),
+
+  // Deletar campanha (verifica ownership via projeto)
+  delete: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      // Garante que a campanha pertence ao usuário
+      const check = await pool.query(`
+        SELECT c.id FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE c.id = $1 AND p."userId" = $2
+      `, [input.id, ctx.user.id]);
+      if (!check.rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+      await pool.query(`DELETE FROM campaigns WHERE id = $1`, [input.id]);
+      log.info("campaigns", "Campanha deletada", { id: input.id, userId: ctx.user.id });
+      return { success: true };
+    }),
+
+  // Arquivar campanha (soft delete)
+  archive: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const check = await pool.query(`
+        SELECT c.id FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE c.id = $1 AND p."userId" = $2
+      `, [input.id, ctx.user.id]);
+      if (!check.rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+      await pool.query(`UPDATE campaigns SET status = 'archived', "updatedAt" = NOW() WHERE id = $1`, [input.id]);
+      return { success: true };
+    }),
   get: protectedProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getCampaignById(input.id)),
   create: protectedProcedure
     .input(z.object({ projectId: z.number(), name: z.string(), objective: z.string().optional(), platform: z.string() }))
