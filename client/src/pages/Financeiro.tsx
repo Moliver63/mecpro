@@ -527,25 +527,53 @@ function TabBuyCredits({ balance, onBack }: { balance: any; onBack: () => void }
       {result && (
         <div style={{ marginTop: 16 }}>
           {result.applied?.length > 0 && (
-            <div style={{ background: "rgba(48,209,88,0.08)", border: "1px solid rgba(48,209,88,0.25)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--green-d)", marginBottom: 8 }}>◎ Créditos aplicados com sucesso</div>
-              {result.applied.map((a: any, i: number) => (
-                <div key={i} style={{ fontSize: 12, color: "var(--body)", marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span>{a.platform === "meta" ? "📘" : a.platform === "google" ? "🔵" : "◼"}</span>
-                  <span style={{ fontWeight: 600 }}>{a.platform?.toUpperCase()}</span>
-                  <span style={{ color: "var(--muted)" }}>·</span>
-                  <span>R$ {a.amount?.toFixed(2)}/dia</span>
-                  {a.adsetName && <span style={{ color: "var(--muted)" }}>· {a.adsetName}</span>}
-                </div>
-              ))}
+            <div style={{ background: "rgba(48,209,88,0.08)", border: "1.5px solid rgba(48,209,88,0.3)", borderRadius: "var(--r)", padding: "16px 18px", marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--green-d)", marginBottom: 12 }}>
+                ◎ Orçamento atualizado com sucesso
+              </div>
+              {result.applied.map((a: any, i: number) => {
+                const LINKS: Record<string, string> = {
+                  meta:   "https://www.facebook.com/adsmanager/manage/campaigns",
+                  google: "https://ads.google.com/aw/campaigns",
+                  tiktok: "https://ads.tiktok.com/i18n/dashboard",
+                };
+                return (
+                  <div key={i} style={{ background: "white", borderRadius: "var(--r-sm)", padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ fontSize: 20, flexShrink: 0 }}>
+                      {a.platform === "meta" ? "📘" : a.platform === "google" ? "🔵" : "◼"}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)" }}>
+                        {a.platform?.toUpperCase()} — R$ {a.amount?.toFixed(2)}/dia aplicado
+                      </div>
+                      {a.adsetName && (
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+                          Ad Set: {a.adsetName}
+                        </div>
+                      )}
+                    </div>
+                    <a href={LINKS[a.platform]} target="_blank" rel="noreferrer"
+                      style={{ fontSize: 11, fontWeight: 700, color: "var(--blue)", textDecoration: "none", flexShrink: 0, padding: "4px 10px", border: "1px solid var(--blue)", borderRadius: 6 }}>
+                      Verificar →
+                    </a>
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
+                O orçamento foi atualizado via API. Pode levar alguns minutos para refletir no painel da plataforma.
+              </div>
             </div>
           )}
           {result.failed?.length > 0 && (
-            <div style={{ background: "rgba(255,59,48,0.06)", border: "1px solid rgba(255,59,48,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px" }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--red)", marginBottom: 8 }}>◬ Falhas ao aplicar</div>
+            <div style={{ background: "rgba(255,59,48,0.06)", border: "1.5px solid rgba(255,59,48,0.2)", borderRadius: "var(--r)", padding: "16px 18px" }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--red)", marginBottom: 10 }}>◬ Falha ao atualizar</div>
               {result.failed.map((f: any, i: number) => (
-                <div key={i} style={{ fontSize: 12, color: "var(--body)", marginBottom: 3 }}>
-                  <span style={{ fontWeight: 600 }}>{f.platform?.toUpperCase()}</span> · {f.error}
+                <div key={i} style={{ fontSize: 12, color: "var(--body)", marginBottom: 6, padding: "8px 12px", background: "white", borderRadius: "var(--r-sm)" }}>
+                  <span style={{ fontWeight: 700 }}>{f.platform?.toUpperCase()}</span>
+                  <span style={{ color: "var(--muted)", marginLeft: 6 }}>{f.error}</span>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                    Verifique se a conta está conectada em Configurações → Integrações
+                  </div>
                 </div>
               ))}
             </div>

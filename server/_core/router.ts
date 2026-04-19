@@ -8049,6 +8049,40 @@ const mediaBudgetRouter = router({
       return results;
     }),
 
+  // ── Verificar budget atual de uma campanha na plataforma ────────────────────
+  verifyCampaignBudget: protectedProcedure
+    .input(z.object({
+      platform:   z.enum(["meta", "google", "tiktok"]),
+      campaignId: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.user.id;
+
+      if (input.platform === "meta") {
+        const metaInt = await db.getApiIntegration(userId, "meta");
+        const token   = (metaInt as any)?.accessToken;
+        const rawAct  = (metaInt as any)?.adAccountId;
+        if (!token || !rawAct) throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado" });
+        const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+
+        // Busca adsets da campanha para ver budget atualizado
+        const res = await fetch(
+          `https://graph.facebook.com/v20.0/${act}/adsets?filtering=[{"field":"campaign.id","operator":"EQUAL","value":"${input.campaignId}"}]&fields=id,name,status,daily_budget,effective_status&access_token=${token}`,
+          { signal: AbortSignal.timeout(10000) }
+        );
+        const data: any = await res.json();
+        const adsets = (data.data || []).map((a: any) => ({
+          id:           a.id,
+          name:         a.name,
+          status:       a.effective_status,
+          dailyBudget:  Number(a.daily_budget || 0) / 100,
+        }));
+        return { platform: "meta", campaignId: input.campaignId, adsets, totalDailyBudget: adsets.reduce((s: number, a: any) => s + a.dailyBudget, 0) };
+      }
+
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Plataforma não suportada para verificação" });
+    }),
+
   // ── getSettings — configurações de pagamento (usado pelo Financeiro) ────
   getSettings: protectedProcedure
     .query(async () => {
