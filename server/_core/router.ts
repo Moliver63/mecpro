@@ -5982,7 +5982,7 @@ const unifiedRouter = router({
         if (token && rawAct) {
           const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
           const res = await fetch(
-            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,adspaymentcycle,min_daily_budget&access_token=${token}`,
+            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,min_daily_budget&access_token=${token}`,
             { signal: AbortSignal.timeout(8000) }
           );
           const d: any = await res.json();
@@ -5990,7 +5990,7 @@ const unifiedRouter = router({
             const balanceLiquido = Number(d.balance || 0) / 100;
             const spent          = Number(d.amount_spent || 0) / 100;
             const cap            = Number(d.spend_cap || 0) / 100;
-            const debtAmount     = Number(d.adspaymentcycle?.debt_payment_option?.amount || 0) / 100;
+            const debtAmount     = 0; // Meta não expõe saldo devedor via Graph API
             const remaining      = cap > 0 ? cap - spent : null;
             const dailyAvg       = spent > 0 ? spent / 30 : 0;
             const daysLeft       = (remaining && dailyAvg > 0) ? Math.floor(remaining / dailyAvg) : null;
@@ -6872,7 +6872,7 @@ const mediaBudgetRouter = router({
 
           // 1. Dados principais da conta — inclui adspaymentcycle para saldo devedor
           const res = await fetch(
-            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,adspaymentcycle&access_token=${token}`,
+            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details&access_token=${token}`,
             { signal: AbortSignal.timeout(8000) }
           );
           const d: any = await res.json();
@@ -6881,7 +6881,7 @@ const mediaBudgetRouter = router({
             const balanceLiquido = Number(d.balance || 0) / 100;
             const spent          = Number(d.amount_spent || 0) / 100;
             const cap            = Number(d.spend_cap || 0) / 100;
-            const debtAmount     = Number(d.adspaymentcycle?.debt_payment_option?.amount || 0) / 100;
+            const debtAmount     = 0; // Meta não expõe saldo devedor via Graph API
             const remaining      = cap > 0 ? cap - spent : null;
 
             // 2. Buscar transações para ver crédito bruto depositado
