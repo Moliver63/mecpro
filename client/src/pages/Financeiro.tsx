@@ -103,14 +103,6 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
   const fee        = parsed * feePercent / 100;
   const credited   = parsed - fee;
 
-  const syncMutation = (trpc as any).mediaBudget?.syncAsaasBalance?.useMutation?.({
-    onSuccess: (data: any) => {
-      toast.success(`◎ R$ ${data.credited.toFixed(2)} creditados na sua wallet!`);
-      refetchBalance?.();
-    },
-    onError: (e: any) => toast.error(e.message),
-  }) ?? { mutate: () => {}, isPending: false };
-
   const pixMutation = (trpc as any).mediaBudget?.requestPixDeposit?.useMutation?.({
     onSuccess: (data: any) => {
       setPixData(data);
@@ -527,6 +519,11 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
 
   const transferMutation = (trpc as any).mediaBudget?.transferAsaas?.useMutation?.({
     onSuccess: () => { toast.success("◎ Transferência realizada!"); setAmount(""); setKey(""); },
+    onError:   (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+
+  const syncMutation = (trpc as any).mediaBudget?.syncAsaasBalance?.useMutation?.({
+    onSuccess: (data: any) => toast.success(`◎ R$ ${data.credited.toFixed(2)} creditados na wallet!`),
     onError:   (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
 
