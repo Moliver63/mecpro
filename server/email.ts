@@ -239,4 +239,67 @@ export function sendRechargeCancelledEmail(
     `,
   });
 }
+
+export function sendExternalPaymentEmail(
+  email:    string,
+  name:     string,
+  type:     "pix" | "boleto",
+  amount:   string,
+  platform: string,
+  status:   "success" | "failed",
+  asaasId?: string,
+  errorMsg?: string,
+) {
+  const platLabel: Record<string, string> = {
+    meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads", other: "plataforma externa",
+  };
+  const label = platLabel[platform] || platform;
+  const methodLabel = type === "pix" ? "Pix" : "Boleto";
+
+  const subject = status === "success"
+    ? `◎ ${methodLabel} de R$ ${amount} pago — ${label} — MECPro`
+    : `◬ Falha no pagamento ${methodLabel} — ${label} — MECPro`;
+
+  const body = status === "success" ? `
+    <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:12px;padding:20px;margin-bottom:20px">
+      <p style="margin:0;font-size:16px;font-weight:800;color:#166534">
+        ◎ Pagamento executado com sucesso
+      </p>
+    </div>
+    <p style="color:#374151;font-size:14px;line-height:1.7">
+      Olá ${name}, seu pagamento de <strong>R$ ${amount}</strong> em <strong>${label}</strong>
+      foi processado via ${methodLabel} e o valor foi debitado do seu saldo MECPro.
+    </p>
+    ${asaasId ? `<p style="color:#6b7280;font-size:12px">ID da transação: <code>${asaasId}</code></p>` : ""}
+  ` : `
+    <div style="background:#fee2e2;border:1.5px solid #fca5a5;border-radius:12px;padding:20px;margin-bottom:20px">
+      <p style="margin:0;font-size:16px;font-weight:800;color:#991b1b">
+        ◬ Pagamento não pôde ser executado
+      </p>
+    </div>
+    <p style="color:#374151;font-size:14px;line-height:1.7">
+      Olá ${name}, sua tentativa de pagamento de <strong>R$ ${amount}</strong> em
+      <strong>${label}</strong> via ${methodLabel} falhou.
+      <strong>Nenhum valor foi debitado</strong> do seu saldo MECPro.
+    </p>
+    ${errorMsg ? `<p style="color:#991b1b;font-size:12px;background:#fef2f2;padding:10px;border-radius:6px">Motivo: ${errorMsg}</p>` : ""}
+    <p style="color:#374151;font-size:14px">
+      Verifique o código e tente novamente. Se o problema persistir, entre em contato.
+    </p>
+  `;
+
+  return resend.emails.send({
+    from: FROM,
+    to:   email,
+    subject,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+        ${body}
+        <div style="border-top:1px solid #e9ecef;margin-top:24px;padding-top:16px">
+          <p style="color:#adb5bd;font-size:12px;margin:0">MECPro · Plataforma de Inteligência de Campanhas</p>
+        </div>
+      </div>
+    `,
+  });
+}
 }

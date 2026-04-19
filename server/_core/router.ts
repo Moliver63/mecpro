@@ -7412,6 +7412,275 @@ const mediaBudgetRouter = router({
       };
     }),
 
+  // ════════════════════════════════════════════════════════════════════════
+  //  PAGAMENTO DE CÓDIGO EXTERNO (Pix/Boleto gerado pelas plataformas de ads)
+  //  Fluxo legal: usuário gera o código no Meta/Google/TikTok e cola aqui.
+  //  MECPro paga via Asaas usando saldo da wallet. Sem violar ToS.
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── Validar código Pix/boleto SEM pagar (preview do valor/vencimento) ───
+  validateExternalCode: protectedProcedure
+    .input(z.object({ code: z.string().min(10).max(1024) }))
+    .query(async ({ input }) => {
+      const result = validateCode(input.code);
+      return {
+        type:        result.type,
+        valid:       result.type !== "invalid",
+        amount:      result.amount ? result.amount / 100 : null,
+        expiresAt:   result.expiresAt?.toISOString() ?? null,
+        recipient:   result.recipient ?? null,
+        description: result.description ?? null,
+        error:       result.error ?? null,
+      };
+    }),
+
+  // ── Pagar código Pix/boleto usando saldo da wallet ──────────────────────
+  payExternalCode: protectedProcedure
+    .input(z.object({
+      code:           z.string().min(10).max(1024),
+      amountOverride: z.number().positive().optional(),  // só se código for Pix sem valor
+      platform:       z.enum(["meta", "google", "tiktok", "other"]).default("other"),
+      notes:          z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // 1. Validar formato do código
+      const parsed: ValidatedCode = validateCode(input.code);
+      if (parsed.type === "invalid") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: parsed.error || "Código inválido" });
+      }
+
+      // 2. Determinar valor
+      const amountReais = parsed.amount
+        ? parsed.amount / 100
+        : input.amountOverride;
+
+      if (!amountReais || amountReais <= 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: parsed.type === "pix"
+            ? "Código Pix sem valor fixo — informe o valor manualmente no campo"
+            : "Valor do boleto não pôde ser extraído — informe manualmente",
+        });
+      }
+
+      // 3. Validações de segurança
+      const MIN_PAYMENT = 1;
+      const MAX_PAYMENT_PER_TX = 10000; // R$10.000 por transação
+      const MAX_PAYMENT_PER_DAY = 50000; // R$50.000 por dia
+
+      if (amountReais < MIN_PAYMENT) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Valor mínimo: R$ ${MIN_PAYMENT.toFixed(2)}` });
+      }
+      if (amountReais > MAX_PAYMENT_PER_TX) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Valor máximo por transação: R$ ${MAX_PAYMENT_PER_TX.toFixed(2)}` });
+      }
+
+      // 4. Verificar limite diário do usuário
+      const dailyRes = await pool.query(`
+        SELECT COALESCE(SUM(amount), 0) AS total_today
+        FROM media_budget
+        WHERE "userId" = $1
+          AND type = 'external_payment'
+          AND status IN ('approved', 'pending')
+          AND "createdAt" >= CURRENT_DATE
+      `, [ctx.user.id]);
+      const spentToday = Number(dailyRes.rows[0]?.total_today || 0) / 100;
+      if (spentToday + amountReais > MAX_PAYMENT_PER_DAY) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Limite diário atingido (R$ ${MAX_PAYMENT_PER_DAY.toFixed(2)}). Gasto hoje: R$ ${spentToday.toFixed(2)}`,
+        });
+      }
+
+      // 5. Verificar saldo
+      const balRes = await pool.query(
+        `SELECT balance FROM media_balance WHERE "userId" = $1 FOR UPDATE`,
+        [ctx.user.id]
+      );
+      const balanceCents = Number(balRes.rows[0]?.balance || 0);
+      const amountCents  = Math.round(amountReais * 100);
+
+      if (balanceCents < amountCents) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Saldo insuficiente. Disponível: R$ ${(balanceCents/100).toFixed(2)}, necessário: R$ ${amountReais.toFixed(2)}`,
+        });
+      }
+
+      // 6. Criar registro PENDING antes de chamar Asaas (trilha de auditoria)
+      const pendingRes = await pool.query(`
+        INSERT INTO media_budget
+          ("userId", amount, "feePercent", "feeAmount", "netAmount",
+           type, status, method, platform, notes, "operationStatus")
+        VALUES ($1, $2, 0, 0, $2,
+                'external_payment', 'pending', $3, $4, $5, 'processing')
+        RETURNING id, "createdAt"
+      `, [
+        ctx.user.id, amountCents,
+        parsed.type,  // 'pix' ou 'boleto'
+        input.platform,
+        input.notes || `Pagamento ${parsed.type} externo — ${input.platform}`,
+      ]);
+      const budgetId = pendingRes.rows[0].id;
+
+      // 7. Chamar Asaas para efetuar pagamento
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) {
+        await pool.query(
+          `UPDATE media_budget SET status='failed', "operationStatus"='config_error', "errorMsg"='Asaas não configurado' WHERE id=$1`,
+          [budgetId]
+        );
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Gateway de pagamento não configurado" });
+      }
+
+      try {
+        let asaasResp: any;
+
+        if (parsed.type === "pix") {
+          // Pagar Pix copia-e-cola via Asaas
+          const payRes = await fetch("https://api.asaas.com/v3/transfers", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({
+              operationType: "PIX",
+              value:         amountReais,
+              pixAddressKey: parsed.raw,  // código Pix copia-e-cola
+              pixAddressKeyType: "EVP",
+              description:   input.notes?.slice(0, 140) || `Pagamento ${input.platform}`,
+            }),
+            signal: AbortSignal.timeout(20000),
+          });
+          asaasResp = await payRes.json();
+
+          if (!payRes.ok || asaasResp.errors) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha no Asaas";
+            throw new Error(errMsg);
+          }
+        } else {
+          // Boleto — Asaas tem endpoint de payment
+          const payRes = await fetch("https://api.asaas.com/v3/payments", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({
+              billingType:   "BOLETO",
+              value:         amountReais,
+              dueDate:       parsed.expiresAt?.toISOString().split("T")[0],
+              identificationField: parsed.raw.replace(/\D/g, ""),
+              description:   input.notes?.slice(0, 140) || `Boleto ${input.platform}`,
+            }),
+            signal: AbortSignal.timeout(20000),
+          });
+          asaasResp = await payRes.json();
+
+          if (!payRes.ok || asaasResp.errors) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha no Asaas";
+            throw new Error(errMsg);
+          }
+        }
+
+        // 8. Debitar saldo (só após sucesso do Asaas)
+        await pool.query(`
+          UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW()
+          WHERE "userId" = $2
+        `, [amountCents, ctx.user.id]);
+
+        // 9. Atualizar registro como approved
+        await pool.query(`
+          UPDATE media_budget SET
+            status          = 'approved',
+            "operationStatus" = 'confirmed_api',
+            "approvedAt"    = NOW(),
+            "externalId"    = $1,
+            "verifiedBy"    = 'asaas_api',
+            "verifiedAt"    = NOW(),
+            "updatedAt"     = NOW()
+          WHERE id = $2
+        `, [String(asaasResp.id || ""), budgetId]);
+
+        // 10. Registrar no ledger
+        try {
+          await recordLedger(pool, {
+            userId:    ctx.user.id,
+            type:      "ad_spend",
+            amount:    amountCents,
+            direction: "debit",
+            platform:  input.platform,
+            reference: `ext-pay-${budgetId}`,
+            notes:     `Pagamento ${parsed.type} externo — ${input.platform} — R$${amountReais.toFixed(2)}`,
+          });
+        } catch {}
+
+        log.info("payExternalCode", "✅ Pagamento externo executado", {
+          userId: ctx.user.id, budgetId, type: parsed.type,
+          amount: amountReais, platform: input.platform,
+          asaasId: asaasResp.id,
+        });
+
+        return {
+          success:    true,
+          budgetId,
+          type:       parsed.type,
+          amount:     amountReais,
+          platform:   input.platform,
+          asaasId:    asaasResp.id,
+          status:     "approved",
+        };
+
+      } catch (e: any) {
+        // Marcar como failed e NÃO debitar saldo
+        await pool.query(`
+          UPDATE media_budget SET
+            status          = 'failed',
+            "operationStatus" = 'failed',
+            "errorMsg"      = $1,
+            "updatedAt"     = NOW()
+          WHERE id = $2
+        `, [e.message?.slice(0, 500), budgetId]);
+
+        log.error("payExternalCode", "Falha no pagamento externo", {
+          userId: ctx.user.id, budgetId, error: e.message,
+        });
+
+        throw new TRPCError({
+          code:    "INTERNAL_SERVER_ERROR",
+          message: `Falha no pagamento: ${e.message}`,
+        });
+      }
+    }),
+
+  // ── Listar pagamentos externos do usuário (histórico) ───────────────────
+  listExternalPayments: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }).optional())
+    .query(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) return [];
+
+      const res = await pool.query(`
+        SELECT id, amount, platform, method, status, "operationStatus",
+               "externalId", "createdAt", "approvedAt", "errorMsg", notes
+        FROM media_budget
+        WHERE "userId" = $1 AND type = 'external_payment'
+        ORDER BY "createdAt" DESC LIMIT $2
+      `, [ctx.user.id, input?.limit ?? 20]);
+
+      return res.rows.map((r: any) => ({
+        id:           r.id,
+        amount:       Number(r.amount) / 100,
+        platform:     r.platform,
+        method:       r.method,   // 'pix' ou 'boleto'
+        status:       r.status,
+        operationStatus: r.operationStatus,
+        asaasId:      r.externalId,
+        createdAt:    r.createdAt,
+        approvedAt:   r.approvedAt,
+        error:        r.errorMsg,
+        notes:        r.notes,
+      }));
+    }),
+
   // ── Buscar campanhas de TODAS as plataformas — APENAS criadas pelo MECPro ───
   allPlatformCampaigns: protectedProcedure
     .input(z.object({ period: z.enum(["7d","30d","90d"]).default("30d") }))
