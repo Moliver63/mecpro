@@ -15,6 +15,7 @@ const R = (v?: number | null) =>
 const TABS = [
   { id: "overview",  icon: "▣", label: "Visão Geral",    color: "#0071e3" },
   { id: "deposit",   icon: "◫", label: "Depositar",       color: "#0071e3" },
+  { id: "buy",       icon: "◆", label: "Comprar",         color: "#30d158" },
   { id: "credits",   icon: "◈", label: "Créditos",        color: "#30d158" },
   { id: "rateio",    icon: "◉", label: "Rateio",          color: "#5856d6" },
   { id: "transfer",  icon: "◍", label: "Transferir",      color: "#ff9f0a" },
@@ -352,6 +353,176 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TabBuyCredits({ balance, onBack }: { balance: any; onBack: () => void }) {
+  const walletBalance = (balance as any)?.balance ?? 0;
+
+  const [amounts, setAmounts] = useState<Record<string, string>>({ meta: "", google: "", tiktok: "" });
+  const [campaigns, setCampaigns] = useState<Record<string, string>>({ meta: "", google: "", tiktok: "" });
+  const [result, setResult] = useState<any>(null);
+
+  const PLAT_CFG = [
+    { key: "meta",   label: "Meta Ads",   icon: "📘", color: "#1877f2", bg: "rgba(24,119,242,0.08)"  },
+    { key: "google", label: "Google Ads", icon: "🔵", color: "#1a73e8", bg: "rgba(26,115,232,0.08)"  },
+    { key: "tiktok", label: "TikTok Ads", icon: "◼",  color: "#111",    bg: "rgba(0,0,0,0.05)"       },
+  ];
+
+  const total = PLAT_CFG.reduce((sum, p) => sum + (parseFloat(amounts[p.key]) || 0), 0);
+  const hasEnough = walletBalance >= total && total > 0;
+
+  const applyMut = (trpc as any).mediaBudget?.applyDistribution?.useMutation?.({
+    onSuccess: (data: any) => {
+      setResult(data);
+      if (data.applied?.length) toast.success(`◎ ${data.applied.length} campanha(s) atualizada(s)!`);
+      if (data.failed?.length)  toast.error(`◬ ${data.failed.length} falha(s). Verifique as integrações.`);
+    },
+    onError: (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+
+  const handleBuy = () => {
+    const items = PLAT_CFG
+      .filter(p => parseFloat(amounts[p.key]) > 0 && campaigns[p.key])
+      .map(p => ({
+        platform:   p.key as "meta" | "google" | "tiktok",
+        campaignId: campaigns[p.key],
+        amount:     parseFloat(amounts[p.key]),
+      }));
+
+    if (!items.length) {
+      toast.error("Informe o valor e o ID da campanha para pelo menos uma plataforma.");
+      return;
+    }
+
+    applyMut.mutate({ items, totalAmount: total, deductFromBalance: true });
+  };
+
+  return (
+    <div>
+      <SectionHeader icon="◆" color="#30d158" title="Comprar Créditos"
+        sub="Use seu saldo MECPro para adicionar verba nas campanhas" onBack={onBack} />
+
+      {/* Saldo disponível */}
+      <InfoCard color="#30d158">
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+          Saldo disponível na wallet
+        </div>
+        <div style={{ fontSize: 36, fontWeight: 900, color: "#30d158", letterSpacing: "-0.05em" }}>
+          {R(walletBalance)}
+        </div>
+        {walletBalance <= 0 && (
+          <div style={{ fontSize: 12, color: "var(--red)", marginTop: 6, fontWeight: 600 }}>
+            ◬ Saldo insuficiente — deposite primeiro na aba Depositar
+          </div>
+        )}
+      </InfoCard>
+
+      {/* Explicação rápida */}
+      <div style={{ background: "var(--blue-l)", border: "1px solid rgba(0,113,227,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--blue)" }}>
+        ◉ Informe o valor e o ID da campanha em cada plataforma. O sistema atualiza o orçamento diário via API e debita seu saldo automaticamente.
+      </div>
+
+      {/* Cards por plataforma */}
+      {PLAT_CFG.map(p => (
+        <div key={p.key} style={{ ...{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", border: "1px solid var(--glass-border)", borderRadius: "var(--r)", padding: 18, marginBottom: 12, boxShadow: "var(--shadow-xs)" } }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 9, background: p.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+              {p.icon}
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: p.color }}>{p.label}</div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {/* Valor */}
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>
+                Valor (R$/dia)
+              </label>
+              <input
+                type="number"
+                placeholder="Ex: 50"
+                value={amounts[p.key]}
+                onChange={e => setAmounts(v => ({ ...v, [p.key]: e.target.value }))}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font)", boxSizing: "border-box" }}
+              />
+            </div>
+
+            {/* ID da campanha */}
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>
+                ID da campanha
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: 1234567890"
+                value={campaigns[p.key]}
+                onChange={e => setCampaigns(v => ({ ...v, [p.key]: e.target.value }))}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }}
+              />
+            </div>
+          </div>
+
+          {amounts[p.key] && !campaigns[p.key] && (
+            <div style={{ fontSize: 11, color: "var(--orange)", marginTop: 6 }}>◬ Informe o ID da campanha</div>
+          )}
+        </div>
+      ))}
+
+      {/* Resumo */}
+      {total > 0 && (
+        <div style={{ background: "var(--off)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Total a debitar</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: hasEnough ? "var(--dark)" : "var(--red)", letterSpacing: "-0.04em" }}>{R(total)}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 11, color: "var(--muted)" }}>Saldo após</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: hasEnough ? "var(--green-d)" : "var(--red)" }}>
+              {hasEnough ? R(walletBalance - total) : "Insuficiente"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Botão comprar */}
+      <button
+        onClick={handleBuy}
+        disabled={!hasEnough || applyMut.isPending}
+        style={{ ...primaryBtn(hasEnough ? "linear-gradient(135deg,#30d158,#248a3d)" : "#aaa"), opacity: (!hasEnough || applyMut.isPending) ? 0.6 : 1 }}>
+        {applyMut.isPending ? "Processando..." : hasEnough ? `◎ Comprar créditos — ${R(total)}` : "Saldo insuficiente"}
+      </button>
+
+      {/* Resultado */}
+      {result && (
+        <div style={{ marginTop: 16 }}>
+          {result.applied?.length > 0 && (
+            <div style={{ background: "rgba(48,209,88,0.08)", border: "1px solid rgba(48,209,88,0.25)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--green-d)", marginBottom: 8 }}>◎ Créditos aplicados com sucesso</div>
+              {result.applied.map((a: any, i: number) => (
+                <div key={i} style={{ fontSize: 12, color: "var(--body)", marginBottom: 3, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>{a.platform === "meta" ? "📘" : a.platform === "google" ? "🔵" : "◼"}</span>
+                  <span style={{ fontWeight: 600 }}>{a.platform?.toUpperCase()}</span>
+                  <span style={{ color: "var(--muted)" }}>·</span>
+                  <span>R$ {a.amount?.toFixed(2)}/dia</span>
+                  {a.adsetName && <span style={{ color: "var(--muted)" }}>· {a.adsetName}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+          {result.failed?.length > 0 && (
+            <div style={{ background: "rgba(255,59,48,0.06)", border: "1px solid rgba(255,59,48,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px" }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--red)", marginBottom: 8 }}>◬ Falhas ao aplicar</div>
+              {result.failed.map((f: any, i: number) => (
+                <div key={i} style={{ fontSize: 12, color: "var(--body)", marginBottom: 3 }}>
+                  <span style={{ fontWeight: 600 }}>{f.platform?.toUpperCase()}</span> · {f.error}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -924,9 +1095,10 @@ export default function Financeiro() {
             )}
 
             {tab === 1 && <TabDeposit balance={balance} ps={ps} onBack={() => setTab(0)} />}
-            {tab === 2 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
-            {tab === 3 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
-            {tab === 4 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
+            {tab === 2 && <TabBuyCredits balance={balance} onBack={() => setTab(0)} />}
+            {tab === 3 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
+            {tab === 4 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
+            {tab === 5 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
           </div>
         </div>
 
