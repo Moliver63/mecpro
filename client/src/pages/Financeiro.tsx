@@ -469,7 +469,7 @@ function TabRateio({ ps, summary, onBack }: { ps: any; summary: any; onBack: () 
               </div>
             </div>
           ))}
-          <button onClick={() => updateMutation.mutate({ distribution: dist })}
+          <button onClick={() => updateMutation.mutate({ dist: { meta: dist.meta ?? 0, google: dist.google ?? 0, tiktok: dist.tiktok ?? 0 } })}
             disabled={total !== 100 || updateMutation.isPending}
             style={{ ...primaryBtn("linear-gradient(135deg,#5856d6,#4c46c4)"), opacity: total !== 100 ? 0.45 : 1, cursor: total !== 100 ? "not-allowed" : "pointer" }}>
             {updateMutation.isPending ? "Salvando..." : total !== 100 ? `Total deve ser 100% (atual: ${total}%)` : "Salvar Rateio"}
