@@ -454,10 +454,13 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
             <div style={{ fontSize: 14, fontWeight: 800, color: p.color }}>{p.label}</div>
             {pd?.connected && platBalance !== null && (
               <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: platBalance > 0 ? "var(--dark)" : "var(--red)" }}>
-                  {R(platBalance)}
+                <div style={{ fontSize: 13, fontWeight: 900, color: (pd?.displayBalance ?? platBalance) > 0 ? "var(--dark)" : "var(--red)" }}>
+                  {R(pd?.displayBalance ?? platBalance)}
                 </div>
-                <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase" }}>saldo</div>
+                <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase" }}>
+                  {pd?.hasDebt ? "crédito" : "saldo"}
+                </div>
+                {pd?.hasDebt && <div style={{ fontSize: 9, color: "var(--orange)" }}>débito {R(pd.debtAmount)}</div>}
               </div>
             )}
             {p.key === "google" && pd?.connected && (
@@ -1189,10 +1192,19 @@ export default function Financeiro() {
                             </div>
                           ) : (
                             <div>
-                              <div style={{ fontSize: 18, fontWeight: 900, color: d?.balance > 0 ? "var(--dark)" : "var(--red)", letterSpacing: "-0.03em" }}>{R(d?.balance)}</div>
-                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
-                                {d?.daysLeft != null ? `≈ ${d.daysLeft} dias restantes` : "saldo disponível"}
+                              <div style={{ fontSize: 18, fontWeight: 900, color: (d?.displayBalance ?? d?.balance) > 0 ? "var(--dark)" : "var(--red)", letterSpacing: "-0.03em" }}>
+                                {R(d?.displayBalance ?? d?.balance)}
                               </div>
+                              {d?.hasDebt && d?.debtAmount > 0 && (
+                                <div style={{ fontSize: 10, color: "var(--orange)", marginTop: 2, fontWeight: 600 }}>
+                                  ◬ Débito pendente: {R(d.debtAmount)}
+                                </div>
+                              )}
+                              {!d?.hasDebt && (
+                                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
+                                  {d?.daysLeft != null ? `≈ ${d.daysLeft} dias restantes` : "saldo disponível"}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

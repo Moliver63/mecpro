@@ -5982,31 +5982,52 @@ const unifiedRouter = router({
         if (token && rawAct) {
           const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
           const res = await fetch(
-            `https://graph.facebook.com/v19.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,min_daily_budget&access_token=${token}`,
+            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,adspaymentcycle,min_daily_budget&access_token=${token}`,
             { signal: AbortSignal.timeout(8000) }
           );
           const d: any = await res.json();
           if (!d.error) {
-            const balance    = Number(d.balance    || 0) / 100;
-            const spent      = Number(d.amount_spent || 0) / 100;
-            const cap        = Number(d.spend_cap   || 0) / 100;
-            const remaining  = cap > 0 ? cap - spent : null;
-            const dailyAvg   = spent > 0 ? spent / 30 : 0;
-            const daysLeft   = (remaining && dailyAvg > 0) ? Math.floor(remaining / dailyAvg) : null;
+            const balanceLiquido = Number(d.balance || 0) / 100;
+            const spent          = Number(d.amount_spent || 0) / 100;
+            const cap            = Number(d.spend_cap || 0) / 100;
+            const debtAmount     = Number(d.adspaymentcycle?.debt_payment_option?.amount || 0) / 100;
+            const remaining      = cap > 0 ? cap - spent : null;
+            const dailyAvg       = spent > 0 ? spent / 30 : 0;
+            const daysLeft       = (remaining && dailyAvg > 0) ? Math.floor(remaining / dailyAvg) : null;
+
+            // Buscar crédito bruto via transactions
+            let creditBruto = 0;
+            try {
+              const txRes = await fetch(
+                `https://graph.facebook.com/v20.0/${act}/transactions?fields=amount,balance_after,type,time&limit=20&access_token=${token}`,
+                { signal: AbortSignal.timeout(8000) }
+              );
+              const txData: any = await txRes.json();
+              if (!txData.error && txData.data?.length) {
+                creditBruto = Number(txData.data[0].balance_after || 0) / 100;
+              }
+            } catch {}
+
+            const displayBalance = creditBruto > 0 ? creditBruto : balanceLiquido;
+
             results.meta = {
-              connected:   true,
-              balance,
+              connected:     true,
+              balance:       balanceLiquido,
+              creditBruto,
+              displayBalance,
+              debtAmount,
+              hasDebt:       debtAmount > 0,
               spent,
-              cap:         cap > 0 ? cap : null,
+              cap:           cap > 0 ? cap : null,
               remaining,
-              currency:    d.currency || "BRL",
-              status:      d.account_status,
+              currency:      d.currency || "BRL",
+              status:        d.account_status,
               daysLeft,
               dailyAvg,
-              fundingType: d.funding_source_details?.type || null,
-              rechargeUrl: `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
-              alert:       daysLeft !== null && daysLeft <= 5 ? "critical"
-                         : daysLeft !== null && daysLeft <= 10 ? "warning" : null,
+              fundingType:   d.funding_source_details?.type || null,
+              rechargeUrl:   `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
+              alert:         daysLeft !== null && daysLeft <= 5 ? "critical"
+                           : daysLeft !== null && daysLeft <= 10 ? "warning" : null,
             };
           } else {
             results.meta = { connected: true, error: d.error.message };
@@ -6841,31 +6862,62 @@ const mediaBudgetRouter = router({
       const userId = ctx.user.id;
       const results: Record<string, any> = {};
 
-      // META — balance real da conta
+      // META — balance + crédito prepago real
       try {
         const metaInt = await db.getApiIntegration(userId, "meta");
         const token   = (metaInt as any)?.accessToken;
         const rawAct  = (metaInt as any)?.adAccountId;
         if (token && rawAct) {
           const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+
+          // 1. Dados principais da conta — inclui adspaymentcycle para saldo devedor
           const res = await fetch(
-            `https://graph.facebook.com/v19.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details&access_token=${token}`,
+            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,adspaymentcycle&access_token=${token}`,
             { signal: AbortSignal.timeout(8000) }
           );
           const d: any = await res.json();
+
           if (!d.error) {
-            const balance   = Number(d.balance || 0) / 100;
-            const spent     = Number(d.amount_spent || 0) / 100;
-            const cap       = Number(d.spend_cap || 0) / 100;
-            const remaining = cap > 0 ? cap - spent : null;
+            const balanceLiquido = Number(d.balance || 0) / 100;
+            const spent          = Number(d.amount_spent || 0) / 100;
+            const cap            = Number(d.spend_cap || 0) / 100;
+            const debtAmount     = Number(d.adspaymentcycle?.debt_payment_option?.amount || 0) / 100;
+            const remaining      = cap > 0 ? cap - spent : null;
+
+            // 2. Buscar transações para ver crédito bruto depositado
+            //    Recargas prepago aparecem como type=PREPAY_FUNDS
+            let creditBruto = 0;
+            try {
+              const txRes = await fetch(
+                `https://graph.facebook.com/v20.0/${act}/transactions?fields=amount,balance_after,type,time&limit=20&access_token=${token}`,
+                { signal: AbortSignal.timeout(8000) }
+              );
+              const txData: any = await txRes.json();
+              if (!txData.error && txData.data?.length) {
+                // Pega o balance_after mais recente (última transação = saldo atual real)
+                const latest = txData.data[0];
+                creditBruto  = Number(latest.balance_after || 0) / 100;
+              }
+            } catch {}
+
+            // Saldo a exibir: se creditBruto > balanceLiquido, mostra os dois
+            const displayBalance = creditBruto > 0 ? creditBruto : balanceLiquido;
+
             results.meta = {
-              connected: true, balance, spent,
-              cap: cap > 0 ? cap : null, remaining,
-              currency: d.currency || "BRL",
-              accountStatus: d.account_status,
-              fundingSource: d.funding_source_details?.type || null,
-              rechargeUrl: `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
-              alert: balance < 50 ? "critical" : balance < 200 ? "warning" : null,
+              connected:       true,
+              balance:         balanceLiquido,   // saldo líquido (pode ser 0 com débito)
+              creditBruto,                        // crédito prepago bruto depositado
+              displayBalance,                     // o que mostrar ao usuário
+              debtAmount,                         // saldo devedor pendente
+              spent,
+              cap:             cap > 0 ? cap : null,
+              remaining,
+              currency:        d.currency || "BRL",
+              accountStatus:   d.account_status,
+              fundingSource:   d.funding_source_details?.type || null,
+              hasDebt:         debtAmount > 0,
+              rechargeUrl:     `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
+              alert:           displayBalance < 50 ? "critical" : displayBalance < 200 ? "warning" : null,
             };
           } else {
             results.meta = { connected: true, error: d.error.message };
