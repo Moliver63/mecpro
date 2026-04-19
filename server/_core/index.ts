@@ -253,9 +253,53 @@ app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async
   try {
     log.info('stripe', `Webhook recebido: ${event.type}`);
 
-    // ── Checkout concluído (assinatura nova) ─────────────────────────────
+    // ── Checkout concluído ───────────────────────────────────────────────
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as Stripe.Checkout.Session;
+      const sessionType = session.metadata?.type;
+
+      // ── WALLET DEPOSIT (recarga via cartão de crédito) ─────────────────
+      if (sessionType === 'wallet_deposit') {
+        const userId    = Number(session.metadata?.userId);
+        const netAmount = Number(session.metadata?.netAmount || 0);
+        const grossAmt  = Number(session.metadata?.feeAmount || 0) + netAmount;
+        const feeAmount = Number(session.metadata?.feeAmount || 0);
+
+        if (userId && netAmount > 0) {
+          const pool = await getPool();
+          if (pool) {
+            try {
+              // Marca depósito como aprovado
+              await pool.query(
+                `UPDATE media_budget
+                 SET status='approved', "approvedAt"=NOW(), "operationStatus"='confirmed_api', "updatedAt"=NOW()
+                 WHERE "stripeId" = $1 AND type = 'deposit'`,
+                [session.id]
+              );
+
+              // Credita líquido na wallet
+              await pool.query(`
+                INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees")
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT ("userId") DO UPDATE SET
+                  balance          = media_balance.balance + $2,
+                  "totalDeposited" = media_balance."totalDeposited" + $3,
+                  "totalFees"      = media_balance."totalFees" + $4,
+                  "updatedAt"      = NOW()
+              `, [userId, netAmount, grossAmt, feeAmount]);
+
+              log.info('stripe', '✅ Recarga via cartão creditada', {
+                userId, sessionId: session.id, netAmount: netAmount / 100,
+              });
+            } catch (err: any) {
+              log.error('stripe', 'Erro ao creditar wallet', { error: err.message, sessionId: session.id });
+            }
+          }
+        }
+        return res.json({ received: true });
+      }
+
+      // ── SUBSCRIPTION (ativação de plano — fluxo antigo) ───────────────
       const userId   = session.metadata?.user_id;
       const planSlug = session.metadata?.plan_slug as 'basic' | 'premium' | 'vip' | undefined;
       const stripeCustomerId    = session.customer as string;

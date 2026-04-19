@@ -6395,41 +6395,115 @@ const mediaBudgetRouter = router({
   // Solicitar depósito via Stripe (cartão)
   requestCardDeposit: protectedProcedure
     .input(z.object({
-      amount: z.number().min(50).max(100000),
-      notes:  z.string().optional(),
+      amount:  z.number().min(10).max(100000),
+      cpfCnpj: z.string().min(11).max(18),
+      notes:   z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!stripe) throw new TRPCError({ code: "BAD_REQUEST", message: "Pagamento por cartão não configurado." });
-
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Gateway Asaas não configurado." });
+
       const amountCents = Math.round(input.amount * 100);
-      const feePercent  = 10;
+      const feeConfig   = await db.getAdminSetting("payment_fee_percent");
+      const feePercent  = Number(feeConfig || "10");
       const feeAmount   = Math.round(amountCents * feePercent / 100);
       const netAmount   = amountCents - feeAmount;
 
-      // Cria PaymentIntent no Stripe
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount:   amountCents,
-        currency: "brl",
-        metadata: { userId: String(ctx.user.id), type: "media_budget", feePercent: String(feePercent) },
-        description: `MECPro — Recarga de verba de mídia (R$ ${(amountCents/100).toFixed(2)})`,
-      });
+      const cleanCpf = input.cpfCnpj.replace(/\D/g, "");
+      if (cleanCpf.length < 11) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "CPF ou CNPJ inválido." });
+      }
 
-      // Registra no banco como pendente
+      // 1. Busca ou cria cliente no Asaas
+      const userRes = await db.getUserById(ctx.user.id) as any;
+      let asaasCustomerId: string;
+
+      const searchRes = await fetch(
+        `https://api.asaas.com/v3/customers?email=${encodeURIComponent(userRes.email)}&limit=1`,
+        { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+      );
+      const searchData: any = await searchRes.json();
+
+      if (searchData.data?.[0]?.id) {
+        asaasCustomerId = searchData.data[0].id;
+        await fetch(`https://api.asaas.com/v3/customers/${asaasCustomerId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", access_token: asaasKey },
+          body: JSON.stringify({ cpfCnpj: cleanCpf }),
+          signal: AbortSignal.timeout(8000),
+        });
+      } else {
+        const createRes = await fetch("https://api.asaas.com/v3/customers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", access_token: asaasKey },
+          body: JSON.stringify({
+            name:              userRes.name || userRes.email,
+            email:             userRes.email,
+            cpfCnpj:           cleanCpf,
+            externalReference: String(ctx.user.id),
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const createData: any = await createRes.json();
+        if (!createData.id) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Falha ao criar cliente Asaas: ${createData.errors?.[0]?.description || "erro desconhecido"}`,
+          });
+        }
+        asaasCustomerId = createData.id;
+      }
+
+      // 2. Cria cobrança com billingType=CREDIT_CARD
+      //    Asaas gera invoiceUrl — página hospedada que aceita cartão
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);  // vencimento em 3 dias
+
+      const payRes = await fetch("https://api.asaas.com/v3/payments", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", access_token: asaasKey },
+        body: JSON.stringify({
+          customer:          asaasCustomerId,
+          billingType:       "CREDIT_CARD",
+          value:             input.amount,
+          dueDate:           dueDate.toISOString().split("T")[0],
+          description:       `MECPro — Recarga wallet R$ ${input.amount.toFixed(2)} (taxa ${feePercent}%)`,
+          externalReference: `wallet-${ctx.user.id}-${Date.now()}`,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const payData: any = await payRes.json();
+
+      if (!payRes.ok || !payData.id) {
+        log.error("card-deposit", "Asaas erro ao criar cobrança cartão", { error: payData });
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Falha ao gerar pagamento: ${payData.errors?.[0]?.description || "erro Asaas"}`,
+        });
+      }
+
+      // 3. Registra no banco como pendente
       await pool.query(
-        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, "stripeId", notes)
-         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'card', $6, $7)`,
-        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount, paymentIntent.id, input.notes || null]
+        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount",
+          type, status, method, "stripeId", notes, "operationStatus")
+         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'card', $6, $7, 'awaiting_payment')`,
+        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount, payData.id, input.notes || null]
       );
 
+      log.info("card-deposit", "Cobrança cartão criada via Asaas", {
+        userId: ctx.user.id, amount: input.amount, asaasId: payData.id,
+      });
+
       return {
-        clientSecret: paymentIntent.client_secret,
-        amount:       input.amount,
+        invoiceUrl:  payData.invoiceUrl,   // URL hospedada Asaas para pagar
+        asaasId:     payData.id,
+        amount:      input.amount,
         feePercent,
-        feeAmount:    feeAmount / 100,
-        netAmount:    netAmount / 100,
+        feeAmount:   feeAmount / 100,
+        netAmount:   netAmount / 100,
       };
     }),
 

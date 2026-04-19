@@ -134,6 +134,28 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
     onError: (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
 
+  const cardMutation = (trpc as any).mediaBudget?.requestCardDeposit?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast.success("◎ Redirecionando para pagamento seguro...");
+      // Redireciona para a página hospedada do Asaas (PCI-DSS-SAQ-A)
+      // Usuário paga com cartão lá e volta para o MECPro
+      window.location.href = data.invoiceUrl;
+    },
+    onError: (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+
+  const handleSubmit = () => {
+    if (!parsed || parsed <= 0) { toast.error("Informe o valor"); return; }
+    const cleanCpf = cpf.replace(/\D/g, "");
+    if (cleanCpf.length < 11) { toast.error("Informe um CPF ou CNPJ válido"); return; }
+
+    if (method === "pix") {
+      pixMutation.mutate({ amount: parsed, cpfCnpj: cleanCpf });
+    } else {
+      cardMutation.mutate({ amount: parsed, cpfCnpj: cleanCpf });
+    }
+  };
+
   if (!(ps as any)?.modeWallet) {
     return (
       <div>
@@ -299,24 +321,18 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
 
           {/* Botão */}
           <button
-            onClick={() => {
-              if (method === "pix") {
-                pixMutation.mutate({ amount: parsed, cpfCnpj: cpf });
-              } else {
-                toast.info("Pagamento por cartão em breve. Use o Pix por enquanto.");
-              }
-            }}
-            disabled={parsed < 50 || pixMutation.isPending || (method === "pix" && cpf.replace(/\D/g,"").length < 11)}
+            onClick={handleSubmit}
+            disabled={parsed < 10 || (pixMutation.isPending || cardMutation.isPending) || (method === "pix" && cpf.replace(/\D/g,"").length < 11)}
             style={{
               ...primaryBtn(), marginTop: 4,
-              opacity: (parsed < 50 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? 0.45 : 1,
-              cursor:  (parsed < 50 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? "not-allowed" : "pointer",
+              opacity: (parsed < 10 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? 0.45 : 1,
+              cursor:  (parsed < 10 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? "not-allowed" : "pointer",
             }}>
-            {pixMutation.isPending ? "Gerando..." : method === "pix" ? `Gerar Pix de ${parsed >= 50 ? R(parsed) : "R$ ——"}` : `Pagar ${parsed >= 50 ? R(parsed) : ""} com Cartão`}
+            {(pixMutation.isPending || cardMutation.isPending) ? "Processando..." : method === "pix" ? "◎ Gerar Pix" : "◎ Ir para pagamento com cartão"}
           </button>
 
-          {parsed > 0 && parsed < 50 && (
-            <div style={{ fontSize: 11, color: "var(--red)", textAlign: "center", marginTop: 6 }}>Valor mínimo: R$ 50,00</div>
+          {parsed > 0 && parsed < 10 && (
+            <div style={{ fontSize: 11, color: "var(--red)", textAlign: "center", marginTop: 6 }}>Valor mínimo: R$ 10,00</div>
           )}
         </div>
 
