@@ -15,10 +15,10 @@ const R = (v?: number | null) =>
 const TABS = [
   { id: "overview",  icon: "▣", label: "Visão Geral",    color: "#0071e3" },
   { id: "deposit",   icon: "◫", label: "Depositar",       color: "#0071e3" },
-  { id: "pay",       icon: "⎆", label: "Pagar Código",    color: "#af52de" },
-  { id: "buy",       icon: "◆", label: "Comprar",         color: "#30d158" },
-  { id: "credits",   icon: "◈", label: "Créditos",        color: "#30d158" },
   { id: "rateio",    icon: "◉", label: "Rateio",          color: "#5856d6" },
+  { id: "buy",       icon: "◆", label: "Comprar",         color: "#30d158" },
+  { id: "pay",       icon: "⎆", label: "Pagar Código",    color: "#af52de" },
+  { id: "credits",   icon: "◈", label: "Créditos",        color: "#30d158" },
   { id: "transfer",  icon: "◍", label: "Transferir",      color: "#ff9f0a" },
 ];
 
@@ -306,27 +306,25 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
             ))}
           </div>
 
-          {/* CPF (só Pix) */}
-          {method === "pix" && (
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
-                CPF / CNPJ
-              </label>
-              <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00 ou 00.000.000/0001-00"
-                style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 14, fontFamily: "var(--font)", boxSizing: "border-box" }}
-              />
-              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>Obrigatório para emissão do Pix pelo Asaas</div>
-            </div>
-          )}
+          {/* CPF / CNPJ — obrigatório para Pix e Cartão */}
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+              CPF / CNPJ
+            </label>
+            <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00 ou 00.000.000/0001-00"
+              style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 14, fontFamily: "var(--font)", boxSizing: "border-box" }}
+            />
+            <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>Obrigatório para emissão da cobrança via Asaas</div>
+          </div>
 
           {/* Botão */}
           <button
             onClick={handleSubmit}
-            disabled={parsed < 10 || (pixMutation.isPending || cardMutation.isPending) || (method === "pix" && cpf.replace(/\D/g,"").length < 11)}
+            disabled={parsed < 10 || (pixMutation.isPending || cardMutation.isPending) || cpf.replace(/\D/g,"").length < 11}
             style={{
               ...primaryBtn(), marginTop: 4,
-              opacity: (parsed < 10 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? 0.45 : 1,
-              cursor:  (parsed < 10 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? "not-allowed" : "pointer",
+              opacity: (parsed < 10 || cpf.replace(/\D/g,"").length < 11) ? 0.45 : 1,
+              cursor:  (parsed < 10 || cpf.replace(/\D/g,"").length < 11) ? "not-allowed" : "pointer",
             }}>
             {(pixMutation.isPending || cardMutation.isPending) ? "Processando..." : method === "pix" ? "◎ Gerar Pix" : "◎ Ir para pagamento com cartão"}
           </button>
@@ -1507,10 +1505,10 @@ export default function Financeiro() {
             )}
 
             {tab === 1 && <TabDeposit balance={balance} ps={ps} onBack={() => setTab(0)} />}
-            {tab === 2 && <TabPayCode balance={balance} onBack={() => setTab(0)} />}
+            {tab === 2 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
             {tab === 3 && <TabBuyCredits balance={balance} platBal={platBal} onBack={() => setTab(0)} />}
-            {tab === 4 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
-            {tab === 5 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
+            {tab === 4 && <TabPayCode balance={balance} onBack={() => setTab(0)} />}
+            {tab === 5 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
             {tab === 6 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
           </div>
         </div>
