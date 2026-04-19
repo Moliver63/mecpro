@@ -1163,6 +1163,7 @@ export default function CampaignResult() {
 
   return (
     <Layout>
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 4px", fontFamily: "var(--font)" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
         <div>
@@ -2203,8 +2204,8 @@ export default function CampaignResult() {
       )}
 
       {showModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflowY: "auto" }}>
-          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: "100%", boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(8px, 2vw, 20px)", overflowY: "auto", paddingTop: "clamp(16px, 4vh, 40px)" }}>
+          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: 1200, boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
 
             {/* HEADER */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 24px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -2217,10 +2218,10 @@ export default function CampaignResult() {
             </div>
 
             {/* BODY — duas colunas */}
-            <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
+            <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0, flexWrap: "nowrap" }} className="publish-modal-body">
 
               {/* COLUNA ESQUERDA — configurações */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", borderRight: "1px solid var(--border)", minWidth: 0 }}>
+              <div style={{ width: "clamp(280px, 45%, 520px)", flexShrink: 0, overflowY: "auto", overflowX: "hidden", padding: "20px 24px", borderRight: "1px solid var(--border)" }}>
 
                 {/* Preset de posicionamento por nicho */}
                 <div style={{ marginBottom: 16 }}>
@@ -2609,7 +2610,7 @@ export default function CampaignResult() {
               </div>
 
               {/* COLUNA DIREITA — mídia + botões */}
-              <div style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "20px 24px", background: "#fafafa", display: "flex", flexDirection: "column" }}>
+              <div style={{ flex: 1, minWidth: 280, maxWidth: 400, overflowY: "auto", overflowX: "hidden", padding: "20px 24px", background: "var(--off)", display: "flex", flexDirection: "column" }}>
 
                 {/* Mídia do criativo */}
                 <div style={{ marginBottom: 16 }}>
@@ -2973,8 +2974,8 @@ export default function CampaignResult() {
 
       {/* ── Modal Post Orgânico ── */}
       {showOrganicModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, overflowY: "auto" }}>
-          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: "100%", boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(8px, 2vw, 20px)", overflowY: "auto", paddingTop: "clamp(16px, 4vh, 40px)" }}>
+          <div style={{ background: "white", borderRadius: 20, width: "100%", maxWidth: 1200, boxShadow: "0 24px 80px rgba(0,0,0,.3)", display: "flex", flexDirection: "column", maxHeight: "95vh", overflow: "hidden" }}>
 
             {/* HEADER */}
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 24px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
@@ -3009,10 +3010,10 @@ export default function CampaignResult() {
             ) : (
 
               // ── BODY: duas colunas ──
-              <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
+              <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0, flexWrap: "nowrap" }} className="publish-modal-body">
 
                 {/* COLUNA ESQUERDA — configurações */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", borderRight: "1px solid var(--border)", minWidth: 0 }}>
+                <div style={{ width: "clamp(280px, 45%, 520px)", flexShrink: 0, overflowY: "auto", overflowX: "hidden", padding: "20px 24px", borderRight: "1px solid var(--border)" }}>
 
                   {/* Página do Facebook */}
                   <div style={{ marginBottom: 16 }}>
@@ -3124,7 +3125,7 @@ export default function CampaignResult() {
                 </div>
 
                 {/* COLUNA DIREITA — mensagem + imagem + botões */}
-                <div style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "20px 24px", background: "#fafafa", display: "flex", flexDirection: "column" }}>
+                <div style={{ flex: 1, minWidth: 280, maxWidth: 400, overflowY: "auto", overflowX: "hidden", padding: "20px 24px", background: "var(--off)", display: "flex", flexDirection: "column" }}>
 
                   {/* Mensagem */}
                   <div style={{ marginBottom: 16 }}>
@@ -3287,6 +3288,7 @@ export default function CampaignResult() {
           button, .no-print { display: none !important; }
         }
       `}</style>
+      </div>
     </Layout>
   );
 }

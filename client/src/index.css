@@ -1372,3 +1372,20 @@ tbody tr:last-child td { border-bottom: none; }
 .sym-warn    { color: var(--orange);    }
 .sym-locked  { color: var(--muted);     }
 .sym-premium { color: var(--indigo);    }
+
+/* ── Modais de publicação responsivos ── */
+@media (max-width: 768px) {
+  /* Empilhar colunas do modal em mobile */
+  .publish-modal-body {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+  .publish-modal-col-left,
+  .publish-modal-col-right {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+  }
+}
