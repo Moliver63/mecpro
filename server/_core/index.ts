@@ -442,6 +442,96 @@ app.post('/api/admin/credit-balance', async (req: Request, res: Response) => {
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
 
+// ─── Smoke test E2E — valida fluxo completo de recarga ──────────────────────
+app.get('/api/smoke-test/recharge', async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET || process.env.JWT_SECRET || '';
+  const auth = (req.headers.authorization || '').replace('Bearer ', '');
+  if (!auth || auth !== adminSecret) return res.status(401).json({ error: 'Unauthorized' });
+
+  const results: Record<string, any> = {};
+
+  try {
+    const pool = await getPool();
+    if (!pool) throw new Error('DB unavailable');
+
+    // 1. Verificar tabela media_budget e colunas de auditoria
+    const colsRes = await pool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'media_budget'
+      ORDER BY ordinal_position
+    `);
+    const cols = colsRes.rows.map((r: any) => r.column_name);
+    results.schema = {
+      ok: ['externalId', 'verifiedAt', 'operationStatus', 'errorMsg'].every(c => cols.includes(c)),
+      columns: cols,
+    };
+
+    // 2. Contar registros por status e tipo
+    const statsRes = await pool.query(`
+      SELECT type, status, "operationStatus", COUNT(*)::int as cnt
+      FROM media_budget
+      GROUP BY type, status, "operationStatus"
+      ORDER BY cnt DESC
+      LIMIT 20
+    `);
+    results.budgetStats = statsRes.rows;
+
+    // 3. Verificar saldos por usuário
+    const balRes = await pool.query(`
+      SELECT mb."userId", mb.balance, mb."totalDeposited", mb."updatedAt"
+      FROM media_balance mb
+      ORDER BY mb."updatedAt" DESC LIMIT 10
+    `);
+    results.balances = balRes.rows.map((r: any) => ({
+      userId:    r.userId,
+      balance:   Number(r.balance) / 100,
+      deposited: Number(r.totalDeposited) / 100,
+      updatedAt: r.updatedAt,
+    }));
+
+    // 4. Últimas recargas com trilha de auditoria
+    const rechargeRes = await pool.query(`
+      SELECT id, "userId", amount, platform, status, "operationStatus",
+             "verifiedBy", "verifiedAt", "externalId", "externalReceipt",
+             "createdAt", "approvedAt"
+      FROM media_budget
+      WHERE type = 'spend' AND method IN ('guide', 'asaas_sync', 'manual')
+      ORDER BY "createdAt" DESC LIMIT 10
+    `);
+    results.recentRecharges = rechargeRes.rows.map((r: any) => ({
+      ...r,
+      amount: Number(r.amount) / 100,
+    }));
+
+    // 5. Links das plataformas
+    results.platformLinks = {
+      meta:   'https://www.facebook.com/adsmanager/manage/billing',
+      google: 'https://ads.google.com/aw/billing/addfunds',
+      tiktok: 'https://ads.tiktok.com/i18n/topup/recharge',
+    };
+
+    // 6. Verificar integrações ativas
+    const intRes = await pool.query(`
+      SELECT "userId", provider, "isActive",
+             CASE WHEN "accessToken" IS NOT NULL THEN true ELSE false END as has_token,
+             "updatedAt"
+      FROM api_integrations
+      WHERE "isActive" = 1
+      ORDER BY "updatedAt" DESC LIMIT 20
+    `);
+    results.activeIntegrations = intRes.rows;
+
+    results.status = 'ok';
+    results.timestamp = new Date().toISOString();
+
+  } catch (err: any) {
+    results.status = 'error';
+    results.error = err.message;
+  }
+
+  res.json(results);
+});
+
 // ─── Site Verifications ───────────────────────────────────
 // TikTok — método "upload de arquivo" (nome do arquivo = token)
 app.get("/tiktokGmTH14mA1YdrvwoTJJyJeSzROidi1LnE.txt", (_req, res) => {

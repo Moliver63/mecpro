@@ -297,5 +297,24 @@ export async function runMigrations(): Promise<void> {
     ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "platform" VARCHAR(20)
   `);
 
+  
+  // Auditoria de recarga: colunas para trilha forte
+  const auditCols = [
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "externalId"      TEXT`,
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "externalReceipt" TEXT`,
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "verifiedAt"      TIMESTAMPTZ`,
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "verifiedBy"      VARCHAR(20)`,
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "reconciledAt"    TIMESTAMPTZ`,
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "operationStatus" VARCHAR(30) DEFAULT 'pending'`,
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "errorMsg"        TEXT`,
+  ];
+  for (const q of auditCols) { try { await pool.query(q); } catch {} }
+
+  // Índice para reconciliação por externalId
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_media_budget_external
+    ON media_budget ("externalId") WHERE "externalId" IS NOT NULL
+  `).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

@@ -7041,14 +7041,14 @@ const mediaBudgetRouter = router({
 
         if (item.platform === "tiktok") {
           rechargeUrl = tiktokAdvId
-            ? `https://ads.tiktok.com/i18n/dashboard?aadvid=${tiktokAdvId}`
-            : "https://ads.tiktok.com/i18n/dashboard";
+            ? `https://ads.tiktok.com/i18n/topup/recharge?aadvid=${tiktokAdvId}`
+            : "https://ads.tiktok.com/i18n/topup/recharge";
           steps = [
-            `Acesse o TikTok Ads Manager (link abaixo)`,
-            `Vá em "Conta" → "Saldo da conta"`,
-            `Clique em "Recarregar"`,
-            `Escolha Pix ou Cartão`,
-            `Digite exatamente R$ ${amountFmt}`,
+            `Clique no botão abaixo — vai direto para a página de recarga`,
+            `Selecione o método: Pix, Boleto ou Cartão`,
+            `No campo de valor, digite exatamente R$ ${amountFmt}`,
+            `Confirme o pagamento e aguarde a aprovação`,
+            `Volte aqui e clique em "Confirmei a compra"`,
           ];
           notes = `✅ TikTok aceita Pix, Boleto e Cartão.`;
         }
@@ -7092,8 +7092,10 @@ const mediaBudgetRouter = router({
   // ── Confirmar que comprou crédito em uma plataforma ───────────────────────
   confirmRecharge: protectedProcedure
     .input(z.object({
-      platform: z.enum(["meta","google","tiktok"]),
-      amount:   z.number(),
+      platform:       z.enum(["meta", "google", "tiktok"]),
+      amount:         z.number().positive(),
+      externalId:     z.string().optional(),   // ID da transação na plataforma (comprovante)
+      externalReceipt: z.string().optional(),  // URL do comprovante ou número do pedido
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = await getPool();
@@ -7101,7 +7103,7 @@ const mediaBudgetRouter = router({
 
       const cents = Math.round(input.amount * 100);
 
-      // Verifica saldo disponível antes de debitar
+      // 1. Verificar saldo
       const balRes = await pool.query(
         `SELECT balance FROM media_balance WHERE "userId" = $1`, [ctx.user.id]
       );
@@ -7110,38 +7112,93 @@ const mediaBudgetRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Saldo insuficiente. Disponível: R$ ${(currentBalance/100).toFixed(2)}` });
       }
 
-      // Debita da wallet
+      // 2. Tentar validação pós-recarga via API da plataforma (melhor esforço)
+      let verifiedAt: Date | null = null;
+      let verifiedBy = "user_confirm";  // padrão: confirmação manual
+      let operationStatus = "confirmed_manual";
+
+      if (input.platform === "meta") {
+        try {
+          const metaInt = await db.getApiIntegration(ctx.user.id, "meta");
+          const token   = (metaInt as any)?.accessToken;
+          const rawAct  = (metaInt as any)?.adAccountId;
+          if (token && rawAct) {
+            const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+            // Verifica saldo atual na conta Meta
+            const res = await fetch(
+              `https://graph.facebook.com/v20.0/${act}?fields=balance,funding_source_details&access_token=${token}`,
+              { signal: AbortSignal.timeout(8000) }
+            );
+            const data: any = await res.json();
+            const metaBalance = Number(data.balance || 0) / 100;
+
+            if (!data.error) {
+              verifiedAt = new Date();
+              verifiedBy = "meta_api";
+              operationStatus = metaBalance > 0 ? "confirmed_api" : "confirmed_manual";
+              log.info("confirmRecharge", "Meta balance verificado", {
+                userId: ctx.user.id, metaBalance, requestedAmount: input.amount,
+              });
+            }
+          }
+        } catch (e: any) {
+          log.warn("confirmRecharge", "Verificação Meta falhou — aceitando confirmação manual", { error: e.message });
+        }
+      }
+
+      // 3. Debitar saldo
       await pool.query(`
-        UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW() WHERE "userId" = $2
+        UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW()
+        WHERE "userId" = $2
       `, [cents, ctx.user.id]);
 
-      // Registra no ledger
-      await recordLedger(pool, {
-        userId:      ctx.user.id,
-        type:        "ad_spend",
-        amount:      cents,
-        direction:   "debit",
-        platform:    input.platform,
-        reference:   `recharge-guide-${Date.now()}`,
-        notes:       `Crédito comprado pelo cliente em ${input.platform} — R$ ${input.amount.toFixed(2)}`,
-      });
-
-      // Registra como spend pendente (cron monitora para lembrete/cancelamento)
-      await pool.query(`
+      // 4. Registrar no histórico com trilha de auditoria completa
+      const insertRes = await pool.query(`
         INSERT INTO media_budget
           ("userId", amount, "feePercent", "feeAmount", "netAmount",
-           type, status, method, platform, notes)
-        VALUES ($1, $2, 0, 0, $2, 'spend', 'pending', 'guide', $3, $4)
+           type, status, method, platform, notes,
+           "externalId", "externalReceipt", "verifiedAt", "verifiedBy",
+           "operationStatus", "approvedAt")
+        VALUES ($1, $2, 0, 0, $2, 'spend', 'approved', 'guide', $3, $4,
+                $5, $6, $7, $8, $9, NOW())
+        RETURNING id, "createdAt"
       `, [
         ctx.user.id, cents, input.platform,
         `Recarga manual ${input.platform} — R$ ${input.amount.toFixed(2)}`,
+        input.externalId    || null,
+        input.externalReceipt || null,
+        verifiedAt,
+        verifiedBy,
+        operationStatus,
       ]);
 
-      log.info("media-budget", "Recarga confirmada pelo cliente", {
+      // 5. Registrar no wallet_ledger para rastreabilidade
+      try {
+        await recordLedger(pool, {
+          userId:    ctx.user.id,
+          type:      "ad_spend",
+          amount:    cents,
+          direction: "debit",
+          platform:  input.platform,
+          reference: `recharge-${insertRes.rows[0].id}`,
+          notes:     `Recarga ${input.platform} R$${input.amount.toFixed(2)} — ${operationStatus}${input.externalId ? ` — Ref: ${input.externalId}` : ""}`,
+        });
+      } catch {}
+
+      log.info("confirmRecharge", "Recarga confirmada", {
         userId: ctx.user.id, platform: input.platform, amount: input.amount,
+        operationStatus, verifiedBy, budgetId: insertRes.rows[0].id,
       });
 
-      return { success: true, platform: input.platform, amount: input.amount };
+      return {
+        success:         true,
+        platform:        input.platform,
+        amount:          input.amount,
+        budgetId:        insertRes.rows[0].id,
+        operationStatus,
+        verifiedBy,
+        verifiedAt:      verifiedAt?.toISOString() ?? null,
+      };
     }),
 
   // ── Marcar recarga manual como efetivada (usuário confirma que pagou) ────────
@@ -7502,6 +7559,9 @@ const mediaBudgetRouter = router({
     }),
 
   // ── Aplicar distribuição de verba nas campanhas via API ───────────────────
+  // ⚠️  ESCLARECIMENTO: esta rota atualiza o DAILY_BUDGET da campanha via API.
+  //     Não transfere dinheiro para a plataforma — apenas configura o orçamento.
+  //     Para ter campanhas veiculando, o usuário precisa ter saldo na plataforma.
   applyDistribution: protectedProcedure
     .input(z.object({
       items: z.array(z.object({

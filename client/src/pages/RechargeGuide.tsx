@@ -119,8 +119,14 @@ export default function RechargeGuide() {
     (guideMut as any).mutate({ totalAmount: parsedAmount, distribution: defaultDistribution });
   }
 
+  const [receipts, setReceipts] = useState<Record<string, string>>({});
+
   function handleConfirm(item: GuideItem) {
-    (confirmMut as any).mutate({ platform: item.platform, amount: item.amount });
+    (confirmMut as any).mutate({
+      platform:        item.platform,
+      amount:          item.amount,
+      externalReceipt: receipts[item.platform] || undefined,
+    });
   }
 
   const allDone = guide && guide.guide.length > 0 && 
@@ -343,6 +349,17 @@ export default function RechargeGuide() {
                           >
                             📋 Copiar valor
                           </button>
+
+                          {/* Comprovante opcional */}
+                          <div style={{ gridColumn: "1 / -1" }}>
+                            <input
+                              type="text"
+                              placeholder={`Nº do pedido ou ID da transação ${plt.label} (opcional)`}
+                              value={receipts[item.platform] || ""}
+                              onChange={e => setReceipts(v => ({ ...v, [item.platform]: e.target.value }))}
+                              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 12, fontFamily: "var(--font)", boxSizing: "border-box", color: "#374151" }}
+                            />
+                          </div>
 
                           {/* Confirmar compra */}
                           <button
