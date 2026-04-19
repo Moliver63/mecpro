@@ -7949,6 +7949,106 @@ const mediaBudgetRouter = router({
       return { success: true, creditedAmount: Number(dep.netAmount) / 100 };
     }),
 
+  // ── Buscar campanhas ativas de todas as plataformas (para seleção) ─────────
+  fetchActiveCampaigns: protectedProcedure
+    .query(async ({ ctx }) => {
+      const userId  = ctx.user.id;
+      const results: Record<string, any[]> = { meta: [], google: [], tiktok: [] };
+
+      // ── META ADS ─────────────────────────────────────────────────────────────
+      try {
+        const metaInt = await db.getApiIntegration(userId, "meta");
+        const token   = (metaInt as any)?.accessToken;
+        const rawAct  = (metaInt as any)?.adAccountId;
+
+        if (token && rawAct) {
+          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const res = await fetch(
+            `https://graph.facebook.com/v20.0/${act}/campaigns?fields=id,name,status,daily_budget,lifetime_budget,objective&filtering=[{"field":"effective_status","operator":"IN","value":["ACTIVE","PAUSED"]}]&limit=50&access_token=${token}`,
+            { signal: AbortSignal.timeout(10000) }
+          );
+          const data: any = await res.json();
+          results.meta = (data.data || []).map((c: any) => ({
+            id:     c.id,
+            name:   c.name,
+            status: c.status,
+            budget: c.daily_budget ? Number(c.daily_budget) / 100 : null,
+            objective: c.objective,
+          }));
+        }
+      } catch (e: any) {
+        log.warn("media-budget", "fetchActiveCampaigns Meta erro", { error: e.message });
+      }
+
+      // ── GOOGLE ADS ──────────────────────────────────────────────────────────
+      try {
+        const _drz = await getDb();
+        const [gInt] = _drz ? await _drz.select().from(integrations)
+          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)))
+          : [null];
+
+        if (gInt) {
+          const runtime = await resolveGoogleAdsRuntimeContext(gInt as any);
+          const customerId = runtime.customerId.replace(/-/g, "");
+          const gHeaders = {
+            "Authorization":   `Bearer ${runtime.accessToken}`,
+            "developer-token": runtime.developerToken,
+            "Content-Type":    "application/json",
+            ...(runtime.loginCustomerId ? { "login-customer-id": runtime.loginCustomerId.replace(/-/g, "") } : {}),
+          };
+          const query = `SELECT campaign.id, campaign.name, campaign.status, campaign_budget.amount_micros FROM campaign WHERE campaign.status IN ('ENABLED','PAUSED') LIMIT 50`;
+          const searchUrl = buildGoogleAdsUrl(customerId, "googleAds:search");
+          const res = await fetch(searchUrl, {
+            method: "POST",
+            headers: gHeaders,
+            body: JSON.stringify({ query }),
+            signal: AbortSignal.timeout(12000),
+          });
+          const data: any = await res.json();
+          const rows = Array.isArray(data) ? data : (data.results || []);
+          results.google = rows.map((r: any) => ({
+            id:     String(r.campaign?.id || r.campaign?.resourceName?.split("/").pop()),
+            name:   r.campaign?.name,
+            status: r.campaign?.status,
+            budget: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) / 1_000_000 : null,
+          }));
+        }
+      } catch (e: any) {
+        log.warn("media-budget", "fetchActiveCampaigns Google erro", { error: e.message });
+      }
+
+      // ── TIKTOK ADS ──────────────────────────────────────────────────────────
+      try {
+        const _drz = await getDb();
+        const [ttInt] = _drz ? await _drz.select().from(integrations)
+          .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)))
+          : [null];
+        const ttCfg = getTikTokRuntimeConfig(ttInt as any);
+
+        if (ttCfg.configured) {
+          const res = await fetch(
+            `https://business-api.tiktok.com/open_api/v1.3/campaign/get/?advertiser_id=${ttCfg.accountId}&fields=["campaign_id","campaign_name","status","budget"]&page_size=50`,
+            {
+              headers: { "Content-Type": "application/json", "Access-Token": ttCfg.accessToken! },
+              signal: AbortSignal.timeout(10000),
+            }
+          );
+          const data: any = await res.json();
+          const list = data?.data?.list || [];
+          results.tiktok = list.map((c: any) => ({
+            id:     String(c.campaign_id),
+            name:   c.campaign_name,
+            status: c.status,
+            budget: c.budget ? Number(c.budget) : null,
+          }));
+        }
+      } catch (e: any) {
+        log.warn("media-budget", "fetchActiveCampaigns TikTok erro", { error: e.message });
+      }
+
+      return results;
+    }),
+
   // ── getSettings — configurações de pagamento (usado pelo Financeiro) ────
   getSettings: protectedProcedure
     .query(async () => {

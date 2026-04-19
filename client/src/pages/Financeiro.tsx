@@ -360,9 +360,22 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
 function TabBuyCredits({ balance, onBack }: { balance: any; onBack: () => void }) {
   const walletBalance = (balance as any)?.balance ?? 0;
 
-  const [amounts, setAmounts] = useState<Record<string, string>>({ meta: "", google: "", tiktok: "" });
+  const [amounts,   setAmounts]   = useState<Record<string, string>>({ meta: "", google: "", tiktok: "" });
   const [campaigns, setCampaigns] = useState<Record<string, string>>({ meta: "", google: "", tiktok: "" });
-  const [result, setResult] = useState<any>(null);
+  const [result,    setResult]    = useState<any>(null);
+
+  // Busca campanhas ativas de todas as plataformas
+  const { data: platformCamps, isLoading: loadingCamps } =
+    (trpc as any).mediaBudget?.fetchActiveCampaigns?.useQuery?.() ?? { data: null, isLoading: false };
+
+  const metaCamps   = platformCamps?.meta   ?? [];
+  const googleCamps = platformCamps?.google ?? [];
+  const tiktokCamps = platformCamps?.tiktok ?? [];
+
+  // Quando o usuário seleciona uma campanha, preenche o campo de ID
+  const selectCampaign = (plat: string, id: string) => {
+    setCampaigns(v => ({ ...v, [plat]: id }));
+  };
 
   const PLAT_CFG = [
     { key: "meta",   label: "Meta Ads",   icon: "📘", color: "#1877f2", bg: "rgba(24,119,242,0.08)"  },
@@ -449,18 +462,34 @@ function TabBuyCredits({ balance, onBack }: { balance: any; onBack: () => void }
               />
             </div>
 
-            {/* ID da campanha */}
+            {/* Seletor de campanha */}
             <div>
               <label style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>
-                ID da campanha
+                Campanha
               </label>
-              <input
-                type="text"
-                placeholder="Ex: 1234567890"
-                value={campaigns[p.key]}
-                onChange={e => setCampaigns(v => ({ ...v, [p.key]: e.target.value }))}
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }}
-              />
+              {loadingCamps ? (
+                <div style={{ padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 12, color: "var(--muted)" }}>Carregando...</div>
+              ) : (p.key === "meta" ? metaCamps : p.key === "google" ? googleCamps : tiktokCamps).length > 0 ? (
+                <select
+                  value={campaigns[p.key]}
+                  onChange={e => selectCampaign(p.key, e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box", background: "white", cursor: "pointer" }}>
+                  <option value="">-- Selecionar campanha --</option>
+                  {(p.key === "meta" ? metaCamps : p.key === "google" ? googleCamps : tiktokCamps).map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} {c.status === "ACTIVE" || c.status === "ENABLED" ? "◎" : "◷"} {c.budget ? `· R$${c.budget.toFixed(0)}/dia` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  placeholder="ID da campanha (conta não conectada)"
+                  value={campaigns[p.key]}
+                  onChange={e => setCampaigns(v => ({ ...v, [p.key]: e.target.value }))}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }}
+                />
+              )}
             </div>
           </div>
 
