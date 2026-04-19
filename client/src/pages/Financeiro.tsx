@@ -357,7 +357,7 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
   );
 }
 
-function TabBuyCredits({ balance, onBack }: { balance: any; onBack: () => void }) {
+function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: any; onBack: () => void }) {
   const walletBalance = (balance as any)?.balance ?? 0;
 
   const [amounts,   setAmounts]   = useState<Record<string, string>>({ meta: "", google: "", tiktok: "" });
@@ -438,14 +438,39 @@ function TabBuyCredits({ balance, onBack }: { balance: any; onBack: () => void }
       </div>
 
       {/* Cards por plataforma */}
-      {PLAT_CFG.map(p => (
-        <div key={p.key} style={{ ...{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", border: "1px solid var(--glass-border)", borderRadius: "var(--r)", padding: 18, marginBottom: 12, boxShadow: "var(--shadow-xs)" } }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+      {PLAT_CFG.map(p => {
+        const pd = (platBal as any)?.[p.key];
+        const platBalance = p.key === "google"
+          ? null  // Google não expõe saldo
+          : pd?.balance ?? null;
+        const platAlert = pd?.alert;
+
+        return (
+        <div key={p.key} style={{ ...{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", border: `1px solid ${platAlert === "critical" ? "rgba(255,59,48,0.3)" : platAlert === "warning" ? "rgba(255,159,10,0.25)" : "var(--glass-border)"}`, borderRadius: "var(--r)", padding: 18, marginBottom: 12, boxShadow: "var(--shadow-xs)" } }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: platBalance !== null || p.key === "google" ? 8 : 14 }}>
             <div style={{ width: 36, height: 36, borderRadius: 9, background: p.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
               {p.icon}
             </div>
             <div style={{ fontSize: 14, fontWeight: 800, color: p.color }}>{p.label}</div>
+            {pd?.connected && platBalance !== null && (
+              <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                <div style={{ fontSize: 13, fontWeight: 900, color: platBalance > 0 ? "var(--dark)" : "var(--red)" }}>
+                  {R(platBalance)}
+                </div>
+                <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase" }}>saldo</div>
+              </div>
+            )}
+            {p.key === "google" && pd?.connected && (
+              <div style={{ marginLeft: "auto", fontSize: 10, color: "var(--muted)", textAlign: "right" }}>
+                pós-pago<br/>{R(pd?.spentThisMonth)} mês
+              </div>
+            )}
           </div>
+          {platAlert === "critical" && (
+            <div style={{ fontSize: 11, color: "var(--red)", fontWeight: 600, marginBottom: 10, padding: "6px 10px", background: "rgba(255,59,48,0.06)", borderRadius: 6 }}>
+              ◬ Saldo crítico — recarregue antes de comprar créditos
+            </div>
+          )}
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {/* Valor */}
@@ -497,7 +522,8 @@ function TabBuyCredits({ balance, onBack }: { balance: any; onBack: () => void }
             <div style={{ fontSize: 11, color: "var(--orange)", marginTop: 6 }}>◬ Informe o ID da campanha</div>
           )}
         </div>
-      ))}
+        );
+      })}
 
       {/* Resumo */}
       {total > 0 && (
@@ -912,6 +938,7 @@ export default function Financeiro() {
   const { data: balance } = (trpc as any).mediaBudget?.getBalance?.useQuery?.()       ?? {};
   const { data: ps }      = (trpc as any).admin?.getPaymentSettings?.useQuery?.()     ?? {};
   const { data: asaas }   = (trpc as any).mediaBudget?.asaasBalance?.useQuery?.()     ?? {};
+  const { data: platBal } = (trpc as any).mediaBudget?.platformBalances?.useQuery?.() ?? {};
   const { data: summary } = (trpc as any).mediaBudget?.financialSummary?.useQuery?.() ?? {};
 
   const feePercent = (ps as any)?.feePercent ?? 10;
@@ -1132,6 +1159,48 @@ export default function Financeiro() {
                   </div>
                 </div>
 
+                {/* Saldo nas plataformas */}
+                {platBal && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
+                      Saldo disponível nas plataformas
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+                      {[
+                        { key: "meta",   label: "Meta Ads",   icon: "📘", color: "#1877f2", d: (platBal as any).meta   },
+                        { key: "tiktok", label: "TikTok Ads", icon: "◼",  color: "#111",    d: (platBal as any).tiktok },
+                        { key: "google", label: "Google Ads", icon: "🔵", color: "#1a73e8", d: (platBal as any).google },
+                      ].map(({ key, label, icon, color, d }) => (
+                        <div key={key} style={{ background: "var(--off)", borderRadius: 12, padding: "12px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 16 }}>{icon}</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
+                            {d?.alert === "critical" && <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, background: "rgba(255,59,48,0.1)", color: "var(--red)", padding: "2px 6px", borderRadius: 4 }}>CRÍTICO</span>}
+                            {d?.alert === "warning"  && <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, background: "rgba(255,159,10,0.1)", color: "var(--orange)", padding: "2px 6px", borderRadius: 4 }}>BAIXO</span>}
+                          </div>
+                          {!d?.connected ? (
+                            <div style={{ fontSize: 11, color: "var(--muted)" }}>Conta não conectada</div>
+                          ) : d?.error ? (
+                            <div style={{ fontSize: 11, color: "var(--red)" }}>Erro ao buscar</div>
+                          ) : key === "google" ? (
+                            <div>
+                              <div style={{ fontSize: 18, fontWeight: 900, color: "var(--dark)", letterSpacing: "-0.03em" }}>{R(d?.spentThisMonth)}</div>
+                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>gasto no mês · pós-pago</div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={{ fontSize: 18, fontWeight: 900, color: d?.balance > 0 ? "var(--dark)" : "var(--red)", letterSpacing: "-0.03em" }}>{R(d?.balance)}</div>
+                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
+                                {d?.daysLeft != null ? `≈ ${d.daysLeft} dias restantes` : "saldo disponível"}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Atalhos */}
                 <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Acesso rápido</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8 }}>
@@ -1152,7 +1221,7 @@ export default function Financeiro() {
             )}
 
             {tab === 1 && <TabDeposit balance={balance} ps={ps} onBack={() => setTab(0)} />}
-            {tab === 2 && <TabBuyCredits balance={balance} onBack={() => setTab(0)} />}
+            {tab === 2 && <TabBuyCredits balance={balance} platBal={platBal} onBack={() => setTab(0)} />}
             {tab === 3 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
             {tab === 4 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
             {tab === 5 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
