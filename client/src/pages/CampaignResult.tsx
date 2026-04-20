@@ -12,6 +12,14 @@ import WhatsAppField from "@/components/WhatsAppField";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
 import { resolveLegacyImageUrlByFormat, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
+import {
+  getPlacementGuidance,
+  normalizeRatio,
+  type MediaType as GuidanceMediaType,
+  type PlacementGuidanceItem,
+  type PlacementGuidanceStatus,
+  type PlacementType as GuidancePlacementType,
+} from "@/lib/placementGuidance";
 
 const BR_STATE_OPTIONS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 const COUNTRY_OPTIONS = [
@@ -60,6 +68,68 @@ function normalizeDestinationUrl(raw?: string | null): string {
   } catch {
     return "";
   }
+}
+
+const GUIDANCE_STATUS_UI: Record<PlacementGuidanceStatus, { label: string; bg: string; border: string; color: string; pillBg: string }> = {
+  ideal: {
+    label: "Alinhado ao placement",
+    bg: "#f0fdf4",
+    border: "#bbf7d0",
+    color: "#166534",
+    pillBg: "#dcfce7",
+  },
+  warning: {
+    label: "Ajuste recomendado",
+    bg: "#fffbeb",
+    border: "#fde68a",
+    color: "#b45309",
+    pillBg: "#fef3c7",
+  },
+  info: {
+    label: "Pode melhorar",
+    bg: "#eff6ff",
+    border: "#bfdbfe",
+    color: "#1d4ed8",
+    pillBg: "#dbeafe",
+  },
+};
+
+function resolvePlacementGuidanceType(placement: string): GuidancePlacementType | null {
+  const normalized = String(placement || "").toLowerCase();
+  if (normalized.includes("reels")) return "reels";
+  if (normalized.includes("story")) return "stories";
+  if (normalized.includes("feed")) return "feed";
+  return null;
+}
+
+function uniqueGuidancePlacements(placements: string[]): GuidancePlacementType[] {
+  const ordered: GuidancePlacementType[] = [];
+  const seen = new Set<GuidancePlacementType>();
+
+  for (const placement of placements) {
+    const resolved = resolvePlacementGuidanceType(placement);
+    if (!resolved || seen.has(resolved)) continue;
+    seen.add(resolved);
+    ordered.push(resolved);
+  }
+
+  return ordered;
+}
+
+function formatGuidanceContext(mediaType: GuidanceMediaType, ratio: ReturnType<typeof normalizeRatio>, cardsCount: number): string {
+  if (cardsCount >= 2) {
+    return `Carrossel com ${cardsCount} cards${ratio !== "unknown" && ratio !== "mixed" ? ` · ${ratio}` : ""}`;
+  }
+
+  const mediaLabel = mediaType === "video"
+    ? "Vídeo"
+    : mediaType === "image"
+      ? "Imagem"
+      : mediaType === "mixed"
+        ? "Mídia mista"
+        : "Mídia";
+
+  return ratio !== "unknown" ? `${mediaLabel} · ${ratio}` : mediaLabel;
 }
 
 export default function CampaignResult() {
@@ -1200,6 +1270,69 @@ export default function CampaignResult() {
 
   const c = campaign as any;
   const budgetDaily = c.suggestedBudgetDaily ?? Math.round(c.suggestedBudgetMonthly / 30);
+  const activePlacementCodes = selectedPlacements.length > 0
+    ? selectedPlacements
+    : placementMode === "auto"
+      ? ["fb_feed", "ig_feed", "fb_story", "ig_story"]
+      : ["fb_feed", "ig_feed"];
+  const guidancePlacements = uniqueGuidancePlacements(activePlacementCodes);
+  const uploadedImageCount = mediaFiles.filter((file) => isImageFile(file)).length;
+  const uploadedHashCount = uploadedHashes.filter(Boolean).length;
+  const cardsCount = Math.max(uploadedImageCount, uploadedHashCount);
+  const isCarouselMedia = cardsCount >= 2;
+  const primaryCreative = creativeList.length > 0 ? mergeCreativeWithProjectedLegacy(creativeList[0] as any) : null;
+  const fallbackCreativeFormat = primaryCreative ? inferCreativeFormat(primaryCreative) : null;
+  const fallbackRatio = fallbackCreativeFormat === "stories"
+    ? "9:16"
+    : fallbackCreativeFormat === "square"
+      ? "1:1"
+      : fallbackCreativeFormat === "feed"
+        ? "4:5"
+        : undefined;
+  const fallbackMediaType: GuidanceMediaType = primaryCreative?.publishMedia?.videoId
+    ? "video"
+    : primaryCreative
+      ? "image"
+      : "unknown";
+  const detectedGuidanceMediaType: GuidanceMediaType = (mediaFiles.length === 1 && isVideoFile(mediaFiles[0])) || mediaType === "video" || !!uploadedVid
+    ? "video"
+    : isCarouselMedia || mediaType === "image" || !!uploadedHash || !!imageUrl.trim() || uploadedHashCount > 0
+      ? "image"
+      : fallbackMediaType;
+  const detectedGuidanceRatio = normalizeRatio(isCarouselMedia ? "mixed" : mediaDims?.ratio || fallbackRatio);
+  const guidanceContextLabel = formatGuidanceContext(detectedGuidanceMediaType, detectedGuidanceRatio, cardsCount);
+  const guidanceSourceLabel = mediaFiles.length > 0 || !!mediaType || !!uploadedHash || !!uploadedVid || !!imageUrl.trim()
+    ? "Baseado na mídia atual selecionada"
+    : primaryCreative
+      ? "Baseado no criativo salvo da campanha"
+      : "Envie uma mídia para receber orientação automática";
+  const placementGuidanceCards: Array<{ key: string; placement: GuidancePlacementType; guidance: PlacementGuidanceItem }> = [];
+
+  if (isCarouselMedia) {
+    placementGuidanceCards.push({
+      key: `carousel-${cardsCount}`,
+      placement: "carousel",
+      guidance: getPlacementGuidance({
+        placement: "carousel",
+        mediaType: detectedGuidanceMediaType,
+        ratio: isCarouselMedia ? "mixed" : mediaDims?.ratio || fallbackRatio,
+        cardsCount,
+      }),
+    });
+  }
+
+  for (const placement of guidancePlacements) {
+    placementGuidanceCards.push({
+      key: `${placement}-${detectedGuidanceMediaType}-${detectedGuidanceRatio}`,
+      placement,
+      guidance: getPlacementGuidance({
+        placement,
+        mediaType: detectedGuidanceMediaType,
+        ratio: mediaDims?.ratio || fallbackRatio,
+        cardsCount,
+      }),
+    });
+  }
 
   return (
     <Layout>
@@ -2301,6 +2434,53 @@ export default function CampaignResult() {
                   }}
                   onPlacementsChange={setSelectedPlacements}
                 />
+
+                <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>
+                  <div style={{ background: "#f8fafc", padding: "10px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 15 }}>🧭</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>Orientação automática de formato</span>
+                  </div>
+                  <div style={{ padding: 14 }}>
+                    <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55, margin: "0 0 10px" }}>
+                      Esses avisos não bloqueiam a publicação. Eles apenas mostram o formato atual detectado e o formato mais recomendado para cada placement selecionado.
+                    </p>
+                    <p style={{ fontSize: 11, color: "var(--muted)", margin: "0 0 12px" }}>
+                      {guidanceSourceLabel}
+                    </p>
+
+                    {placementGuidanceCards.length > 0 ? (
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {placementGuidanceCards.map(({ key, guidance }) => {
+                          const tone = GUIDANCE_STATUS_UI[guidance.status];
+                          return (
+                            <div key={key} style={{ borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, padding: 12 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                                <div>
+                                  <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", margin: 0 }}>{guidance.title}</p>
+                                  <p style={{ fontSize: 11, color: "var(--muted)", margin: "4px 0 0" }}>{guidanceContextLabel}</p>
+                                </div>
+                                <span style={{ alignSelf: "flex-start", fontSize: 10, fontWeight: 800, color: tone.color, background: tone.pillBg, padding: "4px 8px", borderRadius: 999 }}>
+                                  {tone.label}
+                                </span>
+                              </div>
+                              <p style={{ fontSize: 12, lineHeight: 1.55, color: tone.color, margin: "0 0 8px" }}>{guidance.message}</p>
+                              <p style={{ fontSize: 12, color: "var(--black)", margin: "0 0 6px" }}>
+                                <strong>Recomendação:</strong> {guidance.recommendation}
+                              </p>
+                              <p style={{ fontSize: 12, color: "var(--black)", margin: 0 }}>
+                                <strong>CTA sugerido:</strong> {guidance.suggestedCta.join(" • ")}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                        Envie uma mídia manual ou mantenha um criativo salvo para receber orientação automática por placement.
+                      </p>
+                    )}
+                  </div>
+                </div>
 
                 {/* Seleção de ad set */}
                 {Array.isArray(adSets) && adSets.length > 1 && (
