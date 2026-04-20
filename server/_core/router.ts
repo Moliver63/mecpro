@@ -3920,7 +3920,155 @@ const integrationsRouter = router({
       return { name: data.data?.email || `Advertiser ${integration.accountId}`, accountId: integration.accountId };
     }),
 
-  upsertGoogle: protectedProcedure
+  // ── Google Ads OAuth — gera URL de autorização ──────────────────────────
+  getGoogleAdsAuthUrl: protectedProcedure
+    .input(z.object({ redirectUri: z.string() }))
+    .query(({ ctx, input }) => {
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      if (!clientId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Google Ads OAuth não configurado (GOOGLE_ADS_CLIENT_ID ausente)." });
+      }
+
+      const scope = [
+        "https://www.googleapis.com/auth/adwords",
+        "https://www.googleapis.com/auth/userinfo.email",
+      ].join(" ");
+
+      const state = Buffer.from(JSON.stringify({ userId: ctx.user.id, ts: Date.now() })).toString("base64url");
+
+      const params = new URLSearchParams({
+        client_id:     clientId,
+        redirect_uri:  input.redirectUri,
+        response_type: "code",
+        scope,
+        access_type:   "offline",       // gera refresh_token
+        prompt:        "consent",        // força consentimento p/ garantir refresh_token
+        state,
+      });
+
+      return { url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`, state };
+    }),
+
+  // ── Google Ads OAuth — troca code por refresh_token ─────────────────────
+  exchangeGoogleAdsCode: protectedProcedure
+    .input(z.object({
+      code:        z.string(),
+      redirectUri: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const clientId     = process.env.GOOGLE_ADS_CLIENT_ID     || process.env.GOOGLE_CLIENT_ID     || "";
+      const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+
+      if (!clientId || !clientSecret) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Google Ads OAuth não configurado no servidor." });
+      }
+
+      // 1. Troca code por tokens
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method:  "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code:          input.code,
+          client_id:     clientId,
+          client_secret: clientSecret,
+          redirect_uri:  input.redirectUri,
+          grant_type:    "authorization_code",
+        }).toString(),
+      });
+
+      const tokenData: any = await tokenRes.json();
+      if (!tokenRes.ok || tokenData.error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Falha ao trocar code: ${tokenData.error_description || tokenData.error || "erro desconhecido"}`,
+        });
+      }
+
+      const refreshToken = tokenData.refresh_token;
+      if (!refreshToken) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Google não retornou refresh_token. Revogue o acesso em myaccount.google.com/permissions e tente novamente.",
+        });
+      }
+
+      // 2. Buscar Customer IDs acessíveis via Google Ads API
+      //    Requer developer_token — deve estar configurado como env var
+      const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
+      let customerIds: string[] = [];
+
+      if (devToken) {
+        try {
+          const listRes = await fetch("https://googleads.googleapis.com/v17/customers:listAccessibleCustomers", {
+            headers: {
+              "Authorization":   `Bearer ${tokenData.access_token}`,
+              "developer-token": devToken,
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+          const listData: any = await listRes.json();
+          if (listData.resourceNames) {
+            customerIds = listData.resourceNames.map((r: string) => r.replace("customers/", ""));
+          }
+        } catch (e: any) {
+          log.warn("google-oauth", "Não foi possível listar Customer IDs", { error: e.message });
+        }
+      }
+
+      // 3. Salvar integração com refresh_token
+      //    Customer ID fica pendente de seleção pelo usuário (vários disponíveis)
+      const primaryCustomerId = customerIds[0] || "";
+      const _drz = await getDb();
+      if (!_drz) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const [existing] = await _drz.select().from(integrations)
+        .where(and(eq(integrations.userId, ctx.user.id), eq(integrations.provider, "google")));
+
+      const expiry = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+
+      if (existing) {
+        await _drz.update(integrations).set({
+          accessToken:    refreshToken,
+          refreshToken:   refreshToken,
+          appId:          clientId,
+          appSecret:      clientSecret,
+          developerToken: devToken || (existing as any).developerToken,
+          accountId:      primaryCustomerId || (existing as any).accountId,
+          isActive:       1,
+          tokenExpiry:    expiry,
+          updatedAt:      new Date(),
+        }).where(eq(integrations.id, existing.id));
+      } else {
+        await _drz.insert(integrations).values({
+          userId:         ctx.user.id,
+          provider:       "google",
+          accessToken:    refreshToken,
+          refreshToken:   refreshToken,
+          appId:          clientId,
+          appSecret:      clientSecret,
+          developerToken: devToken,
+          accountId:      primaryCustomerId,
+          isActive:       1,
+          tokenExpiry:    expiry,
+        });
+      }
+
+      log.info("google-oauth", "✅ Refresh token salvo", {
+        userId:      ctx.user.id,
+        customerIds: customerIds.length,
+        primary:     primaryCustomerId,
+      });
+
+      return {
+        success:           true,
+        refreshToken:      refreshToken.slice(0, 10) + "...",
+        customerIds,
+        primaryCustomerId,
+        hasDevToken:       !!devToken,
+      };
+    }),
+
+    upsertGoogle: protectedProcedure
     .input(z.object({
       clientId:       z.string().optional(),
       clientSecret:   z.string().optional(),

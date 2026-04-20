@@ -92,6 +92,42 @@ export default function TikTokIntegration() {
         <h3 style={{ margin: "0 0 16px", fontSize: 15, fontWeight: 700 }}>
           {existing ? "Atualizar credenciais" : "Adicionar credenciais"}
         </h3>
+        {/* ═══ OAuth automático (recomendado) ═══ */}
+        <div style={{
+          background: "linear-gradient(135deg,#25F4EE,#FE2C55,#000)",
+          borderRadius: 14,
+          padding: 20,
+          marginBottom: 24,
+          boxShadow: "0 4px 20px rgba(254,44,85,0.25)",
+        }}>
+          <div style={{ color: "white", fontSize: 16, fontWeight: 800, marginBottom: 4 }}>
+            ⚡ Conectar com um clique
+          </div>
+          <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12, marginBottom: 14, lineHeight: 1.5 }}>
+            Autoriza automaticamente o TikTok Business e vincula seu Advertiser ID.
+          </div>
+          <button
+            onClick={handleTikTokOAuth}
+            disabled={oauthLoading}
+            style={{
+              width: "100%", padding: "12px 18px", borderRadius: 10,
+              border: "none", background: "white", color: "#000",
+              fontWeight: 800, fontSize: 14, cursor: oauthLoading ? "wait" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+            }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#000">
+              <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5.8 20.1a6.34 6.34 0 0 0 10.86-4.43v-7a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1.84-.1z"/>
+            </svg>
+            {oauthLoading ? "Aguardando autorização..." : existing ? "Reconectar com TikTok" : "Conectar com TikTok"}
+          </button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "16px 0", fontSize: 11, color: "#94a3b8" }}>
+          <div style={{ flex: 1, height: 1, background: "#e2e8f0" }}></div>
+          <span>ou configure manualmente</span>
+          <div style={{ flex: 1, height: 1, background: "#e2e8f0" }}></div>
+        </div>
+
         <label style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Access Token *</label>
         <input style={inp} placeholder="act.xxx..." value={accessToken}
           onChange={e => setAccessToken(e.target.value)} type="password" />
