@@ -1729,19 +1729,32 @@ const campaignsRouter = router({
         : input.format === "square"
           ? "squareVideoId"
           : "feedVideoId";
+      const videoThumbUrlKey = input.format === "stories"
+        ? "storyVideoThumbnailUrl"
+        : input.format === "square"
+          ? "squareVideoThumbnailUrl"
+          : "feedVideoThumbnailUrl";
+      const videoThumbHashKey = input.format === "stories"
+        ? "storyVideoThumbnailHash"
+        : input.format === "square"
+          ? "squareVideoThumbnailHash"
+          : "feedVideoThumbnailHash";
 
       const isVideo = !!input.videoId;
 
       if (isVideo) {
-        // Vídeo: salva videoId, limpa imageHash/imageUrl para evitar conflito
-        creative[videoKey]  = input.videoId;
-        creative[hashKey]   = null;
-        creative[urlKey]    = null;
+        creative[videoKey] = input.videoId;
+        if (input.videoThumbnailUrl) creative[videoThumbUrlKey] = input.videoThumbnailUrl;
+        if (input.videoThumbnailHash) creative[videoThumbHashKey] = input.videoThumbnailHash;
+        if (!creative[videoThumbUrlKey] && creative[urlKey]) creative[videoThumbUrlKey] = creative[urlKey];
+        if (!creative[videoThumbHashKey] && creative[hashKey]) creative[videoThumbHashKey] = creative[hashKey];
         creative.imageProviderUsed = "meta_video_upload";
       } else {
-        if (input.imageUrl)  creative[urlKey]  = input.imageUrl;
+        if (input.imageUrl) creative[urlKey] = input.imageUrl;
         if (input.imageHash) creative[hashKey] = input.imageHash;
-        creative[videoKey]  = null; // limpa vídeo anterior se havia
+        creative[videoKey] = null;
+        creative[videoThumbUrlKey] = null;
+        creative[videoThumbHashKey] = null;
         creative.imageProviderUsed = input.imageHash ? "meta_manual_upload" : "manual_url";
       }
 
@@ -1751,9 +1764,11 @@ const campaignsRouter = router({
       creative.manualImageOverride     = true;
 
       creatives[input.creativeIndex] = syncCreativeImageToV2(creative, input.format, {
-        imageUrl:  isVideo ? null : (input.imageUrl  ?? null),
+        imageUrl: isVideo ? null : (input.imageUrl ?? null),
         imageHash: isVideo ? null : (input.imageHash ?? null),
-        videoId:   input.videoId ?? null,
+        videoId: input.videoId ?? null,
+        videoThumbnailUrl: input.videoThumbnailUrl ?? creative[videoThumbUrlKey] ?? null,
+        videoThumbnailHash: input.videoThumbnailHash ?? creative[videoThumbHashKey] ?? null,
       });
 
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
@@ -1767,9 +1782,11 @@ const campaignsRouter = router({
       return {
         ok: true,
         creative: creatives[input.creativeIndex],
-        imageUrl:  creative[urlKey]   || null,
-        imageHash: creative[hashKey]  || null,
-        videoId:   creative[videoKey] || null,
+        imageUrl: creative[urlKey] || null,
+        imageHash: creative[hashKey] || null,
+        videoId: creative[videoKey] || null,
+        videoThumbnailUrl: creative[videoThumbUrlKey] || null,
+        videoThumbnailHash: creative[videoThumbHashKey] || null,
       };
     }),
 
@@ -2505,6 +2522,12 @@ const campaignsRouter = router({
       const selectedGeneratedImageHash = placementKey === "stories" || placementKey === "reels"
         ? selectedCreative?.storyImageHash || null
         : selectedCreative?.feedImageHash || selectedCreative?.squareImageHash || selectedCreative?.storyImageHash;
+      const selectedGeneratedVideoThumbHash = placementKey === "stories" || placementKey === "reels"
+        ? selectedCreative?.storyVideoThumbnailHash || selectedCreative?.feedVideoThumbnailHash || null
+        : selectedCreative?.feedVideoThumbnailHash || selectedCreative?.squareVideoThumbnailHash || selectedCreative?.storyVideoThumbnailHash || null;
+      const selectedGeneratedVideoThumbUrl = placementKey === "stories" || placementKey === "reels"
+        ? selectedCreative?.storyVideoThumbnailUrl || selectedCreative?.feedVideoThumbnailUrl || null
+        : selectedCreative?.feedVideoThumbnailUrl || selectedCreative?.squareVideoThumbnailUrl || selectedCreative?.storyVideoThumbnailUrl || null;
       const effectiveVideoId = input.videoId ?? fallbackPublishMedia?.videoId ?? null;
       const effectiveImageHashes = input.imageHashes?.length && input.imageHashes.length >= 2
         ? input.imageHashes
@@ -2524,6 +2547,24 @@ const campaignsRouter = router({
             ? (selectedGeneratedImageUrl ?? null)
             : (fallbackPublishMedia?.imageUrl ?? selectedGeneratedImageUrl ?? null))
         : null);
+      const effectiveVideoThumbnailHash = effectiveVideoId
+        ? (input.videoThumbnailHash
+            ?? fallbackPublishMedia?.videoThumbnailHash
+            ?? selectedGeneratedVideoThumbHash
+            ?? input.imageHash
+            ?? fallbackPublishMedia?.imageHash
+            ?? selectedGeneratedImageHash
+            ?? null)
+        : null;
+      const effectiveVideoThumbnailUrl = effectiveVideoId
+        ? (input.videoThumbnailUrl
+            ?? fallbackPublishMedia?.videoThumbnailUrl
+            ?? selectedGeneratedVideoThumbUrl
+            ?? input.imageUrl
+            ?? fallbackPublishMedia?.imageUrl
+            ?? selectedGeneratedImageUrl
+            ?? null)
+        : null;
       const resolvedImageHash = effectiveImageHash;
       const resolvedImageUrl = effectiveImageUrl;
 
@@ -2679,8 +2720,8 @@ const campaignsRouter = router({
 
             // Meta exige thumbnail (image_hash ou picture) no video_data
             // Usar imageHash do criativo se disponível, senão buscar via API
-            let videoThumbHash: string | null = effectiveImageHash ?? input.imageHash ?? null;
-            let videoThumbUrl:  string | null = effectiveImageUrl  ?? input.imageUrl  ?? null;
+            let videoThumbHash: string | null = effectiveVideoThumbnailHash;
+            let videoThumbUrl: string | null = effectiveVideoThumbnailUrl;
 
             // ── Buscar thumbnail automática via API do Meta se não há imagem ──
             if (!videoThumbHash && !videoThumbUrl) {
@@ -2718,7 +2759,6 @@ const campaignsRouter = router({
                 );
                 if (hashRes.ok) {
                   const hashData = await hashRes.json() as any;
-                  // Resposta: { images: { filename: { hash, url, ... } } }
                   const images = hashData?.images;
                   if (images) {
                     const firstKey = Object.keys(images)[0];
@@ -2735,6 +2775,13 @@ const campaignsRouter = router({
               } catch (hashErr: any) {
                 log.warn("meta", "Erro ao converter thumbnail", { error: hashErr?.message?.slice(0, 80) });
               }
+            }
+
+            if (!videoThumbHash) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Vídeo sem thumbnail válida. Envie uma thumbnail antes de publicar no Meta.",
+              });
             }
 
             const videoDataPayload: Record<string, any> = {
@@ -2822,6 +2869,8 @@ const campaignsRouter = router({
             imageHashes: effectiveImageHashes,
             imageUrls: effectiveImageUrls,
             videoId: effectiveVideoId,
+            videoThumbnailHash: effectiveVideoId ? (storySpec?.video_data?.image_hash ?? effectiveVideoThumbnailHash ?? null) : null,
+            videoThumbnailUrl: effectiveVideoId ? (effectiveVideoThumbnailUrl ?? null) : null,
           });
           await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creativeList));
         }
@@ -3172,7 +3221,7 @@ const campaignsRouter = router({
             .replace(/"$/, "")
             .replace(/\+/g, "")
             .replace(/[—–-]+/g, " ")
-            .replace(/[^ -\p{L}\p{N}\s]/gu, " ")
+            .replace(/[^-\p{L}\p{N}\s]/gu, " ")
             .replace(/[%]/g, " ")
             .replace(/\s+/g, " ")
             .trim()
