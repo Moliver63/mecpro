@@ -163,6 +163,8 @@ export function syncCreativeImageToV2(
     imageUrl?: string | null;
     imageHash?: string | null;
     videoId?: string | null;
+    videoThumbnailUrl?: string | null;
+    videoThumbnailHash?: string | null;
   },
 ): CampaignCreative {
   const v2 = ensureCreativeSystemV2(creative);
@@ -176,11 +178,17 @@ export function syncCreativeImageToV2(
     kind: isVideo ? "video" : "image",
     label: `${format} primary`,
     url: isVideo ? null : (payload.imageUrl ?? null),
-    previewUrl: isVideo ? null : (payload.imageUrl ?? null),
-    imageHash: isVideo ? null : (payload.imageHash ?? null),
+    previewUrl: isVideo ? (payload.videoThumbnailUrl ?? null) : (payload.imageUrl ?? null),
+    imageHash: isVideo ? (payload.videoThumbnailHash ?? null) : (payload.imageHash ?? null),
     videoId: payload.videoId ?? null,
     aspectRatio,
     source: isVideo ? "upload" : (payload.imageHash ? "upload" : "manual_url"),
+    metadata: isVideo
+      ? {
+          thumbnailUrl: payload.videoThumbnailUrl ?? null,
+          thumbnailHash: payload.videoThumbnailHash ?? null,
+        }
+      : null,
   };
 
   if (existingIdx >= 0) {
@@ -198,17 +206,23 @@ export function syncCreativeImageToV2(
       feedImageUrl: payload.imageUrl ?? creative.feedImageUrl ?? null,
       feedImageHash: payload.imageHash ?? creative.feedImageHash ?? null,
       format: creative.format ?? "feed",
-      publishMedia: payload.imageHash
-        ? { imageHash: payload.imageHash }
-        : payload.imageUrl
-          ? { imageUrl: payload.imageUrl }
-          : v2.legacyProjection?.publishMedia ?? null,
+      publishMedia: isVideo
+        ? {
+            videoId: payload.videoId ?? null,
+            videoThumbnailHash: payload.videoThumbnailHash ?? null,
+            videoThumbnailUrl: payload.videoThumbnailUrl ?? null,
+          }
+        : payload.imageHash
+          ? { imageHash: payload.imageHash }
+          : payload.imageUrl
+            ? { imageUrl: payload.imageUrl }
+            : v2.legacyProjection?.publishMedia ?? null,
     };
 
     (v2.channels.meta as any).placements.feed = {
       id: "meta_feed_primary",
-      variantType: "portrait_static",
-      mediaType: "image",
+      variantType: isVideo ? "vertical_short_video" : "portrait_static",
+      mediaType: isVideo ? "video" : "image",
       aspectRatio: "4:5",
       primaryAssetId: assetId,
       assetIds: [assetId],
@@ -223,11 +237,17 @@ export function syncCreativeImageToV2(
         format: "feed",
         feedImageUrl: payload.imageUrl ?? creative.feedImageUrl ?? null,
         feedImageHash: payload.imageHash ?? creative.feedImageHash ?? null,
-        publishMedia: payload.imageHash
-          ? { imageHash: payload.imageHash }
-          : payload.imageUrl
-            ? { imageUrl: payload.imageUrl }
-            : null,
+        publishMedia: isVideo
+          ? {
+              videoId: payload.videoId ?? null,
+              videoThumbnailHash: payload.videoThumbnailHash ?? null,
+              videoThumbnailUrl: payload.videoThumbnailUrl ?? null,
+            }
+          : payload.imageHash
+            ? { imageHash: payload.imageHash }
+            : payload.imageUrl
+              ? { imageUrl: payload.imageUrl }
+              : null,
       },
     };
   }
@@ -241,8 +261,8 @@ export function syncCreativeImageToV2(
 
     (v2.channels.meta as any).placements.stories = {
       id: "meta_stories_primary",
-      variantType: "stories_3_screen",
-      mediaType: "image",
+      variantType: isVideo ? "vertical_short_video" : "stories_3_screen",
+      mediaType: isVideo ? "video" : "image",
       aspectRatio: "9:16",
       primaryAssetId: assetId,
       assetIds: [assetId],
@@ -257,13 +277,20 @@ export function syncCreativeImageToV2(
         format: "stories",
         storyImageUrl: payload.imageUrl ?? creative.storyImageUrl ?? null,
         storyImageHash: payload.imageHash ?? creative.storyImageHash ?? null,
+        publishMedia: isVideo
+          ? {
+              videoId: payload.videoId ?? null,
+              videoThumbnailHash: payload.videoThumbnailHash ?? null,
+              videoThumbnailUrl: payload.videoThumbnailUrl ?? null,
+            }
+          : undefined,
       },
     };
 
     (v2.channels.meta as any).placements.reels = {
       id: "meta_reels_primary",
-      variantType: "reels_fast_cut",
-      mediaType: "image",
+      variantType: isVideo ? "reels_fast_cut" : "reels_fast_cut",
+      mediaType: isVideo ? "video" : "image",
       aspectRatio: "9:16",
       primaryAssetId: assetId,
       assetIds: [assetId],
@@ -278,6 +305,13 @@ export function syncCreativeImageToV2(
         format: "reels",
         storyImageUrl: payload.imageUrl ?? creative.storyImageUrl ?? null,
         storyImageHash: payload.imageHash ?? creative.storyImageHash ?? null,
+        publishMedia: isVideo
+          ? {
+              videoId: payload.videoId ?? null,
+              videoThumbnailHash: payload.videoThumbnailHash ?? null,
+              videoThumbnailUrl: payload.videoThumbnailUrl ?? null,
+            }
+          : undefined,
       },
     };
   }
@@ -304,6 +338,8 @@ export function syncCreativePublishMediaToV2(
     imageHashes?: string[] | null;
     imageUrls?: string[] | null;
     videoId?: string | null;
+    videoThumbnailUrl?: string | null;
+    videoThumbnailHash?: string | null;
   },
 ): CampaignCreative {
   const v2 = ensureCreativeSystemV2(creative);
@@ -316,6 +352,8 @@ export function syncCreativePublishMediaToV2(
       imageHashes: publishMedia.imageHashes ?? null,
       imageUrls: publishMedia.imageUrls ?? null,
       videoId: publishMedia.videoId ?? null,
+      videoThumbnailUrl: publishMedia.videoThumbnailUrl ?? null,
+      videoThumbnailHash: publishMedia.videoThumbnailHash ?? null,
     },
   };
 

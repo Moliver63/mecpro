@@ -87,8 +87,11 @@ export default function CampaignResult() {
   const [mediaType,    setMediaType]    = useState<"image" | "video" | null>(null);
   const [uploadedHash, setUploadedHash] = useState<string>("");
   const [uploadedVid,  setUploadedVid]  = useState<string>("");
+  const [uploadedThumbHash, setUploadedThumbHash] = useState<string>("");
+  const [uploadedThumbPreview, setUploadedThumbPreview] = useState<string>("");
   const pendingAutoUploadRef = useRef<File | null>(null); // arquivo aguardando auto-upload
   const [uploading,    setUploading]    = useState(false);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [uploadDone,   setUploadDone]   = useState(false);
   const [placementPreset, setPlacementPreset] = useState("ecommerce");
   const [showVSL,       setShowVSL]       = useState(false);
@@ -578,6 +581,7 @@ export default function CampaignResult() {
 
       const manualImageUrl = mediaMode === "url" ? imageUrl.trim() : "";
       const effectiveVideoId = uploadedVid || undefined;
+      const effectiveVideoThumbnailHash = effectiveVideoId ? (uploadedThumbHash || undefined) : undefined;
       const effectiveImageHashes = !effectiveVideoId && isCarousel ? validHashes : undefined;
       const effectiveImageHash = !effectiveVideoId && !effectiveImageHashes?.length && !manualImageUrl
         ? (uploadedHash || undefined)
@@ -586,6 +590,10 @@ export default function CampaignResult() {
         ? (manualImageUrl || undefined)
         : undefined;
       const normalizedLinkUrl = normalizeDestinationUrl(linkUrl) || normalizedProfileWebsite;
+      if (effectiveVideoId && !effectiveVideoThumbnailHash) {
+        toast.error("Envie uma thumbnail para o vídeo antes de publicar no Meta.");
+        return;
+      }
       const publishPayload: PublishToMetaInput = {
         campaignId: id,
         projectId,
@@ -596,6 +604,7 @@ export default function CampaignResult() {
         imageHash: effectiveImageHash,
         imageHashes: effectiveImageHashes,
         videoId: effectiveVideoId,
+        videoThumbnailHash: effectiveVideoThumbnailHash,
         linkUrl: normalizedLinkUrl || undefined,
         adSetIndex,
         placementMode,
@@ -676,6 +685,35 @@ export default function CampaignResult() {
     }
   }
 
+  async function handleUploadVideoThumbnail(file: File): Promise<string | null> {
+    if (!isImageFile(file)) {
+      toast.error("A thumbnail do vídeo precisa ser uma imagem JPG, PNG, GIF ou WebP.");
+      return null;
+    }
+    if (thumbnailUploading) return null;
+
+    setThumbnailUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const res = await fetch("/api/meta/upload-image", { method: "POST", body: form, credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error || !data.hash) {
+        toast.error(`✕ Falha ao enviar thumbnail: ${data.error || "Erro desconhecido"}`);
+        return null;
+      }
+      setUploadedThumbHash(data.hash);
+      setUploadedThumbPreview(URL.createObjectURL(file));
+      toast.success("◎ Thumbnail enviada para a Meta!");
+      return data.hash as string;
+    } catch (e: any) {
+      toast.error(`✕ Falha ao enviar thumbnail: ${e?.message || "Erro de rede"}`);
+      return null;
+    } finally {
+      setThumbnailUploading(false);
+    }
+  }
+
   async function handleManualCreativeImage(file: File, creativeIndex: number, format: "feed" | "stories" | "square") {
     const isVid = isVideoFile(file);
     const isAud = isAudioFile(file);
@@ -737,6 +775,8 @@ export default function CampaignResult() {
     setUploadDone(false);
     setUploadedHash("");
     setUploadedVid("");
+    setUploadedThumbHash("");
+    setUploadedThumbPreview("");
     // ── Validar dimensões automaticamente para conformidade Meta ──
     getImageDimensions(file).then(dims => {
       setMediaDims(dims);
@@ -1006,7 +1046,7 @@ export default function CampaignResult() {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
-        .replace(/[^ -]/g, c => "&#" + c.charCodeAt(0) + ";");
+        .replace(/[^\u0000-\u007f]/g, c => "&#" + c.charCodeAt(0) + ";");
 
       // Quebrar headline em linhas
       const hlWords = headline.split(" ");
@@ -2855,6 +2895,8 @@ export default function CampaignResult() {
                                 setUploadedHashes([""]);
                                 setUploadedHash("");
                                 setUploadedVid("");
+                                setUploadedThumbHash("");
+                                setUploadedThumbPreview("");
                                 setUploadDone(false);
                                 setUploading(false);
                                 setFeaturedIndex(0);
@@ -2871,6 +2913,8 @@ export default function CampaignResult() {
                               setUploadedHashes(toAdd.map(() => ""));
                               setUploadedHash("");
                               setUploadedVid("");
+                              setUploadedThumbHash("");
+                              setUploadedThumbPreview("");
                               setUploadDone(false);
                               setFeaturedIndex(0);
                               toAdd.forEach((file, i) => {
@@ -2888,6 +2932,45 @@ export default function CampaignResult() {
                     </div>
                   )}
                 </div>
+
+                {mediaFiles.length === 1 && isVideoFile(mediaFiles[0]) && (
+                  <div style={{ marginBottom: 16, background: "white", border: "1px solid #dbeafe", borderRadius: 12, padding: 14 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 8 }}>
+                      Thumbnail do vídeo <span style={{ color: "#dc2626" }}>*</span>
+                    </label>
+                    <p style={{ fontSize: 11, color: "var(--muted)", margin: "0 0 10px" }}>
+                      A Meta exige uma thumbnail válida para publicar criativos em vídeo.
+                    </p>
+                    {uploadedThumbPreview ? (
+                      <img src={uploadedThumbPreview} alt="Thumbnail do vídeo" style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)", marginBottom: 10 }} />
+                    ) : null}
+                    <label htmlFor="meta-video-thumb-input" style={{ display: "block", cursor: "pointer" }}>
+                      <div style={{ border: "1.5px dashed #93c5fd", borderRadius: 10, padding: 14, textAlign: "center", background: "#f8fbff" }}>
+                        <div style={{ fontSize: 26, marginBottom: 6 }}>🖼️</div>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", margin: "0 0 4px" }}>Selecionar thumbnail</p>
+                        <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>JPG, PNG, GIF ou WebP</p>
+                      </div>
+                      <input
+                        id="meta-video-thumb-input"
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                        style={{ display: "none" }}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) await handleUploadVideoThumbnail(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <div style={{ marginTop: 10, fontSize: 11, color: uploadedThumbHash ? "#166534" : "#b45309", fontWeight: 600 }}>
+                      {thumbnailUploading
+                        ? "⏳ Enviando thumbnail..."
+                        : uploadedThumbHash
+                          ? `◎ Thumbnail enviada (${uploadedThumbHash.slice(0, 12)}...)`
+                          : "⚠️ Envie a thumbnail antes de publicar"}
+                    </div>
+                  </div>
+                )}
 
                 {/* Spacer */}
                 <div style={{ flex: 1 }} />
