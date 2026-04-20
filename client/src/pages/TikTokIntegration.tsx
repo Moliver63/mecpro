@@ -10,6 +10,7 @@ export default function TikTokIntegration() {
   const [accessToken,  setAccessToken]  = useState("");
   const [advertiserId, setAdvertiserId] = useState("");
   const [loading, setLoading] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   const { data: integrations, refetch } =
     trpc.integrations.list.useQuery(undefined, { retry: false });
@@ -31,6 +32,23 @@ export default function TikTokIntegration() {
     onSuccess: (d: any) => toast.success(`◎ Token válido — conta: ${d.name}`),
     onError:   (e)      => toast.error("Token inválido: " + e.message),
   });
+
+  const handleTikTokOAuth = () => {
+    setOauthLoading(true);
+    const clientKey = (import.meta as any).env?.VITE_TIKTOK_CLIENT_KEY || "";
+    const redirectUri = encodeURIComponent(`${window.location.origin}/auth/tiktok/callback`);
+    const state = Math.random().toString(36).substring(2);
+    sessionStorage.setItem("tiktok_oauth_state", state);
+    if (!clientKey) {
+      toast.error("VITE_TIKTOK_CLIENT_KEY não configurado.");
+      setOauthLoading(false);
+      return;
+    }
+    const url =
+      `https://business-api.tiktok.com/portal/auth?app_id=${clientKey}` +
+      `&state=${state}&redirect_uri=${redirectUri}&scope=advertiser.management`;
+    window.location.href = url;
+  };
 
   const handleSave = () => {
     if (!accessToken)  { toast.error("Access Token obrigatório"); return; }
