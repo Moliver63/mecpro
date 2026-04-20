@@ -91,7 +91,7 @@ function InfoCard({ color, children }: { color: string; children: React.ReactNod
    ABAS INDIVIDUAIS
 ═══════════════════════════════════════════════════════════════ */
 
-function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: () => void }) {
+function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any; psLoading: boolean; onBack: () => void }) {
   const [amount, setAmount]   = useState("");
   const [cpf,    setCpf]      = useState("");
   const [method, setMethod]   = useState<"pix" | "card">("pix");
@@ -155,6 +155,18 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
       cardMutation.mutate({ amount: parsed, cpfCnpj: cleanCpf });
     }
   };
+
+  if (psLoading) {
+    return (
+      <div>
+        <SectionHeader icon="◫" color="#0071e3" title="Depositar" sub="Adicione saldo à sua wallet" onBack={onBack} />
+        <div style={{ textAlign: "center", padding: "40px 20px" }}>
+          <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.4 }}>◌</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--muted)" }}>Carregando configuração de depósito…</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!(ps as any)?.modeWallet) {
     return (
@@ -1211,7 +1223,7 @@ export default function Financeiro() {
   const [tab, setTab] = useState(0);
 
   const { data: balance } = (trpc as any).mediaBudget?.getBalance?.useQuery?.()       ?? {};
-  const { data: ps }      = (trpc as any).admin?.getPaymentSettings?.useQuery?.()     ?? {};
+  const { data: ps, isLoading: psLoading } = (trpc as any).mediaBudget?.getSettings?.useQuery?.() ?? { data: null, isLoading: false };
   const { data: asaas }   = (trpc as any).mediaBudget?.asaasBalance?.useQuery?.()     ?? {};
   const { data: platBal } = (trpc as any).mediaBudget?.platformBalances?.useQuery?.() ?? {};
   const { data: summary } = (trpc as any).mediaBudget?.financialSummary?.useQuery?.() ?? {};
@@ -1504,7 +1516,7 @@ export default function Financeiro() {
               </div>
             )}
 
-            {tab === 1 && <TabDeposit balance={balance} ps={ps} onBack={() => setTab(0)} />}
+            {tab === 1 && <TabDeposit balance={balance} ps={ps} psLoading={psLoading} onBack={() => setTab(0)} />}
             {tab === 2 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
             {tab === 3 && <TabBuyCredits balance={balance} platBal={platBal} onBack={() => setTab(0)} />}
             {tab === 4 && <TabPayCode balance={balance} onBack={() => setTab(0)} />}
