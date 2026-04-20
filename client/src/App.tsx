@@ -131,9 +131,9 @@ export default function App() {
             <Route path="/ebooks" component={Ebooks} />
             <Route path="/ebook/:id" component={EbookReader} />
             <Route path="/login" component={Login} />
-        <Route path="/auth/meta/callback"       component={MetaOAuthCallback} />
-        <Route path="/auth/google/callback"     component={GoogleAdsOAuthCallback} />
-        <Route path="/auth/tiktok/callback"     component={TikTokOAuthCallback} />
+            <Route path="/auth/meta/callback"   component={MetaOAuthCallback} />
+            <Route path="/auth/google/callback" component={GoogleAdsOAuthCallback} />
+            <Route path="/auth/tiktok/callback" component={TikTokOAuthCallback} />
             <Route path="/register" component={Register} />
             <Route path="/signup" component={Signup} />
             <Route path="/forgot-password" component={ForgotPassword} />
