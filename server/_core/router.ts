@@ -6464,11 +6464,17 @@ const mediaBudgetRouter = router({
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
+      const modeWallet = await db.getAdminSetting("payment_mode_wallet");
+      if (modeWallet === "false") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Depósitos estão desabilitados pelo administrador." });
+      }
+
       const asaasKey = process.env.ASAAS_API_KEY;
       if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Pagamento Pix não configurado. Contate o suporte." });
 
       const amountCents = Math.round(input.amount * 100);
-      const feePercent  = 10;
+      const feeConfig   = await db.getAdminSetting("payment_fee_percent");
+      const feePercent  = Number(feeConfig || "10");
       const feeAmount   = Math.round(amountCents * feePercent / 100);
       const netAmount   = amountCents - feeAmount;
 
@@ -6599,6 +6605,11 @@ const mediaBudgetRouter = router({
     .mutation(async ({ ctx, input }) => {
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const modeWallet = await db.getAdminSetting("payment_mode_wallet");
+      if (modeWallet === "false") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Depósitos estão desabilitados pelo administrador." });
+      }
 
       const asaasKey = process.env.ASAAS_API_KEY;
       if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Gateway Asaas não configurado." });
