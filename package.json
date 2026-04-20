@@ -9,6 +9,8 @@
     "build": "cross-env NODE_ENV=production vite build",
     "start": "cross-env NODE_ENV=production tsx server/_core/index.ts",
     "check": "tsc --noEmit",
+    "test": "tsx --test client/src/lib/__tests__/placementGuidance.test.ts",
+    "test:watch": "tsx --test --watch client/src/lib/__tests__/placementGuidance.test.ts",
     "db:push": "drizzle-kit push:pg",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
