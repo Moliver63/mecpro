@@ -11,7 +11,12 @@ import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
-import { resolveLegacyImageUrlByFormat, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
+import {
+  buildPublishMediaFromCreative,
+  mergeCreativeWithProjectedLegacy,
+  resolveLegacyImageHashByFormat,
+  resolveLegacyImageUrlByFormat,
+} from "../../../shared/campaignCreative.schema";
 import {
   getPlacementGuidance,
   normalizeRatio,
@@ -160,6 +165,7 @@ export default function CampaignResult() {
   const [uploadedThumbHash, setUploadedThumbHash] = useState<string>("");
   const [uploadedThumbPreview, setUploadedThumbPreview] = useState<string>("");
   const pendingAutoUploadRef = useRef<File | null>(null); // arquivo aguardando auto-upload
+  const autoAssigningCreativeImagesRef = useRef(false);
   const [uploading,    setUploading]    = useState(false);
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [uploadDone,   setUploadDone]   = useState(false);
@@ -173,8 +179,11 @@ export default function CampaignResult() {
   const [mediaFiles,      setMediaFiles]      = useState<File[]>([]);
   const [mediaPreviews,   setMediaPreviews]   = useState<string[]>([]);
   const [uploadedHashes,  setUploadedHashes]  = useState<string[]>([]);
+  const [creativePreviewByHash, setCreativePreviewByHash] = useState<Record<string, string>>({});
   const [featuredIndex,   setFeaturedIndex]   = useState<number>(0);
   const [uploadingIndex,  setUploadingIndex]  = useState<number | null>(null);
+
+  const creativePreviewStorageKey = `campaign-creative-preview:${id}`;
 
   const MAX_META_CAROUSEL_ITEMS = 10;
 
@@ -189,6 +198,39 @@ export default function CampaignResult() {
       setUploadDone(false);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+    try {
+      const raw = window.localStorage.getItem(creativePreviewStorageKey);
+      setCreativePreviewByHash(raw ? JSON.parse(raw) : {});
+    } catch {
+      setCreativePreviewByHash({});
+    }
+  }, [creativePreviewStorageKey, id]);
+
+  function cacheCreativePreview(hash: string, preview: string | null | undefined) {
+    if (!hash || !preview) return;
+    setCreativePreviewByHash((prev) => {
+      if (prev[hash] === preview) return prev;
+      const next = { ...prev, [hash]: preview };
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(creativePreviewStorageKey, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+  }
+
+  function readFileAsDataUrl(file: File): Promise<string | null> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }
 
   // ── navegação por abas ──
   const [activeTab, setActiveTab] = useState<"overview" | "meta" | "google" | "tiktok">("overview");
@@ -372,8 +414,10 @@ export default function CampaignResult() {
 
   const updateCreativeImageMutation = (trpc as any).campaigns?.updateCreativeImage?.useMutation?.({
     onSuccess: () => {
-      toast.success("🖼️ Imagem do criativo atualizada!");
-      refetchCampaign?.();
+      if (!autoAssigningCreativeImagesRef.current) {
+        toast.success("🖼️ Imagem do criativo atualizada!");
+        refetchCampaign?.();
+      }
       setReplacingCreativeImage(null);
     },
     onError: (e: any) => {
@@ -820,6 +864,8 @@ export default function CampaignResult() {
         toast.success(`◎ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
       } else {
         if (!data.hash) { toast.error("Upload concluído mas sem hash retornado."); return; }
+        const localPreview = await readFileAsDataUrl(file);
+        if (localPreview) cacheCreativePreview(data.hash, localPreview);
         await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, imageUrl: undefined, imageHash: data.hash });
         toast.success(`◎ Imagem atualizada no criativo ${creativeIndex + 1}!`);
       }
@@ -1087,6 +1133,106 @@ export default function CampaignResult() {
     return "feed";
   }
 
+  function getCreativeMediaState(creative: CampaignCreative, preferredFormat: "feed" | "stories" | "square") {
+    const mergedCreative = mergeCreativeWithProjectedLegacy(creative);
+    const resolvedUrl = resolveLegacyImageUrlByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined);
+    const resolvedHash = resolveLegacyImageHashByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined);
+    const publishMedia = buildPublishMediaFromCreative(mergedCreative, preferredFormat as CreativeFormat | undefined);
+    const hasRealImageUrl = !!resolvedUrl && !resolvedUrl.includes("placehold.co") && !resolvedUrl.startsWith("data:image/svg");
+    const cachedPreviewUrl = resolvedHash ? creativePreviewByHash[resolvedHash] || null : null;
+    const previewUrl = cachedPreviewUrl || (hasRealImageUrl ? resolvedUrl : null) || publishMedia?.videoThumbnailUrl || null;
+    const hasRealVisual = !!resolvedHash || !!hasRealImageUrl || !!publishMedia?.videoId || !!publishMedia?.videoThumbnailHash || !!publishMedia?.videoThumbnailUrl;
+
+    return {
+      mergedCreative,
+      previewUrl,
+      resolvedUrl,
+      resolvedHash,
+      publishMedia,
+      hasRealVisual,
+    };
+  }
+
+  function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
+    const mediaState = getCreativeMediaState(creative, preferredFormat || "feed");
+    if (!mediaState.previewUrl) {
+      return buildCreativeSvg(creative, preferredFormat || "feed");
+    }
+    return mediaState.previewUrl;
+  }
+
+  function getPreferredFormatsForUploadedRatio(ratio?: string | null): Array<"feed" | "stories" | "square"> {
+    const normalized = normalizeRatio(ratio || undefined);
+    if (normalized === "9:16") return ["stories", "feed", "square"];
+    if (normalized === "1:1") return ["square", "feed", "stories"];
+    return ["feed", "square", "stories"];
+  }
+
+  async function autoAssignUploadedImagesToEmptyCreatives(items: Array<{ hash: string; ratio?: string | null }>) {
+    if (!items.length || !updateCreativeImageMutation.mutateAsync) {
+      return { assigned: 0, failed: 0, skipped: items.length };
+    }
+
+    const availableSlots = creativeList
+      .map((creative, creativeIndex) => {
+        const format = inferCreativeFormat(creative);
+        const mediaState = getCreativeMediaState(creative, format);
+        return mediaState.hasRealVisual ? null : { creativeIndex, format };
+      })
+      .filter(Boolean) as Array<{ creativeIndex: number; format: "feed" | "stories" | "square" }>;
+
+    if (!availableSlots.length) {
+      return { assigned: 0, failed: 0, skipped: items.length };
+    }
+
+    let assigned = 0;
+    let failed = 0;
+    const remainingSlots = [...availableSlots];
+    autoAssigningCreativeImagesRef.current = true;
+
+    try {
+      for (const item of items) {
+        if (!remainingSlots.length) break;
+
+        const preferredFormats = getPreferredFormatsForUploadedRatio(item.ratio);
+        const preferredSlotIndex = remainingSlots.findIndex((slot) => preferredFormats.includes(slot.format));
+        const slotIndex = preferredSlotIndex >= 0 ? preferredSlotIndex : 0;
+        const slot = remainingSlots[slotIndex];
+        if (!slot) break;
+
+        try {
+          await updateCreativeImageMutation.mutateAsync({
+            campaignId: id,
+            creativeIndex: slot.creativeIndex,
+            format: slot.format,
+            imageUrl: undefined,
+            imageHash: item.hash,
+          });
+          assigned += 1;
+          remainingSlots.splice(slotIndex, 1);
+        } catch {
+          failed += 1;
+        }
+      }
+    } finally {
+      autoAssigningCreativeImagesRef.current = false;
+    }
+
+    if (assigned > 0) {
+      await refetchCampaign?.();
+      toast.success(`◎ ${assigned} criativo(s) sem imagem foram preenchidos automaticamente.`);
+    }
+    if (failed > 0) {
+      toast.warning?.(`⚠️ ${failed} mídia(s) não puderam ser vinculadas automaticamente aos criativos vazios.`);
+    }
+
+    return {
+      assigned,
+      failed,
+      skipped: Math.max(items.length - assigned - failed, 0),
+    };
+  }
+
 
 
   // ── SVG premium como preview de criativo ────────────────────────────────────
@@ -1230,15 +1376,6 @@ export default function CampaignResult() {
         '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="500"><rect width="400" height="500" fill="#0a0f1e"/><text x="20" y="60" font-family="Arial" font-size="18" font-weight="800" fill="white">Criativo</text></svg>'
       );
     }
-  }
-
-  function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
-    const mergedCreative = mergeCreativeWithProjectedLegacy(creative);
-    const real = resolveLegacyImageUrlByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined) || "";
-    if (!real || real.includes("placehold.co")) {
-      return buildCreativeSvg(creative, preferredFormat || "feed");
-    }
-    return real;
   }
 
   function getScoreBadge(score?: number) {
@@ -1946,7 +2083,6 @@ export default function CampaignResult() {
                         clientName={(clientProfile as any)?.companyName}
                         creativeImageDataUrl={creativeImage || undefined}
                         mediaPreview={creativeImage && !creativeImage.startsWith("data:") ? creativeImage : undefined}
-                        creativeImageDataUrl={creativeImage || undefined}
                       />
                     </div>
                   </>
@@ -2996,12 +3132,20 @@ export default function CampaignResult() {
                                   }
 
                                   const newHashes = [...uploadedHashes];
+                                  const newlyUploadedItems: Array<{ hash: string; ratio?: string | null }> = [];
                                   for (let i = 0; i < mediaFiles.length; i++) {
                                     if (!newHashes[i] && isImageFile(mediaFiles[i])) {
                                       setUploadingIndex(i);
                                       const uploadResult = await handleUploadMedia(mediaFiles[i]);
                                       if (uploadResult?.kind === "image") {
                                         newHashes[i] = uploadResult.hash;
+                                        const localPreview = mediaPreviews[i] || await readFileAsDataUrl(mediaFiles[i]);
+                                        if (localPreview) cacheCreativePreview(uploadResult.hash, localPreview);
+                                        const dims = await getImageDimensions(mediaFiles[i]).catch(() => null);
+                                        newlyUploadedItems.push({
+                                          hash: uploadResult.hash,
+                                          ratio: dims ? `${dims.width}:${dims.height}` : null,
+                                        });
                                         setUploadedHashes([...newHashes]);
                                         if (i === featuredIndex) {
                                           setUploadedHash(uploadResult.hash);
@@ -3011,6 +3155,9 @@ export default function CampaignResult() {
                                     }
                                   }
                                   setUploadingIndex(null);
+                                  if (newlyUploadedItems.length > 0) {
+                                    await autoAssignUploadedImagesToEmptyCreatives(newlyUploadedItems);
+                                  }
                                   const totalImages = mediaFiles.filter(file => isImageFile(file)).length;
                                   const allDone = newHashes.filter(Boolean).length === totalImages;
                                   if (allDone) toast.success(`◎ ${totalImages} foto(s) enviadas para a Meta!`);
