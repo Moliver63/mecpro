@@ -1,29 +1,42 @@
 /**
  * stripe-config.ts — Mapeamento de planos para Price IDs do Stripe
- * Localização: shared/stripe-config.ts
  */
 
 export type PlanSlug = "basic" | "premium" | "vip";
+export type BillingMode = "monthly" | "yearly";
 
-/**
- * Retorna o Price ID do Stripe para o plano informado.
- * Os valores são lidos das variáveis de ambiente.
- */
-export function getStripePriceId(plan: PlanSlug): string | null {
-  const map: Record<PlanSlug, string | undefined> = {
-    basic:   process.env.STRIPE_PRICE_BASIC,
-    premium: process.env.STRIPE_PRICE_PREMIUM,
-    vip:     process.env.STRIPE_PRICE_VIP,
+function resolveAnnualEnv(plan: PlanSlug) {
+  const yearlyVars: Record<PlanSlug, string | undefined> = {
+    basic: process.env.STRIPE_PRICE_BASIC_YEARLY || process.env.STRIPE_PRICE_BASIC_ANNUAL,
+    premium: process.env.STRIPE_PRICE_PREMIUM_YEARLY || process.env.STRIPE_PRICE_PREMIUM_ANNUAL,
+    vip: process.env.STRIPE_PRICE_VIP_YEARLY || process.env.STRIPE_PRICE_VIP_ANNUAL,
   };
 
-  return map[plan] || null;
+  return yearlyVars[plan];
 }
 
 /**
- * Verifica se um plano está devidamente configurado no Stripe
+ * Retorna o Price ID do Stripe para o plano e ciclo informado.
  */
-export function isPlanStripeConfigured(plan: PlanSlug): boolean {
-  const priceId = getStripePriceId(plan);
+export function getStripePriceId(plan: PlanSlug, billing: BillingMode = "monthly"): string | null {
+  if (billing === "yearly") {
+    return resolveAnnualEnv(plan) || null;
+  }
+
+  const monthlyVars: Record<PlanSlug, string | undefined> = {
+    basic: process.env.STRIPE_PRICE_BASIC,
+    premium: process.env.STRIPE_PRICE_PREMIUM,
+    vip: process.env.STRIPE_PRICE_VIP,
+  };
+
+  return monthlyVars[plan] || null;
+}
+
+/**
+ * Verifica se um plano está devidamente configurado no Stripe.
+ */
+export function isPlanStripeConfigured(plan: PlanSlug, billing: BillingMode = "monthly"): boolean {
+  const priceId = getStripePriceId(plan, billing);
   return !!(priceId && priceId !== "" && !priceId.includes("SUBSTITUA"));
 }
 
@@ -32,24 +45,18 @@ export function isPlanStripeConfigured(plan: PlanSlug): boolean {
  */
 export function getStripeProductId(plan: PlanSlug): string | null {
   const map: Record<PlanSlug, string | undefined> = {
-    basic:   process.env.STRIPE_PRODUCT_BASIC,
+    basic: process.env.STRIPE_PRODUCT_BASIC,
     premium: process.env.STRIPE_PRODUCT_PREMIUM,
-    vip:     process.env.STRIPE_PRODUCT_VIP,
+    vip: process.env.STRIPE_PRODUCT_VIP,
   };
 
   return map[plan] || null;
 }
 
-/**
- * Lista todos os planos pagos disponíveis
- */
 export const PAID_PLANS: PlanSlug[] = ["basic", "premium", "vip"];
 
-/**
- * Metadados dos planos (nome, preço exibido)
- */
-export const PLAN_META: Record<PlanSlug, { name: string; price: string }> = {
-  basic:   { name: "Basic",   price: "R$ 97/mês"  },
-  premium: { name: "Premium", price: "R$ 197/mês" },
-  vip:     { name: "VIP",     price: "R$ 397/mês" },
+export const PLAN_META: Record<PlanSlug, { name: string; monthlyPrice: string; yearlyPrice: string }> = {
+  basic: { name: "Basic", monthlyPrice: "R$ 97/mês", yearlyPrice: "R$ 924/ano" },
+  premium: { name: "Premium", monthlyPrice: "R$ 197/mês", yearlyPrice: "R$ 1.884/ano" },
+  vip: { name: "VIP", monthlyPrice: "R$ 397/mês", yearlyPrice: "R$ 3.804/ano" },
 };

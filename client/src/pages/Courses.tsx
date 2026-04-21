@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import SEO, { SEO_CONFIGS } from "@/components/SEO";
+import AnnualPromoBanner from "@/components/promo/AnnualPromoBanner";
 
 const MOCK_COURSES = [
   {
@@ -170,6 +171,15 @@ export default function Courses() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <AnnualPromoBanner
+          title="Comece com vantagem no tráfego"
+          description="Aprenda com a Academy e, ao mesmo tempo, entre no anual com 60% do valor pago voltando em crédito para campanhas. Formação + verba promocional na mesma decisão convertem melhor."
+          ctaLabel="Ganhar 60% em crédito agora"
+          tone="emerald"
+        />
       </div>
 
       {/* ── FILTERS ── */}

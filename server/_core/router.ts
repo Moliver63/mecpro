@@ -5009,10 +5009,11 @@ const subscriptionsRouter = router({
       if (!stripeKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe não configurado. Contate o suporte." });
 
       const { getStripePriceId, isPlanStripeConfigured } = await import("../stripe-config");
-      if (!isPlanStripeConfigured(input.planSlug)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Plano "${input.planSlug}" sem priceId configurado. Verifique STRIPE_PRICE_${input.planSlug.toUpperCase()} no Render.` });
+      if (!isPlanStripeConfigured(input.planSlug, input.billing)) {
+        const billingEnvSuffix = input.billing === "yearly" ? "_YEARLY (ou _ANNUAL)" : "";
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Plano "${input.planSlug}" sem priceId configurado para ${input.billing === "yearly" ? "cobrança anual" : "cobrança mensal"}. Verifique STRIPE_PRICE_${input.planSlug.toUpperCase()}${billingEnvSuffix} no Render.` });
       }
-      const priceId = getStripePriceId(input.planSlug)!;
+      const priceId = getStripePriceId(input.planSlug, input.billing)!;
 
       const Stripe = (await import("stripe")).default;
       const stripe = new Stripe(stripeKey, { apiVersion: "2024-11-20.acacia" as any });
@@ -5026,7 +5027,7 @@ const subscriptionsRouter = router({
         line_items: [{ price: priceId, quantity: 1 }],
         customer_email: user.email,
         success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url:  `${appUrl}/billing`,
+        cancel_url:  `${appUrl}/pricing?billing=${input.billing === "yearly" ? "annual" : "monthly"}&plan=${input.planSlug}`,
         metadata: { user_id: String(user.id), plan_slug: input.planSlug, billing: input.billing },
         locale: "pt-BR",
       });

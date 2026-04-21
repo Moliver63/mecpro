@@ -1,4 +1,5 @@
 import { useState } from "react";
+import AnnualPromoBanner from "@/components/promo/AnnualPromoBanner";
 import { useLocation } from "wouter";
 
 const FAQ_DATA = [
@@ -117,6 +118,16 @@ export default function FAQ() {
               {cat}
             </button>
           ))}
+        </div>
+
+        <div style={{ marginBottom: 28 }}>
+          <AnnualPromoBanner
+            title="Ative seu bônus de campanha"
+            description="Se a sua dúvida principal é financeira, aqui está a resposta curta: no anual, 60% do valor pago volta para você em crédito para campanhas dentro da plataforma."
+            ctaLabel="Quero ativar meu crédito agora"
+            tone="light"
+            compact
+          />
         </div>
 
         {/* FAQ Accordion */}

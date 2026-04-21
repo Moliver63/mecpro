@@ -1,4 +1,5 @@
 import Layout from "@/components/layout/Layout";
+import AnnualPromoBanner from "@/components/promo/AnnualPromoBanner";
 import { useLocation } from "wouter";
 
 export default function About() {
@@ -48,6 +49,15 @@ export default function About() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <AnnualPromoBanner
+          title="Ganhe 60% em crédito agora"
+          description="Se você já entendeu o valor da plataforma, esse é o melhor momento para entrar no anual: parte do valor pago volta em crédito para suas campanhas dentro do MecproAI."
+          ctaLabel="Ative seu bônus de campanha"
+          tone="emerald"
+        />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24, marginBottom: 24 }}>
