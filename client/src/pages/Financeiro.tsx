@@ -13,13 +13,13 @@ const R = (v?: number | null) =>
   v == null ? "—" : `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 
 const TABS = [
-  { id: "overview",  icon: "▣", label: "Visão Geral",    color: "#0071e3" },
-  { id: "deposit",   icon: "◫", label: "Depositar",       color: "#0071e3" },
-  { id: "rateio",    icon: "◉", label: "Rateio",          color: "#5856d6" },
-  { id: "buy",       icon: "◆", label: "Comprar",         color: "#30d158" },
-  { id: "pay",       icon: "⎆", label: "Pagar Código",    color: "#af52de" },
-  { id: "credits",   icon: "◈", label: "Créditos",        color: "#30d158" },
-  { id: "transfer",  icon: "◍", label: "Transferir",      color: "#ff9f0a" },
+  { id: "overview",  icon: "▣", label: "Visão Geral",        color: "#0071e3",  desc: "Resumo do seu financeiro"                    },
+  { id: "deposit",   icon: "◫", label: "Depositar",           color: "#0071e3",  desc: "Adicione saldo via Pix ou cartão"            },
+  { id: "transfer",  icon: "🏦", label: "MecBank → Wallet",   color: "#30d158",  desc: "Transfira saldo confirmado para sua carteira" },
+  { id: "buy",       icon: "◆", label: "Distribuir Verba",    color: "#5856d6",  desc: "Distribua saldo para campanhas ativas"       },
+  { id: "pay",       icon: "⎆", label: "Pagar Código Ads",    color: "#af52de",  desc: "Pague Pix/boleto gerado nas plataformas"     },
+  { id: "credits",   icon: "◈", label: "Guia de Recarga",     color: "#16a34a",  desc: "Como recarregar diretamente nas plataformas" },
+  { id: "history",   icon: "📋", label: "Histórico",          color: "#6b7280",  desc: "Movimentações e status dos seus depósitos"   },
 ];
 
 const PLATS = [
@@ -1304,6 +1304,158 @@ function PendingRechargesPanel() {
   );
 }
 
+
+// ── TabHistory: histórico completo com status compensado/pendente ─────────────
+function TabHistory({ balance, summary, asaas, onBack }: { balance: any; summary: any; asaas: any; onBack: () => void }) {
+  const walletBal   = (balance as any)?.balance     ?? 0;
+  const mecBankBal  = (asaas  as any)?.balance      ?? 0;
+  const confirmed   = (asaas  as any)?.confirmedBalance ?? 0;
+  const pending     = mecBankBal - confirmed;
+  const movements   = (summary as any)?.recentMovements ?? [];
+
+  const TYPE_MAP: Record<string, { label: string; icon: string; color: string }> = {
+    deposit:      { label: "Depósito Pix",         icon: "📥", color: "#0071e3" },
+    promo_credit: { label: "Crédito Plano Anual",  icon: "🎁", color: "#16a34a" },
+    fee:          { label: "Taxa de serviço",       icon: "🏷️", color: "#9ca3af" },
+    ad_spend:     { label: "Verba de campanha",     icon: "📢", color: "#af52de" },
+    transfer:     { label: "Transferência",         icon: "🔄", color: "#ff9f0a" },
+    refund:       { label: "Estorno",               icon: "↩️", color: "#30d158" },
+  };
+
+  return (
+    <div>
+      <SectionHeader icon="📋" color="#6b7280" title="Histórico Financeiro"
+        sub="Veja o status de cada movimentação — compensado ou pendente" onBack={onBack} />
+
+      {/* Cards de status */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12, marginBottom: 24 }}>
+        {/* Wallet */}
+        <div style={{ background: "rgba(48,209,88,.06)", border: "1.5px solid rgba(48,209,88,.25)", borderRadius: 14, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>💳</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#16a34a", textTransform: "uppercase", letterSpacing: ".06em" }}>Wallet</span>
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 900, color: "#16a34a", letterSpacing: "-.04em" }}>{R(walletBal)}</div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>✅ Compensado — disponível para campanhas</div>
+        </div>
+
+        {/* MecBank confirmado */}
+        <div style={{ background: confirmed > 0 ? "rgba(48,209,88,.06)" : "rgba(255,255,255,.02)", border: `1.5px solid ${confirmed > 0 ? "rgba(48,209,88,.25)" : "var(--border)"}`, borderRadius: 14, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>🏦</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: confirmed > 0 ? "#16a34a" : "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em" }}>MecBank — Confirmado</span>
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 900, color: confirmed > 0 ? "#16a34a" : "var(--muted)", letterSpacing: "-.04em" }}>{R(confirmed)}</div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+            {confirmed > 0 ? "✅ Pago e confirmado — transfira para Wallet" : "Nenhum Pix confirmado"}
+          </div>
+        </div>
+
+        {/* MecBank pendente */}
+        <div style={{ background: pending > 0 ? "rgba(255,159,10,.06)" : "rgba(255,255,255,.02)", border: `1.5px solid ${pending > 0 ? "rgba(255,159,10,.3)" : "var(--border)"}`, borderRadius: 14, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>⏳</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: pending > 0 ? "#ff9f0a" : "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em" }}>MecBank — Pendente</span>
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 900, color: pending > 0 ? "#ff9f0a" : "var(--muted)", letterSpacing: "-.04em" }}>{R(pending)}</div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+            {pending > 0 ? "⏳ Aguardando pagamento do Pix" : "Sem pendências"}
+          </div>
+        </div>
+
+        {/* MecCoins */}
+        <div style={{ background: "linear-gradient(135deg,#0a1a0e,#0d2212)", border: "1.5px solid rgba(48,209,88,.2)", borderRadius: 14, padding: "16px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <img src="/logo-512.png" alt="MecCoin" style={{ width: 20, height: 20, borderRadius: 4 }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#86efac", textTransform: "uppercase", letterSpacing: ".06em" }}>MecCoins</span>
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 900, color: "#30d158", letterSpacing: "-.04em" }}>{Math.floor(walletBal / 19)} 🪙</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,.35)", marginTop: 4 }}>1 MecCoin = R$ 19,00</div>
+        </div>
+      </div>
+
+      {/* Legenda de status */}
+      <div style={{ background: "var(--off)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, display: "flex", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>Legenda:</div>
+        {[
+          { icon: "✅", label: "Compensado",    desc: "Pix confirmado e saldo disponível"     },
+          { icon: "⏳", label: "Pendente",      desc: "Aguardando pagamento do Pix"           },
+          { icon: "❌", label: "Cancelado",     desc: "Pix expirado ou cancelado"            },
+          { icon: "🔄", label: "Em processamento", desc: "Sendo verificado pelo MecBank"     },
+        ].map(s => (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 14 }}>{s.icon}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--dark)" }}>{s.label}</span>
+            <span style={{ fontSize: 11, color: "var(--muted)" }}>— {s.desc}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Movimentações recentes */}
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "var(--dark)" }}>Últimas movimentações</div>
+          <div style={{ fontSize: 11, color: "var(--muted)" }}>{movements.length} registros</div>
+        </div>
+
+        {movements.length === 0 ? (
+          <div style={{ padding: "32px 20px", textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+            Nenhuma movimentação registrada ainda
+          </div>
+        ) : (
+          movements.map((m: any, i: number) => {
+            const meta = TYPE_MAP[m.type] ?? { label: m.type, icon: "◦", color: "var(--muted)" };
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 18px", borderBottom: i < movements.length - 1 ? "1px solid var(--border)" : "none" }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: meta.color + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                  {meta.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)", marginBottom: 2 }}>{meta.label}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                    {new Date(m.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    {m.platform && ` · ${m.platform.toUpperCase()}`}
+                    {m.campaignName && ` · ${m.campaignName}`}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: m.direction === "credit" ? "#16a34a" : "var(--red)" }}>
+                    {m.direction === "credit" ? "+" : "−"}{R(m.amount)}
+                  </div>
+                  <div style={{ fontSize: 10, marginTop: 2 }}>
+                    <span style={{ padding: "1px 7px", borderRadius: 99, fontWeight: 700,
+                      background: m.direction === "credit" ? "rgba(22,163,74,.1)" : "rgba(239,68,68,.08)",
+                      color:      m.direction === "credit" ? "#16a34a"           : "#dc2626" }}>
+                      ✅ Compensado
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Depósitos pendentes no MecBank */}
+      {(asaas?.pendingCount ?? 0) > 0 && (
+        <div style={{ marginTop: 16, background: "rgba(255,159,10,.05)", border: "1.5px solid rgba(255,159,10,.25)", borderRadius: 14, padding: "16px 18px" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#d97706", marginBottom: 12 }}>
+            ⏳ Pix aguardando pagamento ({asaas.pendingCount})
+          </div>
+          <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.7 }}>
+            Você tem <strong>{asaas.pendingCount} Pix</strong> gerado(s) ainda não pago(s).
+            O saldo total é de <strong style={{ color: "#ff9f0a" }}>{R(asaas.balance)}</strong>.
+            {(asaas.confirmedBalance ?? 0) > 0
+              ? <> <strong style={{ color: "#16a34a" }}>{R(asaas.confirmedBalance)}</strong> já foi confirmado e pode ser transferido para a Wallet.</>
+              : " Pague o Pix para que o saldo seja creditado automaticamente em até 15 minutos."
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Financeiro() {
   const [tab, setTab] = useState(0);
 
@@ -1564,111 +1716,155 @@ export default function Financeiro() {
             {/* Visão Geral */}
             {tab === 0 && (
               <div>
-                <SectionHeader icon="▣" color="#0071e3" title="Visão Geral" sub="Resumo financeiro e acesso rápido" />
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 22 }}>
-                  <div style={{ background: "var(--off)", borderRadius: 12, padding: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: "var(--dark)", marginBottom: 12 }}>Gasto por plataforma</div>
-                    {PLATS.map((p, i) => (
-                      <div key={p.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: i < PLATS.length - 1 ? "1px solid var(--border)" : "none" }}>
-                        <span style={{ fontSize: 18 }}>{p.icon}</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: p.color }}>{p.label}</div>
-                          <div style={{ fontSize: 10, color: "var(--muted)" }}>{R((summary as any)?.spendMonth?.[p.key])} no mês</div>
-                        </div>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: "var(--dark)" }}>{R((summary as any)?.spendToday?.[p.key])}</div>
+                <SectionHeader icon="▣" color="#0071e3" title="Visão Geral" sub="Seu painel financeiro completo — compensado e pendente" />
+
+                {/* ── CARDS DE STATUS ───────────────────────────────────────── */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12, marginBottom:20 }}>
+
+                  {/* Wallet — compensado */}
+                  <div style={{ background:"rgba(48,209,88,.06)", border:"1.5px solid rgba(48,209,88,.25)", borderRadius:14, padding:"16px 18px" }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:"#16a34a", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 }}>💳 Wallet</div>
+                    <div style={{ fontSize:26, fontWeight:900, color:"#16a34a", letterSpacing:"-.04em" }}>{R((balance as any)?.balance ?? 0)}</div>
+                    <div style={{ fontSize:11, color:"var(--muted)", marginTop:4, lineHeight:1.4 }}>✅ <strong>Compensado</strong> · disponível para campanhas</div>
+                    {((balance as any)?.balance ?? 0) >= 19 && (
+                      <div style={{ marginTop:6, fontSize:11, color:"#16a34a", fontWeight:700 }}>
+                        🪙 {Math.floor(((balance as any)?.balance ?? 0) / 19)} MecCoins disponíveis
                       </div>
-                    ))}
+                    )}
                   </div>
-                  <div style={{ background: "var(--off)", borderRadius: 12, overflow: "hidden" }}>
-                    <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontSize: 12, fontWeight: 700 }}>Últimas movimentações</div>
+
+                  {/* MecBank confirmado */}
+                  <div style={{ background:(asaas as any)?.confirmedBalance > 0 ? "rgba(0,113,227,.06)" : "var(--off)", border:`1.5px solid ${(asaas as any)?.confirmedBalance > 0 ? "rgba(0,113,227,.3)" : "var(--border)"}`, borderRadius:14, padding:"16px 18px" }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:(asaas as any)?.confirmedBalance > 0 ? "#0071e3" : "var(--muted)", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 }}>🏦 MecBank — Confirmado</div>
+                    <div style={{ fontSize:26, fontWeight:900, color:(asaas as any)?.confirmedBalance > 0 ? "#0071e3" : "var(--muted)", letterSpacing:"-.04em" }}>{R((asaas as any)?.confirmedBalance ?? 0)}</div>
+                    <div style={{ fontSize:11, color:"var(--muted)", marginTop:4, lineHeight:1.4 }}>
+                      {(asaas as any)?.confirmedBalance > 0
+                        ? <><strong style={{color:"#0071e3"}}>✅ Pago</strong> · transfira para a Wallet</>
+                        : "Nenhum Pix confirmado ainda"}
+                    </div>
+                    {(asaas as any)?.confirmedBalance > 0 && (
+                      <button onClick={() => setTab(2)} style={{ marginTop:8, width:"100%", background:"#0071e3", color:"#fff", fontWeight:800, fontSize:11, padding:"7px 10px", borderRadius:7, border:"none", cursor:"pointer", fontFamily:"var(--font)" }}>
+                        Transferir para Wallet →
+                      </button>
+                    )}
+                  </div>
+
+                  {/* MecBank pendente */}
+                  {(((asaas as any)?.balance ?? 0) - ((asaas as any)?.confirmedBalance ?? 0)) > 0 && (
+                    <div style={{ background:"rgba(255,159,10,.05)", border:"1.5px solid rgba(255,159,10,.25)", borderRadius:14, padding:"16px 18px" }}>
+                      <div style={{ fontSize:10, fontWeight:700, color:"#d97706", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 }}>⏳ MecBank — Pendente</div>
+                      <div style={{ fontSize:26, fontWeight:900, color:"#d97706", letterSpacing:"-.04em" }}>{R(((asaas as any)?.balance ?? 0) - ((asaas as any)?.confirmedBalance ?? 0))}</div>
+                      <div style={{ fontSize:11, color:"var(--muted)", marginTop:4, lineHeight:1.4 }}>⏳ <strong>Aguardando</strong> pagamento do Pix</div>
+                    </div>
+                  )}
+
+                  {/* Gasto hoje */}
+                  <div style={{ ...glass, padding:"16px 18px" }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:"#ff9f0a", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 }}>▣ Gasto hoje</div>
+                    <div style={{ fontSize:26, fontWeight:900, color:"var(--dark)", letterSpacing:"-.04em" }}>{R((summary as any)?.totalSpendToday ?? 0)}</div>
+                    <div style={{ fontSize:11, color:"var(--muted)", marginTop:4 }}>Mês: {R((summary as any)?.totalSpendMonth ?? 0)}</div>
+                  </div>
+                </div>
+
+                {/* ── MOVIMENTAÇÕES + PLATAFORMAS ──────────────────────────── */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:14, marginBottom:20 }}>
+
+                  {/* Últimas movimentações */}
+                  <div style={{ background:"var(--off)", borderRadius:12, overflow:"hidden" }}>
+                    <div style={{ padding:"12px 16px", borderBottom:"1px solid var(--border)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize:12, fontWeight:700 }}>Últimas movimentações</span>
+                      <button onClick={() => setTab(6)} style={{ fontSize:10, color:"#0071e3", fontWeight:700, background:"none", border:"none", cursor:"pointer", fontFamily:"var(--font)" }}>Ver tudo →</button>
+                    </div>
                     {(summary as any)?.recentMovements?.slice(0, 5).map((m: any, i: number) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: i < 4 ? "1px solid var(--border)" : "none" }}>
-                        <span>{m.type === "promo_credit" ? "🎁" : m.type === "deposit" ? "📥" : m.type === "fee" ? "🏷️" : m.type === "transfer" ? "◍" : "📢"}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {m.type === "promo_credit" ? "Crédito Plano Anual" : m.type === "deposit" ? "Depósito" : m.type === "fee" ? "Taxa" : m.type === "transfer" ? "Transferência" : m.platform || "Gasto"}
+                      <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 16px", borderBottom: i < 4 ? "1px solid var(--border)" : "none" }}>
+                        <span style={{ fontSize:16 }}>{m.type==="promo_credit"?"🎁":m.type==="deposit"?"📥":m.type==="fee"?"🏷️":m.type==="transfer"?"🔄":"📢"}</span>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:12, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {m.type==="promo_credit"?"Crédito Plano Anual":m.type==="deposit"?"Depósito Pix":m.type==="fee"?"Taxa":m.type==="transfer"?"Transferência":m.platform||"Gasto"}
                           </div>
-                          <div style={{ fontSize: 10, color: "var(--muted)" }}>{new Date(m.createdAt).toLocaleDateString("pt-BR")}</div>
+                          <div style={{ fontSize:10, color:"var(--muted)" }}>{new Date(m.createdAt).toLocaleDateString("pt-BR")}</div>
                         </div>
-                        <div style={{ fontSize: 13, fontWeight: 800, color: m.direction === "credit" ? "#30d158" : "var(--red)", flexShrink: 0 }}>
-                          {m.direction === "credit" ? "+" : "−"}{R(m.amount)}
+                        <div style={{ textAlign:"right", flexShrink:0 }}>
+                          <div style={{ fontSize:13, fontWeight:800, color:m.direction==="credit"?"#30d158":"var(--red)" }}>
+                            {m.direction==="credit"?"+":"−"}{R(m.amount)}
+                          </div>
+                          <div style={{ fontSize:9, fontWeight:700, color:"#16a34a" }}>✅ compensado</div>
                         </div>
                       </div>
                     ))}
                     {!(summary as any)?.recentMovements?.length && (
-                      <div style={{ padding: 24, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>Nenhuma movimentação ainda</div>
+                      <div style={{ padding:24, textAlign:"center", color:"var(--muted)", fontSize:13 }}>Nenhuma movimentação ainda</div>
                     )}
+                  </div>
+
+                  {/* Gasto por plataforma */}
+                  <div style={{ background:"var(--off)", borderRadius:12, padding:16 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:"var(--dark)", marginBottom:12 }}>Gasto por plataforma</div>
+                    {PLATS.map((p, i) => (
+                      <div key={p.key} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom: i < PLATS.length-1 ? "1px solid var(--border)" : "none" }}>
+                        <span style={{ fontSize:18 }}>{p.icon}</span>
+                        <div style={{ flex:1 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:p.color }}>{p.label}</div>
+                          <div style={{ fontSize:10, color:"var(--muted)" }}>{R((summary as any)?.spendMonth?.[p.key])} no mês</div>
+                        </div>
+                        <div style={{ fontSize:14, fontWeight:900, color:"var(--dark)" }}>{R((summary as any)?.spendToday?.[p.key])}</div>
+                      </div>
+                    ))}
                   </div>
 
                   {/* Créditos de Plano Anual */}
                   {(summary as any)?.annualStats?.totalAprovados > 0 && (
-                    <div style={{ background: "linear-gradient(135deg,#052e16,#14532d)", borderRadius: 12, padding: "16px 20px", border: "1px solid #16a34a" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#86efac", textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 12 }}>
-                        🎁 Créditos de Plano Anual
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                        <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 20, fontWeight: 900, color: "#4ade80" }}>{(summary as any).annualStats.totalAprovados}</div>
-                          <div style={{ fontSize: 10, color: "#86efac", marginTop: 2 }}>planos ativos</div>
-                        </div>
-                        <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 20, fontWeight: 900, color: "#4ade80" }}>{R((summary as any).annualStats.totalCreditado)}</div>
-                          <div style={{ fontSize: 10, color: "#86efac", marginTop: 2 }}>total creditado</div>
-                        </div>
-                        <div style={{ textAlign: "center" }}>
-                          <div style={{ fontSize: 20, fontWeight: 900, color: (summary as any).annualStats.totalPendentes > 0 ? "#fbbf24" : "#4ade80" }}>
-                            {(summary as any).annualStats.totalPendentes}
+                    <div style={{ background:"linear-gradient(135deg,#052e16,#14532d)", borderRadius:12, padding:"16px 20px", border:"1px solid #16a34a" }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#86efac", textTransform:"uppercase", letterSpacing:".07em", marginBottom:12 }}>🎁 Créditos Plano Anual</div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+                        {[
+                          { v:(summary as any).annualStats.totalAprovados, l:"ativos" },
+                          { v:R((summary as any).annualStats.totalCreditado), l:"creditado" },
+                          { v:(summary as any).annualStats.totalPendentes, l:"aguardando", warn:(summary as any).annualStats.totalPendentes > 0 },
+                        ].map((x,i) => (
+                          <div key={i} style={{ textAlign:"center" }}>
+                            <div style={{ fontSize:18, fontWeight:900, color: x.warn ? "#fbbf24" : "#4ade80" }}>{x.v}</div>
+                            <div style={{ fontSize:10, color:"#86efac", marginTop:2 }}>{x.l}</div>
                           </div>
-                          <div style={{ fontSize: 10, color: "#86efac", marginTop: 2 }}>aguardando</div>
-                        </div>
+                        ))}
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Saldo nas plataformas */}
+                {/* ── SALDO NAS PLATAFORMAS ─────────────────────────────────── */}
                 {platBal && (
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
-                      Saldo disponível nas plataformas
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:10 }}>
+                      Saldo nas plataformas de anúncios
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+                    <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10 }}>
                       {[
-                        { key: "meta",   label: "Meta Ads",   icon: "📘", color: "#1877f2", d: (platBal as any).meta   },
-                        { key: "tiktok", label: "TikTok Ads", icon: "◼",  color: "#111",    d: (platBal as any).tiktok },
-                        { key: "google", label: "Google Ads", icon: "🔵", color: "#1a73e8", d: (platBal as any).google },
+                        { key:"meta",   label:"Meta Ads",   icon:"📘", color:"#1877f2", d:(platBal as any).meta   },
+                        { key:"tiktok", label:"TikTok Ads", icon:"◼",  color:"#111",    d:(platBal as any).tiktok },
+                        { key:"google", label:"Google Ads", icon:"🔵", color:"#1a73e8", d:(platBal as any).google },
                       ].map(({ key, label, icon, color, d }) => (
-                        <div key={key} style={{ background: "var(--off)", borderRadius: 12, padding: "12px 14px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                            <span style={{ fontSize: 16 }}>{icon}</span>
-                            <span style={{ fontSize: 11, fontWeight: 700, color }}>{label}</span>
-                            {d?.alert === "critical" && <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, background: "rgba(255,59,48,0.1)", color: "var(--red)", padding: "2px 6px", borderRadius: 4 }}>CRÍTICO</span>}
-                            {d?.alert === "warning"  && <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, background: "rgba(255,159,10,0.1)", color: "var(--orange)", padding: "2px 6px", borderRadius: 4 }}>BAIXO</span>}
+                        <div key={key} style={{ background:"var(--off)", borderRadius:12, padding:"12px 14px" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+                            <span style={{ fontSize:16 }}>{icon}</span>
+                            <span style={{ fontSize:11, fontWeight:700, color }}>{label}</span>
+                            {d?.alert==="critical" && <span style={{ marginLeft:"auto", fontSize:9, fontWeight:700, background:"rgba(255,59,48,0.1)", color:"var(--red)", padding:"2px 6px", borderRadius:4 }}>CRÍTICO</span>}
+                            {d?.alert==="warning"  && <span style={{ marginLeft:"auto", fontSize:9, fontWeight:700, background:"rgba(255,159,10,0.1)", color:"var(--orange)", padding:"2px 6px", borderRadius:4 }}>BAIXO</span>}
                           </div>
                           {!d?.connected ? (
-                            <div style={{ fontSize: 11, color: "var(--muted)" }}>Conta não conectada</div>
+                            <div style={{ fontSize:11, color:"var(--muted)" }}>Conta não conectada</div>
                           ) : d?.error ? (
-                            <div style={{ fontSize: 11, color: "var(--red)" }}>Erro ao buscar</div>
-                          ) : key === "google" ? (
+                            <div style={{ fontSize:11, color:"var(--red)" }}>Erro ao buscar</div>
+                          ) : key==="google" ? (
                             <div>
-                              <div style={{ fontSize: 18, fontWeight: 900, color: "var(--dark)", letterSpacing: "-0.03em" }}>{R(d?.spentThisMonth)}</div>
-                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>gasto no mês · pós-pago</div>
+                              <div style={{ fontSize:18, fontWeight:900, color:"var(--dark)" }}>{R(d?.spentThisMonth)}</div>
+                              <div style={{ fontSize:10, color:"var(--muted)", marginTop:2 }}>gasto no mês · pós-pago</div>
                             </div>
                           ) : (
                             <div>
-                              <div style={{ fontSize: 18, fontWeight: 900, color: (d?.displayBalance ?? d?.balance) > 0 ? "var(--dark)" : "var(--red)", letterSpacing: "-0.03em" }}>
-                                {R(d?.displayBalance ?? d?.balance)}
-                              </div>
-                              {d?.hasDebt && d?.debtAmount > 0 && (
-                                <div style={{ fontSize: 10, color: "var(--orange)", marginTop: 2, fontWeight: 600 }}>
-                                  ◬ Débito pendente: {R(d.debtAmount)}
-                                </div>
-                              )}
-                              {!d?.hasDebt && (
-                                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
-                                  {d?.daysLeft != null ? `≈ ${d.daysLeft} dias restantes` : "saldo disponível"}
-                                </div>
-                              )}
+                              <div style={{ fontSize:18, fontWeight:900, color:(d?.displayBalance??d?.balance)>0?"var(--dark)":"var(--red)" }}>{R(d?.displayBalance??d?.balance)}</div>
+                              {d?.hasDebt && d?.debtAmount>0 && <div style={{ fontSize:10, color:"var(--orange)", marginTop:2, fontWeight:600 }}>◬ Débito: {R(d.debtAmount)}</div>}
+                              {!d?.hasDebt && <div style={{ fontSize:10, color:"var(--muted)", marginTop:2 }}>{d?.daysLeft!=null?`≈ ${d.daysLeft} dias`:"disponível"}</div>}
                             </div>
                           )}
                         </div>
@@ -1677,19 +1873,19 @@ export default function Financeiro() {
                   </div>
                 )}
 
-                {/* Atalhos */}
-                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Acesso rápido</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8 }}>
+                {/* ── ATALHOS ───────────────────────────────────────────────── */}
+                <div style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:12 }}>Acesso rápido</div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:8 }}>
                   {TABS.slice(1).map((t, i) => (
-                    <button key={t.id} onClick={() => setTab(i + 1)}
-                      style={{ padding: "14px 10px", borderRadius: 12, border: "1.5px solid var(--border)", background: "white", cursor: "pointer", textAlign: "center", transition: "all .2s", fontFamily: "var(--font)" }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = t.color; e.currentTarget.style.boxShadow = `0 4px 14px ${t.color}28`; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 10, margin: "0 auto 8px", background: t.color + "14", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: t.color }}>
+                    <button key={t.id} onClick={() => setTab(i+1)}
+                      style={{ padding:"14px 12px", borderRadius:12, border:"1.5px solid var(--border)", background:"white", cursor:"pointer", textAlign:"center", transition:"all .2s", fontFamily:"var(--font)" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor=t.color; e.currentTarget.style.boxShadow=`0 4px 14px ${t.color}28`; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor="var(--border)"; e.currentTarget.style.boxShadow="none"; }}>
+                      <div style={{ width:36, height:36, borderRadius:10, margin:"0 auto 8px", background:t.color+"14", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:t.color }}>
                         {t.icon}
                       </div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--dark)", marginBottom: 4 }}>{t.label}</div>
-                      <div style={{ fontSize: 11, color: t.color, fontWeight: 600 }}>Acessar →</div>
+                      <div style={{ fontSize:11, fontWeight:800, color:"var(--dark)", marginBottom:3 }}>{t.label}</div>
+                      <div style={{ fontSize:10, color:"var(--muted)", lineHeight:1.4 }}>{(t as any).desc}</div>
                     </button>
                   ))}
                 </div>
@@ -1697,11 +1893,12 @@ export default function Financeiro() {
             )}
 
             {tab === 1 && <TabDeposit balance={balance} ps={ps} psLoading={psLoading} onBack={() => setTab(0)} />}
-            {tab === 2 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
+
+            {tab === 2 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
             {tab === 3 && <TabBuyCredits balance={balance} platBal={platBal} onBack={() => setTab(0)} />}
             {tab === 4 && <TabPayCode balance={balance} onBack={() => setTab(0)} />}
             {tab === 5 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
-            {tab === 6 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
+            {tab === 6 && <TabHistory balance={balance} summary={summary} asaas={asaas} onBack={() => setTab(0)} />}
           </div>
         </div>
 
