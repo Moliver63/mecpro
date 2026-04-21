@@ -102,8 +102,9 @@ import AlertsSettings from "@/pages/AlertsSettings";
 import AdminCampaignIntelligence from "@/pages/AdminCampaignIntelligence";
 
 // ── PROMOÇÃO: Plano Anual com 60% de crédito ─────────────────────────────────
-import PromoAnual from "@/pages/PromoAnual";
+import PromoAnual    from "@/pages/PromoAnual";
 import CheckoutAnual from "@/pages/CheckoutAnual";
+import LandingNormal from "@/pages/LandingNormal";
 
 // Components
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
@@ -115,6 +116,20 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: (count, err: any) => err?.status >= 500 && count < 2 } },
 });
 
+// ── Landing dinâmica: promo ou normal conforme admin ─────────────────────────
+import { useEffect, useState } from "react";
+function LandingRouter() {
+  const [mode, setMode] = useState<"promo"|"normal"|null>(null);
+  useEffect(() => {
+    fetch("/api/trpc/public.getLandingMode", { credentials: "include" })
+      .then(r => r.json())
+      .then(d => setMode(d?.result?.data?.mode ?? "promo"))
+      .catch(() => setMode("promo"));
+  }, []);
+  if (mode === null) return null; // loading silencioso
+  return mode === "normal" ? <LandingNormal /> : <Landing />;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -122,7 +137,7 @@ export default function App() {
         <QueryClientProvider client={queryClient}>
           <Switch>
             {/* PUBLIC */}
-            <Route path="/" component={Landing} />
+            <Route path="/" component={LandingRouter} />
             <Route path="/home" component={Home} />
             <Route path="/pricing" component={Pricing} />
             <Route path="/about" component={About} />

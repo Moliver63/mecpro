@@ -1428,10 +1428,10 @@ export default function Financeiro() {
                     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", fontSize: 12, fontWeight: 700 }}>Últimas movimentações</div>
                     {(summary as any)?.recentMovements?.slice(0, 5).map((m: any, i: number) => (
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", borderBottom: i < 4 ? "1px solid var(--border)" : "none" }}>
-                        <span>{m.type === "deposit" ? "📥" : m.type === "fee" ? "🏷️" : m.type === "transfer" ? "◍" : "📢"}</span>
+                        <span>{m.type === "promo_credit" ? "🎁" : m.type === "deposit" ? "📥" : m.type === "fee" ? "🏷️" : m.type === "transfer" ? "◍" : "📢"}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {m.type === "deposit" ? "Depósito" : m.type === "fee" ? "Taxa" : m.type === "transfer" ? "Transferência" : m.platform || "Gasto"}
+                            {m.type === "promo_credit" ? "Crédito Plano Anual" : m.type === "deposit" ? "Depósito" : m.type === "fee" ? "Taxa" : m.type === "transfer" ? "Transferência" : m.platform || "Gasto"}
                           </div>
                           <div style={{ fontSize: 10, color: "var(--muted)" }}>{new Date(m.createdAt).toLocaleDateString("pt-BR")}</div>
                         </div>
@@ -1444,6 +1444,31 @@ export default function Financeiro() {
                       <div style={{ padding: 24, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>Nenhuma movimentação ainda</div>
                     )}
                   </div>
+
+                  {/* Créditos de Plano Anual */}
+                  {(summary as any)?.annualStats?.totalAprovados > 0 && (
+                    <div style={{ background: "linear-gradient(135deg,#052e16,#14532d)", borderRadius: 12, padding: "16px 20px", border: "1px solid #16a34a" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#86efac", textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 12 }}>
+                        🎁 Créditos de Plano Anual
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: "#4ade80" }}>{(summary as any).annualStats.totalAprovados}</div>
+                          <div style={{ fontSize: 10, color: "#86efac", marginTop: 2 }}>planos ativos</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: "#4ade80" }}>{R((summary as any).annualStats.totalCreditado)}</div>
+                          <div style={{ fontSize: 10, color: "#86efac", marginTop: 2 }}>total creditado</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: (summary as any).annualStats.totalPendentes > 0 ? "#fbbf24" : "#4ade80" }}>
+                            {(summary as any).annualStats.totalPendentes}
+                          </div>
+                          <div style={{ fontSize: 10, color: "#86efac", marginTop: 2 }}>aguardando</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Saldo nas plataformas */}

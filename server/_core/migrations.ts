@@ -307,6 +307,8 @@ export async function runMigrations(): Promise<void> {
     `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "reconciledAt"    TIMESTAMPTZ`,
     `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "operationStatus" VARCHAR(30) DEFAULT 'pending'`,
     `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "errorMsg"        TEXT`,
+    // Gap 2: categoria para distinguir tipo de transação
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "category" VARCHAR(30) DEFAULT 'media_deposit'`,
   ];
   for (const q of auditCols) { try { await pool.query(q); } catch {} }
 

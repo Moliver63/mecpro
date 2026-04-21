@@ -81,9 +81,16 @@ export default function CheckoutAnual() {
   }) ?? { mutate: () => {}, isPending: false };
 
   // ─── Polling de confirmação ─────────────────────────────────────────────────
-  function startPolling(data: any) {
+  function startPolling(_data: any) {
     setPolling(true);
     let tries = 0;
+    // Gap 3 corrigido: captura saldo ANTES do pagamento para comparar depois
+    let balanceBefore = -1;
+    fetch("/trpc/mediaBudget.getBalance", { credentials: "include" })
+      .then(r => r.json())
+      .then(j => { balanceBefore = j?.result?.data?.balance ?? 0; })
+      .catch(() => { balanceBefore = 0; });
+
     pollingRef.current = setInterval(async () => {
       tries++;
       if (tries > 120) { clearInterval(pollingRef.current!); setPolling(false); return; }
@@ -91,7 +98,8 @@ export default function CheckoutAnual() {
         const res  = await fetch("/trpc/mediaBudget.getBalance", { credentials: "include" });
         const json = await res.json();
         const bal  = json?.result?.data?.balance ?? 0;
-        if (bal > 0) {
+        // Só confirma se o saldo aumentou em relação ao saldo antes do pagamento
+        if (balanceBefore >= 0 && bal > balanceBefore) {
           clearInterval(pollingRef.current!);
           setPolling(false);
           setStep("paid");

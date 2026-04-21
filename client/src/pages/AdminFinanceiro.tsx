@@ -45,6 +45,7 @@ export default function AdminFinanceiro() {
   const [modeGuide,   setModeGuide]   = useState(true);
   const [feePercent,  setFeePercent]  = useState(10);
   const [dist,        setDist]        = useState({ meta: 50, google: 30, tiktok: 20 });
+  const [landingMode, setLandingMode] = useState<"promo"|"normal">("promo");
   const [activeTab,   setActiveTab]   = useState<"overview"|"settings"|"transactions">("overview");
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function AdminFinanceiro() {
       setModeWallet(ps.modeWallet);
       setModeGuide(ps.modeGuide);
       setFeePercent(ps.feePercent);
+      if (ps.landingMode) setLandingMode(ps.landingMode);
       setDist(ps.defaultDist);
     }
   }, [ps]);
@@ -62,7 +64,7 @@ export default function AdminFinanceiro() {
       toast.error(`Distribuição deve somar 100% (atual: ${totalDist}%)`);
       return;
     }
-    (savePS as any).mutate({ modeWallet, modeGuide, feePercent, defaultDist: dist });
+    (savePS as any).mutate({ modeWallet, modeGuide, feePercent, defaultDist: dist, landingMode });
   }
 
   const tabs = [
@@ -254,6 +256,71 @@ export default function AdminFinanceiro() {
               <div style={{ marginTop: 14, padding: "12px 16px", background: "#f8fafc", borderRadius: 10, fontSize: 12, color: "#64748b" }}>
                 Exemplo: cliente deposita R$ 1.000 → taxa de {feePercent}% = R$ {(1000 * feePercent / 100).toFixed(2)} → R$ {(1000 - 1000 * feePercent / 100).toFixed(2)} para anúncios
               </div>
+            </div>
+
+            {/* ── Modo da Página Inicial ─────────────────────────────────── */}
+            <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: "22px 24px" }}>
+              <h2 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 800 }}>🏠 Modo da Página Inicial</h2>
+              <p style={{ margin: "0 0 20px", fontSize: 13, color: "#64748b" }}>
+                Controla qual versão da landing page (<strong>mecproai.com</strong>) é exibida para visitantes.
+              </p>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                {([
+                  {
+                    value: "promo",
+                    label: "🔥 Modo Promoção",
+                    desc: "Exibe a landing com oferta do plano anual, banner, crédito de 60%, contadores e urgência.",
+                    color: "#16a34a",
+                    bg: "#f0fdf4",
+                    border: "#86efac",
+                  },
+                  {
+                    value: "normal",
+                    label: "🏢 Modo Normal",
+                    desc: "Exibe a landing padrão sem promoção — foco em apresentação da plataforma e planos mensais.",
+                    color: "#6b7280",
+                    bg: "#f9fafb",
+                    border: "#e5e7eb",
+                  },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setLandingMode(opt.value)}
+                    style={{
+                      padding: "18px 20px", borderRadius: 14, textAlign: "left", cursor: "pointer",
+                      border: `2px solid ${landingMode === opt.value ? opt.border : "#e5e7eb"}`,
+                      background: landingMode === opt.value ? opt.bg : "#fff",
+                      transition: "all .15s", fontFamily: "inherit",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: landingMode === opt.value ? opt.color : "#374151" }}>
+                        {opt.label}
+                      </span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                        background: landingMode === opt.value ? opt.color : "#e5e7eb",
+                        color: landingMode === opt.value ? "#fff" : "#6b7280",
+                      }}>
+                        {landingMode === opt.value ? "ATIVO" : "INATIVO"}
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 12, color: "#6b7280", lineHeight: 1.6 }}>{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
+
+              {landingMode === "promo" && (
+                <div style={{ marginTop: 14, padding: "12px 16px", background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 10, fontSize: 12, color: "#15803d", lineHeight: 1.6 }}>
+                  ✅ Landing com promoção ativa — banner, crédito de 60%, contador regressivo e checkout Asaas visíveis para visitantes.
+                </div>
+              )}
+              {landingMode === "normal" && (
+                <div style={{ marginTop: 14, padding: "12px 16px", background: "#fef9c3", border: "1px solid #fde68a", borderRadius: 10, fontSize: 12, color: "#92400e", lineHeight: 1.6 }}>
+                  ⚠️ Modo normal ativo — a promoção está oculta. Visitantes verão apenas a landing padrão sem oferta especial.
+                </div>
+              )}
             </div>
 
             {/* Distribuição padrão */}

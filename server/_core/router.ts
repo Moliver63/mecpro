@@ -3560,17 +3560,19 @@ const adminRouter = router({
   // ── Payment mode settings ──────────────────────────────────────────────
   getPaymentSettings: adminProcedure
     .query(async () => {
-      const [modeA, modeB, feePercent, defaultDist] = await Promise.all([
-        db.getAdminSetting("payment_mode_wallet"),    // wallet interna (Modo A)
-        db.getAdminSetting("payment_mode_guide"),     // guia de compra (Modo B)
-        db.getAdminSetting("payment_fee_percent"),    // taxa %
-        db.getAdminSetting("payment_default_dist"),   // distribuição padrão
+      const [modeA, modeB, feePercent, defaultDist, landingMode] = await Promise.all([
+        db.getAdminSetting("payment_mode_wallet"),
+        db.getAdminSetting("payment_mode_guide"),
+        db.getAdminSetting("payment_fee_percent"),
+        db.getAdminSetting("payment_default_dist"),
+        db.getAdminSetting("landing_mode"),
       ]);
       return {
-        modeWallet:   modeA !== "false",   // Modo A — default ON
-        modeGuide:    modeB !== "false",   // Modo B — default ON
+        modeWallet:   modeA !== "false",
+        modeGuide:    modeB !== "false",
         feePercent:   Number(feePercent || "10"),
         defaultDist:  defaultDist ? JSON.parse(defaultDist) : { meta: 50, google: 30, tiktok: 20 },
+        landingMode:  (landingMode || "promo") as "promo" | "normal",
       };
     }),
 
@@ -3580,6 +3582,7 @@ const adminRouter = router({
       modeGuide:   z.boolean(),
       feePercent:  z.number().min(0).max(50),
       defaultDist: z.object({ meta: z.number(), google: z.number(), tiktok: z.number() }),
+      landingMode: z.enum(["promo","normal"]).default("promo"),
     }))
     .mutation(async ({ input }) => {
       await Promise.all([
@@ -3587,6 +3590,7 @@ const adminRouter = router({
         db.saveAdminSetting("payment_mode_guide",   String(input.modeGuide)),
         db.saveAdminSetting("payment_fee_percent",  String(input.feePercent)),
         db.saveAdminSetting("payment_default_dist", JSON.stringify(input.defaultDist)),
+        db.saveAdminSetting("landing_mode",         input.landingMode),
       ]);
       log.info("admin", "Payment settings atualizadas", input);
       return { success: true };
@@ -5141,8 +5145,8 @@ const subscriptionsRouter = router({
       await pool.query(
         `INSERT INTO media_budget (
           "userId", amount, "feePercent", "feeAmount", "netAmount",
-          type, status, method, "pixPayload", "pixExpiry", notes, "stripeId"
-        ) VALUES ($1,$2,$3,$4,$5,'deposit','pending','pix',$6,$7,$8,$9)`,
+          type, status, method, "pixPayload", "pixExpiry", notes, "stripeId", "category"
+        ) VALUES ($1,$2,$3,$4,$5,'deposit','pending','pix',$6,$7,$8,$9,'annual_plan')`,
         [
           ctx.user.id,
           amountCents,
@@ -7076,6 +7080,21 @@ const mediaBudgetRouter = router({
         ORDER BY "createdAt" DESC LIMIT 10
       `, [ctx.user.id]);
 
+      // Gap 2 corrigido: total de créditos de plano anual separado
+      const annualCreditRes = await pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'approved') AS total_aprovados,
+          COUNT(*) FILTER (WHERE status = 'pending')  AS total_pendentes,
+          COALESCE(SUM("netAmount") FILTER (WHERE status = 'approved'), 0) AS total_creditado
+        FROM media_budget
+        WHERE "userId" = $1 AND "category" = 'annual_plan'
+      `, [ctx.user.id]);
+      const annualStats = {
+        totalAprovados:  Number(annualCreditRes.rows[0]?.total_aprovados  ?? 0),
+        totalPendentes:  Number(annualCreditRes.rows[0]?.total_pendentes  ?? 0),
+        totalCreditado:  Number(annualCreditRes.rows[0]?.total_creditado  ?? 0) / 100,
+      };
+
       // Budget planejado por plataforma (soma das campanhas ativas)
       const budgetRes = await pool.query(`
         SELECT c.platform,
@@ -7107,6 +7126,7 @@ const mediaBudgetRouter = router({
         totalSpendToday:  Object.values(spendToday).reduce((s, v) => s + v, 0),
         totalSpendMonth:  Object.values(spendMonth).reduce((s, v) => s + v, 0),
         platformBudget,
+        annualStats,
         recentMovements:  recentRes.rows.map((r: any) => ({
           type:         r.type,
           amount:       Number(r.amount) / 100,
@@ -8983,6 +9003,15 @@ const mediaBudgetRouter = router({
 
 });
 
+
+// ── Rota pública: modo da landing page ────────────────────────────────────────
+const publicRouter = router({
+  getLandingMode: publicProcedure.query(async () => {
+    const mode = await db.getAdminSetting("landing_mode");
+    return { mode: (mode || "promo") as "promo" | "normal" };
+  }),
+});
+
 export const appRouter = router({
   auth: authRouter,
   projects: projectsRouter,
@@ -9011,6 +9040,7 @@ export const appRouter = router({
   academy: academyRouter,
   intelligence:   adminIntelligenceRouter,
   vsl:            vslRouter,   // ← ADICIONAR ESTA LINHA
+  public:         publicRouter,
 });
 
 export type AppRouter = typeof appRouter;

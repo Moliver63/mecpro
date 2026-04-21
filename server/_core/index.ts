@@ -870,6 +870,38 @@ app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Respons
         "updatedAt" = NOW()
     `, [dep.userId, dep.netAmount, dep.amount, dep.feeAmount]);
 
+    // ── GAP 1 CORRIGIDO: Registra no wallet_ledger para histórico completo ──
+    try {
+      const balRes = await pool.query(
+        `SELECT COALESCE(balance, 0) as balance FROM media_balance WHERE "userId" = $1`,
+        [dep.userId]
+      );
+      const balBefore = Number(balRes.rows[0]?.balance ?? 0);
+      const balAfter  = balBefore + Number(dep.netAmount);
+      // Determina o tipo: plano anual ou depósito de mídia
+      const isAnnualPlan = (dep.notes || '').toLowerCase().includes('plano') &&
+                           (dep.notes || '').toLowerCase().includes('anual');
+      await pool.query(`
+        INSERT INTO wallet_ledger (
+          "userId", type, amount, direction, reference, notes,
+          "balanceBefore", "balanceAfter", "createdAt"
+        ) VALUES ($1, $2, $3, 'credit', $4, $5, $6, $7, NOW())
+      `, [
+        dep.userId,
+        isAnnualPlan ? 'promo_credit' : 'deposit',
+        dep.netAmount,
+        asaasId,
+        isAnnualPlan
+          ? `Crédito promocional — ${dep.notes}`
+          : `Depósito Pix confirmado — R$ ${(Number(dep.amount)/100).toFixed(2)} (taxa ${dep.feePercent}%)`,
+        balBefore,
+        balAfter,
+      ]);
+    } catch (ledgerErr: any) {
+      // Falha no ledger não deve bloquear o crédito
+      log.warn('asaas-webhook', 'Falha ao registrar no wallet_ledger', { error: ledgerErr.message });
+    }
+
     log.info('asaas-webhook', '✅ Pix confirmado — saldo creditado automaticamente', {
       userId:    dep.userId,
       depositId: dep.id,

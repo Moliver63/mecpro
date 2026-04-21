@@ -308,6 +308,19 @@ export default function Landing() {
           </button>
         </div>
 
+        {/* ══ BANNER PROMO ANUAL ══════════════════════════════════════════════ */}
+        <section style={{padding:"32px 24px 0",maxWidth:1080,margin:"0 auto"}}>
+          <button onClick={goCheckoutDirect} style={{width:"100%",border:"none",background:"none",padding:0,cursor:"pointer",display:"block",borderRadius:20,overflow:"hidden",boxShadow:"0 8px 40px rgba(0,0,0,.15)",transition:"transform .2s,box-shadow .2s"}}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1.01)";(e.currentTarget as HTMLElement).style.boxShadow="0 12px 48px rgba(0,0,0,.22)";}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform="scale(1)";(e.currentTarget as HTMLElement).style.boxShadow="0 8px 40px rgba(0,0,0,.15)";}}>
+            <img
+              src="/banner-promo-anual.jpg"
+              alt="MECPro AI coloca dinheiro no seu bolso — assine o plano anual e receba até R$ 1.900 em créditos"
+              style={{width:"100%",display:"block",borderRadius:20}}
+            />
+          </button>
+        </section>
+
         {/* ══ TRUST STRIP ════════════════════════════════════════════════════ */}
         <div style={{background:"#f9fafb",borderTop:"1px solid #f0f0f0",borderBottom:"1px solid #f0f0f0",padding:"16px 24px",marginTop:24}}>
           <div style={{maxWidth:1080,margin:"0 auto",display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
