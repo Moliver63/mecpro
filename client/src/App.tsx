@@ -103,6 +103,7 @@ import AdminCampaignIntelligence from "@/pages/AdminCampaignIntelligence";
 
 // ── PROMOÇÃO: Plano Anual com 60% de crédito ─────────────────────────────────
 import PromoAnual from "@/pages/PromoAnual";
+import CheckoutAnual from "@/pages/CheckoutAnual";
 
 // Components
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
@@ -148,6 +149,7 @@ export default function App() {
             <Route path="/404" component={NotFound} />
             <Route path="/promo" component={PromoAnual} />
             <Route path="/promo-anual" component={PromoAnual} />
+            <Route path="/checkout-anual"><ProtectedRoute><CheckoutAnual /></ProtectedRoute></Route>
 
             {/* USER */}
             <Route path="/dashboard"><ProtectedRoute><Dashboard /></ProtectedRoute></Route>

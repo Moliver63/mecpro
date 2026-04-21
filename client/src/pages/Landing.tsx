@@ -113,10 +113,10 @@ export default function Landing() {
   const goCheckout = () => {
     if (!termsAccepted) { setTermsError(true); document.getElementById("termos-section")?.scrollIntoView({behavior:"smooth"}); return; }
     setTermsError(false);
-    setLocation("/pricing");
+    setLocation(`/checkout-anual?plan=${plan.slug}`);
   };
 
-  const goCheckoutDirect = () => setLocation("/pricing");
+  const goCheckoutDirect = () => setLocation(`/checkout-anual?plan=${plan.slug}`);
 
   return (
     <>

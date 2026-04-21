@@ -5035,6 +5035,146 @@ const subscriptionsRouter = router({
       return { url: session.url };
     }),
 
+  // ─── Checkout Asaas — Plano Anual com Crédito Promocional ─────────────────
+  createAsaasAnnual: protectedProcedure
+    .input(z.object({
+      planSlug: z.enum(["basic", "premium", "vip"]),
+      cpfCnpj:  z.string().min(11).max(18),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool     = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Pagamento Pix não configurado. Contate o suporte." });
+
+      // ── Preços dos planos (mensais) ──
+      const MONTHLY: Record<string, number> = { basic: 97, premium: 197, vip: 397 };
+      const NAMES:   Record<string, string> = { basic: "Basic", premium: "Premium", vip: "VIP" };
+      const monthly     = MONTHLY[input.planSlug];
+      const annualPrice = Math.floor(monthly * 0.8) * 12;   // 20% off × 12
+      const creditGross = Math.round(annualPrice * 0.6);     // 60% de crédito bruto
+      const adminFee    = Math.round(annualPrice * 0.10);    // 10% taxa de administração
+      const creditNet   = creditGross - adminFee;            // crédito líquido que o usuário recebe
+
+      const cleanCpf = input.cpfCnpj.replace(/\D/g, "");
+      if (cleanCpf.length < 11) throw new TRPCError({ code: "BAD_REQUEST", message: "CPF ou CNPJ inválido." });
+
+      const userRes = await db.getUserById(ctx.user.id) as any;
+      if (!userRes) throw new TRPCError({ code: "NOT_FOUND", message: "Usuário não encontrado." });
+
+      // ── 1. Busca ou cria cliente no Asaas ──
+      let asaasCustomerId: string;
+      try {
+        const searchRes  = await fetch(
+          `https://api.asaas.com/v3/customers?email=${encodeURIComponent(userRes.email)}&limit=1`,
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+        );
+        const searchData: any = await searchRes.json();
+        if (searchData.data?.[0]?.id) {
+          asaasCustomerId = searchData.data[0].id;
+          await fetch(`https://api.asaas.com/v3/customers/${asaasCustomerId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({ cpfCnpj: cleanCpf }),
+            signal: AbortSignal.timeout(8000),
+          });
+        } else {
+          const createRes  = await fetch("https://api.asaas.com/v3/customers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({
+              name:              userRes.name || userRes.email,
+              email:             userRes.email,
+              cpfCnpj:           cleanCpf,
+              externalReference: String(ctx.user.id),
+              notificationDisabled: true,
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          const createData: any = await createRes.json();
+          if (!createData.id) throw new Error(createData.errors?.[0]?.description || "Erro ao criar cliente no Asaas");
+          asaasCustomerId = createData.id;
+        }
+      } catch (e: any) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao configurar pagamento: ${e.message}` });
+      }
+
+      // ── 2. Cria cobrança Pix no Asaas ──
+      const dueDate    = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const dueDateStr = dueDate.toISOString().split("T")[0];
+      let asaasPayment: any;
+      try {
+        const payRes = await fetch("https://api.asaas.com/v3/payments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", access_token: asaasKey },
+          body: JSON.stringify({
+            customer:         asaasCustomerId,
+            billingType:      "PIX",
+            value:            annualPrice,
+            dueDate:          dueDateStr,
+            description:      `MECPro — Plano ${NAMES[input.planSlug]} Anual | Inclui crédito promocional de R$ ${(creditNet/100).toFixed(2).replace(".",",")} para campanhas`,
+            externalReference: `mecpro_annual_uid_${ctx.user.id}_${input.planSlug}`,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        asaasPayment = await payRes.json();
+        if (!asaasPayment.id) throw new Error(asaasPayment.errors?.[0]?.description || "Erro ao criar cobrança");
+      } catch (e: any) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Erro ao gerar Pix: ${e.message}` });
+      }
+
+      // ── 3. Busca QR Code ──
+      let pixQrCode  = "";
+      let pixPayload = "";
+      try {
+        const qrRes  = await fetch(
+          `https://api.asaas.com/v3/payments/${asaasPayment.id}/pixQrCode`,
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+        );
+        const qrData: any = await qrRes.json();
+        pixQrCode  = qrData.encodedImage || "";
+        pixPayload = qrData.payload      || "";
+      } catch { /* fallback silencioso */ }
+
+      // ── 4. Registra no banco de dados ──
+      const amountCents = annualPrice * 100;
+      await pool.query(
+        `INSERT INTO media_budget (
+          "userId", amount, "feePercent", "feeAmount", "netAmount",
+          type, status, method, "pixPayload", "pixExpiry", notes, "stripeId"
+        ) VALUES ($1,$2,$3,$4,$5,'deposit','pending','pix',$6,$7,$8,$9)`,
+        [
+          ctx.user.id,
+          amountCents,
+          10,
+          adminFee * 100,
+          creditNet * 100,
+          pixPayload,
+          dueDate,
+          `Plano ${NAMES[input.planSlug]} Anual — crédito promo R$ ${(creditNet).toFixed(2).replace(".",",")}`,
+          asaasPayment.id,
+        ]
+      );
+
+      log.info("asaas-annual", "Cobrança anual criada", {
+        userId: ctx.user.id, planSlug: input.planSlug,
+        annualPrice, creditNet, asaasId: asaasPayment.id,
+      });
+
+      return {
+        asaasId:    asaasPayment.id,
+        planSlug:   input.planSlug,
+        planName:   NAMES[input.planSlug],
+        annualPrice,
+        adminFee,
+        creditGross,
+        creditNet,
+        pixPayload,
+        pixQrCode,
+        pixExpiry:  dueDate.toISOString(),
+      };
+    }),
+
   portalSession: protectedProcedure
     .mutation(async ({ ctx }) => {
       const stripeKey = process.env.STRIPE_SECRET_KEY;
