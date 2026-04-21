@@ -182,10 +182,10 @@ export default function Landing() {
         </div>
 
         {/* ══ NAV ════════════════════════════════════════════════════════════ */}
-        <nav style={{position:"sticky",top:0,zIndex:100,height:60,background:"rgba(255,255,255,.97)",backdropFilter:"blur(16px)",borderBottom:"1px solid #f0f0f0"}}>
+        <nav style={{position:"sticky",top:0,zIndex:100,height:72,background:"rgba(255,255,255,.97)",backdropFilter:"blur(16px)",borderBottom:"1px solid #f0f0f0"}}>
           <div style={{maxWidth:1080,margin:"0 auto",padding:"0 24px",height:"100%",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <a href="/" style={{textDecoration:"none",display:"flex",alignItems:"center"}}>
-              <img src="/logo-512.png" alt="MECPro" height={44} style={{display:"block",borderRadius:10}}/>
+              <img src="/logo-512.png" alt="MECPro" height={56} style={{display:"block",borderRadius:12}}/>
             </a>
             <nav className="sm-hide" style={{display:"flex",gap:24}}>
               {[{l:"Plataforma",h:"/#recursos"},{l:"Academy",h:"/courses"},{l:"Preços",h:"/pricing"},{l:"FAQ",h:"/faq"}].map(x=>(
@@ -895,7 +895,7 @@ export default function Landing() {
 
             <div style={{borderTop:"1px solid #1f2937",paddingTop:28,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:14}}>
               <a href="/" style={{textDecoration:"none",fontSize:18,fontWeight:900,color:"#fff",display:"flex",alignItems:"center",gap:8}}>
-                <img src="/logo-512.png" alt="MECPro" height={36} style={{display:"block",borderRadius:8}}/>
+                <img src="/logo-512.png" alt="MECPro" height={48} style={{display:"block",borderRadius:10}}/>
                 MEC<span style={{color:"#4ade80"}}>PRO</span>
               </a>
               <nav style={{display:"flex",gap:14,flexWrap:"wrap"}}>

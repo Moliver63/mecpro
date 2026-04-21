@@ -94,10 +94,10 @@ export default function LandingNormal() {
       <div style={{fontFamily:"var(--font-body,'Geist',sans-serif)",background:"#fff",color:"#111"}}>
 
         {/* NAV */}
-        <nav style={{position:"sticky",top:0,zIndex:100,height:60,background:"rgba(255,255,255,.96)",backdropFilter:"blur(16px)",borderBottom:"1px solid #f0f0f0"}}>
+        <nav style={{position:"sticky",top:0,zIndex:100,height:72,background:"rgba(255,255,255,.96)",backdropFilter:"blur(16px)",borderBottom:"1px solid #f0f0f0"}}>
           <div style={{maxWidth:1080,margin:"0 auto",padding:"0 24px",height:"100%",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <a href="/" style={{textDecoration:"none",display:"flex",alignItems:"center"}}>
-              <img src="/logo-512.png" alt="MECPro" height={44} style={{display:"block",borderRadius:10}}/>
+              <img src="/logo-512.png" alt="MECPro" height={56} style={{display:"block",borderRadius:12}}/>
             </a>
             <nav className="sm-hide" style={{display:"flex",gap:24}}>
               {[{l:"Plataforma",h:"/#recursos"},{l:"Academy",h:"/courses"},{l:"Preços",h:"/pricing"},{l:"FAQ",h:"/faq"}].map(x=>(
@@ -352,7 +352,7 @@ export default function LandingNormal() {
         <footer style={{borderTop:"1px solid #f0f0f0",padding:"32px 24px"}}>
           <div style={{maxWidth:1080,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:20}}>
             <a href="/" style={{textDecoration:"none",display:"flex",alignItems:"center",gap:8}}>
-              <img src="/logo-512.png" alt="MECPro" height={32} style={{display:"block",borderRadius:8}}/>
+              <img src="/logo-512.png" alt="MECPro" height={44} style={{display:"block",borderRadius:10}}/>
             </a>
             <nav style={{display:"flex",gap:20,flexWrap:"wrap"}}>
               {[{l:"Plataforma",h:"/#recursos"},{l:"Academy",h:"/courses"},{l:"Preços",h:"/pricing"},{l:"FAQ",h:"/faq"},{l:"Termos",h:"/terms"},{l:"Privacidade",h:"/privacy"},{l:"Contato",h:"/contact"}].map(x=>(
