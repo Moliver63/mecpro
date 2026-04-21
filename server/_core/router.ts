@@ -7142,29 +7142,57 @@ const mediaBudgetRouter = router({
   // ── Consultar saldo Asaas em tempo real ───────────────────────────────────
   asaasBalance: protectedProcedure
     .query(async ({ ctx }) => {
-      // ⚠️  ISOLAMENTO: nunca retornar saldo GLOBAL do Asaas.
-      // Cada usuário só vê o total de depósitos PENDENTES que ele mesmo gerou.
-      // O saldo da conta Asaas é consolidado (todos os clientes juntos) — expô-lo
-      // quebraria privacidade entre usuários.
+      // Retorna saldo MecBank do usuário: pendentes e confirmados verificados na API Asaas
       const pool = await getPool();
-      if (!pool) return { balance: 0, pendingCount: 0 };
+      if (!pool) return { balance: 0, pendingCount: 0, confirmedBalance: 0, confirmedCount: 0, canTransfer: false };
+      const asaasKey = process.env.ASAAS_API_KEY;
       try {
+        // Busca todos os Pix pendentes não expirados
         const res = await pool.query(`
-          SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS cnt
+          SELECT id, amount, "netAmount", "feeAmount", "stripeId"
           FROM media_budget
           WHERE "userId" = $1
             AND type   = 'deposit'
             AND status = 'pending'
             AND method = 'pix'
             AND "pixExpiry" > NOW()
+          ORDER BY "createdAt" ASC
         `, [ctx.user.id]);
-        const row = res.rows[0];
+
+        const total        = res.rows.reduce((s: number, r: any) => s + Number(r.amount),     0);
+        const totalNet     = res.rows.reduce((s: number, r: any) => s + Number(r.netAmount),  0);
+        const pendingCount = res.rows.length;
+
+        // Verificar quais já foram pagos no Asaas (sem bloquear UI se API falhar)
+        let confirmedBalance = 0;
+        let confirmedCount   = 0;
+        if (asaasKey && res.rows.length > 0) {
+          for (const dep of res.rows) {
+            if (!dep.stripeId) continue;
+            try {
+              const r  = await fetch(
+                `https://api.asaas.com/v3/payments/${dep.stripeId}`,
+                { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(5000) }
+              );
+              const d: any = await r.json();
+              if (d.status === "RECEIVED" || d.status === "CONFIRMED") {
+                confirmedBalance += Number(dep.netAmount);
+                confirmedCount++;
+              }
+            } catch { /* silencioso — não quebra a query */ }
+          }
+        }
+
         return {
-          balance:      Number(row.total) / 100,  // saldo PIX pendente deste usuário
-          pendingCount: Number(row.cnt),
+          balance:          total     / 100,  // valor bruto pendente
+          balanceNet:       totalNet  / 100,  // valor líquido pendente
+          pendingCount,
+          confirmedBalance: confirmedBalance / 100, // já confirmado no Asaas, pronto para wallet
+          confirmedCount,
+          canTransfer:      confirmedBalance > 0,
         };
       } catch (e: any) {
-        return { balance: 0, pendingCount: 0, error: e.message };
+        return { balance: 0, pendingCount: 0, confirmedBalance: 0, confirmedCount: 0, canTransfer: false, error: e.message };
       }
     }),
 
@@ -7757,68 +7785,98 @@ const mediaBudgetRouter = router({
   // Puxa o saldo disponível no Asaas e credita na wallet do usuário
   syncAsaasBalance: protectedProcedure
     .input(z.object({
-      amountReais: z.number().min(1).optional(), // se omitido, usa o saldo total do Asaas
+      amountReais: z.number().min(1).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
       const asaasKey = process.env.ASAAS_API_KEY;
-      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Asaas não configurado." });
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "MecBank não configurado. Contate o suporte." });
 
-      // ⚠️  ISOLAMENTO: validar contra depósitos DO USUÁRIO, não saldo global do Asaas.
-      // Busca os depósitos Pix PENDENTES que este usuário gerou e que ainda não
-      // foram confirmados pelo webhook — esse é o "saldo dele no Asaas".
+      // ── 1. Busca depósitos pendentes deste usuário no banco ───────────────
       const pendingRes = await pool.query(`
-        SELECT COALESCE(SUM("netAmount"), 0) AS total_net,
-               COALESCE(SUM(amount), 0)      AS total_gross
+        SELECT id, amount, "feeAmount", "netAmount", "stripeId"
         FROM media_budget
         WHERE "userId" = $1
           AND type   = 'deposit'
           AND status = 'pending'
           AND method = 'pix'
           AND "pixExpiry" > NOW()
+        ORDER BY "createdAt" ASC
       `, [ctx.user.id]);
 
-      const userPendingNet   = Number(pendingRes.rows[0]?.total_net   || 0) / 100;
-      const userPendingGross = Number(pendingRes.rows[0]?.total_gross || 0) / 100;
-
-      if (userPendingGross <= 0) {
+      if (!pendingRes.rows.length) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Você não tem depósitos Pix pendentes de confirmação. Gere um novo Pix ou aguarde a confirmação automática.",
+          message: "Nenhum Pix pendente encontrado. Gere um novo Pix ou aguarde a confirmação automática pelo MecBank.",
         });
       }
 
-      // Valor a creditar: o líquido pendente do usuário (já deduzida a taxa na criação do Pix)
-      const amountReais = input?.amountReais ?? userPendingGross;
-      if (amountReais > userPendingGross + 0.01) {
+      // ── 2. Verificar status REAL de cada cobrança na API do Asaas ─────────
+      // Só credita os que estiverem com status RECEIVED ou CONFIRMED na API
+      const confirmedDeposits: Array<{ id: number; netAmount: number; amount: number; feeAmount: number; asaasId: string }> = [];
+
+      for (const dep of pendingRes.rows) {
+        const asaasId = dep.stripeId; // coluna stripeId armazena o ID do Asaas
+        if (!asaasId) continue;
+
+        try {
+          const resp = await fetch(
+            `https://api.asaas.com/v3/payments/${asaasId}`,
+            { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(8000) }
+          );
+          const payData: any = await resp.json();
+
+          // Status confirmados pelo Asaas: RECEIVED = Pix recebido, CONFIRMED = confirmado
+          if (payData.status === "RECEIVED" || payData.status === "CONFIRMED") {
+            confirmedDeposits.push({
+              id:        dep.id,
+              netAmount: Number(dep.netAmount),
+              amount:    Number(dep.amount),
+              feeAmount: Number(dep.feeAmount),
+              asaasId,
+            });
+            log.info("mecbank-sync", `Pix confirmado no Asaas: ${asaasId}`, { status: payData.status, value: payData.value });
+          } else {
+            log.info("mecbank-sync", `Pix ainda não pago: ${asaasId}`, { status: payData.status });
+          }
+        } catch (e: any) {
+          log.warn("mecbank-sync", `Erro ao consultar Asaas para ${asaasId}`, { error: e.message });
+        }
+      }
+
+      // ── 3. Bloqueia se nenhum Pix foi realmente confirmado ────────────────
+      if (!confirmedDeposits.length) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Valor (R$ ${amountReais.toFixed(2)}) maior que seus depósitos pendentes (R$ ${userPendingGross.toFixed(2)}).`,
+          message: "Nenhum Pix confirmado pelo MecBank ainda. Aguarde a confirmação do pagamento — pode levar alguns minutos após o pagamento.",
         });
       }
 
-      // Recalcular fee com base no valor solicitado
-      const amountCents   = Math.round(amountReais * 100);
-      const feeConfig     = await db.getAdminSetting("payment_fee_percent");
-      const feePercent    = Number(feeConfig || "10");
-      const feeAmount     = Math.round(amountCents * feePercent / 100);
-      const netAmount     = amountCents - feeAmount;
+      // ── 4. Creditar apenas os depósitos realmente confirmados ─────────────
+      let totalNetCents   = 0;
+      let totalGrossCents = 0;
+      let totalFeeCents   = 0;
 
-      // Marcar os depósitos pendentes como aprovados (até cobrir o valor)
-      await pool.query(`
-        UPDATE media_budget SET status = 'approved', "approvedAt" = NOW(), "updatedAt" = NOW()
-        WHERE "userId" = $1
-          AND type   = 'deposit'
-          AND status = 'pending'
-          AND method = 'pix'
-          AND "pixExpiry" > NOW()
-      `, [ctx.user.id]);
+      for (const dep of confirmedDeposits) {
+        // Marca como aprovado no banco
+        await pool.query(
+          `UPDATE media_budget
+           SET status = 'approved', "approvedAt" = NOW(), "updatedAt" = NOW()
+           WHERE id = $1 AND status = 'pending'`,
+          [dep.id]
+        );
+        totalNetCents   += dep.netAmount;
+        totalGrossCents += dep.amount;
+        totalFeeCents   += dep.feeAmount;
+      }
 
-      const asaasBalance = userPendingGross
+      if (totalNetCents <= 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhum valor a creditar após verificação." });
+      }
 
-      // 3. Creditar na wallet MECPro
+      // ── 5. Creditar na wallet ─────────────────────────────────────────────
       await pool.query(`
         INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees")
         VALUES ($1, $2, $3, $4)
@@ -7827,30 +7885,46 @@ const mediaBudgetRouter = router({
           "totalDeposited" = media_balance."totalDeposited" + $3,
           "totalFees"      = media_balance."totalFees" + $4,
           "updatedAt"      = NOW()
-      `, [ctx.user.id, netAmount, amountCents, feeAmount]);
+      `, [ctx.user.id, totalNetCents, totalGrossCents, totalFeeCents]);
 
-      // 4. Registrar no histórico
-      await pool.query(`
-        INSERT INTO media_budget
-          ("userId", amount, "feePercent", "feeAmount", "netAmount",
-           type, status, method, notes, "approvedAt")
-        VALUES ($1, $2, $3, $4, $5, 'deposit', 'approved', 'asaas_sync', $6, NOW())
-      `, [
-        ctx.user.id, amountCents, feePercent, feeAmount, netAmount,
-        `Sincronização manual do saldo Asaas — R$ ${amountReais.toFixed(2)}`,
-      ]);
+      // ── 6. Registrar no wallet_ledger ─────────────────────────────────────
+      try {
+        const balRes = await pool.query(
+          `SELECT COALESCE(balance, 0) as balance FROM media_balance WHERE "userId" = $1`,
+          [ctx.user.id]
+        );
+        const balAfter = Number(balRes.rows[0]?.balance ?? 0);
+        const balBefore = balAfter - totalNetCents;
+        await pool.query(`
+          INSERT INTO wallet_ledger (
+            "userId", type, amount, direction, reference, notes,
+            "balanceBefore", "balanceAfter", "createdAt"
+          ) VALUES ($1, 'deposit', $2, 'credit', $3, $4, $5, $6, NOW())
+        `, [
+          ctx.user.id,
+          totalNetCents,
+          confirmedDeposits.map(d => d.asaasId).join(","),
+          `Transferência MecBank → Wallet · ${confirmedDeposits.length} Pix confirmado(s) · bruto R$ ${(totalGrossCents/100).toFixed(2)}`,
+          balBefore,
+          balAfter,
+        ]);
+      } catch (ledgerErr: any) {
+        log.warn("mecbank-sync", "Falha ao registrar no ledger", { error: ledgerErr.message });
+      }
 
-      log.info("media-budget", "✅ Saldo Asaas sincronizado para wallet", {
-        userId: ctx.user.id, asaasBalance, amountReais, netCredit: netAmount / 100,
+      log.info("mecbank-sync", "✅ MecBank → Wallet creditado", {
+        userId: ctx.user.id,
+        depositsConfirmed: confirmedDeposits.length,
+        netCredit: totalNetCents / 100,
+        gross: totalGrossCents / 100,
       });
 
       return {
-        success:      true,
-        asaasBalance,
-        credited:     netAmount / 100,
-        fee:          feeAmount / 100,
-        feePercent,
-        gross:        amountReais,
+        success:          true,
+        depositsConfirmed: confirmedDeposits.length,
+        credited:         totalNetCents   / 100,
+        fee:              totalFeeCents   / 100,
+        gross:            totalGrossCents / 100,
       };
     }),
 

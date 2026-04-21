@@ -1092,27 +1092,56 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
         <div>
           <InfoCard color="#ff9f0a">
             <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Saldo MecBank</div>
-            <div style={{ fontSize: 32, fontWeight: 900, color: "#ff9f0a", letterSpacing: "-0.04em" }}>{R(asaas?.balance)}</div>
-            {(asaas?.balance ?? 0) > 0 && (
-              <>
-                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 6 }}>
-                  {asaas?.pendingCount ?? 0} Pix pendente{(asaas?.pendingCount ?? 0) !== 1 ? "s" : ""} aguardando confirmação
+            <div style={{ fontSize: 32, fontWeight: 900, color: "#ff9f0a", letterSpacing: "-0.04em" }}>{R(asaas?.balance ?? 0)}</div>
+
+            {/* Breakdown: confirmado vs aguardando */}
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              {/* Confirmado — pode transferir */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: (asaas?.confirmedBalance ?? 0) > 0 ? "rgba(48,209,88,.12)" : "rgba(255,255,255,.04)", border: `1px solid ${(asaas?.confirmedBalance ?? 0) > 0 ? "rgba(48,209,88,.3)" : "rgba(255,255,255,.1)"}`, borderRadius: 8, padding: "7px 10px" }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: (asaas?.confirmedBalance ?? 0) > 0 ? "#30d158" : "var(--muted)" }}>
+                    {(asaas?.confirmedBalance ?? 0) > 0 ? "✅ Confirmado no MecBank" : "⏳ Aguardando confirmação"}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
+                    {(asaas?.confirmedBalance ?? 0) > 0
+                      ? `${asaas.confirmedCount} Pix confirmado(s) — disponível para wallet`
+                      : `${asaas?.pendingCount ?? 0} Pix aguardando pagamento`}
+                  </div>
                 </div>
-                <button
-                  className="btn btn-sm"
-                  onClick={() => syncMutation.mutate({ amountReais: asaas?.balance })}
-                  disabled={syncMutation.isPending}
-                  style={{
-                    marginTop: 8, width: "100%",
-                    background: "var(--orange)", color: "white",
-                    fontWeight: 700, fontSize: 12,
-                    opacity: syncMutation.isPending ? 0.7 : 1,
-                  }}>
-                  {syncMutation.isPending
-                    ? "Confirmando..."
-                    : `Confirmar Pix de R$ ${(asaas?.balance ?? 0).toFixed(2)}`}
-                </button>
-              </>
+                <div style={{ fontSize: 15, fontWeight: 900, color: (asaas?.confirmedBalance ?? 0) > 0 ? "#30d158" : "var(--muted)" }}>
+                  {R(asaas?.confirmedBalance ?? 0)}
+                </div>
+              </div>
+
+              {/* Pendente — não pode transferir ainda */}
+              {(asaas?.pendingCount ?? 0) > (asaas?.confirmedCount ?? 0) && (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,159,10,.06)", border: "1px solid rgba(255,159,10,.2)", borderRadius: 8, padding: "7px 10px" }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#ff9f0a" }}>⏳ Pix não pago ainda</div>
+                    <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>Pague o Pix para liberar para a wallet</div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#ff9f0a" }}>
+                    {R((asaas?.balanceNet ?? asaas?.balance ?? 0) - (asaas?.confirmedBalance ?? 0))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Botão transferir para wallet — só habilitado se há saldo confirmado */}
+            {(asaas?.confirmedBalance ?? 0) > 0 ? (
+              <button
+                className="btn btn-sm"
+                onClick={() => syncMutation.mutate({ amountReais: asaas?.confirmedBalance })}
+                disabled={syncMutation.isPending}
+                style={{ marginTop: 10, width: "100%", background: "linear-gradient(135deg,#30d158,#15803d)", color: "white", fontWeight: 800, fontSize: 13, opacity: syncMutation.isPending ? 0.7 : 1, border: "none", borderRadius: 8, padding: "10px", cursor: "pointer", fontFamily: "var(--font)" }}>
+                {syncMutation.isPending
+                  ? "⏳ Transferindo..."
+                  : `💰 Transferir ${R(asaas.confirmedBalance)} para Wallet`}
+              </button>
+            ) : (
+              <div style={{ marginTop: 10, padding: "9px 12px", background: "rgba(255,255,255,.04)", borderRadius: 8, fontSize: 11, color: "var(--muted)", lineHeight: 1.5, textAlign: "center" }}>
+                Pague o Pix gerado para liberar a transferência para a wallet
+              </div>
             )}
           </InfoCard>
 
@@ -1254,7 +1283,7 @@ export default function Financeiro() {
 
   const KPIS = [
     { label: "Saldo wallet",  value: R((balance as any)?.balance),         icon: "◈", color: "#30d158" },
-    { label: "Saldo MecBank", value: R((asaas as any)?.balance),           icon: "🏦", color: "#0071e3" },
+    { label: "Saldo MecBank", value: (asaas as any)?.confirmedBalance > 0 ? R((asaas as any).confirmedBalance) : R((asaas as any)?.balance ?? 0), icon: "🏦", color: (asaas as any)?.confirmedBalance > 0 ? "#30d158" : "#0071e3" },
     { label: "Gasto hoje",    value: R((summary as any)?.totalSpendToday), icon: "▣", color: "#ff9f0a" },
     { label: "Taxa gestão",   value: `${feePercent}%`,                     icon: "⚙", color: "#5856d6" },
   ];
