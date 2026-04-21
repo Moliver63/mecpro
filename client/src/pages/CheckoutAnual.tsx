@@ -138,8 +138,11 @@ export default function CheckoutAnual() {
         <button onClick={() => setLocation("/")} style={{ background:"none", border:"none", cursor:"pointer", fontSize:13, color:"#6b7280", fontFamily:"inherit", display:"flex", alignItems:"center", gap:6 }}>
           ← Voltar
         </button>
-        <div style={{ marginLeft:"auto", fontSize:18, fontWeight:900, color:"#111" }}>
-          MEC<span style={{ color:G }}>PRO</span>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:10 }}>
+          <img src="/logo-512.png" alt="MECPro" height={34} style={{ display:"block", borderRadius:8 }}/>
+          <span style={{ fontSize:18, fontWeight:900, color:"#111" }}>
+            MEC<span style={{ color:G }}>PRO</span>
+          </span>
         </div>
       </nav>
 

@@ -238,7 +238,7 @@ export default function Layout({ children }: LayoutProps) {
         >
           {/* Logo com indicador de estado */}
           <div style={{ position: "relative", flexShrink: 0 }}>
-            <img src="/logo.jpg" alt="MECPro" />
+            <img src="/logo-512.png" alt="MECPro" />
             {/* Seta animada sobre a logo quando recolhido */}
             <div style={{
               position: "absolute",
