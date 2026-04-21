@@ -1,4 +1,4 @@
-﻿import SEO from "@/components/SEO";
+import SEO from "@/components/SEO";
 import Benefits from "@/components/landing/Benefits";
 import FAQ from "@/components/landing/FAQ";
 import FinalCTA from "@/components/landing/FinalCTA";
@@ -54,34 +54,34 @@ export default function Landing() {
         structuredData={structuredData}
       />
 
-      <div className="min-h-screen bg-white text-slate-950">
-        <div className="bg-emerald-500 px-4 py-3 text-center text-sm font-extrabold text-slate-950">
-          <a href={signupUrl} className="inline-flex items-center gap-2 hover:underline">
+      <div className="landing-page">
+        <div className="landing-promo-bar">
+          <a href={signupUrl} className="landing-promo-link">
+            <span className="badge badge-green">Oferta anual</span>
             <span>Feche o plano anual e ganhe {creditValue} em créditos para tráfego pago</span>
             <span aria-hidden="true">→</span>
           </a>
         </div>
 
-        <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-            <a href="/" className="text-xl font-black tracking-tight text-slate-950">
-              Mecpro<span className="text-emerald-600">AI</span>
+        <header className="landing-header">
+          <div className="container landing-header-inner">
+            <a href="/" className="landing-logo">
+              Mecpro<span>AI</span>
             </a>
-            <nav className="hidden items-center gap-8 text-sm font-semibold text-slate-600 md:flex">
-              <a href="#provas" className="transition hover:text-slate-950">Vantagem</a>
-              <a href="#beneficios" className="transition hover:text-slate-950">Benefícios</a>
-              <a href="#faq" className="transition hover:text-slate-950">FAQ</a>
-              <a href="/pricing" className="transition hover:text-slate-950">Planos</a>
+
+            <nav className="landing-nav" aria-label="Navegação principal">
+              <a href="#provas">Vantagem</a>
+              <a href="#beneficios">Benefícios</a>
+              <a href="#faq">FAQ</a>
+              <a href="/pricing">Planos</a>
             </nav>
-            <div className="flex items-center gap-3">
-              <a href="/login" className="hidden text-sm font-bold text-slate-600 transition hover:text-slate-950 sm:inline-flex">
+
+            <div className="landing-header-actions">
+              <a href="/login" className="btn btn-md btn-ghost landing-header-login">
                 Entrar
               </a>
-              <a
-                href={signupUrl}
-                className="inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-950 px-5 text-sm font-extrabold text-white transition hover:bg-slate-800"
-              >
-                Quero ativar meu crédito agora
+              <a href={signupUrl} className="btn btn-md btn-green">
+                Quero ativar meu crédito
               </a>
             </div>
           </div>
