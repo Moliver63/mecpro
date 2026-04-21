@@ -98,6 +98,9 @@ import AlertsSettings from "@/pages/AlertsSettings";
 // ── NOVO: Inteligência de Campanhas (Admin) ──────────────────────────────────
 import AdminCampaignIntelligence from "@/pages/AdminCampaignIntelligence";
 
+// ── PROMOÇÃO: Plano Anual com 60% de crédito ─────────────────────────────────
+import PromoAnual from "@/pages/PromoAnual";
+
 // Components
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
 import ErrorBoundary from "@/components/shared/ErrorBoundary";
@@ -137,6 +140,8 @@ export default function App() {
             <Route path="/accept-invite/:token" component={AcceptAdminInvite} />
             <Route path="/unauthorized" component={Unauthorized} />
             <Route path="/404" component={NotFound} />
+            <Route path="/promo" component={PromoAnual} />
+            <Route path="/promo-anual" component={PromoAnual} />
 
             {/* USER */}
             <Route path="/dashboard"><ProtectedRoute><Dashboard /></ProtectedRoute></Route>
