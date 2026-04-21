@@ -188,9 +188,23 @@ function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any;
       <div style={{ textAlign: "center", padding: "32px 20px" }}>
         <div style={{ width: 72, height: 72, borderRadius: "50%", background: "#30d15820", border: "2px solid #30d158", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, margin: "0 auto 20px" }}>✓</div>
         <div style={{ fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>Pagamento confirmado!</div>
-        <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 24 }}>
+        <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 16 }}>
           <strong style={{ color: "#30d158" }}>{R(credited)}</strong> creditados no seu saldo
         </div>
+        {/* MecCoins earned */}
+        {credited >= 19 && (
+          <div style={{ background: "linear-gradient(135deg,#0a1a0e,#0d2212)", border: "1.5px solid rgba(48,209,88,.35)", borderRadius: 14, padding: "14px 20px", marginBottom: 20, display: "inline-flex", alignItems: "center", gap: 12 }}>
+            <img src="/logo-512.png" alt="MecCoin" style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0 }} />
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontSize: 15, fontWeight: 900, color: "#30d158" }}>
+                +{Math.floor(credited / 19)} MecCoins 🪙
+              </div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,.45)" }}>
+                1 MecCoin = R$ 19,00 em campanhas
+              </div>
+            </div>
+          </div>
+        )}
         <button onClick={() => { setPaid(false); setStep("form"); setAmount(""); setCpf(""); setPixData(null); }}
           style={{ ...primaryBtn(), maxWidth: 280, margin: "0 auto", display: "block" }}>
           Fazer outro depósito
@@ -253,7 +267,7 @@ function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any;
           </div>
 
           <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(0,113,227,0.06)", border: "1px solid rgba(0,113,227,0.15)", borderRadius: 10, fontSize: 11, color: "#1d4ed8", lineHeight: 1.5 }}>
-            ◈ O saldo é creditado <strong>automaticamente</strong> em até 15 minutos após a confirmação do Pix pelo Asaas.
+            ◈ O saldo é creditado <strong>automaticamente</strong> em até 15 minutos após a confirmação do Pix pelo MecBank.
           </div>
         </div>
       </div>
@@ -326,7 +340,7 @@ function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any;
             <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00 ou 00.000.000/0001-00"
               style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 14, fontFamily: "var(--font)", boxSizing: "border-box" }}
             />
-            <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>Obrigatório para emissão da cobrança via Asaas</div>
+            <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>Obrigatório para emissão da cobrança via MecBank</div>
           </div>
 
           {/* Botão */}
@@ -364,8 +378,8 @@ function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any;
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {[
-              { icon: "⚡", title: "Aprovação automática", desc: "Pix confirmado pelo Asaas em até 15min" },
-              { icon: "🔒", title: "Pagamento seguro",     desc: "Processado via Asaas (certificado PCI)" },
+              { icon: "⚡", title: "Aprovação automática", desc: "Pix confirmado pelo MecBank em até 15min" },
+              { icon: "🔒", title: "Pagamento seguro",     desc: "Processado via MecBank (certificado PCI)" },
               { icon: "◈",  title: "Sem juros",            desc: "Pix é isento de taxas bancárias" },
               { icon: "📱", title: "QR Code na tela",      desc: "Não precisa sair do MECPro" },
             ].map(info => (
@@ -1070,14 +1084,14 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
 
   return (
     <div>
-      <SectionHeader icon="◍" color="#ff9f0a" title="Transferir via Asaas"
-        sub="Envie saldo do Asaas para sua conta bancária cadastrada" onBack={onBack} />
+      <SectionHeader icon="◍" color="#ff9f0a" title="Transferir via MecBank"
+        sub="Envie saldo do MecBank para sua conta bancária cadastrada" onBack={onBack} />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
         {/* Form */}
         <div>
           <InfoCard color="#ff9f0a">
-            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Saldo disponível Asaas</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Saldo MecBank</div>
             <div style={{ fontSize: 32, fontWeight: 900, color: "#ff9f0a", letterSpacing: "-0.04em" }}>{R(asaas?.balance)}</div>
             {(asaas?.balance ?? 0) > 0 && (
               <>
@@ -1141,7 +1155,7 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
           {[
             { icon: "⏱", label: "Prazo de processamento", value: "Mesmo dia útil até 17h" },
             { icon: "💳", label: "Valor mínimo", value: "R$ 10,00" },
-            { icon: "🔒", label: "Segurança", value: "Transferência via Asaas certificado" },
+            { icon: "🔒", label: "Segurança", value: "Transferência via MecBank certificado" },
             { icon: "📱", label: "Comprovante", value: "Enviado por e-mail automaticamente" },
           ].map(info => (
             <div key={info.label} style={{ background: "var(--off)", borderRadius: 11, padding: "12px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -1232,9 +1246,15 @@ export default function Financeiro() {
   const isFirst = tab === 0;
   const isLast  = tab === TABS.length - 1;
 
+  // ── MecCoins: 1 MecCoin = R$ 19 ──────────────────────────────────────────
+  const MECCOIN_VALUE = 19; // R$ por MecCoin
+  const walletBalance = (balance as any)?.balance ?? 0;
+  const mecCoins = Math.floor(walletBalance / MECCOIN_VALUE);
+  const mecCoinsValue = mecCoins * MECCOIN_VALUE;
+
   const KPIS = [
     { label: "Saldo wallet",  value: R((balance as any)?.balance),         icon: "◈", color: "#30d158" },
-    { label: "Saldo Asaas",   value: R((asaas as any)?.balance),           icon: "◉", color: "#0071e3" },
+    { label: "Saldo MecBank", value: R((asaas as any)?.balance),           icon: "🏦", color: "#0071e3" },
     { label: "Gasto hoje",    value: R((summary as any)?.totalSpendToday), icon: "▣", color: "#ff9f0a" },
     { label: "Taxa gestão",   value: `${feePercent}%`,                     icon: "⚙", color: "#5856d6" },
   ];
@@ -1274,6 +1294,70 @@ export default function Financeiro() {
             </div>
           ))}
         </div>
+
+        {/* ── MecCoins ── */}
+        {walletBalance > 0 && (
+          <div style={{ marginBottom: 22, background: "linear-gradient(135deg,#0a1a0e,#0d2212)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 16, padding: "18px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 14 }}>
+            {/* Ícone + título */}
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: "rgba(48,209,88,.12)", border: "1.5px solid rgba(48,209,88,.3)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <img src="/logo-512.png" alt="MecCoin" style={{ width: 34, height: 34, borderRadius: 8 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", marginBottom: 2 }}>
+                  Seu saldo equivale a{" "}
+                  <span style={{ color: "#30d158", fontSize: 18, fontWeight: 900 }}>{mecCoins} MecCoins</span>
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,.45)", lineHeight: 1.5 }}>
+                  1 MecCoin = R$ {MECCOIN_VALUE},00 · {mecCoins} moedas × R$ {MECCOIN_VALUE} = {R(mecCoinsValue)} em campanhas
+                </div>
+              </div>
+            </div>
+
+            {/* Legenda de valor */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {[
+                { coins: 10,  label: "Campanha pequena",  val: 10  * MECCOIN_VALUE },
+                { coins: 50,  label: "Campanha média",    val: 50  * MECCOIN_VALUE },
+                { coins: 100, label: "Campanha completa", val: 100 * MECCOIN_VALUE },
+              ].map(tier => (
+                <div key={tier.coins} style={{
+                  background: mecCoins >= tier.coins ? "rgba(48,209,88,.15)" : "rgba(255,255,255,.04)",
+                  border: `1px solid ${mecCoins >= tier.coins ? "rgba(48,209,88,.4)" : "rgba(255,255,255,.08)"}`,
+                  borderRadius: 10, padding: "8px 12px", textAlign: "center", minWidth: 90,
+                }}>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: mecCoins >= tier.coins ? "#30d158" : "#4b5563" }}>
+                    {tier.coins} 🪙
+                  </div>
+                  <div style={{ fontSize: 10, color: mecCoins >= tier.coins ? "#86efac" : "#4b5563", marginTop: 2 }}>
+                    {tier.label}
+                  </div>
+                  <div style={{ fontSize: 10, color: mecCoins >= tier.coins ? "#4ade80" : "#374151", fontWeight: 700, marginTop: 1 }}>
+                    {R(tier.val)}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Barra de progresso até próximo marco */}
+            {mecCoins < 100 && (
+              <div style={{ width: "100%", marginTop: 4 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(255,255,255,.35)", marginBottom: 5 }}>
+                  <span>{mecCoins} MecCoins</span>
+                  <span>Meta: 100 MecCoins ({R(100 * MECCOIN_VALUE)})</span>
+                </div>
+                <div style={{ background: "rgba(255,255,255,.06)", borderRadius: 99, height: 6, overflow: "hidden" }}>
+                  <div style={{
+                    width: `${Math.min(100, Math.round(mecCoins / 100 * 100))}%`,
+                    height: "100%", borderRadius: 99,
+                    background: "linear-gradient(90deg,#30d158,#4ade80)",
+                    transition: "width .8s ease",
+                  }} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Saldo por Plataforma ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 22 }}>
