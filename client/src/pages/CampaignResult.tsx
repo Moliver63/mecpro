@@ -11,7 +11,20 @@ import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
-import { resolveLegacyImageUrlByFormat, mergeCreativeWithProjectedLegacy } from "../../../shared/campaignCreative.schema";
+import {
+  buildPublishMediaFromCreative,
+  mergeCreativeWithProjectedLegacy,
+  resolveLegacyImageHashByFormat,
+  resolveLegacyImageUrlByFormat,
+} from "../../../shared/campaignCreative.schema";
+import {
+  getPlacementGuidance,
+  normalizeRatio,
+  type MediaType as GuidanceMediaType,
+  type PlacementGuidanceItem,
+  type PlacementGuidanceStatus,
+  type PlacementType as GuidancePlacementType,
+} from "@/lib/placementGuidance";
 
 const BR_STATE_OPTIONS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 const COUNTRY_OPTIONS = [
@@ -62,6 +75,68 @@ function normalizeDestinationUrl(raw?: string | null): string {
   }
 }
 
+const GUIDANCE_STATUS_UI: Record<PlacementGuidanceStatus, { label: string; bg: string; border: string; color: string; pillBg: string }> = {
+  ideal: {
+    label: "Alinhado ao placement",
+    bg: "#f0fdf4",
+    border: "#bbf7d0",
+    color: "#166534",
+    pillBg: "#dcfce7",
+  },
+  warning: {
+    label: "Ajuste recomendado",
+    bg: "#fffbeb",
+    border: "#fde68a",
+    color: "#b45309",
+    pillBg: "#fef3c7",
+  },
+  info: {
+    label: "Pode melhorar",
+    bg: "#eff6ff",
+    border: "#bfdbfe",
+    color: "#1d4ed8",
+    pillBg: "#dbeafe",
+  },
+};
+
+function resolvePlacementGuidanceType(placement: string): GuidancePlacementType | null {
+  const normalized = String(placement || "").toLowerCase();
+  if (normalized.includes("reels")) return "reels";
+  if (normalized.includes("story")) return "stories";
+  if (normalized.includes("feed")) return "feed";
+  return null;
+}
+
+function uniqueGuidancePlacements(placements: string[]): GuidancePlacementType[] {
+  const ordered: GuidancePlacementType[] = [];
+  const seen = new Set<GuidancePlacementType>();
+
+  for (const placement of placements) {
+    const resolved = resolvePlacementGuidanceType(placement);
+    if (!resolved || seen.has(resolved)) continue;
+    seen.add(resolved);
+    ordered.push(resolved);
+  }
+
+  return ordered;
+}
+
+function formatGuidanceContext(mediaType: GuidanceMediaType, ratio: ReturnType<typeof normalizeRatio>, cardsCount: number): string {
+  if (cardsCount >= 2) {
+    return `Carrossel com ${cardsCount} cards${ratio !== "unknown" && ratio !== "mixed" ? ` · ${ratio}` : ""}`;
+  }
+
+  const mediaLabel = mediaType === "video"
+    ? "Vídeo"
+    : mediaType === "image"
+      ? "Imagem"
+      : mediaType === "mixed"
+        ? "Mídia mista"
+        : "Mídia";
+
+  return ratio !== "unknown" ? `${mediaLabel} · ${ratio}` : mediaLabel;
+}
+
 export default function CampaignResult() {
   const { id: routeId, campaignId } = useParams<{ id: string; campaignId: string }>();
   const [, setLocation] = useLocation();
@@ -87,8 +162,12 @@ export default function CampaignResult() {
   const [mediaType,    setMediaType]    = useState<"image" | "video" | null>(null);
   const [uploadedHash, setUploadedHash] = useState<string>("");
   const [uploadedVid,  setUploadedVid]  = useState<string>("");
+  const [uploadedThumbHash, setUploadedThumbHash] = useState<string>("");
+  const [uploadedThumbPreview, setUploadedThumbPreview] = useState<string>("");
   const pendingAutoUploadRef = useRef<File | null>(null); // arquivo aguardando auto-upload
+  const autoAssigningCreativeImagesRef = useRef(false);
   const [uploading,    setUploading]    = useState(false);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [uploadDone,   setUploadDone]   = useState(false);
   const [placementPreset, setPlacementPreset] = useState("ecommerce");
   const [showVSL,       setShowVSL]       = useState(false);
@@ -100,8 +179,11 @@ export default function CampaignResult() {
   const [mediaFiles,      setMediaFiles]      = useState<File[]>([]);
   const [mediaPreviews,   setMediaPreviews]   = useState<string[]>([]);
   const [uploadedHashes,  setUploadedHashes]  = useState<string[]>([]);
+  const [creativePreviewByHash, setCreativePreviewByHash] = useState<Record<string, string>>({});
   const [featuredIndex,   setFeaturedIndex]   = useState<number>(0);
   const [uploadingIndex,  setUploadingIndex]  = useState<number | null>(null);
+
+  const creativePreviewStorageKey = `campaign-creative-preview:${id}`;
 
   const MAX_META_CAROUSEL_ITEMS = 10;
 
@@ -116,6 +198,39 @@ export default function CampaignResult() {
       setUploadDone(false);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !id) return;
+    try {
+      const raw = window.localStorage.getItem(creativePreviewStorageKey);
+      setCreativePreviewByHash(raw ? JSON.parse(raw) : {});
+    } catch {
+      setCreativePreviewByHash({});
+    }
+  }, [creativePreviewStorageKey, id]);
+
+  function cacheCreativePreview(hash: string, preview: string | null | undefined) {
+    if (!hash || !preview) return;
+    setCreativePreviewByHash((prev) => {
+      if (prev[hash] === preview) return prev;
+      const next = { ...prev, [hash]: preview };
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(creativePreviewStorageKey, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+  }
+
+  function readFileAsDataUrl(file: File): Promise<string | null> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }
 
   // ── navegação por abas ──
   const [activeTab, setActiveTab] = useState<"overview" | "meta" | "google" | "tiktok">("overview");
@@ -299,8 +414,10 @@ export default function CampaignResult() {
 
   const updateCreativeImageMutation = (trpc as any).campaigns?.updateCreativeImage?.useMutation?.({
     onSuccess: () => {
-      toast.success("🖼️ Imagem do criativo atualizada!");
-      refetchCampaign?.();
+      if (!autoAssigningCreativeImagesRef.current) {
+        toast.success("🖼️ Imagem do criativo atualizada!");
+        refetchCampaign?.();
+      }
       setReplacingCreativeImage(null);
     },
     onError: (e: any) => {
@@ -578,6 +695,7 @@ export default function CampaignResult() {
 
       const manualImageUrl = mediaMode === "url" ? imageUrl.trim() : "";
       const effectiveVideoId = uploadedVid || undefined;
+      const effectiveVideoThumbnailHash = effectiveVideoId ? (uploadedThumbHash || undefined) : undefined;
       const effectiveImageHashes = !effectiveVideoId && isCarousel ? validHashes : undefined;
       const effectiveImageHash = !effectiveVideoId && !effectiveImageHashes?.length && !manualImageUrl
         ? (uploadedHash || undefined)
@@ -586,6 +704,10 @@ export default function CampaignResult() {
         ? (manualImageUrl || undefined)
         : undefined;
       const normalizedLinkUrl = normalizeDestinationUrl(linkUrl) || normalizedProfileWebsite;
+      if (effectiveVideoId && !effectiveVideoThumbnailHash) {
+        toast.error("Envie uma thumbnail para o vídeo antes de publicar no Meta.");
+        return;
+      }
       const publishPayload: PublishToMetaInput = {
         campaignId: id,
         projectId,
@@ -596,6 +718,7 @@ export default function CampaignResult() {
         imageHash: effectiveImageHash,
         imageHashes: effectiveImageHashes,
         videoId: effectiveVideoId,
+        videoThumbnailHash: effectiveVideoThumbnailHash,
         linkUrl: normalizedLinkUrl || undefined,
         adSetIndex,
         placementMode,
@@ -676,6 +799,35 @@ export default function CampaignResult() {
     }
   }
 
+  async function handleUploadVideoThumbnail(file: File): Promise<string | null> {
+    if (!isImageFile(file)) {
+      toast.error("A thumbnail do vídeo precisa ser uma imagem JPG, PNG, GIF ou WebP.");
+      return null;
+    }
+    if (thumbnailUploading) return null;
+
+    setThumbnailUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const res = await fetch("/api/meta/upload-image", { method: "POST", body: form, credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error || !data.hash) {
+        toast.error(`✕ Falha ao enviar thumbnail: ${data.error || "Erro desconhecido"}`);
+        return null;
+      }
+      setUploadedThumbHash(data.hash);
+      setUploadedThumbPreview(URL.createObjectURL(file));
+      toast.success("◎ Thumbnail enviada para a Meta!");
+      return data.hash as string;
+    } catch (e: any) {
+      toast.error(`✕ Falha ao enviar thumbnail: ${e?.message || "Erro de rede"}`);
+      return null;
+    } finally {
+      setThumbnailUploading(false);
+    }
+  }
+
   async function handleManualCreativeImage(file: File, creativeIndex: number, format: "feed" | "stories" | "square") {
     const isVid = isVideoFile(file);
     const isAud = isAudioFile(file);
@@ -712,6 +864,8 @@ export default function CampaignResult() {
         toast.success(`◎ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
       } else {
         if (!data.hash) { toast.error("Upload concluído mas sem hash retornado."); return; }
+        const localPreview = await readFileAsDataUrl(file);
+        if (localPreview) cacheCreativePreview(data.hash, localPreview);
         await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, imageUrl: undefined, imageHash: data.hash });
         toast.success(`◎ Imagem atualizada no criativo ${creativeIndex + 1}!`);
       }
@@ -737,6 +891,8 @@ export default function CampaignResult() {
     setUploadDone(false);
     setUploadedHash("");
     setUploadedVid("");
+    setUploadedThumbHash("");
+    setUploadedThumbPreview("");
     // ── Validar dimensões automaticamente para conformidade Meta ──
     getImageDimensions(file).then(dims => {
       setMediaDims(dims);
@@ -977,6 +1133,106 @@ export default function CampaignResult() {
     return "feed";
   }
 
+  function getCreativeMediaState(creative: CampaignCreative, preferredFormat: "feed" | "stories" | "square") {
+    const mergedCreative = mergeCreativeWithProjectedLegacy(creative);
+    const resolvedUrl = resolveLegacyImageUrlByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined);
+    const resolvedHash = resolveLegacyImageHashByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined);
+    const publishMedia = buildPublishMediaFromCreative(mergedCreative, preferredFormat as CreativeFormat | undefined);
+    const hasRealImageUrl = !!resolvedUrl && !resolvedUrl.includes("placehold.co") && !resolvedUrl.startsWith("data:image/svg");
+    const cachedPreviewUrl = resolvedHash ? creativePreviewByHash[resolvedHash] || null : null;
+    const previewUrl = cachedPreviewUrl || (hasRealImageUrl ? resolvedUrl : null) || publishMedia?.videoThumbnailUrl || null;
+    const hasRealVisual = !!resolvedHash || !!hasRealImageUrl || !!publishMedia?.videoId || !!publishMedia?.videoThumbnailHash || !!publishMedia?.videoThumbnailUrl;
+
+    return {
+      mergedCreative,
+      previewUrl,
+      resolvedUrl,
+      resolvedHash,
+      publishMedia,
+      hasRealVisual,
+    };
+  }
+
+  function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
+    const mediaState = getCreativeMediaState(creative, preferredFormat || "feed");
+    if (!mediaState.previewUrl) {
+      return buildCreativeSvg(creative, preferredFormat || "feed");
+    }
+    return mediaState.previewUrl;
+  }
+
+  function getPreferredFormatsForUploadedRatio(ratio?: string | null): Array<"feed" | "stories" | "square"> {
+    const normalized = normalizeRatio(ratio || undefined);
+    if (normalized === "9:16") return ["stories", "feed", "square"];
+    if (normalized === "1:1") return ["square", "feed", "stories"];
+    return ["feed", "square", "stories"];
+  }
+
+  async function autoAssignUploadedImagesToEmptyCreatives(items: Array<{ hash: string; ratio?: string | null }>) {
+    if (!items.length || !updateCreativeImageMutation.mutateAsync) {
+      return { assigned: 0, failed: 0, skipped: items.length };
+    }
+
+    const availableSlots = creativeList
+      .map((creative, creativeIndex) => {
+        const format = inferCreativeFormat(creative);
+        const mediaState = getCreativeMediaState(creative, format);
+        return mediaState.hasRealVisual ? null : { creativeIndex, format };
+      })
+      .filter(Boolean) as Array<{ creativeIndex: number; format: "feed" | "stories" | "square" }>;
+
+    if (!availableSlots.length) {
+      return { assigned: 0, failed: 0, skipped: items.length };
+    }
+
+    let assigned = 0;
+    let failed = 0;
+    const remainingSlots = [...availableSlots];
+    autoAssigningCreativeImagesRef.current = true;
+
+    try {
+      for (const item of items) {
+        if (!remainingSlots.length) break;
+
+        const preferredFormats = getPreferredFormatsForUploadedRatio(item.ratio);
+        const preferredSlotIndex = remainingSlots.findIndex((slot) => preferredFormats.includes(slot.format));
+        const slotIndex = preferredSlotIndex >= 0 ? preferredSlotIndex : 0;
+        const slot = remainingSlots[slotIndex];
+        if (!slot) break;
+
+        try {
+          await updateCreativeImageMutation.mutateAsync({
+            campaignId: id,
+            creativeIndex: slot.creativeIndex,
+            format: slot.format,
+            imageUrl: undefined,
+            imageHash: item.hash,
+          });
+          assigned += 1;
+          remainingSlots.splice(slotIndex, 1);
+        } catch {
+          failed += 1;
+        }
+      }
+    } finally {
+      autoAssigningCreativeImagesRef.current = false;
+    }
+
+    if (assigned > 0) {
+      await refetchCampaign?.();
+      toast.success(`◎ ${assigned} criativo(s) sem imagem foram preenchidos automaticamente.`);
+    }
+    if (failed > 0) {
+      toast.warning?.(`⚠️ ${failed} mídia(s) não puderam ser vinculadas automaticamente aos criativos vazios.`);
+    }
+
+    return {
+      assigned,
+      failed,
+      skipped: Math.max(items.length - assigned - failed, 0),
+    };
+  }
+
 
 
   // ── SVG premium como preview de criativo ────────────────────────────────────
@@ -1006,7 +1262,7 @@ export default function CampaignResult() {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
-        .replace(/[^ -]/g, c => "&#" + c.charCodeAt(0) + ";");
+        .replace(/[^\u0000-\u007f]/g, c => "&#" + c.charCodeAt(0) + ";");
 
       // Quebrar headline em linhas
       const hlWords = headline.split(" ");
@@ -1122,15 +1378,6 @@ export default function CampaignResult() {
     }
   }
 
-  function getCreativeImage(creative: CampaignCreative, preferredFormat?: "feed" | "stories" | "square"): string {
-    const mergedCreative = mergeCreativeWithProjectedLegacy(creative);
-    const real = resolveLegacyImageUrlByFormat(mergedCreative, preferredFormat as CreativeFormat | undefined) || "";
-    if (!real || real.includes("placehold.co")) {
-      return buildCreativeSvg(creative, preferredFormat || "feed");
-    }
-    return real;
-  }
-
   function getScoreBadge(score?: number) {
     const numericScore = Number(score || 0);
     if (numericScore >= 75) return { label: `${numericScore}/100`, bg: "#dcfce7", color: "#166534" };
@@ -1160,6 +1407,69 @@ export default function CampaignResult() {
 
   const c = campaign as any;
   const budgetDaily = c.suggestedBudgetDaily ?? Math.round(c.suggestedBudgetMonthly / 30);
+  const activePlacementCodes = selectedPlacements.length > 0
+    ? selectedPlacements
+    : placementMode === "auto"
+      ? ["fb_feed", "ig_feed", "fb_story", "ig_story"]
+      : ["fb_feed", "ig_feed"];
+  const guidancePlacements = uniqueGuidancePlacements(activePlacementCodes);
+  const uploadedImageCount = mediaFiles.filter((file) => isImageFile(file)).length;
+  const uploadedHashCount = uploadedHashes.filter(Boolean).length;
+  const cardsCount = Math.max(uploadedImageCount, uploadedHashCount);
+  const isCarouselMedia = cardsCount >= 2;
+  const primaryCreative = creativeList.length > 0 ? mergeCreativeWithProjectedLegacy(creativeList[0] as any) : null;
+  const fallbackCreativeFormat = primaryCreative ? inferCreativeFormat(primaryCreative) : null;
+  const fallbackRatio = fallbackCreativeFormat === "stories"
+    ? "9:16"
+    : fallbackCreativeFormat === "square"
+      ? "1:1"
+      : fallbackCreativeFormat === "feed"
+        ? "4:5"
+        : undefined;
+  const fallbackMediaType: GuidanceMediaType = primaryCreative?.publishMedia?.videoId
+    ? "video"
+    : primaryCreative
+      ? "image"
+      : "unknown";
+  const detectedGuidanceMediaType: GuidanceMediaType = (mediaFiles.length === 1 && isVideoFile(mediaFiles[0])) || mediaType === "video" || !!uploadedVid
+    ? "video"
+    : isCarouselMedia || mediaType === "image" || !!uploadedHash || !!imageUrl.trim() || uploadedHashCount > 0
+      ? "image"
+      : fallbackMediaType;
+  const detectedGuidanceRatio = normalizeRatio(isCarouselMedia ? "mixed" : mediaDims?.ratio || fallbackRatio);
+  const guidanceContextLabel = formatGuidanceContext(detectedGuidanceMediaType, detectedGuidanceRatio, cardsCount);
+  const guidanceSourceLabel = mediaFiles.length > 0 || !!mediaType || !!uploadedHash || !!uploadedVid || !!imageUrl.trim()
+    ? "Baseado na mídia atual selecionada"
+    : primaryCreative
+      ? "Baseado no criativo salvo da campanha"
+      : "Envie uma mídia para receber orientação automática";
+  const placementGuidanceCards: Array<{ key: string; placement: GuidancePlacementType; guidance: PlacementGuidanceItem }> = [];
+
+  if (isCarouselMedia) {
+    placementGuidanceCards.push({
+      key: `carousel-${cardsCount}`,
+      placement: "carousel",
+      guidance: getPlacementGuidance({
+        placement: "carousel",
+        mediaType: detectedGuidanceMediaType,
+        ratio: isCarouselMedia ? "mixed" : mediaDims?.ratio || fallbackRatio,
+        cardsCount,
+      }),
+    });
+  }
+
+  for (const placement of guidancePlacements) {
+    placementGuidanceCards.push({
+      key: `${placement}-${detectedGuidanceMediaType}-${detectedGuidanceRatio}`,
+      placement,
+      guidance: getPlacementGuidance({
+        placement,
+        mediaType: detectedGuidanceMediaType,
+        ratio: mediaDims?.ratio || fallbackRatio,
+        cardsCount,
+      }),
+    });
+  }
 
   return (
     <Layout>
@@ -2261,6 +2571,53 @@ export default function CampaignResult() {
                   onPlacementsChange={setSelectedPlacements}
                 />
 
+                <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>
+                  <div style={{ background: "#f8fafc", padding: "10px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 15 }}>🧭</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>Orientação automática de formato</span>
+                  </div>
+                  <div style={{ padding: 14 }}>
+                    <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.55, margin: "0 0 10px" }}>
+                      Esses avisos não bloqueiam a publicação. Eles apenas mostram o formato atual detectado e o formato mais recomendado para cada placement selecionado.
+                    </p>
+                    <p style={{ fontSize: 11, color: "var(--muted)", margin: "0 0 12px" }}>
+                      {guidanceSourceLabel}
+                    </p>
+
+                    {placementGuidanceCards.length > 0 ? (
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {placementGuidanceCards.map(({ key, guidance }) => {
+                          const tone = GUIDANCE_STATUS_UI[guidance.status];
+                          return (
+                            <div key={key} style={{ borderRadius: 12, border: `1px solid ${tone.border}`, background: tone.bg, padding: 12 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                                <div>
+                                  <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", margin: 0 }}>{guidance.title}</p>
+                                  <p style={{ fontSize: 11, color: "var(--muted)", margin: "4px 0 0" }}>{guidanceContextLabel}</p>
+                                </div>
+                                <span style={{ alignSelf: "flex-start", fontSize: 10, fontWeight: 800, color: tone.color, background: tone.pillBg, padding: "4px 8px", borderRadius: 999 }}>
+                                  {tone.label}
+                                </span>
+                              </div>
+                              <p style={{ fontSize: 12, lineHeight: 1.55, color: tone.color, margin: "0 0 8px" }}>{guidance.message}</p>
+                              <p style={{ fontSize: 12, color: "var(--black)", margin: "0 0 6px" }}>
+                                <strong>Recomendação:</strong> {guidance.recommendation}
+                              </p>
+                              <p style={{ fontSize: 12, color: "var(--black)", margin: 0 }}>
+                                <strong>CTA sugerido:</strong> {guidance.suggestedCta.join(" • ")}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                        Envie uma mídia manual ou mantenha um criativo salvo para receber orientação automática por placement.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 {/* Seleção de ad set */}
                 {Array.isArray(adSets) && adSets.length > 1 && (
                   <div style={{ marginBottom: 16 }}>
@@ -2775,12 +3132,20 @@ export default function CampaignResult() {
                                   }
 
                                   const newHashes = [...uploadedHashes];
+                                  const newlyUploadedItems: Array<{ hash: string; ratio?: string | null }> = [];
                                   for (let i = 0; i < mediaFiles.length; i++) {
                                     if (!newHashes[i] && isImageFile(mediaFiles[i])) {
                                       setUploadingIndex(i);
                                       const uploadResult = await handleUploadMedia(mediaFiles[i]);
                                       if (uploadResult?.kind === "image") {
                                         newHashes[i] = uploadResult.hash;
+                                        const localPreview = mediaPreviews[i] || await readFileAsDataUrl(mediaFiles[i]);
+                                        if (localPreview) cacheCreativePreview(uploadResult.hash, localPreview);
+                                        const dims = await getImageDimensions(mediaFiles[i]).catch(() => null);
+                                        newlyUploadedItems.push({
+                                          hash: uploadResult.hash,
+                                          ratio: dims ? `${dims.width}:${dims.height}` : null,
+                                        });
                                         setUploadedHashes([...newHashes]);
                                         if (i === featuredIndex) {
                                           setUploadedHash(uploadResult.hash);
@@ -2790,6 +3155,9 @@ export default function CampaignResult() {
                                     }
                                   }
                                   setUploadingIndex(null);
+                                  if (newlyUploadedItems.length > 0) {
+                                    await autoAssignUploadedImagesToEmptyCreatives(newlyUploadedItems);
+                                  }
                                   const totalImages = mediaFiles.filter(file => isImageFile(file)).length;
                                   const allDone = newHashes.filter(Boolean).length === totalImages;
                                   if (allDone) toast.success(`◎ ${totalImages} foto(s) enviadas para a Meta!`);
@@ -2854,6 +3222,8 @@ export default function CampaignResult() {
                                 setUploadedHashes([""]);
                                 setUploadedHash("");
                                 setUploadedVid("");
+                                setUploadedThumbHash("");
+                                setUploadedThumbPreview("");
                                 setUploadDone(false);
                                 setUploading(false);
                                 setFeaturedIndex(0);
@@ -2870,6 +3240,8 @@ export default function CampaignResult() {
                               setUploadedHashes(toAdd.map(() => ""));
                               setUploadedHash("");
                               setUploadedVid("");
+                              setUploadedThumbHash("");
+                              setUploadedThumbPreview("");
                               setUploadDone(false);
                               setFeaturedIndex(0);
                               toAdd.forEach((file, i) => {
@@ -2887,6 +3259,45 @@ export default function CampaignResult() {
                     </div>
                   )}
                 </div>
+
+                {mediaFiles.length === 1 && isVideoFile(mediaFiles[0]) && (
+                  <div style={{ marginBottom: 16, background: "white", border: "1px solid #dbeafe", borderRadius: 12, padding: 14 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 8 }}>
+                      Thumbnail do vídeo <span style={{ color: "#dc2626" }}>*</span>
+                    </label>
+                    <p style={{ fontSize: 11, color: "var(--muted)", margin: "0 0 10px" }}>
+                      A Meta exige uma thumbnail válida para publicar criativos em vídeo.
+                    </p>
+                    {uploadedThumbPreview ? (
+                      <img src={uploadedThumbPreview} alt="Thumbnail do vídeo" style={{ width: "100%", borderRadius: 10, border: "1px solid var(--border)", marginBottom: 10 }} />
+                    ) : null}
+                    <label htmlFor="meta-video-thumb-input" style={{ display: "block", cursor: "pointer" }}>
+                      <div style={{ border: "1.5px dashed #93c5fd", borderRadius: 10, padding: 14, textAlign: "center", background: "#f8fbff" }}>
+                        <div style={{ fontSize: 26, marginBottom: 6 }}>🖼️</div>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: "#1d4ed8", margin: "0 0 4px" }}>Selecionar thumbnail</p>
+                        <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>JPG, PNG, GIF ou WebP</p>
+                      </div>
+                      <input
+                        id="meta-video-thumb-input"
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                        style={{ display: "none" }}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) await handleUploadVideoThumbnail(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    <div style={{ marginTop: 10, fontSize: 11, color: uploadedThumbHash ? "#166534" : "#b45309", fontWeight: 600 }}>
+                      {thumbnailUploading
+                        ? "⏳ Enviando thumbnail..."
+                        : uploadedThumbHash
+                          ? `◎ Thumbnail enviada (${uploadedThumbHash.slice(0, 12)}...)`
+                          : "⚠️ Envie a thumbnail antes de publicar"}
+                    </div>
+                  </div>
+                )}
 
                 {/* Spacer */}
                 <div style={{ flex: 1 }} />

@@ -15,9 +15,10 @@ const R = (v?: number | null) =>
 const TABS = [
   { id: "overview",  icon: "▣", label: "Visão Geral",    color: "#0071e3" },
   { id: "deposit",   icon: "◫", label: "Depositar",       color: "#0071e3" },
-  { id: "buy",       icon: "◆", label: "Comprar",         color: "#30d158" },
-  { id: "credits",   icon: "◈", label: "Créditos",        color: "#30d158" },
   { id: "rateio",    icon: "◉", label: "Rateio",          color: "#5856d6" },
+  { id: "buy",       icon: "◆", label: "Comprar",         color: "#30d158" },
+  { id: "pay",       icon: "⎆", label: "Pagar Código",    color: "#af52de" },
+  { id: "credits",   icon: "◈", label: "Créditos",        color: "#30d158" },
   { id: "transfer",  icon: "◍", label: "Transferir",      color: "#ff9f0a" },
 ];
 
@@ -90,7 +91,7 @@ function InfoCard({ color, children }: { color: string; children: React.ReactNod
    ABAS INDIVIDUAIS
 ═══════════════════════════════════════════════════════════════ */
 
-function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: () => void }) {
+function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any; psLoading: boolean; onBack: () => void }) {
   const [amount, setAmount]   = useState("");
   const [cpf,    setCpf]      = useState("");
   const [method, setMethod]   = useState<"pix" | "card">("pix");
@@ -132,6 +133,40 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
     },
     onError: (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
+
+  const cardMutation = (trpc as any).mediaBudget?.requestCardDeposit?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast.success("◎ Redirecionando para pagamento seguro...");
+      // Redireciona para a página hospedada do Asaas (PCI-DSS-SAQ-A)
+      // Usuário paga com cartão lá e volta para o MECPro
+      window.location.href = data.invoiceUrl;
+    },
+    onError: (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+
+  const handleSubmit = () => {
+    if (!parsed || parsed <= 0) { toast.error("Informe o valor"); return; }
+    const cleanCpf = cpf.replace(/\D/g, "");
+    if (cleanCpf.length < 11) { toast.error("Informe um CPF ou CNPJ válido"); return; }
+
+    if (method === "pix") {
+      pixMutation.mutate({ amount: parsed, cpfCnpj: cleanCpf });
+    } else {
+      cardMutation.mutate({ amount: parsed, cpfCnpj: cleanCpf });
+    }
+  };
+
+  if (psLoading) {
+    return (
+      <div>
+        <SectionHeader icon="◫" color="#0071e3" title="Depositar" sub="Adicione saldo à sua wallet" onBack={onBack} />
+        <div style={{ textAlign: "center", padding: "40px 20px" }}>
+          <div style={{ fontSize: 40, marginBottom: 12, opacity: 0.4 }}>◌</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--muted)" }}>Carregando configuração de depósito…</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!(ps as any)?.modeWallet) {
     return (
@@ -283,39 +318,31 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
             ))}
           </div>
 
-          {/* CPF (só Pix) */}
-          {method === "pix" && (
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
-                CPF / CNPJ
-              </label>
-              <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00 ou 00.000.000/0001-00"
-                style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 14, fontFamily: "var(--font)", boxSizing: "border-box" }}
-              />
-              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>Obrigatório para emissão do Pix pelo Asaas</div>
-            </div>
-          )}
+          {/* CPF / CNPJ — obrigatório para Pix e Cartão */}
+          <div style={{ marginBottom: 18 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+              CPF / CNPJ
+            </label>
+            <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00 ou 00.000.000/0001-00"
+              style={{ width: "100%", padding: "11px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 14, fontFamily: "var(--font)", boxSizing: "border-box" }}
+            />
+            <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>Obrigatório para emissão da cobrança via Asaas</div>
+          </div>
 
           {/* Botão */}
           <button
-            onClick={() => {
-              if (method === "pix") {
-                pixMutation.mutate({ amount: parsed, cpfCnpj: cpf });
-              } else {
-                toast.info("Pagamento por cartão em breve. Use o Pix por enquanto.");
-              }
-            }}
-            disabled={parsed < 50 || pixMutation.isPending || (method === "pix" && cpf.replace(/\D/g,"").length < 11)}
+            onClick={handleSubmit}
+            disabled={parsed < 10 || (pixMutation.isPending || cardMutation.isPending) || cpf.replace(/\D/g,"").length < 11}
             style={{
               ...primaryBtn(), marginTop: 4,
-              opacity: (parsed < 50 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? 0.45 : 1,
-              cursor:  (parsed < 50 || (method === "pix" && cpf.replace(/\D/g,"").length < 11)) ? "not-allowed" : "pointer",
+              opacity: (parsed < 10 || cpf.replace(/\D/g,"").length < 11) ? 0.45 : 1,
+              cursor:  (parsed < 10 || cpf.replace(/\D/g,"").length < 11) ? "not-allowed" : "pointer",
             }}>
-            {pixMutation.isPending ? "Gerando..." : method === "pix" ? `Gerar Pix de ${parsed >= 50 ? R(parsed) : "R$ ——"}` : `Pagar ${parsed >= 50 ? R(parsed) : ""} com Cartão`}
+            {(pixMutation.isPending || cardMutation.isPending) ? "Processando..." : method === "pix" ? "◎ Gerar Pix" : "◎ Ir para pagamento com cartão"}
           </button>
 
-          {parsed > 0 && parsed < 50 && (
-            <div style={{ fontSize: 11, color: "var(--red)", textAlign: "center", marginTop: 6 }}>Valor mínimo: R$ 50,00</div>
+          {parsed > 0 && parsed < 10 && (
+            <div style={{ fontSize: 11, color: "var(--red)", textAlign: "center", marginTop: 6 }}>Valor mínimo: R$ 10,00</div>
           )}
         </div>
 
@@ -353,6 +380,263 @@ function TabDeposit({ balance, ps, onBack }: { balance: any; ps: any; onBack: ()
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
+  const walletBalance = (balance as any)?.balance ?? 0;
+
+  const [code,     setCode]     = useState("");
+  const [platform, setPlatform] = useState<"meta" | "google" | "tiktok" | "other">("meta");
+  const [override, setOverride] = useState("");  // valor manual (caso Pix sem valor)
+  const [notes,    setNotes]    = useState("");
+  const [step,     setStep]     = useState<"input" | "confirm" | "done">("input");
+  const [result,   setResult]   = useState<any>(null);
+
+  // Validação em tempo real
+  const { data: validated, isLoading: validating } =
+    (trpc as any).mediaBudget?.validateExternalCode?.useQuery?.(
+      { code },
+      { enabled: code.length > 20 }
+    ) ?? { data: null, isLoading: false };
+
+  const finalAmount = validated?.amount ?? parseFloat(override) ?? 0;
+  const needsOverride = validated?.valid && !validated?.amount;
+  const hasEnoughBalance = walletBalance >= finalAmount && finalAmount > 0;
+
+  const payMut = (trpc as any).mediaBudget?.payExternalCode?.useMutation?.({
+    onSuccess: (data: any) => {
+      setResult(data);
+      setStep("done");
+      toast.success(`◎ Pagamento de R$ ${data.amount.toFixed(2)} executado!`);
+    },
+    onError: (e: any) => {
+      toast.error(e.message);
+      setStep("input");
+    },
+  }) ?? { mutate: () => {}, isPending: false };
+
+  const handlePay = () => {
+    if (!validated?.valid) {
+      toast.error("Código inválido");
+      return;
+    }
+    if (!hasEnoughBalance) {
+      toast.error("Saldo insuficiente");
+      return;
+    }
+    payMut.mutate({
+      code,
+      amountOverride: needsOverride ? parseFloat(override) : undefined,
+      platform,
+      notes: notes || undefined,
+    });
+  };
+
+  // STEP: done (sucesso)
+  if (step === "done" && result) {
+    return (
+      <div>
+        <SectionHeader icon="⎆" color="#af52de" title="Pagar Código" sub="Pagamento executado" onBack={onBack} />
+
+        <div style={{ background: "rgba(48,209,88,0.08)", border: "1.5px solid rgba(48,209,88,0.3)", borderRadius: "var(--r)", padding: 24, marginBottom: 20, textAlign: "center" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>◎</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "var(--green-d)", marginBottom: 6 }}>
+            Pagamento realizado
+          </div>
+          <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 16 }}>
+            R$ {result.amount?.toFixed(2)} · {result.type === "pix" ? "Pix" : "Boleto"} · {result.platform?.toUpperCase()}
+          </div>
+          {result.asaasId && (
+            <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>
+              ID: {result.asaasId}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={() => {
+            setStep("input"); setCode(""); setOverride(""); setNotes(""); setResult(null);
+          }}
+          style={{ ...primaryBtn("var(--grad-primary)") }}>
+          Fazer novo pagamento
+        </button>
+      </div>
+    );
+  }
+
+  // STEP: confirm
+  if (step === "confirm" && validated?.valid) {
+    return (
+      <div>
+        <SectionHeader icon="⎆" color="#af52de" title="Confirmar Pagamento" sub="Revise os dados antes de confirmar" onBack={() => setStep("input")} />
+
+        <div style={{ background: "var(--off)", borderRadius: "var(--r)", padding: 20, marginBottom: 16 }}>
+          <div style={{ display: "grid", gap: 12 }}>
+            <Row label="Tipo" value={validated.type === "pix" ? "📱 Pix copia-e-cola" : "📄 Boleto bancário"} />
+            <Row label="Valor" value={`R$ ${finalAmount.toFixed(2)}`} bold />
+            <Row label="Plataforma" value={platform === "meta" ? "📘 Meta Ads" : platform === "google" ? "🔵 Google Ads" : platform === "tiktok" ? "◼ TikTok Ads" : "Outra"} />
+            {validated.recipient && <Row label="Recebedor" value={validated.recipient} />}
+            {validated.expiresAt && <Row label="Vencimento" value={new Date(validated.expiresAt).toLocaleDateString("pt-BR")} />}
+            <Row label="Saldo antes" value={`R$ ${walletBalance.toFixed(2)}`} />
+            <Row label="Saldo depois" value={`R$ ${(walletBalance - finalAmount).toFixed(2)}`} color="var(--green-d)" bold />
+          </div>
+        </div>
+
+        <div style={{ background: "rgba(255,159,10,0.06)", border: "1px solid rgba(255,159,10,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 20, fontSize: 12, color: "#b25000" }}>
+          ◬ Confirmação final — após clicar, o valor será debitado do saldo e o pagamento enviado ao gateway.
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <button onClick={() => setStep("input")} style={{ padding: "13px", borderRadius: 12, border: "1.5px solid var(--border)", background: "white", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+            Voltar
+          </button>
+          <button onClick={handlePay} disabled={payMut.isPending} style={{ ...primaryBtn("linear-gradient(135deg,#af52de,#6d2b9f)"), opacity: payMut.isPending ? 0.6 : 1 }}>
+            {payMut.isPending ? "Processando..." : `◎ Confirmar · R$ ${finalAmount.toFixed(2)}`}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP: input
+  return (
+    <div>
+      <SectionHeader icon="⎆" color="#af52de" title="Pagar Código Externo"
+        sub="Cole o código Pix ou boleto gerado na plataforma de anúncios" onBack={onBack} />
+
+      {/* Saldo */}
+      <InfoCard color="#af52de">
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
+          Saldo disponível na wallet
+        </div>
+        <div style={{ fontSize: 36, fontWeight: 900, color: "#af52de", letterSpacing: "-0.05em" }}>
+          {R(walletBalance)}
+        </div>
+      </InfoCard>
+
+      {/* Explicação */}
+      <div style={{ background: "var(--blue-l)", border: "1px solid rgba(0,113,227,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--blue)", lineHeight: 1.5 }}>
+        ◉ <strong>Como funciona:</strong> gere um Pix ou boleto na Meta/Google/TikTok Ads, cole o código aqui e o MECPro paga usando seu saldo. Totalmente legal — o MECPro não acessa sua conta na plataforma.
+      </div>
+
+      {/* Plataforma */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>
+          Plataforma de destino
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+          {[
+            { key: "meta",   label: "Meta",   icon: "📘", color: "#1877f2" },
+            { key: "google", label: "Google", icon: "🔵", color: "#1a73e8" },
+            { key: "tiktok", label: "TikTok", icon: "◼",  color: "#111"    },
+            { key: "other",  label: "Outra",  icon: "◌",  color: "#6b7280" },
+          ].map(p => (
+            <button key={p.key}
+              onClick={() => setPlatform(p.key as any)}
+              style={{
+                padding: "10px 6px", borderRadius: 10,
+                border: platform === p.key ? `2px solid ${p.color}` : "1.5px solid var(--border)",
+                background: platform === p.key ? p.color + "12" : "white",
+                fontWeight: 700, fontSize: 12, cursor: "pointer",
+                fontFamily: "var(--font)",
+              }}>
+              <div style={{ fontSize: 18, marginBottom: 2 }}>{p.icon}</div>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Código */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>
+          Código Pix ou linha digitável do boleto
+        </label>
+        <textarea
+          value={code}
+          onChange={e => setCode(e.target.value)}
+          placeholder="Cole aqui o código Pix copia-e-cola ou a linha digitável do boleto..."
+          rows={4}
+          style={{
+            width: "100%", padding: "12px 14px", borderRadius: 11,
+            border: `1.5px solid ${validated?.valid ? "rgba(48,209,88,0.4)" : validated?.error ? "rgba(255,59,48,0.3)" : "var(--border)"}`,
+            fontSize: 12, fontFamily: "monospace", boxSizing: "border-box",
+            resize: "vertical", minHeight: 80,
+          }}
+        />
+        {validating && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Validando...</div>}
+        {validated?.valid && (
+          <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(48,209,88,0.08)", borderRadius: 10, fontSize: 12, color: "var(--green-d)" }}>
+            ◎ {validated.type === "pix" ? "Pix válido" : "Boleto válido"}
+            {validated.amount && ` · R$ ${validated.amount.toFixed(2)}`}
+            {validated.recipient && ` · ${validated.recipient}`}
+            {validated.expiresAt && ` · vence ${new Date(validated.expiresAt).toLocaleDateString("pt-BR")}`}
+          </div>
+        )}
+        {code.length > 20 && validated && !validated.valid && (
+          <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(255,59,48,0.06)", borderRadius: 10, fontSize: 12, color: "var(--red)" }}>
+            ✕ {validated.error || "Código inválido"}
+          </div>
+        )}
+      </div>
+
+      {/* Valor manual se Pix sem valor */}
+      {needsOverride && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+            Valor a pagar (código Pix sem valor fixo)
+          </label>
+          <input
+            type="number"
+            value={override}
+            onChange={e => setOverride(e.target.value)}
+            placeholder="Ex: 100.00"
+            step="0.01"
+            style={{ width: "100%", padding: "12px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 18, fontWeight: 800, fontFamily: "var(--font)", boxSizing: "border-box" }}
+          />
+        </div>
+      )}
+
+      {/* Notas */}
+      <div style={{ marginBottom: 20 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+          Descrição (opcional)
+        </label>
+        <input
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Ex: Recarga conta Meta Ads - campanha X"
+          maxLength={200}
+          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }}
+        />
+      </div>
+
+      {/* Botão */}
+      <button
+        onClick={() => setStep("confirm")}
+        disabled={!validated?.valid || !hasEnoughBalance || (needsOverride && !parseFloat(override))}
+        style={{
+          ...primaryBtn("linear-gradient(135deg,#af52de,#6d2b9f)"),
+          opacity: (!validated?.valid || !hasEnoughBalance || (needsOverride && !parseFloat(override))) ? 0.5 : 1,
+        }}>
+        {!validated?.valid
+          ? "Cole um código válido"
+          : !hasEnoughBalance
+            ? `Saldo insuficiente · falta R$ ${(finalAmount - walletBalance).toFixed(2)}`
+            : `Revisar pagamento · R$ ${finalAmount.toFixed(2)}`}
+      </button>
+    </div>
+  );
+}
+
+// Helper para rows de revisão
+function Row({ label, value, bold, color }: { label: string; value: string; bold?: boolean; color?: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(0,0,0,0.05)" }}>
+      <span style={{ fontSize: 12, color: "var(--muted)" }}>{label}</span>
+      <span style={{ fontSize: bold ? 16 : 13, fontWeight: bold ? 900 : 700, color: color || "var(--dark)" }}>{value}</span>
     </div>
   );
 }
@@ -454,10 +738,13 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
             <div style={{ fontSize: 14, fontWeight: 800, color: p.color }}>{p.label}</div>
             {pd?.connected && platBalance !== null && (
               <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: platBalance > 0 ? "var(--dark)" : "var(--red)" }}>
-                  {R(platBalance)}
+                <div style={{ fontSize: 13, fontWeight: 900, color: (pd?.displayBalance ?? platBalance) > 0 ? "var(--dark)" : "var(--red)" }}>
+                  {R(pd?.displayBalance ?? platBalance)}
                 </div>
-                <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase" }}>saldo</div>
+                <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase" }}>
+                  {pd?.hasDebt ? "crédito" : "saldo"}
+                </div>
+                {pd?.hasDebt && <div style={{ fontSize: 9, color: "var(--orange)" }}>débito {R(pd.debtAmount)}</div>}
               </div>
             )}
             {p.key === "google" && pd?.connected && (
@@ -936,7 +1223,7 @@ export default function Financeiro() {
   const [tab, setTab] = useState(0);
 
   const { data: balance } = (trpc as any).mediaBudget?.getBalance?.useQuery?.()       ?? {};
-  const { data: ps }      = (trpc as any).admin?.getPaymentSettings?.useQuery?.()     ?? {};
+  const { data: ps, isLoading: psLoading } = (trpc as any).mediaBudget?.getSettings?.useQuery?.() ?? { data: null, isLoading: false };
   const { data: asaas }   = (trpc as any).mediaBudget?.asaasBalance?.useQuery?.()     ?? {};
   const { data: platBal } = (trpc as any).mediaBudget?.platformBalances?.useQuery?.() ?? {};
   const { data: summary } = (trpc as any).mediaBudget?.financialSummary?.useQuery?.() ?? {};
@@ -1189,10 +1476,19 @@ export default function Financeiro() {
                             </div>
                           ) : (
                             <div>
-                              <div style={{ fontSize: 18, fontWeight: 900, color: d?.balance > 0 ? "var(--dark)" : "var(--red)", letterSpacing: "-0.03em" }}>{R(d?.balance)}</div>
-                              <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
-                                {d?.daysLeft != null ? `≈ ${d.daysLeft} dias restantes` : "saldo disponível"}
+                              <div style={{ fontSize: 18, fontWeight: 900, color: (d?.displayBalance ?? d?.balance) > 0 ? "var(--dark)" : "var(--red)", letterSpacing: "-0.03em" }}>
+                                {R(d?.displayBalance ?? d?.balance)}
                               </div>
+                              {d?.hasDebt && d?.debtAmount > 0 && (
+                                <div style={{ fontSize: 10, color: "var(--orange)", marginTop: 2, fontWeight: 600 }}>
+                                  ◬ Débito pendente: {R(d.debtAmount)}
+                                </div>
+                              )}
+                              {!d?.hasDebt && (
+                                <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
+                                  {d?.daysLeft != null ? `≈ ${d.daysLeft} dias restantes` : "saldo disponível"}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1220,11 +1516,12 @@ export default function Financeiro() {
               </div>
             )}
 
-            {tab === 1 && <TabDeposit balance={balance} ps={ps} onBack={() => setTab(0)} />}
-            {tab === 2 && <TabBuyCredits balance={balance} platBal={platBal} onBack={() => setTab(0)} />}
-            {tab === 3 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
-            {tab === 4 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
-            {tab === 5 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
+            {tab === 1 && <TabDeposit balance={balance} ps={ps} psLoading={psLoading} onBack={() => setTab(0)} />}
+            {tab === 2 && <TabRateio ps={ps} summary={summary} onBack={() => setTab(0)} />}
+            {tab === 3 && <TabBuyCredits balance={balance} platBal={platBal} onBack={() => setTab(0)} />}
+            {tab === 4 && <TabPayCode balance={balance} onBack={() => setTab(0)} />}
+            {tab === 5 && <TabCredits summary={summary} onBack={() => setTab(0)} />}
+            {tab === 6 && <TabTransfer asaas={asaas} onBack={() => setTab(0)} />}
           </div>
         </div>
 

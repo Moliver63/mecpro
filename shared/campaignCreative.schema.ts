@@ -52,16 +52,22 @@ export const legacyPublishMediaSchema = z.object({
   imageUrls: z.array(httpsUrl).min(2).max(10).optional().nullable(),
   imageHashes: z.array(nonEmptyString).min(2).max(10).optional().nullable(),
   videoId: optionalString,
+  videoThumbnailUrl: optionalHttpsUrl,
+  videoThumbnailHash: optionalString,
 }).superRefine((value, ctx) => {
   const hasVideo = !!value.videoId;
   const hasSingleImage = !!value.imageHash || !!value.imageUrl;
   const hasCarousel = (value.imageHashes?.length ?? 0) >= 2 || (value.imageUrls?.length ?? 0) >= 2;
+  const hasVideoThumb = !!value.videoThumbnailHash || !!value.videoThumbnailUrl || hasSingleImage;
 
   if (!hasVideo && !hasSingleImage && !hasCarousel) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Informe imageHash/imageUrl, imageHashes/imageUrls ou videoId" });
   }
-  if (hasVideo && (hasSingleImage || hasCarousel)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Não misture vídeo com imagem única ou carrossel" });
+  if (hasVideo && hasCarousel) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Não misture vídeo com carrossel" });
+  }
+  if (hasVideo && !hasVideoThumb) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Vídeo exige thumbnail (videoThumbnailHash/videoThumbnailUrl)" });
   }
 });
 export type LegacyPublishMedia = z.infer<typeof legacyPublishMediaSchema>;
@@ -267,6 +273,15 @@ export const campaignCreativeSchema = z.object({
   feedImageHash: optionalString,
   storyImageHash: optionalString,
   squareImageHash: optionalString,
+  feedVideoId: optionalString,
+  storyVideoId: optionalString,
+  squareVideoId: optionalString,
+  feedVideoThumbnailUrl: optionalHttpsUrl,
+  storyVideoThumbnailUrl: optionalHttpsUrl,
+  squareVideoThumbnailUrl: optionalHttpsUrl,
+  feedVideoThumbnailHash: optionalString,
+  storyVideoThumbnailHash: optionalString,
+  squareVideoThumbnailHash: optionalString,
   imageUpdatedAt: dateLike,
   imageProviderUsed: optionalString,
   imageGenerationReason: optionalString,
@@ -300,6 +315,8 @@ export const updateCreativeImageInputSchema = z.object({
   imageUrl:      optionalHttpsUrl,
   imageHash:     optionalString,
   videoId:       z.string().optional(),   // Meta video_id após upload
+  videoThumbnailUrl: optionalHttpsUrl,
+  videoThumbnailHash: optionalString,
   audioId:       z.string().optional(),   // Meta audio_id após upload
 }).superRefine((value, ctx) => {
   if (!value.imageUrl && !value.imageHash && !value.videoId && !value.audioId) {
@@ -336,6 +353,8 @@ export const publishToMetaInputSchema = z.object({
   imageHashes: z.array(nonEmptyString).min(2).max(10).optional().nullable(),
   imageUrls: z.array(httpsUrl).min(2).max(10).optional().nullable(),
   videoId: optionalString,
+  videoThumbnailUrl: optionalHttpsUrl,
+  videoThumbnailHash: optionalString,
   pixelId: optionalString,
   adSetIndex: z.number().int().min(0).default(0),
   creativeIndex: z.number().int().min(0).optional().nullable(),
@@ -350,10 +369,13 @@ export const publishToMetaInputSchema = z.object({
   geoRadius: z.number().optional(),
 }).passthrough().superRefine((value, ctx) => {
   const hasVideo = !!value.videoId;
-  const hasSingleImage = !!value.imageHash || !!value.imageUrl;
   const hasCarousel = (value.imageHashes?.length ?? 0) >= 2 || (value.imageUrls?.length ?? 0) >= 2;
-  if (hasVideo && (hasSingleImage || hasCarousel)) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Não misture vídeo com imagem única ou carrossel no publish" });
+  const hasVideoThumb = !!value.videoThumbnailHash || !!value.videoThumbnailUrl || !!value.imageHash || !!value.imageUrl;
+  if (hasVideo && hasCarousel) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Não misture vídeo com carrossel no publish" });
+  }
+  if (hasVideo && !hasVideoThumb) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Vídeo exige thumbnail antes do publish" });
   }
 });
 export type PublishToMetaInput = z.infer<typeof publishToMetaInputSchema>;
@@ -418,6 +440,44 @@ export function buildPublishMediaFromCreative(
   if (hasComplexMedia(directPublishMedia)) return directPublishMedia;
 
   const resolvedFormat = format ?? creative.format;
+  const typedCreative = creative as CampaignCreative & {
+    feedVideoId?: string | null;
+    storyVideoId?: string | null;
+    squareVideoId?: string | null;
+    feedVideoThumbnailHash?: string | null;
+    storyVideoThumbnailHash?: string | null;
+    squareVideoThumbnailHash?: string | null;
+    feedVideoThumbnailUrl?: string | null;
+    storyVideoThumbnailUrl?: string | null;
+    squareVideoThumbnailUrl?: string | null;
+  };
+
+  const resolvedVideoId = resolvedFormat === "stories" || resolvedFormat === "reels"
+    ? (typedCreative.storyVideoId ?? typedCreative.feedVideoId ?? typedCreative.squareVideoId ?? null)
+    : resolvedFormat === "square"
+      ? (typedCreative.squareVideoId ?? typedCreative.feedVideoId ?? typedCreative.storyVideoId ?? null)
+      : (typedCreative.feedVideoId ?? typedCreative.squareVideoId ?? typedCreative.storyVideoId ?? null);
+
+  const resolvedVideoThumbnailHash = resolvedFormat === "stories" || resolvedFormat === "reels"
+    ? (typedCreative.storyVideoThumbnailHash ?? typedCreative.feedVideoThumbnailHash ?? typedCreative.squareVideoThumbnailHash ?? null)
+    : resolvedFormat === "square"
+      ? (typedCreative.squareVideoThumbnailHash ?? typedCreative.feedVideoThumbnailHash ?? typedCreative.storyVideoThumbnailHash ?? null)
+      : (typedCreative.feedVideoThumbnailHash ?? typedCreative.squareVideoThumbnailHash ?? typedCreative.storyVideoThumbnailHash ?? null);
+
+  const resolvedVideoThumbnailUrl = resolvedFormat === "stories" || resolvedFormat === "reels"
+    ? (typedCreative.storyVideoThumbnailUrl ?? typedCreative.feedVideoThumbnailUrl ?? typedCreative.squareVideoThumbnailUrl ?? null)
+    : resolvedFormat === "square"
+      ? (typedCreative.squareVideoThumbnailUrl ?? typedCreative.feedVideoThumbnailUrl ?? typedCreative.storyVideoThumbnailUrl ?? null)
+      : (typedCreative.feedVideoThumbnailUrl ?? typedCreative.squareVideoThumbnailUrl ?? typedCreative.storyVideoThumbnailUrl ?? null);
+
+  if (resolvedVideoId) {
+    return {
+      videoId: resolvedVideoId,
+      videoThumbnailHash: resolvedVideoThumbnailHash ?? null,
+      videoThumbnailUrl: resolvedVideoThumbnailUrl ?? null,
+    };
+  }
+
   const imageHash = resolveLegacyImageHashByFormat(creative, resolvedFormat);
   const imageUrl = resolveLegacyImageUrlByFormat(creative, resolvedFormat);
 

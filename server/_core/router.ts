@@ -1729,19 +1729,32 @@ const campaignsRouter = router({
         : input.format === "square"
           ? "squareVideoId"
           : "feedVideoId";
+      const videoThumbUrlKey = input.format === "stories"
+        ? "storyVideoThumbnailUrl"
+        : input.format === "square"
+          ? "squareVideoThumbnailUrl"
+          : "feedVideoThumbnailUrl";
+      const videoThumbHashKey = input.format === "stories"
+        ? "storyVideoThumbnailHash"
+        : input.format === "square"
+          ? "squareVideoThumbnailHash"
+          : "feedVideoThumbnailHash";
 
       const isVideo = !!input.videoId;
 
       if (isVideo) {
-        // Vídeo: salva videoId, limpa imageHash/imageUrl para evitar conflito
-        creative[videoKey]  = input.videoId;
-        creative[hashKey]   = null;
-        creative[urlKey]    = null;
+        creative[videoKey] = input.videoId;
+        if (input.videoThumbnailUrl) creative[videoThumbUrlKey] = input.videoThumbnailUrl;
+        if (input.videoThumbnailHash) creative[videoThumbHashKey] = input.videoThumbnailHash;
+        if (!creative[videoThumbUrlKey] && creative[urlKey]) creative[videoThumbUrlKey] = creative[urlKey];
+        if (!creative[videoThumbHashKey] && creative[hashKey]) creative[videoThumbHashKey] = creative[hashKey];
         creative.imageProviderUsed = "meta_video_upload";
       } else {
-        if (input.imageUrl)  creative[urlKey]  = input.imageUrl;
+        if (input.imageUrl) creative[urlKey] = input.imageUrl;
         if (input.imageHash) creative[hashKey] = input.imageHash;
-        creative[videoKey]  = null; // limpa vídeo anterior se havia
+        creative[videoKey] = null;
+        creative[videoThumbUrlKey] = null;
+        creative[videoThumbHashKey] = null;
         creative.imageProviderUsed = input.imageHash ? "meta_manual_upload" : "manual_url";
       }
 
@@ -1751,9 +1764,11 @@ const campaignsRouter = router({
       creative.manualImageOverride     = true;
 
       creatives[input.creativeIndex] = syncCreativeImageToV2(creative, input.format, {
-        imageUrl:  isVideo ? null : (input.imageUrl  ?? null),
+        imageUrl: isVideo ? null : (input.imageUrl ?? null),
         imageHash: isVideo ? null : (input.imageHash ?? null),
-        videoId:   input.videoId ?? null,
+        videoId: input.videoId ?? null,
+        videoThumbnailUrl: input.videoThumbnailUrl ?? creative[videoThumbUrlKey] ?? null,
+        videoThumbnailHash: input.videoThumbnailHash ?? creative[videoThumbHashKey] ?? null,
       });
 
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
@@ -1767,9 +1782,11 @@ const campaignsRouter = router({
       return {
         ok: true,
         creative: creatives[input.creativeIndex],
-        imageUrl:  creative[urlKey]   || null,
-        imageHash: creative[hashKey]  || null,
-        videoId:   creative[videoKey] || null,
+        imageUrl: creative[urlKey] || null,
+        imageHash: creative[hashKey] || null,
+        videoId: creative[videoKey] || null,
+        videoThumbnailUrl: creative[videoThumbUrlKey] || null,
+        videoThumbnailHash: creative[videoThumbHashKey] || null,
       };
     }),
 
@@ -2505,6 +2522,12 @@ const campaignsRouter = router({
       const selectedGeneratedImageHash = placementKey === "stories" || placementKey === "reels"
         ? selectedCreative?.storyImageHash || null
         : selectedCreative?.feedImageHash || selectedCreative?.squareImageHash || selectedCreative?.storyImageHash;
+      const selectedGeneratedVideoThumbHash = placementKey === "stories" || placementKey === "reels"
+        ? selectedCreative?.storyVideoThumbnailHash || selectedCreative?.feedVideoThumbnailHash || null
+        : selectedCreative?.feedVideoThumbnailHash || selectedCreative?.squareVideoThumbnailHash || selectedCreative?.storyVideoThumbnailHash || null;
+      const selectedGeneratedVideoThumbUrl = placementKey === "stories" || placementKey === "reels"
+        ? selectedCreative?.storyVideoThumbnailUrl || selectedCreative?.feedVideoThumbnailUrl || null
+        : selectedCreative?.feedVideoThumbnailUrl || selectedCreative?.squareVideoThumbnailUrl || selectedCreative?.storyVideoThumbnailUrl || null;
       const effectiveVideoId = input.videoId ?? fallbackPublishMedia?.videoId ?? null;
       const effectiveImageHashes = input.imageHashes?.length && input.imageHashes.length >= 2
         ? input.imageHashes
@@ -2524,6 +2547,24 @@ const campaignsRouter = router({
             ? (selectedGeneratedImageUrl ?? null)
             : (fallbackPublishMedia?.imageUrl ?? selectedGeneratedImageUrl ?? null))
         : null);
+      const effectiveVideoThumbnailHash = effectiveVideoId
+        ? (input.videoThumbnailHash
+            ?? fallbackPublishMedia?.videoThumbnailHash
+            ?? selectedGeneratedVideoThumbHash
+            ?? input.imageHash
+            ?? fallbackPublishMedia?.imageHash
+            ?? selectedGeneratedImageHash
+            ?? null)
+        : null;
+      const effectiveVideoThumbnailUrl = effectiveVideoId
+        ? (input.videoThumbnailUrl
+            ?? fallbackPublishMedia?.videoThumbnailUrl
+            ?? selectedGeneratedVideoThumbUrl
+            ?? input.imageUrl
+            ?? fallbackPublishMedia?.imageUrl
+            ?? selectedGeneratedImageUrl
+            ?? null)
+        : null;
       const resolvedImageHash = effectiveImageHash;
       const resolvedImageUrl = effectiveImageUrl;
 
@@ -2679,8 +2720,8 @@ const campaignsRouter = router({
 
             // Meta exige thumbnail (image_hash ou picture) no video_data
             // Usar imageHash do criativo se disponível, senão buscar via API
-            let videoThumbHash: string | null = effectiveImageHash ?? input.imageHash ?? null;
-            let videoThumbUrl:  string | null = effectiveImageUrl  ?? input.imageUrl  ?? null;
+            let videoThumbHash: string | null = effectiveVideoThumbnailHash;
+            let videoThumbUrl: string | null = effectiveVideoThumbnailUrl;
 
             // ── Buscar thumbnail automática via API do Meta se não há imagem ──
             if (!videoThumbHash && !videoThumbUrl) {
@@ -2718,7 +2759,6 @@ const campaignsRouter = router({
                 );
                 if (hashRes.ok) {
                   const hashData = await hashRes.json() as any;
-                  // Resposta: { images: { filename: { hash, url, ... } } }
                   const images = hashData?.images;
                   if (images) {
                     const firstKey = Object.keys(images)[0];
@@ -2735,6 +2775,13 @@ const campaignsRouter = router({
               } catch (hashErr: any) {
                 log.warn("meta", "Erro ao converter thumbnail", { error: hashErr?.message?.slice(0, 80) });
               }
+            }
+
+            if (!videoThumbHash) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Vídeo sem thumbnail válida. Envie uma thumbnail antes de publicar no Meta.",
+              });
             }
 
             const videoDataPayload: Record<string, any> = {
@@ -2822,6 +2869,8 @@ const campaignsRouter = router({
             imageHashes: effectiveImageHashes,
             imageUrls: effectiveImageUrls,
             videoId: effectiveVideoId,
+            videoThumbnailHash: effectiveVideoId ? (storySpec?.video_data?.image_hash ?? effectiveVideoThumbnailHash ?? null) : null,
+            videoThumbnailUrl: effectiveVideoId ? (effectiveVideoThumbnailUrl ?? null) : null,
           });
           await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creativeList));
         }
@@ -3172,7 +3221,7 @@ const campaignsRouter = router({
             .replace(/"$/, "")
             .replace(/\+/g, "")
             .replace(/[—–-]+/g, " ")
-            .replace(/[^ -\p{L}\p{N}\s]/gu, " ")
+            .replace(/[^-\p{L}\p{N}\s]/gu, " ")
             .replace(/[%]/g, " ")
             .replace(/\s+/g, " ")
             .trim()
@@ -3920,7 +3969,155 @@ const integrationsRouter = router({
       return { name: data.data?.email || `Advertiser ${integration.accountId}`, accountId: integration.accountId };
     }),
 
-  upsertGoogle: protectedProcedure
+  // ── Google Ads OAuth — gera URL de autorização ──────────────────────────
+  getGoogleAdsAuthUrl: protectedProcedure
+    .input(z.object({ redirectUri: z.string() }))
+    .query(({ ctx, input }) => {
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      if (!clientId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Google Ads OAuth não configurado (GOOGLE_ADS_CLIENT_ID ausente)." });
+      }
+
+      const scope = [
+        "https://www.googleapis.com/auth/adwords",
+        "https://www.googleapis.com/auth/userinfo.email",
+      ].join(" ");
+
+      const state = Buffer.from(JSON.stringify({ userId: ctx.user.id, ts: Date.now() })).toString("base64url");
+
+      const params = new URLSearchParams({
+        client_id:     clientId,
+        redirect_uri:  input.redirectUri,
+        response_type: "code",
+        scope,
+        access_type:   "offline",       // gera refresh_token
+        prompt:        "consent",        // força consentimento p/ garantir refresh_token
+        state,
+      });
+
+      return { url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`, state };
+    }),
+
+  // ── Google Ads OAuth — troca code por refresh_token ─────────────────────
+  exchangeGoogleAdsCode: protectedProcedure
+    .input(z.object({
+      code:        z.string(),
+      redirectUri: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const clientId     = process.env.GOOGLE_ADS_CLIENT_ID     || process.env.GOOGLE_CLIENT_ID     || "";
+      const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+
+      if (!clientId || !clientSecret) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Google Ads OAuth não configurado no servidor." });
+      }
+
+      // 1. Troca code por tokens
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method:  "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code:          input.code,
+          client_id:     clientId,
+          client_secret: clientSecret,
+          redirect_uri:  input.redirectUri,
+          grant_type:    "authorization_code",
+        }).toString(),
+      });
+
+      const tokenData: any = await tokenRes.json();
+      if (!tokenRes.ok || tokenData.error) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Falha ao trocar code: ${tokenData.error_description || tokenData.error || "erro desconhecido"}`,
+        });
+      }
+
+      const refreshToken = tokenData.refresh_token;
+      if (!refreshToken) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Google não retornou refresh_token. Revogue o acesso em myaccount.google.com/permissions e tente novamente.",
+        });
+      }
+
+      // 2. Buscar Customer IDs acessíveis via Google Ads API
+      //    Requer developer_token — deve estar configurado como env var
+      const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
+      let customerIds: string[] = [];
+
+      if (devToken) {
+        try {
+          const listRes = await fetch("https://googleads.googleapis.com/v17/customers:listAccessibleCustomers", {
+            headers: {
+              "Authorization":   `Bearer ${tokenData.access_token}`,
+              "developer-token": devToken,
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+          const listData: any = await listRes.json();
+          if (listData.resourceNames) {
+            customerIds = listData.resourceNames.map((r: string) => r.replace("customers/", ""));
+          }
+        } catch (e: any) {
+          log.warn("google-oauth", "Não foi possível listar Customer IDs", { error: e.message });
+        }
+      }
+
+      // 3. Salvar integração com refresh_token
+      //    Customer ID fica pendente de seleção pelo usuário (vários disponíveis)
+      const primaryCustomerId = customerIds[0] || "";
+      const _drz = await getDb();
+      if (!_drz) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const [existing] = await _drz.select().from(integrations)
+        .where(and(eq(integrations.userId, ctx.user.id), eq(integrations.provider, "google")));
+
+      const expiry = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+
+      if (existing) {
+        await _drz.update(integrations).set({
+          accessToken:    refreshToken,
+          refreshToken:   refreshToken,
+          appId:          clientId,
+          appSecret:      clientSecret,
+          developerToken: devToken || (existing as any).developerToken,
+          accountId:      primaryCustomerId || (existing as any).accountId,
+          isActive:       1,
+          tokenExpiry:    expiry,
+          updatedAt:      new Date(),
+        }).where(eq(integrations.id, existing.id));
+      } else {
+        await _drz.insert(integrations).values({
+          userId:         ctx.user.id,
+          provider:       "google",
+          accessToken:    refreshToken,
+          refreshToken:   refreshToken,
+          appId:          clientId,
+          appSecret:      clientSecret,
+          developerToken: devToken,
+          accountId:      primaryCustomerId,
+          isActive:       1,
+          tokenExpiry:    expiry,
+        });
+      }
+
+      log.info("google-oauth", "✅ Refresh token salvo", {
+        userId:      ctx.user.id,
+        customerIds: customerIds.length,
+        primary:     primaryCustomerId,
+      });
+
+      return {
+        success:           true,
+        refreshToken:      refreshToken.slice(0, 10) + "...",
+        customerIds,
+        primaryCustomerId,
+        hasDevToken:       !!devToken,
+      };
+    }),
+
+    upsertGoogle: protectedProcedure
     .input(z.object({
       clientId:       z.string().optional(),
       clientSecret:   z.string().optional(),
@@ -5982,31 +6179,52 @@ const unifiedRouter = router({
         if (token && rawAct) {
           const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
           const res = await fetch(
-            `https://graph.facebook.com/v19.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,min_daily_budget&access_token=${token}`,
+            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,min_daily_budget&access_token=${token}`,
             { signal: AbortSignal.timeout(8000) }
           );
           const d: any = await res.json();
           if (!d.error) {
-            const balance    = Number(d.balance    || 0) / 100;
-            const spent      = Number(d.amount_spent || 0) / 100;
-            const cap        = Number(d.spend_cap   || 0) / 100;
-            const remaining  = cap > 0 ? cap - spent : null;
-            const dailyAvg   = spent > 0 ? spent / 30 : 0;
-            const daysLeft   = (remaining && dailyAvg > 0) ? Math.floor(remaining / dailyAvg) : null;
+            const balanceLiquido = Number(d.balance || 0) / 100;
+            const spent          = Number(d.amount_spent || 0) / 100;
+            const cap            = Number(d.spend_cap || 0) / 100;
+            const debtAmount     = 0; // Meta não expõe saldo devedor via Graph API
+            const remaining      = cap > 0 ? cap - spent : null;
+            const dailyAvg       = spent > 0 ? spent / 30 : 0;
+            const daysLeft       = (remaining && dailyAvg > 0) ? Math.floor(remaining / dailyAvg) : null;
+
+            // Buscar crédito bruto via transactions
+            let creditBruto = 0;
+            try {
+              const txRes = await fetch(
+                `https://graph.facebook.com/v20.0/${act}/transactions?fields=amount,balance_after,type,time&limit=20&access_token=${token}`,
+                { signal: AbortSignal.timeout(8000) }
+              );
+              const txData: any = await txRes.json();
+              if (!txData.error && txData.data?.length) {
+                creditBruto = Number(txData.data[0].balance_after || 0) / 100;
+              }
+            } catch {}
+
+            const displayBalance = creditBruto > 0 ? creditBruto : balanceLiquido;
+
             results.meta = {
-              connected:   true,
-              balance,
+              connected:     true,
+              balance:       balanceLiquido,
+              creditBruto,
+              displayBalance,
+              debtAmount,
+              hasDebt:       debtAmount > 0,
               spent,
-              cap:         cap > 0 ? cap : null,
+              cap:           cap > 0 ? cap : null,
               remaining,
-              currency:    d.currency || "BRL",
-              status:      d.account_status,
+              currency:      d.currency || "BRL",
+              status:        d.account_status,
               daysLeft,
               dailyAvg,
-              fundingType: d.funding_source_details?.type || null,
-              rechargeUrl: `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
-              alert:       daysLeft !== null && daysLeft <= 5 ? "critical"
-                         : daysLeft !== null && daysLeft <= 10 ? "warning" : null,
+              fundingType:   d.funding_source_details?.type || null,
+              rechargeUrl:   `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
+              alert:         daysLeft !== null && daysLeft <= 5 ? "critical"
+                           : daysLeft !== null && daysLeft <= 10 ? "warning" : null,
             };
           } else {
             results.meta = { connected: true, error: d.error.message };
@@ -6246,11 +6464,17 @@ const mediaBudgetRouter = router({
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
+      const modeWallet = await db.getAdminSetting("payment_mode_wallet");
+      if (modeWallet === "false") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Depósitos estão desabilitados pelo administrador." });
+      }
+
       const asaasKey = process.env.ASAAS_API_KEY;
       if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Pagamento Pix não configurado. Contate o suporte." });
 
       const amountCents = Math.round(input.amount * 100);
-      const feePercent  = 10;
+      const feeConfig   = await db.getAdminSetting("payment_fee_percent");
+      const feePercent  = Number(feeConfig || "10");
       const feeAmount   = Math.round(amountCents * feePercent / 100);
       const netAmount   = amountCents - feeAmount;
 
@@ -6374,41 +6598,120 @@ const mediaBudgetRouter = router({
   // Solicitar depósito via Stripe (cartão)
   requestCardDeposit: protectedProcedure
     .input(z.object({
-      amount: z.number().min(50).max(100000),
-      notes:  z.string().optional(),
+      amount:  z.number().min(10).max(100000),
+      cpfCnpj: z.string().min(11).max(18),
+      notes:   z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      if (!stripe) throw new TRPCError({ code: "BAD_REQUEST", message: "Pagamento por cartão não configurado." });
-
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
+      const modeWallet = await db.getAdminSetting("payment_mode_wallet");
+      if (modeWallet === "false") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Depósitos estão desabilitados pelo administrador." });
+      }
+
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Gateway Asaas não configurado." });
+
       const amountCents = Math.round(input.amount * 100);
-      const feePercent  = 10;
+      const feeConfig   = await db.getAdminSetting("payment_fee_percent");
+      const feePercent  = Number(feeConfig || "10");
       const feeAmount   = Math.round(amountCents * feePercent / 100);
       const netAmount   = amountCents - feeAmount;
 
-      // Cria PaymentIntent no Stripe
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount:   amountCents,
-        currency: "brl",
-        metadata: { userId: String(ctx.user.id), type: "media_budget", feePercent: String(feePercent) },
-        description: `MECPro — Recarga de verba de mídia (R$ ${(amountCents/100).toFixed(2)})`,
-      });
+      const cleanCpf = input.cpfCnpj.replace(/\D/g, "");
+      if (cleanCpf.length < 11) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "CPF ou CNPJ inválido." });
+      }
 
-      // Registra no banco como pendente
+      // 1. Busca ou cria cliente no Asaas
+      const userRes = await db.getUserById(ctx.user.id) as any;
+      let asaasCustomerId: string;
+
+      const searchRes = await fetch(
+        `https://api.asaas.com/v3/customers?email=${encodeURIComponent(userRes.email)}&limit=1`,
+        { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+      );
+      const searchData: any = await searchRes.json();
+
+      if (searchData.data?.[0]?.id) {
+        asaasCustomerId = searchData.data[0].id;
+        await fetch(`https://api.asaas.com/v3/customers/${asaasCustomerId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", access_token: asaasKey },
+          body: JSON.stringify({ cpfCnpj: cleanCpf }),
+          signal: AbortSignal.timeout(8000),
+        });
+      } else {
+        const createRes = await fetch("https://api.asaas.com/v3/customers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", access_token: asaasKey },
+          body: JSON.stringify({
+            name:              userRes.name || userRes.email,
+            email:             userRes.email,
+            cpfCnpj:           cleanCpf,
+            externalReference: String(ctx.user.id),
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const createData: any = await createRes.json();
+        if (!createData.id) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Falha ao criar cliente Asaas: ${createData.errors?.[0]?.description || "erro desconhecido"}`,
+          });
+        }
+        asaasCustomerId = createData.id;
+      }
+
+      // 2. Cria cobrança com billingType=CREDIT_CARD
+      //    Asaas gera invoiceUrl — página hospedada que aceita cartão
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);  // vencimento em 3 dias
+
+      const payRes = await fetch("https://api.asaas.com/v3/payments", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", access_token: asaasKey },
+        body: JSON.stringify({
+          customer:          asaasCustomerId,
+          billingType:       "CREDIT_CARD",
+          value:             input.amount,
+          dueDate:           dueDate.toISOString().split("T")[0],
+          description:       `MECPro — Recarga wallet R$ ${input.amount.toFixed(2)} (taxa ${feePercent}%)`,
+          externalReference: `wallet-${ctx.user.id}-${Date.now()}`,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const payData: any = await payRes.json();
+
+      if (!payRes.ok || !payData.id) {
+        log.error("card-deposit", "Asaas erro ao criar cobrança cartão", { error: payData });
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Falha ao gerar pagamento: ${payData.errors?.[0]?.description || "erro Asaas"}`,
+        });
+      }
+
+      // 3. Registra no banco como pendente
       await pool.query(
-        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, "stripeId", notes)
-         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'card', $6, $7)`,
-        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount, paymentIntent.id, input.notes || null]
+        `INSERT INTO media_budget ("userId", amount, "feePercent", "feeAmount", "netAmount",
+          type, status, method, "stripeId", notes, "operationStatus")
+         VALUES ($1, $2, $3, $4, $5, 'deposit', 'pending', 'card', $6, $7, 'awaiting_payment')`,
+        [ctx.user.id, amountCents, feePercent, feeAmount, netAmount, payData.id, input.notes || null]
       );
 
+      log.info("card-deposit", "Cobrança cartão criada via Asaas", {
+        userId: ctx.user.id, amount: input.amount, asaasId: payData.id,
+      });
+
       return {
-        clientSecret: paymentIntent.client_secret,
-        amount:       input.amount,
+        invoiceUrl:  payData.invoiceUrl,   // URL hospedada Asaas para pagar
+        asaasId:     payData.id,
+        amount:      input.amount,
         feePercent,
-        feeAmount:    feeAmount / 100,
-        netAmount:    netAmount / 100,
+        feeAmount:   feeAmount / 100,
+        netAmount:   netAmount / 100,
       };
     }),
 
@@ -6841,31 +7144,62 @@ const mediaBudgetRouter = router({
       const userId = ctx.user.id;
       const results: Record<string, any> = {};
 
-      // META — balance real da conta
+      // META — balance + crédito prepago real
       try {
         const metaInt = await db.getApiIntegration(userId, "meta");
         const token   = (metaInt as any)?.accessToken;
         const rawAct  = (metaInt as any)?.adAccountId;
         if (token && rawAct) {
           const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+
+          // 1. Dados principais da conta — inclui adspaymentcycle para saldo devedor
           const res = await fetch(
-            `https://graph.facebook.com/v19.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details&access_token=${token}`,
+            `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details&access_token=${token}`,
             { signal: AbortSignal.timeout(8000) }
           );
           const d: any = await res.json();
+
           if (!d.error) {
-            const balance   = Number(d.balance || 0) / 100;
-            const spent     = Number(d.amount_spent || 0) / 100;
-            const cap       = Number(d.spend_cap || 0) / 100;
-            const remaining = cap > 0 ? cap - spent : null;
+            const balanceLiquido = Number(d.balance || 0) / 100;
+            const spent          = Number(d.amount_spent || 0) / 100;
+            const cap            = Number(d.spend_cap || 0) / 100;
+            const debtAmount     = 0; // Meta não expõe saldo devedor via Graph API
+            const remaining      = cap > 0 ? cap - spent : null;
+
+            // 2. Buscar transações para ver crédito bruto depositado
+            //    Recargas prepago aparecem como type=PREPAY_FUNDS
+            let creditBruto = 0;
+            try {
+              const txRes = await fetch(
+                `https://graph.facebook.com/v20.0/${act}/transactions?fields=amount,balance_after,type,time&limit=20&access_token=${token}`,
+                { signal: AbortSignal.timeout(8000) }
+              );
+              const txData: any = await txRes.json();
+              if (!txData.error && txData.data?.length) {
+                // Pega o balance_after mais recente (última transação = saldo atual real)
+                const latest = txData.data[0];
+                creditBruto  = Number(latest.balance_after || 0) / 100;
+              }
+            } catch {}
+
+            // Saldo a exibir: se creditBruto > balanceLiquido, mostra os dois
+            const displayBalance = creditBruto > 0 ? creditBruto : balanceLiquido;
+
             results.meta = {
-              connected: true, balance, spent,
-              cap: cap > 0 ? cap : null, remaining,
-              currency: d.currency || "BRL",
-              accountStatus: d.account_status,
-              fundingSource: d.funding_source_details?.type || null,
-              rechargeUrl: `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
-              alert: balance < 50 ? "critical" : balance < 200 ? "warning" : null,
+              connected:       true,
+              balance:         balanceLiquido,   // saldo líquido (pode ser 0 com débito)
+              creditBruto,                        // crédito prepago bruto depositado
+              displayBalance,                     // o que mostrar ao usuário
+              debtAmount,                         // saldo devedor pendente
+              spent,
+              cap:             cap > 0 ? cap : null,
+              remaining,
+              currency:        d.currency || "BRL",
+              accountStatus:   d.account_status,
+              fundingSource:   d.funding_source_details?.type || null,
+              hasDebt:         debtAmount > 0,
+              rechargeUrl:     `https://business.facebook.com/billing/manage/?act=${rawAct.replace("act_","")}`,
+              alert:           displayBalance < 50 ? "critical" : displayBalance < 200 ? "warning" : null,
             };
           } else {
             results.meta = { connected: true, error: d.error.message };
@@ -7358,6 +7692,275 @@ const mediaBudgetRouter = router({
         feePercent,
         gross:        amountReais,
       };
+    }),
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  PAGAMENTO DE CÓDIGO EXTERNO (Pix/Boleto gerado pelas plataformas de ads)
+  //  Fluxo legal: usuário gera o código no Meta/Google/TikTok e cola aqui.
+  //  MECPro paga via Asaas usando saldo da wallet. Sem violar ToS.
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── Validar código Pix/boleto SEM pagar (preview do valor/vencimento) ───
+  validateExternalCode: protectedProcedure
+    .input(z.object({ code: z.string().min(10).max(1024) }))
+    .query(async ({ input }) => {
+      const result = validateCode(input.code);
+      return {
+        type:        result.type,
+        valid:       result.type !== "invalid",
+        amount:      result.amount ? result.amount / 100 : null,
+        expiresAt:   result.expiresAt?.toISOString() ?? null,
+        recipient:   result.recipient ?? null,
+        description: result.description ?? null,
+        error:       result.error ?? null,
+      };
+    }),
+
+  // ── Pagar código Pix/boleto usando saldo da wallet ──────────────────────
+  payExternalCode: protectedProcedure
+    .input(z.object({
+      code:           z.string().min(10).max(1024),
+      amountOverride: z.number().positive().optional(),  // só se código for Pix sem valor
+      platform:       z.enum(["meta", "google", "tiktok", "other"]).default("other"),
+      notes:          z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // 1. Validar formato do código
+      const parsed: ValidatedCode = validateCode(input.code);
+      if (parsed.type === "invalid") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: parsed.error || "Código inválido" });
+      }
+
+      // 2. Determinar valor
+      const amountReais = parsed.amount
+        ? parsed.amount / 100
+        : input.amountOverride;
+
+      if (!amountReais || amountReais <= 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: parsed.type === "pix"
+            ? "Código Pix sem valor fixo — informe o valor manualmente no campo"
+            : "Valor do boleto não pôde ser extraído — informe manualmente",
+        });
+      }
+
+      // 3. Validações de segurança
+      const MIN_PAYMENT = 1;
+      const MAX_PAYMENT_PER_TX = 10000; // R$10.000 por transação
+      const MAX_PAYMENT_PER_DAY = 50000; // R$50.000 por dia
+
+      if (amountReais < MIN_PAYMENT) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Valor mínimo: R$ ${MIN_PAYMENT.toFixed(2)}` });
+      }
+      if (amountReais > MAX_PAYMENT_PER_TX) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Valor máximo por transação: R$ ${MAX_PAYMENT_PER_TX.toFixed(2)}` });
+      }
+
+      // 4. Verificar limite diário do usuário
+      const dailyRes = await pool.query(`
+        SELECT COALESCE(SUM(amount), 0) AS total_today
+        FROM media_budget
+        WHERE "userId" = $1
+          AND type = 'external_payment'
+          AND status IN ('approved', 'pending')
+          AND "createdAt" >= CURRENT_DATE
+      `, [ctx.user.id]);
+      const spentToday = Number(dailyRes.rows[0]?.total_today || 0) / 100;
+      if (spentToday + amountReais > MAX_PAYMENT_PER_DAY) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Limite diário atingido (R$ ${MAX_PAYMENT_PER_DAY.toFixed(2)}). Gasto hoje: R$ ${spentToday.toFixed(2)}`,
+        });
+      }
+
+      // 5. Verificar saldo
+      const balRes = await pool.query(
+        `SELECT balance FROM media_balance WHERE "userId" = $1 FOR UPDATE`,
+        [ctx.user.id]
+      );
+      const balanceCents = Number(balRes.rows[0]?.balance || 0);
+      const amountCents  = Math.round(amountReais * 100);
+
+      if (balanceCents < amountCents) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Saldo insuficiente. Disponível: R$ ${(balanceCents/100).toFixed(2)}, necessário: R$ ${amountReais.toFixed(2)}`,
+        });
+      }
+
+      // 6. Criar registro PENDING antes de chamar Asaas (trilha de auditoria)
+      const pendingRes = await pool.query(`
+        INSERT INTO media_budget
+          ("userId", amount, "feePercent", "feeAmount", "netAmount",
+           type, status, method, platform, notes, "operationStatus")
+        VALUES ($1, $2, 0, 0, $2,
+                'external_payment', 'pending', $3, $4, $5, 'processing')
+        RETURNING id, "createdAt"
+      `, [
+        ctx.user.id, amountCents,
+        parsed.type,  // 'pix' ou 'boleto'
+        input.platform,
+        input.notes || `Pagamento ${parsed.type} externo — ${input.platform}`,
+      ]);
+      const budgetId = pendingRes.rows[0].id;
+
+      // 7. Chamar Asaas para efetuar pagamento
+      const asaasKey = process.env.ASAAS_API_KEY;
+      if (!asaasKey) {
+        await pool.query(
+          `UPDATE media_budget SET status='failed', "operationStatus"='config_error', "errorMsg"='Asaas não configurado' WHERE id=$1`,
+          [budgetId]
+        );
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Gateway de pagamento não configurado" });
+      }
+
+      try {
+        let asaasResp: any;
+
+        if (parsed.type === "pix") {
+          // Pagar Pix copia-e-cola via Asaas
+          const payRes = await fetch("https://api.asaas.com/v3/transfers", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({
+              operationType: "PIX",
+              value:         amountReais,
+              pixAddressKey: parsed.raw,  // código Pix copia-e-cola
+              pixAddressKeyType: "EVP",
+              description:   input.notes?.slice(0, 140) || `Pagamento ${input.platform}`,
+            }),
+            signal: AbortSignal.timeout(20000),
+          });
+          asaasResp = await payRes.json();
+
+          if (!payRes.ok || asaasResp.errors) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha no Asaas";
+            throw new Error(errMsg);
+          }
+        } else {
+          // Boleto — Asaas tem endpoint de payment
+          const payRes = await fetch("https://api.asaas.com/v3/payments", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({
+              billingType:   "BOLETO",
+              value:         amountReais,
+              dueDate:       parsed.expiresAt?.toISOString().split("T")[0],
+              identificationField: parsed.raw.replace(/\D/g, ""),
+              description:   input.notes?.slice(0, 140) || `Boleto ${input.platform}`,
+            }),
+            signal: AbortSignal.timeout(20000),
+          });
+          asaasResp = await payRes.json();
+
+          if (!payRes.ok || asaasResp.errors) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha no Asaas";
+            throw new Error(errMsg);
+          }
+        }
+
+        // 8. Debitar saldo (só após sucesso do Asaas)
+        await pool.query(`
+          UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW()
+          WHERE "userId" = $2
+        `, [amountCents, ctx.user.id]);
+
+        // 9. Atualizar registro como approved
+        await pool.query(`
+          UPDATE media_budget SET
+            status          = 'approved',
+            "operationStatus" = 'confirmed_api',
+            "approvedAt"    = NOW(),
+            "externalId"    = $1,
+            "verifiedBy"    = 'asaas_api',
+            "verifiedAt"    = NOW(),
+            "updatedAt"     = NOW()
+          WHERE id = $2
+        `, [String(asaasResp.id || ""), budgetId]);
+
+        // 10. Registrar no ledger
+        try {
+          await recordLedger(pool, {
+            userId:    ctx.user.id,
+            type:      "ad_spend",
+            amount:    amountCents,
+            direction: "debit",
+            platform:  input.platform,
+            reference: `ext-pay-${budgetId}`,
+            notes:     `Pagamento ${parsed.type} externo — ${input.platform} — R$${amountReais.toFixed(2)}`,
+          });
+        } catch {}
+
+        log.info("payExternalCode", "✅ Pagamento externo executado", {
+          userId: ctx.user.id, budgetId, type: parsed.type,
+          amount: amountReais, platform: input.platform,
+          asaasId: asaasResp.id,
+        });
+
+        return {
+          success:    true,
+          budgetId,
+          type:       parsed.type,
+          amount:     amountReais,
+          platform:   input.platform,
+          asaasId:    asaasResp.id,
+          status:     "approved",
+        };
+
+      } catch (e: any) {
+        // Marcar como failed e NÃO debitar saldo
+        await pool.query(`
+          UPDATE media_budget SET
+            status          = 'failed',
+            "operationStatus" = 'failed',
+            "errorMsg"      = $1,
+            "updatedAt"     = NOW()
+          WHERE id = $2
+        `, [e.message?.slice(0, 500), budgetId]);
+
+        log.error("payExternalCode", "Falha no pagamento externo", {
+          userId: ctx.user.id, budgetId, error: e.message,
+        });
+
+        throw new TRPCError({
+          code:    "INTERNAL_SERVER_ERROR",
+          message: `Falha no pagamento: ${e.message}`,
+        });
+      }
+    }),
+
+  // ── Listar pagamentos externos do usuário (histórico) ───────────────────
+  listExternalPayments: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }).optional())
+    .query(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) return [];
+
+      const res = await pool.query(`
+        SELECT id, amount, platform, method, status, "operationStatus",
+               "externalId", "createdAt", "approvedAt", "errorMsg", notes
+        FROM media_budget
+        WHERE "userId" = $1 AND type = 'external_payment'
+        ORDER BY "createdAt" DESC LIMIT $2
+      `, [ctx.user.id, input?.limit ?? 20]);
+
+      return res.rows.map((r: any) => ({
+        id:           r.id,
+        amount:       Number(r.amount) / 100,
+        platform:     r.platform,
+        method:       r.method,   // 'pix' ou 'boleto'
+        status:       r.status,
+        operationStatus: r.operationStatus,
+        asaasId:      r.externalId,
+        createdAt:    r.createdAt,
+        approvedAt:   r.approvedAt,
+        error:        r.errorMsg,
+        notes:        r.notes,
+      }));
     }),
 
   // ── Buscar campanhas de TODAS as plataformas — APENAS criadas pelo MECPro ───
