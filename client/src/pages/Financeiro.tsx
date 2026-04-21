@@ -269,6 +269,21 @@ function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any;
           <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(0,113,227,0.06)", border: "1px solid rgba(0,113,227,0.15)", borderRadius: 10, fontSize: 11, color: "#1d4ed8", lineHeight: 1.5 }}>
             ◈ O saldo é creditado <strong>automaticamente</strong> em até 15 minutos após a confirmação do Pix pelo MecBank.
           </div>
+
+          {/* Preview MecCoins que serão recebidos */}
+          {(pixData?.netAmount ?? 0) >= 19 && (
+            <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, background: "linear-gradient(135deg,#0a1a0e,#0d2212)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 10, padding: "10px 14px" }}>
+              <img src="/logo-512.png" alt="MecCoin" style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#30d158" }}>
+                  Ao confirmar: +{Math.floor((pixData?.netAmount ?? 0) / 19)} MecCoins 🪙
+                </div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,.4)", marginTop: 1 }}>
+                  {R(pixData?.netAmount ?? 0)} líquido · 1 MecCoin = R$ 19,00
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1078,8 +1093,15 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
   }) ?? { mutate: () => {}, isPending: false };
 
   const syncMutation = (trpc as any).mediaBudget?.syncAsaasBalance?.useMutation?.({
-    onSuccess: (data: any) => toast.success(`◎ R$ ${data.credited.toFixed(2)} creditados na wallet!`),
-    onError:   (e: any) => toast.error(e.message),
+    onSuccess: (data: any) => {
+      const coins = Math.floor(data.credited / 19);
+      toast.success(
+        coins > 0
+          ? `◎ ${R(data.credited)} creditados na Wallet · +${coins} MecCoins 🪙`
+          : `◎ ${R(data.credited)} creditados na Wallet!`
+      );
+    },
+    onError: (e: any) => toast.error(e.message),
   }) ?? { mutate: () => {}, isPending: false };
 
   return (
@@ -1129,15 +1151,35 @@ function TabTransfer({ asaas, onBack }: { asaas: any; onBack: () => void }) {
 
             {/* Botão transferir para wallet — só habilitado se há saldo confirmado */}
             {(asaas?.confirmedBalance ?? 0) > 0 ? (
-              <button
-                className="btn btn-sm"
-                onClick={() => syncMutation.mutate({ amountReais: asaas?.confirmedBalance })}
-                disabled={syncMutation.isPending}
-                style={{ marginTop: 10, width: "100%", background: "linear-gradient(135deg,#30d158,#15803d)", color: "white", fontWeight: 800, fontSize: 13, opacity: syncMutation.isPending ? 0.7 : 1, border: "none", borderRadius: 8, padding: "10px", cursor: "pointer", fontFamily: "var(--font)" }}>
-                {syncMutation.isPending
-                  ? "⏳ Transferindo..."
-                  : `💰 Transferir ${R(asaas.confirmedBalance)} para Wallet`}
-              </button>
+              <div style={{ marginTop: 10 }}>
+                {/* Preview de MecCoins que serão recebidos */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(48,209,88,.08)", border: "1px solid rgba(48,209,88,.2)", borderRadius: 10, padding: "9px 12px", marginBottom: 8 }}>
+                  <img src="/logo-512.png" alt="MecCoin" style={{ width: 28, height: 28, borderRadius: 6, flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: "#30d158" }}>
+                      Você receberá <strong>+{Math.floor((asaas?.confirmedBalance ?? 0) / 19)} MecCoins 🪙</strong>
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>
+                      {R(asaas?.confirmedBalance ?? 0)} confirmados · 1 MecCoin = R$ 19,00
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => syncMutation.mutate({ amountReais: asaas?.confirmedBalance })}
+                  disabled={syncMutation.isPending}
+                  style={{ width: "100%", background: "linear-gradient(135deg,#30d158,#15803d)", color: "white", fontWeight: 800, fontSize: 14, opacity: syncMutation.isPending ? 0.7 : 1, border: "none", borderRadius: 10, padding: "12px", cursor: syncMutation.isPending ? "not-allowed" : "pointer", fontFamily: "var(--font)", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  {syncMutation.isPending ? (
+                    "⏳ Transferindo..."
+                  ) : (
+                    <>
+                      💰 Transferir {R(asaas?.confirmedBalance ?? 0)} para Wallet
+                      <span style={{ background: "rgba(0,0,0,.2)", borderRadius: 99, fontSize: 11, padding: "2px 8px" }}>
+                        +{Math.floor((asaas?.confirmedBalance ?? 0) / 19)} 🪙
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
             ) : (
               <div style={{ marginTop: 10, padding: "9px 12px", background: "rgba(255,255,255,.04)", borderRadius: 8, fontSize: 11, color: "var(--muted)", lineHeight: 1.5, textAlign: "center" }}>
                 Pague o Pix gerado para liberar a transferência para a wallet
