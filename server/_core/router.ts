@@ -7989,8 +7989,7 @@ const mediaBudgetRouter = router({
       if (result.type === "pix" && !result.amount) {
         // Tenta detectar se é Pix dinâmico e resolve a URL
         try {
-          const clean = input.code.trim().replace(/[\s
-	]/g, "");
+          const clean = input.code.trim().replace(/[\s\r\n\t]/g, "");
           // Parse TLV mínimo para verificar campo 01 e extrair URL do campo 26 sub-25
           const body = clean.slice(0, -4);
           const tlvFields: Record<string, string> = {};
