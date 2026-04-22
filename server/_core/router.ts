@@ -8127,29 +8127,77 @@ const mediaBudgetRouter = router({
           //   2. Pagar via /v3/transfers com a chave extraída
           const pixClean = parsed.raw.trim().replace(/[\s\r\n\t]/g, "");
 
-          // Etapa 1: Decodificar o QR Code para extrair chave e dados
-          const decodeRes = await fetch("https://api.asaas.com/v3/pix/qrCodes/decode", {
-            method:  "POST",
-            headers: { "Content-Type": "application/json", access_token: asaasKey },
-            body: JSON.stringify({ payload: pixClean }),
-            signal: AbortSignal.timeout(15000),
-          });
-          const decodeText = await decodeRes.text();
-          log.info("payExternalCode", "Asaas decode resposta", { status: decodeRes.status, preview: decodeText.slice(0, 300) });
-          let decodeData: any = {};
-          if (decodeText.trim()) {
-            try { decodeData = JSON.parse(decodeText); } catch { /* ignora */ }
-          }
-          if (!decodeRes.ok || decodeData.errors) {
-            const errMsg = decodeData.errors?.[0]?.description || decodeData.message || `Erro ao decodificar Pix (HTTP ${decodeRes.status})`;
-            throw new Error(errMsg);
+          // Etapa 1: Decodificar o QR Code para extrair chave Pix
+          // Tenta /v3/pix/qrCodes/decode — endpoint oficial Asaas
+          let pixKey: string     = "";
+          let pixKeyType: string = "EVP";
+          let pixValue: number   = amountReais || 0;
+
+          try {
+            const decodeRes  = await fetch("https://api.asaas.com/v3/pix/qrCodes/decode", {
+              method:  "POST",
+              headers: { "Content-Type": "application/json", access_token: asaasKey },
+              body:    JSON.stringify({ payload: pixClean }),
+              signal:  AbortSignal.timeout(12000),
+            });
+            const decodeText = await decodeRes.text();
+            log.info("payExternalCode", "Asaas decode resposta", { status: decodeRes.status, preview: decodeText.slice(0, 300) });
+            if (decodeRes.ok && decodeText.trim()) {
+              const d: any = JSON.parse(decodeText);
+              pixKey     = d.pixKey      || d.addressKey      || d.key  || "";
+              pixKeyType = d.pixKeyType  || d.addressKeyType  || d.type || "EVP";
+              if (d.value && d.value > 0) pixValue = d.value;
+            }
+          } catch (decodeErr: any) {
+            log.warn("payExternalCode", "Decode falhou — extraindo chave do TLV local", { error: decodeErr.message });
           }
 
-          // Extrai a chave Pix e tipo do resultado decodificado
-          const pixKey     = decodeData.pixKey     || decodeData.addressKey || parsed.raw;
-          const pixKeyType = decodeData.pixKeyType || decodeData.type       || "EVP";
-          // Usa valor do código se disponível, senão usa amountReais (valor aberto)
-          const pixValue   = decodeData.value || amountReais;
+          // Fallback: se decode falhou ou não retornou chave,
+          // extrai a chave Pix do campo 26 sub-01 do TLV (já parseado pelo validator)
+          if (!pixKey) {
+            // Re-parse TLV para extrair chave
+            const body26 = (() => {
+              const fields: Record<string, string> = {};
+              const b = pixClean.slice(0, -4);
+              let i = 0;
+              while (i < b.length) {
+                if (i + 4 > b.length) break;
+                const id  = b.slice(i, i + 2);
+                const len = parseInt(b.slice(i + 2, i + 4), 10);
+                if (isNaN(len) || len < 0 || i + 4 + len > b.length) break;
+                fields[id] = b.slice(i + 4, i + 4 + len);
+                i += 4 + len;
+              }
+              return fields["26"] || "";
+            })();
+            // Sub-TLV do campo 26: sub-01 = chave Pix
+            if (body26) {
+              let i = 0;
+              while (i < body26.length) {
+                if (i + 4 > body26.length) break;
+                const id  = body26.slice(i, i + 2);
+                const len = parseInt(body26.slice(i + 2, i + 4), 10);
+                if (isNaN(len) || len < 0 || i + 4 + len > body26.length) break;
+                if (id === "01") { pixKey = body26.slice(i + 4, i + 4 + len); break; }
+                i += 4 + len;
+              }
+            }
+            // Detecta tipo da chave extraída
+            if (pixKey) {
+              const k = pixKey.replace(/\D/g, "");
+              if (k.length === 11) pixKeyType = "CPF";
+              else if (k.length === 14) pixKeyType = "CNPJ";
+              else if (pixKey.includes("@")) pixKeyType = "EMAIL";
+              else if (/^\+?55/.test(pixKey)) pixKeyType = "PHONE";
+              else if (/^[0-9a-f]{8}-/.test(pixKey.toLowerCase())) pixKeyType = "EVP";
+              else pixKeyType = "EVP";
+              log.info("payExternalCode", "Chave extraída do TLV local", { pixKey: pixKey.slice(0, 20), pixKeyType });
+            }
+          }
+
+          if (!pixKey) {
+            throw new Error("Não foi possível extrair a chave Pix do código. Verifique se o código está completo e tente novamente.");
+          }
 
           // Etapa 2: Executar a transferência Pix com a chave extraída
           const today = new Date().toISOString().split("T")[0];
