@@ -8120,39 +8120,70 @@ const mediaBudgetRouter = router({
         let asaasResp: any;
 
         if (parsed.type === "pix") {
-          // ── Pix copia-e-cola: endpoint correto /v3/pixTransactions/qrCode/pay ──
-          // ERRO ANTERIOR: /v3/transfers espera uma CHAVE Pix (CPF/CNPJ/email)
-          // Para pagar um BR Code / EMV completo usa-se o endpoint de QR Code
+          // ── Pix copia-e-cola: fluxo em 2 etapas ──────────────────────────────
+          // O Asaas /v3/transfers aceita apenas CHAVE Pix (CPF/CNPJ/email/EVP)
+          // Para pagar com código BR Code/EMV completo:
+          //   1. Decodificar o payload via /v3/pix/qrCodes/decode
+          //   2. Pagar via /v3/transfers com a chave extraída
           const pixClean = parsed.raw.trim().replace(/[\s\r\n\t]/g, "");
-          const pixBody: Record<string, unknown> = { payload: pixClean };
-          // Envia value só se o código é de valor aberto (sem campo 54)
-          if (!parsed.amount && amountReais) pixBody.value = amountReais;
 
-          const payRes = await fetch("https://api.asaas.com/v3/pixTransactions/qrCode/pay", {
+          // Etapa 1: Decodificar o QR Code para extrair chave e dados
+          const decodeRes = await fetch("https://api.asaas.com/v3/pix/qrCodes/decode", {
             method:  "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
-            body: JSON.stringify(pixBody),
+            body: JSON.stringify({ payload: pixClean }),
+            signal: AbortSignal.timeout(15000),
+          });
+          const decodeText = await decodeRes.text();
+          log.info("payExternalCode", "Asaas decode resposta", { status: decodeRes.status, preview: decodeText.slice(0, 300) });
+          let decodeData: any = {};
+          if (decodeText.trim()) {
+            try { decodeData = JSON.parse(decodeText); } catch { /* ignora */ }
+          }
+          if (!decodeRes.ok || decodeData.errors) {
+            const errMsg = decodeData.errors?.[0]?.description || decodeData.message || `Erro ao decodificar Pix (HTTP ${decodeRes.status})`;
+            throw new Error(errMsg);
+          }
+
+          // Extrai a chave Pix e tipo do resultado decodificado
+          const pixKey     = decodeData.pixKey     || decodeData.addressKey || parsed.raw;
+          const pixKeyType = decodeData.pixKeyType || decodeData.type       || "EVP";
+          // Usa valor do código se disponível, senão usa amountReais (valor aberto)
+          const pixValue   = decodeData.value || amountReais;
+
+          // Etapa 2: Executar a transferência Pix com a chave extraída
+          const today = new Date().toISOString().split("T")[0];
+          const payRes = await fetch("https://api.asaas.com/v3/transfers", {
+            method:  "POST",
+            headers: { "Content-Type": "application/json", access_token: asaasKey },
+            body: JSON.stringify({
+              operationType:     "PIX",
+              value:             pixValue,
+              pixAddressKey:     pixKey,
+              pixAddressKeyType: pixKeyType,
+              scheduleDate:      today,
+              description:       input.notes?.slice(0, 140) || `Recarga ${input.platform}`,
+            }),
             signal: AbortSignal.timeout(20000),
           });
-          // Trata resposta vazia (204) ou não-JSON (HTML de erro)
           const rawText = await payRes.text();
-          log.info("payExternalCode", "Asaas Pix QR resposta", { status: payRes.status, bodyLen: rawText.length, preview: rawText.slice(0, 200) });
+          log.info("payExternalCode", "Asaas transfer resposta", { status: payRes.status, preview: rawText.slice(0, 300) });
           if (rawText.trim()) {
             try { asaasResp = JSON.parse(rawText); } catch { asaasResp = { _raw: rawText }; }
           } else {
-            asaasResp = { _empty: true }; // 204 No Content = sucesso
+            asaasResp = { _empty: true };
           }
-          if (!payRes.ok) {
-            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || asaasResp._raw || `Erro Asaas HTTP ${payRes.status}`;
+          if (!payRes.ok || asaasResp.errors) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || `Erro na transferência Pix (HTTP ${payRes.status})`;
             throw new Error(errMsg);
           }
         } else {
-          // ── Boleto: endpoint /v3/bankSlipPayments ─────────────────────────────
+          // ── Boleto: endpoint /v3/bill ──────────────────────────────────────────
+          const boletoDigits = parsed.raw.replace(/\D/g, "");
           const dueDate = parsed.expiresAt
             ? parsed.expiresAt.toISOString().split("T")[0]
             : new Date(Date.now() + 86400000).toISOString().split("T")[0];
-          const boletoDigits = parsed.raw.replace(/\D/g, "");
-          const payRes = await fetch("https://api.asaas.com/v3/bankSlipPayments", {
+          const payRes = await fetch("https://api.asaas.com/v3/bill", {
             method:  "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
             body: JSON.stringify({
@@ -8164,13 +8195,14 @@ const mediaBudgetRouter = router({
             signal: AbortSignal.timeout(20000),
           });
           const rawText2 = await payRes.text();
+          log.info("payExternalCode", "Asaas bill resposta", { status: payRes.status, preview: rawText2.slice(0, 300) });
           if (rawText2.trim()) {
             try { asaasResp = JSON.parse(rawText2); } catch { asaasResp = { _raw: rawText2 }; }
           } else {
             asaasResp = { _empty: true };
           }
-          if (!payRes.ok) {
-            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || asaasResp._raw || `Erro Asaas HTTP ${payRes.status}`;
+          if (!payRes.ok || asaasResp.errors) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || `Erro ao pagar boleto (HTTP ${payRes.status})`;
             throw new Error(errMsg);
           }
         }
