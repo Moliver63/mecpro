@@ -8128,91 +8128,123 @@ const mediaBudgetRouter = router({
           const pixClean = parsed.raw.trim().replace(/[\s\r\n\t]/g, "");
           log.info("payExternalCode", "Pix payload para decode", { len: pixClean.length, prefix: pixClean.slice(0,40), suffix: pixClean.slice(-12) });
 
-          // Etapa 1: Decodificar o QR Code para extrair chave Pix
-          // Tenta /v3/pix/qrCodes/decode — endpoint oficial Asaas
+          // ── Helper: parse TLV do BR Code ──────────────────────────────────────
+          function parseTLV(code: string): Record<string, string> {
+            const fields: Record<string, string> = {};
+            const body = code.slice(0, -4); // remove CRC
+            let i = 0;
+            while (i < body.length) {
+              if (i + 4 > body.length) break;
+              const id  = body.slice(i, i + 2);
+              const len = parseInt(body.slice(i + 2, i + 4), 10);
+              if (isNaN(len) || len < 0 || i + 4 + len > body.length) break;
+              fields[id] = body.slice(i + 4, i + 4 + len);
+              i += 4 + len;
+            }
+            return fields;
+          }
+
+          // ── Detecta se é Pix dinâmico (campo 01 = "12") ──────────────────────
+          const tlvRoot  = parseTLV(pixClean);
+          const isDynamic = tlvRoot["01"] === "12";
+
           let pixKey: string     = "";
           let pixKeyType: string = "EVP";
           let pixValue: number   = amountReais || 0;
 
-          try {
-            const decodeRes  = await fetch("https://api.asaas.com/v3/pix/qrCodes/decode", {
-              method:  "POST",
-              headers: { "Content-Type": "application/json", access_token: asaasKey },
-              body:    JSON.stringify({ payload: pixClean }),
-              signal:  AbortSignal.timeout(12000),
-            });
-            const decodeText = await decodeRes.text();
-            log.info("payExternalCode", "Asaas decode resposta", { status: decodeRes.status, preview: decodeText.slice(0, 300) });
-            if (decodeRes.ok && decodeText.trim()) {
-              const d: any = JSON.parse(decodeText);
-              pixKey     = d.pixKey      || d.addressKey      || d.key  || "";
-              pixKeyType = d.pixKeyType  || d.addressKeyType  || d.type || "EVP";
-              if (d.value && d.value > 0) pixValue = d.value;
+          // ── Etapa 1a: Pix DINÂMICO — resolve URL do campo 26 sub-25 ──────────
+          if (isDynamic) {
+            // Campo 26 sub-25 contém a URL de cobrança (ex: https://pix.inter.co/cobv/UUID)
+            const field26 = tlvRoot["26"] || "";
+            let locationUrl = "";
+            let j = 0;
+            while (j < field26.length) {
+              if (j + 4 > field26.length) break;
+              const sid = field26.slice(j, j + 2);
+              const slen = parseInt(field26.slice(j + 2, j + 4), 10);
+              if (isNaN(slen) || slen < 0 || j + 4 + slen > field26.length) break;
+              if (sid === "25") { locationUrl = field26.slice(j + 4, j + 4 + slen); break; }
+              j += 4 + slen;
             }
-          } catch (decodeErr: any) {
-            log.warn("payExternalCode", "Decode falhou — extraindo chave do TLV local", { error: decodeErr.message });
+
+            log.info("payExternalCode", "Pix dinâmico detectado", { locationUrl: locationUrl.slice(0, 80) });
+
+            if (locationUrl) {
+              try {
+                // Resolve a URL de cobrança para obter a chave Pix real
+                const locRes  = await fetch(locationUrl, {
+                  headers: { Accept: "application/json" },
+                  signal:  AbortSignal.timeout(10000),
+                });
+                const locText = await locRes.text();
+                log.info("payExternalCode", "Location URL resposta", { status: locRes.status, preview: locText.slice(0, 300) });
+                if (locRes.ok && locText.trim()) {
+                  const loc: any = JSON.parse(locText);
+                  // BACEN API retorna { chave, valor, ... } ou estrutura EMV
+                  pixKey     = loc.chave      || loc.pixKey || loc.key || "";
+                  pixKeyType = loc.tipoChave  || loc.keyType || "EVP";
+                  if (loc.valor?.original) pixValue = parseFloat(loc.valor.original) || pixValue;
+                  else if (loc.value)      pixValue = loc.value || pixValue;
+                }
+              } catch (urlErr: any) {
+                log.warn("payExternalCode", "Falha ao resolver URL dinâmica", { error: urlErr.message });
+              }
+            }
           }
 
-          // Fallback: se decode falhou ou não retornou chave,
-          // extrai a chave Pix do campo 26 sub-01 do TLV (já parseado pelo validator)
+          // ── Etapa 1b: Tenta decode Asaas (funciona para Pix estático) ─────────
           if (!pixKey) {
-            // Re-parse TLV para extrair chave
-            const body26 = (() => {
-              const fields: Record<string, string> = {};
-              const b = pixClean.slice(0, -4);
-              let i = 0;
-              while (i < b.length) {
-                if (i + 4 > b.length) break;
-                const id  = b.slice(i, i + 2);
-                const len = parseInt(b.slice(i + 2, i + 4), 10);
-                if (isNaN(len) || len < 0 || i + 4 + len > b.length) break;
-                fields[id] = b.slice(i + 4, i + 4 + len);
-                i += 4 + len;
+            try {
+              const decodeRes  = await fetch("https://api.asaas.com/v3/pix/qrCodes/decode", {
+                method:  "POST",
+                headers: { "Content-Type": "application/json", access_token: asaasKey },
+                body:    JSON.stringify({ payload: pixClean }),
+                signal:  AbortSignal.timeout(12000),
+              });
+              const decodeText = await decodeRes.text();
+              log.info("payExternalCode", "Asaas decode resposta", { status: decodeRes.status, preview: decodeText.slice(0, 300) });
+              if (decodeRes.ok && decodeText.trim()) {
+                const d: any = JSON.parse(decodeText);
+                pixKey     = d.pixKey      || d.addressKey      || d.key  || "";
+                pixKeyType = d.pixKeyType  || d.addressKeyType  || d.type || "EVP";
+                if (d.value && d.value > 0) pixValue = d.value;
               }
-              return fields["26"] || "";
-            })();
-            // Sub-TLV do campo 26: sub-01 = chave Pix
-            if (body26) {
-              let i = 0;
-              while (i < body26.length) {
-                if (i + 4 > body26.length) break;
-                const id  = body26.slice(i, i + 2);
-                const len = parseInt(body26.slice(i + 2, i + 4), 10);
-                if (isNaN(len) || len < 0 || i + 4 + len > body26.length) break;
-                if (id === "01") { pixKey = body26.slice(i + 4, i + 4 + len); break; }
-                i += 4 + len;
-              }
+            } catch (decodeErr: any) {
+              log.warn("payExternalCode", "Decode Asaas falhou", { error: decodeErr.message });
             }
-            // Detecta tipo e normaliza a chave extraída
+          }
+
+          // ── Etapa 1c: Fallback — extrai chave do TLV (sub-01 do campo 26) ────
+          if (!pixKey && !isDynamic) {
+            const field26 = tlvRoot["26"] || "";
+            let j = 0;
+            while (j < field26.length) {
+              if (j + 4 > field26.length) break;
+              const sid  = field26.slice(j, j + 2);
+              const slen = parseInt(field26.slice(j + 2, j + 4), 10);
+              if (isNaN(slen) || slen < 0 || j + 4 + slen > field26.length) break;
+              if (sid === "01") { pixKey = field26.slice(j + 4, j + 4 + slen); break; }
+              j += 4 + slen;
+            }
             if (pixKey) {
               const k = pixKey.replace(/\D/g, "");
-              if (pixKey.includes("@")) {
-                pixKeyType = "EMAIL";
-                // chave email: usar como está
-              } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(pixKey)) {
-                pixKeyType = "EVP";
-                // UUID EVP: usar como está (lowercase)
-                pixKey = pixKey.toLowerCase();
-              } else if (/^\+?55\d{10,11}$/.test(pixKey.replace(/[\s\-]/g, ""))) {
-                pixKeyType = "PHONE";
-                // Telefone: normaliza para +55XXXXXXXXXXX
-                pixKey = "+" + pixKey.replace(/\D/g, "");
-                if (!pixKey.startsWith("+55")) pixKey = "+55" + pixKey.slice(1);
-              } else if (k.length === 11) {
-                pixKeyType = "CPF";
-                pixKey = k; // só dígitos
-              } else if (k.length === 14) {
-                pixKeyType = "CNPJ";
-                pixKey = k; // só dígitos (sem pontos/barras)
-              } else {
-                pixKeyType = "EVP";
-              }
+              if (pixKey.includes("@"))                                          { pixKeyType = "EMAIL"; }
+              else if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(pixKey))              { pixKeyType = "EVP"; pixKey = pixKey.toLowerCase(); }
+              else if (/^\+?55\d{10,11}$/.test(pixKey.replace(/[\s\-]/g, ""))) { pixKeyType = "PHONE"; pixKey = "+" + pixKey.replace(/\D/g,""); if (!pixKey.startsWith("+55")) pixKey = "+55"+pixKey.slice(1); }
+              else if (k.length === 11)  { pixKeyType = "CPF";  pixKey = k; }
+              else if (k.length === 14)  { pixKeyType = "CNPJ"; pixKey = k; }
+              else                       { pixKeyType = "EVP"; }
               log.info("payExternalCode", "Chave extraída do TLV local", { pixKey: pixKey.slice(0, 30), pixKeyType });
             }
           }
 
           if (!pixKey) {
-            throw new Error("Não foi possível extrair a chave Pix do código. Verifique se o código está completo e tente novamente.");
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: isDynamic
+                ? "Não foi possível resolver o Pix dinâmico. A URL de cobrança pode ter expirado. Gere um novo código na plataforma."
+                : "Não foi possível extrair a chave Pix do código. Verifique se o código está completo.",
+            });
           }
 
           // Etapa 2: Executar a transferência Pix com a chave extraída
