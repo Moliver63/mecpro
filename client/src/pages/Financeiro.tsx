@@ -572,9 +572,16 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
         <div style={{ padding: "0 20px 20px" }}>
           {[
             { label: "Valor pago",     value: `R$ ${result.amount?.toFixed(2)}`, bold: true, color: "var(--green-d)" },
+            { label: "Tipo",           value: result.type === "pix" ? "📱 Pix" : "📄 Boleto bancário" },
             { label: "Plataforma",     value: result.platform === "meta" ? "📘 Meta Ads" : result.platform === "google" ? "🔵 Google Ads" : result.platform === "tiktok" ? "◼ TikTok Ads" : "◌ Outra" },
             ...(result.recipient ? [{ label: "Destinatário",  value: result.recipient }] : []),
             ...(result.pixKey    ? [{ label: "Chave Pix",     value: result.pixKey, mono: true }] : []),
+            ...(result.dueDate   ? [{ label: result.type === "boleto" ? "Vencimento" : "Agendado para", value: (() => {
+              // Formata data como "segunda-feira, 27 de abril de 2026"
+              const [y, m, d] = (result.dueDate as string).split("-").map(Number);
+              const dt = new Date(y, m - 1, d);
+              return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+            })() }] : []),
             { label: "Saldo anterior", value: `R$ ${result.balanceBefore?.toFixed(2) ?? "—"}` },
             { label: "Saldo atual",    value: `R$ ${result.balanceAfter?.toFixed(2) ?? "—"}`, bold: true },
             ...(result.asaasId  ? [{ label: "ID transação",   value: result.asaasId, mono: true, small: true }] : []),

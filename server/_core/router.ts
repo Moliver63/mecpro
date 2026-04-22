@@ -8226,6 +8226,9 @@ const mediaBudgetRouter = router({
 
       try {
         let asaasResp: any;
+        // Declara no escopo do try para estar disponível no return (Pix e boleto)
+        let pixKey: string     = "";
+        let pixKeyType: string = "";
 
         if (parsed.type === "pix") {
           // ── Pix copia-e-cola: fluxo em 2 etapas ──────────────────────────────
@@ -8256,8 +8259,6 @@ const mediaBudgetRouter = router({
           const tlvRoot  = parseTLV(pixClean);
           const isDynamic = tlvRoot["01"] === "12";
 
-          let pixKey: string     = "";
-          let pixKeyType: string = "EVP";
           let pixValue: number   = amountReais || 0;
 
           // ── Etapa 1a: Pix DINÂMICO — resolve URL do campo 26 sub-25 ──────────
@@ -8574,6 +8575,8 @@ const mediaBudgetRouter = router({
           pixKeyType:     pixKeyType || null,
           balanceBefore:  balanceCents / 100,
           balanceAfter:   (balanceCents - debitCents) / 100,
+          // Data de vencimento real (vinda do Asaas para boleto, ou expiresAt para Pix)
+          dueDate:        asaasResp.dueDate || asaasResp.scheduleDate || null,
         };
 
       } catch (e: any) {
