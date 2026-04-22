@@ -7968,16 +7968,18 @@ const mediaBudgetRouter = router({
       const amountLocked = result.amount != null;
 
       return {
-        type:         result.type,
-        valid:        !alreadyUsed,   // inválido se já usado
-        amount:       result.amount ? result.amount / 100 : null,
-        amountLocked,                  // true = valor do código não pode ser alterado
-        expiresAt:    result.expiresAt?.toISOString() ?? null,
-        recipient:    result.recipient ?? null,
-        description:  result.description ?? null,
-        error:        alreadyUsed
-                        ? `Código já utilizado em ${usedAt}. Gere um novo código na plataforma.`
-                        : result.error ?? null,
+        type:             result.type,
+        valid:            !alreadyUsed,
+        amount:           result.amount ? result.amount / 100 : null,
+        amountLocked:     result.amount != null,
+        expiresAt:        result.expiresAt?.toISOString() ?? null,
+        recipient:        result.recipient ?? null,
+        pixKey:           (result as any).pixKey ?? null,
+        detectedPlatform: (result as any).detectedPlatform ?? null,
+        description:      result.description ?? null,
+        error:            alreadyUsed
+                            ? `Código já utilizado em ${usedAt}. Gere um novo código na plataforma.`
+                            : result.error ?? null,
         alreadyUsed,
       };
     }),

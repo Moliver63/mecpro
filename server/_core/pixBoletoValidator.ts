@@ -14,13 +14,15 @@
 export type CodeType = "pix" | "boleto" | "invalid";
 
 export interface ValidatedCode {
-  type:         CodeType;
-  raw:          string;
-  amount?:      number;       // centavos
-  expiresAt?:   Date | null;
-  recipient?:   string;
-  description?: string;
-  error?:       string;
+  type:              CodeType;
+  raw:               string;
+  amount?:           number;       // centavos
+  expiresAt?:        Date | null;
+  recipient?:        string;       // nome do recebedor (campo 59)
+  pixKey?:           string;       // chave Pix (campo 26 sub-01)
+  detectedPlatform?: string | null; // "meta" | "google" | "tiktok" | null
+  description?:      string;
+  error?:            string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -30,6 +32,60 @@ function cleanCode(input: string): string {
   return (input || "")
     .trim()
     .replace(/[\s\r\n\t\u00a0\u200b\ufeff]/g, "");  // remove espaços mas preserva case
+}
+
+
+// ── CNPJs e nomes conhecidos das plataformas de anúncios ─────────────────────
+const PLATFORM_CNPJS: Record<string, string> = {
+  "15602422": "meta",    // Facebook Payments International Ltda
+  "07587951": "meta",    // Meta Platforms Inc
+  "06990590": "google",  // Google Brasil Internet Ltda
+  "02269603": "google",  // Google Pagamentos Ltda
+  "35451936": "tiktok",  // TikTok Technology Brazil Ltda
+  "24686734": "tiktok",  // ByteDance Brasil Ltda
+};
+const PLATFORM_NAMES: Record<string, string> = {
+  "FACEBOOK":  "meta",
+  "META":      "meta",
+  "GOOGLE":    "google",
+  "TIKTOK":    "tiktok",
+  "BYTEDANCE": "tiktok",
+};
+
+/** Detecta plataforma a partir do nome do recebedor e/ou chave Pix */
+function detectPlatformFromPix(recipient: string | undefined, pixKey: string | undefined): string | null {
+  // 1. Pelo nome do recebedor (campo 59)
+  if (recipient) {
+    const upper = recipient.toUpperCase();
+    for (const [keyword, platform] of Object.entries(PLATFORM_NAMES)) {
+      if (upper.includes(keyword)) return platform;
+    }
+  }
+  // 2. Pela chave Pix (campo 26 sub-01) — extrai CNPJ se for CNPJ/CPF
+  if (pixKey) {
+    const digits = pixKey.replace(/\D/g, "");
+    // CNPJ tem 14 dígitos — verifica os primeiros 8 (raiz do CNPJ)
+    if (digits.length >= 8) {
+      const root = digits.slice(0, 8);
+      if (PLATFORM_CNPJS[root]) return PLATFORM_CNPJS[root];
+    }
+  }
+  return null;
+}
+
+/** Parse sub-TLV do campo 26 para extrair a chave Pix */
+function parseSubTLV(data: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  let i = 0;
+  while (i < data.length) {
+    if (i + 4 > data.length) break;
+    const id  = data.slice(i, i + 2);
+    const len = parseInt(data.slice(i + 2, i + 4), 10);
+    if (isNaN(len) || len < 0 || i + 4 + len > data.length) break;
+    fields[id] = data.slice(i + 4, i + 4 + len);
+    i += 4 + len;
+  }
+  return fields;
 }
 
 /** CRC16-CCITT (poly 0x1021, init 0xFFFF) — conforme spec BR Code/EMV */
@@ -118,24 +174,34 @@ export function validatePixCode(raw: string): ValidatedCode {
   // Campo 59: nome do recebedor
   const recipient = tlv["59"] || undefined;
 
-  // Campo 62: dados adicionais (txid e outros)
-  let description: string | undefined;
-  if (tlv["62"] && tlv["62"].length > 4) {
-    // Sub-campo 05 dentro do 62 é o txid
-    const sub62 = tlv["62"];
-    const txMatch = sub62.match(/0505(.{5})/);
-    if (txMatch) description = `txid: ${txMatch[1]}`;
-    else description = sub62.slice(4);
+  // Campo 26: merchant account info — extrai chave Pix (sub-campo 01)
+  let pixKey: string | undefined;
+  if (tlv["26"]) {
+    const sub = parseSubTLV(tlv["26"]);
+    pixKey = sub["01"] || undefined;
   }
+
+  // Detecta plataforma pelo nome do recebedor e/ou chave Pix
+  const detectedPlatform = detectPlatformFromPix(recipient, pixKey);
 
   // Campo 60: cidade
   const city = tlv["60"] || undefined;
 
+  // Campo 62: txid / dados adicionais
+  let description: string | undefined;
+  if (tlv["62"] && tlv["62"].length > 4) {
+    const sub62 = parseSubTLV(tlv["62"]);
+    if (sub62["05"]) description = `txid: ${sub62["05"]}`;
+    else description = tlv["62"].slice(4);
+  }
+
   return {
-    type:        "pix",
+    type:             "pix",
     raw,
-    amount:      amountCents,
-    recipient:   recipient ? `${recipient}${city ? ` — ${city}` : ""}` : undefined,
+    amount:           amountCents,
+    recipient:        recipient ? `${recipient}${city ? ` — ${city}` : ""}` : undefined,
+    pixKey,
+    detectedPlatform,
     description,
   };
 }

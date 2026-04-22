@@ -3,7 +3,7 @@
  * Cada aba tem o conteúdo REAL embutido + botão de voltar interno
  * Design: Liquid Glass · MECPro AI Design System v2
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -418,6 +418,14 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
 
   const [code,      setCode]      = useState("");
   const [platform,  setPlatform]  = useState<"meta"|"google"|"tiktok"|"other">("meta");
+
+  // Auto-seleciona a plataforma quando o código Pix identifica o recebedor
+  useEffect(() => {
+    if (validated?.detectedPlatform) {
+      setPlatform(validated.detectedPlatform as any);
+    }
+  }, [validated?.detectedPlatform]);
+
   const [override,  setOverride]  = useState("");
   const [notes,     setNotes]     = useState("");
   const [step,      setStep]      = useState<"input"|"confirm"|"done">("input");
@@ -645,24 +653,50 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
         )}
         {validated?.valid && !validating && (
           <div style={{ marginTop: 8, padding: "12px 14px", background: "rgba(48,209,88,.08)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 10 }}>
-            <div style={{ fontWeight: 800, color: "var(--green-d)", marginBottom: 6, fontSize: 13 }}>
+            <div style={{ fontWeight: 800, color: "var(--green-d)", marginBottom: 8, fontSize: 13, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               ✅ {validated.type === "pix" ? "📱 Pix válido" : "📄 Boleto válido"}
-              {validated.valid && !validated.amount && validated.type === "pix" && (
-                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "#d97706", background: "rgba(255,159,10,.1)", padding: "2px 8px", borderRadius: 99 }}>
-                  valor aberto — informe abaixo
+              {/* Badge plataforma detectada */}
+              {(validated as any).detectedPlatform && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99,
+                  background: (validated as any).detectedPlatform === "meta" ? "#1877f214" : (validated as any).detectedPlatform === "google" ? "#1a73e814" : "#11111114",
+                  color: (validated as any).detectedPlatform === "meta" ? "#1877f2" : (validated as any).detectedPlatform === "google" ? "#1a73e8" : "#111",
+                  border: `1px solid ${(validated as any).detectedPlatform === "meta" ? "#1877f240" : (validated as any).detectedPlatform === "google" ? "#1a73e840" : "#11111140"}`,
+                }}>
+                  {(validated as any).detectedPlatform === "meta" ? "📘 Meta Ads detectado automaticamente" :
+                   (validated as any).detectedPlatform === "google" ? "🔵 Google Ads detectado automaticamente" :
+                   "◼ TikTok Ads detectado automaticamente"}
                 </span>
               )}
               {(validated as any).amountLocked && (
-                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "#16a34a", background: "rgba(22,163,74,.1)", padding: "2px 8px", borderRadius: 99 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#16a34a", background: "rgba(22,163,74,.1)", padding: "2px 8px", borderRadius: 99 }}>
                   🔒 valor fixo
                 </span>
               )}
+              {validated.valid && !validated.amount && validated.type === "pix" && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#d97706", background: "rgba(255,159,10,.1)", padding: "2px 8px", borderRadius: 99 }}>
+                  valor aberto — informe abaixo
+                </span>
+              )}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12, color: "var(--body)" }}>
-              {validated.amount    ? <div>💰 Valor: <strong>R$ {validated.amount.toFixed(2)}</strong> {(validated as any).amountLocked && <span style={{ color:"var(--muted)", fontSize:11 }}>(definido no código — não pode ser alterado)</span>}</div>
-                                   : validated.type === "pix" ? <div style={{ color: "#d97706" }}>💰 Valor: <strong>não definido no código</strong> — informe manualmente</div> : null}
-              {validated.recipient && <div>👤 Recebedor: <strong>{validated.recipient}</strong></div>}
-              {validated.expiresAt && <div>📅 Vencimento: <strong>{new Date(validated.expiresAt).toLocaleDateString("pt-BR")}</strong></div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--body)" }}>
+              {validated.amount
+                ? <div>💰 Valor: <strong>R$ {validated.amount.toFixed(2)}</strong>
+                    {(validated as any).amountLocked && <span style={{ color: "var(--muted)", fontSize: 11 }}> (não pode ser alterado)</span>}
+                  </div>
+                : validated.type === "pix"
+                    ? <div style={{ color: "#d97706" }}>💰 Valor: <strong>não definido no código</strong> — informe manualmente</div>
+                    : null
+              }
+              {validated.recipient && (
+                <div>👤 Recebedor: <strong>{validated.recipient}</strong></div>
+              )}
+              {(validated as any).pixKey && (
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>🔑 Chave Pix: <span style={{ fontFamily: "monospace" }}>{(validated as any).pixKey}</span></div>
+              )}
+              {validated.expiresAt && (
+                <div>📅 Vencimento: <strong>{new Date(validated.expiresAt).toLocaleDateString("pt-BR")}</strong></div>
+              )}
               {validated.description && <div>📝 {validated.description}</div>}
             </div>
           </div>
