@@ -309,6 +309,9 @@ export async function runMigrations(): Promise<void> {
     `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "errorMsg"        TEXT`,
     // Gap 2: categoria para distinguir tipo de transação
     `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "category" VARCHAR(30) DEFAULT 'media_deposit'`,
+    // Segurança: hash do código para impedir reuso
+    `ALTER TABLE media_budget ADD COLUMN IF NOT EXISTS "codeHash" VARCHAR(64)`,
+    `CREATE INDEX IF NOT EXISTS idx_media_budget_codehash ON media_budget ("codeHash") WHERE "codeHash" IS NOT NULL`,
   ];
   for (const q of auditCols) { try { await pool.query(q); } catch {} }
 

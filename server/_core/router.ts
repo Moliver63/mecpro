@@ -7938,16 +7938,47 @@ const mediaBudgetRouter = router({
   // ── Validar código Pix/boleto SEM pagar (preview do valor/vencimento) ───
   validateExternalCode: protectedProcedure
     .input(z.object({ code: z.string().min(10).max(1024) }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const result = validateCode(input.code);
+      if (result.type === "invalid") {
+        return { type: "invalid", valid: false, amount: null, expiresAt: null, recipient: null, description: null, error: result.error ?? "Código inválido", alreadyUsed: false };
+      }
+
+      // Verificar se código já foi usado por este usuário
+      const { createHash } = await import("crypto");
+      const codeHash = createHash("sha256")
+        .update(input.code.trim().replace(/\s+/g, "").toLowerCase())
+        .digest("hex");
+
+      const pool = await getPool();
+      let alreadyUsed = false;
+      let usedAt: string | null = null;
+      if (pool) {
+        const check = await pool.query(
+          `SELECT "createdAt" FROM media_budget WHERE "codeHash" = $1 AND "userId" = $2 AND status IN ('approved','pending') LIMIT 1`,
+          [codeHash, ctx.user.id]
+        ).catch(() => ({ rows: [] }));
+        if (check.rows[0]) {
+          alreadyUsed = true;
+          usedAt = new Date(check.rows[0].createdAt).toLocaleDateString("pt-BR");
+        }
+      }
+
+      // Se o código tem valor fixo (campo 54), amountOverride será IGNORADO no pagamento
+      const amountLocked = result.amount != null;
+
       return {
-        type:        result.type,
-        valid:       result.type !== "invalid",
-        amount:      result.amount ? result.amount / 100 : null,
-        expiresAt:   result.expiresAt?.toISOString() ?? null,
-        recipient:   result.recipient ?? null,
-        description: result.description ?? null,
-        error:       result.error ?? null,
+        type:         result.type,
+        valid:        !alreadyUsed,   // inválido se já usado
+        amount:       result.amount ? result.amount / 100 : null,
+        amountLocked,                  // true = valor do código não pode ser alterado
+        expiresAt:    result.expiresAt?.toISOString() ?? null,
+        recipient:    result.recipient ?? null,
+        description:  result.description ?? null,
+        error:        alreadyUsed
+                        ? `Código já utilizado em ${usedAt}. Gere um novo código na plataforma.`
+                        : result.error ?? null,
+        alreadyUsed,
       };
     }),
 
@@ -7969,10 +8000,39 @@ const mediaBudgetRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: parsed.error || "Código inválido" });
       }
 
+      // ── SEGURANÇA 1: Deduplicação — impede reuso do mesmo código ──────────
+      // Hash SHA-256 do código normalizado (sem espaços, lowercase) como chave única
+      const { createHash } = await import("crypto");
+      const codeHash = createHash("sha256")
+        .update(input.code.trim().replace(/\s+/g, "").toLowerCase())
+        .digest("hex");
+
+      const dedupCheck = await pool.query(`
+        SELECT id, status, amount, "createdAt"
+        FROM media_budget
+        WHERE "codeHash" = $1
+          AND "userId"   = $2
+          AND status     IN ('approved', 'pending')
+        LIMIT 1
+      `, [codeHash, ctx.user.id]);
+
+      if (dedupCheck.rows.length > 0) {
+        const prev = dedupCheck.rows[0];
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Este código já foi utilizado em ${new Date(prev.createdAt).toLocaleDateString("pt-BR")} (R$ ${(Number(prev.amount)/100).toFixed(2)}). Gere um novo código na plataforma de anúncios.`,
+        });
+      }
+
+      // ── SEGURANÇA 2: Valor — usa SEMPRE o valor do código se ele tiver ────
+      // Se o código Pix tem campo 54 (valor fixo), ignora qualquer amountOverride
+      // O usuário NÃO pode alterar o valor quando o código já define um.
+      // amountOverride só é aceito quando o código genuinamente não tem valor (campo 54 ausente)
+
       // 2. Determinar valor
       const amountReais = parsed.amount
-        ? parsed.amount / 100
-        : input.amountOverride;
+        ? parsed.amount / 100          // usa SEMPRE o valor do código se existir
+        : input.amountOverride;        // só aceita override se código não tem valor
 
       if (!amountReais || amountReais <= 0) {
         throw new TRPCError({
@@ -8031,15 +8091,16 @@ const mediaBudgetRouter = router({
       const pendingRes = await pool.query(`
         INSERT INTO media_budget
           ("userId", amount, "feePercent", "feeAmount", "netAmount",
-           type, status, method, platform, notes, "operationStatus")
+           type, status, method, platform, notes, "operationStatus", "codeHash")
         VALUES ($1, $2, 0, 0, $2,
-                'external_payment', 'pending', $3, $4, $5, 'processing')
+                'external_payment', 'pending', $3, $4, $5, 'processing', $6)
         RETURNING id, "createdAt"
       `, [
         ctx.user.id, amountCents,
         parsed.type,  // 'pix' ou 'boleto'
         input.platform,
         input.notes || `Pagamento ${parsed.type} externo — ${input.platform}`,
+        codeHash,
       ]);
       const budgetId = pendingRes.rows[0].id;
 

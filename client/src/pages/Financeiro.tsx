@@ -652,13 +652,30 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
                   valor aberto — informe abaixo
                 </span>
               )}
+              {(validated as any).amountLocked && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "#16a34a", background: "rgba(22,163,74,.1)", padding: "2px 8px", borderRadius: 99 }}>
+                  🔒 valor fixo
+                </span>
+              )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12, color: "var(--body)" }}>
-              {validated.amount    ? <div>💰 Valor: <strong>R$ {validated.amount.toFixed(2)}</strong></div>
+              {validated.amount    ? <div>💰 Valor: <strong>R$ {validated.amount.toFixed(2)}</strong> {(validated as any).amountLocked && <span style={{ color:"var(--muted)", fontSize:11 }}>(definido no código — não pode ser alterado)</span>}</div>
                                    : validated.type === "pix" ? <div style={{ color: "#d97706" }}>💰 Valor: <strong>não definido no código</strong> — informe manualmente</div> : null}
               {validated.recipient && <div>👤 Recebedor: <strong>{validated.recipient}</strong></div>}
               {validated.expiresAt && <div>📅 Vencimento: <strong>{new Date(validated.expiresAt).toLocaleDateString("pt-BR")}</strong></div>}
               {validated.description && <div>📝 {validated.description}</div>}
+            </div>
+          </div>
+        )}
+        {/* Código já usado */}
+        {!validating && validated && (validated as any).alreadyUsed && (
+          <div style={{ marginTop: 8, padding: "12px 14px", background: "rgba(255,59,48,.06)", border: "1.5px solid rgba(255,59,48,.3)", borderRadius: 10 }}>
+            <div style={{ fontWeight: 800, color: "var(--red)", marginBottom: 4, fontSize: 13 }}>
+              🚫 Código já utilizado
+            </div>
+            <div style={{ fontSize: 12, color: "var(--red)", lineHeight: 1.6 }}>
+              {validated.error}<br/>
+              <strong>Gere um novo código Pix ou boleto na plataforma de anúncios.</strong>
             </div>
           </div>
         )}
@@ -669,8 +686,8 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
         )}
       </div>
 
-      {/* Valor manual se Pix sem valor fixo */}
-      {needsOverride && (
+      {/* Valor manual — só exibe se Pix genuinamente sem valor (amountLocked=false) */}
+      {needsOverride && !(validated as any)?.amountLocked && (
         <div style={{ marginBottom: 16 }}>
           {/* Explicação — normal para Meta e Google */}
           <div style={{ background: "rgba(255,159,10,.07)", border: "1px solid rgba(255,159,10,.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
