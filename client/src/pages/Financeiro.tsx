@@ -1877,6 +1877,19 @@ export default function Financeiro() {
               <div>
                 <SectionHeader icon="▣" color="#0071e3" title="Visão Geral" sub="Seu painel financeiro completo — compensado e pendente" />
 
+                {/* ── ACESSO RÁPIDO TOPO — chips horizontais ────────────────── */}
+                <div style={{ display:"flex", gap:6, marginBottom:20, overflowX:"auto", paddingBottom:2 }}>
+                  {TABS.slice(1).map((t, i) => (
+                    <button key={t.id} onClick={() => setTab(i+1)}
+                      style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 14px", borderRadius:99, border:`1.5px solid ${t.color}30`, background:t.color+"08", cursor:"pointer", whiteSpace:"nowrap", fontFamily:"var(--font)", transition:"all .15s", flexShrink:0 }}
+                      onMouseEnter={e => { e.currentTarget.style.background=t.color+"18"; e.currentTarget.style.borderColor=t.color+"60"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background=t.color+"08"; e.currentTarget.style.borderColor=t.color+"30"; }}>
+                      <span style={{ fontSize:14 }}>{t.icon}</span>
+                      <span style={{ fontSize:11, fontWeight:700, color:t.color }}>{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+
                 {/* ── CARDS DE STATUS ───────────────────────────────────────── */}
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12, marginBottom:20 }}>
 
@@ -2032,21 +2045,20 @@ export default function Financeiro() {
                   </div>
                 )}
 
-                {/* ── ATALHOS ───────────────────────────────────────────────── */}
-                <div style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:12 }}>Acesso rápido</div>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:8 }}>
-                  {TABS.slice(1).map((t, i) => (
-                    <button key={t.id} onClick={() => setTab(i+1)}
-                      style={{ padding:"14px 12px", borderRadius:12, border:"1.5px solid var(--border)", background:"white", cursor:"pointer", textAlign:"center", transition:"all .2s", fontFamily:"var(--font)" }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor=t.color; e.currentTarget.style.boxShadow=`0 4px 14px ${t.color}28`; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor="var(--border)"; e.currentTarget.style.boxShadow="none"; }}>
-                      <div style={{ width:36, height:36, borderRadius:10, margin:"0 auto 8px", background:t.color+"14", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:t.color }}>
-                        {t.icon}
-                      </div>
-                      <div style={{ fontSize:11, fontWeight:800, color:"var(--dark)", marginBottom:3 }}>{t.label}</div>
-                      <div style={{ fontSize:10, color:"var(--muted)", lineHeight:1.4 }}>{(t as any).desc}</div>
-                    </button>
-                  ))}
+                {/* ── ATALHOS RODAPÉ ─────────────────────────────────────────── */}
+                <div style={{ marginTop:8, paddingTop:20, borderTop:"1px solid var(--border)" }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:"var(--muted)", textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:10 }}>Acesso rápido</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:6 }}>
+                    {TABS.slice(1).map((t, i) => (
+                      <button key={t.id} onClick={() => setTab(i+1)}
+                        style={{ padding:"10px 8px", borderRadius:10, border:"1.5px solid var(--border)", background:"white", cursor:"pointer", textAlign:"center", transition:"all .15s", fontFamily:"var(--font)" }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor=t.color; e.currentTarget.style.background=t.color+"08"; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor="var(--border)"; e.currentTarget.style.background="white"; }}>
+                        <div style={{ fontSize:16, marginBottom:3 }}>{t.icon}</div>
+                        <div style={{ fontSize:10, fontWeight:800, color:"var(--dark)", lineHeight:1.3 }}>{t.label}</div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
