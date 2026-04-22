@@ -8567,13 +8567,19 @@ const mediaBudgetRouter = router({
         });
 
         return {
-          success:    true,
+          success:        true,
           budgetId,
-          type:       parsed.type,
-          amount:     debitReais,
-          platform:   input.platform,
-          asaasId:    asaasResp.id,
-          status:     "approved",
+          type:           parsed.type,
+          amount:         debitReais,
+          platform:       input.platform,
+          asaasId:        asaasResp.id,
+          status:         "approved",
+          // Dados do destinatário (para exibir no comprovante)
+          recipient:      parsed.recipient || null,
+          pixKey:         pixKey || null,
+          pixKeyType:     pixKeyType || null,
+          balanceBefore:  balanceCents / 100,
+          balanceAfter:   (balanceCents - debitCents) / 100,
         };
 
       } catch (e: any) {

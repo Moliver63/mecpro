@@ -535,7 +535,14 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
   }
 
   const payMut = (trpc as any).mediaBudget?.payExternalCode?.useMutation?.({
-    onSuccess: (data: any) => { setResult(data); setStep("done"); toast.success(`✅ Pagamento de R$ ${data.amount.toFixed(2)} realizado!`); },
+    onSuccess: (data: any) => {
+      setResult(data);
+      setStep("done");
+      toast.success(`✅ Pagamento de R$ ${data.amount?.toFixed(2)} realizado!`);
+      // Invalida o cache do saldo para atualizar a wallet imediatamente
+      (trpc as any).mediaBudget?.getBalance?.useQuery?.invalidate?.();
+      (trpc as any).mediaBudget?.financialSummary?.useQuery?.invalidate?.();
+    },
     onError:   (e: any)    => { toast.error(e.message); setStep("input"); },
   }) ?? { mutate: () => {}, isPending: false };
 
@@ -549,14 +556,48 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
   if (step === "done" && result) return (
     <div>
       <SectionHeader icon="⎆" color="#af52de" title="Pagamento realizado!" sub="" onBack={onBack} />
-      <div style={{ background: "rgba(48,209,88,.08)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 16, padding: 28, marginBottom: 20, textAlign: "center" }}>
-        <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
-        <div style={{ fontSize: 22, fontWeight: 900, color: "var(--green-d)", marginBottom: 6 }}>Pagamento confirmado</div>
-        <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 8 }}>
-          R$ {result.amount?.toFixed(2)} · {result.type === "pix" ? "Pix" : "Boleto"} · {result.platform?.toUpperCase()}
+
+      {/* Comprovante */}
+      <div style={{ background: "rgba(48,209,88,.07)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 16, overflow: "hidden", marginBottom: 16 }}>
+        {/* Header */}
+        <div style={{ background: "rgba(48,209,88,.12)", padding: "20px 20px 16px", textAlign: "center" }}>
+          <div style={{ fontSize: 44, marginBottom: 8 }}>✅</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: "var(--green-d)" }}>Pagamento confirmado</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
+            {result.type === "pix" ? "Pix" : "Boleto"} · {new Date().toLocaleDateString("pt-BR")} às {new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+          </div>
         </div>
-        {result.asaasId && <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>ID: {result.asaasId}</div>}
+
+        {/* Linhas do comprovante */}
+        <div style={{ padding: "0 20px 20px" }}>
+          {[
+            { label: "Valor pago",     value: `R$ ${result.amount?.toFixed(2)}`, bold: true, color: "var(--green-d)" },
+            { label: "Plataforma",     value: result.platform === "meta" ? "📘 Meta Ads" : result.platform === "google" ? "🔵 Google Ads" : result.platform === "tiktok" ? "◼ TikTok Ads" : "◌ Outra" },
+            ...(result.recipient ? [{ label: "Destinatário",  value: result.recipient }] : []),
+            ...(result.pixKey    ? [{ label: "Chave Pix",     value: result.pixKey, mono: true }] : []),
+            { label: "Saldo anterior", value: `R$ ${result.balanceBefore?.toFixed(2) ?? "—"}` },
+            { label: "Saldo atual",    value: `R$ ${result.balanceAfter?.toFixed(2) ?? "—"}`, bold: true },
+            ...(result.asaasId  ? [{ label: "ID transação",   value: result.asaasId, mono: true, small: true }] : []),
+          ].map((row: any, i: number) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "10px 0", borderBottom: "1px solid rgba(48,209,88,.15)" }}>
+              <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, marginRight: 12 }}>{row.label}</span>
+              <span style={{
+                fontSize: row.small ? 10 : row.bold ? 15 : 12,
+                fontWeight: row.bold ? 900 : 600,
+                color: row.color || "var(--dark)",
+                fontFamily: row.mono ? "monospace" : "var(--font)",
+                textAlign: "right", wordBreak: "break-all",
+              }}>{row.value}</span>
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* Aviso de crédito na plataforma */}
+      <div style={{ background: "rgba(0,113,227,.05)", border: "1px solid rgba(0,113,227,.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: "var(--blue)", lineHeight: 1.5 }}>
+        ℹ️ O crédito pode levar até <strong>30 minutos</strong> para aparecer na sua conta {result.platform === "meta" ? "Meta Ads" : result.platform === "google" ? "Google Ads" : result.platform === "tiktok" ? "TikTok Ads" : "da plataforma"}.
+      </div>
+
       <button onClick={() => { setStep("input"); setCode(""); setOverride(""); setNotes(""); setResult(null); }}
         style={{ ...primaryBtn("var(--grad-primary)") }}>
         Fazer novo pagamento
