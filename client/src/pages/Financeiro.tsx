@@ -647,9 +647,15 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
           <div style={{ marginTop: 8, padding: "12px 14px", background: "rgba(48,209,88,.08)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 10 }}>
             <div style={{ fontWeight: 800, color: "var(--green-d)", marginBottom: 6, fontSize: 13 }}>
               ✅ {validated.type === "pix" ? "📱 Pix válido" : "📄 Boleto válido"}
+              {validated.valid && !validated.amount && validated.type === "pix" && (
+                <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: "#d97706", background: "rgba(255,159,10,.1)", padding: "2px 8px", borderRadius: 99 }}>
+                  valor aberto — informe abaixo
+                </span>
+              )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12, color: "var(--body)" }}>
-              {validated.amount    && <div>💰 Valor: <strong>R$ {validated.amount.toFixed(2)}</strong></div>}
+              {validated.amount    ? <div>💰 Valor: <strong>R$ {validated.amount.toFixed(2)}</strong></div>
+                                   : validated.type === "pix" ? <div style={{ color: "#d97706" }}>💰 Valor: <strong>não definido no código</strong> — informe manualmente</div> : null}
               {validated.recipient && <div>👤 Recebedor: <strong>{validated.recipient}</strong></div>}
               {validated.expiresAt && <div>📅 Vencimento: <strong>{new Date(validated.expiresAt).toLocaleDateString("pt-BR")}</strong></div>}
               {validated.description && <div>📝 {validated.description}</div>}
@@ -666,13 +672,42 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
       {/* Valor manual se Pix sem valor fixo */}
       {needsOverride && (
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 6 }}>
-            3. Valor a pagar <span style={{ color: "var(--orange)", fontWeight: 400 }}>(Pix sem valor fixo)</span>
+          {/* Explicação — normal para Meta e Google */}
+          <div style={{ background: "rgba(255,159,10,.07)", border: "1px solid rgba(255,159,10,.25)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>ℹ️</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#d97706", marginBottom: 4 }}>
+                Pix de valor aberto — isso é normal para Meta e Google Ads
+              </div>
+              <div style={{ fontSize: 12, color: "#92400e", lineHeight: 1.6 }}>
+                A Meta Ads e o Google Ads geram Pix <strong>sem valor fixo no código</strong> por padrão. O valor que você quer pagar deve ser informado manualmente — use exatamente o valor que aparece no portal da plataforma antes de gerar o código.
+              </div>
+            </div>
+          </div>
+
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 8 }}>
+            3. Qual valor deseja pagar?
           </label>
-          <input type="number" value={override} onChange={e => setOverride(e.target.value)}
-            placeholder="0,00" step="0.01"
-            style={{ width: "100%", padding: "12px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 18, fontWeight: 800, fontFamily: "var(--font)", boxSizing: "border-box" }} />
-          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Este Pix não tem valor definido. Informe o quanto deseja pagar.</div>
+          <div style={{ position: "relative" }}>
+            <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", fontSize: 16, fontWeight: 800, color: "var(--muted)" }}>R$</span>
+            <input
+              type="number"
+              value={override}
+              onChange={e => setOverride(e.target.value)}
+              placeholder="0,00"
+              step="0.01"
+              min="1"
+              style={{ width: "100%", padding: "13px 14px 13px 44px", borderRadius: 11, border: `1.5px solid ${override && parseFloat(override.replace(",",".")) > 0 ? "rgba(48,209,88,.5)" : "var(--border)"}`, fontSize: 20, fontWeight: 900, fontFamily: "var(--font)", boxSizing: "border-box", outline: "none" }}
+            />
+          </div>
+          {override && parseFloat(override.replace(",",".")) > 0 && (
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--green-d)", fontWeight: 700 }}>
+              ✅ Valor confirmado: R$ {parseFloat(override.replace(",",".")).toFixed(2)}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, lineHeight: 1.5 }}>
+            💡 Confira o valor exato no painel da {platform === "meta" ? "Meta Business Suite → Faturamento" : platform === "google" ? "Google Ads → Faturamento e pagamentos" : platform === "tiktok" ? "TikTok Ads Manager → Pagamentos" : "plataforma"} antes de confirmar.
+          </div>
         </div>
       )}
 
