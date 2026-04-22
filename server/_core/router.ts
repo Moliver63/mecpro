@@ -8196,7 +8196,11 @@ const mediaBudgetRouter = router({
                         const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
                         const padded     = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
                         loc = JSON.parse(Buffer.from(padded, "base64").toString("utf-8"));
-                        log.info("payExternalCode", "JWT DLocal decodificado", { keys: Object.keys(loc) });
+                        log.info("payExternalCode", "JWT DLocal decodificado", {
+                          keys: Object.keys(loc),
+                          chave: loc.chave?.slice(0,36) || "(ausente)",
+                          valor: loc.valor?.original || "(ausente)",
+                        });
                       } catch (jwtErr: any) {
                         log.warn("payExternalCode", "Falha ao decodificar JWT", { error: jwtErr.message });
                       }
