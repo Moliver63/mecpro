@@ -8184,25 +8184,54 @@ const mediaBudgetRouter = router({
                 const locText = await locRes.text();
                 log.info("payExternalCode", "Location URL resposta", { status: locRes.status, preview: locText.slice(0, 300) });
                 if (locRes.ok && locText.trim()) {
-                  const loc: any = JSON.parse(locText);
-                  // BACEN OpenAPI PIX formato padrão:
-                  // { chave: UUID, tipoChave: "EVP", valor: { original: "40.00" }, devedor: {...} }
-                  // Alternativa DLocal/processador:
-                  // { pixKey: UUID, pixKeyType: "EVP", value: 40.00 }
+                  // DLocal retorna JWT (base64url) em vez de JSON direto
+                  // Formato: header.payload.signature
+                  // O payload contém os dados BACEN OpenAPI PIX
+                  let loc: any = {};
+                  if (locText.startsWith("eyJ")) {
+                    // É um JWT — decodifica o payload (parte central) sem verificar assinatura
+                    const parts = locText.trim().split(".");
+                    if (parts.length >= 2) {
+                      try {
+                        const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+                        const padded     = payloadB64 + "=".repeat((4 - payloadB64.length % 4) % 4);
+                        loc = JSON.parse(Buffer.from(padded, "base64").toString("utf-8"));
+                        log.info("payExternalCode", "JWT DLocal decodificado", { keys: Object.keys(loc) });
+                      } catch (jwtErr: any) {
+                        log.warn("payExternalCode", "Falha ao decodificar JWT", { error: jwtErr.message });
+                      }
+                    }
+                  } else {
+                    try { loc = JSON.parse(locText); } catch { /* ignora */ }
+                  }
+
+                  // Extrai campos — suporta BACEN OpenAPI PIX e formatos alternativos
+                  // BACEN: { chave, valor: { original }, devedor, calendario }
+                  // DLocal/outros: { pixKey, value, pixKeyType }
                   pixKey = loc.chave || loc.pixKey || loc.key || loc.addressKey || "";
-                  // Normaliza o tipo da chave
+
                   const rawType = loc.tipoChave || loc.keyType || loc.pixKeyType || loc.type || "";
                   const typeMap: Record<string,string> = {
                     "EVP":"EVP","CPF":"CPF","CNPJ":"CNPJ","EMAIL":"EMAIL",
-                    "PHONE":"PHONE","TELEFONE":"PHONE","CHAVE_ALEATORIA":"EVP",
-                    "RANDOM":"EVP","UUID":"EVP",
+                    "PHONE":"PHONE","TELEFONE":"PHONE","CHAVE_ALEATORIA":"EVP","RANDOM":"EVP","UUID":"EVP",
                   };
-                  pixKeyType = typeMap[rawType.toUpperCase()] || "EVP";
-                  // Valor — tenta múltiplos formatos
+                  pixKeyType = (rawType ? (typeMap[rawType.toUpperCase()] || "EVP") : "EVP");
+
+                  // Se não veio tipoChave, infere pelo formato da chave
+                  if (!rawType && pixKey) {
+                    const k = pixKey.replace(/\D/g,"");
+                    if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(pixKey)) pixKeyType = "EVP";
+                    else if (pixKey.includes("@"))  pixKeyType = "EMAIL";
+                    else if (k.length === 11)       pixKeyType = "CPF";
+                    else if (k.length === 14)       pixKeyType = "CNPJ";
+                    else                            pixKeyType = "EVP";
+                  }
+
                   const rawVal = loc.valor?.original || loc.valor?.modalidadeAlteracao
                     || loc.value || loc.amount || 0;
-                  const parsed = parseFloat(String(rawVal));
-                  if (!isNaN(parsed) && parsed > 0) pixValue = parsed;
+                  const parsedVal = parseFloat(String(rawVal));
+                  if (!isNaN(parsedVal) && parsedVal > 0) pixValue = parsedVal;
+
                   log.info("payExternalCode", "Pix dinâmico resolvido", {
                     pixKey: pixKey.slice(0,36), pixKeyType, pixValue,
                     devedor: loc.devedor?.nome || loc.debtor?.name || "(sem devedor)",
