@@ -8171,8 +8171,13 @@ const mediaBudgetRouter = router({
 
             if (locationUrl) {
               try {
+                // Garante protocolo https:// (o campo 26 sub-25 omite o esquema)
+                const fullUrl = locationUrl.startsWith("http")
+                  ? locationUrl
+                  : "https://" + locationUrl;
+                log.info("payExternalCode", "Resolvendo URL dinâmica", { fullUrl });
                 // Resolve a URL de cobrança para obter a chave Pix real
-                const locRes  = await fetch(locationUrl, {
+                const locRes  = await fetch(fullUrl, {
                   headers: { Accept: "application/json" },
                   signal:  AbortSignal.timeout(10000),
                 });
