@@ -789,14 +789,23 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
         )}
         {/* Código já usado */}
         {!validating && validated && (validated as any).alreadyUsed && (
-          <div style={{ marginTop: 8, padding: "12px 14px", background: "rgba(255,59,48,.06)", border: "1.5px solid rgba(255,59,48,.3)", borderRadius: 10 }}>
-            <div style={{ fontWeight: 800, color: "var(--red)", marginBottom: 4, fontSize: 13 }}>
-              🚫 Código já utilizado
+          <div style={{ marginTop: 8, padding: "14px 16px", background: "rgba(255,159,10,.06)", border: "1.5px solid rgba(255,159,10,.3)", borderRadius: 12 }}>
+            <div style={{ fontWeight: 800, color: "#d97706", marginBottom: 6, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+              ⚠️ Este código já foi pago anteriormente
             </div>
-            <div style={{ fontSize: 12, color: "var(--red)", lineHeight: 1.6 }}>
-              {validated.error}<br/>
-              <strong>Gere um novo código Pix ou boleto na plataforma de anúncios.</strong>
+            <div style={{ fontSize: 12, color: "#92400e", lineHeight: 1.7, marginBottom: 10 }}>
+              {validated.error}
             </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1, background: "rgba(255,159,10,.1)", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "#92400e" }}>
+                ✅ O pagamento foi processado com sucesso. Verifique o histórico para confirmar.
+              </div>
+            </div>
+            <button
+              onClick={onBack}
+              style={{ marginTop: 10, width: "100%", padding: "9px", borderRadius: 8, border: "1px solid rgba(255,159,10,.3)", background: "white", fontSize: 12, fontWeight: 700, color: "#d97706", cursor: "pointer", fontFamily: "var(--font)" }}>
+              📋 Ver histórico de pagamentos →
+            </button>
           </div>
         )}
         {code.trim().length >= 20 && !validating && validated && !validated.valid && (
