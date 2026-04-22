@@ -8128,29 +8128,35 @@ const mediaBudgetRouter = router({
       // amountOverride só é aceito quando o código genuinamente não tem valor (campo 54 ausente)
 
       // 2. Determinar valor
-      const amountReais = parsed.amount
-        ? parsed.amount / 100          // usa SEMPRE o valor do código se existir
-        : input.amountOverride;        // só aceita override se código não tem valor
+      // Valor inicial — para Pix dinâmico pode ser null (será resolvido pela URL)
+      // A validação definitiva acontece após a resolução da URL dinâmica
+      let amountReais: number | undefined = parsed.amount
+        ? parsed.amount / 100
+        : input.amountOverride;
 
-      if (!amountReais || amountReais <= 0) {
+      // Para boleto, exige valor imediatamente (não tem URL para resolver)
+      if (parsed.type === "boleto" && (!amountReais || amountReais <= 0)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: parsed.type === "pix"
-            ? "Código Pix sem valor fixo — informe o valor manualmente no campo"
-            : "Valor do boleto não pôde ser extraído — informe manualmente",
+          message: "Valor do boleto não pôde ser extraído — informe manualmente",
         });
       }
+      // Para Pix: validação do valor é feita após resolução da URL dinâmica
 
       // 3. Validações de segurança
       const MIN_PAYMENT = 1;
       const MAX_PAYMENT_PER_TX = 10000; // R$10.000 por transação
       const MAX_PAYMENT_PER_DAY = 50000; // R$50.000 por dia
 
-      if (amountReais < MIN_PAYMENT) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Valor mínimo: R$ ${MIN_PAYMENT.toFixed(2)}` });
-      }
-      if (amountReais > MAX_PAYMENT_PER_TX) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Valor máximo por transação: R$ ${MAX_PAYMENT_PER_TX.toFixed(2)}` });
+      // Limites de valor — só valida agora se o valor já é conhecido
+      // Para Pix dinâmico, amountReais pode ser undefined até a URL ser resolvida
+      if (amountReais !== undefined) {
+        if (amountReais < MIN_PAYMENT) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Valor mínimo: R$ ${MIN_PAYMENT.toFixed(2)}` });
+        }
+        if (amountReais > MAX_PAYMENT_PER_TX) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `Valor máximo por transação: R$ ${MAX_PAYMENT_PER_TX.toFixed(2)}` });
+        }
       }
 
       // 4. Verificar limite diário do usuário
@@ -8163,7 +8169,7 @@ const mediaBudgetRouter = router({
           AND "createdAt" >= CURRENT_DATE
       `, [ctx.user.id]);
       const spentToday = Number(dailyRes.rows[0]?.total_today || 0) / 100;
-      if (spentToday + amountReais > MAX_PAYMENT_PER_DAY) {
+      if (amountReais !== undefined && spentToday + amountReais > MAX_PAYMENT_PER_DAY) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `Limite diário atingido (R$ ${MAX_PAYMENT_PER_DAY.toFixed(2)}). Gasto hoje: R$ ${spentToday.toFixed(2)}`,
@@ -8176,9 +8182,10 @@ const mediaBudgetRouter = router({
         [ctx.user.id]
       );
       const balanceCents = Number(balRes.rows[0]?.balance || 0);
-      const amountCents  = Math.round(amountReais * 100);
+      // amountCents inicial — pode ser 0 para Pix dinâmico (valor real vem da URL)
+      const amountCents  = Math.round((amountReais || 0) * 100);
 
-      if (balanceCents < amountCents) {
+      if (amountReais !== undefined && balanceCents < amountCents) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: `Saldo insuficiente. Disponível: R$ ${(balanceCents/100).toFixed(2)}, necessário: R$ ${amountReais.toFixed(2)}`,
@@ -8415,8 +8422,21 @@ const mediaBudgetRouter = router({
             }
           }
           // Usa pixValue como valor final (pode diferir do amountReais se veio do JWT)
-          const finalAmountReais = pixValue > 0 ? pixValue : amountReais;
+          const finalAmountReais = pixValue > 0 ? pixValue : (amountReais || 0);
           const finalAmountCents = Math.round(finalAmountReais * 100);
+
+          // Validação final do valor — agora que a URL foi resolvida
+          if (!finalAmountReais || finalAmountReais <= 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: isDynamic
+                ? "Não foi possível obter o valor do Pix dinâmico. Gere um novo código na plataforma."
+                : "Código Pix sem valor fixo — informe o valor manualmente no campo",
+            });
+          }
+
+          // Atualiza amountReais para usar nas validações de saldo/limite
+          amountReais = finalAmountReais;
 
           // Etapa 2: Executar a transferência Pix com a chave extraída
           const today = new Date().toISOString().split("T")[0];
