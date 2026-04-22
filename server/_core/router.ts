@@ -8477,17 +8477,11 @@ const mediaBudgetRouter = router({
           const boletoDigits = parsed.raw.replace(/\D/g, "");
 
           // scheduleDate = HOJE (pagamento imediato)
-          // parsed.expiresAt é o vencimento do boleto — NÃO é o scheduleDate do Asaas
-          // Asaas rejeita datas no passado como scheduleDate
+          // parsed.expiresAt é o vencimento calculado do boleto — NÃO é o scheduleDate do Asaas
+          // IMPORTANTE: não validamos o vencimento aqui pois o cálculo do fator pode
+          // estar errado para boletos modernos (fator reiniciado em 2025/2026).
+          // O Asaas tem lógica própria para validar e rejeitará se realmente vencido.
           const scheduleToday = new Date().toISOString().split("T")[0];
-
-          // Verifica se boleto já venceu
-          if (parsed.expiresAt && parsed.expiresAt < new Date()) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Boleto vencido em ${parsed.expiresAt.toLocaleDateString("pt-BR")}. Gere um novo boleto na plataforma de anúncios.`,
-            });
-          }
 
           const payRes = await fetch("https://api.asaas.com/v3/bill", {
             method:  "POST",

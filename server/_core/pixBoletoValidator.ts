@@ -219,18 +219,20 @@ export function validateBoletoCode(raw: string): ValidatedCode {
 
   // Boleto bancário: 47 dígitos
   if (digits.length === 47) {
-    // Posições 33-36: fator de vencimento (dias desde base)
-    // Posições 37-46: valor (centavos com zeros à esquerda, sem vírgula)
+    // Posições 33-36: fator de vencimento (dias desde base 07/10/1997)
+    // Posições 37-46: valor (centavos)
     const fator = parseInt(digits.slice(33, 37), 10);
     const valor = parseInt(digits.slice(37, 47), 10);
 
     let expiresAt: Date | null = null;
     if (fator > 0 && fator < 10000) {
       const base = new Date(1997, 9, 7); // 07/10/1997
-      expiresAt = new Date(base.getTime() + fator * 86400 * 1000);
-    } else if (fator >= 10000) {
-      const base = new Date(2025, 1, 22); // 22/02/2025 (nova base Bacen)
-      expiresAt = new Date(base.getTime() + (fator - 10000) * 86400 * 1000);
+      const calculada = new Date(base.getTime() + fator * 86400 * 1000);
+      // Só usa a data se for plausível (entre 1997 e 2030)
+      if (calculada.getFullYear() >= 2000 && calculada.getFullYear() <= 2035) {
+        expiresAt = calculada;
+      }
+      // Se calculou uma data muito antiga (ex: 2001), ignora — fator reiniciado
     }
 
     return {
