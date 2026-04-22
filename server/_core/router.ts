@@ -8475,16 +8475,27 @@ const mediaBudgetRouter = router({
         } else {
           // ── Boleto: endpoint /v3/bill ──────────────────────────────────────────
           const boletoDigits = parsed.raw.replace(/\D/g, "");
-          const dueDate = parsed.expiresAt
-            ? parsed.expiresAt.toISOString().split("T")[0]
-            : new Date(Date.now() + 86400000).toISOString().split("T")[0];
+
+          // scheduleDate = HOJE (pagamento imediato)
+          // parsed.expiresAt é o vencimento do boleto — NÃO é o scheduleDate do Asaas
+          // Asaas rejeita datas no passado como scheduleDate
+          const scheduleToday = new Date().toISOString().split("T")[0];
+
+          // Verifica se boleto já venceu
+          if (parsed.expiresAt && parsed.expiresAt < new Date()) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Boleto vencido em ${parsed.expiresAt.toLocaleDateString("pt-BR")}. Gere um novo boleto na plataforma de anúncios.`,
+            });
+          }
+
           const payRes = await fetch("https://api.asaas.com/v3/bill", {
             method:  "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
             body: JSON.stringify({
               identificationField: boletoDigits,
               value:               amountReais,
-              scheduleDate:        dueDate,
+              scheduleDate:        scheduleToday,
               description:         input.notes?.slice(0, 140) || `Boleto ${input.platform}`,
             }),
             signal: AbortSignal.timeout(20000),
@@ -8504,9 +8515,13 @@ const mediaBudgetRouter = router({
 
         // 8. Debitar saldo usando o valor REAL pago (pode diferir do override do usuário)
         // Para Pix dinâmico, finalAmountCents vem do JWT; para boleto, usa amountCents
-        const debitCents = parsed.type === "pix" && typeof finalAmountCents !== "undefined"
+        // Para Pix: usa finalAmountCents (valor real do JWT/campo 54)
+        // Para boleto: usa amountCents (valor da linha digitável)
+        const debitCents = parsed.type === "pix" && finalAmountCents > 0
           ? finalAmountCents
-          : amountCents;
+          : amountCents > 0
+            ? amountCents
+            : Math.round((amountReais || 0) * 100);
         const debitReais = debitCents / 100;
 
         await pool.query(`
@@ -8555,7 +8570,7 @@ const mediaBudgetRouter = router({
           success:    true,
           budgetId,
           type:       parsed.type,
-          amount:     amountReais,
+          amount:     debitReais,
           platform:   input.platform,
           asaasId:    asaasResp.id,
           status:     "approved",
