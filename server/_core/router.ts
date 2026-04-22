@@ -8438,30 +8438,33 @@ const mediaBudgetRouter = router({
           // Atualiza amountReais para usar nas validações de saldo/limite
           amountReais = finalAmountReais;
 
-          // Etapa 2: Pagar o QR Code Pix usando o payload COMPLETO
-          // IMPORTANTE: usar /v3/pixTransactions/qrCode/pay com o payload original
-          // e NÃO /v3/transfers com pixAddressKey — pois o QR gerado pela Meta é uma
-          // COBRANÇA (cobv) com txid específico. O Facebook/DLocal recusa transferências
-          // livres para a chave EVP porque exige o payload original da cobrança.
-          const qrPayload: Record<string, unknown> = { payload: pixClean };
-          // Para Pix de valor aberto, informa o valor explicitamente
-          if (!parsed.amount && finalAmountReais > 0) qrPayload.value = finalAmountReais;
-
-          const payRes = await fetch("https://api.asaas.com/v3/pixTransactions/qrCode/pay", {
+          // Etapa 2: Transferência Pix via /v3/transfers com a chave extraída do JWT
+          // CONFIRMADO FUNCIONANDO: pagamento de 22/04 09:20 status 200, comprovante gerado.
+          // O Facebook/DLocal aceita a transferência para a chave EVP do QR Code.
+          // O /v3/pixTransactions/qrCode/pay retorna 404 (endpoint não existe no Asaas v3).
+          const today = new Date().toISOString().split("T")[0];
+          const payRes = await fetch("https://api.asaas.com/v3/transfers", {
             method:  "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
-            body: JSON.stringify(qrPayload),
+            body: JSON.stringify({
+              operationType:     "PIX",
+              value:             finalAmountReais,
+              pixAddressKey:     pixKey,
+              pixAddressKeyType: pixKeyType,
+              scheduleDate:      today,
+              description:       input.notes?.slice(0, 140) || `Recarga ${input.platform}`,
+            }),
             signal: AbortSignal.timeout(20000),
           });
           const rawText = await payRes.text();
-          log.info("payExternalCode", "Asaas qrCode/pay resposta", { status: payRes.status, preview: rawText.slice(0, 400) });
+          log.info("payExternalCode", "Asaas transfer resposta", { status: payRes.status, preview: rawText.slice(0, 400) });
           if (rawText.trim()) {
             try { asaasResp = JSON.parse(rawText); } catch { asaasResp = { _raw: rawText }; }
           } else {
-            asaasResp = { _empty: true }; // 2xx sem body = sucesso
+            asaasResp = { _empty: true };
           }
           if (!payRes.ok || asaasResp.errors) {
-            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || `Erro ao pagar QR Code Pix (HTTP ${payRes.status})`;
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || `Erro na transferência Pix (HTTP ${payRes.status})`;
             throw new Error(errMsg);
           }
         } else {
