@@ -416,249 +416,309 @@ function TabDeposit({ balance, ps, psLoading, onBack }: { balance: any; ps: any;
 function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
   const walletBalance = (balance as any)?.balance ?? 0;
 
-  const [code,     setCode]     = useState("");
-  const [platform, setPlatform] = useState<"meta" | "google" | "tiktok" | "other">("meta");
-  const [override, setOverride] = useState("");  // valor manual (caso Pix sem valor)
-  const [notes,    setNotes]    = useState("");
-  const [step,     setStep]     = useState<"input" | "confirm" | "done">("input");
-  const [result,   setResult]   = useState<any>(null);
+  const [code,      setCode]      = useState("");
+  const [platform,  setPlatform]  = useState<"meta"|"google"|"tiktok"|"other">("meta");
+  const [override,  setOverride]  = useState("");
+  const [notes,     setNotes]     = useState("");
+  const [step,      setStep]      = useState<"input"|"confirm"|"done">("input");
+  const [result,    setResult]    = useState<any>(null);
+  const [scanMode,  setScanMode]  = useState(false);
+  const [scanErr,   setScanErr]   = useState("");
 
-  // Validação em tempo real
+  // Validação em tempo real — só dispara com 20+ chars
   const { data: validated, isLoading: validating } =
     (trpc as any).mediaBudget?.validateExternalCode?.useQuery?.(
-      { code },
-      { enabled: code.length > 20 }
+      { code: code.trim() },
+      { enabled: code.trim().length >= 20 }
     ) ?? { data: null, isLoading: false };
 
-  const finalAmount = validated?.amount ?? parseFloat(override) ?? 0;
+  const finalAmount   = validated?.amount ?? (parseFloat(override.replace(",", ".")) || 0);
   const needsOverride = validated?.valid && !validated?.amount;
-  const hasEnoughBalance = walletBalance >= finalAmount && finalAmount > 0;
+  const hasEnough     = walletBalance >= finalAmount && finalAmount > 0;
+
+  // ── Leitor QR Code via câmera (jsQR via CDN) ──────────────────────────────
+  function startScan() {
+    setScanErr(""); setScanMode(true);
+    if (!(window as any).jsQR) {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js";
+      s.onload = () => openCamera();
+      s.onerror = () => { setScanErr("Biblioteca QR não carregou. Cole o código manualmente."); setScanMode(false); };
+      document.head.appendChild(s);
+    } else { openCamera(); }
+  }
+
+  function openCamera() {
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: "environment" } })
+      .then(stream => {
+        const video = document.getElementById("pay-qr-video") as HTMLVideoElement;
+        if (!video) { stream.getTracks().forEach(t => t.stop()); return; }
+        video.srcObject = stream; video.play();
+        scanFrame(video, stream);
+      })
+      .catch(() => { setScanErr("Câmera não disponível. Permita o acesso ou cole o código."); setScanMode(false); });
+  }
+
+  function scanFrame(video: HTMLVideoElement, stream: MediaStream) {
+    let active = true;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    function tick() {
+      if (!active) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA && ctx) {
+        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = (window as any).jsQR?.(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+        if (data?.data) {
+          setCode(data.data); setScanMode(false); active = false;
+          stream.getTracks().forEach(t => t.stop());
+          toast.success("QR Code lido com sucesso!");
+          return;
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function stopScan() {
+    setScanMode(false);
+    const video = document.getElementById("pay-qr-video") as HTMLVideoElement;
+    if (video?.srcObject) { (video.srcObject as MediaStream).getTracks().forEach(t => t.stop()); video.srcObject = null; }
+  }
 
   const payMut = (trpc as any).mediaBudget?.payExternalCode?.useMutation?.({
-    onSuccess: (data: any) => {
-      setResult(data);
-      setStep("done");
-      toast.success(`◎ Pagamento de R$ ${data.amount.toFixed(2)} executado!`);
-    },
-    onError: (e: any) => {
-      toast.error(e.message);
-      setStep("input");
-    },
+    onSuccess: (data: any) => { setResult(data); setStep("done"); toast.success(`✅ Pagamento de R$ ${data.amount.toFixed(2)} realizado!`); },
+    onError:   (e: any)    => { toast.error(e.message); setStep("input"); },
   }) ?? { mutate: () => {}, isPending: false };
 
-  const handlePay = () => {
-    if (!validated?.valid) {
-      toast.error("Código inválido");
-      return;
-    }
-    if (!hasEnoughBalance) {
-      toast.error("Saldo insuficiente");
-      return;
-    }
-    payMut.mutate({
-      code,
-      amountOverride: needsOverride ? parseFloat(override) : undefined,
-      platform,
-      notes: notes || undefined,
-    });
-  };
+  function handlePay() {
+    if (!validated?.valid) { toast.error("Código inválido"); return; }
+    if (!hasEnough) { toast.error("Saldo insuficiente"); return; }
+    payMut.mutate({ code: code.trim(), amountOverride: needsOverride ? parseFloat(override.replace(",", ".")) : undefined, platform, notes: notes || undefined });
+  }
 
-  // STEP: done (sucesso)
-  if (step === "done" && result) {
-    return (
-      <div>
-        <SectionHeader icon="⎆" color="#af52de" title="Pagar Código" sub="Pagamento executado" onBack={onBack} />
-
-        <div style={{ background: "rgba(48,209,88,0.08)", border: "1.5px solid rgba(48,209,88,0.3)", borderRadius: "var(--r)", padding: 24, marginBottom: 20, textAlign: "center" }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>◎</div>
-          <div style={{ fontSize: 20, fontWeight: 900, color: "var(--green-d)", marginBottom: 6 }}>
-            Pagamento realizado
-          </div>
-          <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 16 }}>
-            R$ {result.amount?.toFixed(2)} · {result.type === "pix" ? "Pix" : "Boleto"} · {result.platform?.toUpperCase()}
-          </div>
-          {result.asaasId && (
-            <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>
-              ID: {result.asaasId}
-            </div>
-          )}
+  // ── SUCESSO ────────────────────────────────────────────────────────────────
+  if (step === "done" && result) return (
+    <div>
+      <SectionHeader icon="⎆" color="#af52de" title="Pagamento realizado!" sub="" onBack={onBack} />
+      <div style={{ background: "rgba(48,209,88,.08)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 16, padding: 28, marginBottom: 20, textAlign: "center" }}>
+        <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
+        <div style={{ fontSize: 22, fontWeight: 900, color: "var(--green-d)", marginBottom: 6 }}>Pagamento confirmado</div>
+        <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 8 }}>
+          R$ {result.amount?.toFixed(2)} · {result.type === "pix" ? "Pix" : "Boleto"} · {result.platform?.toUpperCase()}
         </div>
+        {result.asaasId && <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>ID: {result.asaasId}</div>}
+      </div>
+      <button onClick={() => { setStep("input"); setCode(""); setOverride(""); setNotes(""); setResult(null); }}
+        style={{ ...primaryBtn("var(--grad-primary)") }}>
+        Fazer novo pagamento
+      </button>
+    </div>
+  );
 
-        <button
-          onClick={() => {
-            setStep("input"); setCode(""); setOverride(""); setNotes(""); setResult(null);
-          }}
-          style={{ ...primaryBtn("var(--grad-primary)") }}>
-          Fazer novo pagamento
+  // ── CONFIRMAR ──────────────────────────────────────────────────────────────
+  if (step === "confirm" && validated?.valid) return (
+    <div>
+      <SectionHeader icon="⎆" color="#af52de" title="Confirmar pagamento" sub="Revise os dados antes de confirmar" onBack={() => setStep("input")} />
+      <div style={{ background: "var(--off)", borderRadius: 14, padding: 20, marginBottom: 16 }}>
+        {[
+          { l: "Tipo",       v: validated.type === "pix" ? "📱 Pix copia-e-cola" : "📄 Boleto bancário" },
+          { l: "Plataforma", v: platform === "meta" ? "📘 Meta Ads" : platform === "google" ? "🔵 Google Ads" : platform === "tiktok" ? "◼ TikTok Ads" : "◌ Outra" },
+          { l: "Valor",      v: `R$ ${finalAmount.toFixed(2)}`, bold: true },
+          ...(validated.recipient  ? [{ l: "Recebedor",   v: validated.recipient }] : []),
+          ...(validated.expiresAt  ? [{ l: "Vencimento",  v: new Date(validated.expiresAt).toLocaleDateString("pt-BR") }] : []),
+          { l: "Saldo antes",  v: `R$ ${walletBalance.toFixed(2)}` },
+          { l: "Saldo depois", v: `R$ ${(walletBalance - finalAmount).toFixed(2)}`, bold: true, color: "var(--green-d)" },
+        ].map((r: any, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+            <span style={{ fontSize: 13, color: "var(--muted)" }}>{r.l}</span>
+            <span style={{ fontSize: r.bold ? 16 : 13, fontWeight: r.bold ? 900 : 700, color: r.color || "var(--dark)" }}>{r.v}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: "rgba(255,159,10,.06)", border: "1px solid rgba(255,159,10,.2)", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 12, color: "#b25000" }}>
+        ⚠️ Após confirmar o valor é debitado da Wallet e enviado ao gateway. Ação irreversível.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <button onClick={() => setStep("input")} style={{ padding: "13px", borderRadius: 12, border: "1.5px solid var(--border)", background: "white", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "var(--font)" }}>← Voltar</button>
+        <button onClick={handlePay} disabled={payMut.isPending} style={{ ...primaryBtn("linear-gradient(135deg,#af52de,#6d2b9f)"), opacity: payMut.isPending ? 0.6 : 1 }}>
+          {payMut.isPending ? "⏳ Processando..." : `✅ Confirmar · R$ ${finalAmount.toFixed(2)}`}
         </button>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // STEP: confirm
-  if (step === "confirm" && validated?.valid) {
-    return (
-      <div>
-        <SectionHeader icon="⎆" color="#af52de" title="Confirmar Pagamento" sub="Revise os dados antes de confirmar" onBack={() => setStep("input")} />
-
-        <div style={{ background: "var(--off)", borderRadius: "var(--r)", padding: 20, marginBottom: 16 }}>
-          <div style={{ display: "grid", gap: 12 }}>
-            <Row label="Tipo" value={validated.type === "pix" ? "📱 Pix copia-e-cola" : "📄 Boleto bancário"} />
-            <Row label="Valor" value={`R$ ${finalAmount.toFixed(2)}`} bold />
-            <Row label="Plataforma" value={platform === "meta" ? "📘 Meta Ads" : platform === "google" ? "🔵 Google Ads" : platform === "tiktok" ? "◼ TikTok Ads" : "Outra"} />
-            {validated.recipient && <Row label="Recebedor" value={validated.recipient} />}
-            {validated.expiresAt && <Row label="Vencimento" value={new Date(validated.expiresAt).toLocaleDateString("pt-BR")} />}
-            <Row label="Saldo antes" value={`R$ ${walletBalance.toFixed(2)}`} />
-            <Row label="Saldo depois" value={`R$ ${(walletBalance - finalAmount).toFixed(2)}`} color="var(--green-d)" bold />
-          </div>
-        </div>
-
-        <div style={{ background: "rgba(255,159,10,0.06)", border: "1px solid rgba(255,159,10,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 20, fontSize: 12, color: "#b25000" }}>
-          ◬ Confirmação final — após clicar, o valor será debitado do saldo e o pagamento enviado ao gateway.
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <button onClick={() => setStep("input")} style={{ padding: "13px", borderRadius: 12, border: "1.5px solid var(--border)", background: "white", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
-            Voltar
-          </button>
-          <button onClick={handlePay} disabled={payMut.isPending} style={{ ...primaryBtn("linear-gradient(135deg,#af52de,#6d2b9f)"), opacity: payMut.isPending ? 0.6 : 1 }}>
-            {payMut.isPending ? "Processando..." : `◎ Confirmar · R$ ${finalAmount.toFixed(2)}`}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // STEP: input
+  // ── FORMULÁRIO PRINCIPAL ───────────────────────────────────────────────────
   return (
     <div>
-      <SectionHeader icon="⎆" color="#af52de" title="Pagar Código Externo"
-        sub="Cole o código Pix ou boleto gerado na plataforma de anúncios" onBack={onBack} />
+      <SectionHeader icon="⎆" color="#af52de" title="Pagar Código Ads"
+        sub="Cole ou escaneie o código Pix/boleto gerado nas plataformas" onBack={onBack} />
 
       {/* Saldo */}
       <InfoCard color="#af52de">
-        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
-          Saldo disponível na wallet
-        </div>
-        <div style={{ fontSize: 36, fontWeight: 900, color: "#af52de", letterSpacing: "-0.05em" }}>
-          {R(walletBalance)}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Saldo disponível na Wallet</div>
+            <div style={{ fontSize: 32, fontWeight: 900, color: "#af52de", letterSpacing: "-.04em" }}>{R(walletBalance)}</div>
+          </div>
+          {walletBalance <= 0 && (
+            <div style={{ background: "rgba(255,59,48,.08)", border: "1px solid rgba(255,59,48,.2)", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "var(--red)", lineHeight: 1.5 }}>
+              ⚠️ Saldo zero.<br/>Deposite antes de pagar.
+            </div>
+          )}
         </div>
       </InfoCard>
 
       {/* Explicação */}
-      <div style={{ background: "var(--blue-l)", border: "1px solid rgba(0,113,227,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--blue)", lineHeight: 1.5 }}>
-        ◉ <strong>Como funciona:</strong> gere um Pix ou boleto na Meta/Google/TikTok Ads, cole o código aqui e o MECPro paga usando seu saldo. Totalmente legal — o MECPro não acessa sua conta na plataforma.
+      <div style={{ background: "rgba(0,113,227,.05)", border: "1px solid rgba(0,113,227,.15)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--blue)", lineHeight: 1.6 }}>
+        <strong>Como funciona:</strong> gere um Pix ou boleto na Meta / Google / TikTok Ads, cole ou escaneie aqui — o MECPro paga usando seu saldo da Wallet. 100% legal, sem acesso à sua conta nas plataformas.
       </div>
 
       {/* Plataforma */}
-      <div style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>
-          Plataforma de destino
+      <div style={{ marginBottom: 18 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 8 }}>
+          1. Plataforma de destino
         </label>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
           {[
             { key: "meta",   label: "Meta",   icon: "📘", color: "#1877f2" },
             { key: "google", label: "Google", icon: "🔵", color: "#1a73e8" },
             { key: "tiktok", label: "TikTok", icon: "◼",  color: "#111"    },
             { key: "other",  label: "Outra",  icon: "◌",  color: "#6b7280" },
           ].map(p => (
-            <button key={p.key}
-              onClick={() => setPlatform(p.key as any)}
-              style={{
-                padding: "10px 6px", borderRadius: 10,
-                border: platform === p.key ? `2px solid ${p.color}` : "1.5px solid var(--border)",
-                background: platform === p.key ? p.color + "12" : "white",
-                fontWeight: 700, fontSize: 12, cursor: "pointer",
-                fontFamily: "var(--font)",
-              }}>
-              <div style={{ fontSize: 18, marginBottom: 2 }}>{p.icon}</div>
-              {p.label}
+            <button key={p.key} onClick={() => setPlatform(p.key as any)}
+              style={{ padding: "10px 6px", borderRadius: 10, border: platform === p.key ? `2px solid ${p.color}` : "1.5px solid var(--border)", background: platform === p.key ? p.color + "12" : "white", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: "var(--font)", transition: "all .15s" }}>
+              <div style={{ fontSize: 18, marginBottom: 2 }}>{p.icon}</div>{p.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Código */}
+      {/* Código — colar ou câmera */}
       <div style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>
-          Código Pix ou linha digitável do boleto
-        </label>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em" }}>
+            2. Código Pix ou boleto
+          </label>
+          <button onClick={scanMode ? stopScan : startScan}
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: scanMode ? "var(--red)" : "#af52de", background: scanMode ? "rgba(255,59,48,.06)" : "rgba(175,82,222,.08)", border: `1px solid ${scanMode ? "rgba(255,59,48,.2)" : "rgba(175,82,222,.2)"}`, borderRadius: 8, padding: "5px 12px", cursor: "pointer", fontFamily: "var(--font)" }}>
+            {scanMode ? "⏹ Parar câmera" : "📷 Escanear QR Code"}
+          </button>
+        </div>
+
+        {/* Preview câmera */}
+        {scanMode && (
+          <div style={{ marginBottom: 12, borderRadius: 14, overflow: "hidden", border: "2px solid #af52de", position: "relative", background: "#000" }}>
+            <video id="pay-qr-video" style={{ width: "100%", maxHeight: 260, objectFit: "cover", display: "block" }} playsInline muted />
+            <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, textAlign: "center", fontSize: 12, color: "#fff", fontWeight: 700 }}>
+              📷 Aponte para o QR Code
+            </div>
+          </div>
+        )}
+        {scanErr && (
+          <div style={{ marginBottom: 10, fontSize: 12, color: "var(--red)", background: "rgba(255,59,48,.06)", borderRadius: 8, padding: "8px 12px" }}>
+            ⚠️ {scanErr}
+          </div>
+        )}
+
         <textarea
           value={code}
           onChange={e => setCode(e.target.value)}
           placeholder="Cole aqui o código Pix copia-e-cola ou a linha digitável do boleto..."
           rows={4}
-          style={{
-            width: "100%", padding: "12px 14px", borderRadius: 11,
-            border: `1.5px solid ${validated?.valid ? "rgba(48,209,88,0.4)" : validated?.error ? "rgba(255,59,48,0.3)" : "var(--border)"}`,
-            fontSize: 12, fontFamily: "monospace", boxSizing: "border-box",
-            resize: "vertical", minHeight: 80,
-          }}
+          style={{ width: "100%", padding: "12px 14px", borderRadius: 11, border: `1.5px solid ${validated?.valid ? "rgba(48,209,88,.5)" : code.trim().length > 20 && validated && !validated.valid ? "rgba(255,59,48,.3)" : "var(--border)"}`, fontSize: 12, fontFamily: "monospace", boxSizing: "border-box", resize: "vertical", minHeight: 90, transition: "border-color .2s", outline: "none" }}
         />
-        {validating && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Validando...</div>}
-        {validated?.valid && (
-          <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(48,209,88,0.08)", borderRadius: 10, fontSize: 12, color: "var(--green-d)" }}>
-            ◎ {validated.type === "pix" ? "Pix válido" : "Boleto válido"}
-            {validated.amount && ` · R$ ${validated.amount.toFixed(2)}`}
-            {validated.recipient && ` · ${validated.recipient}`}
-            {validated.expiresAt && ` · vence ${new Date(validated.expiresAt).toLocaleDateString("pt-BR")}`}
+
+        {/* Feedback validação */}
+        {code.trim().length > 0 && code.trim().length < 20 && (
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--muted)" }}>
+            ✏️ Continue digitando... ({code.trim().length}/20 mín)
           </div>
         )}
-        {code.length > 20 && validated && !validated.valid && (
-          <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(255,59,48,0.06)", borderRadius: 10, fontSize: 12, color: "var(--red)" }}>
-            ✕ {validated.error || "Código inválido"}
+        {validating && (
+          <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #e5e7eb", borderTop: "2px solid #af52de", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+            Validando código...
+          </div>
+        )}
+        {validated?.valid && !validating && (
+          <div style={{ marginTop: 8, padding: "12px 14px", background: "rgba(48,209,88,.08)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 10 }}>
+            <div style={{ fontWeight: 800, color: "var(--green-d)", marginBottom: 6, fontSize: 13 }}>
+              ✅ {validated.type === "pix" ? "📱 Pix válido" : "📄 Boleto válido"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12, color: "var(--body)" }}>
+              {validated.amount    && <div>💰 Valor: <strong>R$ {validated.amount.toFixed(2)}</strong></div>}
+              {validated.recipient && <div>👤 Recebedor: <strong>{validated.recipient}</strong></div>}
+              {validated.expiresAt && <div>📅 Vencimento: <strong>{new Date(validated.expiresAt).toLocaleDateString("pt-BR")}</strong></div>}
+              {validated.description && <div>📝 {validated.description}</div>}
+            </div>
+          </div>
+        )}
+        {code.trim().length >= 20 && !validating && validated && !validated.valid && (
+          <div style={{ marginTop: 8, padding: "10px 14px", background: "rgba(255,59,48,.06)", border: "1px solid rgba(255,59,48,.2)", borderRadius: 10, fontSize: 12, color: "var(--red)" }}>
+            ❌ {validated.error || "Código inválido. Verifique se é um Pix copia-e-cola ou linha digitável de boleto."}
           </div>
         )}
       </div>
 
-      {/* Valor manual se Pix sem valor */}
+      {/* Valor manual se Pix sem valor fixo */}
       {needsOverride && (
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
-            Valor a pagar (código Pix sem valor fixo)
+          <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 6 }}>
+            3. Valor a pagar <span style={{ color: "var(--orange)", fontWeight: 400 }}>(Pix sem valor fixo)</span>
           </label>
-          <input
-            type="number"
-            value={override}
-            onChange={e => setOverride(e.target.value)}
-            placeholder="Ex: 100.00"
-            step="0.01"
-            style={{ width: "100%", padding: "12px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 18, fontWeight: 800, fontFamily: "var(--font)", boxSizing: "border-box" }}
-          />
+          <input type="number" value={override} onChange={e => setOverride(e.target.value)}
+            placeholder="0,00" step="0.01"
+            style={{ width: "100%", padding: "12px 14px", borderRadius: 11, border: "1.5px solid var(--border)", fontSize: 18, fontWeight: 800, fontFamily: "var(--font)", boxSizing: "border-box" }} />
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>Este Pix não tem valor definido. Informe o quanto deseja pagar.</div>
         </div>
       )}
 
       {/* Notas */}
       <div style={{ marginBottom: 20 }}>
-        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
-          Descrição (opcional)
+        <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", display: "block", marginBottom: 6 }}>
+          {needsOverride ? "4." : "3."} Descrição <span style={{ fontWeight: 400, textTransform: "none" }}>(opcional)</span>
         </label>
-        <input
-          value={notes}
-          onChange={e => setNotes(e.target.value)}
-          placeholder="Ex: Recarga conta Meta Ads - campanha X"
-          maxLength={200}
-          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }}
-        />
+        <input value={notes} onChange={e => setNotes(e.target.value)}
+          placeholder="Ex: Recarga Meta Ads — campanha de verão" maxLength={200}
+          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }} />
       </div>
 
-      {/* Botão */}
+      {/* CTA */}
       <button
         onClick={() => setStep("confirm")}
-        disabled={!validated?.valid || !hasEnoughBalance || (needsOverride && !parseFloat(override))}
-        style={{
-          ...primaryBtn("linear-gradient(135deg,#af52de,#6d2b9f)"),
-          opacity: (!validated?.valid || !hasEnoughBalance || (needsOverride && !parseFloat(override))) ? 0.5 : 1,
-        }}>
+        disabled={!validated?.valid || !hasEnough || (needsOverride && !parseFloat(override.replace(",", ".")))}
+        style={{ ...primaryBtn("linear-gradient(135deg,#af52de,#6d2b9f)"), opacity: (!validated?.valid || !hasEnough || (needsOverride && !parseFloat(override.replace(",", ".")))) ? 0.45 : 1 }}>
         {!validated?.valid
-          ? "Cole um código válido"
-          : !hasEnoughBalance
-            ? `Saldo insuficiente · falta R$ ${(finalAmount - walletBalance).toFixed(2)}`
-            : `Revisar pagamento · R$ ${finalAmount.toFixed(2)}`}
+          ? "Cole ou escaneie um código válido"
+          : !hasEnough
+            ? `⚠️ Saldo insuficiente — falta R$ ${Math.max(0, finalAmount - walletBalance).toFixed(2)}`
+            : `Revisar pagamento · R$ ${finalAmount.toFixed(2)} →`}
       </button>
+
+      {/* Formatos aceitos */}
+      <div style={{ marginTop: 16, background: "var(--off)", borderRadius: 12, padding: "14px 16px" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", marginBottom: 10, textTransform: "uppercase", letterSpacing: ".06em" }}>Formatos aceitos</div>
+        {[
+          { icon: "📱", t: "Pix copia-e-cola",       d: 'Começa com "00020126..." — copie no app da plataforma de anúncios' },
+          { icon: "📄", t: "Linha digitável boleto",  d: "47 ou 48 dígitos — disponível no boleto bancário gerado" },
+          { icon: "📷", t: "QR Code",                 d: "Escaneie com a câmera do dispositivo — Pix ou boleto" },
+        ].map(f => (
+          <div key={f.t} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 8 }}>
+            <span style={{ fontSize: 16, flexShrink: 0 }}>{f.icon}</span>
+            <div style={{ fontSize: 12 }}>
+              <strong style={{ color: "var(--dark)" }}>{f.t}</strong>
+              <span style={{ color: "var(--muted)" }}> — {f.d}</span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
+
 
 // Helper para rows de revisão
 function Row({ label, value, bold, color }: { label: string; value: string; bold?: boolean; color?: string }) {

@@ -8,6 +8,7 @@ import { getDb, getPool } from "../db";
 import { and, eq, max, min, or } from "drizzle-orm";
 import { apiIntegrations as integrations, userAlertConfigs } from "../schema";
 import { SignJWT } from "jose";
+import { validateCode, type ValidatedCode } from "./pixBoletoValidator";
 import { ENV } from "./env";
 import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
