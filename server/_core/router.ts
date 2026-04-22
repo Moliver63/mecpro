@@ -7979,18 +7979,100 @@ const mediaBudgetRouter = router({
         }
       }
 
-      // Se o código tem valor fixo (campo 54), amountOverride será IGNORADO no pagamento
-      const amountLocked = result.amount != null;
+      // ── Para Pix dinâmico (campo 01=12), resolve a URL para obter valor e chave ──
+      let resolvedAmount:    number | null = result.amount ? result.amount / 100 : null;
+      let resolvedRecipient: string | null = result.recipient ?? null;
+      let resolvedPixKey:    string | null = (result as any).pixKey ?? null;
+      let resolvedPlatform:  string | null = (result as any).detectedPlatform ?? null;
+      let isDynamic = false;
+
+      if (result.type === "pix" && !result.amount) {
+        // Tenta detectar se é Pix dinâmico e resolve a URL
+        try {
+          const clean = input.code.trim().replace(/[\s
+	]/g, "");
+          // Parse TLV mínimo para verificar campo 01 e extrair URL do campo 26 sub-25
+          const body = clean.slice(0, -4);
+          const tlvFields: Record<string, string> = {};
+          let i = 0;
+          while (i < body.length) {
+            if (i + 4 > body.length) break;
+            const id  = body.slice(i, i + 2);
+            const len = parseInt(body.slice(i + 2, i + 4), 10);
+            if (isNaN(len) || len < 0 || i + 4 + len > body.length) break;
+            tlvFields[id] = body.slice(i + 4, i + 4 + len);
+            i += 4 + len;
+          }
+
+          isDynamic = tlvFields["01"] === "12";
+
+          if (isDynamic && tlvFields["26"]) {
+            // Extrai sub-25 (URL de cobrança) do campo 26
+            const f26 = tlvFields["26"];
+            let locationUrl = "";
+            let j = 0;
+            while (j < f26.length) {
+              if (j + 4 > f26.length) break;
+              const sid  = f26.slice(j, j + 2);
+              const slen = parseInt(f26.slice(j + 2, j + 4), 10);
+              if (isNaN(slen) || slen < 0 || j + 4 + slen > f26.length) break;
+              if (sid === "25") { locationUrl = f26.slice(j + 4, j + 4 + slen); break; }
+              j += 4 + slen;
+            }
+
+            if (locationUrl) {
+              const fullUrl = locationUrl.startsWith("http") ? locationUrl : "https://" + locationUrl;
+              const locRes  = await fetch(fullUrl, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+              const locText = await locRes.text();
+
+              if (locRes.ok && locText.trim()) {
+                let loc: any = {};
+                if (locText.startsWith("eyJ")) {
+                  // JWT da DLocal — decodifica o payload
+                  const parts     = locText.trim().split(".");
+                  if (parts.length >= 2) {
+                    const b64   = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+                    const pad   = b64 + "=".repeat((4 - b64.length % 4) % 4);
+                    loc = JSON.parse(Buffer.from(pad, "base64").toString("utf-8"));
+                  }
+                } else {
+                  loc = JSON.parse(locText);
+                }
+
+                // Extrai valor
+                const rawVal = loc.valor?.original || loc.value || loc.amount || 0;
+                const parsed = parseFloat(String(rawVal));
+                if (!isNaN(parsed) && parsed > 0) resolvedAmount = parsed;
+
+                // Extrai chave e plataforma
+                resolvedPixKey = loc.chave || loc.pixKey || resolvedPixKey || null;
+                const nome     = loc.recebedor?.nome || loc.devedor?.nome || loc.merchant?.name || "";
+                if (nome) resolvedRecipient = nome;
+
+                // Detecta plataforma pelo nome
+                const nomeUp = (resolvedRecipient || "").toUpperCase();
+                if      (nomeUp.includes("FACEBOOK") || nomeUp.includes("META") || nomeUp.includes("DLOCAL")) resolvedPlatform = "meta";
+                else if (nomeUp.includes("GOOGLE"))  resolvedPlatform = "google";
+                else if (nomeUp.includes("TIKTOK"))  resolvedPlatform = "tiktok";
+              }
+            }
+          }
+        } catch { /* falha silenciosa — usuário ainda pode pagar */ }
+      }
+
+      // amountLocked: true se o valor veio do código (não pode ser alterado pelo usuário)
+      const amountLocked = resolvedAmount !== null;
 
       return {
         type:             result.type,
         valid:            !alreadyUsed,
-        amount:           result.amount ? result.amount / 100 : null,
-        amountLocked:     result.amount != null,
+        amount:           resolvedAmount,
+        amountLocked,
+        isDynamic,
         expiresAt:        result.expiresAt?.toISOString() ?? null,
-        recipient:        result.recipient ?? null,
-        pixKey:           (result as any).pixKey ?? null,
-        detectedPlatform: (result as any).detectedPlatform ?? null,
+        recipient:        resolvedRecipient,
+        pixKey:           resolvedPixKey,
+        detectedPlatform: resolvedPlatform,
         description:      result.description ?? null,
         error:            alreadyUsed
                             ? `Código já utilizado em ${usedAt}. Gere um novo código na plataforma.`
