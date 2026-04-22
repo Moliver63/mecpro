@@ -8126,6 +8126,7 @@ const mediaBudgetRouter = router({
           //   1. Decodificar o payload via /v3/pix/qrCodes/decode
           //   2. Pagar via /v3/transfers com a chave extraída
           const pixClean = parsed.raw.trim().replace(/[\s\r\n\t]/g, "");
+          log.info("payExternalCode", "Pix payload para decode", { len: pixClean.length, prefix: pixClean.slice(0,40), suffix: pixClean.slice(-12) });
 
           // Etapa 1: Decodificar o QR Code para extrair chave Pix
           // Tenta /v3/pix/qrCodes/decode — endpoint oficial Asaas
@@ -8182,16 +8183,31 @@ const mediaBudgetRouter = router({
                 i += 4 + len;
               }
             }
-            // Detecta tipo da chave extraída
+            // Detecta tipo e normaliza a chave extraída
             if (pixKey) {
               const k = pixKey.replace(/\D/g, "");
-              if (k.length === 11) pixKeyType = "CPF";
-              else if (k.length === 14) pixKeyType = "CNPJ";
-              else if (pixKey.includes("@")) pixKeyType = "EMAIL";
-              else if (/^\+?55/.test(pixKey)) pixKeyType = "PHONE";
-              else if (/^[0-9a-f]{8}-/.test(pixKey.toLowerCase())) pixKeyType = "EVP";
-              else pixKeyType = "EVP";
-              log.info("payExternalCode", "Chave extraída do TLV local", { pixKey: pixKey.slice(0, 20), pixKeyType });
+              if (pixKey.includes("@")) {
+                pixKeyType = "EMAIL";
+                // chave email: usar como está
+              } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(pixKey)) {
+                pixKeyType = "EVP";
+                // UUID EVP: usar como está (lowercase)
+                pixKey = pixKey.toLowerCase();
+              } else if (/^\+?55\d{10,11}$/.test(pixKey.replace(/[\s\-]/g, ""))) {
+                pixKeyType = "PHONE";
+                // Telefone: normaliza para +55XXXXXXXXXXX
+                pixKey = "+" + pixKey.replace(/\D/g, "");
+                if (!pixKey.startsWith("+55")) pixKey = "+55" + pixKey.slice(1);
+              } else if (k.length === 11) {
+                pixKeyType = "CPF";
+                pixKey = k; // só dígitos
+              } else if (k.length === 14) {
+                pixKeyType = "CNPJ";
+                pixKey = k; // só dígitos (sem pontos/barras)
+              } else {
+                pixKeyType = "EVP";
+              }
+              log.info("payExternalCode", "Chave extraída do TLV local", { pixKey: pixKey.slice(0, 30), pixKeyType });
             }
           }
 
