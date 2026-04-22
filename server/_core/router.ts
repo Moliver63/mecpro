@@ -7937,7 +7937,7 @@ const mediaBudgetRouter = router({
 
   // ── Validar código Pix/boleto SEM pagar (preview do valor/vencimento) ───
   validateExternalCode: protectedProcedure
-    .input(z.object({ code: z.string().min(10).max(1024) }))
+    .input(z.object({ code: z.string().min(20).max(1024) }))
     .query(async ({ ctx, input }) => {
       const result = validateCode(input.code);
       if (result.type === "invalid") {
@@ -8120,43 +8120,45 @@ const mediaBudgetRouter = router({
         let asaasResp: any;
 
         if (parsed.type === "pix") {
-          // Pagar Pix copia-e-cola via Asaas
-          const payRes = await fetch("https://api.asaas.com/v3/transfers", {
+          // ── Pix copia-e-cola: endpoint correto /v3/pixTransactions/qrCode/pay ──
+          // ERRO ANTERIOR: /v3/transfers espera uma CHAVE Pix (CPF/CNPJ/email)
+          // Para pagar um BR Code / EMV completo usa-se o endpoint de QR Code
+          const pixClean = parsed.raw.trim().replace(/[\s\r\n\t]/g, "");
+          const pixBody: Record<string, unknown> = { payload: pixClean };
+          // Envia value só se o código é de valor aberto (sem campo 54)
+          if (!parsed.amount && amountReais) pixBody.value = amountReais;
+
+          const payRes = await fetch("https://api.asaas.com/v3/pixTransactions/qrCode/pay", {
             method:  "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
-            body: JSON.stringify({
-              operationType: "PIX",
-              value:         amountReais,
-              pixAddressKey: parsed.raw,  // código Pix copia-e-cola
-              pixAddressKeyType: "EVP",
-              description:   input.notes?.slice(0, 140) || `Pagamento ${input.platform}`,
-            }),
+            body: JSON.stringify(pixBody),
             signal: AbortSignal.timeout(20000),
           });
           asaasResp = await payRes.json();
-
           if (!payRes.ok || asaasResp.errors) {
-            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha no Asaas";
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha ao pagar Pix";
             throw new Error(errMsg);
           }
         } else {
-          // Boleto — Asaas tem endpoint de payment
-          const payRes = await fetch("https://api.asaas.com/v3/payments", {
+          // ── Boleto: endpoint /v3/bankSlipPayments ─────────────────────────────
+          const dueDate = parsed.expiresAt
+            ? parsed.expiresAt.toISOString().split("T")[0]
+            : new Date(Date.now() + 86400000).toISOString().split("T")[0];
+          const boletoDigits = parsed.raw.replace(/\D/g, "");
+          const payRes = await fetch("https://api.asaas.com/v3/bankSlipPayments", {
             method:  "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
             body: JSON.stringify({
-              billingType:   "BOLETO",
-              value:         amountReais,
-              dueDate:       parsed.expiresAt?.toISOString().split("T")[0],
-              identificationField: parsed.raw.replace(/\D/g, ""),
-              description:   input.notes?.slice(0, 140) || `Boleto ${input.platform}`,
+              identificationField: boletoDigits,
+              value:               amountReais,
+              scheduleDate:        dueDate,
+              description:         input.notes?.slice(0, 140) || `Boleto ${input.platform}`,
             }),
             signal: AbortSignal.timeout(20000),
           });
           asaasResp = await payRes.json();
-
           if (!payRes.ok || asaasResp.errors) {
-            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha no Asaas";
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha ao pagar boleto";
             throw new Error(errMsg);
           }
         }
