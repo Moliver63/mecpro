@@ -2668,10 +2668,12 @@ const campaignsRouter = router({
           // Regras Meta: cada card tem link, imagem, título e CTA próprios
           const items = carouselHashes || carouselUrls || [];
           const child_attachments = items.map((item: string, idx: number) => ({
-            link:           finalLink,
+            link:           isWhatsAppDestination ? "https://wa.me/" : finalLink,
             name:           `${selectedHeadline} ${idx > 0 ? `(${idx + 1})` : ""}`.trim(),
             description:    idx === 0 ? selectedDescription : "",
-            call_to_action: { type: ctaType, value: ctaValue },
+            call_to_action: isWhatsAppDestination
+              ? { type: "WHATSAPP_MESSAGE" }
+              : { type: ctaType, value: ctaValue },
             ...(carouselHashes
               ? { image_hash: item }
               : { picture:    item }),
@@ -2789,10 +2791,10 @@ const campaignsRouter = router({
               video_id:       effectiveVideoId,
               message:        selectedMessage,
               title:          selectedHeadline,
-              call_to_action: {
-                type:  ctaType,
-                value: ctaValue,
-              },
+              call_to_action: isWhatsAppDestination
+                // WHATSAPP_MESSAGE em video_data: apenas type, sem value (API rejeita link)
+                ? { type: "WHATSAPP_MESSAGE" }
+                : { type: ctaType, value: ctaValue },
             };
             if (videoThumbHash) {
               videoDataPayload.image_hash = videoThumbHash;
@@ -2810,10 +2812,13 @@ const campaignsRouter = router({
                 message:        selectedMessage,
                 name:           selectedHeadline,
                 link:           finalLink,
-                call_to_action: {
-                  type: noLinkRequired && !effectiveLink && !isWhatsAppDestination ? "LEARN_MORE" : ctaType,
-                  ...(noLinkRequired && !effectiveLink && !isWhatsAppDestination ? {} : { value: ctaValue }),
-                },
+                call_to_action: isWhatsAppDestination
+                  // WHATSAPP_MESSAGE em link_data: apenas type, sem value com link
+                  ? { type: "WHATSAPP_MESSAGE" }
+                  : {
+                    type: noLinkRequired && !effectiveLink ? "LEARN_MORE" : ctaType,
+                    ...(noLinkRequired && !effectiveLink ? {} : { value: ctaValue }),
+                  },
                 ...(resolvedImageHash
                   ? { image_hash: resolvedImageHash }
                   : resolvedImageUrl
