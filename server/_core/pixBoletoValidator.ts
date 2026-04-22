@@ -234,7 +234,7 @@ export function validateBoletoCode(raw: string): ValidatedCode {
     return {
       type:      "boleto",
       raw,
-      amount:    valor > 0 ? valor : undefined,
+      amount:    valor > 0 ? valor : undefined,  // em centavos (dividido por 100 no endpoint)
       expiresAt,
     };
   }

@@ -3,7 +3,7 @@
  * Cada aba tem o conteúdo REAL embutido + botão de voltar interno
  * Design: Liquid Glass · MECPro AI Design System v2
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -446,55 +446,92 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
   const hasEnough     = walletBalance >= finalAmount && finalAmount > 0;
 
   // ── Leitor QR Code via câmera (jsQR via CDN) ──────────────────────────────
+  // Usa ref para controlar o loop de scan independente do ciclo de render React
+  const scanActiveRef = useRef(false);
+  const streamRef     = useRef<MediaStream | null>(null);
+
+  function stopScan() {
+    scanActiveRef.current = false;
+    setScanMode(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    const video = document.getElementById("pay-qr-video") as HTMLVideoElement;
+    if (video) { video.srcObject = null; }
+  }
+
   function startScan() {
-    setScanErr(""); setScanMode(true);
+    setScanErr(""); setScanMode(true); scanActiveRef.current = true;
     if (!(window as any).jsQR) {
       const s = document.createElement("script");
       s.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js";
-      s.onload = () => openCamera();
-      s.onerror = () => { setScanErr("Biblioteca QR não carregou. Cole o código manualmente."); setScanMode(false); };
+      s.onload  = () => openCamera();
+      s.onerror = () => { setScanErr("Biblioteca QR não carregou. Cole o código manualmente."); stopScan(); };
       document.head.appendChild(s);
     } else { openCamera(); }
   }
 
   function openCamera() {
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: "environment" } })
+    if (!scanActiveRef.current) return;
+    navigator.mediaDevices?.getUserMedia({ video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } })
       .then(stream => {
-        const video = document.getElementById("pay-qr-video") as HTMLVideoElement;
-        if (!video) { stream.getTracks().forEach(t => t.stop()); return; }
-        video.srcObject = stream; video.play();
-        scanFrame(video, stream);
+        if (!scanActiveRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        // Aguarda o elemento de vídeo estar no DOM (pode demorar 1 render)
+        const tryAttach = (attempts = 0) => {
+          const video = document.getElementById("pay-qr-video") as HTMLVideoElement;
+          if (video) {
+            video.srcObject = stream;
+            video.play().then(() => scanFrame(video)).catch(() => {});
+          } else if (attempts < 10) {
+            setTimeout(() => tryAttach(attempts + 1), 100);
+          }
+        };
+        tryAttach();
       })
-      .catch(() => { setScanErr("Câmera não disponível. Permita o acesso ou cole o código."); setScanMode(false); });
+      .catch(err => {
+        const msg = err.name === "NotAllowedError"
+          ? "Permissão de câmera negada. Acesse as configurações do navegador e permita o acesso."
+          : err.name === "NotFoundError"
+            ? "Câmera não encontrada neste dispositivo."
+            : "Câmera indisponível. Cole o código manualmente.";
+        setScanErr(msg); stopScan();
+      });
   }
 
-  function scanFrame(video: HTMLVideoElement, stream: MediaStream) {
-    let active = true;
+  function scanFrame(video: HTMLVideoElement) {
     const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    let failCount = 0;
+
     function tick() {
-      if (!active) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA && ctx) {
-        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      if (!scanActiveRef.current) return; // para o loop quando stopScan é chamado
+      if (video.readyState >= video.HAVE_ENOUGH_DATA && ctx && video.videoWidth > 0) {
+        canvas.width  = video.videoWidth;
+        canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const data = (window as any).jsQR?.(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-        if (data?.data) {
-          setCode(data.data); setScanMode(false); active = false;
-          stream.getTracks().forEach(t => t.stop());
-          toast.success("QR Code lido com sucesso!");
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const qr = (window as any).jsQR?.(imgData.data, imgData.width, imgData.height, {
+          inversionAttempts: "attemptBoth", // tenta QR claro e escuro
+        });
+        if (qr?.data) {
+          setCode(qr.data);
+          toast.success("✅ QR Code lido com sucesso!");
+          stopScan();
           return;
+        }
+        failCount = 0;
+      } else {
+        failCount++;
+        if (failCount > 300) { // 5s sem frame → erro
+          setScanErr("Câmera não está enviando imagem. Tente novamente.");
+          stopScan(); return;
         }
       }
       requestAnimationFrame(tick);
     }
     requestAnimationFrame(tick);
-  }
-
-  function stopScan() {
-    setScanMode(false);
-    const video = document.getElementById("pay-qr-video") as HTMLVideoElement;
-    if (video?.srcObject) { (video.srcObject as MediaStream).getTracks().forEach(t => t.stop()); video.srcObject = null; }
   }
 
   const payMut = (trpc as any).mediaBudget?.payExternalCode?.useMutation?.({
