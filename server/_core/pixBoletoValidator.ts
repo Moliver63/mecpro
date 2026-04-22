@@ -37,6 +37,7 @@ function cleanCode(input: string): string {
 
 // ── CNPJs e nomes conhecidos das plataformas de anúncios ─────────────────────
 const PLATFORM_CNPJS: Record<string, string> = {
+  "13347016": "meta",    // DLocal Brasil (processador Meta/Facebook no Brasil)
   "15602422": "meta",    // Facebook Payments International Ltda
   "07587951": "meta",    // Meta Platforms Inc
   "06990590": "google",  // Google Brasil Internet Ltda
@@ -47,6 +48,7 @@ const PLATFORM_CNPJS: Record<string, string> = {
 const PLATFORM_NAMES: Record<string, string> = {
   "FACEBOOK":  "meta",
   "META":      "meta",
+  "DLOCAL":    "meta",   // DLocal é o processador de pagamentos da Meta no Brasil
   "GOOGLE":    "google",
   "TIKTOK":    "tiktok",
   "BYTEDANCE": "tiktok",

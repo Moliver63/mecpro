@@ -8180,11 +8180,28 @@ const mediaBudgetRouter = router({
                 log.info("payExternalCode", "Location URL resposta", { status: locRes.status, preview: locText.slice(0, 300) });
                 if (locRes.ok && locText.trim()) {
                   const loc: any = JSON.parse(locText);
-                  // BACEN API retorna { chave, valor, ... } ou estrutura EMV
-                  pixKey     = loc.chave      || loc.pixKey || loc.key || "";
-                  pixKeyType = loc.tipoChave  || loc.keyType || "EVP";
-                  if (loc.valor?.original) pixValue = parseFloat(loc.valor.original) || pixValue;
-                  else if (loc.value)      pixValue = loc.value || pixValue;
+                  // BACEN OpenAPI PIX formato padrão:
+                  // { chave: UUID, tipoChave: "EVP", valor: { original: "40.00" }, devedor: {...} }
+                  // Alternativa DLocal/processador:
+                  // { pixKey: UUID, pixKeyType: "EVP", value: 40.00 }
+                  pixKey = loc.chave || loc.pixKey || loc.key || loc.addressKey || "";
+                  // Normaliza o tipo da chave
+                  const rawType = loc.tipoChave || loc.keyType || loc.pixKeyType || loc.type || "";
+                  const typeMap: Record<string,string> = {
+                    "EVP":"EVP","CPF":"CPF","CNPJ":"CNPJ","EMAIL":"EMAIL",
+                    "PHONE":"PHONE","TELEFONE":"PHONE","CHAVE_ALEATORIA":"EVP",
+                    "RANDOM":"EVP","UUID":"EVP",
+                  };
+                  pixKeyType = typeMap[rawType.toUpperCase()] || "EVP";
+                  // Valor — tenta múltiplos formatos
+                  const rawVal = loc.valor?.original || loc.valor?.modalidadeAlteracao
+                    || loc.value || loc.amount || 0;
+                  const parsed = parseFloat(String(rawVal));
+                  if (!isNaN(parsed) && parsed > 0) pixValue = parsed;
+                  log.info("payExternalCode", "Pix dinâmico resolvido", {
+                    pixKey: pixKey.slice(0,36), pixKeyType, pixValue,
+                    devedor: loc.devedor?.nome || loc.debtor?.name || "(sem devedor)",
+                  });
                 }
               } catch (urlErr: any) {
                 log.warn("payExternalCode", "Falha ao resolver URL dinâmica", { error: urlErr.message });
