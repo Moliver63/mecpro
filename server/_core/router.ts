@@ -8302,6 +8302,26 @@ const mediaBudgetRouter = router({
             });
           }
 
+          // ── Trava o valor: usa SEMPRE o valor do código (JWT/campo 54) ─────────
+          // Se o JWT retornou valor (Pix dinâmico), usa ele e ignora o override do usuário
+          // Isso evita cobrar valor errado na wallet ou enviar valor diferente ao Asaas
+          if (pixValue !== amountReais && pixValue > 0) {
+            log.info("payExternalCode", "Valor travado pelo código Pix", {
+              valorUsuario: amountReais, valorCodigo: pixValue, usando: pixValue,
+            });
+            // Revalida saldo com o valor real
+            const amountCentsReal = Math.round(pixValue * 100);
+            if (balanceCents < amountCentsReal) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Saldo insuficiente para o valor do Pix (R$ ${pixValue.toFixed(2)}). Disponível: R$ ${(balanceCents/100).toFixed(2)}`,
+              });
+            }
+          }
+          // Usa pixValue como valor final (pode diferir do amountReais se veio do JWT)
+          const finalAmountReais = pixValue > 0 ? pixValue : amountReais;
+          const finalAmountCents = Math.round(finalAmountReais * 100);
+
           // Etapa 2: Executar a transferência Pix com a chave extraída
           const today = new Date().toISOString().split("T")[0];
           const payRes = await fetch("https://api.asaas.com/v3/transfers", {
@@ -8358,11 +8378,22 @@ const mediaBudgetRouter = router({
           }
         }
 
-        // 8. Debitar saldo (só após sucesso do Asaas)
+        // 8. Debitar saldo usando o valor REAL pago (pode diferir do override do usuário)
+        // Para Pix dinâmico, finalAmountCents vem do JWT; para boleto, usa amountCents
+        const debitCents = parsed.type === "pix" && typeof finalAmountCents !== "undefined"
+          ? finalAmountCents
+          : amountCents;
+        const debitReais = debitCents / 100;
+
         await pool.query(`
           UPDATE media_balance SET balance = balance - $1, "updatedAt" = NOW()
           WHERE "userId" = $2
-        `, [amountCents, ctx.user.id]);
+        `, [debitCents, ctx.user.id]);
+
+        // Atualiza o registro com o valor real debitado
+        await pool.query(`
+          UPDATE media_budget SET amount = $1, "netAmount" = $1 WHERE id = $2
+        `, [debitCents, budgetId]);
 
         // 9. Atualizar registro como approved
         await pool.query(`
@@ -8382,17 +8413,17 @@ const mediaBudgetRouter = router({
           await recordLedger(pool, {
             userId:    ctx.user.id,
             type:      "ad_spend",
-            amount:    amountCents,
+            amount:    debitCents,
             direction: "debit",
             platform:  input.platform,
             reference: `ext-pay-${budgetId}`,
-            notes:     `Pagamento ${parsed.type} externo — ${input.platform} — R$${amountReais.toFixed(2)}`,
+            notes:     `Pagamento ${parsed.type} externo — ${input.platform} — R$${debitReais.toFixed(2)}`,
           });
         } catch {}
 
         log.info("payExternalCode", "✅ Pagamento externo executado", {
           userId: ctx.user.id, budgetId, type: parsed.type,
-          amount: amountReais, platform: input.platform,
+          amount: debitReais, platform: input.platform,
           asaasId: asaasResp.id,
         });
 
