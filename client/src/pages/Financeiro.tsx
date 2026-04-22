@@ -861,6 +861,10 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
   const [campaigns, setCampaigns] = useState<Record<string, string>>({ meta: "", google: "", tiktok: "" });
   const [result,    setResult]    = useState<any>(null);
 
+  // Busca resumo financeiro (inclui depositedByPlatform)
+  const { data: summary } =
+    (trpc as any).mediaBudget?.financialSummary?.useQuery?.() ?? { data: null };
+
   // Busca campanhas ativas de todas as plataformas
   const { data: platformCamps, isLoading: loadingCamps } =
     (trpc as any).mediaBudget?.fetchActiveCampaigns?.useQuery?.() ?? { data: null, isLoading: false };
@@ -869,10 +873,7 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
   const googleCamps = platformCamps?.google ?? [];
   const tiktokCamps = platformCamps?.tiktok ?? [];
 
-  // Quando o usuário seleciona uma campanha, preenche o campo de ID
-  const selectCampaign = (plat: string, id: string) => {
-    setCampaigns(v => ({ ...v, [plat]: id }));
-  };
+  const selectCampaign = (plat: string, id: string) => setCampaigns(v => ({ ...v, [plat]: id }));
 
   const PLAT_CFG = [
     { key: "meta",   label: "Meta Ads",   icon: "📘", color: "#1877f2", bg: "rgba(24,119,242,0.08)"  },
@@ -880,7 +881,7 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
     { key: "tiktok", label: "TikTok Ads", icon: "◼",  color: "#111",    bg: "rgba(0,0,0,0.05)"       },
   ];
 
-  const total = PLAT_CFG.reduce((sum, p) => sum + (parseFloat(amounts[p.key]) || 0), 0);
+  const total    = PLAT_CFG.reduce((s, p) => s + (parseFloat(amounts[p.key]) || 0), 0);
   const hasEnough = walletBalance >= total && total > 0;
 
   const applyMut = (trpc as any).mediaBudget?.applyDistribution?.useMutation?.({
@@ -895,142 +896,141 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
   const handleBuy = () => {
     const items = PLAT_CFG
       .filter(p => parseFloat(amounts[p.key]) > 0 && campaigns[p.key])
-      .map(p => ({
-        platform:   p.key as "meta" | "google" | "tiktok",
-        campaignId: campaigns[p.key],
-        amount:     parseFloat(amounts[p.key]),
-      }));
-
-    if (!items.length) {
-      toast.error("Informe o valor e o ID da campanha para pelo menos uma plataforma.");
-      return;
-    }
-
+      .map(p => ({ platform: p.key as "meta"|"google"|"tiktok", campaignId: campaigns[p.key], amount: parseFloat(amounts[p.key]) }));
+    if (!items.length) { toast.error("Informe o valor e a campanha para pelo menos uma plataforma."); return; }
     applyMut.mutate({ items, totalAmount: total, deductFromBalance: true });
   };
 
   return (
     <div>
-      <SectionHeader icon="◆" color="#30d158" title="Comprar Créditos"
-        sub="Use seu saldo MECPro para adicionar verba nas campanhas" onBack={onBack} />
+      <SectionHeader icon="◆" color="#30d158" title="Distribuir Verba"
+        sub="Acompanhe o que você depositou e o saldo atual em cada plataforma" onBack={onBack} />
 
-      {/* Saldo disponível */}
+      {/* Saldo Wallet */}
       <InfoCard color="#30d158">
-        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>
-          Saldo disponível na wallet
+        <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 4 }}>
+          Saldo disponível na Wallet
         </div>
-        <div style={{ fontSize: 36, fontWeight: 900, color: "#30d158", letterSpacing: "-0.05em" }}>
-          {R(walletBalance)}
-        </div>
-        {walletBalance <= 0 && (
-          <div style={{ fontSize: 12, color: "var(--red)", marginTop: 6, fontWeight: 600 }}>
-            ◬ Saldo insuficiente — deposite primeiro na aba Depositar
-          </div>
-        )}
+        <div style={{ fontSize: 36, fontWeight: 900, color: "#30d158", letterSpacing: "-.05em" }}>{R(walletBalance)}</div>
+        {walletBalance <= 0 && <div style={{ fontSize: 12, color: "var(--red)", marginTop: 6, fontWeight: 600 }}>◬ Deposite primeiro na aba Depositar</div>}
       </InfoCard>
 
-      {/* Explicação rápida */}
-      <div style={{ background: "var(--blue-l)", border: "1px solid rgba(0,113,227,0.2)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "var(--blue)" }}>
-        ◉ Informe o valor e o ID da campanha em cada plataforma. O sistema atualiza o orçamento diário via API e debita seu saldo automaticamente.
-      </div>
+      {/* Painel de controle por plataforma */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 10 }}>
+          Controle por plataforma
+        </div>
 
-      {/* Cards por plataforma */}
-      {PLAT_CFG.map(p => {
-        const pd = (platBal as any)?.[p.key];
-        const platBalance = p.key === "google"
-          ? null  // Google não expõe saldo
-          : pd?.balance ?? null;
-        const platAlert = pd?.alert;
+        {PLAT_CFG.map(p => {
+          const pd         = (platBal as any)?.[p.key];
+          const deposited  = (summary as any)?.depositedByPlatform?.[p.key] ?? 0;
+          const platBal_v  = p.key === "google" ? null : (pd?.balance ?? null);
+          const platDisp   = pd?.displayBalance ?? platBal_v;
+          const platAlert  = pd?.alert;
 
-        return (
-        <div key={p.key} style={{ ...{ background: "var(--glass-bg)", backdropFilter: "var(--glass-blur)", border: `1px solid ${platAlert === "critical" ? "rgba(255,59,48,0.3)" : platAlert === "warning" ? "rgba(255,159,10,0.25)" : "var(--glass-border)"}`, borderRadius: "var(--r)", padding: 18, marginBottom: 12, boxShadow: "var(--shadow-xs)" } }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: platBalance !== null || p.key === "google" ? 8 : 14 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 9, background: p.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
-              {p.icon}
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: p.color }}>{p.label}</div>
-            {pd?.connected && platBalance !== null && (
-              <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                <div style={{ fontSize: 13, fontWeight: 900, color: (pd?.displayBalance ?? platBalance) > 0 ? "var(--dark)" : "var(--red)" }}>
-                  {R(pd?.displayBalance ?? platBalance)}
+          return (
+            <div key={p.key} style={{ background: "white", border: `1.5px solid ${platAlert === "critical" ? "rgba(255,59,48,.25)" : "var(--border)"}`, borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
+
+              {/* Header plataforma */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: p.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17 }}>
+                  {p.icon}
                 </div>
-                <div style={{ fontSize: 9, color: "var(--muted)", textTransform: "uppercase" }}>
-                  {pd?.hasDebt ? "crédito" : "saldo"}
+                <div style={{ fontSize: 14, fontWeight: 800, color: p.color, flex: 1 }}>{p.label}</div>
+                {!pd?.connected && (
+                  <div style={{ fontSize: 10, color: "var(--muted)", background: "var(--off)", padding: "3px 8px", borderRadius: 99 }}>Não conectado</div>
+                )}
+              </div>
+
+              {/* Linha Depositado vs Saldo */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                {/* Depositado via MECPro */}
+                <div style={{ background: "rgba(0,113,227,.05)", border: "1px solid rgba(0,113,227,.15)", borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--blue)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>
+                    💳 Depositado
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: "var(--blue)", letterSpacing: "-.03em" }}>
+                    {R(deposited)}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>via MECPro (acumulado)</div>
                 </div>
-                {pd?.hasDebt && <div style={{ fontSize: 9, color: "var(--orange)" }}>débito {R(pd.debtAmount)}</div>}
-              </div>
-            )}
-            {p.key === "google" && pd?.connected && (
-              <div style={{ marginLeft: "auto", fontSize: 10, color: "var(--muted)", textAlign: "right" }}>
-                pós-pago<br/>{R(pd?.spentThisMonth)} mês
-              </div>
-            )}
-          </div>
-          {platAlert === "critical" && (
-            <div style={{ fontSize: 11, color: "var(--red)", fontWeight: 600, marginBottom: 10, padding: "6px 10px", background: "rgba(255,59,48,0.06)", borderRadius: 6 }}>
-              ◬ Saldo crítico — recarregue antes de comprar créditos
-            </div>
-          )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {/* Valor */}
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>
-                Valor (R$/dia)
-              </label>
-              <input
-                type="number"
-                placeholder="Ex: 50"
-                value={amounts[p.key]}
-                onChange={e => setAmounts(v => ({ ...v, [p.key]: e.target.value }))}
-                style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font)", boxSizing: "border-box" }}
-              />
-            </div>
+                {/* Saldo atual na plataforma */}
+                <div style={{ background: platDisp !== null && platDisp > 0 ? "rgba(48,209,88,.06)" : "rgba(255,59,48,.04)", border: `1px solid ${platDisp !== null && platDisp > 0 ? "rgba(48,209,88,.2)" : platDisp === null ? "var(--border)" : "rgba(255,59,48,.15)"}`, borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: platDisp !== null && platDisp > 0 ? "var(--green-d)" : "var(--muted)", textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 4 }}>
+                    📊 Saldo na plataforma
+                  </div>
+                  {platDisp !== null ? (
+                    <>
+                      <div style={{ fontSize: 18, fontWeight: 900, color: platDisp > 0 ? "var(--green-d)" : "var(--red)", letterSpacing: "-.03em" }}>
+                        {R(platDisp)}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
+                        {pd?.hasDebt ? `débito: ${R(pd.debtAmount)}` : "saldo disponível"}
+                      </div>
+                    </>
+                  ) : p.key === "google" ? (
+                    <>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--muted)" }}>Pós-pago</div>
+                      <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>{pd?.connected ? `Gasto mês: ${R(pd?.spentThisMonth ?? 0)}` : "conta não conectada"}</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{pd?.connected ? "Consultando..." : "Conecte a conta"}</div>
+                  )}
+                </div>
+              </div>
 
-            {/* Seletor de campanha */}
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>
-                Campanha
-              </label>
-              {loadingCamps ? (
-                <div style={{ padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 12, color: "var(--muted)" }}>Carregando...</div>
-              ) : (p.key === "meta" ? metaCamps : p.key === "google" ? googleCamps : tiktokCamps).length > 0 ? (
-                <select
-                  value={campaigns[p.key]}
-                  onChange={e => selectCampaign(p.key, e.target.value)}
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box", background: "white", cursor: "pointer" }}>
-                  <option value="">-- Selecionar campanha --</option>
-                  {(p.key === "meta" ? metaCamps : p.key === "google" ? googleCamps : tiktokCamps).map((c: any) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} {c.status === "ACTIVE" || c.status === "ENABLED" ? "◎" : "◷"} {c.budget ? `· R$${c.budget.toFixed(0)}/dia` : ""}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  placeholder="ID da campanha (conta não conectada)"
-                  value={campaigns[p.key]}
-                  onChange={e => setCampaigns(v => ({ ...v, [p.key]: e.target.value }))}
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }}
-                />
+              {platAlert === "critical" && (
+                <div style={{ fontSize: 11, color: "var(--red)", fontWeight: 600, marginBottom: 10, padding: "6px 10px", background: "rgba(255,59,48,.06)", borderRadius: 6 }}>
+                  ◬ Saldo crítico — adicione verba abaixo
+                </div>
+              )}
+
+              {/* Adicionar verba */}
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".05em", display: "block", marginBottom: 5 }}>
+                    Adicionar (R$/dia)
+                  </label>
+                  <input type="number" placeholder="Ex: 50" value={amounts[p.key]}
+                    onChange={e => setAmounts(v => ({ ...v, [p.key]: e.target.value }))}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 16, fontWeight: 700, fontFamily: "var(--font)", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".05em", display: "block", marginBottom: 5 }}>
+                    Campanha
+                  </label>
+                  {loadingCamps ? (
+                    <div style={{ padding: "10px 12px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 12, color: "var(--muted)" }}>Carregando...</div>
+                  ) : (p.key === "meta" ? metaCamps : p.key === "google" ? googleCamps : tiktokCamps).length > 0 ? (
+                    <select value={campaigns[p.key]} onChange={e => selectCampaign(p.key, e.target.value)}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box", background: "white" }}>
+                      <option value="">-- Campanha --</option>
+                      {(p.key === "meta" ? metaCamps : p.key === "google" ? googleCamps : tiktokCamps).map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.name} {c.status === "ACTIVE" || c.status === "ENABLED" ? "◎" : "◷"} {c.budget ? `· R$${c.budget.toFixed(0)}/dia` : ""}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input type="text" placeholder="ID da campanha" value={campaigns[p.key]}
+                      onChange={e => setCampaigns(v => ({ ...v, [p.key]: e.target.value }))}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 9, border: "1.5px solid var(--border)", fontSize: 13, fontFamily: "var(--font)", boxSizing: "border-box" }} />
+                  )}
+                </div>
+              </div>
+              {amounts[p.key] && !campaigns[p.key] && (
+                <div style={{ fontSize: 11, color: "var(--orange)", marginTop: 6 }}>◬ Informe a campanha</div>
               )}
             </div>
-          </div>
+          );
+        })}
+      </div>
 
-          {amounts[p.key] && !campaigns[p.key] && (
-            <div style={{ fontSize: 11, color: "var(--orange)", marginTop: 6 }}>◬ Informe o ID da campanha</div>
-          )}
-        </div>
-        );
-      })}
-
-      {/* Resumo */}
+      {/* Resumo + botão */}
       {total > 0 && (
-        <div style={{ background: "var(--off)", borderRadius: "var(--r-sm)", padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ background: "var(--off)", borderRadius: 12, padding: "12px 16px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Total a debitar</div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: hasEnough ? "var(--dark)" : "var(--red)", letterSpacing: "-0.04em" }}>{R(total)}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em" }}>Total a debitar</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: hasEnough ? "var(--dark)" : "var(--red)", letterSpacing: "-.04em" }}>{R(total)}</div>
           </div>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontSize: 11, color: "var(--muted)" }}>Saldo após</div>
@@ -1041,65 +1041,39 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
         </div>
       )}
 
-      {/* Botão comprar */}
-      <button
-        onClick={handleBuy}
-        disabled={!hasEnough || applyMut.isPending}
+      <button onClick={handleBuy} disabled={!hasEnough || applyMut.isPending}
         style={{ ...primaryBtn(hasEnough ? "linear-gradient(135deg,#30d158,#248a3d)" : "#aaa"), opacity: (!hasEnough || applyMut.isPending) ? 0.6 : 1 }}>
-        {applyMut.isPending ? "Processando..." : hasEnough ? `◎ Comprar créditos — ${R(total)}` : "Saldo insuficiente"}
+        {applyMut.isPending ? "Processando..." : hasEnough ? `◎ Distribuir verba — ${R(total)}` : "Saldo insuficiente"}
       </button>
 
       {/* Resultado */}
       {result && (
         <div style={{ marginTop: 16 }}>
           {result.applied?.length > 0 && (
-            <div style={{ background: "rgba(48,209,88,0.08)", border: "1.5px solid rgba(48,209,88,0.3)", borderRadius: "var(--r)", padding: "16px 18px", marginBottom: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--green-d)", marginBottom: 12 }}>
-                ◎ Orçamento atualizado com sucesso
-              </div>
-              {result.applied.map((a: any, i: number) => {
-                const LINKS: Record<string, string> = {
-                  meta:   "https://www.facebook.com/adsmanager/manage/campaigns",
-                  google: "https://ads.google.com/aw/campaigns",
-                  tiktok: "https://ads.tiktok.com/i18n/dashboard",
-                };
-                return (
-                  <div key={i} style={{ background: "white", borderRadius: "var(--r-sm)", padding: "12px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ fontSize: 20, flexShrink: 0 }}>
-                      {a.platform === "meta" ? "📘" : a.platform === "google" ? "🔵" : "◼"}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)" }}>
-                        {a.platform?.toUpperCase()} — R$ {a.amount?.toFixed(2)}/dia aplicado
-                      </div>
-                      {a.adsetName && (
-                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
-                          Ad Set: {a.adsetName}
-                        </div>
-                      )}
-                    </div>
-                    <a href={LINKS[a.platform]} target="_blank" rel="noreferrer"
-                      style={{ fontSize: 11, fontWeight: 700, color: "var(--blue)", textDecoration: "none", flexShrink: 0, padding: "4px 10px", border: "1px solid var(--blue)", borderRadius: 6 }}>
-                      Verificar →
-                    </a>
+            <div style={{ background: "rgba(48,209,88,.08)", border: "1.5px solid rgba(48,209,88,.3)", borderRadius: 14, padding: "16px 18px", marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "var(--green-d)", marginBottom: 12 }}>◎ Orçamento atualizado!</div>
+              {result.applied.map((a: any, i: number) => (
+                <div key={i} style={{ background: "white", borderRadius: 10, padding: "10px 14px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>{a.platform === "meta" ? "📘" : a.platform === "google" ? "🔵" : "◼"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{a.platform?.toUpperCase()} — R$ {a.amount?.toFixed(2)}/dia aplicado</div>
+                    {a.adsetName && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Ad Set: {a.adsetName}</div>}
                   </div>
-                );
-              })}
-              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>
-                O orçamento foi atualizado via API. Pode levar alguns minutos para refletir no painel da plataforma.
-              </div>
+                  <a href={{ meta: "https://www.facebook.com/adsmanager/manage/campaigns", google: "https://ads.google.com/aw/campaigns", tiktok: "https://ads.tiktok.com/i18n/dashboard" }[a.platform as string] || "#"} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 11, fontWeight: 700, color: "var(--blue)", textDecoration: "none", padding: "4px 10px", border: "1px solid var(--blue)", borderRadius: 6 }}>
+                    Verificar →
+                  </a>
+                </div>
+              ))}
             </div>
           )}
           {result.failed?.length > 0 && (
-            <div style={{ background: "rgba(255,59,48,0.06)", border: "1.5px solid rgba(255,59,48,0.2)", borderRadius: "var(--r)", padding: "16px 18px" }}>
+            <div style={{ background: "rgba(255,59,48,.06)", border: "1.5px solid rgba(255,59,48,.2)", borderRadius: 14, padding: "16px 18px" }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: "var(--red)", marginBottom: 10 }}>◬ Falha ao atualizar</div>
               {result.failed.map((f: any, i: number) => (
-                <div key={i} style={{ fontSize: 12, color: "var(--body)", marginBottom: 6, padding: "8px 12px", background: "white", borderRadius: "var(--r-sm)" }}>
+                <div key={i} style={{ fontSize: 12, marginBottom: 6, padding: "8px 12px", background: "white", borderRadius: 10 }}>
                   <span style={{ fontWeight: 700 }}>{f.platform?.toUpperCase()}</span>
                   <span style={{ color: "var(--muted)", marginLeft: 6 }}>{f.error}</span>
-                  <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-                    Verifique se a conta está conectada em Configurações → Integrações
-                  </div>
                 </div>
               ))}
             </div>
@@ -1109,6 +1083,7 @@ function TabBuyCredits({ balance, platBal, onBack }: { balance: any; platBal?: a
     </div>
   );
 }
+
 
 function TabCredits({ summary, onBack }: { summary: any; onBack: () => void }) {
   const [selected, setSelected] = useState<string | null>(null);

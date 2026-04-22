@@ -7081,6 +7081,20 @@ const mediaBudgetRouter = router({
         ORDER BY "createdAt" DESC LIMIT 10
       `, [ctx.user.id]);
 
+      // Total depositado POR PLATAFORMA via pagamento externo (Pix/boleto)
+      const platDepositRes = await pool.query(`
+        SELECT platform, SUM(amount) AS total
+        FROM media_budget
+        WHERE "userId" = $1
+          AND type = 'external_payment'
+          AND status = 'approved'
+        GROUP BY platform
+      `, [ctx.user.id]);
+      const depositedByPlatform: Record<string, number> = {};
+      platDepositRes.rows.forEach((r: any) => {
+        depositedByPlatform[r.platform] = Number(r.total) / 100;
+      });
+
       // Gap 2 corrigido: total de créditos de plano anual separado
       const annualCreditRes = await pool.query(`
         SELECT
@@ -7128,6 +7142,7 @@ const mediaBudgetRouter = router({
         totalSpendMonth:  Object.values(spendMonth).reduce((s, v) => s + v, 0),
         platformBudget,
         annualStats,
+        depositedByPlatform,
         recentMovements:  recentRes.rows.map((r: any) => ({
           type:         r.type,
           amount:       Number(r.amount) / 100,
