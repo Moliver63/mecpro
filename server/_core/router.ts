@@ -8134,9 +8134,16 @@ const mediaBudgetRouter = router({
             body: JSON.stringify(pixBody),
             signal: AbortSignal.timeout(20000),
           });
-          asaasResp = await payRes.json();
-          if (!payRes.ok || asaasResp.errors) {
-            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha ao pagar Pix";
+          // Trata resposta vazia (204) ou não-JSON (HTML de erro)
+          const rawText = await payRes.text();
+          log.info("payExternalCode", "Asaas Pix QR resposta", { status: payRes.status, bodyLen: rawText.length, preview: rawText.slice(0, 200) });
+          if (rawText.trim()) {
+            try { asaasResp = JSON.parse(rawText); } catch { asaasResp = { _raw: rawText }; }
+          } else {
+            asaasResp = { _empty: true }; // 204 No Content = sucesso
+          }
+          if (!payRes.ok) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || asaasResp._raw || `Erro Asaas HTTP ${payRes.status}`;
             throw new Error(errMsg);
           }
         } else {
@@ -8156,9 +8163,14 @@ const mediaBudgetRouter = router({
             }),
             signal: AbortSignal.timeout(20000),
           });
-          asaasResp = await payRes.json();
-          if (!payRes.ok || asaasResp.errors) {
-            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || "Falha ao pagar boleto";
+          const rawText2 = await payRes.text();
+          if (rawText2.trim()) {
+            try { asaasResp = JSON.parse(rawText2); } catch { asaasResp = { _raw: rawText2 }; }
+          } else {
+            asaasResp = { _empty: true };
+          }
+          if (!payRes.ok) {
+            const errMsg = asaasResp.errors?.[0]?.description || asaasResp.message || asaasResp._raw || `Erro Asaas HTTP ${payRes.status}`;
             throw new Error(errMsg);
           }
         }

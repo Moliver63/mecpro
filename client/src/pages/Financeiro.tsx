@@ -425,11 +425,12 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
   const [scanMode,  setScanMode]  = useState(false);
   const [scanErr,   setScanErr]   = useState("");
 
-  // Validação em tempo real — só dispara com 20+ chars
+  // Validação em tempo real — só dispara com 20+ chars válidos
+  const trimmedCode = code.trim();
   const { data: validated, isLoading: validating } =
     (trpc as any).mediaBudget?.validateExternalCode?.useQuery?.(
-      { code: code.trim() },
-      { enabled: code.trim().length >= 20 }
+      { code: trimmedCode.length >= 20 ? trimmedCode : "x".repeat(20) },
+      { enabled: trimmedCode.length >= 20, staleTime: 30000 }
     ) ?? { data: null, isLoading: false };
 
   // Auto-seleciona a plataforma quando o código Pix identifica o recebedor
