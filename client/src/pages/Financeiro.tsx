@@ -418,14 +418,6 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
 
   const [code,      setCode]      = useState("");
   const [platform,  setPlatform]  = useState<"meta"|"google"|"tiktok"|"other">("meta");
-
-  // Auto-seleciona a plataforma quando o código Pix identifica o recebedor
-  useEffect(() => {
-    if (validated?.detectedPlatform) {
-      setPlatform(validated.detectedPlatform as any);
-    }
-  }, [validated?.detectedPlatform]);
-
   const [override,  setOverride]  = useState("");
   const [notes,     setNotes]     = useState("");
   const [step,      setStep]      = useState<"input"|"confirm"|"done">("input");
@@ -439,6 +431,14 @@ function TabPayCode({ balance, onBack }: { balance: any; onBack: () => void }) {
       { code: code.trim() },
       { enabled: code.trim().length >= 20 }
     ) ?? { data: null, isLoading: false };
+
+  // Auto-seleciona a plataforma quando o código Pix identifica o recebedor
+  // (useEffect DEPOIS de validated para respeitar ordem dos hooks)
+  useEffect(() => {
+    if ((validated as any)?.detectedPlatform) {
+      setPlatform((validated as any).detectedPlatform as any);
+    }
+  }, [(validated as any)?.detectedPlatform]);
 
   const finalAmount   = validated?.amount ?? (parseFloat(override.replace(",", ".")) || 0);
   const needsOverride = validated?.valid && !validated?.amount;
