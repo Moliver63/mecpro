@@ -3639,6 +3639,119 @@ const adminRouter = router({
       };
     }),
 
+  // -- Controle de Créditos dos Usuários ------------------------------------
+
+  // Lista todos os usuários com seus saldos (para o painel admin)
+  listUserBalances: adminProcedure.query(async () => {
+    const pool = await getPool();
+    if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+    const res = await pool.query(`
+      SELECT
+        u.id,
+        u.email,
+        u.name,
+        u.plan,
+        u."isSuspended",
+        COALESCE(mb.balance, 0)          AS balance,
+        COALESCE(mb."totalDeposited", 0) AS "totalDeposited",
+        COALESCE(mb."totalFees", 0)      AS "totalFees",
+        COALESCE(mb."frozen", false)     AS frozen
+      FROM users u
+      LEFT JOIN media_balance mb ON mb."userId" = u.id
+      ORDER BY COALESCE(mb.balance, 0) DESC
+    `);
+    return res.rows.map((r: any) => ({
+      id:             r.id,
+      email:          r.email,
+      name:           r.name,
+      plan:           r.plan,
+      isSuspended:    r.isSuspended,
+      balance:        Number(r.balance) / 100,
+      totalDeposited: Number(r.totalDeposited) / 100,
+      totalFees:      Number(r.totalFees) / 100,
+      frozen:         r.frozen ?? false,
+    }));
+  }),
+
+  // Adicionar ou remover créditos manualmente (admin)
+  adjustUserCredits: adminProcedure
+    .input(z.object({
+      userId:  z.number(),
+      amount:  z.number(),              // positivo = adicionar, negativo = remover
+      reason:  z.string().max(200).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      const amountCents = Math.round(input.amount * 100);
+
+      // Garante que existe um registro de saldo
+      await pool.query(`
+        INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees", "updatedAt")
+        VALUES ($1, 0, 0, 0, NOW())
+        ON CONFLICT ("userId") DO NOTHING
+      `, [input.userId]);
+
+      // Não permite saldo negativo
+      if (amountCents < 0) {
+        const check = await pool.query(
+          `SELECT balance FROM media_balance WHERE "userId" = $1`, [input.userId]
+        );
+        const current = Number(check.rows[0]?.balance || 0);
+        if (current + amountCents < 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Saldo insuficiente. Disponível: R$ ${(current / 100).toFixed(2)}`
+          });
+        }
+      }
+
+      // Aplica o ajuste
+      await pool.query(`
+        UPDATE media_balance
+        SET balance = balance + $1, "updatedAt" = NOW()
+        WHERE "userId" = $2
+      `, [amountCents, input.userId]);
+
+      // Registra na media_budget como auditoria
+      const { createHash } = await import("crypto");
+      const typeLabel = amountCents >= 0 ? "admin_credit" : "admin_debit";
+      await pool.query(`
+        INSERT INTO media_budget
+          ("userId", amount, "feePercent", "feeAmount", "netAmount", type, status, method, notes)
+        VALUES ($1, $2, 0, 0, $2, $3, 'approved', 'admin', $4)
+      `, [
+        input.userId,
+        Math.abs(amountCents),
+        typeLabel,
+        input.reason || `Ajuste manual por admin ${ctx.user.email}`,
+      ]);
+
+      return { ok: true, adjustedCents: amountCents };
+    }),
+
+  // Congelar / descongelar saldo de um usuário
+  toggleFreezeUser: adminProcedure
+    .input(z.object({ userId: z.number(), freeze: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // Garante coluna frozen (graceful — ignora se já existir)
+      await pool.query(`
+        ALTER TABLE media_balance ADD COLUMN IF NOT EXISTS frozen BOOLEAN DEFAULT false
+      `).catch(() => {});
+
+      await pool.query(`
+        INSERT INTO media_balance ("userId", balance, "totalDeposited", "totalFees", frozen, "updatedAt")
+        VALUES ($1, 0, 0, 0, $2, NOW())
+        ON CONFLICT ("userId") DO UPDATE SET frozen = $2, "updatedAt" = NOW()
+      `, [input.userId, input.freeze]);
+
+      return { ok: true, userId: input.userId, frozen: input.freeze };
+    }),
+
   // -- Perfis (Superadmin-only) ---------------------------------------------
   setUserProfile: adminProcedure
     .input(z.object({

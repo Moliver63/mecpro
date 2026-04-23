@@ -46,7 +46,24 @@ export default function AdminFinanceiro() {
   const [feePercent,  setFeePercent]  = useState(10);
   const [dist,        setDist]        = useState({ meta: 50, google: 30, tiktok: 20 });
   const [landingMode, setLandingMode] = useState<"promo"|"normal">("promo");
-  const [activeTab,   setActiveTab]   = useState<"overview"|"settings"|"transactions">("overview");
+  const [activeTab,   setActiveTab]   = useState<"overview"|"settings"|"transactions"|"creditos">("overview");
+
+  // Controle de créditos
+  const { data: userBalances, refetch: refetchBalances, isLoading: loadingBalances } =
+    (trpc as any).admin?.listUserBalances?.useQuery?.() ?? { data: [], isLoading: true };
+  const adjustCredits = (trpc as any).admin?.adjustUserCredits?.useMutation?.({
+    onSuccess: () => { toast.success("✅ Créditos ajustados!"); refetchBalances?.(); setAdjustModal(null); },
+    onError:   (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+  const toggleFreeze = (trpc as any).admin?.toggleFreezeUser?.useMutation?.({
+    onSuccess: () => { toast.success("✅ Status atualizado!"); refetchBalances?.(); },
+    onError:   (e: any) => toast.error(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+
+  const [adjustModal, setAdjustModal] = useState<{ userId: number; email: string; balance: number; frozen: boolean } | null>(null);
+  const [adjustAmt,   setAdjustAmt]   = useState("");
+  const [adjustNote,  setAdjustNote]  = useState("");
+  const [searchUser,  setSearchUser]  = useState("");
 
   useEffect(() => {
     if (ps) {
@@ -69,6 +86,7 @@ export default function AdminFinanceiro() {
 
   const tabs = [
     { key: "overview",     label: "📊 Visão Geral" },
+    { key: "creditos",     label: "💰 Créditos" },
     { key: "settings",     label: "⚙️ Configurações" },
     { key: "transactions", label: "📋 Transações" },
   ];
@@ -365,6 +383,163 @@ export default function AdminFinanceiro() {
               }}>
               {(savePS as any).isPending ? "⏳ Salvando..." : "💾 Salvar configurações"}
             </button>
+          </div>
+        )}
+
+        {/* ── TAB: CRÉDITOS ── */}
+        {activeTab === "creditos" && (
+          <div>
+            {/* Busca e filtro */}
+            <div style={{ marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
+              <input
+                placeholder="🔍 Buscar por nome ou email…"
+                value={searchUser} onChange={e => setSearchUser(e.target.value)}
+                style={{ flex: 1, padding: "9px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 13, outline: "none", fontFamily: "inherit" }}
+              />
+              <div style={{ fontSize: 12, color: "#64748b", whiteSpace: "nowrap" }}>
+                {loadingBalances ? "Carregando..." : `${(userBalances || []).length} usuários`}
+              </div>
+            </div>
+
+            {/* Tabela de usuários */}
+            <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden" }}>
+              {/* Header */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 90px 100px", gap: 12, padding: "10px 18px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: ".05em" }}>
+                <span>Usuário</span>
+                <span style={{ textAlign: "right" }}>Saldo</span>
+                <span style={{ textAlign: "right" }}>Depositado</span>
+                <span style={{ textAlign: "center" }}>Status</span>
+                <span style={{ textAlign: "center" }}>Ações</span>
+              </div>
+
+              {(userBalances || [])
+                .filter((u: any) =>
+                  !searchUser ||
+                  (u.email || "").toLowerCase().includes(searchUser.toLowerCase()) ||
+                  (u.name  || "").toLowerCase().includes(searchUser.toLowerCase())
+                )
+                .map((u: any, i: number, arr: any[]) => (
+                <div key={u.id} style={{
+                  display: "grid", gridTemplateColumns: "1fr 100px 100px 90px 100px",
+                  gap: 12, padding: "12px 18px", alignItems: "center",
+                  borderBottom: i < arr.length - 1 ? "1px solid #f1f5f9" : "none",
+                  background: u.frozen ? "rgba(239,68,68,0.03)" : "white",
+                  transition: "background .1s",
+                }}>
+                  {/* Info usuário */}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {u.name || "—"}
+                      {u.frozen && <span style={{ marginLeft: 6, fontSize: 10, background: "#fef2f2", color: "#dc2626", padding: "1px 6px", borderRadius: 99, fontWeight: 700 }}>🔒 CONGELADO</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.email}</div>
+                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>
+                      {(u.plan || "free").toUpperCase()} · ID {u.id}
+                    </div>
+                  </div>
+
+                  {/* Saldo */}
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: u.balance > 0 ? "#059669" : "#94a3b8" }}>
+                      {R(u.balance)}
+                    </div>
+                  </div>
+
+                  {/* Depositado */}
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>{R(u.totalDeposited)}</div>
+                  </div>
+
+                  {/* Status congelar */}
+                  <div style={{ textAlign: "center" }}>
+                    <button
+                      onClick={() => (toggleFreeze as any).mutate({ userId: u.id, freeze: !u.frozen })}
+                      title={u.frozen ? "Descongelar saldo" : "Congelar saldo"}
+                      style={{
+                        padding: "4px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+                        fontSize: 11, fontWeight: 700, fontFamily: "inherit",
+                        background: u.frozen ? "#fef2f2" : "#f0fdf4",
+                        color: u.frozen ? "#dc2626" : "#059669",
+                        transition: "all .15s",
+                      }}>
+                      {u.frozen ? "🔒 Congelado" : "✅ Ativo"}
+                    </button>
+                  </div>
+
+                  {/* Ações */}
+                  <div style={{ textAlign: "center", display: "flex", gap: 4, justifyContent: "center" }}>
+                    <button
+                      onClick={() => { setAdjustModal({ userId: u.id, email: u.email, balance: u.balance, frozen: u.frozen }); setAdjustAmt(""); setAdjustNote(""); }}
+                      style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f8fafc", cursor: "pointer", fontSize: 12, fontFamily: "inherit", fontWeight: 600, color: "#374151" }}>
+                      ✏️ Ajustar
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {(userBalances || []).length === 0 && !loadingBalances && (
+                <div style={{ padding: 32, textAlign: "center", color: "#94a3b8" }}>Nenhum usuário com saldo cadastrado</div>
+              )}
+            </div>
+
+            {/* Modal de ajuste de créditos */}
+            {adjustModal && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}
+                onClick={() => setAdjustModal(null)}>
+                <div style={{ background: "white", borderRadius: 18, padding: 28, maxWidth: 420, width: "90%", boxShadow: "0 24px 60px rgba(0,0,0,0.2)" }}
+                  onClick={e => e.stopPropagation()}>
+
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>✏️ Ajustar Créditos</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 20 }}>
+                    {adjustModal.email} · Saldo atual: <strong style={{ color: "#059669" }}>{R(adjustModal.balance)}</strong>
+                  </div>
+
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>
+                      Valor (positivo = adicionar, negativo = remover)
+                    </label>
+                    <input
+                      type="number" step="0.01" placeholder="Ex: 50.00 ou -20.00"
+                      value={adjustAmt} onChange={e => setAdjustAmt(e.target.value)}
+                      style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+                    />
+                    {adjustAmt && (
+                      <div style={{ marginTop: 6, fontSize: 12, color: Number(adjustAmt) >= 0 ? "#059669" : "#dc2626", fontWeight: 700 }}>
+                        Novo saldo: {R(adjustModal.balance + Number(adjustAmt || 0))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>
+                      Motivo (opcional)
+                    </label>
+                    <input
+                      placeholder="Ex: Ajuste de cortesia, estorno..."
+                      value={adjustNote} onChange={e => setAdjustNote(e.target.value)}
+                      style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <button onClick={() => setAdjustModal(null)}
+                      style={{ flex: 1, padding: "11px", borderRadius: 10, border: "1.5px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", color: "#374151" }}>
+                      Cancelar
+                    </button>
+                    <button
+                      disabled={!adjustAmt || isNaN(Number(adjustAmt)) || (adjustCredits as any).isPending}
+                      onClick={() => (adjustCredits as any).mutate({ userId: adjustModal.userId, amount: Number(adjustAmt), reason: adjustNote || undefined })}
+                      style={{ flex: 2, padding: "11px", borderRadius: 10, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+                        background: !adjustAmt || isNaN(Number(adjustAmt)) ? "#e2e8f0" : Number(adjustAmt) >= 0 ? "linear-gradient(135deg,#059669,#0284c7)" : "linear-gradient(135deg,#dc2626,#7c3aed)",
+                        color: !adjustAmt || isNaN(Number(adjustAmt)) ? "#94a3b8" : "white",
+                        opacity: (adjustCredits as any).isPending ? 0.7 : 1,
+                      }}>
+                      {(adjustCredits as any).isPending ? "⏳ Salvando..." : Number(adjustAmt) >= 0 ? `➕ Adicionar ${R(Number(adjustAmt || 0))}` : `➖ Remover ${R(Math.abs(Number(adjustAmt || 0)))}`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
