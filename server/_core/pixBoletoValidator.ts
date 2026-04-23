@@ -227,12 +227,24 @@ export function validateBoletoCode(raw: string): ValidatedCode {
     let expiresAt: Date | null = null;
     if (fator > 0 && fator < 10000) {
       const base = new Date(1997, 9, 7); // 07/10/1997
-      const calculada = new Date(base.getTime() + fator * 86400 * 1000);
-      // Só usa a data se for plausível (entre 1997 e 2030)
-      if (calculada.getFullYear() >= 2000 && calculada.getFullYear() <= 2035) {
+      let calculada = new Date(base.getTime() + fator * 86400 * 1000);
+      const hoje = new Date();
+
+      // Boletos modernos (2024+): o ciclo de 9000 dias reiniciou
+      // Fator 1429 com base 1997 = 2001, mas com +9000 dias = 2026 (correto)
+      // Se a data calculada está no passado, tenta adicionar 9000 dias
+      if (calculada < hoje) {
+        const comOffset = new Date(base.getTime() + (fator + 9000) * 86400 * 1000);
+        // Usa o offset se resultar em data futura razoável (até 2 anos)
+        if (comOffset > hoje && comOffset < new Date(Date.now() + 365 * 2 * 86400000)) {
+          calculada = comOffset;
+        }
+      }
+
+      // Só registra se a data for plausível
+      if (calculada.getFullYear() >= 2020) {
         expiresAt = calculada;
       }
-      // Se calculou uma data muito antiga (ex: 2001), ignora — fator reiniciado
     }
 
     return {

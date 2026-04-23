@@ -8444,24 +8444,46 @@ const mediaBudgetRouter = router({
           // Atualiza amountReais para usar nas validações de saldo/limite
           amountReais = finalAmountReais;
 
-          // Etapa 2: Transferência Pix via /v3/transfers com a chave extraída do JWT
-          // CONFIRMADO FUNCIONANDO: pagamento de 22/04 09:20 status 200, comprovante gerado.
-          // O Facebook/DLocal aceita a transferência para a chave EVP do QR Code.
-          // O /v3/pixTransactions/qrCode/pay retorna 404 (endpoint não existe no Asaas v3).
+          // Etapa 2: Pagar o QR Code via /v3/pix/qrCodes/pay (payload completo)
+          // PROBLEMA com /v3/transfers + chave EVP:
+          //   O dinheiro vai para DLocal mas é DEVOLVIDO pois a transferência livre
+          //   não carrega o txid da cobrança — DLocal devolve automaticamente.
+          // SOLUÇÃO: enviar o payload BR Code completo para o Asaas interpretar
+          //   O Asaas usa o mesmo fluxo que a UI usa para "Pix Copia e Cola"
           const today = new Date().toISOString().split("T")[0];
-          const payRes = await fetch("https://api.asaas.com/v3/transfers", {
+          const pixPayload: Record<string, unknown> = {
+            payload:      pixClean,        // código BR Code completo com txid
+            value:        finalAmountReais, // necessário para Pix de valor aberto
+            description:  input.notes?.slice(0, 140) || `Recarga ${input.platform}`,
+            scheduleDate: today,
+          };
+
+          // Tenta primeiro o endpoint de QR Code (que preserva o txid da cobrança)
+          // Se retornar 404, cai no fallback de transferência por chave
+          let payRes = await fetch("https://api.asaas.com/v3/pix/qrCodes/pay", {
             method:  "POST",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
-            body: JSON.stringify({
-              operationType:     "PIX",
-              value:             finalAmountReais,
-              pixAddressKey:     pixKey,
-              pixAddressKeyType: pixKeyType,
-              scheduleDate:      today,
-              description:       input.notes?.slice(0, 140) || `Recarga ${input.platform}`,
-            }),
+            body: JSON.stringify(pixPayload),
             signal: AbortSignal.timeout(20000),
           });
+
+          // Fallback: se endpoint não existe, usa transferência por chave
+          if (payRes.status === 404) {
+            log.warn("payExternalCode", "qrCodes/pay não existe, fallback para /v3/transfers");
+            payRes = await fetch("https://api.asaas.com/v3/transfers", {
+              method:  "POST",
+              headers: { "Content-Type": "application/json", access_token: asaasKey },
+              body: JSON.stringify({
+                operationType:     "PIX",
+                value:             finalAmountReais,
+                pixAddressKey:     pixKey,
+                pixAddressKeyType: pixKeyType,
+                scheduleDate:      today,
+                description:       input.notes?.slice(0, 140) || `Recarga ${input.platform}`,
+              }),
+              signal: AbortSignal.timeout(20000),
+            });
+          }
           const rawText = await payRes.text();
           log.info("payExternalCode", "Asaas transfer resposta", { status: payRes.status, preview: rawText.slice(0, 400) });
           if (rawText.trim()) {
