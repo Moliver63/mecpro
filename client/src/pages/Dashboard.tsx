@@ -1,7 +1,7 @@
 /**
- * Dashboard.tsx — Projetos + Campanhas com gestão completa
+ * Dashboard.tsx — Layout fluido com header rico e botão de promoção
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,19 +18,13 @@ const OBJ_LABEL: Record<string, string> = {
 function EmailResendButton({ email }: { email: string }) {
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
-
   const send = async () => {
     setLoading(true);
     try {
-      await fetch("/api/auth/resend-verification", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
+      await fetch("/api/auth/resend-verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
       setSent(true);
-    } catch { /* silencioso */ } finally { setLoading(false); }
+    } catch { } finally { setLoading(false); }
   };
-
   if (sent) return <span style={{ fontSize: 12, color: "var(--green-d)", fontWeight: 700, flexShrink: 0 }}>◎ Enviado!</span>;
   return (
     <button onClick={send} disabled={loading} className="btn btn-sm"
@@ -47,6 +41,7 @@ export default function Dashboard() {
   const [deleting,  setDeleting]    = useState<number | null>(null);
   const [selected,  setSelected]    = useState<Set<number>>(new Set());
   const [confirmDel, setConfirmDel] = useState<number | "bulk" | null>(null);
+  const [landingMode, setLandingMode] = useState<"promo" | "normal">("promo");
 
   const { data: projects, isLoading: loadingProj } = trpc.projects.list.useQuery();
   const { data: campaigns, isLoading: loadingCamp, refetch: refetchCamp } =
@@ -54,11 +49,18 @@ export default function Dashboard() {
   const { data: counts } =
     (trpc as any).campaigns?.countAll?.useQuery?.() ?? { data: { total: 0, byPlatform: {} } };
 
+  // Busca o modo de landing para saber se exibe botão de promoção
+  useEffect(() => {
+    fetch("/api/trpc/public.getLandingMode", { credentials: "include" })
+      .then(r => r.json())
+      .then(d => setLandingMode(d?.result?.data?.mode ?? "promo"))
+      .catch(() => setLandingMode("promo"));
+  }, []);
+
   const deleteMutation = (trpc as any).campaigns?.delete?.useMutation?.({
     onSuccess: () => { toast.success("Campanha excluída"); refetchCamp?.(); setDeleting(null); setConfirmDel(null); setSelected(new Set()); },
     onError: (e: any) => { toast.error(e.message); setDeleting(null); },
   });
-
   const archiveMutation = (trpc as any).campaigns?.archive?.useMutation?.({
     onSuccess: () => { toast.success("Campanha arquivada"); refetchCamp?.(); setConfirmDel(null); },
     onError: (e: any) => toast.error(e.message),
@@ -69,26 +71,20 @@ export default function Dashboard() {
   const totalCamp = counts?.total ?? campList.length;
 
   const toggleSelect = (id: number) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  };
+  const handleBulkDelete = async () => {
+    for (const id of Array.from(selected)) { setDeleting(id); await deleteMutation?.mutateAsync({ id }).catch(() => {}); }
+    setSelected(new Set()); setConfirmDel(null);
   };
 
-  const handleBulkDelete = async () => {
-    for (const id of Array.from(selected)) {
-      setDeleting(id);
-      await deleteMutation?.mutateAsync({ id }).catch(() => {});
-    }
-    setSelected(new Set());
-    setConfirmDel(null);
-  };
+  // Mostra botão de promoção se: modo promo ativo E usuário não tem plano pago E não é admin
+  const showPromo = landingMode === "promo" && (user?.plan === "free" || user?.plan === "FREE" || !user?.plan);
 
   const STATS = [
     { icon: "◫",  label: "Projetos ativos",  value: String(active.length),  color: "var(--green)",  bg: "rgba(48,209,88,0.1)",  tab: null },
-    { icon: "▣",  label: "Campanhas geradas", value: String(totalCamp),      color: "var(--blue)",   bg: "var(--blue-l)",         tab: "campaigns" },
-    { icon: "◈", label: "Plano atual",        value: (user?.plan ?? "FREE").toUpperCase(), color: "var(--orange)", bg: "rgba(255,159,10,0.1)", tab: null },
+    { icon: "▣",  label: "Campanhas",         value: String(totalCamp),      color: "var(--blue)",   bg: "var(--blue-l)",         tab: "campaigns" },
+    { icon: "◈",  label: "Plano atual",       value: (user?.plan ?? "FREE").toUpperCase(), color: "var(--orange)", bg: "rgba(255,159,10,0.1)", tab: null },
   ];
 
   return (
@@ -104,48 +100,115 @@ export default function Dashboard() {
         .cb-row { accent-color: var(--blue); width: 15px; height: 15px; cursor: pointer; }
         .del-btn:hover { background: rgba(255,59,48,0.12) !important; color: var(--red) !important; }
         .arc-btn:hover { background: rgba(255,159,10,0.1) !important; color: var(--orange) !important; }
+        .promo-btn { animation: promo-pulse 2.5s ease-in-out infinite; }
+        @keyframes promo-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,159,10,0); } 50% { box-shadow: 0 0 0 6px rgba(255,159,10,0.15); } }
+        .header-chip { transition: all .15s; }
+        .header-chip:hover { transform: translateY(-1px); opacity: 0.85; }
       `}</style>
 
-      <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px, 2.5vw, 28px) clamp(14px, 2vw, 20px)", fontFamily: "var(--font)", paddingBottom: "env(safe-area-inset-bottom, 0)" }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px,2.5vw,24px) clamp(14px,2vw,20px)", fontFamily: "var(--font)", paddingBottom: "env(safe-area-inset-bottom,0)" }}>
 
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ width: 44, height: 44, borderRadius: 12, background: "var(--grad-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, boxShadow: "var(--shadow-blue)", color: "white", flexShrink: 0 }}>⊞</div>
-            <div>
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "var(--black)", letterSpacing: "-0.04em" }}>
-                Olá, {user?.name?.split(" ")[0] ?? "Usuário"} 👋
-              </h1>
-              <p style={{ margin: 0, fontSize: 12, color: "var(--muted)", marginTop: 2 }}>Resumo dos seus projetos e campanhas</p>
+        {/* ═══ CABEÇALHO RICO ═══════════════════════════════════════════════════ */}
+        <div style={{ marginBottom: 20 }}>
+
+          {/* Linha 1: saudação + botão novo projeto */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: "var(--grad-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, boxShadow: "var(--shadow-blue)", color: "white", flexShrink: 0 }}>⊞</div>
+              <div>
+                <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--black)", letterSpacing: "-0.04em" }}>
+                  Olá, {user?.name?.split(" ")[0] ?? "Usuário"} 👋
+                </h1>
+                <p style={{ margin: 0, fontSize: 11, color: "var(--muted)", marginTop: 1 }}>Resumo dos seus projetos e campanhas</p>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {/* Botão de promoção — só aparece se landing_mode = promo e plano free */}
+              {showPromo && (
+                <button
+                  className="btn btn-sm promo-btn"
+                  onClick={() => setLocation("/checkout-anual")}
+                  style={{ background: "linear-gradient(135deg,#ff9f0a,#ff6b00)", color: "white", fontWeight: 800, fontSize: 12, padding: "7px 14px", borderRadius: 10, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                  🔥 Promoção Anual
+                </button>
+              )}
+              <button className="btn btn-primary btn-md" onClick={() => setLocation("/projects/new")}>
+                + Novo projeto
+              </button>
             </div>
           </div>
-          <button className="btn btn-primary btn-md" onClick={() => setLocation("/projects/new")}>
-            + Novo projeto
-          </button>
+
+          {/* Linha 2: chips de acesso rápido ao header */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+
+            {/* Dashboard Unificado */}
+            <button className="header-chip" onClick={() => setLocation("/unified-dashboard")}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 99, background: "var(--blue-l)", border: "1.5px solid rgba(0,113,227,0.2)", cursor: "pointer", fontFamily: "var(--font)" }}>
+              <span style={{ fontSize: 13 }}>📊</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--blue)" }}>Dashboard Unificado</span>
+              <span style={{ fontSize: 10, color: "var(--muted)" }}>Métricas em tempo real</span>
+              <div style={{ display: "flex", gap: 3, marginLeft: 2 }}>
+                {["Meta", "Google", "TikTok"].map(p => (
+                  <span key={p} style={{ fontSize: 9, fontWeight: 700, color: "var(--blue)", background: "rgba(0,113,227,0.1)", padding: "1px 5px", borderRadius: 99 }}>{p}</span>
+                ))}
+              </div>
+            </button>
+
+            {/* Consulta CPF/CNPJ */}
+            <button className="header-chip" onClick={() => setLocation("/consultas")}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 99, background: "white", border: "1.5px solid var(--border)", cursor: "pointer", fontFamily: "var(--font)" }}>
+              <span style={{ fontSize: 13 }}>🔍</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--dark)" }}>Consulta CPF/CNPJ</span>
+              <span style={{ fontSize: 10, color: "var(--muted)" }}>Receita · Processos</span>
+              <div style={{ display: "flex", gap: 3, marginLeft: 2 }}>
+                {["Receita", "CNJ", "Gratuito"].map(t => (
+                  <span key={t} style={{ fontSize: 9, fontWeight: 700, color: "var(--muted)", background: "var(--off)", padding: "1px 5px", borderRadius: 99 }}>{t}</span>
+                ))}
+              </div>
+            </button>
+
+            {/* Campanhas por plataforma — chips inline */}
+            {totalCamp > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", borderRadius: 99, background: "white", border: "1.5px solid var(--border)" }}>
+                <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, marginRight: 2 }}>Campanhas</span>
+                {/* Total */}
+                <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 800, color: "#5856d6", background: "rgba(88,86,214,0.08)", padding: "2px 7px", borderRadius: 99 }}>
+                  📊 ALL {totalCamp}
+                </span>
+                {Object.entries(counts?.byPlatform ?? {}).map(([plat, cnt]: [string, any]) => (
+                  <span key={plat} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 800, color: PLAT_COLOR[plat] || "#333", background: (PLAT_COLOR[plat] || "#333") + "12", padding: "2px 7px", borderRadius: 99 }}>
+                    {PLAT_ICON[plat]} {plat.toUpperCase()} {cnt}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Matching Engine */}
+            {active.length > 0 && (
+              <button className="header-chip" onClick={() => setLocation(`/projects/${active[0]?.id}/campaign`)}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 99, background: "linear-gradient(135deg,rgba(0,113,227,0.06),rgba(88,86,214,0.06))", border: "1.5px solid rgba(88,86,214,0.2)", cursor: "pointer", fontFamily: "var(--font)" }}>
+                <span style={{ fontSize: 13 }}>🧠</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#5856d6" }}>Matching Engine</span>
+                <span style={{ fontSize: 10, color: "var(--muted)" }}>Calcular Match →</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Banner: email não verificado */}
         {user && !(user as any).emailVerified && (user as any).loginMethod === "manual" && (
-          <div style={{
-            background: "rgba(255,159,10,0.08)", border: "1.5px solid rgba(255,159,10,0.25)",
-            borderRadius: "var(--r)", padding: "14px 18px", marginBottom: 20,
-            display: "flex", alignItems: "center", gap: 14,
-          }}>
+          <div style={{ background: "rgba(255,159,10,0.08)", border: "1.5px solid rgba(255,159,10,0.25)", borderRadius: "var(--r)", padding: "14px 18px", marginBottom: 20, display: "flex", alignItems: "center", gap: 14 }}>
             <div style={{ fontSize: 20, color: "var(--orange)", flexShrink: 0 }}>◬</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "#b25000", marginBottom: 2 }}>
-                Confirme seu email para desbloquear todos os recursos
-              </div>
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                Enviamos um link para <strong>{(user as any).email}</strong>. Verifique também a pasta de spam.
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#b25000", marginBottom: 2 }}>Confirme seu email para desbloquear todos os recursos</div>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>Enviamos um link para <strong>{(user as any).email}</strong>. Verifique também a pasta de spam.</div>
             </div>
             <EmailResendButton email={(user as any).email} />
           </div>
         )}
 
-        {/* Stats */}
-        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", marginBottom: 20 }}>
+        {/* Stats KPIs */}
+        <div className="kpi-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", marginBottom: 20 }}>
           {STATS.map(s => (
             <div key={s.label} className="dash-stat card"
               onClick={() => s.tab && setActiveTab(s.tab as any)}
@@ -160,45 +223,28 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Layout: lista principal + acesso rápido */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(220px,26%,280px)", gap: 16, marginBottom: 20 }}>
+        {/* Layout principal */}
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 16, marginBottom: 20 }}>
 
           {/* Painel principal com abas */}
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-
-            {/* Abas */}
             <div style={{ display: "flex", borderBottom: "1px solid var(--border)", padding: "0 4px" }}>
-              {([
-                { id: "projects",  label: "Projetos",  count: projects?.length ?? 0 },
-                { id: "campaigns", label: "Campanhas", count: totalCamp },
-              ] as const).map(tab => (
+              {([ { id: "projects", label: "Projetos", count: projects?.length ?? 0 }, { id: "campaigns", label: "Campanhas", count: totalCamp } ] as const).map(tab => (
                 <button key={tab.id} className="tab-btn"
                   onClick={() => { setActiveTab(tab.id); setSelected(new Set()); }}
-                  style={{
-                    padding: "12px 16px", border: "none", background: "none",
-                    fontFamily: "var(--font)", fontSize: 13, fontWeight: activeTab === tab.id ? 700 : 500,
-                    color: activeTab === tab.id ? "var(--blue)" : "var(--muted)",
-                    borderBottom: activeTab === tab.id ? "2px solid var(--blue)" : "2px solid transparent",
-                    cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
-                  }}>
+                  style={{ padding: "12px 16px", border: "none", background: "none", fontFamily: "var(--font)", fontSize: 13, fontWeight: activeTab === tab.id ? 700 : 500, color: activeTab === tab.id ? "var(--blue)" : "var(--muted)", borderBottom: activeTab === tab.id ? "2px solid var(--blue)" : "2px solid transparent", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                   {tab.label}
-                  <span style={{ fontSize: 10, background: activeTab === tab.id ? "var(--blue-l)" : "var(--off)", color: activeTab === tab.id ? "var(--blue)" : "var(--muted)", padding: "1px 6px", borderRadius: 99, fontWeight: 700 }}>
-                    {tab.count}
-                  </span>
+                  <span style={{ fontSize: 10, background: activeTab === tab.id ? "var(--blue-l)" : "var(--off)", color: activeTab === tab.id ? "var(--blue)" : "var(--muted)", padding: "1px 6px", borderRadius: 99, fontWeight: 700 }}>{tab.count}</span>
                 </button>
               ))}
-
-              {/* Ações em lote — só aparece quando tem seleção na aba campanhas */}
               {activeTab === "campaigns" && selected.size > 0 && (
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, padding: "0 12px" }}>
                   <span style={{ fontSize: 11, color: "var(--muted)" }}>{selected.size} selecionada{selected.size > 1 ? "s" : ""}</span>
-                  <button className="btn btn-sm del-btn"
-                    onClick={() => setConfirmDel("bulk")}
+                  <button className="btn btn-sm del-btn" onClick={() => setConfirmDel("bulk")}
                     style={{ background: "rgba(255,59,48,0.08)", color: "var(--red)", border: "1px solid rgba(255,59,48,0.2)", fontSize: 12, padding: "4px 10px" }}>
                     🗑 Excluir {selected.size}
                   </button>
-                  <button className="btn btn-sm"
-                    onClick={() => setSelected(new Set())}
+                  <button className="btn btn-sm" onClick={() => setSelected(new Set())}
                     style={{ background: "var(--off)", color: "var(--muted)", fontSize: 12, padding: "4px 10px" }}>
                     Cancelar
                   </button>
@@ -260,33 +306,22 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div>
-                  {/* Header da lista */}
                   <div style={{ padding: "8px 20px", background: "var(--off)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10 }}>
                     <input type="checkbox" className="cb-row"
                       checked={selected.size === campList.length}
-                      onChange={e => setSelected(e.target.checked ? new Set(campList.map((c: any) => c.id)) : new Set())}
-                    />
+                      onChange={e => setSelected(e.target.checked ? new Set(campList.map((c: any) => c.id)) : new Set())} />
                     <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
                       {selected.size > 0 ? `${selected.size} selecionada${selected.size > 1 ? "s" : ""}` : "Selecionar todas"}
                     </span>
                   </div>
-
                   {campList.map((camp: any) => (
                     <div key={camp.id} className="camp-row"
                       style={{ padding: "11px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10, transition: "background .1s", background: selected.has(camp.id) ? "var(--blue-l)" : undefined }}>
-
-                      {/* Checkbox */}
                       <input type="checkbox" className="cb-row" checked={selected.has(camp.id)}
-                        onChange={() => toggleSelect(camp.id)}
-                        onClick={e => e.stopPropagation()}
-                      />
-
-                      {/* Ícone plataforma */}
+                        onChange={() => toggleSelect(camp.id)} onClick={e => e.stopPropagation()} />
                       <div style={{ width: 32, height: 32, borderRadius: 8, background: (PLAT_COLOR[camp.platform] || "#333") + "14", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
                         {PLAT_ICON[camp.platform] || "📊"}
                       </div>
-
-                      {/* Info */}
                       <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
                         onClick={() => setLocation(`/projects/${camp.projectId}/campaign/result/${camp.id}`)}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--dark)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{camp.name}</div>
@@ -295,34 +330,22 @@ export default function Dashboard() {
                           {camp.suggestedBudgetDaily ? ` · R$ ${(camp.suggestedBudgetDaily / 100).toFixed(0)}/dia` : ""}
                         </div>
                       </div>
-
-                      {/* Badge plataforma */}
                       <span className="badge" style={{ fontSize: 10, background: (PLAT_COLOR[camp.platform] || "#333") + "14", color: PLAT_COLOR[camp.platform] || "#333", flexShrink: 0 }}>
                         {camp.platform?.toUpperCase()}
                       </span>
-
-                      {/* Data */}
                       <span style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0, minWidth: 60, textAlign: "right" }}>
                         {camp.generatedAt ? new Date(camp.generatedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "—"}
                       </span>
-
-                      {/* Ações */}
                       <div style={{ display: "flex", gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                         <button title="Ver resultado" className="btn btn-sm"
                           onClick={() => setLocation(`/projects/${camp.projectId}/campaign/result/${camp.id}`)}
-                          style={{ background: "var(--off)", color: "var(--muted)", padding: "4px 8px", fontSize: 12 }}>
-                          Ver →
-                        </button>
+                          style={{ background: "var(--off)", color: "var(--muted)", padding: "4px 8px", fontSize: 12 }}>Ver →</button>
                         <button title="Arquivar" className="btn btn-sm arc-btn"
                           onClick={() => archiveMutation?.mutate({ id: camp.id })}
-                          style={{ background: "transparent", color: "var(--muted)", padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)" }}>
-                          ⬇
-                        </button>
+                          style={{ background: "transparent", color: "var(--muted)", padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)" }}>⬇</button>
                         <button title="Excluir" className="btn btn-sm del-btn"
                           onClick={() => setConfirmDel(camp.id)}
-                          style={{ background: "transparent", color: "var(--muted)", padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)" }}>
-                          🗑
-                        </button>
+                          style={{ background: "transparent", color: "var(--muted)", padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)" }}>🗑</button>
                       </div>
                     </div>
                   ))}
@@ -330,111 +353,50 @@ export default function Dashboard() {
               )
             )}
           </div>
-
-          {/* Coluna direita */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-
-            {/* Dashboard Unificado */}
-            <div className="card dash-card" onClick={() => setLocation("/unified-dashboard")}
-              style={{ padding: "14px 16px", cursor: "pointer", background: "var(--blue-l)", borderColor: "rgba(0,113,227,0.2)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--blue)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>📊</div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--blue)" }}>Dashboard Unificado</div>
-                  <div style={{ fontSize: 10, color: "var(--muted)" }}>Métricas em tempo real</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 5 }}>
-                {["Meta", "Google", "TikTok"].map(p => <span key={p} className="badge badge-blue" style={{ fontSize: 10 }}>{p}</span>)}
-              </div>
-            </div>
-
-            {/* Consulta CPF/CNPJ */}
-            <div className="card dash-card" onClick={() => setLocation("/consultas")}
-              style={{ padding: "14px 16px", cursor: "pointer" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 9, background: "var(--blue-l)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>🔍</div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: "var(--dark)" }}>Consulta CPF/CNPJ</div>
-                  <div style={{ fontSize: 10, color: "var(--muted)" }}>Receita · Processos judiciais</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 5 }}>
-                {["Receita", "CNJ", "Gratuito"].map(t => <span key={t} className="badge badge-gray" style={{ fontSize: 10 }}>{t}</span>)}
-              </div>
-            </div>
-
-            {/* Breakdown de campanhas por plataforma */}
-            {totalCamp > 0 && (
-              <div className="card" style={{ padding: "14px 16px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
-                  Campanhas por plataforma
-                </div>
-                {Object.entries(counts?.byPlatform ?? {}).map(([plat, count]: [string, any]) => (
-                  <div key={plat} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 16 }}>{PLAT_ICON[plat] || "📊"}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: PLAT_COLOR[plat] || "#333" }}>{plat.toUpperCase()}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--dark)" }}>{count}</span>
-                      </div>
-                      <div style={{ height: 3, background: "var(--border2)", borderRadius: 99, overflow: "hidden" }}>
-                        <div style={{ width: `${Math.round((count / totalCamp) * 100)}%`, height: "100%", background: PLAT_COLOR[plat] || "#333", borderRadius: 99 }} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Matching Engine */}
-            {active.length > 0 && (
-              <div className="card" style={{ padding: "14px 16px", background: "linear-gradient(135deg,rgba(0,113,227,0.06),rgba(88,86,214,0.06))", borderColor: "rgba(0,113,227,0.15)" }}>
-                <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>🧠 Matching Engine</p>
-                <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 10 }}>Score de compatibilidade para sua próxima campanha</p>
-                <button className="btn btn-gradient btn-sm btn-full"
-                  onClick={() => setLocation(`/projects/${active[0]?.id}/campaign`)}>
-                  Calcular Match →
-                </button>
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* CTA upgrade */}
-        {user?.plan === "free" && (
+        {/* CTA upgrade — plano free sem promoção ativa */}
+        {(user?.plan === "free" || user?.plan === "FREE" || !user?.plan) && !showPromo && (
           <div className="card" style={{ padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "linear-gradient(135deg,var(--black),#1a1a2e)", borderColor: "rgba(255,255,255,0.08)" }}>
             <div>
               <p style={{ fontSize: 14, fontWeight: 800, color: "white", marginBottom: 3 }}>Desbloqueie todo o potencial do MECPro</p>
               <p style={{ fontSize: 11, color: "rgba(255,255,255,0.45)" }}>Projetos ilimitados · IA completa · Exportação PDF/XLSX</p>
             </div>
-            <button className="btn btn-sm" style={{ background: "var(--green)", color: "var(--black)", fontWeight: 800, flexShrink: 0 }}
-              onClick={() => setLocation("/pricing")}>
+            <button className="btn btn-sm" style={{ background: "var(--green)", color: "var(--black)", fontWeight: 800, flexShrink: 0 }} onClick={() => setLocation("/pricing")}>
               Ver planos →
+            </button>
+          </div>
+        )}
+
+        {/* CTA promoção anual — plano free COM promoção ativa */}
+        {showPromo && (
+          <div className="card promo-btn" style={{ padding: "18px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "linear-gradient(135deg,#7c3aed,#1e40af)", borderColor: "rgba(255,255,255,0.1)", cursor: "pointer" }}
+            onClick={() => setLocation("/checkout-anual")}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 800, color: "white", marginBottom: 3 }}>🔥 Oferta Especial — Plano Anual</p>
+              <p style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>100 MecCoins · IA ilimitada · Economize 20% · Válido por tempo limitado</p>
+            </div>
+            <button className="btn btn-sm" style={{ background: "#ff9f0a", color: "white", fontWeight: 800, flexShrink: 0, border: "none" }}>
+              Ver oferta →
             </button>
           </div>
         )}
       </div>
 
-      {/* Modal de confirmação de exclusão */}
+      {/* Modal confirmação exclusão */}
       {confirmDel !== null && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}
           onClick={() => setConfirmDel(null)}>
-          <div className="card" style={{ padding: 28, maxWidth: 380, width: "90%", boxShadow: "var(--shadow-xl)" }}
-            onClick={e => e.stopPropagation()}>
+          <div className="card" style={{ padding: 28, maxWidth: 380, width: "90%", boxShadow: "var(--shadow-xl)" }} onClick={e => e.stopPropagation()}>
             <div style={{ fontSize: 28, textAlign: "center", marginBottom: 12 }}>🗑</div>
             <h3 style={{ fontSize: 16, fontWeight: 800, color: "var(--black)", textAlign: "center", marginBottom: 8 }}>
               {confirmDel === "bulk" ? `Excluir ${selected.size} campanha${selected.size > 1 ? "s" : ""}?` : "Excluir campanha?"}
             </h3>
             <p style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", marginBottom: 20 }}>
-              {confirmDel === "bulk"
-                ? "As campanhas selecionadas serão excluídas permanentemente."
-                : "Esta campanha será excluída permanentemente. Esta ação não pode ser desfeita."}
+              {confirmDel === "bulk" ? "As campanhas selecionadas serão excluídas permanentemente." : "Esta campanha será excluída permanentemente. Esta ação não pode ser desfeita."}
             </p>
             <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-ghost btn-md" style={{ flex: 1 }} onClick={() => setConfirmDel(null)}>
-                Cancelar
-              </button>
+              <button className="btn btn-ghost btn-md" style={{ flex: 1 }} onClick={() => setConfirmDel(null)}>Cancelar</button>
               <button className="btn btn-md" style={{ flex: 1, background: "var(--red)", color: "white" }}
                 onClick={() => {
                   if (confirmDel === "bulk") { handleBulkDelete(); }
