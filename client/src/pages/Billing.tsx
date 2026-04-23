@@ -6,9 +6,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 const PLANS = [
-  { slug: "basic",   name: "Core",    icon: "◈", price: 97,  desc: "Para profissionais autônomos",  color: "#0071e3", features: ["3 projetos ativos", "5 concorrentes/projeto", "3 campanhas IA/mês", "Integração Meta Ads", "Suporte por e-mail"] },
-  { slug: "premium", name: "Pro",     icon: "◆", price: 197, desc: "Para agências e times",          color: "#5856d6", highlight: true, features: ["10 projetos ativos", "Concorrentes ilimitados", "Campanhas IA ilimitadas", "Meta + Google Ads", "Export PDF e XLSX", "Suporte prioritário"] },
-  { slug: "vip",     name: "Elite",   icon: "◇", price: 397, desc: "Para grandes operações",         color: "#1d1d1f", features: ["Projetos ilimitados", "Tudo do Pro", "API access", "Manager dedicado", "Onboarding personalizado"] },
+  { slug: "basic",   name: "Basic",   icon: "◈", price: 97,  desc: "Para profissionais autônomos",  color: "#0071e3", features: ["3 projetos ativos", "5 concorrentes/projeto", "3 campanhas IA/mês", "Integração Meta Ads", "Suporte por e-mail"] },
+  { slug: "premium", name: "Premium", icon: "◆", price: 197, desc: "Para agências e times",          color: "#5856d6", highlight: true, features: ["10 projetos ativos", "Concorrentes ilimitados", "Campanhas IA ilimitadas", "Meta + Google Ads", "Export PDF e XLSX", "Suporte prioritário"] },
+  { slug: "vip",     name: "VIP",     icon: "◇", price: 397, desc: "Para grandes operações",         color: "#1d1d1f", features: ["Projetos ilimitados", "Tudo do Premium", "API access", "Manager dedicado", "Onboarding personalizado"] },
 ];
 
 // Payloads Pix Copia e Cola — chave: contato@mecproai.com
