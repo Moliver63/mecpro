@@ -337,5 +337,19 @@ export async function runMigrations(): Promise<void> {
       )
     `).catch(() => {});
 
+    // ── Schema updates: competitors ──────────────────────────────────────────
+    await pool.query(`ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiInsights"    TEXT`).catch(()=>{});
+    await pool.query(`ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiGeneratedAt" TIMESTAMPTZ`).catch(()=>{});
+    await pool.query(`ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiAdsAnalyzed" INTEGER`).catch(()=>{});
+
+    // ── Schema updates: scraped_ads ───────────────────────────────────────────
+    await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "pageName"           VARCHAR(255)`).catch(()=>{});
+    await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "pageId"             VARCHAR(100)`).catch(()=>{});
+    await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "publisherPlatforms" TEXT`).catch(()=>{});
+    await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "demographicData"    TEXT`).catch(()=>{});
+    await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "regionData"         TEXT`).catch(()=>{});
+    await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "spendRange"         VARCHAR(100)`).catch(()=>{});
+    await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "reachEstimate"      VARCHAR(100)`).catch(()=>{});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

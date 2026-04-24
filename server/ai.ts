@@ -150,7 +150,7 @@ async function fetchGoogleCompetitorInsights(
       const compLabel = comp === "HIGH" ? "🔴 Alta" : comp === "MEDIUM" ? "🟡 Média" : "🟢 Baixa";
 
       try {
-        await db.createScrapedAd({
+        await db.upsertScrapedAd({
           competitorId,
           projectId,
           headline:    text,
@@ -238,7 +238,7 @@ async function fetchGoogleTransparencyInsights(
             const advSlug = advName.toLowerCase().replace(/[^a-z0-9]/g, "");
             if (!advSlug.includes(nameSlug.slice(0, 5)) && !nameSlug.includes(advSlug.slice(0, 5))) continue;
 
-            await db.createScrapedAd({
+            await db.upsertScrapedAd({
               competitorId, projectId,
               headline:   advName,
               bodyText:   `Anunciante verificado no Google Ads Transparency | Domínio: ${domain || compName}`,
@@ -292,7 +292,7 @@ async function fetchGoogleTransparencyInsights(
           const sData: any = await sRes.json().catch(() => ({}));
           const items = sData.items || [];
           for (const item of items.slice(0, 3)) {
-            await db.createScrapedAd({
+            await db.upsertScrapedAd({
               competitorId, projectId,
               headline:   item.title || q,
               bodyText:   item.snippet || "",
@@ -353,7 +353,7 @@ async function fetchGoogleTransparencyInsights(
           const overlapRate = row.auctionInsight?.overlapRate;
           const outrankShare = row.auctionInsight?.outrankingShare;
 
-          await db.createScrapedAd({
+          await db.upsertScrapedAd({
             competitorId, projectId,
             headline:   `${displayName} — Google Ads Auction Insights`,
             bodyText:   `Impression Share: ${impShare ? (Number(impShare)*100).toFixed(1)+"%" : "N/A"} | Overlap Rate: ${overlapRate ? (Number(overlapRate)*100).toFixed(1)+"%" : "N/A"} | Outranking Share: ${outrankShare ? (Number(outrankShare)*100).toFixed(1)+"%" : "N/A"}`,
@@ -395,7 +395,7 @@ async function fetchGoogleTransparencyInsights(
           const desc = entity.description || entity.detailedDescription?.articleBody || "";
           if (!desc) continue;
 
-          await db.createScrapedAd({
+          await db.upsertScrapedAd({
             competitorId, projectId,
             headline:   entity.name || compName,
             bodyText:   desc.slice(0, 500),
@@ -1065,7 +1065,13 @@ Exemplos:
 
 export async function gemini(
   prompt: string,
-  opts: { temperature?: number; systemInstruction?: string; useCache?: boolean } = {},
+  opts: {
+    temperature?: number;
+    maxOutputTokens?: number;
+    systemInstruction?: string;
+    jsonMode?: boolean;
+    useCache?: boolean;
+  } = {},
   retryCount = 0
 ): Promise<string> {
   // ── Toggle: se modo "off", vai direto para Groq (sem tentar Gemini) ──────
@@ -1109,15 +1115,17 @@ export async function gemini(
   }
 
   const temperature       = opts.temperature       ?? 0.3;
+  const maxOutputTokens   = opts.maxOutputTokens   ?? 8192;
   const systemInstruction = opts.systemInstruction ?? SYSTEM_MECPRO;
+  const jsonMode          = opts.jsonMode          ?? true; // default mantém JSON
 
   const body: any = {
     system_instruction: { parts: [{ text: systemInstruction }] },
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       temperature,
-      maxOutputTokens: 8192,
-      responseMimeType: "application/json",
+      maxOutputTokens,
+      ...(jsonMode ? { responseMimeType: "application/json" } : {}),
     },
   };
 
@@ -2299,14 +2307,22 @@ async function fetchViaOfficialAPI(
           platforms:   ad.publisher_platforms,
           demographic: ad.demographic_distribution,
           regions:     ad.delivery_by_region,
-          spend:       ad.spend,           // ex: "100-199"
-          impressions: ad.impressions,     // ex: "1000-4999"
+          spend:       ad.spend,
+          impressions: ad.impressions,
           targetAges:  ad.target_ages,
           targetGender:ad.target_gender,
           snapshotUrl: ad.ad_snapshot_url,
           media:       ad.ad_creative_media?.slice(0, 2),
           stopDate:    ad.content_delivery_stops,
         }).slice(0, 3000),
+        // Campos dedicados para queries e insights
+        pageName:           ad.page_name    || null,
+        pageId:             ad.page_id      || null,
+        publisherPlatforms: ad.publisher_platforms ? JSON.stringify(ad.publisher_platforms) : null,
+        demographicData:    ad.demographic_distribution ? JSON.stringify(ad.demographic_distribution) : null,
+        regionData:         ad.delivery_by_region ? JSON.stringify(ad.delivery_by_region) : null,
+        spendRange:         ad.spend?.range     || (typeof ad.spend === "string" ? ad.spend : null),
+        reachEstimate:      ad.impressions?.range || (typeof ad.impressions === "string" ? ad.impressions : null),
       });
     }
 
@@ -2389,7 +2405,7 @@ async function fetchViaPublicEndpoint(
           // Cai para tentativa direta do Render abaixo
         } else if (data.success && Array.isArray(data.ads) && data.ads.length > 0) {
           for (const ad of data.ads) {
-            await db.createScrapedAd({
+            await db.upsertScrapedAd({
               competitorId, projectId, platform: "meta",
               adId:     ad.adId      || `hf_${Date.now()}_${Math.random().toString(36).slice(2)}`,
               adType:   ad.adType    || "image",
@@ -2476,7 +2492,7 @@ async function fetchViaPublicEndpoint(
     const ads = await tryFetch(url);
     if (ads && ads.length > 0) {
       for (const ad of ads) {
-        await db.createScrapedAd({ competitorId, projectId, platform: "meta", ...ad });
+        await db.upsertScrapedAd({ competitorId, projectId, platform: "meta", ...ad });
       }
       saved += ads.length;
       log.info("ai", "Public endpoint pageId OK", { competitorId, count: ads.length });
@@ -2513,7 +2529,7 @@ async function fetchViaPublicEndpoint(
       const ads = await tryFetch(url);
       if (ads && ads.length > 0) {
         for (const ad of ads) {
-          await db.createScrapedAd({ competitorId, projectId, platform: "meta", ...ad });
+          await db.upsertScrapedAd({ competitorId, projectId, platform: "meta", ...ad });
         }
         saved += ads.length;
         log.info("ai", "Public endpoint keyword OK", { competitorId, count: ads.length, q });
@@ -2529,7 +2545,7 @@ async function fetchViaPublicEndpoint(
     const ads = await tryFetch(altUrl);
     if (ads && ads.length > 0) {
       for (const ad of ads) {
-        await db.createScrapedAd({ competitorId, projectId, platform: "meta", ...ad });
+        await db.upsertScrapedAd({ competitorId, projectId, platform: "meta", ...ad });
       }
       saved += ads.length;
       log.info("ai", "Public endpoint alt OK", { competitorId, count: ads.length });
@@ -2575,7 +2591,7 @@ async function fetchViaPublicEndpoint(
                 }).slice(0, 2000),
               };
               if (entry.headline || entry.bodyText) {
-                await db.createScrapedAd({ competitorId, projectId, platform: "meta", ...entry });
+                await db.upsertScrapedAd({ competitorId, projectId, platform: "meta", ...entry });
                 saved++;
               }
             }
@@ -2827,12 +2843,16 @@ function parseAdsLibraryResponse(text: string): any[] {
 
 // ── detectAdType: Graph API (ads_archive) ────────────────────────────────────
 function detectAdType(ad: any): string {
+  const mediaType = ad?.ad_creative_media?.[0]?.type?.toLowerCase();
+  if (mediaType?.includes("video"))    return "video";
+  if (mediaType?.includes("carousel")) return "carousel";
+  if (mediaType?.includes("image"))    return "image";
+  // Fallbacks
   const media = ad.ad_creative_media?.[0];
-  if (!media) return "image";
-  if (media.type === "video" || media.video_sd_url || media.video_hd_url) return "video";
-  if ((ad.ad_creative_link_titles?.length ?? 0) > 1) return "carousel";
+  if (media?.video_sd_url || media?.video_hd_url) return "video";
   if (ad.ad_creative_media?.length > 1) return "carousel";
-  return "image";
+  if ((ad.ad_creative_link_titles?.length ?? 0) > 1) return "carousel";
+  return ad?.adType || "image";
 }
 
 // ── detectAdTypeFromSnapshot: endpoint público ───────────────────────────────
@@ -2846,17 +2866,9 @@ function detectAdTypeFromSnapshot(snapshot: any): string {
 
 // ── upsertScrapedAd: evita duplicatas por adId ──────────────────────────────
 async function upsertScrapedAd(data: any) {
-  if (data.adId) {
-    const existing = await db.getScrapedAdByAdId(data.adId);
-    if (existing) {
-      await db.updateScrapedAd(existing.id, {
-        isActive: data.isActive,
-        rawData:  data.rawData,
-      });
-      return existing;
-    }
-  }
-  return db.createScrapedAd(data);
+  // Delega para db.upsertScrapedAd que tem a lógica completa de upsert
+  // incluindo os campos novos: pageName, pageId, publisherPlatforms, etc.
+  return db.upsertScrapedAd(data);
 }
 
 
@@ -2908,7 +2920,7 @@ Gere 6 anúncios para Meta Ads que esta empresa provavelmente usa. Responda SOME
           const siteAds = siteParsed?.ads;
           if (Array.isArray(siteAds) && siteAds.length > 0) {
             for (const ad of siteAds) {
-              await db.createScrapedAd({
+              await db.upsertScrapedAd({
                 competitorId, projectId, platform: "meta",
                 adId:      `site_direct_${Date.now()}_${Math.random().toString(36).slice(2)}`,
                 adType:    ad.adType   || "image",
@@ -2987,7 +2999,7 @@ Gere 6 anúncios para Meta Ads que esta empresa provavelmente usa. Responda SOME
     // ④ Persiste no banco com source = "website_scraping"
     const siteTitle = scrapeData.data.title || websiteUrl;
     for (const ad of ads) {
-      await db.createScrapedAd({
+      await db.upsertScrapedAd({
         competitorId, projectId, platform: "meta",
         adId:      `ws_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         adType:    ad.adType   || "image",
@@ -3054,7 +3066,7 @@ async function fetchViaSEOAnalysis(
         }
         if (Array.isArray(ads) && ads.length > 0) {
           for (const ad of ads) {
-            await db.createScrapedAd({
+            await db.upsertScrapedAd({
               competitorId, projectId, platform: "meta",
               adId:      `seo_${Date.now()}_${Math.random().toString(36).slice(2)}`,
               adType:    ad.adType   || "image",
@@ -3140,7 +3152,7 @@ Responda SOMENTE com JSON válido:
     if (!Array.isArray(ads) || ads.length === 0) return false;
 
     for (const ad of ads) {
-      await db.createScrapedAd({
+      await db.upsertScrapedAd({
         competitorId, projectId, platform: "meta",
         adId:      `seo_gemini_${Date.now()}_${Math.random().toString(36).slice(2)}`,
         adType:    ad.adType   || "image",
@@ -3177,7 +3189,7 @@ Responda SOMENTE com JSON válido:
         const retryAds = retryParsed?.ads;
         if (Array.isArray(retryAds) && retryAds.length > 0) {
           for (const ad of retryAds) {
-            await db.createScrapedAd({
+            await db.upsertScrapedAd({
               competitorId, projectId, platform: "meta",
               adId:      `seo_retry_${Date.now()}_${Math.random().toString(36).slice(2)}`,
               adType:    ad.adType   || "image",
@@ -3279,7 +3291,7 @@ async function generateMockAds(competitorId: number, projectId: number, competit
 
   // ── 3. Persiste no banco ──────────────────────────────────────────────────
   for (const ad of selectedAds) {
-    await db.createScrapedAd({
+    await db.upsertScrapedAd({
       competitorId, projectId, platform: "meta",
       adId:     `estimated_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       adType:   ad.adType   || "image",
@@ -3437,25 +3449,33 @@ export async function generateMarketAnalysis(projectId: number) {
 
   // Monta seção detalhada com textos reais de cada concorrente
   const competitorsDetail = competitors.map((c: any) => {
-    const compAds   = allAds.filter((a: any) => a.competitorName === c.name);
-    const active    = compAds.filter((a: any) => a.isActive).length;
-    const ctaFreq   = compAds.reduce((acc: any, a: any) => { if (a.cta) acc[a.cta] = (acc[a.cta] || 0) + 1; return acc; }, {});
-    const topCtas   = Object.entries(ctaFreq).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3).map(([cta]) => cta);
-    const fmtFreq   = compAds.reduce((acc: any, a: any) => { if (a.adType) acc[a.adType] = (acc[a.adType] || 0) + 1; return acc; }, {});
-    const topFmts   = Object.entries(fmtFreq).sort((a: any, b: any) => b[1] - a[1]).map(([fmt, n]) => `${fmt}(${n})`).join(", ");
+    const compAds    = allAds.filter((a: any) => a.competitorName === c.name);
+    const activeAds  = compAds.filter((a: any) => a.isActive);
+    const ctaFreq    = compAds.reduce((acc: any, a: any) => { if (a.cta) acc[a.cta] = (acc[a.cta] || 0) + 1; return acc; }, {});
+    const topCtas    = Object.entries(ctaFreq).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3).map(([cta]) => cta);
+    const fmtFreq    = compAds.reduce((acc: any, a: any) => { if (a.adType) acc[a.adType] = (acc[a.adType] || 0) + 1; return acc; }, {});
+    const topFmts    = Object.entries(fmtFreq).sort((a: any, b: any) => b[1] - a[1]).map(([fmt, n]) => `${fmt}(${n})`).join(", ");
 
-    const topAds = compAds.slice(0, 8).map((a: any, i: number) =>
-      `  [${i + 1}] ${a.adType || "image"} | ${a.isActive ? "ATIVO" : "inativo"} | desde ${a.startDate ? new Date(a.startDate).toLocaleDateString("pt-BR") : "?"}
-       Headline: "${a.headline || "—"}"
-       Copy: "${a.bodyText?.slice(0, 200) || "—"}"
-       CTA: ${a.cta || "—"}`
-    ).join("\n");
+    // Headlines deduplicadas
+    const headlines  = [...new Set(compAds.map((a: any) => a.headline).filter(Boolean))].slice(0, 5);
+    // Copies deduplicadas, primeiros 300 chars
+    const copies     = [...new Set(compAds.filter((a: any) => a.bodyText).map((a: any) => (a.bodyText as string).slice(0, 300)))].slice(0, 3);
+    // Faixas de investimento
+    const spends     = compAds.map((a: any) => { try { return JSON.parse(a.rawData || "{}").spend; } catch { return null; } }).filter(Boolean).slice(0, 5);
 
     return `CONCORRENTE: ${c.name}
-  Total: ${compAds.length} anúncios | Ativos: ${active} | Formatos: ${topFmts || "n/a"}
+  Website: ${(c as any).website || "n/a"}
+  Total de anúncios: ${compAds.length} | Ativos: ${activeAds.length} | Formatos: ${topFmts || "n/a"}
   CTAs mais usados: ${topCtas.join(", ") || "n/a"}
-  Top anúncios:
-${topAds}`;
+  Investimento (faixas Meta): ${spends.join(", ") || "n/a"}
+
+  Top headlines:
+${headlines.map((h: any, i: number) => `    [${i + 1}] ${h}`).join("\n") || "    (sem headlines)"}
+
+  Top copies:
+${copies.map((cp: any, i: number) => `    [${i + 1}] ${cp}`).join("\n") || "    (sem copies)"}
+
+  CTAs: ${topCtas.join(" | ") || "n/a"}`;
   }).join("\n\n");
 
   const prompt = `

@@ -85,6 +85,9 @@ export const competitors = pgTable("competitors", {
   instagramUrl: varchar("instagramUrl", { length: 500 }),
   googleAdsUrl: varchar("googleAdsUrl", { length: 500 }),
   notes: text("notes"),
+  aiInsights:     text("aiInsights"),
+  aiGeneratedAt:  timestamp("aiGeneratedAt"),
+  aiAdsAnalyzed:  integer("aiAdsAnalyzed"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -109,6 +112,13 @@ export const scrapedAds = pgTable("scraped_ads", {
   isActive: integer("isActive").default(1).notNull(),
   startDate: timestamp("startDate"),
   rawData: text("rawData"),
+  pageName:            varchar("pageName", { length: 255 }),
+  pageId:              varchar("pageId", { length: 100 }),
+  publisherPlatforms:  text("publisherPlatforms"),
+  demographicData:     text("demographicData"),
+  regionData:          text("regionData"),
+  spendRange:          varchar("spendRange", { length: 100 }),
+  reachEstimate:       varchar("reachEstimate", { length: 100 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

@@ -462,6 +462,27 @@ export async function createScrapedAd(data: any) {
   return r[0];
 }
 
+export async function upsertScrapedAd(data: any) {
+  if (data.adId) {
+    const existing = await getScrapedAdByAdId(data.adId);
+    if (existing) {
+      await updateScrapedAd(existing.id, {
+        isActive:  data.isActive ?? 1,
+        rawData:   data.rawData ?? null,
+        ...(data.pageName           ? { pageName:           data.pageName }           : {}),
+        ...(data.pageId             ? { pageId:             data.pageId }             : {}),
+        ...(data.publisherPlatforms ? { publisherPlatforms: data.publisherPlatforms } : {}),
+        ...(data.demographicData    ? { demographicData:    data.demographicData }    : {}),
+        ...(data.regionData         ? { regionData:         data.regionData }         : {}),
+        ...(data.spendRange         ? { spendRange:         data.spendRange }         : {}),
+        ...(data.reachEstimate      ? { reachEstimate:      data.reachEstimate }      : {}),
+      } as any);
+      return existing;
+    }
+  }
+  return createScrapedAd(data);
+}
+
 export async function updateScrapedAd(id: number, data: { isActive?: number; rawData?: string | null }) {
   const db = await getDb(); if (!db) return;
   await db.update(scrapedAds).set(data).where(eq(scrapedAds.id, id));
