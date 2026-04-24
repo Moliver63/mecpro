@@ -5,13 +5,25 @@ import Layout from "@/components/layout/Layout";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 
-const TABS = ["Conta", "Segurança", "Notificações", "Integrações"];
+const TABS = ["Conta", "Segurança", "Notificações", "Integrações", "API"];
 
 export default function Settings() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState("Conta");
+  const [newKeyName, setNewKeyName] = useState("");
+  const [copiedKey,  setCopiedKey]  = useState<string | null>(null);
+  const [showNewKey, setShowNewKey] = useState<string | null>(null);
   const { data: integrations } = trpc.integrations.list.useQuery();
+  const { data: apiKeys, refetch: refetchKeys } = (trpc as any).admin?.listApiKeys?.useQuery?.() ?? { data: [], refetch: () => {} };
+  const createKey = (trpc as any).admin?.createApiKey?.useMutation?.({
+    onSuccess: (data: any) => { setShowNewKey(data.key); setNewKeyName(""); refetchKeys?.(); },
+    onError:   (e: any)    => alert(e.message),
+  }) ?? { mutate: () => {}, isPending: false };
+  const revokeKey = (trpc as any).admin?.revokeApiKey?.useMutation?.({
+    onSuccess: () => refetchKeys?.(),
+    onError:   (e: any) => alert(e.message),
+  }) ?? { mutate: () => {} };
   const metaConnected = (integrations as any[])?.some(i => i.provider === "meta" && i.isActive);
   const [saved, setSaved] = useState(false);
   const [form, setForm] = useState({ name: user?.name || "", email: user?.email || "" });
@@ -309,6 +321,136 @@ export default function Settings() {
             <p style={{ fontSize: 11, color: "var(--muted)", fontFamily: "monospace" }}>Configurado via RESEND_API_KEY</p>
           </div>
 
+        </div>
+      )}
+
+      {/* ── ABA: API ─────────────────────────────────────────────────── */}
+      {tab === "API" && (
+        <div>
+          {/* Header */}
+          <div style={{ marginBottom: 24 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: "var(--black)", margin: "0 0 6px" }}>🔑 API Keys — MECPro REST API</h2>
+            <p style={{ fontSize: 13, color: "var(--muted)", margin: 0, lineHeight: 1.6 }}>
+              Integre o MECPro com suas ferramentas externas via{" "}
+              <code style={{ background: "var(--off)", padding: "1px 6px", borderRadius: 4, fontSize: 12 }}>Authorization: Bearer mecpro_sk_...</code>
+            </p>
+          </div>
+
+          {/* Endpoints */}
+          <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 10 }}>Endpoints disponíveis</div>
+            {[
+              { method: "GET",  path: "/api/v1/status",                 desc: "Status + cota restante" },
+              { method: "GET",  path: "/api/v1/competitors/list",        desc: "Lista concorrentes do projeto" },
+              { method: "POST", path: "/api/v1/competitors/analyze",     desc: "Analisa concorrente com IA" },
+              { method: "POST", path: "/api/v1/insights/generate",       desc: "Gera SWOT, copy, oportunidades" },
+            ].map((ep, i, arr) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: i < arr.length-1 ? "1px solid var(--border)" : "none" }}>
+                <span style={{ fontSize: 10, fontWeight: 800, color: ep.method === "GET" ? "#0369a1" : "#7c3aed", background: ep.method === "GET" ? "#e0f2fe" : "#f3e8ff", padding: "2px 7px", borderRadius: 4, minWidth: 36, textAlign: "center" as const }}>{ep.method}</span>
+                <code style={{ fontSize: 11, color: "var(--dark)", flex: 1 }}>{ep.path}</code>
+                <span style={{ fontSize: 11, color: "var(--muted)" }}>{ep.desc}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Rate limits */}
+          <div style={{ background: "rgba(88,86,214,0.04)", border: "1px solid rgba(88,86,214,0.15)", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 10 }}>Rate limits por plano</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
+              {[
+                { plan: "Free",    daily: 5,   monthly: 50,   color: "#64748b" },
+                { plan: "Basic",   daily: 20,  monthly: 300,  color: "#0369a1" },
+                { plan: "Premium", daily: 100, monthly: 2000, color: "#7c3aed" },
+                { plan: "VIP",     daily: 500, monthly: 9999, color: "#0f172a" },
+              ].map(p => (
+                <div key={p.plan} style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", textAlign: "center" as const }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: p.color, marginBottom: 4 }}>{p.plan}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--dark)" }}>{p.daily}/dia</div>
+                  <div style={{ fontSize: 10, color: "var(--muted)" }}>{p.monthly.toLocaleString()}/mês</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Key recém-criada */}
+          {showNewKey && (
+            <div style={{ background: "#f0fdf4", border: "2px solid #86efac", borderRadius: 14, padding: "16px 20px", marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#15803d", marginBottom: 6 }}>✅ Nova API Key criada — salve agora!</div>
+              <div style={{ fontSize: 11, color: "#166534", marginBottom: 10 }}>Esta chave só é exibida uma vez.</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <code style={{ flex: 1, background: "white", border: "1px solid #86efac", borderRadius: 8, padding: "9px 14px", fontSize: 11, wordBreak: "break-all" as const, color: "#0f172a" }}>{showNewKey}</code>
+                <button onClick={() => { navigator.clipboard?.writeText(showNewKey); setCopiedKey(showNewKey); }}
+                  style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: "#15803d", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const, flexShrink: 0, fontFamily: "inherit" }}>
+                  {copiedKey === showNewKey ? "✅ Copiado!" : "📋 Copiar"}
+                </button>
+                <button onClick={() => setShowNewKey(null)}
+                  style={{ padding: "9px 12px", borderRadius: 8, border: "1px solid #86efac", background: "white", fontSize: 12, color: "#15803d", cursor: "pointer", flexShrink: 0, fontFamily: "inherit" }}>✕</button>
+              </div>
+            </div>
+          )}
+
+          {/* Lista de keys */}
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
+            <div style={{ padding: "11px 18px", background: "var(--off)", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{(apiKeys || []).length} key{(apiKeys || []).length !== 1 ? "s" : ""} ativa{(apiKeys || []).length !== 1 ? "s" : ""} · máx. 5</span>
+            </div>
+            {!(apiKeys || []).length && (
+              <div style={{ padding: "30px 20px", textAlign: "center" as const, color: "var(--muted)", fontSize: 13 }}>Nenhuma API key. Crie a primeira abaixo.</div>
+            )}
+            {(apiKeys || []).map((k: any) => (
+              <div key={k.id} style={{ padding: "13px 18px", borderBottom: "1px solid var(--off)", display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(88,86,214,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🔑</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)" }}>{k.name}</div>
+                  <code style={{ fontSize: 11, color: "var(--muted)" }}>{k.key_preview}</code>
+                </div>
+                <div style={{ textAlign: "right" as const, flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Hoje: <strong>{k.reqToday}</strong></div>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Mês: <strong>{k.reqMonth}</strong></div>
+                </div>
+                {k.lastUsedAt && (
+                  <div style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0, textAlign: "right" as const }}>
+                    Último uso<br/>{new Date(k.lastUsedAt).toLocaleDateString("pt-BR")}
+                  </div>
+                )}
+                <button onClick={() => { if (window.confirm(`Revogar "${k.name}"?`)) (revokeKey as any).mutate({ id: k.id }); }}
+                  style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #fca5a5", background: "white", color: "#dc2626", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0, fontFamily: "inherit" }}>
+                  Revogar
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Criar nova key */}
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, padding: "18px 20px", marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--dark)", marginBottom: 12 }}>➕ Criar nova API Key</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <input placeholder="Nome (ex: Produção, Zapier...)"
+                value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && newKeyName.trim() && (createKey as any).mutate({ name: newKeyName.trim() })}
+                style={{ flex: 1, padding: "9px 14px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 13, outline: "none", fontFamily: "inherit" }}
+              />
+              <button onClick={() => newKeyName.trim() && (createKey as any).mutate({ name: newKeyName.trim() })}
+                disabled={!newKeyName.trim() || (createKey as any).isPending || (apiKeys || []).length >= 5}
+                style={{ padding: "9px 20px", borderRadius: 10, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const, fontFamily: "inherit",
+                  background: !newKeyName.trim() || (apiKeys || []).length >= 5 ? "var(--off)" : "var(--blue)",
+                  color: !newKeyName.trim() || (apiKeys || []).length >= 5 ? "var(--muted)" : "white" }}>
+                {(createKey as any).isPending ? "Criando..." : "Criar Key"}
+              </button>
+            </div>
+            {(apiKeys || []).length >= 5 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#d97706" }}>⚠ Limite de 5 keys atingido. Revogue uma para criar nova.</div>
+            )}
+          </div>
+
+          {/* Exemplo curl */}
+          <div style={{ background: "#0f172a", borderRadius: 14, padding: "16px 20px" }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#475569", textTransform: "uppercase" as const, letterSpacing: ".06em", marginBottom: 10 }}>Exemplo de uso</div>
+            <pre style={{ margin: 0, fontSize: 11, color: "#94a3b8", overflowX: "auto" as const, lineHeight: 1.8, fontFamily: "monospace" }}>{`curl -X POST https://www.mecproai.com/api/v1/insights/generate \
+  -H "Authorization: Bearer mecpro_sk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":7,"type":"swot","audience":"empreendedores 25-45"}'`}</pre>
+          </div>
         </div>
       )}
     </Layout>
