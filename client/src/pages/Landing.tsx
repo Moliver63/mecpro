@@ -9,7 +9,9 @@ const PLANS = [
   { name: "VIP",     monthly: 397, slug: "vip",      color: "#7c3aed" },
 ];
 const annualPrice = (m: number) => Math.floor(m * 0.8) * 12;
-const creditVal   = (m: number) => Math.round(annualPrice(m) * 0.6);
+const creditGross = (m: number) => Math.round(annualPrice(m) * 0.6);           // 60% do anual (bruto)
+const creditFee   = (m: number) => Math.round(annualPrice(m) * 0.1);           // 10% do anual (taxa)
+const creditVal   = (m: number) => creditGross(m) - creditFee(m);              // líquido (= 50% do anual)
 const fmt         = (v: number) => `R$\u00a0${v.toLocaleString("pt-BR")}`;
 
 // ─── Countdown 72h ────────────────────────────────────────────────────────────
@@ -376,12 +378,20 @@ export default function Landing() {
                 <div style={{fontSize:12,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:.7,marginBottom:8}}>{p.name}</div>
 
                 <div style={{fontSize:13,color:"#6b7280",marginBottom:4}}>Você paga por ano:</div>
-                <div style={{fontSize:22,fontWeight:800,color:"#111",marginBottom:16}}>{fmt(annualPrice(p.monthly))}</div>
+                <div style={{fontSize:22,fontWeight:800,color:"#111",marginBottom:4}}>{fmt(annualPrice(p.monthly))}</div>
+                <div style={{fontSize:11,color:"#9ca3af",marginBottom:16}}>
+                  Total: {fmt(annualPrice(p.monthly))} · Crédito líquido: {fmt(creditVal(p.monthly))}
+                </div>
 
-                <div style={{background:i===0?"#f9fafb":i===1?"#f0fdf4":"#faf5ff",border:`1.5px solid ${i===0?"#e5e7eb":i===1?"#86efac":"#ddd6fe"}`,borderRadius:12,padding:"16px",marginBottom:16,textAlign:"center"}}>
-                  <div style={{fontSize:11,fontWeight:700,color:p.color,marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>💰 Crédito que entra na sua conta</div>
+                <div style={{background:i===0?"#f9fafb":i===1?"#f0fdf4":"#faf5ff",border:`1.5px solid ${i===0?"#e5e7eb":i===1?"#86efac":"#ddd6fe"}`,borderRadius:12,padding:"16px",marginBottom:12,textAlign:"center"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:p.color,marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>💰 você recebe</div>
                   <div style={{fontSize:36,fontWeight:900,color:p.color,letterSpacing:-1}}>+{fmt(creditVal(p.monthly))}</div>
                   <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>em até 10 dias úteis</div>
+                </div>
+
+                {/* Detalhamento bruto - taxa */}
+                <div style={{fontSize:11,color:"#9ca3af",textAlign:"center",marginBottom:16,lineHeight:1.6}}>
+                  Crédito bruto: {fmt(creditGross(p.monthly))} &minus; Taxa 10%: {fmt(creditFee(p.monthly))} = <strong style={{color:"#16a34a"}}>{fmt(creditVal(p.monthly))} líquido</strong>
                 </div>
 
                 <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#6b7280",marginBottom:20,padding:"10px 0",borderTop:"1px solid #f0f0f0"}}>
