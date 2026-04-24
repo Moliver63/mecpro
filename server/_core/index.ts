@@ -73,6 +73,7 @@ import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
+import publicApiRouter from '../publicApi';
 import { createContext } from './context.js';
 import { appRouter } from './router.js';
 import Stripe from 'stripe';
@@ -95,6 +96,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // ─── Health check (ANTES de qualquer middleware) ───────────
+// ── MECPro Public REST API v1 ──────────────────────────────────────────────
+app.use('/api/v1', publicApiRouter);
+
 app.get('/api/health', async (_req, res) => {
   // Importa estado do Circuit Breaker e cache do ai.ts
   let aiStatus: any = {};

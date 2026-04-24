@@ -3752,6 +3752,52 @@ const adminRouter = router({
       return { ok: true, userId: input.userId, frozen: input.freeze };
     }),
 
+  // ── API Keys (gerenciamento pelo painel) ──────────────────────────────────
+  listApiKeys: protectedProcedure.query(async ({ ctx }) => {
+    const pool = await getPool();
+    if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    const rows = await pool.query(
+      `SELECT id, name,
+              LEFT(key, 12) || '••••••••••••••••' AS key_preview,
+              "reqToday", "reqMonth", "lastUsedAt", active, "createdAt"
+       FROM api_keys WHERE "userId" = $1 ORDER BY "createdAt" DESC`,
+      [ctx.user.id]
+    );
+    return rows.rows;
+  }),
+
+  createApiKey: protectedProcedure
+    .input(z.object({ name: z.string().min(1).max(60).default("Minha Key") }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const count = await pool.query(
+        `SELECT COUNT(*) FROM api_keys WHERE "userId" = $1 AND active = true`, [ctx.user.id]
+      );
+      if (Number(count.rows[0].count) >= 5) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Limite de 5 API keys ativas por conta." });
+      }
+      const { createHash, randomBytes } = await import("crypto");
+      const key = `mecpro_sk_${randomBytes(24).toString("hex")}`;
+      const result = await pool.query(
+        `INSERT INTO api_keys ("userId", key, name) VALUES ($1, $2, $3) RETURNING id, key, name, "createdAt"`,
+        [ctx.user.id, key, input.name]
+      );
+      return result.rows[0];
+    }),
+
+  revokeApiKey: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await pool.query(
+        `UPDATE api_keys SET active = false WHERE id = $1 AND "userId" = $2`,
+        [input.id, ctx.user.id]
+      );
+      return { ok: true };
+    }),
+
   // -- Perfis (Superadmin-only) ---------------------------------------------
   setUserProfile: adminProcedure
     .input(z.object({

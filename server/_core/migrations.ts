@@ -321,5 +321,21 @@ export async function runMigrations(): Promise<void> {
     ON media_budget ("externalId") WHERE "externalId" IS NOT NULL
   `).catch(() => {});
 
+    // ── API Keys (external REST API) ─────────────────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS api_keys (
+        id           SERIAL PRIMARY KEY,
+        "userId"     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        key          TEXT NOT NULL UNIQUE,
+        name         TEXT NOT NULL DEFAULT 'Default',
+        "reqToday"   INTEGER NOT NULL DEFAULT 0,
+        "reqMonth"   INTEGER NOT NULL DEFAULT 0,
+        "lastUsedAt" TIMESTAMPTZ,
+        "resetAt"    DATE NOT NULL DEFAULT CURRENT_DATE,
+        active       BOOLEAN NOT NULL DEFAULT true,
+        "createdAt"  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }
