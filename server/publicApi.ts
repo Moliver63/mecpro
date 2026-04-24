@@ -11,7 +11,7 @@
 
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
-import { getPool } from "./_core/db";
+import { getPool } from "./db";
 import { log } from "./logger";
 import { analyzeCompetitor } from "./ai";
 import db from "./db";
