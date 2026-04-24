@@ -72,7 +72,7 @@ export default function Benefits({ signupUrl, creditValue }: LandingOfferProps) 
             href={signupUrl}
             className="mt-6 inline-flex min-h-14 items-center justify-center rounded-2xl bg-slate-950 px-8 text-base font-extrabold text-white transition hover:bg-slate-800"
           >
-            Ativar 60% de crédito
+            Ativar crédito líquido
           </a>
         </div>
       </div>

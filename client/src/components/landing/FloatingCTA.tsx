@@ -8,7 +8,7 @@ export default function FloatingCTA({ signupUrl, creditValue }: LandingOfferProp
           href={signupUrl}
           className="pointer-events-auto flex min-h-14 items-center justify-center rounded-xl bg-emerald-400 px-5 text-center text-sm font-extrabold text-slate-950 transition hover:bg-emerald-300 sm:text-base"
         >
-          Ativar 60% de crédito · {creditValue}
+          Ativar crédito líquido · {creditValue}
         </a>
       </div>
     </div>

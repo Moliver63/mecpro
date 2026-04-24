@@ -45,7 +45,7 @@ export default function FinalCTA({ annualPrice, creditValue, signupUrl }: Landin
                 href={signupUrl}
                 className="inline-flex min-h-14 w-full items-center justify-center rounded-2xl bg-white px-6 text-base font-extrabold text-slate-950 transition hover:bg-slate-100"
               >
-                Ativar 60% de crédito
+                Ativar crédito líquido
               </a>
             </div>
           </div>

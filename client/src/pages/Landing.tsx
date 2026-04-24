@@ -720,14 +720,18 @@ export default function Landing() {
                     <span style={{fontSize:13,color:"#9ca3af"}}>/mês</span>
                   </div>
                   <div style={{fontSize:12,color:"#9ca3af",marginBottom:6}}>cobrado anualmente · economize 20%</div>
-                  <div style={{fontSize:13,color:"#6b7280",marginBottom:20}}>
-                    Total anual: <strong style={{color:"#111"}}>{fmt(annualPrice(p.monthly))}</strong>
+                  <div style={{fontSize:13,color:"#6b7280",marginBottom:4}}>
+                    Total: <strong style={{color:"#111"}}>{fmt(annualPrice(p.monthly))}</strong> · Crédito líquido: <strong style={{color:"#16a34a"}}>{fmt(creditVal(p.monthly))}</strong>
                   </div>
 
-                  <div style={{background:"#f0fdf4",border:"2px solid #86efac",borderRadius:14,padding:"16px",marginBottom:20,textAlign:"center"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#16a34a",marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>💰 Crédito que entra na sua conta</div>
+                  <div style={{background:"#f0fdf4",border:"2px solid #86efac",borderRadius:14,padding:"16px",marginBottom:8,textAlign:"center"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#16a34a",marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>💰 você recebe</div>
                     <div style={{fontSize:34,fontWeight:900,color:"#16a34a",letterSpacing:-1}}>+{fmt(creditVal(p.monthly))}</div>
                     <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>em até 10 dias úteis</div>
+                  </div>
+
+                  <div style={{fontSize:11,color:"#9ca3af",textAlign:"center",marginBottom:16,lineHeight:1.6}}>
+                    Bruto: {fmt(creditGross(p.monthly))} &minus; Taxa 10%: {fmt(creditFee(p.monthly))} = <strong style={{color:"#16a34a"}}>{fmt(creditVal(p.monthly))} líquido</strong>
                   </div>
 
                   <div style={{fontSize:13,color:"#6b7280",marginBottom:24,display:"flex",justifyContent:"space-between",padding:"12px 0",borderTop:"1px solid #f0f0f0",borderBottom:"1px solid #f0f0f0"}}>
@@ -819,7 +823,7 @@ export default function Landing() {
                   <strong style={{color:"#111",display:"block",marginBottom:8}}>Termos completos do crédito promocional MECPro:</strong>
                   <ol style={{paddingLeft:18,margin:0}}>
                     <li>O crédito promocional é concedido exclusivamente a assinantes do plano anual MECPro.</li>
-                    <li>O valor do crédito equivale a aproximadamente 60% do valor total pago pelo plano anual.</li>
+                    <li>O crédito bruto equivale a 60% do valor anual. Após dedução da taxa operacional de 10%, o crédito líquido disponível é de 50% do valor total pago.</li>
                     <li>O crédito é depositado na conta MECPro do assinante em até 10 dias úteis após a confirmação do pagamento.</li>
                     <li>O crédito é válido exclusivamente para uso em campanhas dentro da plataforma MECPro (Meta Ads, Google Ads e TikTok Ads).</li>
                     <li>O crédito não pode ser sacado, transferido, revendido ou convertido em dinheiro.</li>
