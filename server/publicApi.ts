@@ -234,6 +234,9 @@ router.post("/competitors/analyze", authApiKey, async (req: Request, res: Respon
 
     const competitor = comp.rows[0];
 
+    // FIX: import dinamico
+    const { analyzeCompetitor } = await import("./ai");
+
     if (wait) {
       // Executa sincronamente (pode demorar até 30s)
       log.info("public-api", "analyze competitor sync", { userId: user.id, competitor_id, project_id });
