@@ -194,8 +194,8 @@ export default function AdminDashboard() {
             <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
               <button onClick={() => setShowMyPlan(false)} className="btn btn-md btn-ghost">Cancelar</button>
               <button onClick={() => updatePlan.mutate({ userId: (user as any).id, plan: myPlanValue as any })}
-                disabled={updatePlan.isLoading} className="btn btn-md btn-green">
-                {updatePlan.isLoading ? "Salvando..." : "💾 Salvar"}
+                disabled={updatePlan.isPending} className="btn btn-md btn-green">
+                {updatePlan.isPending ? "Salvando..." : "💾 Salvar"}
               </button>
             </div>
           </div>

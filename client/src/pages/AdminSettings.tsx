@@ -85,8 +85,8 @@ export default function AdminSettings() {
 
       <div style={{ marginTop: 20, display: "flex", alignItems: "center", gap: 14 }}>
         {saved && <span style={{ fontSize: 13, color: "var(--green-d)", fontWeight: 600 }}>✓ Configurações salvas!</span>}
-        <button className="btn btn-lg btn-green" onClick={handleSave} disabled={save.isLoading}>
-          {save.isLoading ? "Salvando..." : "💾 Salvar configurações"}
+        <button className="btn btn-lg btn-green" onClick={handleSave} disabled={save.isPending}>
+          {save.isPending ? "Salvando..." : "💾 Salvar configurações"}
         </button>
       </div>
     </Layout>

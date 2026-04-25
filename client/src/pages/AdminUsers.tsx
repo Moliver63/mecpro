@@ -397,7 +397,7 @@ export default function AdminUsers() {
               </button>
               <button
                 onClick={handlePlanSubmit}
-                disabled={!planValue || updatePlan.isLoading || requestPlan.isLoading}
+                disabled={!planValue || updatePlan.isLoading || requestPlan.isPending}
                 className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
               >
                 {isSuperadmin ? "Salvar" : "Enviar Solicitação"}

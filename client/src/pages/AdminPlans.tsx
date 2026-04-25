@@ -185,7 +185,7 @@ export default function AdminPlans() {
           {/* Footer do editor */}
           <div style={{ display: "flex", gap: 12, alignItems: "center", paddingTop: 16, borderTop: "1px solid var(--border)" }}>
             <button className="btn btn-lg btn-green" onClick={handleSave} disabled={upsert.isLoading || !editing.name || !editing.slug}>
-              {upsert.isLoading ? "Salvando..." : editing.id ? "💾 Salvar alterações" : "✨ Criar plano"}
+              {upsert.isPending ? "Salvando..." : editing.id ? "💾 Salvar alterações" : "✨ Criar plano"}
             </button>
             <button className="btn btn-lg btn-ghost" onClick={() => setEditing(null)}>Cancelar</button>
             {savedId && <span style={{ fontSize: 13, color: "var(--green-d)", fontWeight: 700 }}>✓ Plano salvo com sucesso!</span>}

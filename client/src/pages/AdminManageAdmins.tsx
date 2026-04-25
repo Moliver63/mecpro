@@ -78,7 +78,7 @@ export default function AdminManageAdmins() {
             {sent && <p style={{ fontSize: 13, color: "var(--green-d)", fontWeight: 600, marginBottom: 10 }}>✓ Convite enviado!</p>}
             <button className="btn btn-md btn-green btn-full" disabled={!isSuperAdmin || createInvite.isLoading || !inviteForm.email}
               onClick={() => createInvite.mutate(inviteForm)}>
-              {createInvite.isLoading ? "Enviando..." : "Enviar convite"}
+              {createInvite.isPending ? "Enviando..." : "Enviar convite"}
             </button>
           </div>
 

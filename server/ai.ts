@@ -1985,6 +1985,7 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number) {
 
     // ① + ② + ③: tentativas Meta (pageId → pageUrl → igUrl → nome)
     // Circuit Breaker: se Meta está falhando por permissão, pula direto pro SEO
+    let pipelineShortCircuited = false;
     if (metaCBisOpen()) {
       log.info("ai", "Meta CB OPEN — pulando tentativas Meta, usando site/SEO diretamente", { competitorId, hasWebsite: !!websiteUrl });
       metaOk = false;
@@ -1994,13 +1995,11 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number) {
         const websiteOk = await fetchViaWebsiteScraping(competitorId, projectId, websiteUrl, compName);
         if (websiteOk) {
           log.info("ai", "✅ Site direto OK (CB aberto)", { competitorId });
-          // Pula o resto do pipeline — já tem dados
-          goto_analyze: {
-            break goto_analyze;
-          }
+          pipelineShortCircuited = true; // pula o resto do pipeline
         }
       }
-    } else {
+    }
+    if (!pipelineShortCircuited && !metaCBisOpen()) {
       if (pageId) {
       const result = await fetchMetaAdsById(competitorId, projectId, pageId, effectiveToken);
       metaOk = result.ok;
@@ -2042,9 +2041,9 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number) {
       metaTokenInvalid = metaTokenInvalid || !!found.tokenInvalid;
       metaPermissionDenied = metaPermissionDenied || !!found.permissionDenied;
     }
-    } // fim else do Circuit Breaker
+    } // fim bloco pipeline Meta
 
-    if (!metaOk) {
+    if (!metaOk && !pipelineShortCircuited) {
       log.info("ai", "Meta Ads Library sem resultado — tentando fallback site/SEO", { compName, websiteUrl });
 
       let websiteOk = false;
