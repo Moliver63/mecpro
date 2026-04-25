@@ -1467,7 +1467,34 @@ async function callClaudeAPI(
 
 function mockResponse(prompt: string): string {
   const lower = prompt.toLowerCase();
+
+  // Extrai contexto do prompt para personalizar o mock
+  const nichoMatch   = prompt.match(/nicho[:\s]+([^
+\.]+)/i)?.[1]?.trim() || "";
+  const produtoMatch = prompt.match(/produto[:\s]+([^
+\.]+)/i)?.[1]?.trim() || "";
+  const publicoMatch = prompt.match(/público[:\s]+([^
+\.]+)/i)?.[1]?.trim() || "";
+  const compName     = prompt.match(/concorrente[:\s]+([^
+\.]+)/i)?.[1]?.trim() ||
+                       prompt.match(/site "([^"]+)"/i)?.[1]?.trim() || "Concorrente";
+  const isImoveis    = /imóv|imobi|apart|casa|residenc|villa|serena|luxo/i.test(prompt);
+  const isServico    = /clínica|saúde|beleza|estética|restaurante|delivery/i.test(prompt);
+  const isEcommerce  = /loja|produto|compra|e-commerce|varejo/i.test(prompt);
+
+  const nicho = nichoMatch || (isImoveis ? "imobiliário" : isServico ? "serviços" : isEcommerce ? "e-commerce" : "negócios");
+
   if (lower.includes("anúncios") || lower.includes("anucios") || lower.includes("concorrente") || lower.includes("ads") || lower.includes("analyze-competitor")) {
+    const ctasNicho = isImoveis
+      ? ["Agendar visita", "Falar com corretor", "Ver imóvel", "Solicitar proposta", "Conhecer o empreendimento"]
+      : isServico
+      ? ["Agendar consulta", "Falar no WhatsApp", "Ver disponibilidade", "Saiba mais", "Garanta sua vaga"]
+      : ["Comprar agora", "Ver oferta", "Falar no WhatsApp", "Saiba mais", "Quero desconto"];
+    const positioningNicho = isImoveis
+      ? "Marca usa tom aspiracional com foco em qualidade de vida, valorização patrimonial e exclusividade. Evita mencionar preço no criativo. Destaque em localização privilegiada e acabamento premium."
+      : isServico
+      ? "Marca usa tom de autoridade e confiança, com foco em resultado comprovado e atendimento humanizado. Depoimentos de clientes são o diferencial nos criativos."
+      : "Marca usa tom direto com foco em oferta e urgência. Preço e frete grátis são os principais argumentos visuais.";
     return JSON.stringify({
       topFormats: [
         { format: "vídeo", percentage: 65, insight: "Formato dominante para awareness e alcance — alta taxa de retenção" },
@@ -1477,18 +1504,34 @@ function mockResponse(prompt: string): string {
       topCtaPatterns: ["Saiba mais", "Fale agora", "Garanta já", "Quero conhecer", "Falar no WhatsApp"],
       estimatedFunnel: "TOF (60%): vídeo de 15s para público frio → MOF (25%): carrossel de benefícios para engajados → BOF (15%): oferta direta com urgência e CTA WhatsApp",
       winnerPatterns: "Anúncios ativos há mais de 30 dias com headlines que combinam número + benefício + urgência têm melhor performance. Copy curto (até 3 linhas) com pergunta retórica na abertura converte mais.",
-      positioning: "Marca usa tom aspiracional com foco em transformação de vida, evita mencionar preço no criativo. Destaque em diferenciais como atendimento personalizado e resultados rápidos.",
+      positioning: positioningNicho,
       competitorWeaknesses: "1. Ausência de prova social recente (sem depoimentos datados). 2. CTAs genéricos sem especificidade de oferta. 3. Sem segmentação visível por estágio do funil.",
       recommendations: "1. Criar vídeos curtos (15-30s) com depoimento real de cliente + resultado concreto. 2. Personalizar CTA com especificidade: 'Receber proposta em 24h' ao invés de 'Saiba mais'. 3. Separar campanhas por temperatura de público (frio/morno/quente) para otimizar CPL.",
     });
   }
   if (lower.includes("mercado") || lower.includes("oportunidade") || lower.includes("market-analysis")) {
+    const gapsNicho = isImoveis
+      ? `Concorrentes focam em público 30-45. Investidores acima de 50 anos estão sub-atendidos no nicho ${nicho}. Poucos exploram vídeo de tour virtual (>60s) e Reels como canal de geração de leads qualificados.`
+      : `Concorrentes do segmento ${nicho} focam em público jovem. Público maduro (40+) com maior poder de compra está sub-atendido. Oportunidade em conteúdo educativo antes da venda.`;
+    const posNicho = isImoveis
+      ? "Posicionar como solução premium com foco em estilo de vida, valorização e exclusividade. Diferencial: atendimento consultivo e transparência sobre o processo de compra."
+      : `Posicionar como referência de qualidade no segmento ${nicho} com foco em resultado rápido e suporte próximo. Diferencial: personalização e prova social local.`;
     return JSON.stringify({
-      competitiveGaps: "Concorrentes focam em público 25-35. Público 35-50 está sub-atendido. Nenhum usa vídeo longo (>60s) para educação.",
-      unexploredOpportunities: "1. Formato stories interativos ainda inexplorado\n2. Parcerias com micro-influenciadores regionais\n3. Campanhas de remarketing segmentadas por comportamento",
-      suggestedPositioning: "Posicionar como solução premium mas acessível, com foco em resultado rápido e suporte próximo. Diferencial: personalização.",
-      threats: "Concorrente principal aumentou investimento em 40% nos últimos 60 dias. Provável lançamento de produto iminente.",
-      competitiveMap: "Líder de mercado: alto investimento, tom corporativo. Concorrente 2: nicho jovem, preço baixo. Oportunidade: premium com relacionamento.",
+      competitiveGaps: gapsNicho,
+      unexploredOpportunities: isImoveis
+        ? "1. Tour virtual 360° via Reels (nenhum concorrente usa)
+2. Parceria com arquitetos e decoradores para conteúdo
+3. Campanhas de remarketing para visitantes do site há 30-90 dias
+4. WhatsApp Business com atendimento automatizado + humano"
+        : "1. Formato stories interativos ainda inexplorado
+2. Parcerias com micro-influenciadores regionais
+3. Campanhas de remarketing segmentadas por comportamento
+4. Conteúdo educativo pré-venda",
+      suggestedPositioning: posNicho,
+      threats: isImoveis
+        ? "Concorrentes imobiliários estão aumentando investimento em Meta Ads. Mercado de alto padrão tem ciclo de decisão longo (90-180 dias) — necessário funil de nutrição robusto."
+        : "Concorrente principal aumentou investimento em 40% nos últimos 60 dias. Provável lançamento de produto iminente.",
+      competitiveMap: `Líder de mercado: alto investimento, tom corporativo. Concorrente 2: preço baixo, baixa qualidade. Oportunidade para ${nicho}: premium com relacionamento próximo e prova social real.`,
     });
   }
   return JSON.stringify({
