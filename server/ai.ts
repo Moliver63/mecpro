@@ -1771,7 +1771,7 @@ export async function analyzeCompetitor(
   log.info("ai", "[analyzeCompetitor] iniciando", { competitorId, projectId });
 
   try {
-    const ads = await db.getScrapedAdsByCompetitorId(competitorId) as any[];
+    const ads = await db.getScrapedAdsByCompetitor(competitorId) as any[];
     if (!ads || ads.length === 0) {
       return { message: "Nenhum anúncio coletado para este concorrente ainda." };
     }
