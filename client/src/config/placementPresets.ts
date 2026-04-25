@@ -245,6 +245,35 @@ export const PLACEMENT_PRESETS: PlacementPreset[] = [
     tip:         "META: Feed FB é o canal mais eficiente para eleitores 35-60 anos. Stories para mobilização e urgência. Reels para vídeos curtos de proposta. OBRIGATÓRIO: incluir disclaimer 'Pago por [nome]' — Meta exige para anúncios políticos. GOOGLE: Search com nome do candidato + propostas. YouTube bumper 6s para awareness + vídeos de campanha 30s. Display para cobertura da área eleitoral.",
     warning:     "⚠️ ATENÇÃO LEGAL: Meta exige autorização prévia para anúncios políticos (Social Issues, Elections & Politics). Google proibiu segmentação por afinidade política. TikTok BANIU anúncios políticos pagos desde 2023 — apenas conteúdo orgânico é permitido. Consulte a legislação eleitoral do TSE sobre limites de gastos e períodos permitidos.",
   },
+
+  // ── Apostas Esportivas (LICENCIADAS) ─────────────────────────────────────
+  {
+    id:          "apostas",
+    label:       "Apostas Esportivas",
+    emoji:       "⚽",
+    description: "Apenas operadoras licenciadas pelo governo",
+    platforms:   ["meta", "google"],
+    placements:  ["fb_feed", "ig_feed", "fb_story", "ig_story", "ig_reels", "fb_reels"],
+    cta:         "Apostar agora",
+    objective:   "OUTCOME_AWARENESS",
+    tip:         "META: Feed FB+IG para público 18-45 anos + Stories para promoções e odds em tempo real + Reels para conteúdo de esporte. GOOGLE: Search com termos de apostas + YouTube para branded content esportivo. Público masculino 18-40 anos tem melhor conversão.",
+    warning:     "🔴 RESTRIÇÃO LEGAL OBRIGATÓRIA: Meta e Google exigem AUTORIZAÇÃO PRÉVIA por escrito para anúncios de apostas. No Brasil, apenas operadoras licenciadas pelo Ministério da Fazenda (Lei 14.790/2023) podem anunciar. TikTok PROÍBE qualquer anúncio de apostas — inclui esportivas licenciadas. Cassinos online, Tigrinho (Fortune Tiger) e jogos não licenciados são ILEGAIS no Brasil e BANIDOS em todas as plataformas.",
+  },
+
+  // ── Educação Financeira / Day Trade ──────────────────────────────────────
+  {
+    id:          "fintech",
+    label:       "Educação Financeira",
+    emoji:       "📈",
+    description: "Cursos, mentorias e conteúdo de investimentos",
+    platforms:   ["meta", "google"],
+    placements:  ["fb_feed", "ig_feed", "ig_reels", "fb_reels", "ig_story", "fb_story"],
+    cta:         "Saiba mais",
+    objective:   "OUTCOME_LEADS",
+    tip:         "META: Feed FB+IG para público 25-50 anos interessado em finanças + Reels para conteúdo educativo curto (dicas, conceitos) + Stories para eventos e webinars. GOOGLE: Search com palavras de intenção (aprender, curso, investir) funciona muito bem para educação financeira. Conteúdo educativo tem menor risco de rejeição que oferta direta.",
+    warning:     "⚠️ ATENÇÃO: Promessas de lucro garantido, retorno fixo ou 'enriqueça rápido' são PROIBIDAS em todas as plataformas e pela CVM (Instrução 592). Day trade como serviço financeiro (sinais, robôs) exige autorização prévia da Meta e certificação Google. Criptomoedas são restritas — consulte as políticas antes de criar anúncios. Apenas educação financeira (cursos, e-books, mentorias) é amplamente aceita.",
+  },
+
 ];
 
 export default PLACEMENT_PRESETS;
