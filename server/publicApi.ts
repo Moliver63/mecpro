@@ -1,24 +1,23 @@
-/**
- * MECPro Public REST API — v1
- * Autenticação: Bearer token (API Key) via header Authorization
+﻿/**
+ * MECPro Public REST API â€” v1
+ * AutenticaÃ§Ã£o: Bearer token (API Key) via header Authorization
  *
  * Endpoints:
- *   POST /api/v1/competitors/analyze   → Analisa um concorrente
- *   POST /api/v1/insights/generate     → Gera insights de mercado
- *   GET  /api/v1/competitors/list      → Lista concorrentes de um projeto
- *   GET  /api/v1/status                → Status da API e cota restante
+ *   POST /api/v1/competitors/analyze   â†’ Analisa um concorrente
+ *   POST /api/v1/insights/generate     â†’ Gera insights de mercado
+ *   GET  /api/v1/competitors/list      â†’ Lista concorrentes de um projeto
+ *   GET  /api/v1/status                â†’ Status da API e cota restante
  */
 
 import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import { getPool } from "./db";
 import { log } from "./logger";
-import { analyzeCompetitor } from "./ai";
 import db from "./db";
 
 const router = Router();
 
-// ── Limites por plano ────────────────────────────────────────────────────────
+// â”€â”€ Limites por plano â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const PLAN_LIMITS: Record<string, { daily: number; monthly: number }> = {
   free:    { daily:   5, monthly:   50 },
   basic:   { daily:  20, monthly:  300 },
@@ -26,7 +25,7 @@ const PLAN_LIMITS: Record<string, { daily: number; monthly: number }> = {
   vip:     { daily: 500, monthly: 9999 },
 };
 
-// ── Middleware de autenticação por API Key ───────────────────────────────────
+// â”€â”€ Middleware de autenticaÃ§Ã£o por API Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function authApiKey(req: Request, res: Response, next: Function) {
   const authHeader = req.headers.authorization || "";
   const key = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
@@ -38,7 +37,7 @@ async function authApiKey(req: Request, res: Response, next: Function) {
   const pool = await getPool();
   if (!pool) return res.status(500).json({ error: "db_unavailable" });
 
-  // Busca a key + usuário + plano
+  // Busca a key + usuÃ¡rio + plano
   const result = await pool.query(`
     SELECT k.id, k."userId", k.active, k."reqToday", k."reqMonth", k."resetAt", k.name,
            u.plan, u.email, u.name AS username
@@ -49,16 +48,16 @@ async function authApiKey(req: Request, res: Response, next: Function) {
   `, [key]);
 
   if (!result.rows.length) {
-    return res.status(401).json({ error: "invalid_api_key", message: "API key inválida ou inexistente." });
+    return res.status(401).json({ error: "invalid_api_key", message: "API key invÃ¡lida ou inexistente." });
   }
 
   const apiKey = result.rows[0];
 
   if (!apiKey.active) {
-    return res.status(403).json({ error: "api_key_disabled", message: "Esta API key está desativada." });
+    return res.status(403).json({ error: "api_key_disabled", message: "Esta API key estÃ¡ desativada." });
   }
 
-  // Reseta contador diário se mudou o dia
+  // Reseta contador diÃ¡rio se mudou o dia
   const today = new Date().toISOString().split("T")[0];
   if (apiKey.resetAt !== today) {
     await pool.query(`UPDATE api_keys SET "reqToday" = 0, "resetAt" = $1 WHERE id = $2`, [today, apiKey.id]);
@@ -72,14 +71,14 @@ async function authApiKey(req: Request, res: Response, next: Function) {
   if (apiKey.reqToday >= limits.daily) {
     return res.status(429).json({
       error: "rate_limit_daily",
-      message: `Limite diário atingido (${limits.daily} req/dia no plano ${plan}). Tente amanhã ou faça upgrade.`,
+      message: `Limite diÃ¡rio atingido (${limits.daily} req/dia no plano ${plan}). Tente amanhÃ£ ou faÃ§a upgrade.`,
       limit: limits.daily, used: apiKey.reqToday, resets: "tomorrow 00:00 BRT",
     });
   }
   if (apiKey.reqMonth >= limits.monthly) {
     return res.status(429).json({
       error: "rate_limit_monthly",
-      message: `Limite mensal atingido (${limits.monthly} req/mês no plano ${plan}). Faça upgrade para continuar.`,
+      message: `Limite mensal atingido (${limits.monthly} req/mÃªs no plano ${plan}). FaÃ§a upgrade para continuar.`,
       limit: limits.monthly, used: apiKey.reqMonth,
     });
   }
@@ -98,7 +97,7 @@ async function authApiKey(req: Request, res: Response, next: Function) {
   next();
 }
 
-// ── Helper de resposta padrão ─────────────────────────────────────────────────
+// â”€â”€ Helper de resposta padrÃ£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function apiResponse(res: Response, data: any, req: Request) {
   const limits = (req as any).apiLimits;
   return res.json({
@@ -118,7 +117,7 @@ function apiResponse(res: Response, data: any, req: Request) {
   });
 }
 
-// ── GET /api/v1/status ────────────────────────────────────────────────────────
+// â”€â”€ GET /api/v1/status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/status", authApiKey, async (req: Request, res: Response) => {
   const user   = (req as any).apiUser;
   const limits = (req as any).apiLimits;
@@ -141,7 +140,7 @@ router.get("/status", authApiKey, async (req: Request, res: Response) => {
   }, req);
 });
 
-// ── GET /api/v1/competitors/list ──────────────────────────────────────────────
+// â”€â”€ GET /api/v1/competitors/list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/competitors/list", authApiKey, async (req: Request, res: Response) => {
   const user      = (req as any).apiUser;
   const projectId = parseInt(req.query.projectId as string);
@@ -154,13 +153,13 @@ router.get("/competitors/list", authApiKey, async (req: Request, res: Response) 
     const pool = await getPool();
     if (!pool) return res.status(500).json({ error: "db_unavailable" });
 
-    // Verifica que o projeto pertence ao usuário
+    // Verifica que o projeto pertence ao usuÃ¡rio
     const proj = await pool.query(
       `SELECT id, name, status FROM projects WHERE id = $1 AND "userId" = $2`,
       [projectId, user.id]
     );
     if (!proj.rows.length) {
-      return res.status(404).json({ error: "project_not_found", message: "Projeto não encontrado ou sem acesso." });
+      return res.status(404).json({ error: "project_not_found", message: "Projeto nÃ£o encontrado ou sem acesso." });
     }
 
     const competitors = await pool.query(`
@@ -198,7 +197,7 @@ router.get("/competitors/list", authApiKey, async (req: Request, res: Response) 
   }
 });
 
-// ── POST /api/v1/competitors/analyze ─────────────────────────────────────────
+// â”€â”€ POST /api/v1/competitors/analyze â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/competitors/analyze", authApiKey, async (req: Request, res: Response) => {
   const user = (req as any).apiUser;
   const { competitor_id, project_id, wait = false } = req.body || {};
@@ -221,7 +220,7 @@ router.post("/competitors/analyze", authApiKey, async (req: Request, res: Respon
       [project_id, user.id]
     );
     if (!proj.rows.length) {
-      return res.status(404).json({ error: "project_not_found", message: "Projeto não encontrado ou sem acesso." });
+      return res.status(404).json({ error: "project_not_found", message: "Projeto nÃ£o encontrado ou sem acesso." });
     }
 
     const comp = await pool.query(
@@ -229,7 +228,7 @@ router.post("/competitors/analyze", authApiKey, async (req: Request, res: Respon
       [competitor_id, project_id]
     );
     if (!comp.rows.length) {
-      return res.status(404).json({ error: "competitor_not_found", message: "Concorrente não encontrado neste projeto." });
+      return res.status(404).json({ error: "competitor_not_found", message: "Concorrente nÃ£o encontrado neste projeto." });
     }
 
     const competitor = comp.rows[0];
@@ -238,7 +237,7 @@ router.post("/competitors/analyze", authApiKey, async (req: Request, res: Respon
     const { analyzeCompetitor } = await import("./ai");
 
     if (wait) {
-      // Executa sincronamente (pode demorar até 30s)
+      // Executa sincronamente (pode demorar atÃ© 30s)
       log.info("public-api", "analyze competitor sync", { userId: user.id, competitor_id, project_id });
       const result = await analyzeCompetitor(competitor_id, project_id);
       return apiResponse(res, {
@@ -254,7 +253,7 @@ router.post("/competitors/analyze", authApiKey, async (req: Request, res: Respon
       return apiResponse(res, {
         competitor: { id: competitor.id, name: competitor.name, website: competitor.website },
         status: "processing",
-        message: "Análise iniciada em background. Consulte GET /api/v1/competitors/list em ~30s para ver o resultado.",
+        message: "AnÃ¡lise iniciada em background. Consulte GET /api/v1/competitors/list em ~30s para ver o resultado.",
         mode: "async",
         check_url: `/api/v1/competitors/list?projectId=${project_id}`,
       }, req);
@@ -266,14 +265,14 @@ router.post("/competitors/analyze", authApiKey, async (req: Request, res: Respon
   }
 });
 
-// ── POST /api/v1/insights/generate ───────────────────────────────────────────
+// â”€â”€ POST /api/v1/insights/generate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/insights/generate", authApiKey, async (req: Request, res: Response) => {
   const user = (req as any).apiUser;
   const {
     project_id,
     type = "full",        // "full" | "swot" | "opportunities" | "threats" | "copy"
-    audience,             // opcional: segmento do público-alvo
-    context,              // opcional: contexto extra (ex: "lançamento de produto")
+    audience,             // opcional: segmento do pÃºblico-alvo
+    context,              // opcional: contexto extra (ex: "lanÃ§amento de produto")
   } = req.body || {};
 
   if (!project_id) {
@@ -284,7 +283,7 @@ router.post("/insights/generate", authApiKey, async (req: Request, res: Response
         project_id: 7,
         type: "full",
         audience: "empreendedores 25-45 anos",
-        context: "lançamento de produto digital",
+        context: "lanÃ§amento de produto digital",
       },
     });
   }
@@ -306,12 +305,12 @@ router.post("/insights/generate", authApiKey, async (req: Request, res: Response
       [project_id, user.id]
     );
     if (!proj.rows.length) {
-      return res.status(404).json({ error: "project_not_found", message: "Projeto não encontrado ou sem acesso." });
+      return res.status(404).json({ error: "project_not_found", message: "Projeto nÃ£o encontrado ou sem acesso." });
     }
 
     const project = proj.rows[0];
 
-    // Busca concorrentes + anúncios analisados
+    // Busca concorrentes + anÃºncios analisados
     const competitors = await pool.query(`
       SELECT c.id, c.name, c.website, c."analysisScore",
              json_agg(json_build_object(
@@ -330,7 +329,7 @@ router.post("/insights/generate", authApiKey, async (req: Request, res: Response
 
     // Monta prompt contextual
     const profileSummary = project.targetAudience
-      ? `Público-alvo: ${project.targetAudience}. Produto: ${project.productName || project.name}. Nicho: ${project.niche || "N/A"}.`
+      ? `PÃºblico-alvo: ${project.targetAudience}. Produto: ${project.productName || project.name}. Nicho: ${project.niche || "N/A"}.`
       : `Projeto: ${project.name}`;
 
     const competitorsSummary = competitors.rows.map((c: any) =>
@@ -338,7 +337,7 @@ router.post("/insights/generate", authApiKey, async (req: Request, res: Response
     ).join("\n");
 
     const prompts: Record<string, string> = {
-      full: `Você é um estrategista de marketing sênior. Analise o seguinte projeto e seus concorrentes e gere um relatório completo de inteligência de mercado em português.
+      full: `VocÃª Ã© um estrategista de marketing sÃªnior. Analise o seguinte projeto e seus concorrentes e gere um relatÃ³rio completo de inteligÃªncia de mercado em portuguÃªs.
 
 ${profileSummary}
 ${audience ? `Segmento-alvo adicional: ${audience}` : ""}
@@ -347,20 +346,20 @@ ${context ? `Contexto: ${context}` : ""}
 Concorrentes identificados:
 ${competitorsSummary || "Nenhum concorrente cadastrado ainda."}
 
-Gere um relatório com:
+Gere um relatÃ³rio com:
 1. **Resumo executivo** (3-4 frases)
-2. **Análise SWOT** (Forças, Fraquezas, Oportunidades, Ameaças)
-3. **Top 3 oportunidades de mercado** com ações concretas
-4. **Top 3 ameaças** e como mitigá-las
+2. **AnÃ¡lise SWOT** (ForÃ§as, Fraquezas, Oportunidades, AmeaÃ§as)
+3. **Top 3 oportunidades de mercado** com aÃ§Ãµes concretas
+4. **Top 3 ameaÃ§as** e como mitigÃ¡-las
 5. **Posicionamento recomendado** para se diferenciar dos concorrentes
 6. **KPIs sugeridos** para monitorar
 
-Seja específico, prático e orientado a resultados.`,
+Seja especÃ­fico, prÃ¡tico e orientado a resultados.`,
 
-      swot: `Gere uma análise SWOT detalhada em português para o seguinte projeto de marketing:
+      swot: `Gere uma anÃ¡lise SWOT detalhada em portuguÃªs para o seguinte projeto de marketing:
 
 ${profileSummary}
-Concorrentes: ${competitorsSummary || "não identificados"}
+Concorrentes: ${competitorsSummary || "nÃ£o identificados"}
 ${audience ? `Segmento: ${audience}` : ""}
 
 Formato JSON com: { strengths: [], weaknesses: [], opportunities: [], threats: [] }
@@ -369,25 +368,25 @@ Cada item deve ter: { point: "...", detail: "...", action: "..." }`,
       opportunities: `Identifique as 5 maiores oportunidades de mercado para:
 
 ${profileSummary}
-Concorrentes: ${competitorsSummary || "não identificados"}
+Concorrentes: ${competitorsSummary || "nÃ£o identificados"}
 ${context ? `Contexto: ${context}` : ""}
 
-Para cada oportunidade: nome, descrição, como aproveitar, prazo estimado, potencial de impacto (alto/médio/baixo).`,
+Para cada oportunidade: nome, descriÃ§Ã£o, como aproveitar, prazo estimado, potencial de impacto (alto/mÃ©dio/baixo).`,
 
-      threats: `Identifique as 5 principais ameaças competitivas e de mercado para:
-
-${profileSummary}
-Concorrentes: ${competitorsSummary || "não identificados"}
-
-Para cada ameaça: descrição, probabilidade (alta/média/baixa), impacto (alto/médio/baixo), estratégia de mitigação.`,
-
-      copy: `Você é um especialista em copywriting. Crie 5 variações de copy de anúncio para:
+      threats: `Identifique as 5 principais ameaÃ§as competitivas e de mercado para:
 
 ${profileSummary}
-${audience ? `Público: ${audience}` : ""}
+Concorrentes: ${competitorsSummary || "nÃ£o identificados"}
+
+Para cada ameaÃ§a: descriÃ§Ã£o, probabilidade (alta/mÃ©dia/baixa), impacto (alto/mÃ©dio/baixo), estratÃ©gia de mitigaÃ§Ã£o.`,
+
+      copy: `VocÃª Ã© um especialista em copywriting. Crie 5 variaÃ§Ãµes de copy de anÃºncio para:
+
+${profileSummary}
+${audience ? `PÃºblico: ${audience}` : ""}
 ${context ? `Contexto: ${context}` : ""}
 
-Para cada variação: headline, body (2-3 linhas), CTA, plataforma recomendada (Meta/Google/TikTok), gatilho emocional usado.`,
+Para cada variaÃ§Ã£o: headline, body (2-3 linhas), CTA, plataforma recomendada (Meta/Google/TikTok), gatilho emocional usado.`,
     };
 
     log.info("public-api", "insights/generate", { userId: user.id, project_id, type });
@@ -423,17 +422,17 @@ Para cada variação: headline, body (2-3 linhas), CTA, plataforma recomendada (
   }
 });
 
-// ── Gerenciamento de API Keys (autenticado via sessão normal) ─────────────────
-// GET /api/v1/keys — lista keys do usuário
+// â”€â”€ Gerenciamento de API Keys (autenticado via sessÃ£o normal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// GET /api/v1/keys â€” lista keys do usuÃ¡rio
 router.get("/keys", async (req: Request, res: Response) => {
   const userId = (req as any).user?.id || (req.session as any)?.userId;
-  if (!userId) return res.status(401).json({ error: "not_authenticated", message: "Faça login no MECPro." });
+  if (!userId) return res.status(401).json({ error: "not_authenticated", message: "FaÃ§a login no MECPro." });
 
   const pool = await getPool();
   if (!pool) return res.status(500).json({ error: "db_unavailable" });
 
   const keys = await pool.query(
-    `SELECT id, name, LEFT(key, 8) || '••••••••••••••••••' AS key_preview,
+    `SELECT id, name, LEFT(key, 8) || 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' AS key_preview,
             "reqToday", "reqMonth", "lastUsedAt", active, "createdAt"
      FROM api_keys WHERE "userId" = $1 ORDER BY "createdAt" DESC`,
     [userId]
@@ -442,7 +441,7 @@ router.get("/keys", async (req: Request, res: Response) => {
   return res.json({ success: true, data: keys.rows });
 });
 
-// POST /api/v1/keys — cria nova key
+// POST /api/v1/keys â€” cria nova key
 router.post("/keys", async (req: Request, res: Response) => {
   const userId = (req as any).user?.id || (req.session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "not_authenticated" });
@@ -452,13 +451,13 @@ router.post("/keys", async (req: Request, res: Response) => {
   const pool = await getPool();
   if (!pool) return res.status(500).json({ error: "db_unavailable" });
 
-  // Limite: máx 5 keys por usuário
+  // Limite: mÃ¡x 5 keys por usuÃ¡rio
   const count = await pool.query(`SELECT COUNT(*) FROM api_keys WHERE "userId" = $1 AND active = true`, [userId]);
   if (Number(count.rows[0].count) >= 5) {
     return res.status(400).json({ error: "too_many_keys", message: "Limite de 5 API keys ativas por conta." });
   }
 
-  // Gera key única: mecpro_sk_<32 hex chars>
+  // Gera key Ãºnica: mecpro_sk_<32 hex chars>
   const key = `mecpro_sk_${crypto.randomBytes(24).toString("hex")}`;
 
   const result = await pool.query(
@@ -471,11 +470,11 @@ router.post("/keys", async (req: Request, res: Response) => {
   return res.json({
     success: true,
     data: result.rows[0],
-    warning: "Salve esta key agora. Ela não será exibida novamente por completo.",
+    warning: "Salve esta key agora. Ela nÃ£o serÃ¡ exibida novamente por completo.",
   });
 });
 
-// DELETE /api/v1/keys/:id — revoga key
+// DELETE /api/v1/keys/:id â€” revoga key
 router.delete("/keys/:id", async (req: Request, res: Response) => {
   const userId = (req as any).user?.id || (req.session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "not_authenticated" });
