@@ -2159,6 +2159,7 @@ const campaignsRouter = router({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(30000), // 30s por chamada Meta — evita hang indefinido
         });
         const data: any = await res.json().catch(() => ({}));
         if (!res.ok || data?.error) {

@@ -402,7 +402,11 @@ export default function CampaignResult() {
     },
     onError: (e: any) => {
       const msg = e?.message || e?.data?.message || "Erro desconhecido ao publicar";
-      toast.error(`✕ ${msg}`);
+      if (msg.includes("Failed to fetch") || msg.includes("abort") || msg.includes("timeout")) {
+        toast.error("⏱ A publicação demorou mais que o esperado. Verifique no Meta Ads Manager se a campanha foi criada antes de tentar novamente.", { duration: 10000 });
+      } else {
+        toast.error(`✕ ${msg}`, { duration: 8000 });
+      }
       setPublishing(false);
     },
   });
