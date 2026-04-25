@@ -218,6 +218,33 @@ export const PLACEMENT_PRESETS: PlacementPreset[] = [
     objective:   "OUTCOME_AWARENESS",
     tip:         "META: Instagram visual-first para food — Reels de bastidores e pratos + Feed + Marketplace local. TIKTOK: Conteúdo de food é viral no TikTok — Reels de preparo e reação performam muito bem para restaurantes. Segmentação por raio obrigatória.",
   },
+  // ── Influencer / Criador de Conteúdo ─────────────────────────────────────
+  {
+    id:          "influencer",
+    label:       "Influencer",
+    emoji:       "🎬",
+    description: "Criadores de conteúdo e marca pessoal",
+    platforms:   ["meta", "google", "tiktok"],
+    placements:  ["ig_reels", "ig_feed", "ig_story", "ig_explore", "fb_feed", "fb_reels"],
+    cta:         "Seguir",
+    objective:   "OUTCOME_AWARENESS",
+    tip:         "META: Reels IG é o principal formato para descoberta de criadores — algoritmo prioriza. Stories para bastidores e proximidade. Explorar para audiências novas. Feed IG como portfólio. GOOGLE: YouTube Discovery Ads aparecem no feed do YouTube e Gmail — ideal para promover canal. TIKTOK: melhor plataforma para crescimento de audiência < 35 anos. In-Feed nativo performa melhor que qualquer outro formato.",
+    warning:     "Evite Audience Network e Marketplace — não são canais de descoberta de criadores. Para público 45+, priorize Facebook feed em vez de TikTok.",
+  },
+
+  // ── Político / Eleitoral ──────────────────────────────────────────────────
+  {
+    id:          "politico",
+    label:       "Político / Eleitoral",
+    emoji:       "🗳️",
+    description: "Candidatos, campanhas e causas sociais",
+    platforms:   ["meta", "google"],
+    placements:  ["fb_feed", "ig_feed", "fb_story", "ig_story", "ig_reels", "fb_reels"],
+    cta:         "Saiba mais",
+    objective:   "OUTCOME_AWARENESS",
+    tip:         "META: Feed FB é o canal mais eficiente para eleitores 35-60 anos. Stories para mobilização e urgência. Reels para vídeos curtos de proposta. OBRIGATÓRIO: incluir disclaimer 'Pago por [nome]' — Meta exige para anúncios políticos. GOOGLE: Search com nome do candidato + propostas. YouTube bumper 6s para awareness + vídeos de campanha 30s. Display para cobertura da área eleitoral.",
+    warning:     "⚠️ ATENÇÃO LEGAL: Meta exige autorização prévia para anúncios políticos (Social Issues, Elections & Politics). Google proibiu segmentação por afinidade política. TikTok BANIU anúncios políticos pagos desde 2023 — apenas conteúdo orgânico é permitido. Consulte a legislação eleitoral do TSE sobre limites de gastos e períodos permitidos.",
+  },
 ];
 
 export default PLACEMENT_PRESETS;
