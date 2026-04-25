@@ -1542,41 +1542,40 @@ function mockResponse(prompt: string): string {
 // Chamada por: server/_core/router.ts → campaigns.generate
 // ══════════════════════════════════════════════════════════════════════════════
 export async function generateCampaign(input: {
-  projectId:    number;
-  name:         string;
-  objective:    string;
-  platform:     string;
-  budget:       number;
-  duration:     number;
+  projectId:     number;
+  name:          string;
+  objective:     string;
+  platform:      string;
+  budget:        number;
+  duration:      number;
   extraContext?: string;
-  ageMin?:      number;
-  ageMax?:      number;
-  regions?:     string[];
-  countries?:   string[];
+  ageMin?:       number;
+  ageMax?:       number;
+  regions?:      string[];
+  countries?:    string[];
   locationMode?: string;
-  geoCity?:     string;
-  geoRadius?:   number;
-  mediaFormat?: string;
-  leadForm?:    any;
+  geoCity?:      string;
+  geoRadius?:    number;
+  mediaFormat?:  string;
+  leadForm?:     any;
 }): Promise<any> {
   const { projectId, name, objective, platform, budget, duration, extraContext } = input;
-
-  log.info("ai", "[generateCampaign] iniciando", { projectId, name, objective, platform, budget });
+  log.info("ai", "[generateCampaign] iniciando", { projectId, name, objective, platform });
 
   // Busca perfil do cliente para contexto
   let clientContext = "";
   try {
-    const profile = await db.getClientProfileByProjectId(projectId);
+    const profile = await db.getClientProfileByProjectId(projectId) as any;
     if (profile) {
       clientContext = `
 PERFIL DO CLIENTE:
-- Empresa: ${(profile as any).companyName || "N/A"}
-- Nicho: ${(profile as any).niche || "N/A"}
-- Produto/Serviço: ${(profile as any).productService || "N/A"}
-- Público-alvo: ${(profile as any).targetAudience || "N/A"}
-- Dor principal: ${(profile as any).mainPain || "N/A"}
-- Proposta de valor: ${(profile as any).uniqueValueProposition || "N/A"}
-- Budget mensal: ${(profile as any).monthlyBudget ? `R$ ${(profile as any).monthlyBudget}` : "N/A"}
+- Empresa: ${profile.companyName || "N/A"}
+- Nicho: ${profile.niche || "N/A"}
+- Produto/Serviço: ${profile.productService || "N/A"}
+- Público-alvo: ${profile.targetAudience || "N/A"}
+- Dor principal: ${profile.mainPain || "N/A"}
+- Proposta de valor: ${profile.uniqueValueProposition || "N/A"}
+- Budget mensal: ${profile.monthlyBudget ? `R$ ${profile.monthlyBudget}` : "N/A"}
 `;
     }
   } catch (e: any) {
@@ -1605,99 +1604,64 @@ DADOS DA CAMPANHA:
 ${segmentInfo ? `- Segmentação: ${segmentInfo}` : ""}
 ${extraContext ? `- Contexto adicional: ${extraContext}` : ""}
 
-Responda SOMENTE com um JSON válido no seguinte formato (sem markdown, sem texto fora do JSON):
+Responda SOMENTE com JSON válido (sem markdown):
 {
-  "strategy": "string — estratégia geral em 2-3 parágrafos",
-  "adSets": [
-    {
-      "name": "string",
-      "audience": "string",
-      "budget": "string (ex: 40%)",
-      "objective": "string",
-      "placement": "string"
-    }
-  ],
-  "creatives": [
-    {
-      "type": "string (direct_offer|storytelling|social_proof|educational)",
-      "format": "string (Video 15s|Imagem|Carrossel)",
-      "orientation": "string (vertical_9_16|square_1_1|horizontal_16_9)",
-      "headline": "string",
-      "copy": "string",
-      "bodyText": "string",
-      "cta": "string",
-      "hook": "string",
-      "pain": "string",
-      "solution": "string",
-      "funnelStage": "string (TOF|MOF|BOF)",
-      "complianceScore": "string (safe|review|blocked)",
-      "targetAudience": "string",
-      "platforms": ["meta"],
-      "budget": 50,
-      "duration": 7
-    }
-  ],
-  "conversionFunnel": "string — descrição do funil em 3 fases",
-  "executionPlan": "string — cronograma de execução",
+  "strategy": "string",
+  "adSets": [{ "name": "string", "audience": "string", "budget": "string", "objective": "string", "placement": "string" }],
+  "creatives": [{
+    "type": "string", "format": "string", "orientation": "string",
+    "headline": "string", "copy": "string", "bodyText": "string",
+    "cta": "string", "hook": "string", "pain": "string", "solution": "string",
+    "funnelStage": "string", "complianceScore": "string",
+    "targetAudience": "string", "platforms": ["meta"], "budget": 50, "duration": 7
+  }],
+  "conversionFunnel": "string",
+  "executionPlan": "string",
   "kpis": ["string"],
-  "abTests": [
-    {
-      "element": "string",
-      "variantA": "string",
-      "variantB": "string",
-      "hypothesis": "string"
-    }
-  ],
+  "abTests": [{ "element": "string", "variantA": "string", "variantB": "string", "hypothesis": "string" }],
   "hooks": ["string"],
   "copies": ["string"],
-  "estimatedResults": {
-    "reach": "string",
-    "clicks": "string",
-    "leads": "string",
-    "cpl": "string",
-    "cpc": "string"
-  }
+  "estimatedResults": { "reach": "string", "clicks": "string", "leads": "string", "cpl": "string", "cpc": "string" }
 }`;
 
   try {
     const raw = await gemini(prompt, {
-      temperature:     0.3,
-      maxOutputTokens: 8192,
+      temperature:       0.3,
+      maxOutputTokens:   8192,
       systemInstruction: "Você é um especialista em tráfego pago. Responda sempre em JSON válido sem markdown.",
     });
 
-    // Parse seguro
     let parsed: any;
     try {
       const clean = raw.replace(/```json|```/g, "").trim();
       const match = clean.match(/\{[\s\S]+\}/);
       parsed = JSON.parse(match ? match[0] : clean);
     } catch {
-      log.warn("ai", "[generateCampaign] JSON parse falhou — usando mock", { rawPreview: raw.slice(0, 100) });
+      log.warn("ai", "[generateCampaign] JSON parse falhou — usando mock");
       parsed = JSON.parse(mockResponse("campaign " + objective));
     }
 
-    // Salva no banco
+    // Salva no banco com campos aceitos pelo updateCampaignField
     try {
       const saved = await db.createCampaign({
         projectId,
         name,
-        objective:    objective as any,
+        objective:             objective as any,
         platform,
-        suggestedBudgetDaily:   Math.round(budget / duration),
+        suggestedBudgetDaily:  Math.round(budget / duration),
         suggestedBudgetMonthly: budget,
-        durationDays:           duration,
-        strategy:         parsed.strategy         || "",
-        adSets:           JSON.stringify(parsed.adSets          || []),
-        creatives:        JSON.stringify(parsed.creatives        || []),
-        conversionFunnel: parsed.conversionFunnel || "",
-        executionPlan:    parsed.executionPlan    || "",
-        aiPromptUsed:     prompt.slice(0, 2000),
-        aiResponse:       raw.slice(0, 5000),
-        status:           "draft",
-      });
-      log.info("ai", "[generateCampaign] campanha salva", { campaignId: saved?.id });
-      return { ...parsed, id: saved?.id, campaignId: saved?.id };
+        durationDays:          duration,
+        strategy:              parsed.strategy          || "",
+        adSets:                JSON.stringify(parsed.adSets      || []),
+        creatives:             JSON.stringify(parsed.creatives    || []),
+        conversionFunnel:      parsed.conversionFunnel || "",
+        executionPlan:         parsed.executionPlan    || "",
+        aiPromptUsed:          prompt.slice(0, 2000),
+        aiResponse:            raw.slice(0, 5000),
+        status:                "draft",
+      } as any);
+      log.info("ai", "[generateCampaign] campanha salva", { campaignId: (saved as any)?.id });
+      return { ...parsed, id: (saved as any)?.id, campaignId: (saved as any)?.id };
     } catch (dbErr: any) {
       log.warn("ai", "[generateCampaign] erro ao salvar no banco", { message: dbErr?.message });
       return parsed;
@@ -1712,52 +1676,44 @@ Responda SOMENTE com um JSON válido no seguinte formato (sem markdown, sem text
 // ══════════════════════════════════════════════════════════════════════════════
 // generateCampaignPart — Regenera parte específica de uma campanha existente
 // Chamada por: server/_core/router.ts → campaigns.regeneratePart
+// NOTA: updateCampaignField só aceita "creatives"|"adSets"|"strategy"|"aiResponse"
+// Para hooks/abTests/copies salvamos dentro de aiResponse como JSON
 // ══════════════════════════════════════════════════════════════════════════════
 export async function generateCampaignPart(input: {
-  campaignId:   number;
-  projectId:    number;
-  part:         "creatives" | "adSets" | "hooks" | "abTests" | "copies";
-  campaign:     any;
+  campaignId:    number;
+  projectId:     number;
+  part:          "creatives" | "adSets" | "hooks" | "abTests" | "copies";
+  campaign:      any;
   extraContext?: string;
 }): Promise<any> {
-  const { campaignId, projectId, part, campaign, extraContext } = input;
-
+  const { campaignId, part, campaign, extraContext } = input;
   log.info("ai", "[generateCampaignPart] iniciando", { campaignId, part });
 
   const partPrompts: Record<string, string> = {
     creatives: `Gere 3 novos criativos para esta campanha:
-Objetivo: ${campaign.objective}
-Plataforma: ${campaign.platform}
-Budget diário: R$ ${campaign.suggestedBudgetDaily || 50}
+Objetivo: ${campaign.objective} | Plataforma: ${campaign.platform} | Budget diário: R$ ${campaign.suggestedBudgetDaily || 50}
 ${extraContext ? `Contexto: ${extraContext}` : ""}
+JSON: { "creatives": [{ "type","format","orientation","headline","copy","bodyText","cta","hook","pain","solution","funnelStage","complianceScore","targetAudience","platforms","budget","duration" }] }`,
 
-Responda SOMENTE com JSON: { "creatives": [ { "type", "format", "orientation", "headline", "copy", "bodyText", "cta", "hook", "pain", "solution", "funnelStage", "complianceScore", "targetAudience", "platforms", "budget", "duration" } ] }`,
-
-    adSets: `Gere 3 novos conjuntos de anúncios para esta campanha:
-Objetivo: ${campaign.objective}
-Budget total: R$ ${campaign.suggestedBudgetMonthly || 1000}
+    adSets: `Gere 3 novos conjuntos de anúncios:
+Objetivo: ${campaign.objective} | Budget: R$ ${campaign.suggestedBudgetMonthly || 1000}
 ${extraContext ? `Contexto: ${extraContext}` : ""}
-
-Responda SOMENTE com JSON: { "adSets": [ { "name", "audience", "budget", "objective", "placement" } ] }`,
+JSON: { "adSets": [{ "name","audience","budget","objective","placement" }] }`,
 
     hooks: `Gere 5 hooks poderosos para esta campanha:
 Objetivo: ${campaign.objective}
 ${extraContext ? `Contexto: ${extraContext}` : ""}
-
-Responda SOMENTE com JSON: { "hooks": ["hook1", "hook2", "hook3", "hook4", "hook5"] }`,
+JSON: { "hooks": ["hook1","hook2","hook3","hook4","hook5"] }`,
 
     abTests: `Gere 3 testes A/B para esta campanha:
 Objetivo: ${campaign.objective}
 ${extraContext ? `Contexto: ${extraContext}` : ""}
+JSON: { "abTests": [{ "element","variantA","variantB","hypothesis" }] }`,
 
-Responda SOMENTE com JSON: { "abTests": [ { "element", "variantA", "variantB", "hypothesis" } ] }`,
-
-    copies: `Gere 5 copies persuasivos para esta campanha:
-Objetivo: ${campaign.objective}
-Plataforma: ${campaign.platform}
+    copies: `Gere 5 copies persuasivos:
+Objetivo: ${campaign.objective} | Plataforma: ${campaign.platform}
 ${extraContext ? `Contexto: ${extraContext}` : ""}
-
-Responda SOMENTE com JSON: { "copies": ["copy1", "copy2", "copy3", "copy4", "copy5"] }`,
+JSON: { "copies": ["copy1","copy2","copy3","copy4","copy5"] }`,
   };
 
   const prompt = partPrompts[part];
@@ -1765,9 +1721,9 @@ Responda SOMENTE com JSON: { "copies": ["copy1", "copy2", "copy3", "copy4", "cop
 
   try {
     const raw = await gemini(prompt, {
-      temperature:     0.5,
-      maxOutputTokens: 4096,
-      systemInstruction: "Você é um especialista em tráfego pago. Responda sempre em JSON válido sem markdown.",
+      temperature:       0.5,
+      maxOutputTokens:   4096,
+      systemInstruction: "Responda sempre em JSON válido sem markdown.",
     });
 
     let parsed: any;
@@ -1776,16 +1732,21 @@ Responda SOMENTE com JSON: { "copies": ["copy1", "copy2", "copy3", "copy4", "cop
       const match = clean.match(/\{[\s\S]+\}/);
       parsed = JSON.parse(match ? match[0] : clean);
     } catch {
-      log.warn("ai", "[generateCampaignPart] JSON parse falhou", { part, rawPreview: raw.slice(0, 100) });
+      log.warn("ai", "[generateCampaignPart] JSON parse falhou", { part });
       return { [part]: [] };
     }
 
-    // Atualiza no banco
+    // Salva no banco — só campos aceitos pelo updateCampaignField
     try {
-      if (parsed[part]) {
-        await db.updateCampaignField(campaignId, part, JSON.stringify(parsed[part]));
-        log.info("ai", "[generateCampaignPart] banco atualizado", { campaignId, part });
+      if (part === "creatives" && parsed.creatives) {
+        await db.updateCampaignField(campaignId, "creatives", JSON.stringify(parsed.creatives));
+      } else if (part === "adSets" && parsed.adSets) {
+        await db.updateCampaignField(campaignId, "adSets", JSON.stringify(parsed.adSets));
+      } else if (parsed[part]) {
+        // hooks/abTests/copies — salva em aiResponse como JSON complementar
+        await db.updateCampaignField(campaignId, "aiResponse", JSON.stringify({ [part]: parsed[part] }));
       }
+      log.info("ai", "[generateCampaignPart] banco atualizado", { campaignId, part });
     } catch (dbErr: any) {
       log.warn("ai", "[generateCampaignPart] erro ao atualizar banco", { message: dbErr?.message });
     }
@@ -1799,8 +1760,9 @@ Responda SOMENTE com JSON: { "copies": ["copy1", "copy2", "copy3", "copy4", "cop
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// analyzeCompetitor — Analisa concorrente via scraping + Gemini
+// analyzeCompetitor — Analisa concorrente via anúncios coletados + Gemini
 // Chamada por: server/publicApi.ts e server/_core/router.ts
+// NOTA: updateCompetitorInsights(id, insights: string, adsAnalyzed?: number)
 // ══════════════════════════════════════════════════════════════════════════════
 export async function analyzeCompetitor(
   competitorId: number,
@@ -1809,45 +1771,41 @@ export async function analyzeCompetitor(
   log.info("ai", "[analyzeCompetitor] iniciando", { competitorId, projectId });
 
   try {
-    const ads = await db.getScrapedAdsByCompetitorId(competitorId);
+    const ads = await db.getScrapedAdsByCompetitorId(competitorId) as any[];
     if (!ads || ads.length === 0) {
       return { message: "Nenhum anúncio coletado para este concorrente ainda." };
     }
 
-    // Busca perfil do cliente para contexto
     let clientContext = "";
     try {
-      const profile = await db.getClientProfileByProjectId(projectId);
+      const profile = await db.getClientProfileByProjectId(projectId) as any;
       if (profile) {
         clientContext = `
 CONTEXTO DO CLIENTE:
-- Nicho: ${(profile as any).niche || "N/A"}
-- Produto: ${(profile as any).productService || "N/A"}
-- Público-alvo: ${(profile as any).targetAudience || "N/A"}
-- Dor principal: ${(profile as any).mainPain || "N/A"}
-- UVP: ${(profile as any).uniqueValueProposition || "N/A"}
+- Nicho: ${profile.niche || "N/A"}
+- Produto: ${profile.productService || "N/A"}
+- Público-alvo: ${profile.targetAudience || "N/A"}
+- Dor principal: ${profile.mainPain || "N/A"}
+- UVP: ${profile.uniqueValueProposition || "N/A"}
 `;
       }
     } catch {}
 
-    const adsSample = ads.slice(0, 20).map((a: any, i: number) => `
-[${i + 1}] Tipo: ${a.adType || "imagem"} | Ativo: ${a.isActive ? "sim" : "não"}
-Headline: ${a.headline || "N/A"}
-Copy: ${(a.bodyText || "").slice(0, 200)}
-CTA: ${a.cta || "N/A"}
-`).join("\n");
+    const adsSample = ads.slice(0, 20).map((a: any, i: number) =>
+      `[${i+1}] Tipo: ${a.adType || "imagem"} | Ativo: ${a.isActive ? "sim" : "não"}\nHeadline: ${a.headline || "N/A"}\nCopy: ${(a.bodyText || "").slice(0, 200)}\nCTA: ${a.cta || "N/A"}`
+    ).join("\n\n");
 
     const prompt = `Você é um analista de inteligência competitiva em marketing digital.
 ${clientContext}
 
-Analise os seguintes ${ads.length} anúncios deste concorrente e gere insights estratégicos.
+Analise os ${ads.length} anúncios abaixo e gere insights estratégicos.
 
 ANÚNCIOS:
 ${adsSample}
 
-Responda SOMENTE com JSON válido:
+JSON:
 {
-  "topFormats": [ { "format": "string", "percentage": 0, "insight": "string" } ],
+  "topFormats": [{ "format": "string", "percentage": 0, "insight": "string" }],
   "topCtaPatterns": ["string"],
   "estimatedFunnel": "string",
   "winnerPatterns": "string",
@@ -1869,13 +1827,9 @@ Responda SOMENTE com JSON válido:
       parsed = JSON.parse(mockResponse("anuncio concorrente"));
     }
 
-    // Salva insights no banco
+    // Salva com assinatura correta: updateCompetitorInsights(id, insights: string, adsAnalyzed?: number)
     try {
-      await db.updateCompetitorInsights(competitorId, {
-        aiInsights:    JSON.stringify(parsed),
-        aiGeneratedAt: new Date(),
-        aiAdsAnalyzed: ads.length,
-      });
+      await db.updateCompetitorInsights(competitorId, JSON.stringify(parsed), ads.length);
     } catch (dbErr: any) {
       log.warn("ai", "[analyzeCompetitor] erro ao salvar insights", { message: dbErr?.message });
     }
