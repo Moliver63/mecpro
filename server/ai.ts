@@ -428,7 +428,7 @@ const GEMINI_API_KEY3 = process.env.GEMINI_API_KEY_3;  // chave adicional (opcio
 // ── Semáforo para limitar chamadas Gemini simultâneas ───────────────────────
 // Evita estourar a quota quando muitas análises rodam ao mesmo tempo
 let _geminiConcurrent = 0;
-const GEMINI_MAX_CONCURRENT = 3; // máximo 3 chamadas simultâneas
+const GEMINI_MAX_CONCURRENT = 2; // máximo 2 chamadas simultâneas — preserva quota
 
 async function withGeminiSemaphore<T>(fn: () => Promise<T>): Promise<T> {
   const MAX_WAIT = 30000; // espera no máximo 30s para entrar
@@ -449,7 +449,7 @@ async function withGeminiSemaphore<T>(fn: () => Promise<T>): Promise<T> {
 // Rastreia chaves com quota esgotada e evita reutilizá-las até reset
 const _exhaustedKeys = new Set<string>();
 const _exhaustedAt   = new Map<string, number>();
-const QUOTA_RESET_MS = 60 * 60 * 1000; // 1 hora — tempo estimado de reset do Google
+const QUOTA_RESET_MS = 15 * 60 * 1000; // 15 min — free tier reseta por janela de 1min, marcamos 15min para segurança
 
 // ── Cache de resultados Gemini para evitar chamadas repetidas ────────────────
 // Evita que o mesmo concorrente/prompt seja analisado várias vezes em sequência
@@ -1245,6 +1245,27 @@ async function _geminiImpl(
   } = {},
   retryCount = 0
 ): Promise<string> {
+  // ── Atalho: se TODAS as chaves Gemini estão esgotadas, vai direto para fallbacks ──
+  // Evita desperdiçar 5-8s tentando 5 modelos com chaves que já falharam
+  if (retryCount === 0) {
+    const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3].filter(Boolean) as string[];
+    const availableNow = allKeys.filter(k => !_exhaustedKeys.has(k));
+    if (allKeys.length > 0 && availableNow.length === 0) {
+      log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
+      // Tenta fallbacks em ordem: Groq → Genspark → Claude → mock
+      const groqR = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
+      if (groqR) { log.info("ai", "✅ Groq fallback direto OK (quota Gemini)"); return groqR; }
+      const gsR = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
+      if (gsR) { log.info("ai", "✅ Genspark fallback direto OK (quota Gemini)"); return gsR; }
+      if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY) {
+        const clR = await callClaudeAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
+        if (clR) { log.info("ai", "✅ Claude fallback direto OK (quota Gemini)"); return clR; }
+      }
+      log.warn("ai", "Todos os LLMs indisponíveis — usando mock response (quota Gemini esgotada)");
+      return mockResponse(prompt);
+    }
+  }
+
   // ── Toggle: se modo "off", vai direto para Groq (sem tentar Gemini) ──────
   if (_llmMode === "off" && retryCount === 0) {
     log.info("ai", "🟡 MECPro AI Categoria B ativada");
