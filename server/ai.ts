@@ -1468,18 +1468,15 @@ async function callClaudeAPI(
 function mockResponse(prompt: string): string {
   const lower = prompt.toLowerCase();
 
+
   // Extrai contexto do prompt para personalizar o mock
-  const nichoMatch   = prompt.match(/nicho[:\s]+([^
-\.]+)/i)?.[1]?.trim() || "";
-  const produtoMatch = prompt.match(/produto[:\s]+([^
-\.]+)/i)?.[1]?.trim() || "";
-  const publicoMatch = prompt.match(/público[:\s]+([^
-\.]+)/i)?.[1]?.trim() || "";
-  const compName     = prompt.match(/concorrente[:\s]+([^
-\.]+)/i)?.[1]?.trim() ||
-                       prompt.match(/site "([^"]+)"/i)?.[1]?.trim() || "Concorrente";
-  const isImoveis    = /imóv|imobi|apart|casa|residenc|villa|serena|luxo/i.test(prompt);
-  const isServico    = /clínica|saúde|beleza|estética|restaurante|delivery/i.test(prompt);
+  const nichoMatch   = (prompt.match(/nicho[^:]*:\s*([^\n.]+)/i) || [])[1]?.trim() || "";
+  const produtoMatch = (prompt.match(/produto[^:]*:\s*([^\n.]+)/i) || [])[1]?.trim() || "";
+  const publicoMatch = (prompt.match(/p.blico[^:]*:\s*([^\n.]+)/i) || [])[1]?.trim() || "";
+  const compName     = (prompt.match(/concorrente[^:]*:\s*([^\n.]+)/i) || [])[1]?.trim() ||
+                       (prompt.match(/site "([^"]+)"/i) || [])[1]?.trim() || "Concorrente";
+  const isImoveis    = /im.v|imobi|apart|casa|residenc|villa|serena|luxo/i.test(prompt);
+  const isServico    = /cl.nica|sa.de|beleza|est.tica|restaurante|delivery/i.test(prompt);
   const isEcommerce  = /loja|produto|compra|e-commerce|varejo/i.test(prompt);
 
   const nicho = nichoMatch || (isImoveis ? "imobiliário" : isServico ? "serviços" : isEcommerce ? "e-commerce" : "negócios");
