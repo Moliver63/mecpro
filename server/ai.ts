@@ -1966,9 +1966,20 @@ export async function analyzeCompetitor(competitorId: number, projectId: number)
     // ① + ② + ③: tentativas Meta (pageId → pageUrl → igUrl → nome)
     // Circuit Breaker: se Meta está falhando por permissão, pula direto pro SEO
     if (metaCBisOpen()) {
-      log.info("ai", "Meta CB OPEN — pulando todas as tentativas Meta", { competitorId });
+      log.info("ai", "Meta CB OPEN — pulando tentativas Meta, usando site/SEO diretamente", { competitorId, hasWebsite: !!websiteUrl });
       metaOk = false;
       metaPermissionDenied = true;
+      // Se tem site preenchido, vai direto pro scraping sem tentar Meta
+      if (websiteUrl) {
+        const websiteOk = await fetchViaWebsiteScraping(competitorId, projectId, websiteUrl, compName);
+        if (websiteOk) {
+          log.info("ai", "✅ Site direto OK (CB aberto)", { competitorId });
+          // Pula o resto do pipeline — já tem dados
+          goto_analyze: {
+            break goto_analyze;
+          }
+        }
+      }
     } else {
       if (pageId) {
       const result = await fetchMetaAdsById(competitorId, projectId, pageId, effectiveToken);
