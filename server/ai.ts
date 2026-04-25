@@ -76,7 +76,7 @@ async function fetchGoogleCompetitorInsights(
     seeds.push({ keyword: compName });
     if (seeds.length === 0) return false;
 
-    const kpUrl = `https://googleads.googleapis.com/v17/customers/${customerId}:generateKeywordIdeas`;
+    const kpUrl = `https://googleads.googleapis.com/v18/customers/${customerId}:generateKeywordIdeas`;
     const kpBody = {
       keywordSeed:        { keywords: [compName] },
       urlSeed:            websiteUrl ? { url: websiteUrl } : undefined,
@@ -1791,6 +1791,26 @@ Responda SOMENTE em JSON sem markdown:
   return discovered;
 }
 
+// ── Lock global para evitar análises simultâneas do mesmo concorrente ───────
+const _analyzingLock = new Map<number, Promise<any>>();
+
+export async function analyzeCompetitor(competitorId: number, projectId: number) {
+  // Se já está analisando este concorrente, aguarda e retorna o mesmo resultado
+  const existing = _analyzingLock.get(competitorId);
+  if (existing) {
+    log.info("ai", "[M2] analyzeCompetitor já em andamento — aguardando", { competitorId });
+    try { return await existing; } catch { /* ignora erro da análise anterior */ }
+  }
+
+  const promise = _analyzeCompetitorImpl(competitorId, projectId);
+  _analyzingLock.set(competitorId, promise);
+  try {
+    return await promise;
+  } finally {
+    _analyzingLock.delete(competitorId);
+  }
+}
+
 // ── Exporta status interno para o health check ───────────────────────────────
 export function getHealthStatus() {
   return {
@@ -1827,7 +1847,7 @@ export function getHealthStatus() {
   };
 }
 
-export async function analyzeCompetitor(competitorId: number, projectId: number) {
+async function _analyzeCompetitorImpl(competitorId: number, projectId: number) {
   log.info("ai", "[M2] analyzeCompetitor start", { competitorId, projectId });
 
   const competitor    = await db.getCompetitorById(competitorId);
@@ -2950,20 +2970,25 @@ async function fetchViaWebsiteScraping(
       });
       if (directRes.ok) {
         const html = await directRes.text();
-        // Extrai título, meta description e headings do HTML
+        // Extrai título, meta description, headings e parágrafos do HTML
         const title    = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() || "";
         const desc     = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)/i)?.[1]?.trim() || "";
-        const h1s      = [...html.matchAll(/<h1[^>]*>([^<]+)<\/h1>/gi)].map(m => m[1].trim()).slice(0, 3);
-        const h2s      = [...html.matchAll(/<h2[^>]*>([^<]+)<\/h2>/gi)].map(m => m[1].trim()).slice(0, 5);
-        const siteText = [title, desc, ...h1s, ...h2s].filter(Boolean).join(" | ");
+        const ogDesc   = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)/i)?.[1]?.trim() || "";
+        const h1s      = [...html.matchAll(/<h1[^>]*>([^<]{3,})<\/h1>/gi)].map(m => m[1].replace(/<[^>]+>/g,"").trim()).filter(Boolean).slice(0, 4);
+        const h2s      = [...html.matchAll(/<h2[^>]*>([^<]{3,})<\/h2>/gi)].map(m => m[1].replace(/<[^>]+>/g,"").trim()).filter(Boolean).slice(0, 6);
+        const h3s      = [...html.matchAll(/<h3[^>]*>([^<]{3,})<\/h3>/gi)].map(m => m[1].replace(/<[^>]+>/g,"").trim()).filter(Boolean).slice(0, 4);
+        const paras    = [...html.matchAll(/<p[^>]*>([^<]{20,})<\/p>/gi)].map(m => m[1].replace(/<[^>]+>/g,"").trim()).filter(t => t.length > 20 && !t.includes("©")).slice(0, 4);
+        const siteText = [title, desc || ogDesc, ...h1s, ...h2s, ...h3s, ...paras].filter(Boolean).join(" | ");
         if (siteText.length > 30) {
           log.info("ai", "Website scraping direto OK", { competitorId, chars: siteText.length });
           // Usa Gemini para inferir anúncios a partir do conteúdo do site
           const sitePrompt = `Com base no conteúdo do site "${compName}" (${websiteUrl}):
-"${siteText.slice(0, 500)}"
+"${siteText.slice(0, 1500)}"
 
-Gere 6 anúncios para Meta Ads que esta empresa provavelmente usa. Responda SOMENTE em JSON:
-{"ads": [{"adType":"image|video|carousel","headline":"max 40 chars","bodyText":"max 125 chars","cta":"Saiba Mais|Falar no WhatsApp|Ver opções","daysAgo":20,"isActive":1}]}`;
+Gere 8 anúncios variados para Meta Ads que esta empresa provavelmente usa.
+Baseie-se no negócio real detectado: produto, público, diferenciais.
+Responda SOMENTE em JSON:
+{"ads": [{"adType":"image|video|carousel","headline":"max 40 chars","bodyText":"max 125 chars","cta":"Saiba Mais|Falar no WhatsApp|Ver opções|Agendar|Comprar Agora","daysAgo":20,"isActive":1}]}`;
           const siteRaw  = await gemini(sitePrompt, { temperature: 0.4 });
           const siteParsed = JSON.parse(siteRaw.replace(/```json|```/g, "").trim());
           const siteAds = siteParsed?.ads;
