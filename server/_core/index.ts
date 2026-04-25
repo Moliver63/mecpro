@@ -49,6 +49,25 @@ console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey,  _elevenKey  ? '(' +
 console.log('[BOOT] GENSPARK_API_KEY set:',   !!_gensparkKey, _gensparkKey ? '(' + _gensparkKey.slice(0,12) + '...)' : '— nao configurada');
 console.log('[BOOT] PID:', process.pid);
 
+// ── Diagnóstico de integrações de plataformas ──────────────────────────────
+const _metaAppId     = process.env.META_APP_ID     || process.env.FACEBOOK_APP_ID     || '';
+const _metaSecret    = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || '';
+const _tikTokKey     = process.env.TIKTOK_CLIENT_KEY    || '';
+const _tikTokSecret  = process.env.TIKTOK_CLIENT_SECRET || '';
+const _googleAdsId   = process.env.GOOGLE_ADS_CLIENT_ID  || process.env.GOOGLE_CLIENT_ID  || '';
+const _googleAdsSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '';
+const _googleDevToken  = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
+
+console.log('[BOOT] ── Integrações de plataformas ──────────────────────────');
+console.log('[BOOT] META App ID set:',          !!_metaAppId,    _metaAppId    ? '(' + _metaAppId.slice(0,8)   + '...)' : '❌ ausente — OAuth Meta não funcionará');
+console.log('[BOOT] META App Secret set:',      !!_metaSecret,   _metaSecret   ? '✅' : '❌ ausente');
+console.log('[BOOT] TikTok Client Key set:',    !!_tikTokKey,    _tikTokKey    ? '(' + _tikTokKey.slice(0,8)   + '...)' : '❌ ausente — OAuth TikTok não funcionará');
+console.log('[BOOT] TikTok Client Secret set:', !!_tikTokSecret, _tikTokSecret ? '✅' : '❌ ausente');
+console.log('[BOOT] Google Ads Client ID set:', !!_googleAdsId,  _googleAdsId  ? '(' + _googleAdsId.slice(0,8) + '...)' : '❌ ausente — OAuth Google Ads não funcionará');
+console.log('[BOOT] Google Ads Secret set:',    !!_googleAdsSecret, _googleAdsSecret ? '✅' : '❌ ausente');
+console.log('[BOOT] Google Ads Dev Token set:', !!_googleDevToken,  _googleDevToken  ? '(' + _googleDevToken.slice(0,8) + '...)' : '❌ ausente — chamadas Google Ads API não funcionarão');
+console.log('[BOOT] ──────────────────────────────────────────────────────────');
+
 // ── Sentry — captura erros em produção ──────────────────────────────────────
 import * as Sentry from '@sentry/node';
 if (process.env.SENTRY_DSN) {

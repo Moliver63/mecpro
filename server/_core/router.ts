@@ -860,7 +860,7 @@ const competitorsRouter = router({
   // -- TikTok OAuth -- gera URL de autorização ---------------------------------
   getTikTokAuthUrl: protectedProcedure
     .input(z.object({ redirectUri: z.string() }))
-    .query(({ ctx, input }) => {
+    .mutation(({ ctx, input }) => {
       const state = `mecpro_${(ctx as any).user?.id}_${Date.now()}`;
       const url = getTikTokAuthUrl(input.redirectUri, state);
       return { url, state };
@@ -3765,6 +3765,86 @@ const adminRouter = router({
 
       return { ok: true, userId: input.userId, frozen: input.freeze };
     }),
+
+  // ── Diagnóstico de conexão de plataformas ─────────────────────────────────
+  checkPlatformConnections: protectedProcedure.query(async ({ ctx }) => {
+    const results: Record<string, { configured: boolean; connected: boolean; detail: string }> = {};
+
+    // ── META ───────────────────────────────────────────────────────────────
+    try {
+      const metaInt = await db.getApiIntegration(ctx.user.id, "meta").catch(() => null) as any;
+      const token   = metaInt?.accessToken;
+      const appId   = metaInt?.appId || process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "";
+      const configured = !!appId && !!(process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || metaInt?.appSecret);
+
+      if (token) {
+        // Verifica token na API do Facebook
+        const r = await fetch(`https://graph.facebook.com/v20.0/me?access_token=${token}&fields=id,name`, { signal: AbortSignal.timeout(6000) });
+        const d = await r.json();
+        if (d?.id) {
+          results.meta = { configured, connected: true, detail: `✅ Conectado como ${d.name || d.id}` };
+        } else {
+          results.meta = { configured, connected: false, detail: `❌ Token inválido ou expirado: ${d?.error?.message || "erro desconhecido"}` };
+        }
+      } else {
+        results.meta = { configured, connected: false, detail: configured ? "🔑 App configurado — aguardando conexão OAuth do usuário" : "❌ META_APP_ID/SECRET não configurados no servidor" };
+      }
+    } catch (e: any) {
+      results.meta = { configured: false, connected: false, detail: `❌ Erro: ${e.message}` };
+    }
+
+    // ── GOOGLE ADS ─────────────────────────────────────────────────────────
+    try {
+      const gInt       = await db.getApiIntegration(ctx.user.id, "google").catch(() => null) as any;
+      const token      = gInt?.accessToken;
+      const clientId   = gInt?.appId     || process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      const devToken   = gInt?.devToken   || process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
+      const configured = !!clientId && !!(process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || gInt?.appSecret);
+
+      if (token) {
+        // Verifica token via Google tokeninfo
+        const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`, { signal: AbortSignal.timeout(6000) });
+        const d = await r.json();
+        if (d?.email || d?.sub) {
+          results.google = { configured, connected: true, detail: `✅ Conectado — ${d.email || d.sub}${!devToken ? " ⚠️ Developer Token ausente" : ""}` };
+        } else {
+          results.google = { configured, connected: false, detail: `❌ Token inválido: ${d?.error_description || d?.error || "expirado"}` };
+        }
+      } else {
+        results.google = { configured, connected: false, detail: configured ? "🔑 App configurado — aguardando conexão OAuth do usuário" : "❌ GOOGLE_ADS_CLIENT_ID/SECRET não configurados no servidor" };
+      }
+    } catch (e: any) {
+      results.google = { configured: false, connected: false, detail: `❌ Erro: ${e.message}` };
+    }
+
+    // ── TIKTOK ─────────────────────────────────────────────────────────────
+    try {
+      const ttInt  = await db.getApiIntegration(ctx.user.id, "tiktok").catch(() => null) as any;
+      const token  = ttInt?.accessToken;
+      const clientKey = process.env.TIKTOK_CLIENT_KEY || "";
+      const configured = !!clientKey && !!process.env.TIKTOK_CLIENT_SECRET;
+
+      if (token) {
+        // Verifica token via TikTok user info
+        const r = await fetch("https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name", {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(6000),
+        });
+        const d = await r.json();
+        if (d?.data?.user?.open_id) {
+          results.tiktok = { configured, connected: true, detail: `✅ Conectado — ${d.data.user.display_name || d.data.user.open_id}` };
+        } else {
+          results.tiktok = { configured, connected: false, detail: `❌ Token inválido: ${d?.error?.message || "expirado ou revogado"}` };
+        }
+      } else {
+        results.tiktok = { configured, connected: false, detail: configured ? "🔑 App configurado — aguardando conexão OAuth do usuário" : "❌ TIKTOK_CLIENT_KEY/SECRET não configurados no servidor" };
+      }
+    } catch (e: any) {
+      results.tiktok = { configured: false, connected: false, detail: `❌ Erro: ${e.message}` };
+    }
+
+    return results;
+  }),
 
   // ── API Keys (gerenciamento pelo painel) ──────────────────────────────────
   listApiKeys: protectedProcedure.query(async ({ ctx }) => {
