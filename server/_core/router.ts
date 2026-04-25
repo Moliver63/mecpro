@@ -1895,7 +1895,9 @@ const campaignsRouter = router({
         (input.audienceProfile && input.audienceProfile !== "geral") ? "Perfil do publico: " + input.audienceProfile : "",
         input.segment ? "Segmento: " + input.segment : "",
       ].filter(Boolean).join(". ");
-      return generateCampaign({
+
+      // Timeout de 55s para evitar "Failed to fetch" no cliente
+      const campaignPromise = generateCampaign({
         projectId:    input.projectId,
         name:         input.name,
         objective:    input.objective,
@@ -1913,6 +1915,15 @@ const campaignsRouter = router({
         mediaFormat:  input.mediaFormat,
         leadForm:     input.leadForm,
       } as any);
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new TRPCError({
+          code: "TIMEOUT",
+          message: "Geração de campanha demorou mais que o esperado. A campanha pode ter sido criada — verifique a lista de campanhas.",
+        })), 55000)
+      );
+
+      return Promise.race([campaignPromise, timeoutPromise]);
     }),
 
   publishToMeta: protectedProcedure

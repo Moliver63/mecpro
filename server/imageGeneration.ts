@@ -322,8 +322,8 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
   log.info("image-generation", "HeyGen: iniciando geracao", { format, aspect, promptLen: prompt.length });
 
   try {
-    // Endpoint oficial HeyGen text-to-image: POST /v1/image.generation
-    const res = await fetch("https://api.heygen.com/v1/image.generation", {
+    // Endpoint HeyGen text-to-image: tenta v2 primeiro, fallback v1
+    const res = await fetch("https://api.heygen.com/v2/image.generate", {
       method:  "POST",
       headers: {
         "X-Api-Key":    apiKey,
@@ -333,7 +333,8 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
       body: JSON.stringify({
         prompt,
         aspect_ratio: aspect,
-        model:        "photorealism_v1",  // modelo de imagem realista do HeyGen
+        model:        "photo_real",
+        resolution:   "1024x1024",
       }),
       signal: AbortSignal.timeout(120000),
     });
