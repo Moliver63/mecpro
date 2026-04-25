@@ -424,6 +424,8 @@ async function fetchGoogleTransparencyInsights(
 const GEMINI_API_KEY  = process.env.GEMINI_API_KEY;
 const GEMINI_API_KEY2 = process.env.GEMINI_API_KEY_2;  // chave de fallback (opcional)
 const GEMINI_API_KEY3 = process.env.GEMINI_API_KEY_3;  // chave adicional (opcional)
+const GEMINI_API_KEY4 = process.env.GEMINI_API_KEY_4;  // chave adicional (opcional)
+const GEMINI_API_KEY5 = process.env.GEMINI_API_KEY_5;  // chave adicional (opcional)
 
 // ── Semáforo para limitar chamadas Gemini simultâneas ───────────────────────
 // Evita estourar a quota quando muitas análises rodam ao mesmo tempo
@@ -476,7 +478,7 @@ function setCachedGemini(key: string, result: string) {
 }
 
 function getGeminiKey(attempt = 0): string | undefined {
-  const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3].filter(Boolean) as string[];
+  const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
   if (allKeys.length === 0) return undefined;
 
   // Limpa chaves que já passaram do tempo de reset
@@ -508,7 +510,7 @@ function markGeminiKeyExhausted(key: string) {
   log.warn("ai", "Gemini key marcada como esgotada", {
     keyPrefix: key.slice(0, 8),
     totalExhausted: _exhaustedKeys.size,
-    availableKeys: [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3]
+    availableKeys: [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5]
       .filter(Boolean)
       .filter(k => !_exhaustedKeys.has(k!)).length,
   });
@@ -1248,7 +1250,7 @@ async function _geminiImpl(
   // ── Atalho: se TODAS as chaves Gemini estão esgotadas, vai direto para fallbacks ──
   // Evita desperdiçar 5-8s tentando 5 modelos com chaves que já falharam
   if (retryCount === 0) {
-    const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3].filter(Boolean) as string[];
+    const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
     const availableNow = allKeys.filter(k => !_exhaustedKeys.has(k));
     if (allKeys.length > 0 && availableNow.length === 0) {
       log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
@@ -1451,6 +1453,13 @@ async function callGroqAPI(
 
   for (const model of models) {
     try {
+      // Groq tem limite de tokens por modelo — trunca prompt se necessário
+      // llama-3.1-8b-instant: ~8k tokens input, llama-3.3-70b: ~128k
+      const maxChars = model.includes("8b") ? 12000 : 60000;
+      const truncatedPrompt = prompt.length > maxChars
+        ? prompt.slice(0, maxChars) + "\n\n[PROMPT TRUNCADO — responda com o que foi fornecido]"
+        : prompt;
+
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -1464,15 +1473,20 @@ async function callGroqAPI(
           response_format: { type: "json_object" }, // força JSON como o Gemini
           messages: [
             { role: "system",  content: systemInstruction || SYSTEM_MECPRO },
-            { role: "user",    content: prompt },
+            { role: "user",    content: truncatedPrompt },
           ],
         }),
         signal: AbortSignal.timeout(30000),
       });
 
       if (res.status === 429) {
-        log.warn("ai", `Groq rate limit no modelo ${model} — tentando próximo`);
+        log.warn("ai", `Groq rate limit no modelo ${model} — aguardando 2s antes do próximo`);
+        await new Promise(r => setTimeout(r, 2000));
         continue;
+      }
+      if (res.status === 413) {
+        log.warn("ai", `Groq 413 (prompt muito grande) no modelo ${model} — truncando mais`);
+        continue; // próximo modelo com prompt menor
       }
 
       if (!res.ok) {
@@ -3412,7 +3426,25 @@ function _staticMockAds(name: string, rawNiche: string): any[] {
 
 
 // ── Módulo 3: Market Intelligence ──
+// ── Lock para evitar generateMarketAnalysis simultâneas do mesmo projeto ─────
+const _marketAnalysisLock = new Map<number, Promise<any>>();
+
 export async function generateMarketAnalysis(projectId: number) {
+  const existing = _marketAnalysisLock.get(projectId);
+  if (existing) {
+    log.info("ai", "generateMarketAnalysis já em andamento — aguardando", { projectId });
+    try { return await existing; } catch { /* ignora */ }
+  }
+  const promise = _generateMarketAnalysisImpl(projectId);
+  _marketAnalysisLock.set(projectId, promise);
+  try {
+    return await promise;
+  } finally {
+    _marketAnalysisLock.delete(projectId);
+  }
+}
+
+async function _generateMarketAnalysisImpl(projectId: number) {
   log.info("ai", "generateMarketAnalysis start", { projectId });
 
   const project       = await db.getProjectById(projectId);
