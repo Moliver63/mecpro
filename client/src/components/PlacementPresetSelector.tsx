@@ -191,10 +191,30 @@ export function PlacementPresetSelector({ value, onChange }: Props) {
             </div>
           )}
 
+          {/* Warning específico do segmento */}
+          {(selected as any).warning && (
+            <div style={{ padding:"8px 16px", background:"#fffbeb", borderTop:"1px solid #fde68a", display:"flex", gap:6 }}>
+              <span style={{ fontSize:11, color:"#92400e", fontWeight:700, flexShrink:0 }}>⚠️</span>
+              <span style={{ fontSize:11, color:"#92400e", lineHeight:1.5 }}>{(selected as any).warning}</span>
+            </div>
+          )}
+          {/* Plataformas compatíveis */}
+          <div style={{ padding:"6px 16px", background:"#f8fafc", borderTop:"1px solid #f1f5f9", display:"flex", alignItems:"center", gap:6, flexWrap:"wrap" as const }}>
+            <span style={{ fontSize:10, color:"#94a3b8", fontWeight:700, textTransform:"uppercase" as const, letterSpacing:".05em" }}>Compatível:</span>
+            {((selected as any).platforms||[]).map((p:string) => {
+              const PM: Record<string,{icon:string;color:string;bg:string}> = {
+                meta:  {icon:"📘",color:"#1877f2",bg:"#e8f0fe"},
+                google:{icon:"🔵",color:"#1a73e8",bg:"#e3f2fd"},
+                tiktok:{icon:"◼",color:"#010101",bg:"#f3f4f6"},
+              };
+              const m = PM[p]||{icon:"◈",color:"#64748b",bg:"#f1f5f9"};
+              return <span key={p} style={{ fontSize:11, fontWeight:700, color:m.color, background:m.bg, padding:"2px 8px", borderRadius:99 }}>{m.icon} {p.charAt(0).toUpperCase()+p.slice(1)}</span>;
+            })}
+          </div>
           {/* Tip do nicho */}
-          <div style={{ padding: "8px 16px", background: "#f8fafc", borderTop: "1px solid #f1f5f9", display: "flex", gap: 6 }}>
-            <span style={{ fontSize: 11, color: "#7c3aed", fontWeight: 700 }}>💡</span>
-            <span style={{ fontSize: 11, color: "#475569", lineHeight: 1.5 }}>{selected.tip}</span>
+          <div style={{ padding:"8px 16px", background:"#f8fafc", borderTop:"1px solid #f1f5f9", display:"flex", gap:6 }}>
+            <span style={{ fontSize:11, color:"#7c3aed", fontWeight:700, flexShrink:0 }}>💡</span>
+            <span style={{ fontSize:11, color:"#475569", lineHeight:1.5 }}>{selected.tip}</span>
           </div>
         </div>
       )}
