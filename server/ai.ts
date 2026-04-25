@@ -425,6 +425,26 @@ const GEMINI_API_KEY  = process.env.GEMINI_API_KEY;
 const GEMINI_API_KEY2 = process.env.GEMINI_API_KEY_2;  // chave de fallback (opcional)
 const GEMINI_API_KEY3 = process.env.GEMINI_API_KEY_3;  // chave adicional (opcional)
 
+// ── Semáforo para limitar chamadas Gemini simultâneas ───────────────────────
+// Evita estourar a quota quando muitas análises rodam ao mesmo tempo
+let _geminiConcurrent = 0;
+const GEMINI_MAX_CONCURRENT = 3; // máximo 3 chamadas simultâneas
+
+async function withGeminiSemaphore<T>(fn: () => Promise<T>): Promise<T> {
+  const MAX_WAIT = 30000; // espera no máximo 30s para entrar
+  const start = Date.now();
+  while (_geminiConcurrent >= GEMINI_MAX_CONCURRENT) {
+    if (Date.now() - start > MAX_WAIT) throw new Error("Gemini semaphore timeout");
+    await new Promise(r => setTimeout(r, 500));
+  }
+  _geminiConcurrent++;
+  try {
+    return await fn();
+  } finally {
+    _geminiConcurrent--;
+  }
+}
+
 // ── Rotação inteligente de chaves Gemini ─────────────────────────────────
 // Rastreia chaves com quota esgotada e evita reutilizá-las até reset
 const _exhaustedKeys = new Set<string>();
@@ -1064,6 +1084,24 @@ Exemplos:
 `.trim();
 
 export async function gemini(
+  prompt: string,
+  opts: {
+    temperature?: number;
+    maxOutputTokens?: number;
+    systemInstruction?: string;
+    jsonMode?: boolean;
+    useCache?: boolean;
+  } = {},
+  retryCount = 0
+): Promise<string> {
+  // Primeira tentativa usa semáforo para limitar concorrência
+  if (retryCount === 0) {
+    return withGeminiSemaphore(() => _geminiImpl(prompt, opts, 0));
+  }
+  return _geminiImpl(prompt, opts, retryCount);
+}
+
+async function _geminiImpl(
   prompt: string,
   opts: {
     temperature?: number;
