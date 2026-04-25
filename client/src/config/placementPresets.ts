@@ -57,6 +57,16 @@ export const PLACEMENT_PRESETS: PlacementPreset[] = [
     tip: "Feed tem maior taxa de preenchimento de formulários. Mantenha o criativo simples.",
   },
   {
+    id: "advantage_plus",
+    label: "Advantage+",
+    emoji: "🤖",
+    description: "Meta IA — máxima performance",
+    placements: [],  // vazio = Meta Advantage+ Placements (recomendado)
+    cta: "Ver mais",
+    objective: "OUTCOME_AWARENESS",
+    tip: "A Meta IA distribui o budget automaticamente entre todos os posicionamentos com melhor CPM. Recomendado após 7 dias de aprendizado.",
+  },
+  {
     id: "branding",
     label: "Branding",
     emoji: "✨",
@@ -71,10 +81,10 @@ export const PLACEMENT_PRESETS: PlacementPreset[] = [
     label: "Imóveis",
     emoji: "🏠",
     description: "Lançamentos e vendas imobiliárias",
-    placements: ["fb_feed", "ig_feed", "ig_reels", "fb_story"],
+    placements: ["fb_feed", "ig_feed", "ig_reels", "fb_story", "ig_story"],
     cta: "Ver imóvel",
     objective: "OUTCOME_LEADS",
-    tip: "Reels para vídeos de tour + Feed para anúncios de lançamento. Foque em imagens de alta qualidade.",
+    tip: "Feed FB+IG para o público 35-55 anos. Reels para tour virtual. Stories para remarketing. Público de luxo consome mais Facebook do que Instagram.",
   },
   {
     id: "saude",

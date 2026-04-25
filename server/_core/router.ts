@@ -2451,8 +2451,14 @@ const campaignsRouter = router({
           // Placements selecionados pelo usuário (adapter Meta)
           ...((): object => {
             if (!input.placements || input.placements.length === 0 || input.placementMode === "auto") {
-              // Auto: Advantage+ Placements (Meta escolhe)
+              // Auto: Advantage+ Placements (Meta escolhe automaticamente)
+              // Não envia publisher_platforms → Meta ativa Advantage+ Placements
               // device_platforms obrigatorio para evitar erro #1885366
+              log.info("meta", "Posicionamento Advantage+ (automático)", {
+                mode: "advantage_plus",
+                sentToMeta: { device_platforms: ["mobile", "desktop"] },
+                note: "Meta distribuirá budget automaticamente entre todos os posicionamentos",
+              });
               return { device_platforms: ["mobile", "desktop"] };
             }
             // Manual: mapeia IDs internos → publisher_platforms + positions Meta API
@@ -2488,12 +2494,20 @@ const campaignsRouter = router({
 
             if (publishers.size === 0) return {};
 
-            return {
+            const resolvedPlacements = {
               publisher_platforms:             Array.from(publishers),
               ...(fbPositions.length  > 0 ? { facebook_positions:         fbPositions }  : {}),
               ...(igPositions.length  > 0 ? { instagram_positions:        igPositions }  : {}),
               ...(audNetPositions.length > 0 ? { audience_network_positions: audNetPositions } : {}),
             };
+
+            log.info("meta", "Posicionamentos manuais enviados para Meta", {
+              mode: "manual",
+              inputPlacements: input.placements,
+              sentToMeta: resolvedPlacements,
+            });
+
+            return resolvedPlacements;
           })(),
         },
         // promoted_object apenas quando realmente exigido pela combinação final
