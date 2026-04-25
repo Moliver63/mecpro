@@ -821,7 +821,7 @@ const competitorsRouter = router({
         }
       }
       const { analyzeCompetitor } = await import("../ai");
-      return analyzeCompetitor(input.competitorId, input.projectId);
+      return analyzeCompetitor(input.competitorId, input.projectId, input.force ?? false);
     }),
 
   // -- Reanalisa forçando nova coleta (limpa dados estimados) --
@@ -1055,7 +1055,7 @@ const competitorsRouter = router({
       // Limpa todos os anúncios existentes (estimados ou não) para forçar re-coleta
       await db.deleteScrapedAdsByCompetitor(input.competitorId);
       const { analyzeCompetitor } = await import("../ai");
-      return analyzeCompetitor(input.competitorId, input.projectId);
+      return analyzeCompetitor(input.competitorId, input.projectId, true);
     }),
 
   // -- Atualiza campos do concorrente (pageId, URL, etc.) --

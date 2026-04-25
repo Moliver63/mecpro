@@ -981,7 +981,21 @@ function setCompetitorCache(competitorId: number, result: any) {
 // ── Helpers de classificação de fonte de anúncios ────────────────────────────
 
 function getAdSource(ad: any): string {
-  return (ad?.source || ad?.adSource || ad?.platform || "unknown").toLowerCase();
+  // Tenta campo direto primeiro
+  if (ad?.source && ad.source !== "unknown") return (ad.source as string).toLowerCase();
+  // Fallback: lê source dentro do rawData JSON
+  try {
+    const raw = typeof ad?.rawData === "string" ? JSON.parse(ad.rawData) : (ad?.rawData || {});
+    if (raw?.source && raw.source !== "unknown") return (raw.source as string).toLowerCase();
+  } catch {}
+  // Detecta por adId prefix
+  const adId = ad?.adId || "";
+  if (adId.startsWith("estimated_")) return "estimated";
+  if (adId.startsWith("seo_"))       return "seo_analysis";
+  if (adId.startsWith("ws_"))        return "website_scraping";
+  if (adId.startsWith("site_"))      return "website_scraping";
+  if (/^\d{10,}$/.test(adId))        return "meta_ads_archive";
+  return (ad?.platform || "unknown").toLowerCase();
 }
 
 const REAL_AD_SOURCES = new Set([
@@ -1657,15 +1671,18 @@ function mockResponse(prompt: string): string {
 // ── Lock global para evitar análises simultâneas do mesmo concorrente ────────
 const _analyzingLock = new Map<number, Promise<any>>();
 
-export async function analyzeCompetitor(competitorId: number, projectId: number) {
+export async function analyzeCompetitor(competitorId: number, projectId: number, force = false) {
   // Se já está analisando este concorrente, aguarda e retorna o mesmo resultado
-  const existing = _analyzingLock.get(competitorId);
-  if (existing) {
-    log.info("ai", "[M2] analyzeCompetitor já em andamento — aguardando", { competitorId });
-    try { return await existing; } catch { /* ignora erro da análise anterior */ }
+  // force=true pula o lock para garantir nova análise imediata
+  if (!force) {
+    const existing = _analyzingLock.get(competitorId);
+    if (existing) {
+      log.info("ai", "[M2] analyzeCompetitor já em andamento — aguardando", { competitorId });
+      try { return await existing; } catch { /* ignora erro da análise anterior */ }
+    }
   }
 
-  const promise = _analyzeCompetitorImpl(competitorId, projectId);
+  const promise = _analyzeCompetitorImpl(competitorId, projectId, force);
   _analyzingLock.set(competitorId, promise);
   try {
     return await promise;
@@ -1710,7 +1727,7 @@ export function getHealthStatus() {
   };
 }
 
-async function _analyzeCompetitorImpl(competitorId: number, projectId: number) {
+async function _analyzeCompetitorImpl(competitorId: number, projectId: number, force = false) {
   log.info("ai", "[M2] analyzeCompetitor start", { competitorId, projectId });
 
   const competitor    = await db.getCompetitorById(competitorId);
@@ -1758,8 +1775,11 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number) {
     }
   }
 
-  // Re-coleta apenas se: sem ads OU todos estimados/SEO (nunca derruba dados reais)
-  const shouldFetch = existingAds.length === 0 || (onlyEstimated && !hasRealAds);
+  // Re-coleta se: force=true, sem ads, OU todos estimados/SEO (nunca derruba dados reais)
+  const shouldFetch = force || existingAds.length === 0 || (onlyEstimated && !hasRealAds);
+  if (force) {
+    log.info("ai", "Re-análise forçada — coletando novamente independente de dados existentes", { competitorId, existingCount: existingAds.length });
+  }
 
   let pageId       = (competitor as any).facebookPageId;
   const pageUrl    = (competitor as any).facebookPageUrl;
