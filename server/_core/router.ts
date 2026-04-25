@@ -4136,6 +4136,15 @@ const integrationsRouter = router({
 
 
 
+  // -- TikTok OAuth -- gera URL de autorização ---------------------------------
+  getTikTokAuthUrl: protectedProcedure
+    .input(z.object({ redirectUri: z.string() }))
+    .mutation(({ ctx, input }) => {
+      const state = `mecpro_${(ctx as any).user?.id}_${Date.now()}`;
+      const url = getTikTokAuthUrl(input.redirectUri, state);
+      return { url, state };
+    }),
+
   upsertTikTok: protectedProcedure
     .input(z.object({
       appId:       z.string().optional(),
@@ -4147,16 +4156,6 @@ const integrationsRouter = router({
       const userId = (ctx as any).user?.id;
       if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
       const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-
-  // -- TikTok OAuth -- gera URL de autorização ---------------------------------
-// -- TikTok OAuth -- gera URL de autorização ---------------------------------
-  getTikTokAuthUrl: protectedProcedure
-    .input(z.object({ redirectUri: z.string() }))
-    .mutation(({ ctx, input }) => {
-      const state = `mecpro_${(ctx as any).user?.id}_${Date.now()}`;
-      const url = getTikTokAuthUrl(input.redirectUri, state);
-      return { url, state };
-    }),
 
   // -- TikTok OAuth -- troca code por access token ------------------------------
   exchangeTikTokCode: protectedProcedure
