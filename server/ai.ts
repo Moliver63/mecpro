@@ -1536,3 +1536,354 @@ function mockResponse(prompt: string): string {
 }
 
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// generateCampaign — Gera campanha completa via Gemini
+// Chamada por: server/_core/router.ts → campaigns.generate
+// ══════════════════════════════════════════════════════════════════════════════
+export async function generateCampaign(input: {
+  projectId:    number;
+  name:         string;
+  objective:    string;
+  platform:     string;
+  budget:       number;
+  duration:     number;
+  extraContext?: string;
+  ageMin?:      number;
+  ageMax?:      number;
+  regions?:     string[];
+  countries?:   string[];
+  locationMode?: string;
+  geoCity?:     string;
+  geoRadius?:   number;
+  mediaFormat?: string;
+  leadForm?:    any;
+}): Promise<any> {
+  const { projectId, name, objective, platform, budget, duration, extraContext } = input;
+
+  log.info("ai", "[generateCampaign] iniciando", { projectId, name, objective, platform, budget });
+
+  // Busca perfil do cliente para contexto
+  let clientContext = "";
+  try {
+    const profile = await db.getClientProfileByProjectId(projectId);
+    if (profile) {
+      clientContext = `
+PERFIL DO CLIENTE:
+- Empresa: ${(profile as any).companyName || "N/A"}
+- Nicho: ${(profile as any).niche || "N/A"}
+- Produto/Serviço: ${(profile as any).productService || "N/A"}
+- Público-alvo: ${(profile as any).targetAudience || "N/A"}
+- Dor principal: ${(profile as any).mainPain || "N/A"}
+- Proposta de valor: ${(profile as any).uniqueValueProposition || "N/A"}
+- Budget mensal: ${(profile as any).monthlyBudget ? `R$ ${(profile as any).monthlyBudget}` : "N/A"}
+`;
+    }
+  } catch (e: any) {
+    log.warn("ai", "[generateCampaign] erro ao buscar perfil", { message: e?.message });
+  }
+
+  const segmentInfo = [
+    input.ageMin && input.ageMax ? `Faixa etária: ${input.ageMin}-${input.ageMax} anos` : "",
+    input.regions?.length        ? `Regiões: ${input.regions.join(", ")}` : "",
+    input.countries?.length      ? `Países: ${input.countries.join(", ")}` : "",
+    input.geoCity                ? `Raio de ${input.geoRadius || 15}km em ${input.geoCity}` : "",
+    input.mediaFormat && input.mediaFormat !== "mixed" ? `Formato: ${input.mediaFormat}` : "",
+  ].filter(Boolean).join(" | ");
+
+  const prompt = `Você é um estrategista sênior de tráfego pago. Crie uma campanha completa de marketing digital.
+
+${clientContext}
+
+DADOS DA CAMPANHA:
+- Nome: ${name}
+- Objetivo: ${objective}
+- Plataforma: ${platform}
+- Budget total: R$ ${budget}
+- Duração: ${duration} dias
+- Budget diário: R$ ${(budget / duration).toFixed(2)}
+${segmentInfo ? `- Segmentação: ${segmentInfo}` : ""}
+${extraContext ? `- Contexto adicional: ${extraContext}` : ""}
+
+Responda SOMENTE com um JSON válido no seguinte formato (sem markdown, sem texto fora do JSON):
+{
+  "strategy": "string — estratégia geral em 2-3 parágrafos",
+  "adSets": [
+    {
+      "name": "string",
+      "audience": "string",
+      "budget": "string (ex: 40%)",
+      "objective": "string",
+      "placement": "string"
+    }
+  ],
+  "creatives": [
+    {
+      "type": "string (direct_offer|storytelling|social_proof|educational)",
+      "format": "string (Video 15s|Imagem|Carrossel)",
+      "orientation": "string (vertical_9_16|square_1_1|horizontal_16_9)",
+      "headline": "string",
+      "copy": "string",
+      "bodyText": "string",
+      "cta": "string",
+      "hook": "string",
+      "pain": "string",
+      "solution": "string",
+      "funnelStage": "string (TOF|MOF|BOF)",
+      "complianceScore": "string (safe|review|blocked)",
+      "targetAudience": "string",
+      "platforms": ["meta"],
+      "budget": 50,
+      "duration": 7
+    }
+  ],
+  "conversionFunnel": "string — descrição do funil em 3 fases",
+  "executionPlan": "string — cronograma de execução",
+  "kpis": ["string"],
+  "abTests": [
+    {
+      "element": "string",
+      "variantA": "string",
+      "variantB": "string",
+      "hypothesis": "string"
+    }
+  ],
+  "hooks": ["string"],
+  "copies": ["string"],
+  "estimatedResults": {
+    "reach": "string",
+    "clicks": "string",
+    "leads": "string",
+    "cpl": "string",
+    "cpc": "string"
+  }
+}`;
+
+  try {
+    const raw = await gemini(prompt, {
+      temperature:     0.3,
+      maxOutputTokens: 8192,
+      systemInstruction: "Você é um especialista em tráfego pago. Responda sempre em JSON válido sem markdown.",
+    });
+
+    // Parse seguro
+    let parsed: any;
+    try {
+      const clean = raw.replace(/```json|```/g, "").trim();
+      const match = clean.match(/\{[\s\S]+\}/);
+      parsed = JSON.parse(match ? match[0] : clean);
+    } catch {
+      log.warn("ai", "[generateCampaign] JSON parse falhou — usando mock", { rawPreview: raw.slice(0, 100) });
+      parsed = JSON.parse(mockResponse("campaign " + objective));
+    }
+
+    // Salva no banco
+    try {
+      const saved = await db.createCampaign({
+        projectId,
+        name,
+        objective:    objective as any,
+        platform,
+        suggestedBudgetDaily:   Math.round(budget / duration),
+        suggestedBudgetMonthly: budget,
+        durationDays:           duration,
+        strategy:         parsed.strategy         || "",
+        adSets:           JSON.stringify(parsed.adSets          || []),
+        creatives:        JSON.stringify(parsed.creatives        || []),
+        conversionFunnel: parsed.conversionFunnel || "",
+        executionPlan:    parsed.executionPlan    || "",
+        aiPromptUsed:     prompt.slice(0, 2000),
+        aiResponse:       raw.slice(0, 5000),
+        status:           "draft",
+      });
+      log.info("ai", "[generateCampaign] campanha salva", { campaignId: saved?.id });
+      return { ...parsed, id: saved?.id, campaignId: saved?.id };
+    } catch (dbErr: any) {
+      log.warn("ai", "[generateCampaign] erro ao salvar no banco", { message: dbErr?.message });
+      return parsed;
+    }
+
+  } catch (e: any) {
+    log.error("ai", "[generateCampaign] erro crítico", { message: e?.message });
+    throw e;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// generateCampaignPart — Regenera parte específica de uma campanha existente
+// Chamada por: server/_core/router.ts → campaigns.regeneratePart
+// ══════════════════════════════════════════════════════════════════════════════
+export async function generateCampaignPart(input: {
+  campaignId:   number;
+  projectId:    number;
+  part:         "creatives" | "adSets" | "hooks" | "abTests" | "copies";
+  campaign:     any;
+  extraContext?: string;
+}): Promise<any> {
+  const { campaignId, projectId, part, campaign, extraContext } = input;
+
+  log.info("ai", "[generateCampaignPart] iniciando", { campaignId, part });
+
+  const partPrompts: Record<string, string> = {
+    creatives: `Gere 3 novos criativos para esta campanha:
+Objetivo: ${campaign.objective}
+Plataforma: ${campaign.platform}
+Budget diário: R$ ${campaign.suggestedBudgetDaily || 50}
+${extraContext ? `Contexto: ${extraContext}` : ""}
+
+Responda SOMENTE com JSON: { "creatives": [ { "type", "format", "orientation", "headline", "copy", "bodyText", "cta", "hook", "pain", "solution", "funnelStage", "complianceScore", "targetAudience", "platforms", "budget", "duration" } ] }`,
+
+    adSets: `Gere 3 novos conjuntos de anúncios para esta campanha:
+Objetivo: ${campaign.objective}
+Budget total: R$ ${campaign.suggestedBudgetMonthly || 1000}
+${extraContext ? `Contexto: ${extraContext}` : ""}
+
+Responda SOMENTE com JSON: { "adSets": [ { "name", "audience", "budget", "objective", "placement" } ] }`,
+
+    hooks: `Gere 5 hooks poderosos para esta campanha:
+Objetivo: ${campaign.objective}
+${extraContext ? `Contexto: ${extraContext}` : ""}
+
+Responda SOMENTE com JSON: { "hooks": ["hook1", "hook2", "hook3", "hook4", "hook5"] }`,
+
+    abTests: `Gere 3 testes A/B para esta campanha:
+Objetivo: ${campaign.objective}
+${extraContext ? `Contexto: ${extraContext}` : ""}
+
+Responda SOMENTE com JSON: { "abTests": [ { "element", "variantA", "variantB", "hypothesis" } ] }`,
+
+    copies: `Gere 5 copies persuasivos para esta campanha:
+Objetivo: ${campaign.objective}
+Plataforma: ${campaign.platform}
+${extraContext ? `Contexto: ${extraContext}` : ""}
+
+Responda SOMENTE com JSON: { "copies": ["copy1", "copy2", "copy3", "copy4", "copy5"] }`,
+  };
+
+  const prompt = partPrompts[part];
+  if (!prompt) throw new Error(`Parte desconhecida: ${part}`);
+
+  try {
+    const raw = await gemini(prompt, {
+      temperature:     0.5,
+      maxOutputTokens: 4096,
+      systemInstruction: "Você é um especialista em tráfego pago. Responda sempre em JSON válido sem markdown.",
+    });
+
+    let parsed: any;
+    try {
+      const clean = raw.replace(/```json|```/g, "").trim();
+      const match = clean.match(/\{[\s\S]+\}/);
+      parsed = JSON.parse(match ? match[0] : clean);
+    } catch {
+      log.warn("ai", "[generateCampaignPart] JSON parse falhou", { part, rawPreview: raw.slice(0, 100) });
+      return { [part]: [] };
+    }
+
+    // Atualiza no banco
+    try {
+      if (parsed[part]) {
+        await db.updateCampaignField(campaignId, part, JSON.stringify(parsed[part]));
+        log.info("ai", "[generateCampaignPart] banco atualizado", { campaignId, part });
+      }
+    } catch (dbErr: any) {
+      log.warn("ai", "[generateCampaignPart] erro ao atualizar banco", { message: dbErr?.message });
+    }
+
+    return parsed;
+
+  } catch (e: any) {
+    log.error("ai", "[generateCampaignPart] erro", { message: e?.message });
+    throw e;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// analyzeCompetitor — Analisa concorrente via scraping + Gemini
+// Chamada por: server/publicApi.ts e server/_core/router.ts
+// ══════════════════════════════════════════════════════════════════════════════
+export async function analyzeCompetitor(
+  competitorId: number,
+  projectId:    number,
+): Promise<any> {
+  log.info("ai", "[analyzeCompetitor] iniciando", { competitorId, projectId });
+
+  try {
+    const ads = await db.getScrapedAdsByCompetitorId(competitorId);
+    if (!ads || ads.length === 0) {
+      return { message: "Nenhum anúncio coletado para este concorrente ainda." };
+    }
+
+    // Busca perfil do cliente para contexto
+    let clientContext = "";
+    try {
+      const profile = await db.getClientProfileByProjectId(projectId);
+      if (profile) {
+        clientContext = `
+CONTEXTO DO CLIENTE:
+- Nicho: ${(profile as any).niche || "N/A"}
+- Produto: ${(profile as any).productService || "N/A"}
+- Público-alvo: ${(profile as any).targetAudience || "N/A"}
+- Dor principal: ${(profile as any).mainPain || "N/A"}
+- UVP: ${(profile as any).uniqueValueProposition || "N/A"}
+`;
+      }
+    } catch {}
+
+    const adsSample = ads.slice(0, 20).map((a: any, i: number) => `
+[${i + 1}] Tipo: ${a.adType || "imagem"} | Ativo: ${a.isActive ? "sim" : "não"}
+Headline: ${a.headline || "N/A"}
+Copy: ${(a.bodyText || "").slice(0, 200)}
+CTA: ${a.cta || "N/A"}
+`).join("\n");
+
+    const prompt = `Você é um analista de inteligência competitiva em marketing digital.
+${clientContext}
+
+Analise os seguintes ${ads.length} anúncios deste concorrente e gere insights estratégicos.
+
+ANÚNCIOS:
+${adsSample}
+
+Responda SOMENTE com JSON válido:
+{
+  "topFormats": [ { "format": "string", "percentage": 0, "insight": "string" } ],
+  "topCtaPatterns": ["string"],
+  "estimatedFunnel": "string",
+  "winnerPatterns": "string",
+  "positioning": "string",
+  "competitorWeaknesses": "string",
+  "recommendations": "string",
+  "totalAdsAnalyzed": ${ads.length},
+  "activeAds": ${ads.filter((a: any) => a.isActive).length}
+}`;
+
+    const raw = await gemini(prompt, { temperature: 0.3, maxOutputTokens: 4096 });
+
+    let parsed: any;
+    try {
+      const clean = raw.replace(/```json|```/g, "").trim();
+      const match = clean.match(/\{[\s\S]+\}/);
+      parsed = JSON.parse(match ? match[0] : clean);
+    } catch {
+      parsed = JSON.parse(mockResponse("anuncio concorrente"));
+    }
+
+    // Salva insights no banco
+    try {
+      await db.updateCompetitorInsights(competitorId, {
+        aiInsights:    JSON.stringify(parsed),
+        aiGeneratedAt: new Date(),
+        aiAdsAnalyzed: ads.length,
+      });
+    } catch (dbErr: any) {
+      log.warn("ai", "[analyzeCompetitor] erro ao salvar insights", { message: dbErr?.message });
+    }
+
+    return parsed;
+
+  } catch (e: any) {
+    log.error("ai", "[analyzeCompetitor] erro", { message: e?.message });
+    throw e;
+  }
+}
