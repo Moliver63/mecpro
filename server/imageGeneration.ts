@@ -122,6 +122,27 @@ function buildMockUrl(creative: any, objective: string, format: CreativeImageFor
   return `https://placehold.co/${dim.width}x${dim.height}/${bg}/${fg}/png?text=${encoded}&font=montserrat`;
 }
 
+// ── Flag de créditos esgotados por provider ──────────────────────────────────
+// Setado quando recebemos 402 — evita novas tentativas pelo resto da sessão
+const _providerExhausted: Record<string, number> = {};
+const EXHAUSTED_TTL_MS = 24 * 60 * 60 * 1000; // 24h — reseta créditos no próximo dia
+
+export function markProviderExhausted(provider: string) {
+  _providerExhausted[provider] = Date.now();
+  log.warn("image-generation", `Provider ${provider} marcado como sem créditos — ignorando por 24h`);
+}
+
+export function isProviderExhausted(provider: string): boolean {
+  const ts = _providerExhausted[provider];
+  if (!ts) return false;
+  if (Date.now() - ts > EXHAUSTED_TTL_MS) {
+    delete _providerExhausted[provider];
+    log.info("image-generation", `Provider ${provider} — créditos possivelmente renovados, tentando novamente`);
+    return false;
+  }
+  return true;
+}
+
 export type ImageGenerationDiagnostics = {
   provider: ImageProvider;
   canGenerateRealImages: boolean;
@@ -175,13 +196,22 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
     warnings.push("Defina HEYGEN_API_KEY para habilitar a geração real via HeyGen.");
   }
 
+  // Verifica se o provider está marcado como sem créditos
+  const exhausted = isProviderExhausted(normalizedProvider);
+  if (exhausted) {
+    reason = `${normalizedProvider} sem créditos disponíveis (402). Recarregue os créditos para voltar a gerar imagens.`;
+  }
+
   return {
     provider: normalizedProvider,
     storageReady,
     canGenerateRealImages:
-      (normalizedProvider === "huggingface" && hasHuggingFaceKey)
-      || (normalizedProvider === "genspark" && hasGensparkKey)
-      || (normalizedProvider === "heygen" && hasHeygenKey),
+      !exhausted
+      && (
+        (normalizedProvider === "huggingface" && hasHuggingFaceKey)
+        || (normalizedProvider === "genspark" && hasGensparkKey)
+        || (normalizedProvider === "heygen" && hasHeygenKey)
+      ),
     reason,
     warnings,
   };
@@ -276,6 +306,7 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
 
           // 402 = créditos esgotados no provider. É falha fatal para esta execução.
           if (res.status === 402 || /depleted your monthly included credits/i.test(preview)) {
+            markProviderExhausted("huggingface");
             log.warn("image-generation", "HF sem créditos — interrompendo tentativas neste provider", { model, format });
             return null;
           }
@@ -403,7 +434,8 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
         keys: Object.keys((data as any)?.data || data || {}).join(","),
       });
     } else {
-      log.warn("image-generation", "HeyGen HTTP erro", { status: res.status, preview: raw.slice(0, 200) });
+      if (res.status === 402) markProviderExhausted("heygen");
+    log.warn("image-generation", "HeyGen HTTP erro", { status: res.status, preview: raw.slice(0, 200) });
     }
 
   } catch (err: any) {
@@ -426,6 +458,10 @@ async function generateWithGenspark(
 
   // Genspark usa API compatível com OpenAI para imagens
   // Endpoint: POST /v1/images/generations
+  if (isProviderExhausted("genspark")) {
+    log.info("image-generation", "Genspark marcado como sem créditos — pulando");
+    return null;
+  }
   try {
     log.info("image-generation", "Genspark: gerando imagem", { format });
 
@@ -487,6 +523,13 @@ export async function generateAdImage(
   format: CreativeImageFormat,
 ): Promise<string | null> {
   const provider = config?.provider || "mock";
+
+  // Retorno imediato se o provider está sem créditos — evita tentativas desnecessárias
+  if (isProviderExhausted(provider)) {
+    log.info("image-generation", `Provider ${provider} sem créditos — pulando geração`, { format });
+    return null;
+  }
+
   const cacheKey = getCacheKey(creative, segment, objective, provider, format);
   const cached = IMAGE_CACHE.get(cacheKey);
   if (cached) return cached;
