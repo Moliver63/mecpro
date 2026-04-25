@@ -187,7 +187,14 @@ export default function CampaignBuilder() {
       refetch();
       setLocation(`/projects/${projectId}/campaign/result/${data.id}`);
     },
-    onError: (e: any) => toast.error(`Erro ao gerar campanha: ${e.message}`),
+    onError: (e: any) => {
+      const msg = e.message || "";
+      if (msg.includes("Failed to fetch") || msg.includes("abort") || msg.includes("TIMEOUT") || msg.includes("demorou")) {
+        toast.error("⏱ A geração demorou mais que o esperado. Verifique a lista de campanhas — ela pode ter sido criada.", { duration: 8000 });
+      } else {
+        toast.error(`Erro ao gerar campanha: ${msg}`, { duration: 6000 });
+      }
+    },
   });
 
   const matchMutation = (trpc as any).campaigns?.matchScore?.useMutation?.({

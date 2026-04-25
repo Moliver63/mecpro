@@ -19,7 +19,14 @@ export const trpcClient = trpc.createClient({
       url: `${getBaseUrl()}/api/trpc`,
       transformer: superjson,
       fetch(url, options) {
-        return fetch(url, { ...options, credentials: "include" });
+        // Timeout de 90s para mutations longas como generateCampaign
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 90000);
+        return fetch(url, {
+          ...options,
+          credentials: "include",
+          signal: options?.signal ?? controller.signal,
+        }).finally(() => clearTimeout(timer));
       },
     }),
   ],

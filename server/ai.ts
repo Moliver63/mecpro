@@ -4344,7 +4344,6 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
 
   const config = resolveImageProviderConfig();
   const diagnostics = getImageGenerationDiagnostics(config.provider);
-  const maxImages = Math.min(3, scored.length);
 
   for (let index = 0; index < scored.length; index++) {
     scored[index].imageProviderUsed = diagnostics.provider;
@@ -4353,23 +4352,31 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     scored[index].imageGenerationMode = diagnostics.canGenerateRealImages ? "real" : "fallback";
   }
 
+  // Gera apenas 1 imagem por campanha para não bloquear a resposta
+  // O usuário pode gerar mais depois individualmente
+  // Se nenhum provider disponível, pula completamente (evita 30-60s de timeout)
+  const maxImages = diagnostics.canGenerateRealImages ? Math.min(1, scored.length) : 0;
+
+  if (!diagnostics.canGenerateRealImages) {
+    log.warn("ai", "Geração de imagens pulada — provider indisponível", {
+      reason: diagnostics.reason, warnings: diagnostics.warnings,
+    });
+  }
+
   for (let index = 0; index < maxImages; index++) {
     const creative = scored[index];
     const format = resolveCreativeImageFormat(creative);
-    const imageUrl = await generateAdImage(
-      creative,
-      context.segment,
-      context.objective,
-      config,
-      format,
-    );
+    // Timeout de 20s por imagem — evita bloquear campanha inteira
+    const imageUrl = await Promise.race([
+      generateAdImage(creative, context.segment, context.objective, config, format),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 20000)),
+    ]);
     if (imageUrl) {
       if (format === "stories") creative.storyImageUrl = imageUrl;
-      if (format === "feed") creative.feedImageUrl = imageUrl;
-      if (format === "square") creative.squareImageUrl = imageUrl;
+      if (format === "feed")    creative.feedImageUrl = imageUrl;
+      if (format === "square")  creative.squareImageUrl = imageUrl;
       creative.imageUpdatedAt = new Date().toISOString();
     }
-    if (index < maxImages - 1) await sleep(2000);
   }
 
   return scored;
