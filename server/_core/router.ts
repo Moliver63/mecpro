@@ -4157,35 +4157,6 @@ const integrationsRouter = router({
       if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
       const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
 
-  // -- TikTok OAuth -- troca code por access token ------------------------------
-  exchangeTikTokCode: protectedProcedure
-    .input(z.object({ code: z.string(), redirectUri: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      const res = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_key:    process.env.TIKTOK_CLIENT_KEY    || "",
-          client_secret: process.env.TIKTOK_CLIENT_SECRET || "",
-          code:          input.code,
-          grant_type:    "authorization_code",
-          redirect_uri:  input.redirectUri,
-        }),
-      });
-      const data: any = await res.json();
-      if (data.error) throw new TRPCError({ code: "BAD_REQUEST", message: data.error_description || data.error });
-
-      // Salva token na integração
-      await db.upsertApiIntegration((ctx as any).user.id, "tiktok", {
-        accessToken:  data.access_token,
-        refreshToken: data.refresh_token,
-        expiresAt:    new Date(Date.now() + (data.expires_in || 86400) * 1000),
-        openId:       data.open_id,
-      });
-
-      return { success: true, openId: data.open_id };
-    }),,
-
       const _drz2 = await getDb();
       const [existing] = await _drz2!.select().from(integrations)
         .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok")));
@@ -4213,6 +4184,34 @@ const integrationsRouter = router({
         });
       }
       return { success: true };
+    }),
+
+  // -- TikTok OAuth -- troca code por access token ------------------------------
+  exchangeTikTokCode: protectedProcedure
+    .input(z.object({ code: z.string(), redirectUri: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_key:    process.env.TIKTOK_CLIENT_KEY    || "",
+          client_secret: process.env.TIKTOK_CLIENT_SECRET || "",
+          code:          input.code,
+          grant_type:    "authorization_code",
+          redirect_uri:  input.redirectUri,
+        }),
+      });
+      const data: any = await res.json();
+      if (data.error) throw new TRPCError({ code: "BAD_REQUEST", message: data.error_description || data.error });
+
+      await db.upsertApiIntegration((ctx as any).user.id, "tiktok", {
+        accessToken:  data.access_token,
+        refreshToken: data.refresh_token,
+        expiresAt:    new Date(Date.now() + (data.expires_in || 86400) * 1000),
+        openId:       data.open_id,
+      });
+
+      return { success: true, openId: data.open_id };
     }),
 
   testTikTok: protectedProcedure
