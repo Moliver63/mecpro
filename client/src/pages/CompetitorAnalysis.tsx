@@ -2855,8 +2855,15 @@ export default function CompetitorAnalysis() {
     setAnalyzing(id);
     try {
       await analyzeComp.mutateAsync({ competitorId: id, projectId, force });
-    } catch (err) {
+      toast.success("Análise concluída!");
+    } catch (err: any) {
       console.error("Analyze error", err);
+      const msg = err?.message || "Erro desconhecido";
+      if (msg.includes("TIMEOUT") || msg.includes("demorou")) {
+        toast.error("A análise demorou mais que o esperado. Tente novamente.", { duration: 6000 });
+      } else {
+        toast.error(`Erro na análise: ${msg.slice(0, 120)}`, { duration: 8000 });
+      }
     } finally {
       setAnalyzing(null);
       await refetch();

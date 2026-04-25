@@ -46,7 +46,7 @@ async function fetchGoogleCompetitorInsights(
         const tokenRes  = await fetch("https://oauth2.googleapis.com/token", {
           method:  "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          bodyText:   params,
+          body:   params,
           signal:  AbortSignal.timeout(10000),
         });
         const tokenData: any = await tokenRes.json();
@@ -977,6 +977,109 @@ function setCompetitorCache(competitorId: number, result: any) {
   }
   _competitorCache.set(competitorId, { ts: Date.now(), result });
 }
+
+// ── Helpers de classificação de fonte de anúncios ────────────────────────────
+
+function getAdSource(ad: any): string {
+  return (ad?.source || ad?.adSource || ad?.platform || "unknown").toLowerCase();
+}
+
+const REAL_AD_SOURCES = new Set([
+  "meta_ads_archive", "meta_ads_library", "meta", "facebook_ads",
+  "google_ads", "google_ads_transparency", "tiktok_ads",
+]);
+
+function isRealAdSource(source: string): boolean {
+  return REAL_AD_SOURCES.has((source || "").toLowerCase());
+}
+
+function isNonRealAdSource(source: string): boolean {
+  return !isRealAdSource(source);
+}
+
+async function resolvePageId(
+  compName: string,
+  websiteUrl?: string,
+  igUrl?: string,
+): Promise<string | null> {
+  // Tenta extrair pageId de URLs conhecidas
+  if (igUrl) {
+    const m = igUrl.match(/instagram\.com\/([^/?#]+)/i);
+    if (m?.[1] && m[1] !== "p") return null; // IG username, não pageId
+  }
+  if (websiteUrl) {
+    try {
+      const res = await fetch(websiteUrl, { signal: AbortSignal.timeout(8000) });
+      const html = await res.text();
+      const fbMatch = html.match(/facebook\.com\/(?:pages\/[^/"]+\/)?(\d{10,})/);
+      if (fbMatch?.[1]) return fbMatch[1];
+    } catch { /* ignora */ }
+  }
+  return null;
+}
+
+async function discoverCompetitorData(
+  competitorId: number,
+  compName: string,
+): Promise<{ pageId?: string; facebookPageUrl?: string; igUrl?: string; websiteUrl?: string }> {
+  try {
+    const existing = await db.getCompetitor(competitorId);
+    if (existing?.facebookPageId) return { pageId: existing.facebookPageId };
+    if (existing?.websiteUrl) {
+      const pageId = await resolvePageId(compName, existing.websiteUrl, existing.instagramUrl ?? undefined);
+      if (pageId) return { pageId };
+    }
+    log.info("ai", "discoverCompetitorData: sem dados suficientes para", { compName });
+  } catch (e: any) {
+    log.warn("ai", "discoverCompetitorData erro", { message: e.message?.slice(0, 80) });
+  }
+  return {};
+}
+
+function classifyAnalysisSource(opts: {
+  sourceTypes: string[];
+  compName: string;
+  websiteUrl?: string;
+  facebookPageId?: string;
+}): {
+  fonte: string;
+  hasReal: boolean;
+  analysisStatus: string;
+  isEstimatedData: boolean;
+  integrationRequired: string | null;
+} {
+  const { sourceTypes, compName, websiteUrl, facebookPageId } = opts;
+  const hasReal = sourceTypes.some(isRealAdSource);
+  const hasWebsite = sourceTypes.includes("website") || sourceTypes.includes("seo");
+
+  if (hasReal) {
+    return {
+      fonte: facebookPageId ? `Meta Ads Library (pageId: ${facebookPageId})` : "Meta Ads Library",
+      hasReal: true,
+      analysisStatus: "real",
+      isEstimatedData: false,
+      integrationRequired: null,
+    };
+  }
+  if (hasWebsite && websiteUrl) {
+    return {
+      fonte: `Site do concorrente (${websiteUrl})`,
+      hasReal: false,
+      analysisStatus: "partial",
+      isEstimatedData: true,
+      integrationRequired: "Meta Ads Library API",
+    };
+  }
+  return {
+    fonte: `Estimativa SEO para "${compName}"`,
+    hasReal: false,
+    analysisStatus: "estimated",
+    isEstimatedData: true,
+    integrationRequired: "Meta Ads Library API",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const AI_TIMEOUTS = {
   hfHealthMs:              7000,
