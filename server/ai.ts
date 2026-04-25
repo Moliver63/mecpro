@@ -2043,15 +2043,51 @@ ${isEstimatedData
 - Nas recomendações, focar em oportunidades de diferenciação no nicho`
   : ""}
 
-Responda em JSON:
+Responda OBRIGATORIAMENTE em JSON com TODOS estes campos:
 {
-  "topFormats": [{"format": "string", "percentage": 0, "insight": "relevância deste formato"}],
-  "topCtaPatterns": ["string"],
-  "estimatedFunnel": "string",
-  "winnerPatterns": "string",
-  "positioning": "string",
-  "competitorWeaknesses": "string",
-  "recommendations": "string com 3 ações concretas para o cliente"
+  "resumo": "resumo executivo em 2-3 linhas do que o concorrente está fazendo",
+  "topFormats": [{"format": "string", "percentage": 0, "insight": "insight acionável sobre este formato"}],
+  "topCtaPatterns": ["CTA mais usado com contexto"],
+  "estimatedFunnel": "mapa TOF→MOF→BOF com formatos por etapa",
+  "winnerPatterns": "padrões validados pelo mercado nos anúncios ativos",
+  "positioning": "posicionamento: tom de voz, promessa central, diferencial percebido",
+  "competitorWeaknesses": "3 pontos fracos identificados e exploráveis",
+  "recommendations": "3 ações concretas para o cliente superar o concorrente em 30 dias",
+  "interpretacao": {
+    "nicho": "nicho identificado",
+    "produto": "produto/serviço principal",
+    "publico": "público-alvo com perfil e dor",
+    "funil": "TOF | MOF | BOF",
+    "objetivo": "awareness | leads | conversão | remarketing",
+    "nivelConsciencia": "inconsciente | com problema | com solução | com produto | pronto para comprar"
+  },
+  "avaliacao": {
+    "clareza": 7,
+    "persuasao": 6,
+    "oferta": 7,
+    "diferenciacao": 5,
+    "conversao": 6,
+    "justificativa": "explicação baseada nos anúncios"
+  },
+  "falhas": ["falha 1", "falha 2", "falha 3"],
+  "oportunidades": ["oportunidade 1", "oportunidade 2", "oportunidade 3"],
+  "gatilhos": [
+    {"nome": "Urgência / Escassez", "status": "forte", "observacao": "como aparece ou por que está fraco"},
+    {"nome": "Prova Social", "status": "fraco", "observacao": "como aparece ou deveria aparecer"},
+    {"nome": "Autoridade", "status": "ausente", "observacao": "como aparece ou deveria aparecer"},
+    {"nome": "Reciprocidade", "status": "fraco", "observacao": "como aparece ou deveria aparecer"},
+    {"nome": "Curiosidade", "status": "forte", "observacao": "como aparece ou deveria aparecer"}
+  ],
+  "estrategia": {
+    "promessa": "promessa central",
+    "oferta": "tipo de oferta usada",
+    "posicionamento": "posicionamento no mercado",
+    "angulo": "ângulo de venda principal",
+    "emocao": "emoção dominante explorada",
+    "logica": "estrutura lógica do anúncio"
+  },
+  "score_final": 7,
+  "conclusao": "como ganhar desse concorrente em 3-4 linhas práticas"
 }
 `;
 
@@ -2081,7 +2117,8 @@ Responda em JSON:
     if (!p) {
       log.info("ai", "HF Space indisponível — usando Gemini direto para insights", { competitorId });
       const raw = await gemini(prompt, { temperature: 0.3 });
-      p = JSON.parse(raw);
+      const clean = raw.replace(/```json|```/g, "").trim();
+      p = JSON.parse(clean);
     }
 
     // Normaliza resposta: se veio aninhada em data/result/response, extrai nível raiz
@@ -2089,14 +2126,21 @@ Responda em JSON:
       p = p.data ?? p.result ?? p.response;
     }
 
-    insights =
-      `🎨 Formatos: ${p?.topFormats?.map((f: any) => `${f.format} (${f.percentage}%)${f.insight ? ` — ${f.insight}` : ""}`).join(" | ") || "—"}\n\n` +
-      `📢 CTAs predominantes: ${p?.topCtaPatterns?.join(", ") || "—"}\n\n` +
-      `🔀 Funil estimado: ${p?.estimatedFunnel || "—"}\n\n` +
-      `🏆 Padrões vencedores: ${p?.winnerPatterns || "—"}\n\n` +
-      `🎯 Posicionamento: ${p?.positioning || "—"}\n\n` +
-      `⚠️ Pontos fracos: ${p?.competitorWeaknesses || "—"}\n\n` +
-      `💡 Recomendações para o cliente: ${p?.recommendations || "—"}`;
+    // Serializa o JSON completo como aiInsights para o frontend poder reutilizar
+    // Monta também string legível como fallback para exibição textual
+    const insightsJson = JSON.stringify(p);
+    const insightsText =
+      `## 🎨 Formatos\n${p?.topFormats?.map((f: any) => `**${f.format}** (${f.percentage}%): ${f.insight || ""}`).join("\n") || "—"}\n\n` +
+      `## 📢 CTAs predominantes\n${p?.topCtaPatterns?.join("\n") || "—"}\n\n` +
+      `## 🔀 Funil estimado\n${p?.estimatedFunnel || "—"}\n\n` +
+      `## 🏆 Padrões vencedores\n${p?.winnerPatterns || "—"}\n\n` +
+      `## 🎯 Posicionamento\n${p?.positioning || "—"}\n\n` +
+      `## ⚠️ Pontos fracos\n${p?.competitorWeaknesses || "—"}\n\n` +
+      `## 💡 Recomendações\n${p?.recommendations || "—"}\n\n` +
+      `## 🔬 Análise detalhada\n${p?.conclusao || ""}`;
+
+    // Salva tanto o JSON estruturado quanto o texto — o frontend detecta qual usar
+    insights = `__JSON__${insightsJson}__ENDjson__\n\n${insightsText}`;
   } catch (e: any) {
     log.warn("ai", "Failed to parse AI response", { error: e.message });
     insights = updatedAds.length > 0
@@ -4416,58 +4460,90 @@ export async function analyzeAdInput(opts: {
     adsSection,
   ].filter(Boolean).join("\n\n");
 
-  // Prompt idêntico ao analyze_competitor do main.py + campos extras do Analyzer
-  const KEYS = ["topFormats","topCtaPatterns","estimatedFunnel","winnerPatterns",
-                "positioning","competitorWeaknesses","recommendations",
-                "score_final","campanha_melhorada","variacoes","versao_agressiva"];
-
+  // Prompt completo com todos os campos que o frontend renderiza
   const prompt = `${contextParts}
 
 ${isCompanyName && !hasRealAds
-  ? `Você está analisando a empresa "${input}" com base no nome e nicho.
-Infira com inteligência a estratégia provável de anúncios, usando os benchmarks do nicho acima.`
+  ? `Você está analisando a empresa "${input}" com base no nome e nicho.\nInfira com inteligência a estratégia provável de anúncios, usando os benchmarks do nicho acima.`
   : ""}
 
-Gere uma análise competitiva profunda e acionável em JSON:
+Gere uma análise competitiva COMPLETA e acionável em JSON com TODOS os campos abaixo preenchidos:
 {
-  "resumo": "resumo executivo em 2-3 linhas do que o concorrente está fazendo",
-  "topFormats": [{"format": "vídeo|imagem|carrossel", "percentage": 0, "insight": "por que este formato domina e como usar contra o concorrente"}],
-  "topCtaPatterns": ["CTAs mais usados com frequência e contexto"],
-  "estimatedFunnel": "mapa do funil TOF→MOF→BOF baseado nos anúncios observados, com formatos por etapa",
-  "winnerPatterns": "padrões nos anúncios ativos há 30+ dias — o que está validado pelo mercado",
-  "positioning": "como o concorrente se posiciona, tom de voz, promessa central, diferencial percebido",
-  "competitorWeaknesses": "3 pontos fracos claros identificados que podem ser explorados",
-  "recommendations": "3 ações concretas e específicas para o cliente superar este concorrente nos próximos 30 dias",
-  "avaliacao": {
-    "clareza": 0,
-    "persuasao": 0,
-    "oferta": 0,
-    "diferenciacao": 0,
-    "conversao": 0,
-    "justificativa": "explicação das notas baseada nos anúncios analisados"
+  "resumo": "resumo executivo em 2-3 linhas do que o concorrente está fazendo e como se posiciona",
+  "interpretacao": {
+    "nicho": "nicho de mercado identificado",
+    "produto": "produto ou serviço principal anunciado",
+    "publico": "público-alvo inferido: idade, perfil, dor principal",
+    "funil": "etapa dominante: TOF (awareness) | MOF (consideração) | BOF (conversão)",
+    "objetivo": "objetivo da campanha: awareness | geração de leads | conversão | remarketing",
+    "nivelConsciencia": "nível: inconsciente do problema | consciente do problema | consciente da solução | consciente do produto | pronto para comprar"
   },
+  "avaliacao": {
+    "clareza": 7,
+    "persuasao": 6,
+    "oferta": 7,
+    "diferenciacao": 5,
+    "conversao": 6,
+    "justificativa": "explicação das notas baseada nos anúncios analisados e benchmarks do nicho"
+  },
+  "falhas": [
+    "falha crítica 1 identificada nos anúncios ou estratégia",
+    "falha crítica 2",
+    "falha crítica 3"
+  ],
+  "oportunidades": [
+    "oportunidade concreta 1 para superar o concorrente",
+    "oportunidade concreta 2",
+    "oportunidade concreta 3"
+  ],
+  "gatilhos": [
+    {"nome": "Urgência / Escassez", "status": "forte", "observacao": "como aparece ou por que está fraco/ausente"},
+    {"nome": "Prova Social", "status": "fraco", "observacao": "como aparece ou deveria aparecer"},
+    {"nome": "Autoridade", "status": "ausente", "observacao": "como aparece ou deveria aparecer"},
+    {"nome": "Reciprocidade", "status": "fraco", "observacao": "como aparece ou deveria aparecer"},
+    {"nome": "Curiosidade / Storytelling", "status": "forte", "observacao": "como aparece ou deveria aparecer"}
+  ],
+  "estrategia": {
+    "promessa": "promessa central do anúncio ou empresa",
+    "oferta": "tipo de oferta: desconto | trial | consultoria | garantia | bônus | etc",
+    "posicionamento": "como se posiciona e diferencial percebido",
+    "angulo": "ângulo de venda principal explorado",
+    "emocao": "emoção dominante: medo | desejo | aspiração | alívio | status | etc",
+    "logica": "estrutura lógica: problema-solução | antes-depois | prova | autoridade | etc"
+  },
+  "topFormats": [
+    {"format": "vídeo", "percentage": 60, "insight": "insight acionável sobre como usar esse formato"},
+    {"format": "imagem", "percentage": 30, "insight": "insight sobre o formato"},
+    {"format": "carrossel", "percentage": 10, "insight": "insight sobre o formato"}
+  ],
+  "topCtaPatterns": ["CTA mais usado com contexto", "segundo CTA mais frequente", "terceiro CTA"],
+  "estimatedFunnel": "mapa TOF→MOF→BOF: formato e mensagem por etapa com base nos anúncios",
+  "winnerPatterns": "padrões nos anúncios ativos há 30+ dias — validados pelo mercado",
+  "positioning": "posicionamento: tom de voz, promessa central, diferencial percebido pelo público",
+  "competitorWeaknesses": "3 pontos fracos concretos que podem ser atacados estrategicamente",
+  "recommendations": "3 ações concretas para superar este concorrente nos próximos 30 dias",
   "campanha_melhorada": {
-    "angulo": "novo ângulo estratégico diferenciado",
-    "promessa": "nova promessa forte e específica",
-    "headline": "headline principal",
-    "texto": "copy completo do anúncio melhorado (2-3 parágrafos)",
-    "cta": "CTA ideal para este nicho",
-    "criativo": "sugestão de criativo — o que mostrar na imagem/vídeo",
-    "prova_social": "sugestão de prova social",
-    "urgencia": "sugestão de urgência ou escassez"
+    "angulo": "novo ângulo estratégico diferenciado do concorrente",
+    "promessa": "nova promessa forte, específica e verificável",
+    "headline": "headline principal pronto para usar",
+    "texto": "copy completo com 2-3 parágrafos prontos para usar",
+    "cta": "CTA ideal para este nicho e funil",
+    "criativo": "sugestão detalhada de criativo — o que mostrar na imagem/vídeo",
+    "prova_social": "sugestão de prova social aplicável ao nicho",
+    "urgencia": "sugestão de urgência ou escassez crível"
   },
   "variacoes": {
-    "headlines": ["headline 1", "headline 2", "headline 3"],
-    "textos": ["texto 1", "texto 2", "texto 3"],
-    "ctas": ["CTA 1", "CTA 2", "CTA 3"]
+    "headlines": ["headline variação 1", "headline variação 2", "headline variação 3"],
+    "textos": ["texto variação 1 completo", "texto variação 2 completo", "texto variação 3 completo"],
+    "ctas": ["CTA variação 1", "CTA variação 2", "CTA variação 3"]
   },
   "versao_agressiva": {
-    "headline": "headline direto e forte",
+    "headline": "headline direto, provocador e de alta conversão",
     "texto": "copy agressivo orientado a venda imediata",
-    "cta": "CTA urgente"
+    "cta": "CTA urgente e direto"
   },
-  "score_final": 0,
-  "conclusao": "como ganhar desse concorrente em 3-4 linhas claras e práticas baseadas nos dados"
+  "score_final": 7,
+  "conclusao": "como ganhar desse concorrente: 3-4 linhas práticas baseadas nos dados analisados"
 }`.trim();
 
   log.info("ai", "analyzeAdInput start", {
@@ -4508,21 +4584,34 @@ Gere uma análise competitiva profunda e acionável em JSON:
           log.info("ai", "analyzeAdInput via HF Space OK", { motor: data.motor });
           const d = data.data;
           // Adiciona campos do Analyzer que o HF não tem, via Gemini rápido
-          const extraPrompt = `Baseado nesta análise do concorrente "${input}", gere em JSON:
+          const extraPrompt = `Baseado nesta análise do concorrente "${input}", gere em JSON com todos os campos preenchidos:
 {
-  "campanha_melhorada": {"angulo":"","promessa":"","headline":"","texto":"","cta":"","criativo":"","prova_social":"","urgencia":""},
-  "variacoes": {"headlines":["","",""],"textos":["","",""],"ctas":["","",""]},
-  "versao_agressiva": {"headline":"","texto":"","cta":""},
-  "avaliacao": {"clareza":0,"persuasao":0,"oferta":0,"diferenciacao":0,"conversao":0,"justificativa":""},
-  "score_final": 0
+  "resumo": "resumo executivo em 2-3 linhas do que o concorrente está fazendo",
+  "interpretacao": {"nicho":"${niche || "não especificado"}","produto":"produto principal","publico":"público-alvo com dor e perfil","funil":"TOF|MOF|BOF","objetivo":"awareness|leads|conversão","nivelConsciencia":"nível de consciência do público"},
+  "falhas": ["falha 1 identificada","falha 2","falha 3"],
+  "oportunidades": ["oportunidade 1 para superar o concorrente","oportunidade 2","oportunidade 3"],
+  "gatilhos": [
+    {"nome":"Urgência / Escassez","status":"forte|fraco|ausente","observacao":"como aparece"},
+    {"nome":"Prova Social","status":"forte|fraco|ausente","observacao":"como aparece"},
+    {"nome":"Autoridade","status":"forte|fraco|ausente","observacao":"como aparece"},
+    {"nome":"Reciprocidade","status":"forte|fraco|ausente","observacao":"como aparece"},
+    {"nome":"Curiosidade","status":"forte|fraco|ausente","observacao":"como aparece"}
+  ],
+  "estrategia": {"promessa":"promessa central","oferta":"tipo de oferta","posicionamento":"como se posiciona","angulo":"ângulo de venda","emocao":"emoção dominante","logica":"estrutura lógica do anúncio"},
+  "campanha_melhorada": {"angulo":"novo ângulo diferenciado","promessa":"nova promessa forte","headline":"headline pronto","texto":"copy completo em 2-3 parágrafos","cta":"CTA ideal","criativo":"sugestão de criativo","prova_social":"sugestão de prova social","urgencia":"sugestão de urgência"},
+  "variacoes": {"headlines":["variação 1","variação 2","variação 3"],"textos":["texto 1","texto 2","texto 3"],"ctas":["CTA 1","CTA 2","CTA 3"]},
+  "versao_agressiva": {"headline":"headline agressivo","texto":"copy direto para venda","cta":"CTA urgente"},
+  "avaliacao": {"clareza":0,"persuasao":0,"oferta":0,"diferenciacao":0,"conversao":0,"justificativa":"justificativa das notas"},
+  "score_final": 0,
+  "conclusao": "como ganhar desse concorrente em 3-4 linhas práticas"
 }
-Contexto: posicionamento="${d.positioning || ""}" | fraquezas="${d.competitorWeaknesses || ""}" | nicho="${niche}"`;
+Contexto: posicionamento="${d.positioning || ""}" | fraquezas="${d.competitorWeaknesses || ""}" | nicho="${niche}" | recomendações="${d.recommendations || ""}"`;
           try {
             const extraRaw = await gemini(extraPrompt, { temperature: 0.4 });
             const extraParsed = JSON.parse(extraRaw.replace(/\`\`\`json|\`\`\`/g, "").trim());
-            return { success: true, motor: data.motor, data: { resumo: d.positioning || "", ...d, ...extraParsed } };
+            return { success: true, motor: data.motor, data: { ...d, ...extraParsed, resumo: d.resumo || extraParsed.resumo || d.positioning || "" } };
           } catch {
-            return { success: true, motor: data.motor, data: { resumo: d.positioning || "", ...d } };
+            return { success: true, motor: data.motor, data: { ...d, resumo: d.resumo || d.positioning || "" } };
           }
         }
       }

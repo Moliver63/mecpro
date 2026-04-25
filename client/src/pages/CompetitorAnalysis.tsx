@@ -987,8 +987,22 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
   const allEstimated = realCount === 0 && estimatedCount > 0;
   const mixed        = realCount > 0 && estimatedCount > 0;
 
+  // Detecta se aiInsights contém JSON estruturado embutido (novo formato)
   let insightBlocks: string[] = [];
-  if (comp.aiInsights) insightBlocks = comp.aiInsights.split("\n\n").filter(Boolean);
+  let insightJson: any = null;
+  if (comp.aiInsights) {
+    const jsonMatch = comp.aiInsights.match(/__JSON__(.+?)__ENDjson__/s);
+    if (jsonMatch) {
+      try {
+        insightJson = JSON.parse(jsonMatch[1]);
+      } catch { insightJson = null; }
+      // Usa o texto depois do JSON para os blocos de markdown
+      const textPart = comp.aiInsights.replace(/__JSON__.+?__ENDjson__\n\n/s, "");
+      insightBlocks = textPart.split("\n\n").filter(Boolean);
+    } else {
+      insightBlocks = comp.aiInsights.split("\n\n").filter(Boolean);
+    }
+  }
 
   // Formato icon
   const fmtIcon = (t: string) => t === "video" ? "🎬" : t === "carousel" ? "🎠" : "🖼️";
@@ -1496,6 +1510,148 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                   </div>
                 )}
 
+                {/* ── Painel estruturado (novo formato com JSON embutido) ── */}
+                {insightJson && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
+
+                    {/* Interpretação */}
+                    {insightJson.interpretacao && (
+                      <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
+                        <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", marginBottom: 10, textTransform: "uppercase" }}>🔬 Interpretação</p>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                          {[
+                            { label: "Nicho",       val: insightJson.interpretacao?.nicho },
+                            { label: "Produto",     val: insightJson.interpretacao?.produto },
+                            { label: "Público",     val: insightJson.interpretacao?.publico },
+                            { label: "Funil",       val: insightJson.interpretacao?.funil },
+                            { label: "Objetivo",    val: insightJson.interpretacao?.objetivo },
+                            { label: "Consciência", val: insightJson.interpretacao?.nivelConsciencia },
+                          ].map(item => item.val && (
+                            <div key={item.label} style={{ background: "white", borderRadius: 8, padding: "8px 12px", border: "1px solid #e2e8f0" }}>
+                              <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>{item.label}</p>
+                              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--black)", fontWeight: 600 }}>{item.val}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Avaliação */}
+                    {insightJson.avaliacao && (
+                      <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
+                        <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", marginBottom: 10, textTransform: "uppercase" }}>📊 Avaliação do Concorrente</p>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                          {[
+                            { label: "Clareza",       val: insightJson.avaliacao?.clareza,       color: "#3b82f6" },
+                            { label: "Persuasão",     val: insightJson.avaliacao?.persuasao,     color: "#8b5cf6" },
+                            { label: "Oferta",        val: insightJson.avaliacao?.oferta,        color: "#f59e0b" },
+                            { label: "Diferenciação", val: insightJson.avaliacao?.diferenciacao, color: "#06b6d4" },
+                            { label: "Conversão",     val: insightJson.avaliacao?.conversao,     color: "#10b981" },
+                          ].map(s => s.val !== undefined && (
+                            <div key={s.label}>
+                              <p style={{ margin: "0 0 4px", fontSize: 11, color: "var(--muted)", fontWeight: 600 }}>{s.label}</p>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ flex: 1, height: 6, background: "#e2e8f0", borderRadius: 3, overflow: "hidden" }}>
+                                  <div style={{ height: "100%", width: `${s.val * 10}%`, background: s.color, borderRadius: 3, transition: "width .6s" }} />
+                                </div>
+                                <span style={{ fontSize: 12, fontWeight: 800, color: s.color, minWidth: 24 }}>{s.val}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {insightJson.avaliacao?.justificativa && (
+                          <p style={{ fontSize: 11, color: "var(--muted)", fontStyle: "italic", margin: 0 }}>{insightJson.avaliacao.justificativa}</p>
+                        )}
+                        {insightJson.score_final !== undefined && (
+                          <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)" }}>Score final:</span>
+                            <span style={{ fontSize: 20, fontWeight: 900, color: insightJson.score_final >= 7 ? "#16a34a" : insightJson.score_final >= 5 ? "#f59e0b" : "#dc2626" }}>{insightJson.score_final}/10</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Falhas e Oportunidades */}
+                    {((insightJson.falhas?.length > 0) || (insightJson.oportunidades?.length > 0)) && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        {insightJson.falhas?.length > 0 && (
+                          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 12, padding: 12 }}>
+                            <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#dc2626" }}>✕ Falhas do Concorrente</p>
+                            {insightJson.falhas.map((f: string, i: number) => (
+                              <p key={i} style={{ margin: "0 0 4px", fontSize: 11, color: "#991b1b", lineHeight: 1.5 }}>• {f}</p>
+                            ))}
+                          </div>
+                        )}
+                        {insightJson.oportunidades?.length > 0 && (
+                          <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 12, padding: 12 }}>
+                            <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 800, color: "#16a34a" }}>◎ Oportunidades</p>
+                            {insightJson.oportunidades.map((o: string, i: number) => (
+                              <p key={i} style={{ margin: "0 0 4px", fontSize: 11, color: "#15803d", lineHeight: 1.5 }}>• {o}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Gatilhos */}
+                    {insightJson.gatilhos?.length > 0 && (
+                      <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
+                        <p style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>🧠 Gatilhos Mentais</p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {insightJson.gatilhos.map((g: any, i: number) => (
+                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 12px", borderRadius: 8,
+                              background: g.status === "forte" ? "#f0fdf4" : g.status === "fraco" ? "#fefce8" : "#fef2f2" }}>
+                              <span style={{ fontSize: 14, flexShrink: 0 }}>{g.status === "forte" ? "◎" : g.status === "fraco" ? "◬" : "✕"}</span>
+                              <div>
+                                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--black)" }}>{g.nome}</p>
+                                {g.observacao && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--muted)" }}>{g.observacao}</p>}
+                              </div>
+                              <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, flexShrink: 0,
+                                background: g.status === "forte" ? "#dcfce7" : g.status === "fraco" ? "#fef9c3" : "#fee2e2",
+                                color: g.status === "forte" ? "#166534" : g.status === "fraco" ? "#92400e" : "#dc2626" }}>
+                                {g.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Estratégia */}
+                    {insightJson.estrategia && (
+                      <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
+                        <p style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>🎯 Estratégia Detectada</p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {[
+                            { label: "🎯 Promessa central", val: insightJson.estrategia?.promessa },
+                            { label: "💰 Tipo de oferta",  val: insightJson.estrategia?.oferta },
+                            { label: "📍 Posicionamento",  val: insightJson.estrategia?.posicionamento },
+                            { label: "🔀 Ângulo de venda", val: insightJson.estrategia?.angulo },
+                            { label: "❤️ Emoção dominante",val: insightJson.estrategia?.emocao },
+                            { label: "🧠 Lógica do copy",  val: insightJson.estrategia?.logica },
+                          ].map(item => item.val && (
+                            <div key={item.label} style={{ background: "white", borderRadius: 8, padding: "8px 12px", border: "1px solid #e2e8f0" }}>
+                              <p style={{ margin: "0 0 2px", fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>{item.label}</p>
+                              <p style={{ margin: 0, fontSize: 12, color: "var(--black)" }}>{item.val}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Conclusão */}
+                    {insightJson.conclusao && (
+                      <div style={{ background: "linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius: 12, padding: 14 }}>
+                        <p style={{ margin: "0 0 6px", fontSize: 11, fontWeight: 800, color: "#4ade80" }}>🏆 Como ganhar desse concorrente</p>
+                        <p style={{ margin: 0, fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>{insightJson.conclusao}</p>
+                      </div>
+                    )}
+
+                    <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+                    <p style={{ fontSize: 10, color: "var(--muted)", fontWeight: 600, margin: 0 }}>📄 Detalhamento completo abaixo ↓</p>
+                  </div>
+                )}
+
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {insightBlocks.map((block, i) => {
                     const isHeader = block.startsWith("##") || block.startsWith("**");
@@ -1712,11 +1868,16 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
   ] as const;
 
   function handleAnalyze() {
+    // Se useExisting mas sem anúncios, usa compName como fallback
+    const effectiveInput = (useExisting && ads.length === 0)
+      ? (compName || input.trim())
+      : (input.trim() || compName);
+    if (!effectiveInput) return;
     analyzeMut.mutate({
-      input:        input.trim() || compName,
+      input:        effectiveInput,
       nicho:        nicho || undefined,
       projectId,
-      competitorId: useExisting ? competitorId : undefined,
+      competitorId: (useExisting && ads.length > 0) ? competitorId : undefined,
     });
   }
 
@@ -1823,14 +1984,16 @@ function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }: {
           )}
           <button
             className="btn btn-md btn-primary"
-            disabled={(!input.trim() && !useExisting) || analyzeMut.isPending}
+            disabled={(useExisting && ads.length === 0 && !input.trim()) || (!useExisting && !input.trim()) || analyzeMut.isPending}
             onClick={handleAnalyze}
             style={{ flex: useExisting ? 1 : undefined, flexShrink: 0, fontSize: 13, fontWeight: 700, padding: "8px 20px" }}>
             {analyzeMut.isPending
               ? "⏳ Analisando..."
               : useExisting && ads.length > 0
                 ? `🔍 Analisar ${ads.length} anúncio${ads.length > 1 ? "s" : ""}`
-                : isCompanyName ? "🏢 Analisar empresa" : "🔍 Analisar anúncio"}
+                : useExisting && ads.length === 0
+                  ? `🏢 Analisar ${compName || "empresa"}`
+                  : isCompanyName ? "🏢 Analisar empresa" : "🔍 Analisar anúncio"}
           </button>
         </div>
       </div>
