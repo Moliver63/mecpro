@@ -1535,6 +1535,9 @@ function mockResponse(prompt: string): string {
   });
 }
 
+// ── Lock global para evitar análises simultâneas do mesmo concorrente ────────
+const _analyzingLock = new Map<number, Promise<any>>();
+
 export async function analyzeCompetitor(competitorId: number, projectId: number) {
   // Se já está analisando este concorrente, aguarda e retorna o mesmo resultado
   const existing = _analyzingLock.get(competitorId);
