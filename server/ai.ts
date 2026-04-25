@@ -76,7 +76,7 @@ async function fetchGoogleCompetitorInsights(
     seeds.push({ keyword: compName });
     if (seeds.length === 0) return false;
 
-    const kpUrl = `https://googleads.googleapis.com/v18/customers/${customerId}:generateKeywordIdeas`;
+    const kpUrl = `https://googleads.googleapis.com/v19/customers/${customerId}:generateKeywordIdeas`;
     const kpBody = {
       keywordSeed:        { keywords: [compName] },
       urlSeed:            websiteUrl ? { url: websiteUrl } : undefined,
@@ -325,7 +325,7 @@ async function fetchGoogleTransparencyInsights(
       const auctionQuery = `SELECT auction_insight.display_name, auction_insight.impression_share, auction_insight.overlap_rate, auction_insight.outranking_share FROM auction_insight_campaign WHERE segments.date DURING LAST_30_DAYS LIMIT 20`;
 
       const auctionRes = await fetch(
-        `https://googleads.googleapis.com/v17/customers/${customerId}/googleAds:search`,
+        `https://googleads.googleapis.com/v19/customers/${customerId}/googleAds:search`,
         {
           method: "POST",
           headers: {
@@ -1023,7 +1023,7 @@ async function discoverCompetitorData(
   compName: string,
 ): Promise<{ pageId?: string; facebookPageUrl?: string; igUrl?: string; websiteUrl?: string }> {
   try {
-    const existing = await db.getCompetitor(competitorId);
+    const existing = await db.getCompetitorById(competitorId);
     if (existing?.facebookPageId) return { pageId: existing.facebookPageId };
     if (existing?.websiteUrl) {
       const pageId = await resolvePageId(compName, existing.websiteUrl, existing.instagramUrl ?? undefined);
@@ -1039,8 +1039,13 @@ async function discoverCompetitorData(
 function classifyAnalysisSource(opts: {
   sourceTypes: string[];
   compName: string;
-  websiteUrl?: string;
-  facebookPageId?: string;
+  websiteUrl?: string | null;
+  facebookPageId?: string | null;
+  pageId?: string | null;
+  pageUrl?: string | null;
+  igUrl?: string | null;
+  metaAccessDenied?: boolean;
+  metaPermissionDenied?: boolean;
 }): {
   fonte: string;
   hasReal: boolean;
@@ -1048,15 +1053,17 @@ function classifyAnalysisSource(opts: {
   isEstimatedData: boolean;
   integrationRequired: string | null;
 } {
-  const { sourceTypes, compName, websiteUrl, facebookPageId } = opts;
+  const { sourceTypes, compName, websiteUrl } = opts;
+  const pageId = opts.facebookPageId || opts.pageId;
   const hasReal = sourceTypes.some(isRealAdSource);
-  const hasWebsite = sourceTypes.includes("website") || sourceTypes.includes("seo");
+  const hasWebsite = sourceTypes.some(s => s === "website_scraping" || s === "seo_analysis");
+  const hasAnyData = sourceTypes.length > 0;
 
   if (hasReal) {
     return {
-      fonte: facebookPageId ? `Meta Ads Library (pageId: ${facebookPageId})` : "Meta Ads Library",
+      fonte: pageId ? `Meta Ads Library (pageId: ${pageId})` : "Meta Ads Library",
       hasReal: true,
-      analysisStatus: "real",
+      analysisStatus: "success",
       isEstimatedData: false,
       integrationRequired: null,
     };
@@ -1067,14 +1074,23 @@ function classifyAnalysisSource(opts: {
       hasReal: false,
       analysisStatus: "partial",
       isEstimatedData: true,
+      integrationRequired: (opts.metaAccessDenied || opts.metaPermissionDenied) ? "Meta Ads Library API" : null,
+    };
+  }
+  if (hasAnyData) {
+    return {
+      fonte: `Estimativa para "${compName}"`,
+      hasReal: false,
+      analysisStatus: "partial",
+      isEstimatedData: true,
       integrationRequired: "Meta Ads Library API",
     };
   }
   return {
-    fonte: `Estimativa SEO para "${compName}"`,
+    fonte: `Sem dados para "${compName}"`,
     hasReal: false,
-    analysisStatus: "estimated",
-    isEstimatedData: true,
+    analysisStatus: "failed",
+    isEstimatedData: false,
     integrationRequired: "Meta Ads Library API",
   };
 }
