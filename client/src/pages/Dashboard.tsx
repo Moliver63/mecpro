@@ -6,6 +6,8 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
+import PixelPanel from "@/components/PixelPanel";
+import { calcCampaignScore } from "@/lib/campaignScore";
 import { toast } from "sonner";
 
 const PLAT_ICON: Record<string, string> = { meta: "📘", google: "🔵", tiktok: "◼", both: "📊" };
@@ -42,6 +44,8 @@ export default function Dashboard() {
   const [selected,  setSelected]    = useState<Set<number>>(new Set());
   const [confirmDel, setConfirmDel] = useState<number | "bulk" | null>(null);
   const [landingMode, setLandingMode] = useState<"promo" | "normal">("promo");
+  const [showPixelPanel, setShowPixelPanel] = useState(false);
+  const [pixelCampaign, setPixelCampaign]   = useState<any>(null);
 
   const { data: projects, isLoading: loadingProj } = trpc.projects.list.useQuery();
   const { data: campaigns, isLoading: loadingCamp, refetch: refetchCamp } =
@@ -310,9 +314,25 @@ export default function Dashboard() {
                     <input type="checkbox" className="cb-row"
                       checked={selected.size === campList.length}
                       onChange={e => setSelected(e.target.checked ? new Set(campList.map((c: any) => c.id)) : new Set())} />
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.07em", flex: 1 }}>
                       {selected.size > 0 ? `${selected.size} selecionada${selected.size > 1 ? "s" : ""}` : "Selecionar todas"}
                     </span>
+                    {/* Resumo de ativas + botão pixel global */}
+                    {(() => {
+                      const published = campList.filter((c: any) => c.publishStatus === "success");
+                      if (!published.length) return null;
+                      return (
+                        <button
+                          onClick={() => { setPixelCampaign(published[0]); setShowPixelPanel(p => !p); }}
+                          style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700,
+                            background: showPixelPanel ? "#1e293b" : "#eff6ff",
+                            color: showPixelPanel ? "white" : "#1d4ed8",
+                            border: "none", borderRadius: 20, padding: "4px 12px", cursor: "pointer",
+                            flexShrink: 0 }}>
+                          📡 {published.length} ativa{published.length > 1 ? "s" : ""} — Ver pixel & retargeting
+                        </button>
+                      );
+                    })()}
                   </div>
                   {campList.map((camp: any) => (
                     <div key={camp.id} className="camp-row"
@@ -336,10 +356,31 @@ export default function Dashboard() {
                       <span style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0, minWidth: 60, textAlign: "right" }}>
                         {camp.generatedAt ? new Date(camp.generatedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "—"}
                       </span>
+                      {/* Score de auditoria */}
+                      {(() => {
+                        const sc = calcCampaignScore(camp);
+                        return (
+                          <span title={`Score de auditoria: ${sc.grade}/${sc.score} — ${sc.topIssue || sc.label}`}
+                            style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 20,
+                              background: sc.bg, color: sc.color, flexShrink: 0, cursor: "default",
+                              border: `1px solid ${sc.color}33` }}>
+                            {sc.grade}/{sc.score}
+                          </span>
+                        );
+                      })()}
                       <div style={{ display: "flex", gap: 4, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                         <button title="Ver resultado" className="btn btn-sm"
                           onClick={() => setLocation(`/projects/${camp.projectId}/campaign/result/${camp.id}`)}
                           style={{ background: "var(--off)", color: "var(--muted)", padding: "4px 8px", fontSize: 12 }}>Ver →</button>
+                        {camp.publishStatus === "success" && (
+                          <button title="Pixel & Audiências de Retargeting"
+                            onClick={() => { setPixelCampaign(camp); setShowPixelPanel(true); }}
+                            style={{ background: showPixelPanel && pixelCampaign?.id === camp.id ? "#1e293b" : "transparent",
+                              color: showPixelPanel && pixelCampaign?.id === camp.id ? "white" : "var(--muted)",
+                              padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)",
+                              borderRadius: 6, cursor: "pointer" }}
+                            className="btn btn-sm">📡</button>
+                        )}
                         <button title="Arquivar" className="btn btn-sm arc-btn"
                           onClick={() => archiveMutation?.mutate({ id: camp.id })}
                           style={{ background: "transparent", color: "var(--muted)", padding: "4px 8px", fontSize: 12, border: "1px solid var(--border)" }}>⬇</button>
@@ -354,6 +395,32 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {/* ── Painel Pixel & Audiências ── */}
+        {showPixelPanel && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ padding: "10px 20px", background: "linear-gradient(135deg,#0f172a,#1e3a5f)",
+              borderRadius: "12px 12px 0 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "white" }}>
+                  📡 Pixel & Audiências — {pixelCampaign?.name || "Campanha"}
+                </div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                  Rastreamento e retargeting para quem interagiu com esta campanha
+                </div>
+              </div>
+              <button onClick={() => setShowPixelPanel(false)}
+                style={{ background: "#334155", color: "#94a3b8", border: "none",
+                  borderRadius: 8, padding: "5px 10px", cursor: "pointer", fontSize: 13 }}>✕ Fechar</button>
+            </div>
+            <div style={{ border: "1px solid var(--border)", borderTop: "none", borderRadius: "0 0 12px 12px", overflow: "hidden" }}>
+              <PixelPanel
+                pageId={undefined}
+                onClose={() => setShowPixelPanel(false)}
+              />
+            </div>
+          </div>
+        )}
 
         {/* CTA upgrade — plano free sem promoção ativa */}
         {(user?.plan === "free" || user?.plan === "FREE" || !user?.plan) && !showPromo && (
