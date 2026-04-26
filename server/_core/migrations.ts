@@ -483,5 +483,24 @@ export async function runMigrations(): Promise<void> {
       `CREATE INDEX IF NOT EXISTS idx_ad_patterns_perf ON ad_patterns(perf_score DESC)`
     ).catch(() => {});
 
+        // ── Colunas de resultado da campanha — adicionadas incrementalmente ─────
+    // conversionFunnel, executionPlan, aiResponse, aiPromptUsed podem não existir
+    // em bancos criados antes dessas features serem implementadas
+    await pool.query(`
+      ALTER TABLE campaigns
+        ADD COLUMN IF NOT EXISTS "conversionFunnel" TEXT,
+        ADD COLUMN IF NOT EXISTS "executionPlan"    TEXT,
+        ADD COLUMN IF NOT EXISTS "aiResponse"       TEXT,
+        ADD COLUMN IF NOT EXISTS "aiPromptUsed"     TEXT,
+        ADD COLUMN IF NOT EXISTS "creativeScores"   TEXT,
+        ADD COLUMN IF NOT EXISTS "targetingConfig"  TEXT,
+        ADD COLUMN IF NOT EXISTS "publishPreferences" TEXT
+    `).catch((e: any) => {
+      // Ignora erro se colunas já existem
+      if (!e.message?.includes('already exists')) {
+        console.warn('[migrations] Aviso ao adicionar colunas campaigns:', e.message);
+      }
+    });
+
         console.log('[migrations] ✅ Migrations applied successfully');
 }

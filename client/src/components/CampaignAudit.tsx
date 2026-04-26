@@ -255,13 +255,37 @@ function scoreMetrics(campaign: any): AuditDimension {
   const metrics = extra?.metrics || null;
   const isHybrid = extra?.generatedBy === "hybrid_engine";
 
-  const funnel: any[] = (() => { try { return JSON.parse(campaign?.conversionFunnel || "[]"); } catch { return []; } })();
-  const plan:   any[] = (() => { try { return JSON.parse(campaign?.executionPlan    || "[]"); } catch { return []; } })();
+  // Lê funil: coluna direta OU aiResponse (motor híbrido, campanhas novas)
+  let funnel: any[] = [];
+  try { funnel = JSON.parse(campaign?.conversionFunnel || "[]"); } catch {}
+  if (!funnel.length) {
+    try {
+      const raw2 = campaign?.aiResponse ? JSON.parse(campaign.aiResponse) : null;
+      const f = raw2?.conversionFunnel;
+      if (Array.isArray(f)) funnel = f;
+      else if (typeof f === "string") funnel = JSON.parse(f);
+    } catch {}
+  }
+
+  // Lê plano: coluna direta OU aiResponse
+  let plan: any[] = [];
+  try { plan = JSON.parse(campaign?.executionPlan || "[]"); } catch {}
+  if (!plan.length) {
+    try {
+      const raw3 = campaign?.aiResponse ? JSON.parse(campaign.aiResponse) : null;
+      const p = raw3?.executionPlan;
+      if (Array.isArray(p)) plan = p;
+      else if (typeof p === "string") plan = JSON.parse(p);
+    } catch {}
+  }
+
+  // Campanha antiga: colunas não existiam no banco
+  const isOldCampaign = !campaign?.conversionFunnel && !campaign?.executionPlan && !campaign?.aiResponse;
 
   if (!metrics) {
     issues.push("Métricas estimadas não geradas");
     score -= 30;
-    suggestions.push("Regenere a campanha — métricas são essenciais para aprovação do cliente");
+    suggestions.push(isOldCampaign ? "Campanha anterior ao fix — regenere para obter dados completos" : "Regenere a campanha — métricas são essenciais para aprovação do cliente");
   } else {
     if (!metrics.estimatedCPC) { issues.push("CPC estimado ausente"); score -= 10; }
     if (!metrics.estimatedCTR) { issues.push("CTR estimado ausente"); score -= 8; }
@@ -272,7 +296,7 @@ function scoreMetrics(campaign: any): AuditDimension {
   if (!funnel.length) {
     issues.push("Funil de conversão não gerado");
     score -= 20;
-    suggestions.push("O funil mapeia o caminho do cliente de awareness à conversão");
+    suggestions.push(isOldCampaign ? "Gere uma nova campanha — novas campanhas têm funil TOF→MOF→BOF automático" : "O funil mapeia o caminho do cliente de awareness à conversão");
   } else {
     const hasKPI = funnel.every((f: any) => f.kpi);
     if (!hasKPI) { issues.push("KPIs ausentes em etapas do funil"); score -= 10; }
@@ -281,7 +305,7 @@ function scoreMetrics(campaign: any): AuditDimension {
   if (!plan.length) {
     issues.push("Plano de execução não gerado");
     score -= 15;
-    suggestions.push("O plano de execução define ações semanais com budget e KPIs");
+    suggestions.push(isOldCampaign ? "Gere uma nova campanha — novas campanhas têm plano semanal automático" : "O plano de execução define ações semanais com budget e KPIs");
   }
 
   return {
@@ -297,11 +321,26 @@ function scoreExecution(campaign: any): AuditDimension {
   const suggestions: string[] = [];
   let score = 100;
 
-  const plan: any[] = (() => { try { return JSON.parse(campaign?.executionPlan || "[]"); } catch { return []; } })();
+  let plan: any[] = [];
+  try { plan = JSON.parse(campaign?.executionPlan || "[]"); } catch {}
+  // Fallback: lê do aiResponse (motor híbrido)
+  if (!plan.length) {
+    try {
+      const extra = JSON.parse(campaign?.aiResponse || "null");
+      if (extra?.executionPlan) {
+        plan = typeof extra.executionPlan === "string" ? JSON.parse(extra.executionPlan) : extra.executionPlan;
+      }
+    } catch {}
+  }
 
   if (!plan.length) {
-    return { id: "execution", label: "Plano de Execução", icon: "📋", score: 0, status: "missing",
-      issues: ["Plano de execução ausente"], suggestions: ["Regenere a campanha para obter o plano"], weight: 10 };
+    const isOld = !campaign?.executionPlan && !campaign?.aiResponse;
+    return {
+      id: "execution", label: "Plano de Execução", icon: "🗓️", score: 0, status: "missing",
+      issues: ["Plano de execução ausente"],
+      suggestions: [isOld ? "Campanha anterior — regenere para obter plano semanal com KPIs e budget" : "Regenere a campanha para obter o plano de execução"],
+      weight: 10,
+    };
   }
 
   const hasWeekly = plan.some((p: any) => /semana|week|dia\s+\d/i.test(JSON.stringify(p)));
