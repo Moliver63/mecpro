@@ -4746,6 +4746,11 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       parsed = JSON.parse(repairJson(raw));
       log.warn("ai", "Campaign JSON reparado automaticamente");
     }
+    // Valida que o Gemini retornou dados de campanha reais (não mock de concorrente)
+    if (!parsed.strategy && !parsed.adSets && !parsed.creatives) {
+      log.warn("ai", "Gemini retornou resposta sem campos de campanha — pode ser mock interno");
+      throw new Error("Gemini response missing campaign fields — triggering Groq fallback");
+    }
     strategy         = parsed.strategy || "";
     adSets           = JSON.stringify(parsed.adSets || []);
     // Normalizar criativos — garantir bodyText + campos obrigatórios
@@ -4831,7 +4836,26 @@ Gere JSON com: strategy(string), campaignName(string), adSets(array com name/aud
         })));
         conversionFunnel = JSON.stringify(groqParsed.conversionFunnel || []);
         executionPlan    = JSON.stringify(groqParsed.executionPlan || []);
-        log.info("ai", "Campaign gerada via Groq fallback após parse error do Gemini");
+        // Salva dados extras do Groq no aiResponse imediatamente
+        campaignName = groqParsed.campaignName || input.name;
+        aiResponse = JSON.stringify({
+          campaignName,
+          metrics:      groqParsed.metrics      || null,
+          glossary:     groqParsed.glossary      || null,
+          hooks:        groqParsed.hooks         || null,
+          abTests:      groqParsed.abTests       || null,
+          tracking:     groqParsed.tracking      || null,
+          optimization: groqParsed.optimization  || null,
+          scaling:      groqParsed.scaling       || null,
+          targetingConfig,
+          leadFormDraft: normalizedLeadFormDraft,
+          publishPreferences,
+        });
+        log.info("ai", "Campaign gerada via Groq fallback — todos os campos salvos", {
+          hasMetrics: !!groqParsed.metrics,
+          hasHooks: !!groqParsed.hooks,
+          creativesCount: groqParsed.creatives?.length || 0,
+        });
       } else {
         throw new Error("Groq sem resposta");
       }
@@ -4868,7 +4892,21 @@ Gere JSON com: strategy(string), campaignName(string), adSets(array com name/aud
           })));
           conversionFunnel = JSON.stringify(mecResult.conversionFunnel || []);
           executionPlan    = JSON.stringify(mecResult.executionPlan || []);
-          log.info("ai", "Campaign gerada via MECPro AI Service (fallback final)");
+          campaignName = mecResult.campaignName || input.name;
+          aiResponse = JSON.stringify({
+            campaignName,
+            metrics:      mecResult.metrics      || null,
+            glossary:     mecResult.glossary      || null,
+            hooks:        mecResult.hooks         || null,
+            abTests:      mecResult.abTests       || null,
+            tracking:     mecResult.tracking      || null,
+            optimization: mecResult.optimization  || null,
+            scaling:      mecResult.scaling       || null,
+            targetingConfig,
+            leadFormDraft: normalizedLeadFormDraft,
+            publishPreferences,
+          });
+          log.info("ai", "Campaign gerada via MECPro AI Service (fallback final) — campos salvos");
         } else {
           throw new Error("MECPro AI retornou resposta inválida");
         }
@@ -4880,24 +4918,33 @@ Gere JSON com: strategy(string), campaignName(string), adSets(array com name/aud
         creatives        = JSON.stringify(mock.creatives        || []);
         conversionFunnel = JSON.stringify(mock.conversionFunnel || []);
         executionPlan    = JSON.stringify(mock.executionPlan    || []);
-        // Salva campaignName do mock para usar no aiResponse
-        if (!campaignName) campaignName = mock.campaignName || input.name;
+        campaignName     = mock.campaignName || input.name;
+        // aiResponse para mock — inclui métricas do mock se disponíveis
+        aiResponse = JSON.stringify({
+          campaignName,
+          metrics:      mock.metrics      || null,
+          glossary:     mock.glossary     || null,
+          hooks:        mock.hooks        || null,
+          abTests:      mock.abTests      || null,
+          tracking:     mock.tracking     || null,
+          optimization: mock.optimization || null,
+          scaling:      mock.scaling      || null,
+          targetingConfig,
+          leadFormDraft: normalizedLeadFormDraft,
+          publishPreferences,
+          _isMock: true, // Flag para auditoria detectar mock
+        });
       }
     } // fim catch groqErr
-    // IMPORTANTE: mock pode não existir se o LLM funcionou — nunca referenciar mock aqui
-    aiResponse = JSON.stringify({
-      campaignName: campaignName || input.name,
-      metrics: null,
-      glossary: null,
-      hooks: null,
-      abTests: null,
-      tracking: null,
-      optimization: null,
-      scaling: null,
-      targetingConfig,
-      leadFormDraft: normalizedLeadFormDraft,
-      publishPreferences,
-    });
+    // aiResponse já foi setado em cada branch (Groq/MECPro/mock) — apenas garante fallback
+    if (!aiResponse) {
+      aiResponse = JSON.stringify({
+        campaignName: campaignName || input.name,
+        metrics: null, glossary: null, hooks: null, abTests: null,
+        tracking: null, optimization: null, scaling: null,
+        targetingConfig, leadFormDraft: normalizedLeadFormDraft, publishPreferences,
+      });
+    }
   }
 
   try {

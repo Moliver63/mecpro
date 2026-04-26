@@ -2019,8 +2019,8 @@ const campaignsRouter = router({
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new TRPCError({
           code: "TIMEOUT",
-          message: "Geração de campanha demorou mais que o esperado. A campanha pode ter sido criada — verifique a lista de campanhas.",
-        })), 55000)
+          message: "Geração de campanha demorou mais que o esperado. A campanha foi salva em background — verifique a lista de campanhas em alguns segundos.",
+        })), 90000)  // 90s: Gemini (10s) + Groq retry (30s) + MECPro (30s) + margem
       );
 
       return Promise.race([campaignPromise, timeoutPromise]);
