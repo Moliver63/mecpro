@@ -1544,6 +1544,98 @@ const competitorsRouter = router({
         }
       }
 
+
+      // ── ESTRATÉGIA 6: Gemini + Google Search grounding ──────────────────────
+      // Gemini faz busca real na web e retorna o pageId com contexto
+      // Não requer permissões Meta — usa o índice do Google
+      if (results.length === 0) {
+        tried.push("gemini_grounding");
+        try {
+          const { geminiWithGrounding } = await import("../ai");
+          const searchPrompt = `Encontre o Facebook Page ID numérico (10-16 dígitos) da empresa:
+Nome: "${input.companyName || raw}"
+Handle Instagram: @${raw}
+País: Brasil
+
+Busque no Google e retorne APENAS JSON sem markdown:
+{"pageId":"NUMERO_OU_null","pageName":"NOME_OU_null","confidence":"high|medium|low","source":"URL_onde_encontrou"}
+
+REGRAS ABSOLUTAS:
+- pageId deve ser um número real de 10-16 dígitos encontrado na busca
+- Se não encontrar com certeza, retorne null
+- Nunca invente números`;
+
+          const result = await geminiWithGrounding(searchPrompt);
+          if (result?.pageId && /^\d{10,16}$/.test(String(result.pageId))) {
+            results.push({
+              method: "gemini_grounding",
+              pageId: String(result.pageId),
+              pageName: result.pageName || input.companyName || raw,
+              confidence: result.confidence === "high" ? "high" : "medium",
+            });
+            log.info("ai", "discoverPageId Estratégia 6 (Gemini grounding) OK", {
+              pageId: result.pageId, pageName: result.pageName, source: result.source,
+            });
+          } else {
+            log.info("ai", "discoverPageId Estratégia 6 sem resultado", { reason: result?.confidence });
+          }
+        } catch (e: any) {
+          log.info("ai", "discoverPageId Estratégia 6 erro", { message: e?.message?.slice(0, 80) });
+        }
+      }
+
+      // ── ESTRATÉGIA 7: Gemini analisa HTML do site do concorrente ────────────
+      // Baixa o site, extrai todo HTML e pede ao Gemini para encontrar refs ao Facebook
+      if (results.length === 0) {
+        tried.push("gemini_site_html");
+        const siteUrl = (raw.includes(".") ? `https://${raw}` : null) ||
+                        (input.companyName ? null : null); // só se handle parece URL
+        if (siteUrl) {
+          try {
+            const siteRes = await fetch(siteUrl, {
+              headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)" },
+              signal: AbortSignal.timeout(8000),
+              redirect: "follow",
+            });
+            if (siteRes.ok) {
+              const html = (await siteRes.text()).slice(0, 15000); // primeiros 15k chars
+              const { gemini } = await import("../ai");
+              const htmlPrompt = `Analise este HTML e encontre o Facebook Page ID numérico (10-16 dígitos) da empresa.
+
+Procure por:
+1. Links como facebook.com/123456789 ou facebook.com/pages/nome/123456789
+2. Meta tags og:url ou og:see_also com URL do Facebook
+3. Scripts JSON-LD com sameAs contendo URL do Facebook
+4. Qualquer número de 10-16 dígitos próximo a "facebook" no HTML
+
+HTML:
+${html}
+
+Retorne APENAS JSON sem markdown:
+{"pageId":"NUMERO_OU_null","evidence":"trecho_onde_encontrou_OU_null"}`;
+
+              const raw_resp = await gemini(htmlPrompt, { temperature: 0, jsonMode: true });
+              const parsed = JSON.parse(raw_resp.replace(/\`\`\`json|\`\`\`/g, "").trim());
+              if (parsed?.pageId && /^\d{10,16}$/.test(String(parsed.pageId))) {
+                results.push({
+                  method: "gemini_html_analysis",
+                  pageId: String(parsed.pageId),
+                  pageName: input.companyName || raw,
+                  confidence: "high",
+                });
+                log.info("ai", "discoverPageId Estratégia 7 (Gemini HTML) OK", {
+                  pageId: parsed.pageId, evidence: parsed.evidence?.slice(0, 80),
+                });
+              } else {
+                log.info("ai", "discoverPageId Estratégia 7 sem pageId no HTML", { siteUrl });
+              }
+            }
+          } catch (e: any) {
+            log.info("ai", "discoverPageId Estratégia 7 erro", { message: e?.message?.slice(0, 80) });
+          }
+        }
+      }
+
       // ── ESTRATÉGIA 5: Gemini — temperatura 0, regras rígidas ──
       if (results.length === 0) {
         tried.push("gemini");
