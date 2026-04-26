@@ -5330,6 +5330,104 @@ const integrationsRouter = router({
       return { id: data.id, name: input.name };
     }),
 
+  // -- Status e eventos do Pixel Meta ------------------------------------------
+  getPixelStatus: protectedProcedure
+    .input(z.object({ pixelId: z.string().optional() }))
+    .query(async ({ ctx }) => {
+      const metaInt = await db.getIntegrationsByUser(ctx.user.id);
+      const meta    = (metaInt as any[]).find(i => i.provider === "meta");
+      const token   = meta?.accessToken;
+      const accountId = meta?.metaAccountId || meta?.adAccountId;
+      if (!token) return { connected: false, pixels: [], audiences: [] };
+
+      // 1. Lista pixels da conta
+      const pixRes = await fetch(
+        `https://graph.facebook.com/v19.0/act_${accountId?.replace("act_","")}/adspixels?fields=id,name,last_fired_time,is_unavailable&access_token=${token}`
+      ).then(r => r.json()).catch(() => ({ data: [] }));
+
+      const pixels = (pixRes.data || []).map((p: any) => ({
+        id:       p.id,
+        name:     p.name || "Pixel sem nome",
+        active:   !p.is_unavailable,
+        lastFired: p.last_fired_time ? new Date(p.last_fired_time * 1000).toLocaleDateString("pt-BR") : null,
+      }));
+
+      // 2. Eventos do pixel nos últimos 7 dias (se tiver pixel)
+      let events: any[] = [];
+      if (pixels.length > 0) {
+        const pid = pixRes.data[0]?.id;
+        const evRes = await fetch(
+          `https://graph.facebook.com/v19.0/${pid}/stats?aggregation=event_name&since=${Math.floor(Date.now()/1000) - 7*86400}&access_token=${token}`
+        ).then(r => r.json()).catch(() => ({ data: [] }));
+        events = (evRes.data || []).map((e: any) => ({
+          name:  e.event_name,
+          count: e.count || 0,
+        })).filter((e: any) => e.count > 0);
+      }
+
+      // 3. Audiências personalizadas existentes
+      const audRes = await fetch(
+        `https://graph.facebook.com/v19.0/act_${accountId?.replace("act_","")}/customaudiences?fields=id,name,approximate_count_lower_bound,subtype,description&limit=10&access_token=${token}`
+      ).then(r => r.json()).catch(() => ({ data: [] }));
+
+      const audiences = (audRes.data || []).map((a: any) => ({
+        id:    a.id,
+        name:  a.name,
+        count: a.approximate_count_lower_bound || 0,
+        type:  a.subtype || "CUSTOM",
+        desc:  a.description || "",
+      }));
+
+      return { connected: true, pixels, events, audiences };
+    }),
+
+  // -- Cria Audiência de Retargeting baseada em pixel/engajamento ---------------
+  createRetargetingAudience: protectedProcedure
+    .input(z.object({
+      name:        z.string(),
+      type:        z.enum(["pixel_visitors", "page_engagers", "video_viewers", "ad_clickers"]),
+      pixelId:     z.string().optional(),
+      pageId:      z.string().optional(),
+      retentionDays: z.number().default(30),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const metaInt = await db.getIntegrationsByUser(ctx.user.id);
+      const meta    = (metaInt as any[]).find(i => i.provider === "meta");
+      const token   = meta?.accessToken;
+      const accountId = (meta?.metaAccountId || meta?.adAccountId || "").replace("act_","");
+      if (!token) throw new TRPCError({ code: "UNAUTHORIZED", message: "Conta Meta não conectada" });
+
+      let body: any = { name: input.name, access_token: token };
+
+      if (input.type === "pixel_visitors" && input.pixelId) {
+        body = { ...body,
+          subtype: "WEBSITE",
+          retention_days: input.retentionDays,
+          rule: JSON.stringify({ inclusions: { operator: "or", rules: [{ event_sources: [{ id: input.pixelId, type: "pixel" }], retention_seconds: input.retentionDays * 86400, filter: { operator: "and", filters: [{ field: "event", operator: "eq", value: "PageView" }] } }] } }),
+        };
+      } else if (input.type === "page_engagers" && input.pageId) {
+        body = { ...body,
+          subtype: "ENGAGEMENT",
+          object_id: input.pageId,
+          retention_days: input.retentionDays,
+          rule: JSON.stringify({ inclusions: { operator: "or", rules: [{ event_sources: [{ id: input.pageId, type: "page" }], retention_seconds: input.retentionDays * 86400, filter: { operator: "and", filters: [{ field: "event", operator: "eq", value: "page_engaged" }] } }] } }),
+        };
+      } else {
+        // Fallback genérico
+        body = { ...body, subtype: "WEBSITE", retention_days: input.retentionDays };
+      }
+
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/act_${accountId}/customaudiences`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new TRPCError({ code: "BAD_REQUEST", message: data.error?.message || "Erro ao criar audiência" });
+
+      log.info("meta", "Audiência de retargeting criada", { name: input.name, type: input.type, id: data.id });
+      return { success: true, audienceId: data.id, name: input.name };
+    }),
+
   // -- Lista Lead Forms de uma Página ----------------------------------------
   listLeadForms: protectedProcedure
     .input(z.object({ pageId: z.string().trim().default("") }))

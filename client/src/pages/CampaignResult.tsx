@@ -8,6 +8,7 @@ import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/comp
 import { useEffect, useState, useRef } from "react";
 import Layout from "@/components/layout/Layout";
 import CampaignAudit from "@/components/CampaignAudit";
+import PixelPanel from "@/components/PixelPanel";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
 import { toast } from "sonner";
@@ -173,6 +174,7 @@ export default function CampaignResult() {
   const [placementPreset, setPlacementPreset] = useState("ecommerce");
   const [showVSL,       setShowVSL]       = useState(false);
   const [showAudit,    setShowAudit]    = useState(false);
+  const [showPixel,    setShowPixel]    = useState(false);
   const [mediaMode,    setMediaMode]    = useState<"none" | "url" | "upload">("none");
   const [mediaDims,    setMediaDims]    = useState<MediaDimensions | null>(null);
   const [mediaValidation, setMediaValidation] = useState<MediaValidationResult | null>(null);
@@ -1566,6 +1568,13 @@ export default function CampaignResult() {
               fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 10, border: "1px solid var(--border)",
               cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             🔍 {showAudit ? "Fechar Auditoria" : "Auditar campanha"}
+          </button>
+          <button
+            onClick={() => setShowPixel(p => !p)}
+            style={{ background: showPixel ? "#1e293b" : "var(--off)", color: showPixel ? "white" : "var(--black)",
+              fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 10, border: "1px solid var(--border)",
+              cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            📡 {showPixel ? "Fechar Pixel" : "Pixel & Audiências"}
           </button>
           <button
             onClick={() => {

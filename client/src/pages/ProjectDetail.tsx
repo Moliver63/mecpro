@@ -1,6 +1,7 @@
 import BackButton from "@/components/BackButton";
 import { useState } from "react";
 import { useLocation, useParams } from "wouter";
+import { calcCampaignScore } from "@/lib/campaignScore";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 
@@ -21,6 +22,7 @@ export default function ProjectDetail() {
   const { data: profile }             = trpc.clientProfile.get.useQuery({ projectId: id }, { enabled: !!id });
   const { data: competitors = [] }    = trpc.competitors.list.useQuery({ projectId: id }, { enabled: !!id });
   const { data: campaigns = [] }      = trpc.campaigns.list.useQuery({ projectId: id }, { enabled: !!id });
+  const { data: clientProfile }        = trpc.clientProfile.get.useQuery({ projectId: id }, { enabled: !!id });
   const deleteProject                 = (trpc as any).projects?.delete?.useMutation?.({
     onSuccess: () => setLocation("/projects"),
     onError:   (e: any) => alert("Erro ao deletar: " + e.message),
@@ -32,6 +34,8 @@ export default function ProjectDetail() {
   // ── Percentual de conclusão ───────────────────────────────────────────────
   const hasMarket = !!(project as any)?.marketAnalysis || (campaigns as any[]).length > 0;
   const hasCampaign = (campaigns as any[]).length > 0;
+  const latestCampaign = (campaigns as any[])[0] || null;
+  const campaignScore = latestCampaign ? calcCampaignScore(latestCampaign, clientProfile) : null;
 
   const progress = [
     !!profile,                          // M1: Perfil do cliente
@@ -125,6 +129,15 @@ export default function ProjectDetail() {
             {totalPublished > 0 && (
               <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8" }}>
                 📊 {publishPct}% publicado
+              </span>
+            )}
+            {campaignScore && (
+              <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20, fontWeight: 800,
+                background: campaignScore.bg, color: campaignScore.color,
+                display: "inline-flex", alignItems: "center", gap: 4,
+                border: `1px solid ${campaignScore.color}33` }}>
+                🔍 Auditoria: {campaignScore.grade}/{campaignScore.score}
+                {campaignScore.isMock && " ⚠️"}
               </span>
             )}
           </div>
