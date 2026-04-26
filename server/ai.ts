@@ -2401,7 +2401,7 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
       metaTokenInvalid = metaTokenInvalid || !!found.tokenInvalid;
       metaPermissionDenied = metaPermissionDenied || !!found.permissionDenied;
     }
-    } // fim bloco pipeline Meta
+    // fim bloco pipeline Meta
 
     if (!metaOk && !pipelineShortCircuited) {
       log.info("ai", "Meta Ads Library sem resultado — tentando fallback site/SEO", { compName, websiteUrl });
