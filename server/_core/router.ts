@@ -1291,6 +1291,8 @@ const competitorsRouter = router({
     .input(z.object({
       instagramHandle: z.string(),
       companyName:     z.string().optional(),
+      websiteUrl:      z.string().optional(),
+      facebookPageUrl: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const raw = input.instagramHandle
@@ -1498,13 +1500,38 @@ const competitorsRouter = router({
         }
       }
 
-      // ── ESTRATÉGIA 5.5: Scraping público do site — busca link Facebook direto ──
-      // Não requer nenhuma permissão Meta — lê HTML público
+      // ── ESTRATÉGIA 0.5: extrai pageId da facebookPageUrl diretamente ─────────
+      if (results.length === 0 && input.facebookPageUrl) {
+        tried.push("facebook_url_extract");
+        const fbUrl = input.facebookPageUrl;
+        // view_all_page_id=NUMERO na URL da Ads Library
+        const pageIdMatch = fbUrl.match(/view_all_page_id=(\d{10,})/);
+        if (pageIdMatch?.[1]) {
+          results.push({ method: "facebook_url_extract", pageId: pageIdMatch[1], pageName: input.companyName || raw, confidence: "high" });
+          log.info("ai", "discoverPageId facebookPageUrl → pageId extraído", { pageId: pageIdMatch[1] });
+        } else if (token) {
+          // facebook.com/NomeEmpresa → resolve via Graph API
+          const handleMatch = fbUrl.match(/facebook\.com\/((?!ads\/|pages\/|sharer)[\w.]+)/);
+          if (handleMatch?.[1]) {
+            try {
+              const r = await fetch(`https://graph.facebook.com/v20.0/${handleMatch[1]}?fields=id,name&access_token=${token}`, { signal: AbortSignal.timeout(6000) });
+              const d: any = await r.json();
+              if (!d.error && d.id && /^\d+$/.test(d.id)) {
+                results.push({ method: "facebook_url_handle", pageId: d.id, pageName: d.name || handleMatch[1], confidence: "high" });
+                log.info("ai", "discoverPageId facebookPageUrl handle → pageId", { handle: handleMatch[1], pageId: d.id });
+              }
+            } catch {}
+          }
+        }
+      }
+
+      // ── ESTRATÉGIA 5.5: Scraping do site real do concorrente ────────────────
+      // Usa websiteUrl passado diretamente, mais handle como URL possível
       if (results.length === 0) {
         tried.push("site_scraping");
-        // Busca pelo site do concorrente via websiteUrl (se passado no companyName ou handle)
         const possibleUrls = [
-          raw.includes(".") ? `https://${raw}` : null,
+          input.websiteUrl || null,                                  // URL real do site
+          raw.includes(".") ? `https://${raw}` : null,               // handle como URL
           raw.includes(".") ? `https://www.${raw}` : null,
         ].filter(Boolean) as string[];
 

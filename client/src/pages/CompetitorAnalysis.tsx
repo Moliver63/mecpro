@@ -689,7 +689,12 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
               <button
                 onClick={() => {
                   if (!igInput.trim()) { toast.error("Digite o Instagram primeiro"); return; }
-                  (discoverPageIdMutation as any).mutate({ instagramHandle: igInput, companyName: name });
+                  (discoverPageIdMutation as any).mutate({
+                    instagramHandle: igInput,
+                    companyName:     name,
+                    websiteUrl:      website   || undefined,
+                    facebookPageUrl: urlInput  || undefined,
+                  });
                 }}
                 disabled={(discoverPageIdMutation as any).isPending || !igInput.trim()}
                 style={{
@@ -870,8 +875,13 @@ function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDone: () 
             <button
               onClick={() => {
                 const handle = igUrl || comp.name;
-                if (!handle) { toast.error("Informe o Instagram primeiro"); return; }
-                (discoverPageId as any).mutate({ instagramHandle: handle, companyName: comp.name });
+                if (!handle) { toast.error("Informe o Instagram ou Website primeiro"); return; }
+                (discoverPageId as any).mutate({
+                  instagramHandle: handle,
+                  companyName:     comp.name,
+                  websiteUrl:      websiteUrl || undefined,
+                  facebookPageUrl: pageUrl    || undefined,
+                });
               }}
               disabled={(discoverPageId as any).isPending}
               title="Descobrir Page ID automaticamente pelo Instagram"
