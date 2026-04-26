@@ -252,17 +252,7 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
   const [location] = useLocation();
   const { user } = useAuth();
 
-  // Rotas do marketplace são públicas — não precisam de sidebar
-  const isMarketplacePublic = location.startsWith("/marketplace") && !location.startsWith("/marketplace/publish") && !location.startsWith("/marketplace/seller");
-  if (isPublic || (isMarketplacePublic && !user)) {
-    return <PublicLayout>{children}</PublicLayout>;
-  }
-  // Usuário logado no marketplace ainda vê a sidebar (experiência completa)
-
-  const isAdmin  = ["admin","superadmin"].includes(user?.role ?? "");
-  const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : NAV_USER;
-
-  // Persist collapse state
+  // TODOS os hooks devem ser chamados ANTES de qualquer return condicional (Rules of Hooks)
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("sidebar-collapsed") === "1"; } catch { return false; }
   });
@@ -272,6 +262,18 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
     setCollapsed(next);
     try { localStorage.setItem("sidebar-collapsed", next ? "1" : "0"); } catch {}
   };
+
+  // Rotas do marketplace são públicas — não precisam de sidebar
+  const isMarketplacePublic = location.startsWith("/marketplace")
+    && !location.startsWith("/marketplace/publish")
+    && !location.startsWith("/marketplace/seller");
+  if (isPublic || (isMarketplacePublic && !user)) {
+    return <PublicLayout>{children}</PublicLayout>;
+  }
+  // Usuário logado no marketplace ainda vê a sidebar (experiência completa)
+
+  const isAdmin  = ["admin","superadmin"].includes(user?.role ?? "");
+  const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : NAV_USER;
 
   // Active page title
   const activeItem = navItems.find(i => location === i.path || location.startsWith(i.path + "/"));
