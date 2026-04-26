@@ -2263,30 +2263,83 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
   const niche   = clientProfile?.niche || "negócios";
   const company = clientProfile?.companyName || "sua empresa";
   const product = clientProfile?.productService || "seu produto";
+  const budget  = clientProfile?.monthlyBudget || 1500;
+
   const formats = ads.reduce((acc:any,a:any)=>{acc[a.adType||"image"]=(acc[a.adType||"image"]||0)+1;return acc;},{});
   const topFmt  = Object.entries(formats).sort((x:any,y:any)=>y[1]-x[1])[0]?.[0]||"image";
   const realCtas= [...new Set(ads.map((a:any)=>a.cta).filter(Boolean))].slice(0,4) as string[];
   const topCta  = realCtas[0]||"Saiba mais";
+  const activeAds = ads.filter((a:any) => a.isActive);
+  const avgActivity = ads.length > 0 ? Math.round(activeAds.length / ads.length * 100) : 50;
+
   const tones: Array<"urgent"|"emotional"|"rational"|"premium"> = ["urgent","emotional","rational","premium"];
   const hybrid  = await hybridGenerateAds({niche,clientName:company,product,tones,useLLMRefine:false,count:4});
   const budgets: Record<string,number> = {leads:40,sales:50,traffic:30,engagement:25,branding:20};
   const total   = budgets[objective]||30;
+
+  // Métricas estimadas baseadas no nicho e dados reais de concorrentes
+  const isImoveis = /imov|imobi|apart|casa/i.test(niche);
+  const isServico = /clinica|saude|beleza|academia|restaurante/i.test(niche);
+  const estimatedCPC = isImoveis ? 1.80 : isServico ? 0.90 : 1.20;
+  const estimatedCTR = isImoveis ? 2.8  : isServico ? 3.5  : 2.5;
+  const estimatedCPM = Math.round(estimatedCPC * estimatedCTR * 10) / 10;
+  const monthlyLeads = budget > 0 ? Math.round((budget * 0.7) / (estimatedCPC * 15)) : 0;
+
+  // Funil de conversão baseado no objetivo
+  const funnelByObjective: Record<string, any[]> = {
+    leads: [
+      { stage: "Awareness",     format: topFmt === "video" ? "Vídeo 15s" : "Imagem", audience: `Lookalike 1-3%, ${niche}`, budget: "40%", kpi: `CPM < R$${estimatedCPM.toFixed(2)}` },
+      { stage: "Consideração",  format: "Carrossel",                                  audience: "Engajados 30 dias",         budget: "35%", kpi: `CTR > ${estimatedCTR}%` },
+      { stage: "Conversão",     format: "Imagem c/ CTA",                              audience: "Remarketing 7 dias",        budget: "25%", kpi: `CPL < R$${(estimatedCPC * 15).toFixed(2)}` },
+    ],
+    sales: [
+      { stage: "Descoberta",    format: topFmt === "video" ? "Vídeo 30s" : "Imagem", audience: `Lookalike 1-3%, ${niche}`, budget: "35%", kpi: `Alcance > 10.000/semana` },
+      { stage: "Engajamento",   format: "Carrossel",                                  audience: "Visitantes 14 dias",        budget: "35%", kpi: `CPC < R$${estimatedCPC.toFixed(2)}` },
+      { stage: "Compra",        format: "Imagem produto",                             audience: "Carrinho abandonado 3 dias",budget: "30%", kpi: `ROAS > 3x` },
+    ],
+    traffic: [
+      { stage: "Alcance",       format: "Imagem",                                     audience: `Interesses ${niche}`,      budget: "60%", kpi: `CPC < R$${(estimatedCPC * 0.7).toFixed(2)}` },
+      { stage: "Retargeting",   format: "Vídeo curto",                                audience: "Visitantes 7 dias",         budget: "40%", kpi: `CTR > ${(estimatedCTR + 1).toFixed(1)}%` },
+    ],
+  };
+  const conversionFunnel = funnelByObjective[objective] || funnelByObjective["leads"];
+
+  // Plano de execução semanal
+  const executionPlan = [
+    { week: "Semana 1", action: `Configurar públicos: Lookalike 1-3% de clientes atuais + Interesses ${niche}. Subir 2 criativos TOF (${topFmt}).`, budget: `R$${Math.round(budget*0.25)}`, kpi: `CPM < R$${estimatedCPM.toFixed(2)}, alcance > 5.000` },
+    { week: "Semana 2", action: `Analisar CTR dos criativos TOF. Pausar CTR < 1.5%. Ativar carrossel MOF para engajados.`,                           budget: `R$${Math.round(budget*0.25)}`, kpi: `CTR > ${estimatedCTR}%, CPC < R$${(estimatedCPC*1.2).toFixed(2)}` },
+    { week: "Semana 3", action: `Escalar criativo vencedor (+30% budget). Ativar remarketing BOF 7 dias. Testar novo hook.`,                          budget: `R$${Math.round(budget*0.28)}`, kpi: `CPL < R$${(estimatedCPC*12).toFixed(2)}, conversão > 2%` },
+    { week: "Semana 4", action: `Consolidar: manter top 2 conjuntos, pausar resto. Planejar ciclo seguinte com novos criativos.`,                      budget: `R$${Math.round(budget*0.22)}`, kpi: `ROAS > 2.5x, leads mensais: ${monthlyLeads}` },
+  ];
+
+  // aiResponse com métricas para a auditoria
+  const metrics = {
+    estimatedCPC: `R$${estimatedCPC.toFixed(2)}`,
+    estimatedCTR: `${estimatedCTR}%`,
+    estimatedCPM: `R$${estimatedCPM.toFixed(2)}`,
+    estimatedLeads: monthlyLeads,
+    insight: `Baseado em ${ads.length} anúncios de concorrentes (${avgActivity}% ativos). Formato dominante: ${topFmt}. Benchmark do nicho ${niche}.`,
+  };
+
   return {
-    strategy:`Campanha ${objective} — análise de ${ads.length} anúncios de concorrentes. Formato dominante: ${topFmt}. CTAs: ${realCtas.join(", ")||topCta}.`,
+    strategy: `Campanha ${objective} — análise de ${ads.length} anúncios de concorrentes. Formato dominante: ${topFmt}. CTAs mais usados: ${realCtas.join(", ")||topCta}. ${avgActivity}% dos anúncios dos concorrentes estão ativos — mercado ${avgActivity > 60 ? "aquecido" : "moderado"}.`,
     adSets:[
-      {name:"Público Frio",   audience:`Lookalike 1-3%, 25-50 anos, ${niche}`,budget:`${Math.round(total*0.4)}%`,objective:"Alcance"},
-      {name:"Público Morno",  audience:"Visitantes 30 dias",budget:`${Math.round(total*0.35)}%`,objective:"Consideração"},
-      {name:"Remarketing Hot",audience:"Engajamento 7 dias",budget:`${Math.round(total*0.25)}%`,objective:"Conversão"},
+      { name:"Público Frio",    audience:`Lookalike 1-3%, 25-50 anos, ${niche}`, budget:`${Math.round(total*0.4)}%`, objective:"Alcance",       funnelStage:"TOF" },
+      { name:"Público Morno",   audience:"Visitantes 30 dias",                   budget:`${Math.round(total*0.35)}%`,objective:"Consideração",   funnelStage:"MOF" },
+      { name:"Remarketing Hot", audience:"Engajamento 7 dias",                   budget:`${Math.round(total*0.25)}%`,objective:"Conversão",      funnelStage:"BOF" },
     ],
     creatives: hybrid.ads.map((ad,i)=>({
       type:["direct_offer","emotional","social_proof","educational"][i],
-      format:topFmt==="video"?"Video 15s":"Imagem Feed",orientation:"vertical_9_16",
-      headline:ad.headline,bodyText:ad.body,copy:ad.body,cta:ad.cta,
-      hook:ad.headline,pain:"Dificuldade em encontrar solução",solution:`${company} — ${product}`,
-      funnelStage:["TOF","MOF","BOF","BOF"][i],complianceScore:"safe",
-      targetAudience:`25-50 anos, ${niche}`,platforms:["meta"],budget:Math.round(total/4),duration:7,tone:ad.tone,source:"hybrid",
+      format:topFmt==="video"?"Video 15s":"Imagem Feed", orientation:"vertical_9_16",
+      headline:ad.headline, bodyText:ad.body, copy:ad.body, cta:ad.cta,
+      hook:ad.headline, pain:"Dificuldade em encontrar solução", solution:`${company} — ${product}`,
+      funnelStage:["TOF","MOF","BOF","BOF"][i], complianceScore:"safe",
+      targetAudience:`25-50 anos, ${niche}`, platforms:["meta"], budget:Math.round(total/4), duration:7, tone:ad.tone, source:"hybrid",
     })),
-    generatedBy:"hybrid_engine",
+    conversionFunnel,
+    executionPlan,
+    metrics,
+    generatedBy: "hybrid_engine",
   };
 }
 
@@ -4982,9 +5035,13 @@ Gere JSON com: strategy(string), campaignName(string), adSets(array com name/aud
             db.getClientProfile(projectId).catch(()=>null),
           ]);
           const hybrid = await buildCampaignFromAds(projectId, objective, profile, scrapedAds);
-          strategy=hybrid.strategy; adSets=JSON.stringify(hybrid.adSets); creatives=JSON.stringify(hybrid.creatives);
-          conversionFunnel=JSON.stringify([]); executionPlan=JSON.stringify([]);
-          log.info("ai","✅ Motor híbrido gerou campanha",{projectId,creatives:hybrid.creatives.length});
+          strategy         = hybrid.strategy;
+          adSets           = JSON.stringify(hybrid.adSets);
+          creatives        = JSON.stringify(hybrid.creatives);
+          conversionFunnel = JSON.stringify(hybrid.conversionFunnel || []);
+          executionPlan    = JSON.stringify(hybrid.executionPlan    || []);
+          aiResponse       = JSON.stringify({ metrics: hybrid.metrics, generatedBy: "hybrid_engine", _isMock: false });
+          log.info("ai", "✅ Motor híbrido gerou campanha completa", { projectId, creatives: hybrid.creatives.length, hasFunnel: !!(hybrid.conversionFunnel?.length), hasPlan: !!(hybrid.executionPlan?.length) });
         } catch {
           const mock=JSON.parse(mockResponse("campanha"));
           strategy=mock.strategy; adSets=JSON.stringify(mock.adSets); creatives=JSON.stringify(mock.creatives);

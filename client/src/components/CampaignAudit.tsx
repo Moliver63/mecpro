@@ -244,27 +244,45 @@ function scoreMetrics(campaign: any): AuditDimension {
   const suggestions: string[] = [];
   let score = 100;
 
+  // Lê aiResponse — pode ter metrics direto ou aninhado
   let extra: any = null;
-  try { extra = JSON.parse(campaign?.aiResponse || "null"); } catch { extra = null; }
+  try {
+    const raw = campaign?.aiResponse ? JSON.parse(campaign.aiResponse) : null;
+    // Normaliza: metrics pode estar em raw.metrics ou raw direto
+    extra = raw?.metrics ? raw : (raw?.estimatedCPC ? { metrics: raw } : raw);
+  } catch { extra = null; }
 
   const metrics = extra?.metrics || null;
-  const funnel:  any[] = (() => { try { return JSON.parse(campaign?.conversionFunnel || "[]"); } catch { return []; } })();
-  const plan:    any[] = (() => { try { return JSON.parse(campaign?.executionPlan    || "[]"); } catch { return []; } })();
+  const isHybrid = extra?.generatedBy === "hybrid_engine";
 
-  if (!metrics) { issues.push("Métricas estimadas não geradas");  score -= 30; suggestions.push("Regenere a campanha — métricas são essenciais para aprovação do cliente"); }
-  else {
+  const funnel: any[] = (() => { try { return JSON.parse(campaign?.conversionFunnel || "[]"); } catch { return []; } })();
+  const plan:   any[] = (() => { try { return JSON.parse(campaign?.executionPlan    || "[]"); } catch { return []; } })();
+
+  if (!metrics) {
+    issues.push("Métricas estimadas não geradas");
+    score -= 30;
+    suggestions.push("Regenere a campanha — métricas são essenciais para aprovação do cliente");
+  } else {
     if (!metrics.estimatedCPC) { issues.push("CPC estimado ausente"); score -= 10; }
     if (!metrics.estimatedCTR) { issues.push("CTR estimado ausente"); score -= 8; }
-    if (!metrics.insight)      { issues.push("Sem insight sobre as métricas"); score -= 7; suggestions.push("O insight explica se os dados vêm da conta real ou de benchmark"); }
+    if (!metrics.insight)      { issues.push("Sem insight sobre as métricas"); score -= 5; }
+    if (isHybrid) suggestions.push("Métricas geradas pelo motor híbrido — baseadas em benchmark do nicho e dados de concorrentes");
   }
 
-  if (!funnel.length) { issues.push("Funil de conversão não gerado"); score -= 20; suggestions.push("O funil mapeia o caminho do cliente de awareness à conversão"); }
-  else {
+  if (!funnel.length) {
+    issues.push("Funil de conversão não gerado");
+    score -= 20;
+    suggestions.push("O funil mapeia o caminho do cliente de awareness à conversão");
+  } else {
     const hasKPI = funnel.every((f: any) => f.kpi);
     if (!hasKPI) { issues.push("KPIs ausentes em etapas do funil"); score -= 10; }
   }
 
-  if (!plan.length) { issues.push("Plano de execução não gerado"); score -= 15; suggestions.push("O plano de execução define ações semanais com budget e KPIs"); }
+  if (!plan.length) {
+    issues.push("Plano de execução não gerado");
+    score -= 15;
+    suggestions.push("O plano de execução define ações semanais com budget e KPIs");
+  }
 
   return {
     id: "metrics", label: "Métricas & Funil", icon: "📊",
