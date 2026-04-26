@@ -456,8 +456,8 @@ export async function runMigrations(): Promise<void> {
 
 
     // ── Motor Híbrido: banco de padrões de anúncios ──────────────────────────
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS ad_patterns (
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS ad_patterns (
         id              SERIAL PRIMARY KEY,
         niche           VARCHAR(100) NOT NULL,
         structure       VARCHAR(20)  NOT NULL DEFAULT 'AIDA',
@@ -472,16 +472,16 @@ export async function runMigrations(): Promise<void> {
         source_ad_id    INTEGER,
         created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
         updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-      )
-    \`).catch(() => {});
+      )`
+    ).catch(() => {});
 
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_ad_patterns_niche ON ad_patterns(niche)
-    \`).catch(() => {});
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_ad_patterns_niche ON ad_patterns(niche)`
+    ).catch(() => {});
 
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_ad_patterns_perf ON ad_patterns(perf_score DESC)
-    \`).catch(() => {});
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_ad_patterns_perf ON ad_patterns(perf_score DESC)`
+    ).catch(() => {});
 
         console.log('[migrations] ✅ Migrations applied successfully');
 }
