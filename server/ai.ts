@@ -1884,26 +1884,88 @@ function mockResponse(prompt: string): string {
       competitiveMap: "Lider: alto investimento, tom corporativo. Oportunidade: premium com relacionamento.",
     });
   }
+  const nichoLabel = isImoveis ? "imóveis" : isServico ? "serviços" : isEcommerce ? "e-commerce" : nicho;
   return JSON.stringify({
-    strategy: "3 fases: awareness (sem 1-2), consideracao (sem 3-4), conversao (sem 5-8).",
+    strategy: `Campanha em 3 fases para ${nichoLabel}: Fase 1 (semanas 1-2) — awareness com video curto para público frio. Fase 2 (semanas 3-4) — consideração com carrossel para público morno e visitantes do site. Fase 3 (semanas 5-8) — conversão com oferta direta para remarketing de 7 dias. Orçamento distribuído: 40% frio / 35% morno / 25% quente.`,
     adSets: [
-      { name: "Publico Frio", audience: "Lookalike 1-3%, 25-45 anos", budget: "40%", objective: "Alcance" },
-      { name: "Publico Morno", audience: "Visitantes site 30 dias", budget: "35%", objective: "Consideracao" },
-      { name: "Remarketing", audience: "Visitantes produto 7 dias", budget: "25%", objective: "Conversao" },
+      {
+        name: "TOF — Público Frio",
+        audience: "Lookalike 1-3% baseado em clientes, 25-45 anos",
+        budget: "40%", objective: "Awareness / Alcance",
+        placements: ["feed", "stories", "reels"],
+        duration: "14 dias",
+      },
+      {
+        name: "MOF — Engajados e Visitantes",
+        audience: "Visitantes do site (30 dias) + Engajadores da página (60 dias)",
+        budget: "35%", objective: "Consideração / Tráfego",
+        placements: ["feed", "stories"],
+        duration: "14 dias",
+      },
+      {
+        name: "BOF — Remarketing Quente",
+        audience: "Visitantes produto (7 dias) + Iniciaram checkout",
+        budget: "25%", objective: "Conversão",
+        placements: ["feed", "stories"],
+        duration: "Contínuo",
+      },
     ],
     creatives: [
       {
-        type: "direct_offer", format: "Video 15s", orientation: "vertical_9_16",
-        headline: "Resultados reais em 30 dias",
-        copy: "Metodo validado por 5.000 clientes.",
-        bodyText: "Metodo validado por 5.000 clientes.",
-        cta: "Comecar agora", hook: "9 em 10 pessoas cometem esse erro",
-        pain: "Perder tempo sem resultado", solution: "Metodo comprovado com suporte",
-        funnelStage: "TOF", complianceScore: "safe",
-        targetAudience: "25-45 anos interessados em " + nicho,
+        type: "direct_offer", format: "Vídeo 15s", orientation: "vertical_9_16",
+        headline: `Descubra por que centenas escolhem ${nichoLabel}`,
+        copy: `Resultados reais, sem enrolação. Veja como nossos clientes transformaram sua situação com ${nichoLabel}. Comece hoje mesmo.`,
+        bodyText: `Resultados reais, sem enrolação. Veja como nossos clientes transformaram sua situação com ${nichoLabel}. Comece hoje mesmo.`,
+        hook: `Você ainda não sabe disso sobre ${nichoLabel}?`,
+        pain: "Tempo e dinheiro desperdiçados sem resultado concreto",
+        solution: `Método comprovado em ${nichoLabel} com suporte completo`,
+        cta: "Saiba Mais", funnelStage: "TOF", complianceScore: "safe",
+        targetAudience: `25-45 anos interessados em ${nichoLabel}`,
         platforms: ["meta"], budget: 50, duration: 7,
       },
+      {
+        type: "social_proof", format: "Carrossel", orientation: "feed_1_1",
+        headline: "Veja o que nossos clientes dizem",
+        copy: `+500 clientes satisfeitos com nossos serviços de ${nichoLabel}. Resultados reais, histórias verdadeiras.`,
+        bodyText: `+500 clientes satisfeitos com nossos serviços de ${nichoLabel}. Resultados reais, histórias verdadeiras.`,
+        hook: "Antes e depois: confira os resultados reais",
+        pain: "Dificuldade em encontrar uma solução confiável",
+        solution: "Provas sociais e depoimentos verificados",
+        cta: "Ver Depoimentos", funnelStage: "MOF", complianceScore: "safe",
+        targetAudience: `Engajados com ${nichoLabel}, 28-50 anos`,
+        platforms: ["meta"], budget: 40, duration: 14,
+      },
+      {
+        type: "urgency_offer", format: "Imagem estática", orientation: "feed_4_5",
+        headline: "Oferta especial — vagas limitadas",
+        copy: `Não perca essa oportunidade em ${nichoLabel}. Condições especiais disponíveis apenas para quem agir agora.`,
+        bodyText: `Não perca essa oportunidade em ${nichoLabel}. Condições especiais disponíveis apenas para quem agir agora.`,
+        hook: "Últimas vagas com condições especiais",
+        pain: "Risco de perder a oportunidade",
+        solution: "Ação imediata com garantia de satisfação",
+        cta: "Aproveitar Agora", funnelStage: "BOF", complianceScore: "safe",
+        targetAudience: `Remarketing quente — visitaram ${nichoLabel} nos últimos 7 dias`,
+        platforms: ["meta"], budget: 30, duration: 7,
+      },
     ],
+    conversionFunnel: [
+      { stage: "Awareness", format: "Vídeo 15s Reels", audience: "Frio — Lookalike 1-3%", budget: "40%", kpi: "CPM < R$8 | Alcance máximo" },
+      { stage: "Consideração", format: "Carrossel Feed", audience: "Morno — Engajadores 60d", budget: "35%", kpi: "CTR > 2% | CPC < R$1,50" },
+      { stage: "Conversão", format: "Imagem + Oferta", audience: "Quente — Visitantes 7d", budget: "25%", kpi: "ROAS > 3x | CPL < R$15" },
+    ],
+    executionPlan: [
+      { week: "Semana 1-2", action: "Lançar campanha TOF com vídeo criativo", budget: "R$200", kpi: "Alcance mínimo 5.000 pessoas" },
+      { week: "Semana 3-4", action: "Ativar MOF com carrossel para público morno", budget: "R$175", kpi: "CTR > 2%, CPC < R$1,50" },
+      { week: "Semana 5-8", action: "Remarketing BOF com oferta urgente", budget: "R$125/sem", kpi: "Conversões e ROAS > 3x" },
+    ],
+    campaignName: `Campanha ${nichoLabel} — Fase 1`,
+    metrics: {
+      estimatedCPC: isImoveis ? "R$ 1,20" : isServico ? "R$ 0,90" : "R$ 0,60",
+      estimatedCPM: isImoveis ? "R$ 9,50" : "R$ 7,00",
+      estimatedCTR: "2,8%",
+      estimatedReach: "8.000 a 25.000 pessoas/mês",
+      recommendedBudget: isImoveis ? "R$ 800 a R$ 2.000/mês" : "R$ 400 a R$ 1.200/mês",
+    },
   });
 }
 
@@ -4638,6 +4700,7 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
 
   let adSets, creatives, conversionFunnel, executionPlan, strategy = "";
   let aiResponse: string | null = null;
+  let campaignName: string | null = null;
 
   // Usa o helper global para comprimir prompts grandes antes de enviar ao Groq
   const compressPromptForGroq = (p: string, maxChars: number) => _compressPromptLight(p, maxChars);
@@ -4724,7 +4787,7 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
 
     // Tenta Groq quando Gemini retorna JSON truncado
     // Comprime prompt para caber no Groq sem 413
-    const groqPrompt = compressPromptForGroq(prompt, 45000);
+    const groqPrompt = compressPromptForGroq(prompt, 35000); // reduzido para evitar 413 no 70b
     try {
       const groqRaw = await callGroqAPI(groqPrompt, undefined, 0.6);
       if (groqRaw) {
@@ -4758,7 +4821,7 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       log.warn("ai", "Groq fallback falhou — tentando MECPro AI Service antes do mock", { error: groqErr.message });
       // Última tentativa: MECPro AI Service com prompt comprimido
       try {
-        const miniPrompt = compressPromptForGroq(prompt, 20000);
+        const miniPrompt = compressPromptForGroq(prompt, 10000); // mini para MECPro
         const mecResult: any = await mecproAI("generate-campaign", {
           prompt: miniPrompt,
           projectId: input.projectId,
@@ -4793,23 +4856,26 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         }
       } catch (mecErr: any) {
         log.warn("ai", "Todos os LLMs falharam — usando mock response", { error: mecErr.message });
-        const mock = JSON.parse(mockResponse("campanha"));
-        strategy         = mock.strategy;
-        adSets           = JSON.stringify(mock.adSets);
-        creatives        = JSON.stringify(mock.creatives);
-        conversionFunnel = JSON.stringify(mock.conversionFunnel);
-        executionPlan    = JSON.stringify(mock.executionPlan);
+        const mock = JSON.parse(mockResponse(input.name + " campanha " + ((clientProfile as any)?.niche || "")));
+        strategy         = mock.strategy         || "";
+        adSets           = JSON.stringify(mock.adSets           || []);
+        creatives        = JSON.stringify(mock.creatives        || []);
+        conversionFunnel = JSON.stringify(mock.conversionFunnel || []);
+        executionPlan    = JSON.stringify(mock.executionPlan    || []);
+        // Salva campaignName do mock para usar no aiResponse
+        if (!campaignName) campaignName = mock.campaignName || input.name;
       }
     } // fim catch groqErr
+    // IMPORTANTE: mock pode não existir se o LLM funcionou — nunca referenciar mock aqui
     aiResponse = JSON.stringify({
-      campaignName: mock.campaignName || input.name,
-      metrics: mock.metrics || null,
-      glossary: mock.glossary || null,
-      hooks: mock.hooks || null,
-      abTests: mock.abTests || null,
-      tracking: mock.tracking || null,
-      optimization: mock.optimization || null,
-      scaling: mock.scaling || null,
+      campaignName: campaignName || input.name,
+      metrics: null,
+      glossary: null,
+      hooks: null,
+      abTests: null,
+      tracking: null,
+      optimization: null,
+      scaling: null,
       targetingConfig,
       leadFormDraft: normalizedLeadFormDraft,
       publishPreferences,
