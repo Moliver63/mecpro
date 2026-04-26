@@ -2231,6 +2231,65 @@ export async function geminiWithGrounding(prompt: string): Promise<any | null> {
   return null;
 }
 
+
+// ── Parser HTML determinístico — extrai ads do site sem LLM ─────────────────
+function parseHtmlIntoAds(html: string, competitorId: number, websiteUrl: string): any[] {
+  const ads: any[] = [];
+  if (!html || html.length < 50) return ads;
+  const title   = html.match(/<title[^>]*>([^<]{3,120})<\/title>/i)?.[1]?.trim() || "";
+  const metaDesc= html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']{10,300})["']/i)?.[1]?.trim()
+    || html.match(/<meta[^>]+content=["']([^"']{10,300})["'][^>]+name=["']description["']/i)?.[1]?.trim() || "";
+  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']{3,120})["']/i)?.[1]?.trim() || "";
+  const ogDesc  = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']{10,300})["']/i)?.[1]?.trim() || "";
+  const h1s = [...html.matchAll(/<h1[^>]*>([^<]{5,120})<\/h1>/gi)].map(m => m[1].replace(/<[^>]+>/g,"").trim()).filter(Boolean);
+  const h2s = [...html.matchAll(/<h2[^>]*>([^<]{5,100})<\/h2>/gi)].map(m => m[1].replace(/<[^>]+>/g,"").trim()).filter(Boolean).slice(0,5);
+  const ctaRx  = /saiba mais|fale conosco|entre em contato|agendar|comprar|ver mais|solicitar|whatsapp|contato|orçamento/i;
+  const ctas   = [...html.matchAll(/<a[^>]*>([^<]{3,40})<\/a>/gi)].map(m=>m[1].replace(/<[^>]+>/g,"").trim()).filter(t=>ctaRx.test(t)).slice(0,5);
+  const best   = ogTitle || h1s[0] || title.split("|")[0].trim() || title.split("-")[0].trim() || "";
+  const desc   = ogDesc  || metaDesc || h2s[0] || "";
+  const cta    = ctas[0] || "Saiba mais";
+  if (best.length > 5) {
+    ads.push({ competitorId, adType:"image", isActive:1, headline:best.slice(0,120), bodyText:desc.slice(0,300)||null, cta, landingPageUrl:websiteUrl, source:"website_scraping", rawData:JSON.stringify({source:"website_scraping",via:"html_parser",url:websiteUrl}) });
+  }
+  for (const h2 of h2s.slice(0,3)) {
+    if (h2===best||h2.length<10) continue;
+    ads.push({ competitorId, adType:"image", isActive:1, headline:h2.slice(0,120), bodyText:desc.slice(0,300)||null, cta:ctas[ads.length]||cta, landingPageUrl:websiteUrl, source:"website_scraping", rawData:JSON.stringify({source:"website_scraping",via:"html_parser_h2",url:websiteUrl}) });
+  }
+  return ads;
+}
+
+// ── Gera campanha a partir dos ads coletados — sem LLM ──────────────────────
+async function buildCampaignFromAds(projectId: number, objective: string, clientProfile: any, ads: any[]): Promise<any> {
+  const niche   = clientProfile?.niche || "negócios";
+  const company = clientProfile?.companyName || "sua empresa";
+  const product = clientProfile?.productService || "seu produto";
+  const formats = ads.reduce((acc:any,a:any)=>{acc[a.adType||"image"]=(acc[a.adType||"image"]||0)+1;return acc;},{});
+  const topFmt  = Object.entries(formats).sort((x:any,y:any)=>y[1]-x[1])[0]?.[0]||"image";
+  const realCtas= [...new Set(ads.map((a:any)=>a.cta).filter(Boolean))].slice(0,4) as string[];
+  const topCta  = realCtas[0]||"Saiba mais";
+  const tones: Array<"urgent"|"emotional"|"rational"|"premium"> = ["urgent","emotional","rational","premium"];
+  const hybrid  = await hybridGenerateAds({niche,clientName:company,product,tones,useLLMRefine:false,count:4});
+  const budgets: Record<string,number> = {leads:40,sales:50,traffic:30,engagement:25,branding:20};
+  const total   = budgets[objective]||30;
+  return {
+    strategy:`Campanha ${objective} — análise de ${ads.length} anúncios de concorrentes. Formato dominante: ${topFmt}. CTAs: ${realCtas.join(", ")||topCta}.`,
+    adSets:[
+      {name:"Público Frio",   audience:`Lookalike 1-3%, 25-50 anos, ${niche}`,budget:`${Math.round(total*0.4)}%`,objective:"Alcance"},
+      {name:"Público Morno",  audience:"Visitantes 30 dias",budget:`${Math.round(total*0.35)}%`,objective:"Consideração"},
+      {name:"Remarketing Hot",audience:"Engajamento 7 dias",budget:`${Math.round(total*0.25)}%`,objective:"Conversão"},
+    ],
+    creatives: hybrid.ads.map((ad,i)=>({
+      type:["direct_offer","emotional","social_proof","educational"][i],
+      format:topFmt==="video"?"Video 15s":"Imagem Feed",orientation:"vertical_9_16",
+      headline:ad.headline,bodyText:ad.body,copy:ad.body,cta:ad.cta,
+      hook:ad.headline,pain:"Dificuldade em encontrar solução",solution:`${company} — ${product}`,
+      funnelStage:["TOF","MOF","BOF","BOF"][i],complianceScore:"safe",
+      targetAudience:`25-50 anos, ${niche}`,platforms:["meta"],budget:Math.round(total/4),duration:7,tone:ad.tone,source:"hybrid",
+    })),
+    generatedBy:"hybrid_engine",
+  };
+}
+
 // ── Geração local de insights a partir dos ads coletados (sem LLM) ────────────
 // Usado quando todos os LLMs estão indisponíveis mas há dados reais coletados
 function generateLocalInsights(ads: any[], competitorName: string, isEstimated: boolean, clientProfile?: any): string {
@@ -2613,7 +2672,7 @@ REGRA: só retorne pageId se tiver certeza absoluta. Nunca invente.`;
           log.info("ai", "✅ Camada 4 (Graph API posts) OK — dados reais sem Ads Library", { competitorId });
         }
       }
-    } else if (pageUrl) {
+    } else if (!pipelineShortCircuited && pageUrl) {
       const result = await fetchMetaAdsByUrl(competitorId, projectId, pageUrl, effectiveToken);
       metaOk = result.ok;
       metaAccessDenied = metaAccessDenied || !!result.accessDenied;
@@ -2637,7 +2696,7 @@ REGRA: só retorne pageId se tiver certeza absoluta. Nunca invente.`;
           log.info("ai", "✅ /posts OK via pageUrl path", { competitorId, pageId });
         }
       }
-    } else if (igUrl) {
+    } else if (!pipelineShortCircuited && igUrl) {
       const result = await fetchMetaAdsByInstagram(competitorId, projectId, igUrl, effectiveToken);
       metaOk = result.ok;
       metaAccessDenied = metaAccessDenied || !!result.accessDenied;
@@ -3764,7 +3823,12 @@ Responda SOMENTE em JSON:
 {"ads": [{"adType":"image|video|carousel","headline":"max 40 chars","bodyText":"max 125 chars","cta":"Saiba Mais|Falar no WhatsApp|Ver opções|Agendar|Comprar Agora","daysAgo":20,"isActive":1}]}`;
           const siteRaw  = await gemini(sitePrompt, { temperature: 0.4 });
           const siteParsed = JSON.parse(siteRaw.replace(/```json|```/g, "").trim());
-          const siteAds = siteParsed?.ads;
+          let siteAds = siteParsed?.ads;
+          const isMockSite = !Array.isArray(siteAds)||siteAds.length===0||/resultado|metodo|validado|5.000|3 fases/i.test(siteAds[0]?.headline||"");
+          if (isMockSite) {
+            log.info("ai","LLM retornou mock para site — parser HTML local",{competitorId});
+            siteAds = parseHtmlIntoAds(siteText, competitorId, websiteUrl);
+          }
           if (Array.isArray(siteAds) && siteAds.length > 0) {
             for (const ad of siteAds) {
               await db.upsertScrapedAd({
@@ -4911,31 +4975,23 @@ Gere JSON com: strategy(string), campaignName(string), adSets(array com name/aud
           throw new Error("MECPro AI retornou resposta inválida");
         }
       } catch (mecErr: any) {
-        log.warn("ai", "Todos os LLMs falharam — usando mock response", { error: mecErr.message });
-        const mock = JSON.parse(mockResponse(input.name + " campanha " + ((clientProfile as any)?.niche || "")));
-        strategy         = mock.strategy         || "";
-        adSets           = JSON.stringify(mock.adSets           || []);
-        creatives        = JSON.stringify(mock.creatives        || []);
-        conversionFunnel = JSON.stringify(mock.conversionFunnel || []);
-        executionPlan    = JSON.stringify(mock.executionPlan    || []);
-        campaignName     = mock.campaignName || input.name;
-        // aiResponse para mock — inclui métricas do mock se disponíveis
-        aiResponse = JSON.stringify({
-          campaignName,
-          metrics:      mock.metrics      || null,
-          glossary:     mock.glossary     || null,
-          hooks:        mock.hooks        || null,
-          abTests:      mock.abTests      || null,
-          tracking:     mock.tracking     || null,
-          optimization: mock.optimization || null,
-          scaling:      mock.scaling      || null,
-          targetingConfig,
-          leadFormDraft: normalizedLeadFormDraft,
-          publishPreferences,
-          _isMock: true, // Flag para auditoria detectar mock
-        });
+        log.warn("ai", "Todos os LLMs falharam — usando motor híbrido", { error: mecErr.message });
+        try {
+          const [scrapedAds, profile] = await Promise.all([
+            db.getScrapedAdsByProject(projectId).catch(()=>[] as any[]),
+            db.getClientProfile(projectId).catch(()=>null),
+          ]);
+          const hybrid = await buildCampaignFromAds(projectId, objective, profile, scrapedAds);
+          strategy=hybrid.strategy; adSets=JSON.stringify(hybrid.adSets); creatives=JSON.stringify(hybrid.creatives);
+          conversionFunnel=JSON.stringify([]); executionPlan=JSON.stringify([]);
+          log.info("ai","✅ Motor híbrido gerou campanha",{projectId,creatives:hybrid.creatives.length});
+        } catch {
+          const mock=JSON.parse(mockResponse("campanha"));
+          strategy=mock.strategy; adSets=JSON.stringify(mock.adSets); creatives=JSON.stringify(mock.creatives);
+          conversionFunnel=JSON.stringify([]); executionPlan=JSON.stringify([]);
+        }
       }
-    } // fim catch groqErr
+    } // fim catchch groqErr
     // aiResponse já foi setado em cada branch (Groq/MECPro/mock) — apenas garante fallback
     if (!aiResponse) {
       aiResponse = JSON.stringify({
