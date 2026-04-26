@@ -1097,3 +1097,65 @@ export async function createMarketplaceBoost(data: Record<string, any>) {
   );
   return res.rows[0];
 }
+
+// ── Motor Híbrido: ad_patterns ────────────────────────────────────────────────
+
+export async function getAdPatterns(niche: string, tone?: string, limit = 10): Promise<any[]> {
+  const params: any[] = [niche, limit];
+  const toneFilter = tone ? `AND tone = $3` : "";
+  if (tone) params.splice(2, 0, tone);
+  const res = await pool.query(
+    `SELECT * FROM ad_patterns
+     WHERE niche ILIKE $1 ${toneFilter}
+     ORDER BY perf_score DESC, usage_count DESC
+     LIMIT $2`,
+    params
+  );
+  return res.rows;
+}
+
+export async function upsertAdPattern(data: {
+  niche: string; structure: string; tone: string;
+  headline_tpl: string; body_tpl?: string; cta_tpl?: string;
+  tags?: string[]; longevity_days?: number; source_ad_id?: number;
+}): Promise<void> {
+  // Evita duplicatas por headline_tpl+niche
+  const exists = await pool.query(
+    `SELECT id FROM ad_patterns WHERE niche = $1 AND headline_tpl = $2 LIMIT 1`,
+    [data.niche, data.headline_tpl]
+  );
+  if (exists.rows.length > 0) {
+    await pool.query(
+      `UPDATE ad_patterns SET longevity_days=$1, updated_at=NOW() WHERE id=$2`,
+      [data.longevity_days || 0, exists.rows[0].id]
+    );
+    return;
+  }
+  await pool.query(
+    `INSERT INTO ad_patterns
+       (niche, structure, tone, headline_tpl, body_tpl, cta_tpl, tags, longevity_days, source_ad_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [
+      data.niche, data.structure, data.tone,
+      data.headline_tpl, data.body_tpl || null, data.cta_tpl || null,
+      JSON.stringify(data.tags || []),
+      data.longevity_days || 0,
+      data.source_ad_id || null,
+    ]
+  );
+}
+
+export async function incrementPatternUsage(id: number): Promise<void> {
+  await pool.query(
+    `UPDATE ad_patterns SET usage_count = usage_count + 1, updated_at = NOW() WHERE id = $1`,
+    [id]
+  );
+}
+
+export async function updatePatternScore(id: number, score: number): Promise<void> {
+  await pool.query(
+    `UPDATE ad_patterns SET perf_score = $1, updated_at = NOW() WHERE id = $2`,
+    [Math.min(10, Math.max(0, score)), id]
+  );
+}
+

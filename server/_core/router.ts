@@ -824,6 +824,33 @@ const competitorsRouter = router({
       return analyzeCompetitor(input.competitorId, input.projectId, input.force ?? false);
     }),
 
+
+  // ── Motor Híbrido: geração de anúncios sem LLM ──────────────────────────
+  hybridGenerate: protectedProcedure
+    .input(z.object({
+      projectId:     z.number(),
+      niche:         z.string(),
+      clientName:    z.string(),
+      product:       z.string(),
+      targetAudience: z.string().optional(),
+      tones:         z.array(z.enum(["urgent","emotional","rational","premium"])).optional(),
+      useLLMRefine:  z.boolean().optional().default(false),
+      count:         z.number().min(1).max(8).optional().default(4),
+    }))
+    .mutation(async ({ input }) => {
+      const { hybridGenerateAds } = await import("../ai");
+      const result = await hybridGenerateAds({
+        niche:          input.niche,
+        clientName:     input.clientName,
+        product:        input.product,
+        targetAudience: input.targetAudience,
+        tones:          input.tones as any,
+        useLLMRefine:   input.useLLMRefine,
+        count:          input.count,
+      });
+      return result;
+    }),
+
   // -- Reanalisa forçando nova coleta (limpa dados estimados) --
 
   // -- MECPro Analyzer — análise de anúncio por input manual ----------------

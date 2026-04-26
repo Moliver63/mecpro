@@ -454,5 +454,34 @@ export async function runMigrations(): Promise<void> {
       )
     `).catch(() => {});
 
-    console.log('[migrations] ✅ Migrations applied successfully');
+
+    // ── Motor Híbrido: banco de padrões de anúncios ──────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ad_patterns (
+        id              SERIAL PRIMARY KEY,
+        niche           VARCHAR(100) NOT NULL,
+        structure       VARCHAR(20)  NOT NULL DEFAULT 'AIDA',
+        tone            VARCHAR(20)  NOT NULL DEFAULT 'rational',
+        headline_tpl    TEXT         NOT NULL,
+        body_tpl        TEXT,
+        cta_tpl         VARCHAR(150),
+        tags            TEXT         DEFAULT '[]',
+        perf_score      NUMERIC(4,2) DEFAULT 5.0,
+        usage_count     INTEGER      DEFAULT 0,
+        longevity_days  INTEGER      DEFAULT 0,
+        source_ad_id    INTEGER,
+        created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      )
+    \`).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ad_patterns_niche ON ad_patterns(niche)
+    \`).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ad_patterns_perf ON ad_patterns(perf_score DESC)
+    \`).catch(() => {});
+
+        console.log('[migrations] ✅ Migrations applied successfully');
 }
