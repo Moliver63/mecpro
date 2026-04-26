@@ -677,7 +677,19 @@ Responda SOMENTE em JSON:
         result = null;
       }
 
-      if (!result) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "IA indisponivel — tente novamente em instantes" });
+      // Se IA retornou null/vazio, usa fallback local baseado no nicho
+      if (!result) {
+        const niche = p.niche || "negocios";
+        const nicheMap: Record<string, any> = {
+          imobiliario:      { mainPain: "Dificuldade em encontrar imóvel com localização, qualidade e preço ideais ao mesmo tempo", uniqueValueProposition: "Curadoria exclusiva de imóveis premium com atendimento consultivo personalizado e sem burocracia", mainObjections: "Preço acima do esperado; Processo de financiamento complicado; Medo de fazer um mau negócio", desiredTransformation: "Sair do aluguel ou imóvel inadequado para um espaço que representa o estilo de vida desejado", targetAudience: "Famílias e profissionais de 30-55 anos, classe média-alta, que buscam qualidade de vida e patrimônio seguro" },
+          servicos:         { mainPain: "Dificuldade em encontrar profissional confiável que entregue resultado no prazo e com qualidade", uniqueValueProposition: "Serviço especializado com garantia de resultado, atendimento rápido e transparência total no processo", mainObjections: "Preço elevado; Falta de garantia; Experiências ruins anteriores", desiredTransformation: "Resolver o problema de forma definitiva sem precisar se preocupar com qualidade ou prazo", targetAudience: "Pessoas e empresas de 25-50 anos que valorizam qualidade e profissionalismo acima do preço" },
+          infoprodutos:     { mainPain: "Falta de conhecimento prático para alcançar o resultado desejado, sem saber por onde começar", uniqueValueProposition: "Método passo a passo validado com suporte direto e resultado mensurável em tempo definido", mainObjections: "Já tentei antes e não funcionou; É mais um curso sem resultado; Não tenho tempo", desiredTransformation: "Sair do ponto A de frustração para o ponto B de resultado concreto e independência", targetAudience: "Profissionais de 25-45 anos que querem evoluir na carreira ou criar renda extra de forma estruturada" },
+          negocios_locais:  { mainPain: "Dificuldade em atrair clientes novos de forma constante e previsível sem depender de indicação", uniqueValueProposition: "Atendimento local de excelência com disponibilidade, personalização e resultado garantido", mainObjections: "Localização; Horário de funcionamento; Preço comparado a alternativas online", desiredTransformation: "Ter um negócio local com agenda cheia e clientes fiéis que recomendam naturalmente", targetAudience: "Moradores da região de 25-55 anos que buscam comodidade, qualidade e confiança no atendimento local" },
+        };
+        const fallback = nicheMap[niche] || nicheMap["servicos"];
+        result = { ...fallback };
+        log.warn("clientProfile", "autoFill usando fallback local por indisponibilidade da IA", { projectId: input.projectId, niche });
+      }
 
       // Preenche apenas campos vazios — nao sobrescreve o que o usuario ja preencheu
       const updates: Record<string, string> = {};
@@ -711,7 +723,7 @@ const competitorsRouter = router({
     .input(z.object({ competitorId: z.number(), projectId: z.number() }))
     .query(async ({ input }) => {
       const { estimateCompetitorSpend } = await import('../ai.js');
-      const ads     = await db.getAdsByCompetitorId(input.competitorId);
+      const ads     = await db.getScrapedAdsByCompetitor(input.competitorId);
       if (!ads || ads.length === 0) return {
         monthlyMin: 0, monthlyMax: 0, monthlyMid: 0, confidence: 'baixa',
         methodology: 'Sem anuncios suficientes para estimar.',
@@ -2141,6 +2153,21 @@ const campaignsRouter = router({
 
         if (o === "sales" && !pixelId) {
           // Sem pixel: usa TRAFFIC com LPV (ou LINK_CLICKS se não houver URL)
+          return {
+            campaignObj: "OUTCOME_TRAFFIC",
+            optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
+          };
+        }
+
+        // leads + WhatsApp SEM pixel → ENGAGEMENT + CONVERSATIONS
+        // (OUTCOME_LEADS sem pixel causa erro 1487888 — exige pixel ou lead form)
+        if (o === "leads" && isWhatsAppDestination && !pixelId) {
+          return { campaignObj: "OUTCOME_ENGAGEMENT", optimizationGoal: "CONVERSATIONS" };
+        }
+
+        // leads + link/site SEM pixel → TRAFFIC + LANDING_PAGE_VIEWS
+        // (evita erro 1487888 quando não há pixel configurado)
+        if (o === "leads" && !pixelId && !isWhatsAppDestination) {
           return {
             campaignObj: "OUTCOME_TRAFFIC",
             optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
@@ -5279,8 +5306,10 @@ const integrationsRouter = router({
         questions,
         privacy_policy:   { url: input.privacyUrl },
         thank_you_page:   {
-          title: "Obrigado!",
-          body:  input.thankYouMessage || "Em breve nossa equipe entrará em contato.",
+          title:       "Obrigado!",
+          body:        input.thankYouMessage || "Em breve nossa equipe entrará em contato.",
+          button_type: "VIEW_WEBSITE",   // obrigatório pela Meta API
+          website_url: input.privacyUrl || "https://mecproai.com",
         },
         locale: "pt_BR",
       };
