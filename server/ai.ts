@@ -2038,6 +2038,47 @@ function buildBaseTemplate(
   return { headline: tpl.h, body: tpl.b, cta: tpl.c };
 }
 
+
+// ── Gemini com Google Search grounding ────────────────────────────────────────
+export async function geminiWithGrounding(prompt: string): Promise<any | null> {
+  const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
+  const availableKeys = allKeys.filter(k => !_exhaustedKeys.has(k));
+  const apiKey = availableKeys[0] || allKeys[0];
+  if (!apiKey) return null;
+
+  for (const model of ["gemini-2.0-flash", "gemini-2.5-flash"]) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          tools: [{ google_search: {} }],
+          generationConfig: { temperature: 0, maxOutputTokens: 256 },
+        }),
+      });
+      const data: any = await res.json();
+      if (data.error) { log.warn("ai", "geminiWithGrounding erro", { model, error: data.error.message?.slice(0, 60) }); continue; }
+
+      const text = (data.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || "").join("").trim();
+      const queries = data.candidates?.[0]?.groundingMetadata?.webSearchQueries || [];
+      if (queries.length > 0) log.info("ai", "geminiWithGrounding buscas", { model, queries });
+      if (!text) continue;
+
+      try {
+        return JSON.parse(text.replace(/```json|```/g, "").trim());
+      } catch {
+        const m = text.match(/"pageId"\s*:\s*"?(\d{10,16})"?/);
+        if (m?.[1]) return { pageId: m[1], confidence: "medium" };
+        return null;
+      }
+    } catch {}
+  }
+  return null;
+}
+
 // ── Geração local de insights a partir dos ads coletados (sem LLM) ────────────
 // Usado quando todos os LLMs estão indisponíveis mas há dados reais coletados
 function generateLocalInsights(ads: any[], competitorName: string, isEstimated: boolean, clientProfile?: any): string {
@@ -2252,6 +2293,28 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
     if (discovered.websiteUrl && !websiteUrl) (competitor as any).websiteUrl = discovered.websiteUrl;
   }
 
+  // ── Extrai pageId da pageUrl quando disponível ──────────────────────────────
+  if (shouldFetch && !pageId && pageUrl) {
+    // Tenta extrair ID numérico direto da URL (view_all_page_id=NUMERO)
+    const urlIdMatch = pageUrl.match(/view_all_page_id=(\d{10,})/);
+    if (urlIdMatch?.[1]) {
+      pageId = urlIdMatch[1];
+      await db.updateCompetitor(competitorId, { facebookPageId: pageId }).catch(() => {});
+      log.info("ai", `pageId ${pageId} extraído da pageUrl para "${compName}"`);
+    } else {
+      // pageUrl pode ser facebook.com/NomeEmpresa — resolve via Graph API
+      const fbHandleMatch = pageUrl.match(/facebook\.com\/(?!ads\/|pages\/|sharer)([\w.]+)/);
+      if (fbHandleMatch?.[1] && effectiveToken) {
+        const resolved = await resolvePageId(compName, undefined, undefined, effectiveToken);
+        if (resolved) {
+          pageId = resolved;
+          await db.updateCompetitor(competitorId, { facebookPageId: resolved }).catch(() => {});
+          log.info("ai", `pageId ${resolved} resolvido do handle da pageUrl para "${compName}"`);
+        }
+      }
+    }
+  }
+
   // ── Auto-resolve pageId se não foi cadastrado ─────────────────────────────
   if (shouldFetch && !pageId && !pageUrl) {
     const resolved = await resolvePageId(compName, websiteUrl, igUrl, effectiveToken);
@@ -2262,6 +2325,38 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
         log.info("ai", `pageId ${resolved} salvo automaticamente para "${compName}"`);
       } catch {}
     }
+  }
+
+  // ── Tenta resolver pageId via igUrl se ainda não temos ───────────────────
+  if (shouldFetch && !pageId && igUrl && effectiveToken) {
+    const resolved = await resolvePageId(compName, websiteUrl, igUrl, effectiveToken);
+    if (resolved) {
+      pageId = resolved;
+      await db.updateCompetitor(competitorId, { facebookPageId: resolved }).catch(() => {});
+      log.info("ai", `pageId ${resolved} resolvido via Instagram para "${compName}"`);
+    }
+  }
+
+  // ── Último recurso: Gemini com Google Search para descobrir pageId ─────────
+  if (shouldFetch && !pageId && effectiveToken) {
+    try {
+      const searchPrompt = `Encontre o Facebook Page ID numérico (10-16 dígitos) da empresa:
+Nome: "${compName}"
+${websiteUrl ? `Site: ${websiteUrl}` : ""}
+${igUrl ? `Instagram: ${igUrl}` : ""}
+País: Brasil
+
+Retorne APENAS JSON: {"pageId":"NUMERO_OU_null","confidence":"high|medium|low"}
+REGRA: só retorne pageId se tiver certeza absoluta. Nunca invente.`;
+
+      const grounded = await geminiWithGrounding(searchPrompt);
+      if (grounded?.pageId && /^\d{10,16}$/.test(String(grounded.pageId))) {
+        pageId = String(grounded.pageId);
+        await db.updateCompetitor(competitorId, { facebookPageId: pageId }).catch(() => {});
+        log.info("ai", `pageId ${pageId} encontrado via Gemini grounding para "${compName}"`,
+          { confidence: grounded.confidence });
+      }
+    } catch {}
   }
 
   // ── Pipeline de coleta em cascata ────────────────────────────────────────
@@ -2380,6 +2475,16 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
         metaTokenInvalid = metaTokenInvalid || !!found.tokenInvalid;
         metaPermissionDenied = metaPermissionDenied || !!found.permissionDenied;
       }
+      // Se pageUrl falhou por permissão e temos pageId (extraído acima), tenta /posts
+      if (!metaOk && (result.permissionDenied || metaPermissionDenied) && pageId && effectiveToken) {
+        log.info("ai", "[M2] pageUrl negada — tentando Graph API /posts com pageId", { competitorId, pageId });
+        const postsOk = await fetchViaGraphAPIPosts(competitorId, projectId, pageId, effectiveToken);
+        if (postsOk) {
+          metaOk = true;
+          metaPermissionDenied = false;
+          log.info("ai", "✅ /posts OK via pageUrl path", { competitorId, pageId });
+        }
+      }
     } else if (igUrl) {
       const result = await fetchMetaAdsByInstagram(competitorId, projectId, igUrl, effectiveToken);
       metaOk = result.ok;
@@ -2393,6 +2498,16 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
         metaAccessDenied = metaAccessDenied || !!found.accessDenied;
         metaTokenInvalid = metaTokenInvalid || !!found.tokenInvalid;
         metaPermissionDenied = metaPermissionDenied || !!found.permissionDenied;
+      }
+      // Se igUrl falhou e resolvemos pageId via Instagram, tenta /posts
+      if (!metaOk && (result.permissionDenied || metaPermissionDenied) && pageId && effectiveToken) {
+        log.info("ai", "[M2] igUrl negada — tentando Graph API /posts com pageId", { competitorId, pageId });
+        const postsOk = await fetchViaGraphAPIPosts(competitorId, projectId, pageId, effectiveToken);
+        if (postsOk) {
+          metaOk = true;
+          metaPermissionDenied = false;
+          log.info("ai", "✅ /posts OK via igUrl path", { competitorId, pageId });
+        }
       }
     } else if (compName) {
       const found = await fetchMetaAdsByName(competitorId, projectId, compName, effectiveToken);
