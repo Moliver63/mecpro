@@ -3,6 +3,276 @@ import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
+// ─── Motor de Qualidade — configuração por função ─────────────────────────────
+
+const ENGINE_FUNCTIONS = [
+  {
+    id: "insights",
+    label: "Insights do Concorrente",
+    icon: "🔍",
+    description: "Análise de formatos, CTAs e padrões dos ads coletados",
+    qualityWithLLM: 100,
+    qualityWithoutLLM: 100,
+    fn: "generateLocalInsights()",
+    status: "full" as const,
+    detail: "Parser determinístico — analisa ads reais sem depender de IA",
+  },
+  {
+    id: "scraping",
+    label: "Scraping do Site",
+    icon: "🌐",
+    description: "Extração de dados públicos do site do concorrente",
+    qualityWithLLM: 100,
+    qualityWithoutLLM: 100,
+    fn: "parseHtmlIntoAds()",
+    status: "full" as const,
+    detail: "Extrai title, h1, og:title, meta description, CTAs reais do HTML",
+  },
+  {
+    id: "campaign",
+    label: "Geração de Campanha",
+    icon: "📢",
+    description: "Creatives, adSets e estratégia baseados nos concorrentes",
+    qualityWithLLM: 100,
+    qualityWithoutLLM: 80,
+    fn: "buildCampaignFromAds()",
+    status: "partial" as const,
+    detail: "Usa ads reais dos concorrentes + motor híbrido para creatives por tom",
+  },
+  {
+    id: "market",
+    label: "Análise de Mercado",
+    icon: "📊",
+    description: "Gaps, oportunidades e posicionamento competitivo",
+    qualityWithLLM: 100,
+    qualityWithoutLLM: 50,
+    fn: "generateMarketAnalysis()",
+    status: "degraded" as const,
+    detail: "Sem LLM retorna template por nicho — LLM gera análise personalizada",
+  },
+  {
+    id: "seo",
+    label: "Análise SEO / Estimativa",
+    icon: "🔎",
+    description: "Anúncios estimados quando Meta e site não estão disponíveis",
+    qualityWithLLM: 100,
+    qualityWithoutLLM: 50,
+    fn: "fetchViaSEOAnalysis()",
+    status: "degraded" as const,
+    detail: "buildBaseTemplate() por nicho — funcional mas genérico sem LLM",
+  },
+] as const;
+
+type FunctionStatus = "full" | "partial" | "degraded";
+
+const STATUS_CONFIG: Record<FunctionStatus, { color: string; bg: string; border: string; label: string }> = {
+  full:     { color: "#059669", bg: "#f0fdf4", border: "#bbf7d0", label: "100% funcional" },
+  partial:  { color: "#d97706", bg: "#fffbeb", border: "#fde68a", label: "80% sem LLM" },
+  degraded: { color: "#dc2626", bg: "#fef2f2", border: "#fecaca", label: "50% sem LLM" },
+};
+
+function QualityBar({ value, max = 100, color }: { value: number; max?: number; color: string }) {
+  const pct = Math.round((value / max) * 100);
+  return (
+    <div style={{ position: "relative", height: 8, borderRadius: 999, background: "#f1f5f9", overflow: "hidden" }}>
+      <div style={{
+        position: "absolute", left: 0, top: 0, height: "100%",
+        width: `${pct}%`,
+        borderRadius: 999,
+        background: color,
+        transition: "width .6s cubic-bezier(.4,0,.2,1)",
+        boxShadow: `0 0 6px ${color}60`,
+      }} />
+    </div>
+  );
+}
+
+function QualityControlPanel({ llmMode }: { llmMode?: string }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const isLLMOn = llmMode !== "off";
+
+  const overallQuality = Math.round(
+    ENGINE_FUNCTIONS.reduce((acc, f) =>
+      acc + (isLLMOn ? f.qualityWithLLM : f.qualityWithoutLLM), 0
+    ) / ENGINE_FUNCTIONS.length
+  );
+
+  const overallColor = overallQuality >= 90 ? "#059669"
+    : overallQuality >= 70 ? "#d97706"
+    : "#dc2626";
+
+  return (
+    <div style={{
+      background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16,
+      padding: "20px 24px", marginBottom: 20,
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 2 }}>
+            ⚡ Controle de Qualidade do Motor
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            {isLLMOn
+              ? "LLM ativo — qualidade máxima em todas as funções"
+              : "LLM desligado — motor determinístico operando"}
+          </div>
+        </div>
+
+        {/* Score global */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: overallQuality >= 90 ? "#f0fdf4" : overallQuality >= 70 ? "#fffbeb" : "#fef2f2",
+          border: `1.5px solid ${overallColor}30`,
+          borderRadius: 12, padding: "8px 16px",
+        }}>
+          <div style={{ fontSize: 26, fontWeight: 900, color: overallColor, lineHeight: 1 }}>
+            {overallQuality}%
+          </div>
+          <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.3 }}>
+            qualidade<br />geral
+          </div>
+        </div>
+      </div>
+
+      {/* Barra global */}
+      <div style={{ marginBottom: 20 }}>
+        <QualityBar value={overallQuality} color={overallColor} />
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+          <span style={{ fontSize: 10, color: "#94a3b8" }}>0%</span>
+          <span style={{ fontSize: 10, color: "#94a3b8" }}>100%</span>
+        </div>
+      </div>
+
+      {/* Funções individuais */}
+      <div style={{ display: "grid", gap: 10 }}>
+        {ENGINE_FUNCTIONS.map(fn => {
+          const quality = isLLMOn ? fn.qualityWithLLM : fn.qualityWithoutLLM;
+          const color   = quality === 100 ? "#059669" : quality >= 80 ? "#d97706" : "#dc2626";
+          const cfg     = STATUS_CONFIG[isLLMOn ? "full" : fn.status];
+          const isOpen  = expanded === fn.id;
+
+          return (
+            <div key={fn.id} style={{
+              border: `1px solid ${isOpen ? color + "40" : "#e2e8f0"}`,
+              borderRadius: 12,
+              overflow: "hidden",
+              transition: "border-color .2s",
+            }}>
+              {/* Row */}
+              <button
+                onClick={() => setExpanded(isOpen ? null : fn.id)}
+                style={{
+                  width: "100%", display: "grid",
+                  gridTemplateColumns: "28px 1fr auto auto",
+                  alignItems: "center", gap: 12,
+                  padding: "12px 16px",
+                  background: isOpen ? `${color}08` : "#fafbfc",
+                  border: "none", cursor: "pointer",
+                  textAlign: "left", transition: "background .15s",
+                }}
+              >
+                {/* Icon */}
+                <span style={{ fontSize: 16 }}>{fn.icon}</span>
+
+                {/* Label + bar */}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 5 }}>
+                    {fn.label}
+                  </div>
+                  <QualityBar value={quality} color={color} />
+                </div>
+
+                {/* Percentage */}
+                <div style={{
+                  fontSize: 15, fontWeight: 800, color,
+                  width: 42, textAlign: "right", flexShrink: 0,
+                }}>
+                  {quality}%
+                </div>
+
+                {/* Status badge */}
+                <div style={{
+                  fontSize: 10, fontWeight: 700, padding: "3px 9px",
+                  borderRadius: 999, whiteSpace: "nowrap", flexShrink: 0,
+                  background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`,
+                }}>
+                  {isLLMOn ? "✅ LLM ativo" : cfg.label}
+                </div>
+              </button>
+
+              {/* Expanded detail */}
+              {isOpen && (
+                <div style={{
+                  padding: "12px 16px 14px",
+                  borderTop: `1px solid ${color}20`,
+                  background: `${color}04`,
+                }}>
+                  <div style={{ fontSize: 12, color: "#475569", marginBottom: 8 }}>
+                    {fn.description}
+                  </div>
+                  <div style={{
+                    display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10,
+                  }}>
+                    <div style={{
+                      padding: "8px 12px", borderRadius: 8,
+                      background: "#f0fdf4", border: "1px solid #bbf7d0",
+                    }}>
+                      <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, marginBottom: 2 }}>
+                        COM LLM
+                      </div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: "#059669" }}>
+                        {fn.qualityWithLLM}%
+                      </div>
+                    </div>
+                    <div style={{
+                      padding: "8px 12px", borderRadius: 8,
+                      background: fn.qualityWithoutLLM === 100 ? "#f0fdf4" : fn.qualityWithoutLLM >= 80 ? "#fffbeb" : "#fef2f2",
+                      border: `1px solid ${fn.qualityWithoutLLM === 100 ? "#bbf7d0" : fn.qualityWithoutLLM >= 80 ? "#fde68a" : "#fecaca"}`,
+                    }}>
+                      <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, marginBottom: 2 }}>
+                        SEM LLM
+                      </div>
+                      <div style={{
+                        fontSize: 18, fontWeight: 800,
+                        color: fn.qualityWithoutLLM === 100 ? "#059669" : fn.qualityWithoutLLM >= 80 ? "#d97706" : "#dc2626",
+                      }}>
+                        {fn.qualityWithoutLLM}%
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{
+                    fontSize: 11, color: "#64748b", padding: "8px 12px",
+                    background: "#f8fafc", borderRadius: 8,
+                    fontFamily: "monospace",
+                  }}>
+                    <span style={{ color: "#7c3aed", fontWeight: 700 }}>{fn.fn}</span>
+                    {" — "}{fn.detail}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Rodapé */}
+      {!isLLMOn && (
+        <div style={{
+          marginTop: 14, padding: "10px 14px", borderRadius: 10,
+          background: "#fffbeb", border: "1px solid #fde68a",
+          fontSize: 12, color: "#92400e",
+        }}>
+          ⚡ <strong>Motor determinístico ativo</strong> — 2 funções em 100%, 1 em 80%, 2 em 50%.
+          Ative o LLM para qualidade máxima em todas as funções.
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type AgentAction = "pause_campaign" | "adjust_budget" | "suggest_creative" | "scale_budget" | "no_action";
@@ -255,6 +525,9 @@ export default function AutonomousAgentPage() {
             )}
           </div>
         </div>
+
+        {/* ── Painel de Controle de Qualidade do Motor ── */}
+        <QualityControlPanel llmMode={llmMode?.mode} />
 
         {/* ── Configuração e disparo ── */}
         <div style={{
