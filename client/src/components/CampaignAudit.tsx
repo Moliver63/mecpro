@@ -181,10 +181,10 @@ function scoreAdSets(campaign: any): AuditDimension {
   const hasFunnel = adSets.some((a: any) => /TOF|MOF|BOF|frio|morno|quente/i.test(JSON.stringify(a)));
   if (!hasFunnel) { issues.push("Públicos não segmentados por funil");  score -= 20; suggestions.push("Crie públicos distintos: Lookalike (TOF), Engajados (MOF), Remarketing (BOF)"); }
 
-  const hasLookalike = adSets.some((a: any) => /lookalike|semelhante|1-3%|1%/i.test(JSON.stringify(a)));
-  const hasRemark    = adSets.some((a: any) => /remarketing|visitante|7 dias|retarget/i.test(JSON.stringify(a)));
-  if (!hasLookalike)  { issues.push("Sem público Lookalike para escala"); score -= 10; }
-  if (!hasRemark)     { issues.push("Sem remarketing configurado");        score -= 10; suggestions.push("Remarketing de 7 dias tem CPL 3-5x menor"); }
+  const hasLookalike = adSets.some((a: any) => /lookalike|semelhante|1-3%|1%|frio|cold|TOF|topo/i.test(JSON.stringify(a)));
+  const hasRemark    = adSets.some((a: any) => /remarketing|visitante|7 dias|retarget|BOF|fundo|quente|hot/i.test(JSON.stringify(a)));
+  if (!hasLookalike)  { issues.push("Sem público Lookalike/frio para escala"); score -= 8; suggestions.push("Adicione público frio (Lookalike 1-3%) para escala"); }
+  if (!hasRemark)     { issues.push("Sem remarketing/BOF configurado");         score -= 8; suggestions.push("Remarketing de 7 dias tem CPL 3-5x menor"); }
 
   const budgets = adSets.map((a: any) => a.budget || "").filter(Boolean);
   if (budgets.length < adSets.length) { issues.push("Budget não distribuído em todos os conjuntos"); score -= 10; }
@@ -343,15 +343,19 @@ function scoreExecution(campaign: any): AuditDimension {
     };
   }
 
-  const hasWeekly = plan.some((p: any) => /semana|week|dia\s+\d/i.test(JSON.stringify(p)));
-  const hasBudget = plan.every((p: any) => p.budget);
-  const hasKPI    = plan.every((p: any) => p.kpi);
-  const hasAction = plan.every((p: any) => p.action);
+  const hasWeekly = plan.some((p: any) => /semana|week|dia|título|title/i.test(JSON.stringify(p)));
+  // Usa some() — basta a maioria ter budget/kpi para considerar válido
+  const budgetCount  = plan.filter((p: any) => p.budget || p.Budget).length;
+  const kpiCount     = plan.filter((p: any) => p.kpi || p.Kpi || p.meta || p.objetivo).length;
+  const actionCount  = plan.filter((p: any) => p.action || p.description || p.title || p.ação).length;
+  const hasBudget = budgetCount >= Math.ceil(plan.length / 2);
+  const hasKPI    = kpiCount    >= Math.ceil(plan.length / 2);
+  const hasAction = actionCount >= Math.ceil(plan.length / 2);
 
-  if (!hasWeekly) { issues.push("Plano sem cronograma temporal");      score -= 15; suggestions.push("Detalhe as ações por semana para facilitar a execução"); }
-  if (!hasBudget) { issues.push("Budget não alocado em todas as ações");score -= 15; suggestions.push("Aloque budget específico para cada semana/fase"); }
-  if (!hasKPI)    { issues.push("KPIs ausentes em ações do plano");     score -= 15; suggestions.push("Defina KPIs mensuráveis por ação (ex: CPC < R$1,50)"); }
-  if (!hasAction) { issues.push("Ações não descritas no plano");        score -= 20; }
+  if (!hasWeekly) { issues.push("Plano sem cronograma temporal"); score -= 10; suggestions.push("Detalhe as ações por semana para facilitar a execução"); }
+  if (!hasBudget) { issues.push(`Budget ausente em ${plan.length - budgetCount} ações do plano`); score -= 10; suggestions.push("Aloque budget específico para cada semana/fase"); }
+  if (!hasKPI)    { issues.push(`KPIs ausentes em ${plan.length - kpiCount} ações`);              score -= 10; suggestions.push("Defina KPIs mensuráveis por ação (ex: CPC < R$1,50)"); }
+  if (!hasAction) { issues.push("Ações não descritas no plano"); score -= 15; }
 
   return {
     id: "execution", label: "Plano de Execução", icon: "🗓️",
