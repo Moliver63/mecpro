@@ -451,4 +451,83 @@ router.post("/order", async (req: Request, res: Response) => {
   }
 });
 
+
+// PATCH /api/marketplace/:id/status — Ativa/pausa listing (auth required)
+router.patch("/:id/status", async (req: Request, res: Response) => {
+  try {
+    const userId  = (req as any).user?.id;
+    const listing = await (db as any).getListingById(parseInt(req.params.id));
+    if (!listing || listing.userId !== userId) {
+      return res.status(403).json({ success: false, error: "Sem permissão" });
+    }
+    const { status } = req.body;
+    if (!["active", "paused"].includes(status)) {
+      return res.status(400).json({ success: false, error: "Status inválido" });
+    }
+    await (db as any).updateListingStatus(listing.id, status);
+    log.info("marketplace", "Listing status atualizado", { listingId: listing.id, status });
+    res.json({ success: true, status });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/marketplace/seller/my-listings — Lista as ofertas do seller logado
+router.get("/seller/my-listings", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    const listings = await (db as any).getListingsByUser(userId);
+    res.json({ success: true, listings });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// DELETE /api/marketplace/:id — Remove listing (auth required)
+router.delete("/:id", async (req: Request, res: Response) => {
+  try {
+    const userId  = (req as any).user?.id;
+    const listing = await (db as any).getListingById(parseInt(req.params.id));
+    if (!listing || listing.userId !== userId) {
+      return res.status(403).json({ success: false, error: "Sem permissão" });
+    }
+    await (db as any).deleteMarketplaceListing(listing.id);
+    log.info("marketplace", "Listing removido", { listingId: listing.id, userId });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/marketplace/boost — Ativa boost pago para um listing
+router.post("/boost", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    const { listingId, boostType, days, paymentId } = req.body;
+    const listing = await (db as any).getListingById(listingId);
+    if (!listing || listing.userId !== userId) {
+      return res.status(403).json({ success: false, error: "Sem permissão" });
+    }
+    const BOOST_PRICES: Record<string, number> = {
+      featured_home:    97,
+      featured_niche:   47,
+      priority_search:  27,
+      banner_top:      197,
+    };
+    const price = BOOST_PRICES[boostType] || 47;
+    const startDate = new Date();
+    const endDate   = new Date(startDate.getTime() + (days || 7) * 24 * 60 * 60 * 1000);
+    const boost = await (db as any).createMarketplaceBoost({
+      listingId, userId, boostType, startDate, endDate,
+      price, isActive: true, paymentId,
+    });
+    log.info("marketplace", "Boost ativado", { listingId, boostType, days });
+    res.json({ success: true, boost });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 export default router;

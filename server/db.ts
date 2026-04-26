@@ -920,3 +920,180 @@ export async function checkPlanLimit(
     default: return { allowed: true };
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════════
+// MARKETPLACE — funções de banco de dados
+// ════════════════════════════════════════════════════════════════════════════════
+
+export async function getMarketplaceListings(opts: {
+  niche?: string; region?: string; search?: string;
+  status?: string; limit?: number; offset?: number;
+}) {
+  const pool = await getPool();
+  if (!pool) return [];
+  const { niche, search, status = "active", limit = 24, offset = 0 } = opts;
+  const conditions: string[] = [`ml.status = $1`];
+  const params: any[] = [status];
+  if (niche) {
+    params.push(niche);
+    conditions.push(`ml.niche = $${params.length}`);
+  }
+  if (search) {
+    params.push(`%${search}%`);
+    conditions.push(`(ml.title ILIKE $${params.length} OR ml.description ILIKE $${params.length})`);
+  }
+  params.push(limit, offset);
+  const where = conditions.join(" AND ");
+  const res = await pool.query(
+    `SELECT ml.*, u.name as "sellerName",
+       EXISTS(
+         SELECT 1 FROM marketplace_boosts mb
+         WHERE mb."listingId" = ml.id AND mb."isActive" = true AND mb."endDate" > NOW()
+       ) as "boostActive"
+     FROM marketplace_listings ml
+     LEFT JOIN users u ON ml."userId" = u.id
+     WHERE ${where}
+     ORDER BY
+       CASE WHEN EXISTS(
+         SELECT 1 FROM marketplace_boosts mb2
+         WHERE mb2."listingId" = ml.id AND mb2."isActive" = true AND mb2."endDate" > NOW()
+       ) THEN 0 ELSE 1 END,
+       ml."publishedAt" DESC NULLS LAST
+     LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
+  );
+  return res.rows;
+}
+
+export async function getListingBySlug(slug: string) {
+  const pool = await getPool(); if (!pool) return null;
+  const res = await pool.query(
+    `SELECT ml.*, u.name as "sellerName", u.email as "sellerEmail"
+     FROM marketplace_listings ml
+     LEFT JOIN users u ON ml."userId" = u.id
+     WHERE ml.slug = $1 LIMIT 1`,
+    [slug]
+  );
+  return res.rows[0] || null;
+}
+
+export async function getListingById(id: number) {
+  const pool = await getPool(); if (!pool) return null;
+  const res = await pool.query(`SELECT * FROM marketplace_listings WHERE id = $1 LIMIT 1`, [id]);
+  return res.rows[0] || null;
+}
+
+export async function getListingsByUser(userId: number) {
+  const pool = await getPool(); if (!pool) return [];
+  const res = await pool.query(
+    `SELECT ml.*,
+       COALESCE((SELECT COUNT(*) FROM marketplace_orders mo WHERE mo."listingId" = ml.id AND mo.status = 'paid'), 0)::int as "ordersCount",
+       EXISTS(SELECT 1 FROM marketplace_boosts mb WHERE mb."listingId" = ml.id AND mb."isActive" = true AND mb."endDate" > NOW()) as "boostActive"
+     FROM marketplace_listings ml
+     WHERE ml."userId" = $1
+     ORDER BY ml."createdAt" DESC`,
+    [userId]
+  );
+  return res.rows;
+}
+
+export async function createMarketplaceListing(data: Record<string, any>) {
+  const pool = await getPool(); if (!pool) throw new Error("DB unavailable");
+  const keys = Object.keys(data);
+  const cols = keys.map(k => `"${k}"`).join(", ");
+  const vals = keys.map((_, i) => `$${i + 1}`).join(", ");
+  const res = await pool.query(
+    `INSERT INTO marketplace_listings (${cols}) VALUES (${vals}) RETURNING *`,
+    Object.values(data)
+  );
+  return res.rows[0];
+}
+
+export async function updateListingStatus(id: number, status: string) {
+  const pool = await getPool(); if (!pool) return;
+  await pool.query(
+    `UPDATE marketplace_listings SET status = $1, "updatedAt" = NOW() WHERE id = $2`,
+    [status, id]
+  );
+}
+
+export async function updateListingOptimization(id: number, suggestions: any) {
+  const pool = await getPool(); if (!pool) return;
+  await pool.query(
+    `UPDATE marketplace_listings SET "aiSuggestions" = $1, "lastOptimizedAt" = NOW(), "updatedAt" = NOW() WHERE id = $2`,
+    [JSON.stringify(suggestions), id]
+  );
+}
+
+export async function deleteMarketplaceListing(id: number) {
+  const pool = await getPool(); if (!pool) return;
+  await pool.query(`DELETE FROM marketplace_listings WHERE id = $1`, [id]);
+}
+
+export async function incrementListingViews(id: number) {
+  const pool = await getPool(); if (!pool) return;
+  await pool.query(
+    `UPDATE marketplace_listings SET views = COALESCE(views, 0) + 1 WHERE id = $1`, [id]
+  );
+}
+
+export async function incrementListingConversions(id: number, amount: string) {
+  const pool = await getPool(); if (!pool) return;
+  await pool.query(
+    `UPDATE marketplace_listings
+     SET conversions = COALESCE(conversions, 0) + 1,
+         revenue     = COALESCE(revenue, 0) + $1,
+         "updatedAt" = NOW()
+     WHERE id = $2`,
+    [amount, id]
+  );
+}
+
+export async function getOrdersBySeller(sellerId: number) {
+  const pool = await getPool(); if (!pool) return [];
+  const res = await pool.query(
+    `SELECT mo.*, ml.title as "listingTitle"
+     FROM marketplace_orders mo
+     LEFT JOIN marketplace_listings ml ON mo."listingId" = ml.id
+     WHERE mo."sellerId" = $1
+     ORDER BY mo."createdAt" DESC LIMIT 50`,
+    [sellerId]
+  );
+  return res.rows;
+}
+
+export async function getTotalRevenueByUser(userId: number) {
+  const pool = await getPool(); if (!pool) return 0;
+  const res = await pool.query(
+    `SELECT COALESCE(SUM(mo."netAmount"), 0) as total
+     FROM marketplace_orders mo
+     LEFT JOIN marketplace_listings ml ON mo."listingId" = ml.id
+     WHERE ml."userId" = $1 AND mo.status = 'paid'`,
+    [userId]
+  );
+  return parseFloat(res.rows[0]?.total || "0");
+}
+
+export async function createMarketplaceOrder(data: Record<string, any>) {
+  const pool = await getPool(); if (!pool) throw new Error("DB unavailable");
+  const keys = Object.keys(data);
+  const cols = keys.map(k => `"${k}"`).join(", ");
+  const vals = keys.map((_, i) => `$${i + 1}`).join(", ");
+  const res = await pool.query(
+    `INSERT INTO marketplace_orders (${cols}) VALUES (${vals}) RETURNING *`,
+    Object.values(data)
+  );
+  return res.rows[0];
+}
+
+export async function createMarketplaceBoost(data: Record<string, any>) {
+  const pool = await getPool(); if (!pool) throw new Error("DB unavailable");
+  const keys = Object.keys(data);
+  const cols = keys.map(k => `"${k}"`).join(", ");
+  const vals = keys.map((_, i) => `$${i + 1}`).join(", ");
+  const res = await pool.query(
+    `INSERT INTO marketplace_boosts (${cols}) VALUES (${vals}) RETURNING *`,
+    Object.values(data)
+  );
+  return res.rows[0];
+}

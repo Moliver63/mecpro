@@ -351,5 +351,108 @@ export async function runMigrations(): Promise<void> {
     await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "spendRange"         VARCHAR(100)`).catch(()=>{});
     await pool.query(`ALTER TABLE scraped_ads ADD COLUMN IF NOT EXISTS "reachEstimate"      VARCHAR(100)`).catch(()=>{});
 
+    // ── Marketplace ──────────────────────────────────────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS marketplace_listings (
+        id              SERIAL PRIMARY KEY,
+        "userId"        INTEGER NOT NULL,
+        "campaignId"    INTEGER,
+        "projectId"     INTEGER,
+        title           VARCHAR(255) NOT NULL,
+        slug            VARCHAR(300) NOT NULL UNIQUE,
+        niche           VARCHAR(50)  NOT NULL,
+        status          VARCHAR(30)  NOT NULL DEFAULT 'draft',
+        price           NUMERIC(10,2),
+        "priceType"     VARCHAR(30)  DEFAULT 'fixed',
+        currency        VARCHAR(3)   DEFAULT 'BRL',
+        "commissionRate" NUMERIC(5,2) DEFAULT 10.00,
+        "landingPage"   JSONB,
+        "landingPageHtml" TEXT,
+        headline        TEXT,
+        subheadline     TEXT,
+        description     TEXT,
+        benefits        JSONB,
+        faq             JSONB,
+        testimonials    JSONB,
+        "ctaText"       VARCHAR(100),
+        guarantee       TEXT,
+        "imageUrl"      TEXT,
+        "videoUrl"      TEXT,
+        "thumbnailUrl"  TEXT,
+        "checkoutUrl"   TEXT,
+        "whatsappNumber" VARCHAR(20),
+        "contactEmail"  VARCHAR(255),
+        "checkoutType"  VARCHAR(30),
+        region          VARCHAR(100),
+        city            VARCHAR(100),
+        state           VARCHAR(2),
+        "isNational"    BOOLEAN DEFAULT true,
+        views           INTEGER DEFAULT 0,
+        clicks          INTEGER DEFAULT 0,
+        conversions     INTEGER DEFAULT 0,
+        revenue         NUMERIC(12,2) DEFAULT 0,
+        "aiScore"       INTEGER,
+        "aiSuggestions" JSONB,
+        "lastOptimizedAt" TIMESTAMPTZ,
+        "publishedAt"   TIMESTAMPTZ,
+        "expiresAt"     TIMESTAMPTZ,
+        "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS listings_niche_idx  ON marketplace_listings(niche)`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS listings_status_idx ON marketplace_listings(status)`).catch(()=>{});
+    await pool.query(`CREATE INDEX IF NOT EXISTS listings_user_idx   ON marketplace_listings("userId")`).catch(()=>{});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS marketplace_boosts (
+        id          SERIAL PRIMARY KEY,
+        "listingId" INTEGER NOT NULL,
+        "userId"    INTEGER NOT NULL,
+        "boostType" VARCHAR(50) NOT NULL,
+        "startDate" TIMESTAMPTZ NOT NULL,
+        "endDate"   TIMESTAMPTZ NOT NULL,
+        price       NUMERIC(8,2) NOT NULL,
+        "isActive"  BOOLEAN DEFAULT true,
+        "paymentId" VARCHAR(255),
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS marketplace_orders (
+        id              SERIAL PRIMARY KEY,
+        "listingId"     INTEGER NOT NULL,
+        "buyerEmail"    VARCHAR(255) NOT NULL,
+        "buyerName"     VARCHAR(255),
+        "buyerPhone"    VARCHAR(20),
+        "sellerId"      INTEGER NOT NULL,
+        status          VARCHAR(30) NOT NULL DEFAULT 'pending',
+        amount          NUMERIC(10,2) NOT NULL,
+        commission      NUMERIC(10,2),
+        "netAmount"     NUMERIC(10,2),
+        "paymentMethod" VARCHAR(30),
+        "paymentId"     VARCHAR(255),
+        "paidAt"        TIMESTAMPTZ,
+        notes           TEXT,
+        "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS listing_analytics (
+        id          SERIAL PRIMARY KEY,
+        "listingId" INTEGER NOT NULL,
+        date        VARCHAR(10) NOT NULL,
+        views       INTEGER DEFAULT 0,
+        clicks      INTEGER DEFAULT 0,
+        ctr         NUMERIC(5,2),
+        source      VARCHAR(50),
+        UNIQUE("listingId", date)
+      )
+    `).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

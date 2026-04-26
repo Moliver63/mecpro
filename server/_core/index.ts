@@ -118,6 +118,25 @@ const app = express();
 // ── MECPro Public REST API v1 ──────────────────────────────────────────────
 app.use('/api/v1', publicApiRouter);
 
+// ── Marketplace REST API ──────────────────────────────────────────────────────
+// Middleware JWT leve para injetar req.user (opcional — rotas públicas não precisam)
+const marketplaceAuthMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const token = (req as any).cookies?.token;
+    if (token) {
+      const { jwtVerify } = await import('jose');
+      const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+      const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null }));
+      if (payload) {
+        (req as any).user = { id: (payload as any).userId, role: (payload as any).role };
+      }
+    }
+  } catch { /* sem auth — rotas públicas continuam */ }
+  next();
+};
+import marketplaceRouter from '../marketplace.js';
+app.use('/api/marketplace', marketplaceAuthMiddleware, marketplaceRouter);
+
 app.get('/api/health', async (_req, res) => {
   // Importa estado do Circuit Breaker e cache do ai.ts
   let aiStatus: any = {};
