@@ -454,11 +454,11 @@ function MarketplaceHome() {
             <input className="input" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Buscar por título, nicho, cidade..." style={{ flex: 1, fontSize: 14 }} />
             <button className="btn btn-md btn-primary" type="submit" style={{ fontSize: 13, fontWeight: 700 }}>🔍 Buscar</button>
-            {user && (
-              <button type="button" className="btn btn-md"
-                style={{ background: "#30d158", color: "white", fontWeight: 700, fontSize: 13 }}
-                onClick={() => setLocation("/marketplace/publish")}>+ Publicar</button>
-            )}
+            <button type="button" className="btn btn-md"
+              style={{ background: "#30d158", color: "white", fontWeight: 700, fontSize: 13, flexShrink: 0 }}
+              onClick={() => user ? setLocation("/marketplace/publish") : setLocation("/login?redirect=/marketplace/publish")}>
+              + Publicar
+            </button>
           </form>
         </div>
 
@@ -504,10 +504,10 @@ function MarketplaceHome() {
             <div style={{ fontSize: 40, marginBottom: 12 }}>🔍</div>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Nenhuma oferta encontrada</div>
             <div style={{ fontSize: 13 }}>Tente outros filtros ou seja o primeiro a publicar neste nicho!</div>
-            {user && (
-              <button className="btn btn-md btn-primary" style={{ marginTop: 16, fontWeight: 700 }}
-                onClick={() => setLocation("/marketplace/publish")}>+ Publicar minha oferta</button>
-            )}
+            <button className="btn btn-md btn-primary" style={{ marginTop: 16, fontWeight: 700 }}
+              onClick={() => user ? setLocation("/marketplace/publish") : setLocation("/login?redirect=/marketplace/publish")}>
+              + Publicar minha oferta
+            </button>
           </div>
         )}
 
@@ -524,29 +524,34 @@ function MarketplaceHome() {
           <div style={{ textAlign: "center", padding: "20px 0", color: "var(--muted)", fontSize: 13 }}>⏳ Carregando...</div>
         )}
 
-        {/* Banner CTA para usuários logados */}
-        {user && (
-          <div style={{
-            marginTop: 40, background: "linear-gradient(135deg,var(--blue-l),var(--card))",
-            border: "1px solid var(--blue-l)", borderRadius: 16, padding: "20px 24px",
-            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
-          }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>
-                🚀 Publique suas campanhas como ofertas
-              </div>
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                Transforme qualquer campanha gerada no MecProAI em uma vitrine de vendas com landing page por IA
-              </div>
+        {/* Banner CTA — sempre visível */}
+        <div style={{
+          marginTop: 40, background: "linear-gradient(135deg,var(--blue-l),var(--card))",
+          border: "1px solid var(--blue-l)", borderRadius: 16, padding: "20px 24px",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+        }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>
+              🚀 Publique sua oferta no marketplace
             </div>
-            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              <button className="btn btn-md" onClick={() => setLocation("/marketplace/seller")}
-                style={{ fontSize: 12, fontWeight: 700 }}>Meu dashboard →</button>
-              <button className="btn btn-md btn-primary" onClick={() => setLocation("/marketplace/publish")}
-                style={{ fontSize: 12, fontWeight: 700, background: "#30d158" }}>+ Publicar oferta</button>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>
+              {user
+                ? "Transforme campanhas do MecProAI em vitrine de vendas com landing page gerada por IA"
+                : "Crie uma conta grátis e publique seu produto ou serviço com landing page gerada por IA em minutos"}
             </div>
           </div>
-        )}
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            {user && (
+              <button className="btn btn-md" onClick={() => setLocation("/marketplace/seller")}
+                style={{ fontSize: 12, fontWeight: 700 }}>Meu dashboard →</button>
+            )}
+            <button className="btn btn-md btn-primary"
+              onClick={() => user ? setLocation("/marketplace/publish") : setLocation("/login?redirect=/marketplace/publish")}
+              style={{ fontSize: 12, fontWeight: 700, background: "#30d158" }}>
+              {user ? "+ Publicar oferta" : "🚀 Publicar grátis"}
+            </button>
+          </div>
+        </div>
       </div>
     </Layout>
   );

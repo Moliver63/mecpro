@@ -34,7 +34,12 @@ export default function Login() {
   const login = trpc.auth.login.useMutation({
     onSuccess: (user: any) => {
       // Usar replace() para não deixar entrada no histórico que causa "página foi removida"
-      const dest = ["admin","superadmin"].includes(user.role) ? "/admin" : "/dashboard";
+      // Honra ?redirect=... para redirecionar após login (ex: /marketplace/publish)
+      const params = new URLSearchParams(window.location.search);
+      const redirectTo = params.get("redirect");
+      const dest = redirectTo
+        ? redirectTo
+        : ["admin","superadmin"].includes(user.role) ? "/admin" : "/dashboard";
       window.location.replace(dest);
     },
     onError: (err: any) => {
