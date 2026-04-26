@@ -1101,7 +1101,9 @@ export async function createMarketplaceBoost(data: Record<string, any>) {
 // ── Motor Híbrido: ad_patterns ────────────────────────────────────────────────
 
 export async function getAdPatterns(niche: string, tone?: string, limit = 10): Promise<any[]> {
-  const params: any[] = [niche, limit];
+  const pool = await getPool();
+  if (!pool) return [];
+  const params: any[] = [`%${niche}%`, limit];
   const toneFilter = tone ? `AND tone = $3` : "";
   if (tone) params.splice(2, 0, tone);
   const res = await pool.query(
@@ -1119,7 +1121,8 @@ export async function upsertAdPattern(data: {
   headline_tpl: string; body_tpl?: string; cta_tpl?: string;
   tags?: string[]; longevity_days?: number; source_ad_id?: number;
 }): Promise<void> {
-  // Evita duplicatas por headline_tpl+niche
+  const pool = await getPool();
+  if (!pool) return;
   const exists = await pool.query(
     `SELECT id FROM ad_patterns WHERE niche = $1 AND headline_tpl = $2 LIMIT 1`,
     [data.niche, data.headline_tpl]
@@ -1146,6 +1149,8 @@ export async function upsertAdPattern(data: {
 }
 
 export async function incrementPatternUsage(id: number): Promise<void> {
+  const pool = await getPool();
+  if (!pool) return;
   await pool.query(
     `UPDATE ad_patterns SET usage_count = usage_count + 1, updated_at = NOW() WHERE id = $1`,
     [id]
@@ -1153,6 +1158,8 @@ export async function incrementPatternUsage(id: number): Promise<void> {
 }
 
 export async function updatePatternScore(id: number, score: number): Promise<void> {
+  const pool = await getPool();
+  if (!pool) return;
   await pool.query(
     `UPDATE ad_patterns SET perf_score = $1, updated_at = NOW() WHERE id = $2`,
     [Math.min(10, Math.max(0, score)), id]
