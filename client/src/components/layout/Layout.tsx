@@ -201,11 +201,64 @@ function NavItem({ item, active, collapsed }: {
 }
 
 // ── Layout ─────────────────────────────────────────────────────────────────
-interface LayoutProps { children: React.ReactNode; }
+interface LayoutProps { children: React.ReactNode; public?: boolean; }
 
-export default function Layout({ children }: LayoutProps) {
+// Layout público — topbar simples sem sidebar, para páginas acessíveis sem login
+function PublicLayout({ children }: { children: React.ReactNode }) {
+  const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg, #f8fafc)" }}>
+      {/* Topbar pública */}
+      <header style={{
+        position: "sticky", top: 0, zIndex: 100,
+        background: "var(--card, white)", borderBottom: "1px solid var(--border, #e2e8f0)",
+        padding: "0 20px", height: 52, display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <button onClick={() => setLocation("/")} style={{
+          background: "none", border: "none", cursor: "pointer",
+          fontWeight: 900, fontSize: 16, color: "var(--black)", letterSpacing: "-0.03em",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <img src="/logo-512.png" alt="" style={{ width: 28, height: 28, borderRadius: 6 }} />
+          <span>MecProAI</span>
+        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => setLocation("/marketplace")}
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>
+            🛒 Marketplace
+          </button>
+          {user ? (
+            <button className="btn btn-md btn-primary" onClick={() => setLocation("/marketplace/publish")}
+              style={{ fontSize: 12, fontWeight: 700, padding: "6px 16px", background: "#30d158", border: "none" }}>
+              + Publicar oferta
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: 6 }}>
+              <button className="btn btn-md" onClick={() => setLocation("/login?redirect=/marketplace/publish")}
+                style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px" }}>Entrar</button>
+              <button className="btn btn-md btn-primary" onClick={() => setLocation("/register")}
+                style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px" }}>Criar conta grátis</button>
+            </div>
+          )}
+        </div>
+      </header>
+      <main>{children}</main>
+    </div>
+  );
+}
+
+export default function Layout({ children, public: isPublic }: LayoutProps) {
   const [location] = useLocation();
   const { user } = useAuth();
+
+  // Rotas do marketplace são públicas — não precisam de sidebar
+  const isMarketplacePublic = location.startsWith("/marketplace") && !location.startsWith("/marketplace/publish") && !location.startsWith("/marketplace/seller");
+  if (isPublic || (isMarketplacePublic && !user)) {
+    return <PublicLayout>{children}</PublicLayout>;
+  }
+  // Usuário logado no marketplace ainda vê a sidebar (experiência completa)
+
   const isAdmin  = ["admin","superadmin"].includes(user?.role ?? "");
   const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : NAV_USER;
 
