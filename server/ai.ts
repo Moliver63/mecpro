@@ -76,7 +76,7 @@ async function fetchGoogleCompetitorInsights(
     seeds.push({ keyword: compName });
     if (seeds.length === 0) return false;
 
-    const kpUrl = `https://googleads.googleapis.com/v19/customers/${customerId}:generateKeywordIdeas`;
+    const kpUrl = `https://googleads.googleapis.com/v19_1/customers/${customerId}:generateKeywordIdeas`;
     const kpBody = {
       keywordSeed:        { keywords: [compName] },
       urlSeed:            websiteUrl ? { url: websiteUrl } : undefined,
@@ -325,7 +325,7 @@ async function fetchGoogleTransparencyInsights(
       const auctionQuery = `SELECT auction_insight.display_name, auction_insight.impression_share, auction_insight.overlap_rate, auction_insight.outranking_share FROM auction_insight_campaign WHERE segments.date DURING LAST_30_DAYS LIMIT 20`;
 
       const auctionRes = await fetch(
-        `https://googleads.googleapis.com/v19/customers/${customerId}/googleAds:search`,
+        `https://googleads.googleapis.com/v19_1/customers/${customerId}/googleAds:search`,
         {
           method: "POST",
           headers: {
@@ -451,7 +451,7 @@ async function withGeminiSemaphore<T>(fn: () => Promise<T>): Promise<T> {
 // Rastreia chaves com quota esgotada e evita reutilizá-las até reset
 const _exhaustedKeys = new Set<string>();
 const _exhaustedAt   = new Map<string, number>();
-const QUOTA_RESET_MS = 15 * 60 * 1000; // 15 min — free tier reseta por janela de 1min, marcamos 15min para segurança
+const QUOTA_RESET_MS = 60 * 60 * 1000; // 60 min — evita tentar chave esgotada (quota RPM reseta em ~1min, RPD em 24h mas marcamos 60min para balance entre retry e economia)
 
 // ── Cache de resultados Gemini para evitar chamadas repetidas ────────────────
 // Evita que o mesmo concorrente/prompt seja analisado várias vezes em sequência
@@ -1218,6 +1218,31 @@ Exemplos:
 - Campanha_Servicos_TOF_Awareness_Meta
 `.trim();
 
+// ── Compressor de prompt leve — remove seções pesadas para caber em modelos com token limit ──
+function _compressPromptLight(prompt: string, maxChars: number): string {
+  if (prompt.length <= maxChars) return prompt;
+  let c = prompt;
+  // 1) Remove bloco de políticas Meta Ads (3k chars) — modelos já conhecem as políticas
+  const complianceStart = c.indexOf("COMPLIANCE META ADS 2026");
+  const complianceEnd   = c.indexOf("VALIDAÇÃO:", complianceStart);
+  if (complianceStart >= 0 && complianceEnd >= 0) {
+    const lineEnd = c.indexOf("\n", complianceEnd + 10);
+    c = c.slice(0, complianceStart)
+      + "COMPLIANCE: Siga políticas Meta Ads padrão (sem claims garantidos, linguagem respeitosa).\n"
+      + c.slice(lineEnd + 1);
+  }
+  if (c.length <= maxChars) return c;
+  // 2) Remove glossário do schema JSON (800 chars)
+  const glossStart = c.lastIndexOf('"glossary": [');
+  if (glossStart >= 0) {
+    const glossEnd = c.indexOf(']', glossStart + 13);
+    if (glossEnd >= 0) c = c.slice(0, glossStart) + '"glossary": []' + c.slice(glossEnd + 1);
+  }
+  if (c.length <= maxChars) return c;
+  // 3) Trunca restante mantendo contexto inicial (mais importante)
+  return c.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere JSON completo com base nos dados acima]";
+}
+
 export async function gemini(
   prompt: string,
   opts: {
@@ -1255,12 +1280,14 @@ async function _geminiImpl(
     if (allKeys.length > 0 && availableNow.length === 0) {
       log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
       // Tenta fallbacks em ordem: Groq → Genspark → Claude → mock
-      const groqR = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
+      // Comprime prompt para evitar Groq 413
+      const _compressedForGroq = _compressPromptLight(prompt, 45000);
+      const groqR = await callGroqAPI(_compressedForGroq, opts.systemInstruction, opts.temperature).catch(() => null);
       if (groqR) { log.info("ai", "✅ Groq fallback direto OK (quota Gemini)"); return groqR; }
       const gsR = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
       if (gsR) { log.info("ai", "✅ Genspark fallback direto OK (quota Gemini)"); return gsR; }
       if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY) {
-        const clR = await callClaudeAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
+        const clR = await callClaudeAPI(_compressedForGroq, opts.systemInstruction, opts.temperature).catch(() => null);
         if (clR) { log.info("ai", "✅ Claude fallback direto OK (quota Gemini)"); return clR; }
       }
       log.warn("ai", "Todos os LLMs indisponíveis — usando mock response (quota Gemini esgotada)");
@@ -1453,11 +1480,13 @@ async function callGroqAPI(
 
   for (const model of models) {
     try {
-      // Groq tem limite de tokens por modelo — trunca prompt se necessário
-      // llama-3.1-8b-instant: ~8k tokens input, llama-3.3-70b: ~128k
-      const maxChars = model.includes("8b") ? 12000 : 60000;
+      // Groq token limits (chars ≈ tokens * 4):
+      // llama-3.3-70b-versatile: 128k ctx → ~100k chars safe
+      // llama-3.1-8b-instant: 8k ctx → ~12k chars safe
+      // O Groq retorna 413 quando o payload JSON excede ~1MB — truncar mais agressivamente
+      const maxChars = model.includes("8b") ? 10000 : 50000;
       const truncatedPrompt = prompt.length > maxChars
-        ? prompt.slice(0, maxChars) + "\n\n[PROMPT TRUNCADO — responda com o que foi fornecido]"
+        ? prompt.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere a resposta JSON completa com base no que foi fornecido acima]"
         : prompt;
 
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -3889,6 +3918,10 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
   let adSets, creatives, conversionFunnel, executionPlan, strategy = "";
   let aiResponse: string | null = null;
 
+  // Usa o helper global para comprimir prompts grandes antes de enviar ao Groq
+  const compressPromptForGroq = (p: string, maxChars: number) => _compressPromptLight(p, maxChars);
+
+
   // Tenta reparar JSON truncado fechando chaves/colchetes abertos e strings
   function repairJson(raw: string): string {
     let s = raw.replace(/```json|```/g, "").trim();
@@ -3969,8 +4002,10 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     log.warn("ai", "Campaign parse error — tentando Groq como fallback", { error: e.message });
 
     // Tenta Groq quando Gemini retorna JSON truncado
+    // Comprime prompt para caber no Groq sem 413
+    const groqPrompt = compressPromptForGroq(prompt, 45000);
     try {
-      const groqRaw = await callGroqAPI(prompt, undefined, 0.6);
+      const groqRaw = await callGroqAPI(groqPrompt, undefined, 0.6);
       if (groqRaw) {
         let groqParsed: any;
         try { groqParsed = JSON.parse(groqRaw); }
@@ -3999,13 +4034,51 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         throw new Error("Groq sem resposta");
       }
     } catch (groqErr: any) {
-      log.warn("ai", "Groq fallback também falhou — usando mock", { error: groqErr.message });
-      const mock = JSON.parse(mockResponse("campanha"));
-      strategy         = mock.strategy;
-      adSets           = JSON.stringify(mock.adSets);
-      creatives        = JSON.stringify(mock.creatives);
-      conversionFunnel = JSON.stringify(mock.conversionFunnel);
-      executionPlan    = JSON.stringify(mock.executionPlan);
+      log.warn("ai", "Groq fallback falhou — tentando MECPro AI Service antes do mock", { error: groqErr.message });
+      // Última tentativa: MECPro AI Service com prompt comprimido
+      try {
+        const miniPrompt = compressPromptForGroq(prompt, 20000);
+        const mecResult: any = await mecproAI("generate-campaign", {
+          prompt: miniPrompt,
+          projectId: input.projectId,
+          objective: input.objective,
+          budget: input.budget,
+          niche: (clientProfile as any)?.niche || "",
+          companyName: (clientProfile as any)?.companyName || "",
+        });
+        if (mecResult && mecResult.strategy) {
+          strategy         = mecResult.strategy || "";
+          adSets           = JSON.stringify(mecResult.adSets || []);
+          const mcRaw = mecResult.creatives || [];
+          creatives = JSON.stringify(mcRaw.map((cr: any) => ({
+            ...cr,
+            bodyText: cr.bodyText || cr.copy || "",
+            copy: cr.copy || cr.bodyText || "",
+            headline: cr.headline || cr.hook || "Confira agora",
+            hook: cr.hook || cr.headline || "",
+            pain: cr.pain || "",
+            solution: cr.solution || "",
+            cta: cr.cta || "Saiba Mais",
+            funnelStage: cr.funnelStage || "TOF",
+            format: cr.format || "Imagem estática",
+            type: cr.type || "direct_offer",
+            orientation: cr.orientation || "feed_4_5",
+          })));
+          conversionFunnel = JSON.stringify(mecResult.conversionFunnel || []);
+          executionPlan    = JSON.stringify(mecResult.executionPlan || []);
+          log.info("ai", "Campaign gerada via MECPro AI Service (fallback final)");
+        } else {
+          throw new Error("MECPro AI retornou resposta inválida");
+        }
+      } catch (mecErr: any) {
+        log.warn("ai", "Todos os LLMs falharam — usando mock response", { error: mecErr.message });
+        const mock = JSON.parse(mockResponse("campanha"));
+        strategy         = mock.strategy;
+        adSets           = JSON.stringify(mock.adSets);
+        creatives        = JSON.stringify(mock.creatives);
+        conversionFunnel = JSON.stringify(mock.conversionFunnel);
+        executionPlan    = JSON.stringify(mock.executionPlan);
+      }
     } // fim catch groqErr
     aiResponse = JSON.stringify({
       campaignName: mock.campaignName || input.name,
