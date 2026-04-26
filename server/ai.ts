@@ -1578,7 +1578,7 @@ async function _geminiImpl(
 }
 
 // ── Groq API — fallback principal quando Gemini está indisponível ────────────
-// Suporte a múltiplas chaves (GROQ_API_KEY, GROQ_API_KEY_2 ... _5) para contornar rate limits
+// Suporte a múltiplas chaves (GROQ_API_KEY, GROQ_API_KEY_01, _02, _03) para contornar rate limits
 // Compatível com OpenAI API format. Modelos Llama 3 gratuitos.
 
 // Rastreamento de rate limit por chave Groq
@@ -1588,10 +1588,9 @@ const GROQ_RATE_RESET_MS = 62 * 1000; // 62s — free tier reseta por minuto
 function getAvailableGroqKey(): string | null {
   const keys = [
     process.env.GROQ_API_KEY,
-    process.env.GROQ_API_KEY_2,
-    process.env.GROQ_API_KEY_3,
-    process.env.GROQ_API_KEY_4,
-    process.env.GROQ_API_KEY_5,
+    process.env.GROQ_API_KEY_01,
+    process.env.GROQ_API_KEY_02,
+    process.env.GROQ_API_KEY_03,
   ].filter(Boolean) as string[];
   if (!keys.length) return null;
   const now = Date.now();
