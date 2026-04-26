@@ -46,6 +46,9 @@ import Consultas from "@/pages/Consultas";
 import Profile from "@/pages/Profile";
 import EditProfile from "@/pages/EditProfile";
 import Billing from "@/pages/Billing";
+import Marketplace from "@/pages/Marketplace";
+import PublishListing from "@/pages/PublishListing";
+import SellerDashboard from "@/pages/SellerDashboard";
 import MySubscription from "@/pages/MySubscription";
 import Notifications from "@/pages/Notifications";
 import Messages from "@/pages/Messages";
@@ -147,6 +150,8 @@ export default function App() {
             <Route path="/privacy" component={Privacy} />
             <Route path="/courses" component={Courses} />
             <Route path="/courses/:slug" component={CourseDetail} />
+            <Route path="/marketplace" component={Marketplace} />
+            <Route path="/marketplace/:slug" component={Marketplace} />
             <Route path="/ebooks" component={Ebooks} />
             <Route path="/ebook/:id" component={EbookReader} />
             <Route path="/login" component={Login} />
@@ -219,6 +224,8 @@ export default function App() {
             <Route path="/projects/:id/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/consultas"><ProtectedRoute><Consultas /></ProtectedRoute></Route>
             <Route path="/billing"><ProtectedRoute><Billing /></ProtectedRoute></Route>
+            <Route path="/marketplace/publish"><ProtectedRoute><PublishListing /></ProtectedRoute></Route>
+            <Route path="/marketplace/seller"><ProtectedRoute><SellerDashboard /></ProtectedRoute></Route>
             <Route path="/my-subscription"><ProtectedRoute><MySubscription /></ProtectedRoute></Route>
             <Route path="/notifications"><ProtectedRoute><Notifications /></ProtectedRoute></Route>
             <Route path="/messages"><ProtectedRoute><Messages /></ProtectedRoute></Route>

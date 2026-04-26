@@ -12,6 +12,7 @@ const NAV_USER = [
   { icon: "◍",  label: "TikTok Ads",        path: "/tiktok-campaigns" },
   { icon: "⟳",  label: "Agente Autônomo",   path: "/autonomous-agent" },
   { icon: "▣",  label: "Financeiro",        path: "/financeiro" },
+  { icon: "🛒", label: "Marketplace",        path: "/marketplace" },
   { icon: "⊙",  label: "Academia",          path: "/academy" },
   { icon: "◻",  label: "Notificações",      path: "/notifications" },
   { icon: "◷",  label: "Mensagens",         path: "/messages" },

@@ -1521,6 +1521,12 @@ export default function CampaignResult() {
         <div style={{ display: "flex", gap: 10 }}>
           <button className="btn btn-md btn-ghost" onClick={() => window.print()}>⬇ Exportar</button>
           <button
+            className="btn btn-md"
+            style={{ background: "#30d158", color: "white", fontWeight: 700, fontSize: 12 }}
+            onClick={() => window.location.href = `/marketplace/publish?campaignId=${c.id}`}>
+            🛒 Publicar no Marketplace
+          </button>
+          <button
             onClick={() => {
               setOrganicMessage(generateOrganicMessage(c));
               setOrganicResult(null);
