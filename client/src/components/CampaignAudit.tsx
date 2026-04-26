@@ -656,6 +656,15 @@ export default function CampaignAudit({ campaign, clientProfile, projectId, onCl
                               {dim.suggestions.map((sug, i) => (
                                 <div key={i} style={{ fontSize: 11, color: "var(--muted)", marginBottom: 3 }}>→ {sug}</div>
                               ))}
+                              {dim.id === "briefing" && dim.score < 90 && projectId && (
+                                <button onClick={handleAutoFill} disabled={autoFilling}
+                                  style={{ marginTop: 10, width: "100%", background: autoFilling ? "#93c5fd" : "#1d4ed8",
+                                    color: "white", border: "none", borderRadius: 8, padding: "9px 0",
+                                    fontSize: 12, fontWeight: 700, cursor: autoFilling ? "wait" : "pointer",
+                                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                  {autoFilling ? "⏳ Analisando..." : "✦ Preencher automaticamente com IA"}
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
