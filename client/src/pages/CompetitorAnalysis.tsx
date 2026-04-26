@@ -47,6 +47,7 @@ function sourceBadge(source?: string) {
   if (source === "estimated")             return { label: "⚠️ Estimado",            color: "#92400e", bg: "#fef3c7", isEstimated: true,  layer: 7 };
   if (source === "estimated_ai")          return { label: "🤖 IA Estimado",         color: "#6d28d9", bg: "#ede9fe", isEstimated: true,  layer: 7 };
   if (source === "meta_ads_archive")      return { label: "◎ Meta API Oficial",    color: "#166534", bg: "#dcfce7", isEstimated: false, layer: 1 };
+  if (source === "meta_page_posts")       return { label: "📄 Posts da Página",      color: "#1877f2", bg: "#e8f0fe", isEstimated: false, layer: 3 };
   if (source === "ads_library_public" || source === "ads_library_public_regex")
                                           return { label: "🔎 Ads Library",         color: "#1e40af", bg: "#dbeafe", isEstimated: false, layer: 2 };
   if (source === "meta_api" || source === "meta")

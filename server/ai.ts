@@ -918,8 +918,10 @@ const _metaCB = {
   failures:      0,
   state:         "CLOSED" as "CLOSED" | "OPEN" | "HALF_OPEN",
   openedAt:      0,
-  THRESHOLD:     2,          // abre após 2 falhas por permissão
-  RESET_MS:      60 * 60 * 1000, // tenta reabrir após 60 min
+  THRESHOLD:     2,          // abre após 2 falhas de keyword search por permissão
+  RESET_MS:      30 * 60 * 1000, // 30min (era 60min — reduzido para retentar mais cedo)
+  // Nota: o CB só bloqueia busca por keyword/nome (que requer Ads Library permission)
+  // Busca por pageId via ads_archive ainda é tentada mesmo com CB aberto
 };
 
 function metaCBisOpen(): boolean {
@@ -1002,6 +1004,7 @@ function getAdSource(ad: any): string {
 
 const REAL_AD_SOURCES = new Set([
   "meta_ads_archive", "meta_ads_library", "meta", "facebook_ads",
+  "meta_page_posts",  // Graph API /page/posts — real, sem Ads Library
   "google_ads", "google_ads_transparency", "tiktok_ads",
 ]);
 
@@ -2322,25 +2325,47 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
     // Circuit Breaker: se Meta está falhando por permissão, pula direto pro SEO
     let pipelineShortCircuited = false;
     if (metaCBisOpen()) {
-      log.info("ai", "Meta CB OPEN — pulando tentativas Meta, usando site/SEO diretamente", { competitorId, hasWebsite: !!websiteUrl });
-      metaOk = false;
+      log.info("ai", "Meta CB OPEN — keyword search bloqueado, mas tentando pageId e /posts", { competitorId, hasPageId: !!pageId, hasWebsite: !!websiteUrl });
       metaPermissionDenied = true;
-      // Se tem site preenchido, vai direto pro scraping sem tentar Meta
-      if (websiteUrl) {
+
+      // Mesmo com CB aberto: se temos pageId E token, tenta /posts (não usa Ads Library)
+      if (pageId && effectiveToken) {
+        const postsOk = await fetchViaGraphAPIPosts(competitorId, projectId, pageId, effectiveToken);
+        if (postsOk) {
+          metaOk = true;
+          pipelineShortCircuited = true;
+          log.info("ai", "✅ Graph API /posts OK com CB aberto — dados reais obtidos", { competitorId });
+        }
+      }
+
+      // Se /posts falhou ou sem pageId, tenta site
+      if (!pipelineShortCircuited && websiteUrl) {
         const websiteOk = await fetchViaWebsiteScraping(competitorId, projectId, websiteUrl, compName);
         if (websiteOk) {
-          log.info("ai", "✅ Site direto OK (CB aberto)", { competitorId });
-          pipelineShortCircuited = true; // pula o resto do pipeline
+          log.info("ai", "✅ Site direto OK (CB aberto, sem pageId)", { competitorId });
+          pipelineShortCircuited = true;
         }
       }
     }
-    if (!pipelineShortCircuited && !metaCBisOpen()) {
-      if (pageId) {
+    // Mesmo com CB aberto, tenta com pageId — code=10 só afeta keyword search
+    if (!pipelineShortCircuited && pageId) {
       const result = await fetchMetaAdsById(competitorId, projectId, pageId, effectiveToken);
       metaOk = result.ok;
       metaAccessDenied = metaAccessDenied || !!result.accessDenied;
       metaTokenInvalid = metaTokenInvalid || !!result.tokenInvalid;
       metaPermissionDenied = metaPermissionDenied || !!result.permissionDenied;
+
+      // Se Ads Archive falhou por permissão mas temos token, tenta /posts da página
+      // /posts não requer Ads Library API — retorna dados reais da página pública
+      if (!metaOk && result.permissionDenied && effectiveToken) {
+        log.info("ai", "[M2] Ads Archive negado — tentando Graph API /posts como camada real", { competitorId, pageId });
+        const postsOk = await fetchViaGraphAPIPosts(competitorId, projectId, pageId, effectiveToken);
+        if (postsOk) {
+          metaOk = true;
+          metaPermissionDenied = false; // posts funcionou — não é falha total
+          log.info("ai", "✅ Camada 4 (Graph API posts) OK — dados reais sem Ads Library", { competitorId });
+        }
+      }
     } else if (pageUrl) {
       const result = await fetchMetaAdsByUrl(competitorId, projectId, pageUrl, effectiveToken);
       metaOk = result.ok;
@@ -3353,6 +3378,82 @@ async function upsertScrapedAd(data: any) {
 // e usa a IA para inferir os anúncios prováveis.
 // source: "website_scraping" (mais confiável que estimado puro)
 //
+
+// ── Graph API /page/posts — dados reais da página sem precisar Ads Library ──
+// Camada 4: extrai posts públicos da página como anúncios (fonte real)
+async function fetchViaGraphAPIPosts(
+  competitorId: number,
+  projectId: number,
+  pageId: string,
+  token: string,
+): Promise<boolean> {
+  try {
+    log.info("ai", "[M2] fetchViaGraphAPIPosts iniciado", { competitorId, pageId });
+    const fields = "id,message,story,full_picture,permalink_url,created_time,attachments";
+    const url = `https://graph.facebook.com/v20.0/${pageId}/posts?fields=${fields}&limit=20&access_token=${token}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const data = await res.json();
+
+    if (data?.error) {
+      log.warn("ai", "[M2] Graph API /posts erro", { code: data.error.code, msg: data.error.message?.slice(0, 80) });
+      return false;
+    }
+
+    const posts: any[] = data?.data || [];
+    if (posts.length === 0) {
+      log.info("ai", "[M2] Graph API /posts: sem posts públicos", { competitorId, pageId });
+      return false;
+    }
+
+    let saved = 0;
+    for (const post of posts) {
+      const text = post.message || post.story || "";
+      if (!text && !post.attachments) continue;
+
+      // Extrai headline do attachment se disponível
+      const attachment = post.attachments?.data?.[0];
+      const headline = attachment?.title || attachment?.name ||
+        (text.split("\n")[0]?.slice(0, 120)) || "Post orgânico";
+      const bodyText = text.slice(0, 500) || null;
+      const imageUrl = post.full_picture || attachment?.media?.image?.src || null;
+      const landingUrl = attachment?.url || post.permalink_url || null;
+
+      // CTA inferido do texto
+      const cta = /link na bio|saiba mais|clique|acesse|veja mais/i.test(text) ? "Saiba mais"
+        : /whatsapp|chame|fale/i.test(text) ? "Falar no WhatsApp"
+        : /agende|marque|reserve/i.test(text) ? "Agendar"
+        : /compre|adquira|garanta/i.test(text) ? "Comprar agora"
+        : "Ver mais";
+
+      await db.upsertScrapedAd({
+        competitorId, projectId,
+        platform: "meta",
+        adId: `fbpost_${post.id}`,
+        adType: imageUrl ? "image" : "text",
+        headline,
+        bodyText,
+        cta,
+        imageUrl,
+        landingPageUrl: landingUrl,
+        isActive: 1,
+        startDate: post.created_time ? new Date(post.created_time) : new Date(),
+        source: "meta_page_posts",
+        rawData: JSON.stringify({ source: "meta_page_posts", postId: post.id, pageId }),
+      });
+      saved++;
+    }
+
+    if (saved > 0) {
+      log.info("ai", "✅ Graph API /posts OK — posts como anúncios", { competitorId, pageId, saved });
+      return true;
+    }
+    return false;
+  } catch (e: any) {
+    log.warn("ai", "[M2] fetchViaGraphAPIPosts erro", { message: e.message?.slice(0, 80) });
+    return false;
+  }
+}
+
 async function fetchViaWebsiteScraping(
   competitorId: number,
   projectId:    number,
