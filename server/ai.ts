@@ -1017,32 +1017,114 @@ async function resolvePageId(
   compName: string,
   websiteUrl?: string,
   igUrl?: string,
+  metaToken?: string,
 ): Promise<string | null> {
-  // Tenta extrair pageId de URLs conhecidas
-  if (igUrl) {
-    const m = igUrl.match(/instagram\.com\/([^/?#]+)/i);
-    if (m?.[1] && m[1] !== "p") return null; // IG username, não pageId
-  }
+
+  // ── Estratégia 1: extrai pageId do HTML do site (link para FB) ──────────
   if (websiteUrl) {
     try {
       const res = await fetch(websiteUrl, { signal: AbortSignal.timeout(8000) });
       const html = await res.text();
-      const fbMatch = html.match(/facebook\.com\/(?:pages\/[^/"]+\/)?(\d{10,})/);
-      if (fbMatch?.[1]) return fbMatch[1];
+      // Captura facebook.com/pages/nome/ID ou facebook.com/ID numérico direto
+      const fbMatch = html.match(/facebook\.com\/(?:pages\/[^/"']+\/)?(\d{10,})/);
+      if (fbMatch?.[1]) {
+        log.info("ai", "pageId encontrado no HTML do site", { compName, pageId: fbMatch[1] });
+        return fbMatch[1];
+      }
+      // Captura username da página Facebook no HTML
+      const fbUser = html.match(/facebook\.com\/((?!sharer|share|login|dialog)[\w.]{3,})["' ]/);
+      if (fbUser?.[1] && metaToken) {
+        try {
+          const r = await fetch(
+            `https://graph.facebook.com/v20.0/${fbUser[1]}?fields=id,name&access_token=${metaToken}`,
+            { signal: AbortSignal.timeout(6000) }
+          );
+          const d = await r.json();
+          if (d?.id && /^\d+$/.test(d.id)) {
+            log.info("ai", "pageId resolvido via username do site", { compName, username: fbUser[1], pageId: d.id });
+            return d.id;
+          }
+        } catch {}
+      }
     } catch { /* ignora */ }
   }
+
+  // ── Estratégia 2: Graph API Search por nome da empresa ──────────────────
+  if (metaToken) {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+    // Variantes: com e sem sufixos comuns
+    const clean = compName.replace(/\s+(imoveis|imóveis|imobiliária|construtora|ltda|me|eireli)$/i, "").trim();
+    const queries = [...new Set([clean, compName])];
+
+    for (const query of queries) {
+      try {
+        const url = `https://graph.facebook.com/v20.0/pages/search?q=${encodeURIComponent(query)}&fields=id,name,link&limit=5&access_token=${metaToken}`;
+        const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const d = await r.json();
+
+        if (d?.data?.length > 0) {
+          const qNorm = norm(query);
+          let best: any = null;
+          let bestScore = 0;
+
+          for (const page of d.data) {
+            const pNorm = norm(page.name || "");
+            let score = pNorm === qNorm ? 100
+              : (pNorm.includes(qNorm) || qNorm.includes(pNorm)) ? 60
+              : Math.round((Math.min(pNorm.length, qNorm.length) / Math.max(pNorm.length || 1, qNorm.length)) * 40);
+            // Bonus: domínio do site bate com nome da página
+            if (websiteUrl) {
+              try {
+                const hostname = new URL(websiteUrl).hostname.replace("www.", "");
+                if (norm(hostname).includes(norm(page.name?.split(" ")?.[0] || ""))) score += 20;
+              } catch {}
+            }
+            if (score > bestScore) { bestScore = score; best = page; }
+          }
+
+          if (best && bestScore >= 40) {
+            log.info("ai", "pageId encontrado via Graph API Search", { compName, query, pageId: best.id, pageName: best.name, score: bestScore });
+            return best.id;
+          }
+        }
+      } catch (e: any) {
+        log.warn("ai", "Graph API pages/search falhou", { query, error: e.message?.slice(0, 60) });
+      }
+    }
+  }
+
+  // ── Estratégia 3: resolve username do Instagram → pageId vinculado ──────
+  if (igUrl && metaToken) {
+    const igUser = igUrl.match(/instagram\.com\/([\w.]+)/i)?.[1];
+    if (igUser) {
+      try {
+        const r = await fetch(
+          `https://graph.facebook.com/v20.0/${igUser}?fields=id,name&access_token=${metaToken}`,
+          { signal: AbortSignal.timeout(6000) }
+        );
+        const d = await r.json();
+        if (d?.id && /^\d+$/.test(d.id)) {
+          log.info("ai", "pageId via Instagram username", { compName, igUser, pageId: d.id });
+          return d.id;
+        }
+      } catch {}
+    }
+  }
+
+  log.info("ai", `pageId não encontrado para "${compName}" após 3 estratégias`);
   return null;
 }
 
 async function discoverCompetitorData(
   competitorId: number,
   compName: string,
+  metaToken?: string,
 ): Promise<{ pageId?: string; facebookPageUrl?: string; igUrl?: string; websiteUrl?: string }> {
   try {
     const existing = await db.getCompetitorById(competitorId);
     if (existing?.facebookPageId) return { pageId: existing.facebookPageId };
     if (existing?.websiteUrl) {
-      const pageId = await resolvePageId(compName, existing.websiteUrl, existing.instagramUrl ?? undefined);
+      const pageId = await resolvePageId(compName, existing.websiteUrl, existing.instagramUrl ?? undefined, metaToken);
       if (pageId) return { pageId };
     }
     log.info("ai", "discoverCompetitorData: sem dados suficientes para", { compName });
@@ -2160,7 +2242,7 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
   // ── Auto-descoberta de dados quando concorrente só tem o nome ───────────────
   if (shouldFetch && !pageId && !pageUrl && !igUrl && !websiteUrl) {
     log.info("ai", "Concorrente sem dados — tentando descoberta automática", { compName });
-    const discovered = await discoverCompetitorData(competitorId, compName);
+    const discovered = await discoverCompetitorData(competitorId, compName, effectiveToken);
     if (discovered.pageId) pageId = discovered.pageId;
     if (discovered.facebookPageUrl && !pageUrl) (competitor as any).facebookPageUrl = discovered.facebookPageUrl;
     if (discovered.igUrl    && !igUrl)    (competitor as any).instagramUrl = discovered.igUrl;
@@ -2169,7 +2251,7 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
 
   // ── Auto-resolve pageId se não foi cadastrado ─────────────────────────────
   if (shouldFetch && !pageId && !pageUrl) {
-    const resolved = await resolvePageId(compName, websiteUrl, igUrl);
+    const resolved = await resolvePageId(compName, websiteUrl, igUrl, effectiveToken);
     if (resolved) {
       pageId = resolved;
       try {
