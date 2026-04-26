@@ -1732,6 +1732,92 @@ function mockResponse(prompt: string): string {
   });
 }
 
+
+// ── Geração local de insights a partir dos ads coletados (sem LLM) ────────────
+// Usado quando todos os LLMs estão indisponíveis mas há dados reais coletados
+function generateLocalInsights(ads: any[], competitorName: string, isEstimated: boolean, clientProfile?: any): string {
+  const total  = ads.length;
+  const ativos = ads.filter((a: any) => a.isActive).length;
+
+  // Contagem de formatos
+  const fmtCount: Record<string, number> = {};
+  for (const a of ads) {
+    const f = (a.adType || "image").toLowerCase();
+    fmtCount[f] = (fmtCount[f] || 0) + 1;
+  }
+  const fmtSorted = Object.entries(fmtCount).sort((x, y) => y[1] - x[1]);
+  const fmtStr = fmtSorted.map(([f, n]) => `${f} (${Math.round(n / total * 100)}%)`).join(" | ") || "—";
+
+  // CTAs únicos coletados
+  const ctas = [...new Set(ads.map((a: any) => a.cta).filter(Boolean))].slice(0, 5);
+  const ctaStr = ctas.length ? ctas.join(", ") : "—";
+
+  // Headlines — extrai padrões reais
+  const headlines = ads.map((a: any) => a.headline).filter(Boolean);
+  const hasNumeros    = headlines.filter((h: string) => /\d/.test(h)).length;
+  const hasPerguntas  = headlines.filter((h: string) => h.includes("?")).length;
+  const hasExclamacao = headlines.filter((h: string) => h.includes("!")).length;
+  const temExclusivo  = headlines.filter((h: string) => /exclusiv|premium|único|especial/i.test(h)).length;
+  const temUrgencia   = headlines.filter((h: string) => /agora|hoje|último|limite|vagas/i.test(h)).length;
+
+  const padroes: string[] = [];
+  if (hasNumeros > total * 0.3)    padroes.push(`Headlines com números (${hasNumeros}/${total})`);
+  if (hasPerguntas > total * 0.2)  padroes.push(`Perguntas retóricas (${hasPerguntas}/${total})`);
+  if (hasExclamacao > total * 0.3) padroes.push(`Chamadas urgentes (${hasExclamacao}/${total})`);
+  if (temExclusivo > 0)            padroes.push(`Tom de exclusividade (${temExclusivo} ads)`);
+  if (temUrgencia > 0)             padroes.push(`Gatilho de urgência (${temUrgencia} ads)`);
+  const padroesStr = padroes.length ? padroes.join(". ") : "Copy direto e objetivo";
+
+  // Funil por taxa ativo/inativo
+  const taxaAtivo = total > 0 ? Math.round(ativos / total * 100) : 0;
+  const funil = taxaAtivo > 60
+    ? `Alta atividade (${taxaAtivo}% ativos) — foco em tráfego e conversão contínua`
+    : taxaAtivo > 30
+    ? `Atividade moderada (${taxaAtivo}% ativos) — mix de awareness e conversão`
+    : `Baixa atividade atual (${taxaAtivo}% ativos) — possível pausa estratégica ou teste`;
+
+  // Amostras reais de headlines (máx 3)
+  const sampleHeadlines = headlines.slice(0, 3).map((h: string) => `"${h}"`).join("; ");
+
+  // Pontos fracos inferidos
+  const fracos: string[] = [];
+  if (ctas.length <= 2)     fracos.push("CTAs pouco variados — poucas variações testadas");
+  if (hasNumeros < 2)       fracos.push("Poucas headlines com dados numéricos — menor credibilidade");
+  if (ativos < 3)           fracos.push("Poucos anúncios ativos — baixa pressão competitiva agora");
+  if (fmtSorted.length < 2) fracos.push("Pouca diversidade de formatos — vulnerável a fadiga criativa");
+  if (fracos.length === 0)  fracos.push("Volume de anúncios limitado para análise de fraquezas");
+  const fracosStr = fracos.map((f, i) => `${i + 1}. ${f}`).join(". ");
+
+  // Recomendações específicas
+  const recs: string[] = [];
+  if (ctas.length <= 2)               recs.push("Teste CTAs diferentes: WhatsApp, agendamento, formulário — variando tom e urgência");
+  if (hasNumeros < 2)                 recs.push("Inclua números concretos nas headlines: metragem, preço, prazo, ROI");
+  if (ativos < 3)                     recs.push(`Momento favorável — concorrente com apenas ${ativos} anúncio(s) ativo(s) agora`);
+  if (fmtSorted[0]?.[0] === "image") recs.push("Invista em vídeo curto (15-30s) — formato menos explorado pelo concorrente");
+  if (recs.length < 3)                recs.push("Crie variações de copy baseadas nos padrões identificados e faça A/B estruturado");
+  const recsStr = recs.slice(0, 3).map((r, i) => `${i + 1}. ${r}`).join(". ");
+
+  // Contexto do cliente
+  const clientCtx = clientProfile
+    ? `\n\n📊 Gap para ${(clientProfile as any).companyName}: posicione-se explorando os pontos fracos acima em ${(clientProfile as any).productService || "seu segmento"}.`
+    : "";
+
+  const prefix = isEstimated
+    ? `⚠️ Dados inferidos do site — padrões típicos do nicho para ${competitorName}.\n\n`
+    : `✅ Análise de ${total} anúncio(s) coletado(s) de ${competitorName} (${ativos} ativo(s)).\n\n`;
+
+  return (
+    prefix +
+    `🎨 Formatos: ${fmtStr}\n\n` +
+    `📢 CTAs predominantes: ${ctaStr}\n\n` +
+    `🔀 Atividade / Funil: ${funil}\n\n` +
+    `🏆 Padrões vencedores: ${padroesStr}${sampleHeadlines ? `\nExemplos coletados: ${sampleHeadlines}` : ""}\n\n` +
+    `⚠️ Pontos fracos detectados: ${fracosStr}\n\n` +
+    `💡 Recomendações para o cliente: ${recsStr}` +
+    clientCtx
+  );
+}
+
 // ── Lock global para evitar análises simultâneas do mesmo concorrente ────────
 const _analyzingLock = new Map<number, Promise<any>>();
 
@@ -2147,7 +2233,25 @@ Responda OBRIGATORIAMENTE em JSON com TODOS estes campos:
       log.info("ai", "HF Space indisponível — usando Gemini direto para insights", { competitorId });
       const raw = await gemini(prompt, { temperature: 0.3 });
       const clean = raw.replace(/```json|```/g, "").trim();
-      p = JSON.parse(clean);
+      const parsed = JSON.parse(clean);
+      // Se gemini retornou mock (sem LLM real), usa análise local dos dados reais
+      const isMock = !parsed.topFormats || (Array.isArray(parsed.topFormats) && parsed.topFormats[0]?.insight === "Formato dominante para awareness");
+      if (isMock) {
+        log.info("ai", "LLMs indisponíveis — gerando insights locais dos dados coletados", { competitorId, adsCount: updatedAds.length });
+        insights = generateLocalInsights(updatedAds, (competitor as any).name, isEstimatedData, clientProfile);
+        await db.updateCompetitorInsights(competitorId, insights, updatedAds.length);
+        log.info("ai", "[M2] analyzeCompetitor done (insights locais)", { competitorId, adsCount: updatedAds.length, fonte, status: analysisStatus });
+        return {
+          success:     analysisStatus === "success" || analysisStatus === "partial",
+          adsCount:    updatedAds.length,
+          insights,
+          fonte,
+          status:      analysisStatus,
+          isEstimatedData,
+          integrationRequired: sourceMeta.integrationRequired,
+        };
+      }
+      p = parsed;
     }
 
     // Normaliza resposta: se veio aninhada em data/result/response, extrai nível raiz
@@ -2171,10 +2275,8 @@ Responda OBRIGATORIAMENTE em JSON com TODOS estes campos:
     // Salva tanto o JSON estruturado quanto o texto — o frontend detecta qual usar
     insights = `__JSON__${insightsJson}__ENDjson__\n\n${insightsText}`;
   } catch (e: any) {
-    log.warn("ai", "Failed to parse AI response", { error: e.message });
-    insights = updatedAds.length > 0
-      ? `Análise baseada em ${updatedAds.length} anúncio(s) coletado(s) de ${(competitor as any).name}.`
-      : "Não há dados suficientes para análise nesta tentativa.";
+    log.warn("ai", "Failed to parse AI response — gerando insights locais", { error: e.message });
+    insights = generateLocalInsights(updatedAds, (competitor as any).name, isEstimatedData, clientProfile);
   }
 
   await db.updateCompetitorInsights(competitorId, insights, updatedAds.length);
