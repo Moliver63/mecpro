@@ -7,6 +7,7 @@ import { getImageDimensions, validateMediaForPlacements, getOrientationGuide, ty
 import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/components/PlacementConfig";
 import { useEffect, useState, useRef } from "react";
 import Layout from "@/components/layout/Layout";
+import CampaignAudit from "@/components/CampaignAudit";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
 import { toast } from "sonner";
@@ -171,6 +172,7 @@ export default function CampaignResult() {
   const [uploadDone,   setUploadDone]   = useState(false);
   const [placementPreset, setPlacementPreset] = useState("ecommerce");
   const [showVSL,       setShowVSL]       = useState(false);
+  const [showAudit,    setShowAudit]    = useState(false);
   const [mediaMode,    setMediaMode]    = useState<"none" | "url" | "upload">("none");
   const [mediaDims,    setMediaDims]    = useState<MediaDimensions | null>(null);
   const [mediaValidation, setMediaValidation] = useState<MediaValidationResult | null>(null);
@@ -1557,6 +1559,13 @@ export default function CampaignResult() {
           <button onClick={() => checkComplianceAndPublish()}
             className="btn-publish" style={{ background: checkingCompliance ? "#93c5fd" : "#1877f2", color: "white", fontWeight: 700, fontSize: 13, padding: "10px 20px", borderRadius: 10, border: "none", cursor: checkingCompliance ? "wait" : "pointer", transition: "all .2s ease" }}>
             {checkingCompliance ? "🔍 Verificando compliance..." : "📘 Publicar no Meta Ads"}
+          </button>
+          <button
+            onClick={() => setShowAudit(a => !a)}
+            style={{ background: showAudit ? "#1e293b" : "var(--off)", color: showAudit ? "white" : "var(--black)",
+              fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 10, border: "1px solid var(--border)",
+              cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            🔍 {showAudit ? "Fechar Auditoria" : "Auditar campanha"}
           </button>
           <button
             onClick={() => {
@@ -3709,6 +3718,16 @@ export default function CampaignResult() {
         }
       `}</style>
       </div>
+    {/* ── Painel de Auditoria ── */}
+      {showAudit && campaign && (
+        <div style={{ maxWidth: 900, margin: "0 auto 40px", padding: "0 16px" }}>
+          <CampaignAudit
+            campaign={campaign}
+            clientProfile={(clientProfile as any)}
+            onClose={() => setShowAudit(false)}
+          />
+        </div>
+      )}
     </Layout>
   );
 }

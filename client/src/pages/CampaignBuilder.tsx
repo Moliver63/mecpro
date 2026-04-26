@@ -2,6 +2,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useParams, useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
+import CampaignAudit from "@/components/CampaignAudit";
 import { trpc } from "@/lib/trpc";
 import { usePlanLimit } from "@/hooks/usePlanLimit";
 import IntelligenceRecommendation from "@/components/IntelligenceRecommendation";
@@ -234,6 +235,7 @@ export default function CampaignBuilder() {
   }
 
   const [step, setStep] = useState(1);
+  const [showBuilderAudit, setShowBuilderAudit] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [matchResult, setMatchResult] = useState<any>(null);
   const [matching, setMatching] = useState(false);
@@ -1174,7 +1176,17 @@ export default function CampaignBuilder() {
 
               {/* Navegação */}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 28 }}>
-                {step > 1 ? <button className="btn btn-md btn-ghost" onClick={() => setStep(s => s - 1)}>← Voltar</button> : <div />}
+                {/* Botão de auditoria no step 7 */}
+              {step === 7 && (
+                <button
+                  onClick={() => setShowBuilderAudit(a => !a)}
+                  style={{ background: showBuilderAudit ? "#1e293b" : "var(--off)", color: showBuilderAudit ? "white" : "var(--black)",
+                    fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 10, border: "1px solid var(--border)",
+                    cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                  🔍 {showBuilderAudit ? "Fechar auditoria" : "Pré-auditar briefing"}
+                </button>
+              )}
+              {step > 1 ? <button className="btn btn-md btn-ghost" onClick={() => setStep(s => s - 1)}>← Voltar</button> : <div />}
                 {step === 1
                   ? <button className="btn btn-md btn-primary" onClick={() => setStep(2)} disabled={!segment}>
                       {segment ? "Continuar →" : "Selecione um segmento"}
@@ -1247,6 +1259,15 @@ export default function CampaignBuilder() {
         }
         input[type=range]:focus { outline: none; }
       `}</style>
+          {showBuilderAudit && (
+        <div style={{ maxWidth: 900, margin: "16px auto 40px", padding: "0 16px" }}>
+          <CampaignAudit
+            campaign={{ strategy: form.extraContext || "", creatives: "[]", adSets: "[]" }}
+            clientProfile={clientProfile}
+            onClose={() => setShowBuilderAudit(false)}
+          />
+        </div>
+      )}
     </Layout>
   );
 }
