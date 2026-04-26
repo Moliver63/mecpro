@@ -118,6 +118,33 @@ const app = express();
 // ── MECPro Public REST API v1 ──────────────────────────────────────────────
 app.use('/api/v1', publicApiRouter);
 
+// ── REST: Campaign by ID para pré-preencher wizard de publicação ──────────────
+app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
+  try {
+    const token = (req as any).cookies?.token;
+    if (!token) return res.status(401).json({ error: 'Não autenticado' });
+    const { jwtVerify } = await import('jose');
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+    const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null }));
+    if (!payload) return res.status(401).json({ error: 'Token inválido' });
+    const campaign = await db.getCampaignById(parseInt(req.params.id));
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+    // Extrai nicho do clientProfile se disponível
+    const project = campaign.projectId ? await db.getProjectById(campaign.projectId) : null;
+    const clientProfile = project ? await db.getClientProfileByProjectId(project.id) : null;
+    res.json({
+      id: (campaign as any).id,
+      name: (campaign as any).name,
+      niche: (clientProfile as any)?.niche || '',
+      description: (clientProfile as any)?.productService || '',
+      objective: (campaign as any).objective,
+      platform: (campaign as any).platform,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Marketplace REST API ──────────────────────────────────────────────────────
 // Middleware JWT leve para injetar req.user (opcional — rotas públicas não precisam)
 const marketplaceAuthMiddleware = async (req: Request, res: Response, next: NextFunction) => {

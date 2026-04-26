@@ -530,4 +530,23 @@ router.post("/boost", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/marketplace/:id/click — Registra clique na landing page
+router.post("/:id/click", async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!isNaN(id)) {
+      const pool = await (db as any).getPool?.();
+      if (pool) {
+        await pool.query(
+          `UPDATE marketplace_listings SET clicks = COALESCE(clicks, 0) + 1 WHERE id = $1`,
+          [id]
+        ).catch(() => {});
+      }
+    }
+    res.json({ success: true });
+  } catch {
+    res.json({ success: true }); // nunca falha visivelmente
+  }
+});
+
 export default router;
