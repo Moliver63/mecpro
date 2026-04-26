@@ -274,6 +274,48 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/marketplace/seller/dashboard — Dashboard do vendedor (auth required)
+router.get("/seller/dashboard", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    
+    const [listings, orders, totalRevenue] = await Promise.all([
+      (db as any).getListingsByUser(userId),
+      (db as any).getOrdersBySeller(userId),
+      (db as any).getTotalRevenueByUser(userId),
+    ]);
+    
+    res.json({
+      success: true,
+      stats: {
+        totalListings:  listings.length,
+        activeListings: listings.filter((l: any) => l.status === "active").length,
+        totalViews:     listings.reduce((s: number, l: any) => s + (l.views || 0), 0),
+        totalClicks:    listings.reduce((s: number, l: any) => s + (l.clicks || 0), 0),
+        totalOrders:    orders.length,
+        totalRevenue:   totalRevenue || 0,
+      },
+      listings,
+      recentOrders: orders.slice(0, 10),
+    });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// GET /api/marketplace/seller/my-listings — Lista as ofertas do seller logado
+router.get("/seller/my-listings", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    const listings = await (db as any).getListingsByUser(userId);
+    res.json({ success: true, listings });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // GET /api/marketplace/:slug — Landing page de um produto
 router.get("/:slug", async (req: Request, res: Response) => {
   try {
@@ -394,36 +436,6 @@ Sugira melhorias ESPECÍFICAS e ACIONÁVEIS em JSON:
   }
 });
 
-// GET /api/marketplace/seller/dashboard — Dashboard do vendedor (auth required)
-router.get("/seller/dashboard", async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user?.id;
-    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
-    
-    const [listings, orders, totalRevenue] = await Promise.all([
-      (db as any).getListingsByUser(userId),
-      (db as any).getOrdersBySeller(userId),
-      (db as any).getTotalRevenueByUser(userId),
-    ]);
-    
-    res.json({
-      success: true,
-      stats: {
-        totalListings:  listings.length,
-        activeListings: listings.filter((l: any) => l.status === "active").length,
-        totalViews:     listings.reduce((s: number, l: any) => s + (l.views || 0), 0),
-        totalClicks:    listings.reduce((s: number, l: any) => s + (l.clicks || 0), 0),
-        totalOrders:    orders.length,
-        totalRevenue:   totalRevenue || 0,
-      },
-      listings,
-      recentOrders: orders.slice(0, 10),
-    });
-  } catch (e: any) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
 // POST /api/marketplace/order — Registra pedido (chamado pelo checkout)
 router.post("/order", async (req: Request, res: Response) => {
   try {
@@ -467,18 +479,6 @@ router.patch("/:id/status", async (req: Request, res: Response) => {
     await (db as any).updateListingStatus(listing.id, status);
     log.info("marketplace", "Listing status atualizado", { listingId: listing.id, status });
     res.json({ success: true, status });
-  } catch (e: any) {
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-// GET /api/marketplace/seller/my-listings — Lista as ofertas do seller logado
-router.get("/seller/my-listings", async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).user?.id;
-    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
-    const listings = await (db as any).getListingsByUser(userId);
-    res.json({ success: true, listings });
   } catch (e: any) {
     res.status(500).json({ success: false, error: e.message });
   }

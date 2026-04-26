@@ -84,7 +84,7 @@ export default function PublishListing() {
   // Pré-preenche se veio de uma campanha
   useEffect(() => {
     if (!campaignId) return;
-    fetch(`/api/campaigns/${campaignId}`)
+    fetch(`/api/campaigns/${campaignId}`, { credentials: "include" })
       .then(r => r.json())
       .then(d => {
         if (d?.name) set("title", d.name);
@@ -102,6 +102,7 @@ export default function PublishListing() {
     try {
       const res = await fetch("/api/marketplace/generate-landing", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: form.title, niche: form.niche,
@@ -132,6 +133,7 @@ export default function PublishListing() {
     try {
       const res = await fetch("/api/marketplace/publish", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,

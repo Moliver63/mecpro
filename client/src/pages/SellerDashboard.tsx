@@ -40,7 +40,7 @@ export default function SellerDashboard() {
   const [activeTab, setActiveTab]   = useState<"listings" | "orders">("listings");
 
   useEffect(() => {
-    fetch("/api/marketplace/seller/dashboard")
+    fetch("/api/marketplace/seller/dashboard", { credentials: "include" })
       .then(r => r.json())
       .then(d => { if (d.success) setData(d); else setData(MOCK_DATA); })
       .catch(() => setData(MOCK_DATA))
@@ -50,7 +50,7 @@ export default function SellerDashboard() {
   async function optimize(listingId: number) {
     setOptimizing(listingId);
     try {
-      const res  = await fetch(`/api/marketplace/${listingId}/optimize`, { method: "POST" });
+      const res  = await fetch(`/api/marketplace/${listingId}/optimize`, { method: "POST", credentials: "include" });
       const resp = await res.json();
       if (resp.success) {
         toast.success("✦ IA gerou sugestões de otimização!");
@@ -76,6 +76,7 @@ export default function SellerDashboard() {
     try {
       await fetch(`/api/marketplace/${listing.id}/status`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });

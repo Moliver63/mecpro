@@ -142,7 +142,7 @@ function ListingLanding({ slug }: { slug: string }) {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/marketplace/${slug}`)
+    fetch(`/api/marketplace/${slug}`, { credentials: "include" })
       .then(r => r.json())
       .then(d => {
         if (d.success && d.listing) setListing(d.listing);
@@ -182,7 +182,7 @@ function ListingLanding({ slug }: { slug: string }) {
 
   function handleCta() {
     // Registra clique
-    fetch(`/api/marketplace/${listing.id}/click`, { method: "POST" }).catch(() => {});
+    fetch(`/api/marketplace/${listing.id}/click`, { method: "POST", credentials: "include" }).catch(() => {});
     if (ctaHref) window.open(ctaHref, "_blank");
     else setContactSent(true);
   }
@@ -409,7 +409,7 @@ function MarketplaceHome() {
       if (search)    params.set("search", search);
       if (niche)     params.set("niche", niche);
       if (priceType) params.set("priceType", priceType);
-      const res  = await fetch(`/api/marketplace?${params}`);
+      const res  = await fetch(`/api/marketplace?${params}`, { credentials: "include" });
       const data = await res.json();
       if (reset) { setListings(data.listings || []); setPage(2); }
       else       { setListings(prev => [...prev, ...(data.listings || [])]); setPage(p + 1); }
