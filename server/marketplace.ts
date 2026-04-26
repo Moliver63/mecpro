@@ -103,10 +103,31 @@ Gere em JSON com TODOS os campos preenchidos de forma persuasiva e específica p
   "aiSuggestions": ["sugestão de melhoria 1", "sugestão 2", "sugestão 3"]
 }`;
 
-  const raw = await gemini(prompt, { temperature: 0.7 });
-  const clean = raw.replace(/```json|```/g, "").trim();
-  const parsed = JSON.parse(clean);
-  return { ...parsed, theme, niche: input.niche };
+  try {
+    const raw = await gemini(prompt, { temperature: 0.7 });
+    const clean = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(clean);
+    return { ...parsed, theme, niche: input.niche };
+  } catch (e: any) {
+    log.warn("marketplace", "generateLandingPage IA falhou — usando estrutura mínima", { error: e.message });
+    // Fallback estruturado quando IA não está disponível
+    return {
+      sections: {
+        hero:     { headline: input.title, subheadline: input.description || "Entre em contato para saber mais", cta: "Entrar em contato" },
+        problem:  { title: "Você precisa de uma solução?", points: ["Dificuldade em encontrar o produto certo", "Preços altos no mercado", "Falta de atendimento personalizado"] },
+        solution: { title: "Apresentamos a solução ideal", description: input.description || "Temos a solução que você precisa com qualidade e atendimento diferenciado." },
+        benefits: { title: "Por que escolher nossa oferta:", items: (input.benefits || ["Qualidade garantida", "Atendimento personalizado", "Melhor preço"]).slice(0,4).map((b: string) => ({ icon: "✓", title: typeof b === "string" ? b : String(b), desc: "" })) },
+        social:   { testimonials: [{ name: "Cliente satisfeito", text: "Excelente produto e atendimento. Recomendo!", rating: 5 }, { name: "Usuário verificado", text: "Superou minhas expectativas. Vale cada centavo.", rating: 5 }] },
+        pricing:  { title: "Investimento", price: input.price ? `R$ ${input.price}` : "Consulte", installments: "", guarantee: "Satisfação garantida ou seu dinheiro de volta" },
+        faq:      { items: [{ q: "Como faço para adquirir?", a: "Entre em contato conosco pelo botão abaixo e nossa equipe te atenderá rapidamente." }, { q: "Qual o prazo de entrega/atendimento?", a: "Entramos em contato em até 24 horas após seu pedido." }] },
+        finalCta: { headline: "Pronto para começar?", cta: "Quero saber mais" },
+      },
+      theme,
+      niche: input.niche,
+      aiScore: 60,
+      aiSuggestions: ["Adicione mais detalhes na descrição para melhorar a landing page", "Inclua preço específico para aumentar conversão", "Adicione fotos do produto/serviço"],
+    };
+  }
 }
 
 // ── Gerador de HTML da landing page ──────────────────────────────────────────
@@ -337,6 +358,74 @@ router.get("/:slug", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/marketplace/publish-direct — Gera landing + Publica em 1 única chamada (sem preview)
+// Usado pelo botão "Publicar automaticamente" — fluxo simplificado
+router.post("/publish-direct", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+
+    const { title, niche, description, price, priceType, campaignId,
+            benefits, checkoutType, whatsappNumber, checkoutUrl,
+            contactEmail, region, city, state, isNational } = req.body;
+
+    if (!title || !niche) return res.status(400).json({ success: false, error: "title e niche são obrigatórios" });
+
+    log.info("marketplace", "publish-direct start", { userId, title, niche });
+
+    // Gera slug único
+    const baseSlug = title.toLowerCase()
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug = `${baseSlug}-${Date.now().toString(36)}`;
+
+    // Gera landing page (com fallback se IA falhar)
+    const toJson = (v: any) => v != null ? JSON.stringify(v) : null;
+    const benefitsList = Array.isArray(benefits) ? benefits : (typeof benefits === "string" ? benefits.split("\n").filter(Boolean) : []);
+    const landingData = await generateLandingPage({ title, niche, description, price: price ? Number(price) : undefined, priceType, benefits: benefitsList, checkoutType, whatsappNumber });
+    const mockListing = { title, checkoutUrl, whatsappNumber };
+    const html = renderLandingHtml(landingData, mockListing);
+
+    const listing = await (db as any).createMarketplaceListing({
+      userId,
+      campaignId:     campaignId ? Number(campaignId) : null,
+      title,
+      slug,
+      niche,
+      status:         "active",
+      price:          price ? String(price) : null,
+      priceType:      priceType || "fixed",
+      headline:       landingData.sections?.hero?.headline || title,
+      subheadline:    landingData.sections?.hero?.subheadline || "",
+      description:    description || "",
+      benefits:       toJson(benefitsList),
+      ctaText:        landingData.sections?.hero?.cta || "Entrar em contato",
+      guarantee:      landingData.sections?.pricing?.guarantee || "",
+      faq:            toJson(landingData.sections?.faq?.items || []),
+      testimonials:   toJson(landingData.sections?.social?.testimonials || []),
+      checkoutUrl:    checkoutUrl || null,
+      whatsappNumber: whatsappNumber || null,
+      contactEmail:   contactEmail || null,
+      checkoutType:   checkoutType || "whatsapp",
+      region:         region || null,
+      city:           city || null,
+      state:          state || null,
+      isNational:     isNational !== false,
+      landingPage:    toJson(landingData),
+      landingPageHtml: html,
+      aiScore:        landingData.aiScore || null,
+      aiSuggestions:  toJson(landingData.aiSuggestions || []),
+      publishedAt:    new Date(),
+    });
+
+    log.info("marketplace", "publish-direct done", { listingId: listing?.id, userId, slug });
+    res.json({ success: true, listing, slug, url: `/marketplace/${slug}`, landingPage: landingData });
+  } catch (e: any) {
+    log.warn("marketplace", "publish-direct error", { error: e.message });
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // POST /api/marketplace/generate-landing — Gera landing page via IA (auth required)
 router.post("/generate-landing", async (req: Request, res: Response) => {
   try {
@@ -377,20 +466,40 @@ router.post("/publish", async (req: Request, res: Response) => {
     const mockListing = { title, checkoutUrl, whatsappNumber };
     const html = renderLandingHtml(landingData, mockListing);
     
+    // Serializa campos JSONB para string antes de inserir no PostgreSQL
+    const toJson = (v: any) => v != null ? JSON.stringify(v) : null;
+
     // Salva no banco
     const listing = await (db as any).createMarketplaceListing({
-      userId, campaignId, title, slug, niche, status: "active",
-      price, priceType, headline: landingData.sections?.hero?.headline,
-      subheadline: landingData.sections?.hero?.subheadline,
-      description, benefits, ctaText: landingData.sections?.hero?.cta,
-      guarantee: landingData.sections?.pricing?.guarantee,
-      faq: landingData.sections?.faq?.items,
-      testimonials: landingData.sections?.social?.testimonials,
-      checkoutUrl, whatsappNumber, contactEmail, checkoutType,
-      region, city, state, isNational: isNational ?? true,
-      landingPage: landingData, landingPageHtml: html,
-      aiScore: landingData.aiScore, aiSuggestions: landingData.aiSuggestions,
-      publishedAt: new Date(),
+      userId,
+      campaignId:     campaignId ? Number(campaignId) : null,
+      title,
+      slug,
+      niche,
+      status:         "active",
+      price:          price ? String(price) : null,
+      priceType:      priceType || "fixed",
+      headline:       landingData.sections?.hero?.headline || title,
+      subheadline:    landingData.sections?.hero?.subheadline || "",
+      description:    description || "",
+      benefits:       toJson(Array.isArray(benefits) ? benefits : []),
+      ctaText:        landingData.sections?.hero?.cta || "Entrar em contato",
+      guarantee:      landingData.sections?.pricing?.guarantee || "",
+      faq:            toJson(landingData.sections?.faq?.items || []),
+      testimonials:   toJson(landingData.sections?.social?.testimonials || []),
+      checkoutUrl:    checkoutUrl || null,
+      whatsappNumber: whatsappNumber || null,
+      contactEmail:   contactEmail || null,
+      checkoutType:   checkoutType || "whatsapp",
+      region:         region || null,
+      city:           city || null,
+      state:          state || null,
+      isNational:     isNational !== false,
+      landingPage:    toJson(landingData),
+      landingPageHtml: html,
+      aiScore:        landingData.aiScore || null,
+      aiSuggestions:  toJson(landingData.aiSuggestions || []),
+      publishedAt:    new Date(),
     });
     
     log.info("marketplace", "Listing publicado", { listingId: listing.id, userId, slug });

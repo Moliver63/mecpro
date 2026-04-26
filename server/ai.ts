@@ -1375,6 +1375,40 @@ async function _geminiImpl(
         const clR = await callClaudeAPI(_compressedForGroq, opts.systemInstruction, opts.temperature).catch(() => null);
         if (clR) { log.info("ai", "✅ Claude fallback direto OK (quota Gemini)"); return clR; }
       }
+      // Último recurso: tenta OpenRouter (acesso a modelos gratuitos sem rate limit agressivo)
+      if (process.env.OPENROUTER_API_KEY) {
+        try {
+          const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type":  "application/json",
+              "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+              "HTTP-Referer":  "https://mecproai.com",
+              "X-Title":       "MecProAI",
+            },
+            body: JSON.stringify({
+              model:       "meta-llama/llama-3.1-8b-instruct:free",
+              temperature: opts.temperature ?? 0.3,
+              max_tokens:  4096,
+              messages: [
+                { role: "system", content: opts.systemInstruction || SYSTEM_MECPRO },
+                { role: "user",   content: _compressPromptLight(prompt, 8000) },
+              ],
+            }),
+            signal: AbortSignal.timeout(25000),
+          });
+          if (orRes.ok) {
+            const orData: any = await orRes.json();
+            const orText = orData?.choices?.[0]?.message?.content || "";
+            if (orText) {
+              log.info("ai", "✅ OpenRouter fallback OK (quota Gemini + Groq esgotados)");
+              return orText;
+            }
+          }
+        } catch (orErr: any) {
+          log.warn("ai", "OpenRouter fallback falhou", { error: orErr.message?.slice(0,60) });
+        }
+      }
       log.warn("ai", "Todos os LLMs indisponíveis — usando mock response (quota Gemini esgotada)");
       return mockResponse(prompt);
     }
@@ -1544,20 +1578,48 @@ async function _geminiImpl(
 }
 
 // ── Groq API — fallback principal quando Gemini está indisponível ────────────
+// Suporte a múltiplas chaves (GROQ_API_KEY, GROQ_API_KEY_2 ... _5) para contornar rate limits
 // Compatível com OpenAI API format. Modelos Llama 3 gratuitos.
+
+// Rastreamento de rate limit por chave Groq
+const _groqRateLimited = new Map<string, number>(); // key → timestamp
+const GROQ_RATE_RESET_MS = 62 * 1000; // 62s — free tier reseta por minuto
+
+function getAvailableGroqKey(): string | null {
+  const keys = [
+    process.env.GROQ_API_KEY,
+    process.env.GROQ_API_KEY_2,
+    process.env.GROQ_API_KEY_3,
+    process.env.GROQ_API_KEY_4,
+    process.env.GROQ_API_KEY_5,
+  ].filter(Boolean) as string[];
+  if (!keys.length) return null;
+  const now = Date.now();
+  // Libera chaves cujo rate limit já expirou
+  for (const [k, ts] of _groqRateLimited.entries()) {
+    if (now - ts > GROQ_RATE_RESET_MS) _groqRateLimited.delete(k);
+  }
+  // Retorna primeira chave disponível
+  const available = keys.filter(k => !_groqRateLimited.has(k));
+  if (available.length > 0) return available[0];
+  // Todas em rate limit — retorna a mais antiga (provavelmente já liberada)
+  const oldest = [..._groqRateLimited.entries()].sort((a,b) => a[1]-b[1])[0];
+  return oldest ? oldest[0] : keys[0];
+}
+
 async function callGroqAPI(
   prompt: string,
   systemInstruction?: string,
   temperature: number = 0.3,
 ): Promise<string | null> {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = getAvailableGroqKey();
   if (!apiKey) {
-    log.info("ai", "Groq API: GROQ_API_KEY não configurada — pulando fallback");
+    log.info("ai", "Groq API: nenhuma GROQ_API_KEY configurada — pulando fallback");
     return null;
   }
 
-  // Modelo principal: llama-3.3-70b-versatile
-  // Fallback interno: llama-3.1-8b-instant (mais rápido, menor quota)
+  // Modelo principal: llama-3.3-70b-versatile (128k ctx)
+  // Fallback interno: llama-3.1-8b-instant (8k ctx — só para prompts curtos)
   const models = [
     process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
@@ -1569,7 +1631,7 @@ async function callGroqAPI(
       // llama-3.3-70b-versatile: 128k ctx → ~100k chars safe
       // llama-3.1-8b-instant: 8k ctx → ~12k chars safe
       // O Groq retorna 413 quando o payload JSON excede ~1MB — truncar mais agressivamente
-      const maxChars = model.includes("8b") ? 10000 : 50000;
+      const maxChars = model.includes("8b") ? 6000 : 50000;
       const truncatedPrompt = prompt.length > maxChars
         ? prompt.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere a resposta JSON completa com base no que foi fornecido acima]"
         : prompt;
@@ -1594,13 +1656,42 @@ async function callGroqAPI(
       });
 
       if (res.status === 429) {
-        log.warn("ai", `Groq rate limit no modelo ${model} — aguardando 2s antes do próximo`);
-        await new Promise(r => setTimeout(r, 2000));
+        // Marca esta chave como em rate limit e tenta outra chave imediatamente
+        _groqRateLimited.set(apiKey, Date.now());
+        const nextKey = getAvailableGroqKey();
+        if (nextKey && nextKey !== apiKey) {
+          log.warn("ai", `Groq 429 na chave atual — trocando para chave alternativa`, { model });
+          // Retenta imediatamente com a nova chave
+          const retryRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${nextKey}` },
+            body: JSON.stringify({ model, temperature, max_tokens: 8192,
+              response_format: { type: "json_object" },
+              messages: [
+                { role: "system", content: systemInstruction || SYSTEM_MECPRO },
+                { role: "user",   content: truncatedPrompt },
+              ],
+            }),
+            signal: AbortSignal.timeout(30000),
+          }).catch(() => null);
+          if (retryRes?.ok) {
+            const retryData: any = await retryRes.json().catch(() => null);
+            const retryText = retryData?.choices?.[0]?.message?.content || "";
+            if (retryText) {
+              log.info("ai", "Groq OK com chave alternativa após 429", { model });
+              return retryText;
+            }
+          }
+        } else {
+          // Sem chave alternativa — espera 5s antes de tentar próximo modelo
+          log.warn("ai", `Groq 429 — sem chave alternativa, aguardando 5s`, { model });
+          await new Promise(r => setTimeout(r, 5000));
+        }
         continue;
       }
       if (res.status === 413) {
         log.warn("ai", `Groq 413 (prompt muito grande) no modelo ${model} — truncando mais`);
-        continue; // próximo modelo com prompt menor
+        continue; // próximo modelo com prompt ainda menor
       }
 
       if (!res.ok) {
