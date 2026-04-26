@@ -3724,7 +3724,9 @@ export default function CampaignResult() {
           <CampaignAudit
             campaign={campaign}
             clientProfile={(clientProfile as any)}
+            projectId={projectId}
             onClose={() => setShowAudit(false)}
+            onProfileUpdated={() => _refetch()}
           />
         </div>
       )}

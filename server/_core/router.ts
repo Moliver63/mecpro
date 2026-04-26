@@ -629,6 +629,77 @@ const clientProfileRouter = router({
       })();
       return db.upsertClientProfile({ ...input, websiteUrl } as any);
     }),
+  // Auto-preenche campos vazios do perfil com base em concorrentes + nicho via IA
+  autoFill: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(async ({ input }) => {
+      const { gemini } = await import("../ai");
+      const [profile, competitors] = await Promise.all([
+        db.getClientProfileByProjectId(input.projectId),
+        db.getCompetitorsByProjectId(input.projectId),
+      ]);
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "Perfil nao encontrado" });
+      const p = profile as any;
+
+      // Coleta anuncios dos concorrentes
+      const allAds: any[] = [];
+      for (const comp of competitors.slice(0, 3)) {
+        const ads = await db.getScrapedAdsByCompetitor((comp as any).id).catch(() => []);
+        allAds.push(...ads.slice(0, 8).map((a: any) => ({
+          headline: a.headline || "", cta: a.cta || "",
+        })));
+      }
+      const adsSample = allAds.map(a => `"${a.headline}" | CTA: "${a.cta}"`).join("\n");
+      const compNames = competitors.map((c: any) => (c as any).name).join(", ");
+
+      const prompt = `Especialista em marketing. Infira os campos de perfil para empresa do nicho "${p.niche || "negocios"}".
+Empresa: ${p.companyName || "nao informado"}
+Produto: ${p.productService || "nao informado"}
+Concorrentes: ${compNames || "nenhum"}
+Anuncios coletados dos concorrentes:
+${adsSample || "sem dados"}
+
+Responda SOMENTE em JSON:
+{
+  "mainPain": "principal dor do publico em 1-2 frases especificas para o nicho",
+  "uniqueValueProposition": "diferencial unico da empresa vs concorrentes em 1-2 frases",
+  "mainObjections": "3 objecoes principais separadas por ponto e virgula",
+  "desiredTransformation": "transformacao desejada pelo cliente — antes e depois em 1 frase",
+  "targetAudience": "perfil completo: idade, renda, situacao atual, motivacao"
+}`;
+
+      let result: any = null;
+      try {
+        const raw = await gemini(prompt, { temperature: 0.5 });
+        result = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      } catch (e: any) {
+        log.warn("clientProfile", "autoFill gemini error", { error: e.message?.slice(0, 80) });
+        result = null;
+      }
+
+      if (!result) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "IA indisponivel — tente novamente em instantes" });
+
+      // Preenche apenas campos vazios — nao sobrescreve o que o usuario ja preencheu
+      const updates: Record<string, string> = {};
+      if (!p.mainPain               && result.mainPain)               updates.mainPain               = result.mainPain;
+      if (!p.uniqueValueProposition && result.uniqueValueProposition)  updates.uniqueValueProposition = result.uniqueValueProposition;
+      if (!p.mainObjections         && result.mainObjections)          updates.mainObjections         = result.mainObjections;
+      if (!p.desiredTransformation  && result.desiredTransformation)   updates.desiredTransformation  = result.desiredTransformation;
+      if (!p.targetAudience         && result.targetAudience)          updates.targetAudience         = result.targetAudience;
+
+      const updated = await db.upsertClientProfile({
+        ...p, ...updates,
+        companyName: p.companyName || "",
+        niche:       p.niche       || "",
+        productService: p.productService || "",
+      });
+
+      log.info("clientProfile", "autoFill done", {
+        projectId: input.projectId,
+        filled: Object.keys(updates),
+      });
+      return { success: true, filled: Object.keys(updates), profile: updated };
+    }),
 });
 
 // ============ COMPETITORS ROUTER ============

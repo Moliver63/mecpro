@@ -14,6 +14,7 @@
  */
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface AuditDimension {
@@ -40,7 +41,9 @@ interface AuditResult {
 interface CampaignAuditProps {
   campaign: any;
   clientProfile?: any;
+  projectId?: number;
   onClose?: () => void;
+  onProfileUpdated?: () => void;
   mode?: "panel" | "modal" | "inline";
 }
 
@@ -434,11 +437,36 @@ function ScoreBar({ score, color }: { score: number; color: string }) {
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
-export default function CampaignAudit({ campaign, clientProfile, onClose, mode = "panel" }: CampaignAuditProps) {
+export default function CampaignAudit({ campaign, clientProfile, projectId, onClose, onProfileUpdated, mode = "panel" }: CampaignAuditProps) {
   const [audit, setAudit]           = useState<AuditResult | null>(null);
   const [running, setRunning]       = useState(false);
   const [expanded, setExpanded]     = useState<string | null>(null);
   const [activeView, setActiveView] = useState<"summary" | "detail" | "action">("summary");
+  const [autoFilling, setAutoFilling] = useState(false);
+
+  const autoFillMutation = (trpc as any).clientProfile?.autoFill?.useMutation?.({
+    onSuccess: (data: any) => {
+      const filled = data?.filled || [];
+      if (filled.length > 0) {
+        toast.success(`✦ ${filled.length} campo(s) preenchidos automaticamente!`);
+        onProfileUpdated?.();
+        runAuditNow(); // re-audita com dados novos
+      } else {
+        toast.info("Todos os campos já estavam preenchidos.");
+      }
+      setAutoFilling(false);
+    },
+    onError: (e: any) => {
+      toast.error("Erro ao auto-preencher: " + (e.message || "tente novamente"));
+      setAutoFilling(false);
+    },
+  }) ?? { mutate: () => {}, isPending: false };
+
+  async function handleAutoFill() {
+    if (!projectId) { toast.error("projectId não informado"); return; }
+    setAutoFilling(true);
+    autoFillMutation.mutate({ projectId });
+  }
 
   function runAuditNow() {
     setRunning(true);
@@ -732,6 +760,15 @@ export default function CampaignAudit({ campaign, clientProfile, onClose, mode =
                           {d.suggestions.map((sug, si) => (
                             <div key={si} style={{ fontSize: 11, color: sc.text, marginBottom: 3 }}>→ {sug}</div>
                           ))}
+                          {d.id === "briefing" && d.score < 90 && projectId && (
+                            <button onClick={handleAutoFill} disabled={autoFilling}
+                              style={{ marginTop: 10, background: autoFilling ? "#93c5fd" : "#1d4ed8",
+                                color: "white", border: "none", borderRadius: 8, padding: "8px 16px",
+                                fontSize: 12, fontWeight: 700, cursor: autoFilling ? "wait" : "pointer",
+                                width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                              {autoFilling ? "⏳ Analisando concorrentes e preenchendo..." : "✦ Auto-preencher com IA (dados dos concorrentes)"}
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
