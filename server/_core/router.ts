@@ -1498,6 +1498,52 @@ const competitorsRouter = router({
         }
       }
 
+      // ── ESTRATÉGIA 5.5: Scraping público do site — busca link Facebook direto ──
+      // Não requer nenhuma permissão Meta — lê HTML público
+      if (results.length === 0) {
+        tried.push("site_scraping");
+        // Busca pelo site do concorrente via websiteUrl (se passado no companyName ou handle)
+        const possibleUrls = [
+          raw.includes(".") ? `https://${raw}` : null,
+          raw.includes(".") ? `https://www.${raw}` : null,
+        ].filter(Boolean) as string[];
+
+        for (const siteUrl of possibleUrls) {
+          if (results.length > 0) break;
+          try {
+            const res = await fetch(siteUrl, {
+              headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)" },
+              signal: AbortSignal.timeout(8000),
+              redirect: "follow",
+            });
+            if (!res.ok) continue;
+            const html = await res.text();
+            // Captura facebook.com/ID numérico direto
+            const numMatch = html.match(/facebook\.com\/(?:pages\/[^/"']+\/)?(\d{10,})/);
+            if (numMatch?.[1]) {
+              results.push({ method: "site_scraping_numeric", pageId: numMatch[1], pageName: input.companyName || raw, confidence: "high" });
+              log.info("ai", "discoverPageId Estratégia 5.5 OK (ID numérico)", { pageId: numMatch[1] });
+              break;
+            }
+            // Captura username da página Facebook
+            const userMatch = html.match(/facebook\.com\/((?!sharer|share|login|dialog|tr\?|ads\/|help\/|policies\/|groups\/|events\/)[\w.]{3,40})["' ]/);
+            if (userMatch?.[1] && token) {
+              const fbUrl = `https://graph.facebook.com/v20.0/${encodeURIComponent(userMatch[1])}?fields=id,name&access_token=${token}`;
+              const fbRes = await fetch(fbUrl, { signal: AbortSignal.timeout(6000) });
+              const fbData: any = await fbRes.json();
+              if (!fbData.error && fbData.id && /^\d+$/.test(fbData.id)) {
+                results.push({ method: "site_fb_username", pageId: fbData.id, pageName: fbData.name || userMatch[1], confidence: "high" });
+                log.info("ai", "discoverPageId Estratégia 5.5 OK (username→ID)", { username: userMatch[1], pageId: fbData.id });
+                break;
+              }
+            }
+          } catch {}
+        }
+        if (results.length === 0) {
+          log.info("ai", "discoverPageId Estratégia 5.5 site scraping sem resultado", { possibleUrls });
+        }
+      }
+
       // ── ESTRATÉGIA 5: Gemini — temperatura 0, regras rígidas ──
       if (results.length === 0) {
         tried.push("gemini");

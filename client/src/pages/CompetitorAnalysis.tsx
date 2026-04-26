@@ -508,19 +508,26 @@ function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
       if (data?.found && data?.pageId) {
         setDiscoveredPageId(data.pageId);
         const methodLabel: Record<string, string> = {
-          graph_direct_handle:  "Graph API",
-          ig_oembed_fb_page:    "Instagram oEmbed",
-          ads_library:          "Ads Library",
-          my_pages_exact:       "Suas páginas",
-          graph_pages_search:   "Busca de páginas",
-          graph_slug_var:       "Graph API (variação)",
-          gemini:               "IA",
+          graph_direct_handle:    "Graph API",
+          ig_oembed_fb_page:      "Instagram oEmbed",
+          ads_library:            "Ads Library",
+          my_pages_exact:         "Suas páginas",
+          graph_pages_search:     "Busca de páginas",
+          graph_slug_var:         "Graph API (variação)",
+          site_scraping_numeric:  "Site do concorrente",
+          site_fb_username:       "Site → Facebook",
+          gemini:                 "IA",
         };
         const via = methodLabel[data.method] || data.method || "auto";
         const conf = data.confidence === "medium" ? " (confiança média — confirme o nome)" : "";
         toast.success(`◎ Page ID encontrado via ${via}: ${data.pageId}${data.pageName ? " — " + data.pageName : ""}${conf}`);
       } else {
-        toast.error("✕ Page ID não encontrado automaticamente. Dica: tente usar o nome exato da Página do Facebook (ex: 'Triadi Imóveis') em vez do @instagram.");
+        toast.error(
+          "✕ Page ID não encontrado. O App Meta precisa de aprovação para buscar páginas de terceiros. " +
+          "Alternativas: 1) Cole a URL da Ads Library do concorrente no campo acima  " +
+          "2) Acesse facebook.com/NomeDaPagina → Sobre → copie o ID numérico.",
+          { duration: 12000 }
+        );
       }
     },
     onError: () => toast.error("✕ Erro ao buscar Page ID. Verifique se a integração Meta está ativa."),
@@ -812,7 +819,12 @@ function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDone: () 
         setPageId(data.pageId);
         toast.success(`◎ Page ID encontrado: ${data.pageId} (${data.pageName || "via " + data.method})`);
       } else {
-        toast.error("✕ Não foi possível encontrar o Page ID automaticamente. Cadastre manualmente.");
+        toast.error(
+          "✕ Page ID não encontrado automaticamente. " +
+          "Abra facebook.com/NomeDaPagina, clique em 'Sobre' → role até ver o ID numérico. " +
+          "Ou use facebook.com/ads/library → busque a empresa → copie o número da URL.",
+          { duration: 10000 }
+        );
       }
     },
     onError: () => toast.error("✕ Erro ao buscar Page ID."),
