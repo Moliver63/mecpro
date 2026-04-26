@@ -4321,10 +4321,10 @@ async function _generateMarketAnalysisImpl(projectId: number) {
     const fmtFreq    = compAds.reduce((acc: any, a: any) => { if (a.adType) acc[a.adType] = (acc[a.adType] || 0) + 1; return acc; }, {});
     const topFmts    = Object.entries(fmtFreq).sort((a: any, b: any) => b[1] - a[1]).map(([fmt, n]) => `${fmt}(${n})`).join(", ");
 
-    // Headlines deduplicadas
-    const headlines  = [...new Set(compAds.map((a: any) => a.headline).filter(Boolean))].slice(0, 5);
-    // Copies deduplicadas, primeiros 300 chars
-    const copies     = [...new Set(compAds.filter((a: any) => a.bodyText).map((a: any) => (a.bodyText as string).slice(0, 300)))].slice(0, 3);
+    // Headlines deduplicadas (max 3 para reduzir tamanho do prompt)
+    const headlines  = [...new Set(compAds.map((a: any) => a.headline).filter(Boolean))].slice(0, 3);
+    // Copies deduplicadas, primeiros 100 chars para caber no Groq
+    const copies     = [...new Set(compAds.filter((a: any) => a.bodyText).map((a: any) => (a.bodyText as string).slice(0, 100)))].slice(0, 2);
     // Faixas de investimento
     const spends     = compAds.map((a: any) => { try { return JSON.parse(a.rawData || "{}").spend; } catch { return null; } }).filter(Boolean).slice(0, 5);
 
@@ -4786,10 +4786,28 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     log.warn("ai", "Campaign parse error — tentando Groq como fallback", { error: e.message });
 
     // Tenta Groq quando Gemini retorna JSON truncado
-    // Comprime prompt para caber no Groq sem 413
-    const groqPrompt = compressPromptForGroq(prompt, 35000); // reduzido para evitar 413 no 70b
+    // Para Groq: usa prompt mínimo focado nos dados essenciais — evita 413
+    const groqMinimalPrompt = (() => {
+      const p = (clientProfile as any);
+      const compSummary = competitors.slice(0, 3).map((c: any) => {
+        const cAds = allAds.filter((a: any) => a.competitorName === (c as any).name);
+        const cHeadlines = cAds.map((a: any) => a.headline).filter(Boolean).slice(0, 2).join("; ");
+        const cCtas = [...new Set(cAds.map((a: any) => a.cta).filter(Boolean))].slice(0, 3).join(", ");
+        return `${(c as any).name}: ${cAds.length} ads, CTAs: ${cCtas || "n/a"}, headlines: ${cHeadlines || "n/a"}`;
+      }).join("\n");
+      return `Crie uma campanha de ${input.objective} para "${p?.companyName || input.name}" (nicho: ${p?.niche || "geral"}).
+Produto: ${p?.productService || "não informado"}. Público: ${p?.targetAudience || "não definido"}.
+Budget: R$${input.budget}/mês. Plataforma: ${input.platform}.
+Dor: ${p?.mainPain || "—"}. Proposta: ${p?.uniqueValueProposition || "—"}.
+Concorrentes:
+${compSummary || "Nenhum cadastrado."}
+${metaInsights ? `Performance real: CPC R$${metaInsights.cpc.toFixed(2)}, CPM R$${metaInsights.cpm.toFixed(2)}, CTR ${metaInsights.ctr.toFixed(2)}%` : ""}
+${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}
+
+Gere JSON com: strategy(string), campaignName(string), adSets(array com name/audience/budget/objective/funnelStage), creatives(array com type/format/orientation/headline/copy/bodyText/hook/pain/solution/cta/funnelStage/complianceScore/targetAudience/platforms/budget/duration), conversionFunnel(array com stage/format/audience/budget/kpi), executionPlan(array com week/action/budget/kpi), metrics(objeto com estimatedCPC/CPM/CTR/leads/ROAS/breakEven/insight).`;
+    })();
     try {
-      const groqRaw = await callGroqAPI(groqPrompt, undefined, 0.6);
+      const groqRaw = await callGroqAPI(groqMinimalPrompt, undefined, 0.6);
       if (groqRaw) {
         let groqParsed: any;
         try { groqParsed = JSON.parse(groqRaw); }
