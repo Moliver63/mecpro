@@ -1371,7 +1371,7 @@ async function _geminiImpl(
       log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
       // Tenta fallbacks em ordem: Groq → Genspark → Claude → mock
       // Comprime prompt para evitar Groq 413
-      const _compressedForGroq = _compressPromptLight(prompt, 45000);
+      const _compressedForGroq = _compressPromptLight(prompt, 25000);  // 25k evita 413 no 70b
       const groqR = await callGroqAPI(_compressedForGroq, opts.systemInstruction, opts.temperature).catch(() => null);
       if (groqR) { log.info("ai", "✅ Groq fallback direto OK (quota Gemini)"); return groqR; }
       const gsR = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
@@ -1638,7 +1638,7 @@ async function callGroqAPI(
       // llama-3.3-70b-versatile: 128k ctx → ~100k chars safe
       // llama-3.1-8b-instant: 8k ctx → ~12k chars safe
       // O Groq retorna 413 quando o payload JSON excede ~1MB — truncar mais agressivamente
-      const maxChars = model.includes("8b") ? 6000 : 50000;
+      const maxChars = model.includes("8b") ? 4000 : 40000;
       const truncatedPrompt = prompt.length > maxChars
         ? prompt.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere a resposta JSON completa com base no que foi fornecido acima]"
         : prompt;
@@ -5147,13 +5147,27 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       // Não interrompe — deixa cair no try/catch principal abaixo
     }
     if (strategy) {
-      // Salva e retorna sem chamar nenhum LLM
-      await db.updateCampaign(campaignId, {
-        strategy, adSets, creatives, conversionFunnel, executionPlan, aiResponse,
-        status: "ready", publishStatus: "unpublished",
+      // ecoMode: campanha ainda não existe no banco — criar aqui com todos os campos
+      const ecoCapaign = await db.createCampaign({
+        projectId: input.projectId,
+        name:      input.name,
+        objective: input.objective as any,
+        platform:  input.platform,
+        suggestedBudgetDaily:   budgetDaily,
+        suggestedBudgetMonthly: input.budget,
+        durationDays:    input.duration,
+        strategy,
+        adSets,
+        creatives,
+        conversionFunnel,
+        executionPlan,
+        aiPromptUsed: "hybrid_eco",
+        aiResponse,
+        status: "draft",
       } as any);
-      log.info("ai", "generateCampaign done (ecoMode)", { campaignId });
-      return { success: true, campaignId, motor: "hybrid_eco" };
+      const ecoCampaignId = (ecoCapaign as any).id;
+      log.info("ai", "generateCampaign done (ecoMode)", { campaignId: ecoCampaignId });
+      return ecoCapaign;
     }
   }
 
@@ -5233,7 +5247,9 @@ ${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunit
 Gere JSON com: strategy(string), campaignName(string), adSets(array com name/audience/budget/objective/funnelStage), creatives(array com type/format/orientation/headline/copy/bodyText/hook/pain/solution/cta/funnelStage/complianceScore/targetAudience/platforms/budget/duration), conversionFunnel(array com stage/format/audience/budget/kpi), executionPlan(array com week/action/budget/kpi), metrics(objeto com estimatedCPC/CPM/CTR/leads/ROAS/breakEven/insight).`;
     })();
     try {
-      const groqRaw = await callGroqAPI(groqMinimalPrompt, undefined, 0.6);
+      // Sistema mínimo para Groq — evita 413 com prompt+sistema muito grande
+      const groqSystem = "Você é um especialista em campanhas de marketing digital. Responda APENAS em JSON válido, sem texto adicional.";
+      const groqRaw = await callGroqAPI(groqMinimalPrompt, groqSystem, 0.6);
       if (groqRaw) {
         let groqParsed: any;
         try { groqParsed = JSON.parse(groqRaw); }
