@@ -371,11 +371,11 @@ router.post("/publish-direct", async (req: Request, res: Response) => {
 
     if (!title || !niche) return res.status(400).json({ success: false, error: "title e niche são obrigatórios" });
 
-    log.info("marketplace", "publish-direct start", { userId, title, niche });
+    log.info("marketplace", "publish-direct start", { userId, title, niche, hasWhatsapp: !!whatsappNumber, hasCheckout: !!checkoutUrl, priceType });
 
     // Gera slug único
     const baseSlug = title.toLowerCase()
-      .normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     const slug = `${baseSlug}-${Date.now().toString(36)}`;
 
@@ -393,7 +393,7 @@ router.post("/publish-direct", async (req: Request, res: Response) => {
       slug,
       niche,
       status:         "active",
-      price:          price ? String(price) : null,
+      price:          price != null ? Number(price) : null,
       priceType:      priceType || "fixed",
       headline:       landingData.sections?.hero?.headline || title,
       subheadline:    landingData.sections?.hero?.subheadline || "",
@@ -421,8 +421,18 @@ router.post("/publish-direct", async (req: Request, res: Response) => {
     log.info("marketplace", "publish-direct done", { listingId: listing?.id, userId, slug });
     res.json({ success: true, listing, slug, url: `/marketplace/${slug}`, landingPage: landingData });
   } catch (e: any) {
-    log.warn("marketplace", "publish-direct error", { error: e.message });
-    res.status(500).json({ success: false, error: e.message });
+    log.warn("marketplace", "publish-direct error", {
+      error:   e.message,
+      stack:   e.stack?.slice(0, 300),
+      code:    e.code,   // código de erro do PostgreSQL
+      detail:  e.detail, // detalhe do PostgreSQL (ex: chave duplicada)
+    });
+    // Mensagem amigável baseada no tipo de erro
+    let friendlyError = e.message || "Erro desconhecido ao publicar";
+    if (e.code === "23505") friendlyError = "Título muito similar a outra oferta já publicada. Altere ligeiramente o título.";
+    if (e.code === "23502") friendlyError = "Campo obrigatório não preenchido: " + (e.column || "verifique os dados");
+    if (e.message?.includes("DB unavailable")) friendlyError = "Banco de dados temporariamente indisponível. Tente novamente em instantes.";
+    res.status(500).json({ success: false, error: friendlyError, _debug: e.message });
   }
 });
 
@@ -477,7 +487,7 @@ router.post("/publish", async (req: Request, res: Response) => {
       slug,
       niche,
       status:         "active",
-      price:          price ? String(price) : null,
+      price:          price != null ? Number(price) : null,
       priceType:      priceType || "fixed",
       headline:       landingData.sections?.hero?.headline || title,
       subheadline:    landingData.sections?.hero?.subheadline || "",

@@ -145,11 +145,14 @@ export default function PublishListing() {
         setPublishProgress("");
         toast.success("🎉 Oferta publicada com sucesso!");
       } else {
-        toast.error(data.error || "Erro ao publicar. Tente novamente.");
+        const errMsg = data.error || "Erro ao publicar. Tente novamente.";
+        toast.error(`✕ ${errMsg}`, { duration: 10000 });
+        console.error("[publish-direct] server error:", data);
         setPublishProgress("");
       }
-    } catch {
-      toast.error("Erro de conexão. Verifique sua internet e tente novamente.");
+    } catch (err: any) {
+      const msg = err?.message || "Erro de conexão";
+      toast.error(`✕ ${msg}. Verifique sua internet e tente novamente.`, { duration: 8000 });
       setPublishProgress("");
     } finally {
       setPublishing(false);
