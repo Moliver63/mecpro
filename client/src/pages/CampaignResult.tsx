@@ -942,16 +942,24 @@ export default function CampaignResult() {
       if (isVid || isAud) {
         if (!data.videoId) { toast.error("Upload concluído mas sem videoId retornado."); return; }
         await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, videoId: data.videoId });
+        // Sincroniza com o state global de publish — garante que o payload de publicação use esta mídia
+        setUploadedVid(data.videoId);
+        setUploadedHash("");
+        setUploadDone(true);
         // Salva preview local para exibir no card
         const previewUrl = URL.createObjectURL(file);
         setCreativeVideoPreviews(prev => ({ ...prev, [creativeIndex]: previewUrl }));
-        toast.success(`◎ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
+        toast.success(`◎ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}! Agora clique em Publicar.`);
       } else {
         if (!data.hash) { toast.error("Upload concluído mas sem hash retornado."); return; }
         const localPreview = await readFileAsDataUrl(file);
         if (localPreview) cacheCreativePreview(data.hash, localPreview);
         await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, imageUrl: undefined, imageHash: data.hash });
-        toast.success(`◎ Imagem atualizada no criativo ${creativeIndex + 1}!`);
+        // Sincroniza com o state global de publish
+        setUploadedHash(data.hash);
+        setUploadedVid("");
+        setUploadDone(true);
+        toast.success(`◎ Imagem atualizada no criativo ${creativeIndex + 1}! Agora clique em Publicar.`);
       }
     } catch (e: any) {
       toast.error(`Erro ao trocar mídia: ${e?.message || "falha desconhecida"}`);
@@ -2338,6 +2346,55 @@ export default function CampaignResult() {
             style={{ fontSize: 12, color: "#1877f2", fontWeight: 700 }}>Ver no Gerenciador de Anúncios →</a>
         </div>
       )}
+
+      {/* ── Banner: dados incompletos — orienta o usuário ── */}
+      {campaign && (() => {
+        const missingItems = [];
+        if (!funnel?.length)   missingItems.push({ icon: "🔀", label: "Funil de conversão" });
+        if (!plan?.length)     missingItems.push({ icon: "📋", label: "Plano de execução" });
+        if (!metrics)          missingItems.push({ icon: "📊", label: "Métricas estimadas" });
+        if (!hooks?.length)    missingItems.push({ icon: "🎣", label: "Hooks criativos" });
+        if (!abTests?.length)  missingItems.push({ icon: "🧪", label: "Testes A/B" });
+        const extra2 = parseJson((campaign as any)?.aiResponse);
+        const isMock = extra2?._isMock === true;
+        if (missingItems.length === 0 && !isMock) return null;
+        return (
+          <div style={{ background: isMock ? "#fef3c7" : "#f8fafc", border: `1px solid ${isMock ? "#fde68a" : "var(--border)"}`,
+            borderRadius: 14, padding: "14px 18px", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: isMock ? "#92400e" : "var(--black)", marginBottom: 4 }}>
+                  {isMock ? "⚠️ Campanha gerada com dados de template" : "ℹ️ Alguns dados não foram gerados"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                  {isMock
+                    ? "A IA estava indisponível. Regenere para obter dados personalizados do seu nicho."
+                    : `Faltando: ${missingItems.map(m => m.label).join(", ")}`}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  regenerateMutation.mutate({ campaignId: id, projectId, part: "creatives" });
+                  toast.info("⏳ Regenerando campanha com IA...", { duration: 8000 });
+                }}
+                style={{ background: isMock ? "#f59e0b" : "var(--blue)", color: "white", border: "none",
+                  borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
+                🔄 Regenerar campanha completa
+              </button>
+            </div>
+            {missingItems.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+                {missingItems.map(m => (
+                  <span key={m.label} style={{ fontSize: 11, background: "#fee2e2", color: "#dc2626",
+                    padding: "2px 8px", borderRadius: 20, fontWeight: 600 }}>
+                    {m.icon} {m.label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Métricas estimadas — redesign premium ── */}
       {metrics && (
