@@ -1188,7 +1188,8 @@ export async function updateMarketplaceListing(id: number, data: Record<string, 
   const allowed = ["title","description","price","priceType","benefits","faq",
     "whatsappNumber","checkoutUrl","contactEmail","checkoutType",
     "city","state","region","isNational","headline","subheadline",
-    "ctaText","guarantee","landingPage","landingPageHtml","aiScore","aiSuggestions","status"];
+    "ctaText","guarantee","landingPage","landingPageHtml","aiScore","aiSuggestions","status",
+    "imageUrl","videoUrl","thumbnailUrl"];
   const entries = Object.entries(data).filter(([k]) => allowed.includes(k));
   if (entries.length === 0) return;
   const sets  = entries.map(([k], i) => `"${k}" = $${i + 2}`).join(", ");

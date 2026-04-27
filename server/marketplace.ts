@@ -2,7 +2,18 @@
 // Adicionar ao projeto MecProAI como novo módulo
 
 import { Router, Request, Response } from "express";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
 import * as db from "./db";
+
+// Configura Cloudinary para uploads do marketplace
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key:    process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const _mpUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 import { gemini } from "./ai";
 import { log } from "./_core/logger";
 
@@ -448,6 +459,59 @@ router.post("/publish-direct", async (req: Request, res: Response) => {
   }
 });
 
+
+// POST /api/marketplace/upload-media — Upload de imagem ou vídeo para um listing
+router.post("/upload-media", _mpUpload.single("file"), async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    if (!req.file) return res.status(400).json({ success: false, error: "Nenhum arquivo enviado" });
+
+    const { listingId } = req.body;
+    if (listingId) {
+      const listing = await (db as any).getListingById(parseInt(listingId));
+      if (!listing || listing.userId !== userId) {
+        return res.status(403).json({ success: false, error: "Sem permissão" });
+      }
+    }
+
+    const isVideo = req.file.mimetype.startsWith("video/");
+    const isImage = req.file.mimetype.startsWith("image/");
+    if (!isVideo && !isImage) {
+      return res.status(400).json({ success: false, error: "Tipo inválido. Use imagem (JPG, PNG, WebP) ou vídeo (MP4, MOV)" });
+    }
+
+    log.info("marketplace", "upload-media iniciado", {
+      userId, listingId, mimetype: req.file.mimetype, sizeMB: (req.file.size / 1024 / 1024).toFixed(1)
+    });
+
+    // Upload para Cloudinary
+    const folder = `mecproai/marketplace/${userId}`;
+    const resourceType = isVideo ? "video" : "image";
+    const uploadResult: any = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        { folder, resource_type: resourceType, transformation: isImage ? [{ quality: "auto", fetch_format: "auto" }] : undefined },
+        (err, result) => err ? reject(err) : resolve(result)
+      );
+      stream.end(req.file!.buffer);
+    });
+
+    const mediaUrl = uploadResult.secure_url;
+
+    // Se listingId fornecido, atualiza automaticamente o listing
+    if (listingId) {
+      const field = isVideo ? "videoUrl" : "imageUrl";
+      await (db as any).updateMarketplaceListing(parseInt(listingId), { [field]: mediaUrl });
+    }
+
+    log.info("marketplace", "upload-media OK", { userId, listingId, mediaUrl, resourceType });
+    res.json({ success: true, url: mediaUrl, type: resourceType });
+  } catch (e: any) {
+    log.warn("marketplace", "upload-media error", { error: e.message });
+    res.status(500).json({ success: false, error: e.message || "Erro no upload" });
+  }
+});
+
 // POST /api/marketplace/generate-landing — Gera landing page via IA (auth required)
 router.post("/generate-landing", async (req: Request, res: Response) => {
   try {
@@ -656,6 +720,10 @@ router.put("/:id", async (req: Request, res: Response) => {
     if (state !== undefined)          updates.state           = state || null;
     if (region !== undefined)         updates.region          = region || null;
     if (isNational !== undefined)     updates.isNational      = isNational !== false;
+    // Campos de mídia (vindos do upload-media ou diretamente)
+    const { imageUrl, videoUrl } = req.body;
+    if (imageUrl !== undefined)       updates.imageUrl        = imageUrl || null;
+    if (videoUrl !== undefined)       updates.videoUrl        = videoUrl || null;
     if (landingData) {
       updates.landingPage    = toJson(landingData);
       updates.landingPageHtml = html;

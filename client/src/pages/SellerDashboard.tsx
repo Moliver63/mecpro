@@ -42,6 +42,8 @@ export default function SellerDashboard() {
   const [editForm, setEditForm]     = useState<any>({});
   const [saving, setSaving]         = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [mediaPreview, setMediaPreview] = useState<{ url: string; type: "image" | "video" } | null>(null);
 
   // Lê ?edit=ID da URL para abrir o modal automaticamente
   const editIdFromUrl = typeof window !== "undefined"
@@ -104,13 +106,19 @@ export default function SellerDashboard() {
       priceType:      l.priceType || "fixed",
       benefits:       Array.isArray(l.benefits)
         ? l.benefits.map((b: any) => typeof b === "string" ? b : b.title || "").join("\n")
-        : "",
+        : (typeof l.benefits === "string" ? l.benefits : ""),
       whatsappNumber: l.whatsappNumber || "",
       checkoutUrl:    l.checkoutUrl    || "",
       contactEmail:   l.contactEmail   || "",
       city:           l.city           || "",
       state:          l.state          || "",
+      imageUrl:       l.imageUrl       || "",
+      videoUrl:       l.videoUrl       || "",
     });
+    // Carrega preview da mídia atual
+    if (l.videoUrl) setMediaPreview({ url: l.videoUrl, type: "video" });
+    else if (l.imageUrl) setMediaPreview({ url: l.imageUrl, type: "image" });
+    else setMediaPreview(null);
   }
 
   async function saveEdit(regenerate = false) {
@@ -183,6 +191,31 @@ export default function SellerDashboard() {
 
   function set(k: string, v: any) { setEditForm((f: any) => ({ ...f, [k]: v })); }
 
+  async function handleMediaUpload(file: File) {
+    if (!editingListing) return;
+    const isVideo = file.type.startsWith("video/");
+    const isImage = file.type.startsWith("image/");
+    if (!isVideo && !isImage) { toast.error("Use JPG, PNG, WebP ou MP4, MOV"); return; }
+    if (file.size > 50 * 1024 * 1024) { toast.error("Arquivo muito grande. Máximo 50MB."); return; }
+    setUploadingMedia(true);
+    // Preview local imediato
+    const localUrl = URL.createObjectURL(file);
+    setMediaPreview({ url: localUrl, type: isVideo ? "video" : "image" });
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("listingId", String(editingListing.id));
+      const res = await fetch("/api/marketplace/upload-media", { method: "POST", credentials: "include", body: form });
+      const data = await res.json();
+      if (!res.ok || !data.success) { toast.error(data.error || "Erro no upload"); setMediaPreview(null); return; }
+      // Atualiza form com a URL permanente
+      set(data.type === "video" ? "videoUrl" : "imageUrl", data.url);
+      setMediaPreview({ url: data.url, type: data.type });
+      toast.success(isVideo ? "🎬 Vídeo carregado!" : "🖼️ Imagem carregada!");
+    } catch { toast.error("Erro de conexão no upload"); setMediaPreview(null); }
+    finally { setUploadingMedia(false); }
+  }
+
   return (
     <Layout>
       <style>{`
@@ -199,10 +232,63 @@ export default function SellerDashboard() {
           <div style={{ background:"var(--card)", borderRadius:20, width:"100%", maxWidth:560, maxHeight:"90vh", overflowY:"auto", padding:"28px 24px", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
               <h2 style={{ margin:0, fontSize:18, fontWeight:900, color:"var(--black)", letterSpacing:"-0.03em" }}>✏️ Editar oferta</h2>
-              <button onClick={() => setEditingListing(null)} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"var(--muted)", lineHeight:1 }}>×</button>
+              <button onClick={() => { setEditingListing(null); setMediaPreview(null); }} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"var(--muted)", lineHeight:1 }}>×</button>
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+
+              {/* ── Mídia: imagem ou vídeo ── */}
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:8 }}>📸 IMAGEM / VÍDEO DA OFERTA</label>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
+                  <label htmlFor="mp-photo-input" style={{
+                    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6,
+                    padding:"14px 8px", borderRadius:12, border:"2px dashed #94a3b8", background:"#f8fafc",
+                    cursor: uploadingMedia ? "wait" : "pointer", opacity: uploadingMedia ? .6 : 1, textAlign:"center",
+                  }}>
+                    <span style={{ fontSize:24 }}>🖼️</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:"#334155" }}>{uploadingMedia ? "Enviando..." : "Foto"}</span>
+                    <span style={{ fontSize:10, color:"#94a3b8" }}>JPG, PNG, WebP</span>
+                  </label>
+                  <input id="mp-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display:"none" }}
+                    onChange={e => { const f=e.target.files?.[0]; if(f) handleMediaUpload(f); e.currentTarget.value=""; }} />
+
+                  <label htmlFor="mp-video-input" style={{
+                    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6,
+                    padding:"14px 8px", borderRadius:12, border:"2px dashed #a78bfa", background:"#faf5ff",
+                    cursor: uploadingMedia ? "wait" : "pointer", opacity: uploadingMedia ? .6 : 1, textAlign:"center",
+                  }}>
+                    <span style={{ fontSize:24 }}>🎬</span>
+                    <span style={{ fontSize:11, fontWeight:700, color:"#7c3aed" }}>{uploadingMedia ? "Enviando..." : "Vídeo"}</span>
+                    <span style={{ fontSize:10, color:"#a78bfa" }}>MP4, MOV (máx 50MB)</span>
+                  </label>
+                  <input id="mp-video-input" type="file" accept="video/mp4,video/mov,video/quicktime,video/webm" style={{ display:"none" }}
+                    onChange={e => { const f=e.target.files?.[0]; if(f) handleMediaUpload(f); e.currentTarget.value=""; }} />
+                </div>
+
+                {/* Preview da mídia atual ou carregada */}
+                {(mediaPreview || editingListing?.imageUrl || editingListing?.videoUrl) && (
+                  <div style={{ position:"relative", borderRadius:12, overflow:"hidden", border:"2px solid var(--border)", marginBottom:4 }}>
+                    {(mediaPreview?.type === "video" || (!mediaPreview && editingListing?.videoUrl)) ? (
+                      <video src={mediaPreview?.url || editingListing?.videoUrl} controls style={{ width:"100%", maxHeight:200, objectFit:"cover", display:"block" }} />
+                    ) : (
+                      <img src={mediaPreview?.url || editingListing?.imageUrl} alt="" style={{ width:"100%", maxHeight:200, objectFit:"cover", display:"block" }} />
+                    )}
+                    {uploadingMedia && (
+                      <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:700, fontSize:14 }}>
+                        ⏳ Enviando...
+                      </div>
+                    )}
+                    <button onClick={() => { setMediaPreview(null); set("imageUrl",""); set("videoUrl",""); }}
+                      style={{ position:"absolute", top:6, right:6, background:"rgba(0,0,0,.6)", color:"white", border:"none", borderRadius:20, width:26, height:26, cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Separador */}
+              <div style={{ height:1, background:"var(--border)" }} />
+
+              {/* ── Texto ── */}
               <div>
                 <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>TÍTULO *</label>
                 <input className="edit-input" value={editForm.title} onChange={e => set("title", e.target.value)} placeholder="Título da oferta" maxLength={120} />
@@ -211,13 +297,19 @@ export default function SellerDashboard() {
                 <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>DESCRIÇÃO</label>
                 <textarea className="edit-input" value={editForm.description} onChange={e => set("description", e.target.value)} placeholder="Descreva sua oferta..." rows={3} style={{ resize:"vertical" }} />
               </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>BENEFÍCIOS (um por linha)</label>
+                <textarea className="edit-input" value={editForm.benefits} onChange={e => set("benefits", e.target.value)} placeholder={"Benefício 1\nBenefício 2\nBenefício 3"} rows={3} style={{ resize:"vertical" }} />
+              </div>
+
+              {/* ── Preço ── */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                 <div>
                   <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>PREÇO (R$)</label>
-                  <input className="edit-input" type="number" value={editForm.price} onChange={e => set("price", e.target.value)} placeholder="Ex: 1500" />
+                  <input className="edit-input" type="number" value={editForm.price} onChange={e => set("price", e.target.value)} placeholder="Ex: 1500" min="0" />
                 </div>
                 <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>TIPO DE PREÇO</label>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>TIPO</label>
                   <select className="edit-input" value={editForm.priceType} onChange={e => set("priceType", e.target.value)}>
                     <option value="fixed">Preço fixo</option>
                     <option value="monthly">Mensalidade</option>
@@ -226,32 +318,32 @@ export default function SellerDashboard() {
                   </select>
                 </div>
               </div>
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>BENEFÍCIOS (um por linha)</label>
-                <textarea className="edit-input" value={editForm.benefits} onChange={e => set("benefits", e.target.value)} placeholder={"Benefício 1\nBenefício 2\nBenefício 3"} rows={4} style={{ resize:"vertical" }} />
-              </div>
+
+              {/* ── Contato ── */}
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
                 <div>
                   <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>WHATSAPP</label>
                   <input className="edit-input" value={editForm.whatsappNumber} onChange={e => set("whatsappNumber", e.target.value)} placeholder="47999999999" />
                 </div>
                 <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>EMAIL DE CONTATO</label>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>EMAIL</label>
                   <input className="edit-input" type="email" value={editForm.contactEmail} onChange={e => set("contactEmail", e.target.value)} placeholder="seu@email.com" />
                 </div>
               </div>
               <div>
-                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>URL DE CHECKOUT / LINK EXTERNO</label>
+                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>LINK DE CHECKOUT / SITE / WHATSAPP URL</label>
                 <input className="edit-input" value={editForm.checkoutUrl} onChange={e => set("checkoutUrl", e.target.value)} placeholder="https://..." />
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+
+              {/* ── Localização ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:10 }}>
                 <div>
                   <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>CIDADE</label>
                   <input className="edit-input" value={editForm.city} onChange={e => set("city", e.target.value)} placeholder="Balneário Camboriú" />
                 </div>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>ESTADO</label>
-                  <input className="edit-input" value={editForm.state} onChange={e => set("state", e.target.value)} placeholder="SC" maxLength={2} />
+                <div style={{ width:80 }}>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>UF</label>
+                  <input className="edit-input" value={editForm.state} onChange={e => set("state", e.target.value.toUpperCase())} placeholder="SC" maxLength={2} />
                 </div>
               </div>
             </div>
