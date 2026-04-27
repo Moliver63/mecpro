@@ -560,7 +560,8 @@ function MarketplaceHome() {
 // ─── Roteador principal ───────────────────────────────────────────────────────
 export default function Marketplace() {
   const params = useParams<{ slug?: string }>();
-  if (params?.slug && params.slug !== "publish" && params.slug !== "seller") {
+  // /:slug route only matches real listing slugs (publish/seller handled by dedicated routes)
+  if (params?.slug) {
     return <ListingLanding slug={params.slug} />;
   }
   return <MarketplaceHome />;
