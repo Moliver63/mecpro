@@ -712,6 +712,21 @@ export default function CampaignResult() {
     const requiresStoryAsset = placementsToCheck.some((p) => ["fb_story", "ig_story", "messenger_story"].includes(p));
     const requiresReelsVideo = placementsToCheck.some((p) => ["fb_reels", "ig_reels"].includes(p));
     const hasUploadedMedia = !!uploadedVid || !!uploadedHash || uploadedHashes.filter(Boolean).length >= 2 || !!imageUrl.trim();
+
+    // Verifica se criativos têm apenas imagens placeholder (placehold.co)
+    const creativesHavePlaceholder = mergedCreatives.some((cr: any) => {
+      const img = cr.feedImageUrl || cr.storyImageUrl || cr.squareImageUrl || cr.imageUrl || "";
+      return img.includes("placehold.co") || img.includes("via.placeholder");
+    });
+    const creativesHaveRealMedia = mergedCreatives.some((cr: any) =>
+      cr.feedImageHash || cr.storyImageHash || cr.squareImageHash ||
+      cr.publishMedia?.videoId || cr.publishMedia?.imageHash
+    );
+    if (!hasUploadedMedia && creativesHavePlaceholder && !creativesHaveRealMedia) {
+      toast.error("⚠️ Faça upload de uma foto ou vídeo real antes de publicar. As imagens geradas automaticamente (placeholder) são rejeitadas pelo Meta.", { duration: 6000 });
+      setPublishing(false);
+      return;
+    }
     const hasStoryReadyCreative = mergedCreatives.some((cr: any) => !!(cr.storyImageUrl || cr.storyImageHash || cr.publishMedia?.videoId));
     const hasReelsReadyCreative = mergedCreatives.some((cr: any) => !!cr.publishMedia?.videoId);
 

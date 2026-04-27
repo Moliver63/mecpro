@@ -2765,8 +2765,21 @@ const campaignsRouter = router({
             ?? selectedGeneratedImageUrl
             ?? null)
         : null;
+      // Rejeita placehold.co e outros URLs placeholder — Meta não consegue baixar
+      const PLACEHOLDER_PATTERNS = ["placehold.co", "via.placeholder", "dummyimage", "lorempixel", "placeholder"];
+      const isPlaceholderUrl = (url: string | null | undefined) =>
+        !!url && PLACEHOLDER_PATTERNS.some(p => url.toLowerCase().includes(p));
+
       const resolvedImageHash = effectiveImageHash;
-      const resolvedImageUrl = effectiveImageUrl;
+      const resolvedImageUrl = isPlaceholderUrl(effectiveImageUrl) ? null : effectiveImageUrl;
+
+      // Se a única mídia disponível é um placeholder, força erro amigável
+      if (!effectiveImageHash && !effectiveVideoId && isPlaceholderUrl(effectiveImageUrl) && !(effectiveImageHashes?.length)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "❌ Imagem gerada automaticamente não pode ser enviada ao Meta. Faça upload de uma foto ou vídeo real no card do criativo antes de publicar.",
+        });
+      }
 
       // Stories/Reels sem mídia dedicada: publica com mídia de feed disponível
       // (aviso no frontend — não bloqueia)
@@ -2793,7 +2806,8 @@ const campaignsRouter = router({
 
       function validateMetaImageUrl(url: string) {
         const blockedDomains = ["google.com", "googleapis.com", "gstatic.com", "googleusercontent.com",
-          "facebook.com", "fbcdn.net", "localhost", "127.0.0.1"];
+          "facebook.com", "fbcdn.net", "localhost", "127.0.0.1",
+          "placehold.co", "placeholder", "via.placeholder", "dummyimage", "lorempixel"];  // ← bloqueados
         const urlLower = url.toLowerCase();
         const isBlocked = blockedDomains.some(d => urlLower.includes(d));
         const isValidHttps = urlLower.startsWith("https://");
