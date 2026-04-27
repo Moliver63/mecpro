@@ -8,6 +8,7 @@ import { PLATFORM_PLACEMENTS, AUTO_PLACEMENTS, type PlacementMode } from "@/comp
 import { useEffect, useState, useRef } from "react";
 import Layout from "@/components/layout/Layout";
 import CampaignAudit from "@/components/CampaignAudit";
+import PublishValidator, { validateForPublish } from "@/components/PublishValidator";
 import PixelPanel from "@/components/PixelPanel";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
@@ -175,6 +176,7 @@ export default function CampaignResult() {
   const [showVSL,       setShowVSL]       = useState(false);
   const [showAudit,    setShowAudit]    = useState(false);
   const [showPixel,    setShowPixel]    = useState(false);
+  const [showValidator, setShowValidator] = useState(false);
   const [mediaMode,    setMediaMode]    = useState<"none" | "url" | "upload">("none");
   const [mediaDims,    setMediaDims]    = useState<MediaDimensions | null>(null);
   const [mediaValidation, setMediaValidation] = useState<MediaValidationResult | null>(null);
@@ -1561,6 +1563,13 @@ export default function CampaignResult() {
           <button onClick={() => checkComplianceAndPublish()}
             className="btn-publish" style={{ background: checkingCompliance ? "#93c5fd" : "#1877f2", color: "white", fontWeight: 700, fontSize: 13, padding: "10px 20px", borderRadius: 10, border: "none", cursor: checkingCompliance ? "wait" : "pointer", transition: "all .2s ease" }}>
             {checkingCompliance ? "🔍 Verificando compliance..." : "📘 Publicar no Meta Ads"}
+          </button>
+          <button
+            onClick={() => setShowValidator(v => !v)}
+            style={{ background: showValidator ? "#1e293b" : "var(--off)", color: showValidator ? "white" : "var(--black)",
+              fontWeight: 700, fontSize: 12, padding: "8px 14px", borderRadius: 10,
+              border: "1px solid var(--border)", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+            {showValidator ? "✕ Fechar checklist" : "✓ Checklist de publicação"}
           </button>
           <button
             onClick={() => setShowAudit(a => !a)}
