@@ -38,6 +38,10 @@ export default function SellerDashboard() {
   const [loading, setLoading] = useState(true);
   const [optimizing, setOptimizing] = useState<number | null>(null);
   const [activeTab, setActiveTab]   = useState<"listings" | "orders">("listings");
+  const [editingListing, setEditingListing] = useState<any>(null);
+  const [editForm, setEditForm]     = useState<any>({});
+  const [saving, setSaving]         = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/marketplace/seller/dashboard", { credentials: "include" })
@@ -71,6 +75,69 @@ export default function SellerDashboard() {
     }
   }
 
+  function openEdit(l: any) {
+    setEditingListing(l);
+    setEditForm({
+      title:          l.title || "",
+      description:    l.description || "",
+      price:          l.price ? String(l.price) : "",
+      priceType:      l.priceType || "fixed",
+      benefits:       Array.isArray(l.benefits)
+        ? l.benefits.map((b: any) => typeof b === "string" ? b : b.title || "").join("\n")
+        : "",
+      whatsappNumber: l.whatsappNumber || "",
+      checkoutUrl:    l.checkoutUrl    || "",
+      contactEmail:   l.contactEmail   || "",
+      city:           l.city           || "",
+      state:          l.state          || "",
+    });
+  }
+
+  async function saveEdit(regenerate = false) {
+    if (!editingListing) return;
+    setSaving(true);
+    try {
+      const benefits = editForm.benefits
+        ? editForm.benefits.split("\n").filter(Boolean)
+        : [];
+      const res = await fetch(`/api/marketplace/${editingListing.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...editForm, price: editForm.price ? Number(editForm.price) : null, benefits, regenerateLanding: regenerate }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(regenerate ? "✦ Oferta editada e landing page regenerada com IA!" : "◎ Oferta salva!");
+        setData((prev: any) => ({
+          ...prev,
+          listings: prev.listings.map((l: any) => l.id === editingListing.id ? data.listing : l),
+        }));
+        setEditingListing(null);
+      } else {
+        toast.error(data.error || "Erro ao salvar");
+      }
+    } catch {
+      toast.error("Erro de conexão");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteListing(listingId: number) {
+    if (!confirm("Tem certeza que deseja remover esta oferta? Esta ação não pode ser desfeita.")) return;
+    setDeletingId(listingId);
+    try {
+      await fetch(`/api/marketplace/${listingId}`, { method: "DELETE", credentials: "include" });
+      setData((prev: any) => ({ ...prev, listings: prev.listings.filter((l: any) => l.id !== listingId) }));
+      toast.success("Oferta removida.");
+    } catch {
+      toast.error("Erro ao remover");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   async function toggleStatus(listing: any) {
     const newStatus = listing.status === "active" ? "paused" : "active";
     try {
@@ -94,13 +161,97 @@ export default function SellerDashboard() {
 
   const s = data?.stats;
 
+  function set(k: string, v: any) { setEditForm((f: any) => ({ ...f, [k]: v })); }
+
   return (
     <Layout>
       <style>{`
         .listing-row:hover { background: var(--off) !important; }
         .order-row:hover { background: var(--off) !important; }
         .action-btn:hover { opacity: .8; }
+        .edit-input { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:13px; font-family:var(--font); background:var(--card); color:var(--black); box-sizing:border-box; }
+        .edit-input:focus { outline:none; border-color:var(--blue); }
       `}</style>
+
+      {/* ── Modal de Edição ── */}
+      {editingListing && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={e => { if (e.target === e.currentTarget) setEditingListing(null); }}>
+          <div style={{ background:"var(--card)", borderRadius:20, width:"100%", maxWidth:560, maxHeight:"90vh", overflowY:"auto", padding:"28px 24px", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+              <h2 style={{ margin:0, fontSize:18, fontWeight:900, color:"var(--black)", letterSpacing:"-0.03em" }}>✏️ Editar oferta</h2>
+              <button onClick={() => setEditingListing(null)} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"var(--muted)", lineHeight:1 }}>×</button>
+            </div>
+
+            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>TÍTULO *</label>
+                <input className="edit-input" value={editForm.title} onChange={e => set("title", e.target.value)} placeholder="Título da oferta" maxLength={120} />
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>DESCRIÇÃO</label>
+                <textarea className="edit-input" value={editForm.description} onChange={e => set("description", e.target.value)} placeholder="Descreva sua oferta..." rows={3} style={{ resize:"vertical" }} />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>PREÇO (R$)</label>
+                  <input className="edit-input" type="number" value={editForm.price} onChange={e => set("price", e.target.value)} placeholder="Ex: 1500" />
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>TIPO DE PREÇO</label>
+                  <select className="edit-input" value={editForm.priceType} onChange={e => set("priceType", e.target.value)}>
+                    <option value="fixed">Preço fixo</option>
+                    <option value="monthly">Mensalidade</option>
+                    <option value="negotiable">A negociar</option>
+                    <option value="free">Gratuito</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>BENEFÍCIOS (um por linha)</label>
+                <textarea className="edit-input" value={editForm.benefits} onChange={e => set("benefits", e.target.value)} placeholder={"Benefício 1\nBenefício 2\nBenefício 3"} rows={4} style={{ resize:"vertical" }} />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>WHATSAPP</label>
+                  <input className="edit-input" value={editForm.whatsappNumber} onChange={e => set("whatsappNumber", e.target.value)} placeholder="47999999999" />
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>EMAIL DE CONTATO</label>
+                  <input className="edit-input" type="email" value={editForm.contactEmail} onChange={e => set("contactEmail", e.target.value)} placeholder="seu@email.com" />
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>URL DE CHECKOUT / LINK EXTERNO</label>
+                <input className="edit-input" value={editForm.checkoutUrl} onChange={e => set("checkoutUrl", e.target.value)} placeholder="https://..." />
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>CIDADE</label>
+                  <input className="edit-input" value={editForm.city} onChange={e => set("city", e.target.value)} placeholder="Balneário Camboriú" />
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>ESTADO</label>
+                  <input className="edit-input" value={editForm.state} onChange={e => set("state", e.target.value)} placeholder="SC" maxLength={2} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display:"flex", gap:8, marginTop:20, borderTop:"1px solid var(--border)", paddingTop:16 }}>
+              <button onClick={() => saveEdit(false)} disabled={saving || !editForm.title?.trim()}
+                style={{ flex:1, padding:"10px 0", borderRadius:10, border:"none", cursor:"pointer", fontWeight:800, fontSize:13, background:"#334155", color:"white", opacity: saving ? .7 : 1 }}>
+                {saving ? "⏳ Salvando..." : "◎ Salvar"}
+              </button>
+              <button onClick={() => saveEdit(true)} disabled={saving || !editForm.title?.trim()}
+                style={{ flex:1, padding:"10px 0", borderRadius:10, border:"1px solid var(--blue)", cursor:"pointer", fontWeight:800, fontSize:13, background:"var(--blue-l)", color:"var(--blue)", opacity: saving ? .7 : 1 }}>
+                {saving ? "⏳ Salvando..." : "🤖 Salvar + Regenerar LP"}
+              </button>
+              <button onClick={() => setEditingListing(null)} style={{ padding:"10px 16px", borderRadius:10, border:"1px solid var(--border)", cursor:"pointer", fontWeight:700, fontSize:13, background:"transparent", color:"var(--muted)" }}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px 16px 60px", fontFamily: "var(--font)" }}>
 
         {/* Header */}
@@ -199,10 +350,17 @@ export default function SellerDashboard() {
                           {optimizing === l.id ? "⏳ Otimizando..." : "✦ Otimizar com IA"}
                         </button>
                       )}
+                      <button className="btn btn-sm action-btn" onClick={() => openEdit(l)}
+                        style={{ fontSize: 11, fontWeight: 700, background: "#334155", color: "white", border: "none" }}>✏️ Editar</button>
                       <button className="btn btn-sm action-btn" onClick={() => setLocation(`/marketplace/${l.slug}`)}
-                        style={{ fontSize: 11, fontWeight: 600 }}>Ver oferta →</button>
+                        style={{ fontSize: 11, fontWeight: 600 }}>Ver →</button>
                       <button className="btn btn-sm action-btn" onClick={() => toggleStatus(l)}
                         style={{ fontSize: 11, fontWeight: 600 }}>{l.status === "active" ? "⏸ Pausar" : "▶ Reativar"}</button>
+                      <button className="btn btn-sm action-btn" onClick={() => deleteListing(l.id)}
+                        disabled={deletingId === l.id}
+                        style={{ fontSize: 11, fontWeight: 600, color: "#dc2626", border: "1px solid #fecaca" }}>
+                        {deletingId === l.id ? "..." : "🗑️"}
+                      </button>
                     </div>
                   </div>
 

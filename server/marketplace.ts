@@ -595,6 +595,89 @@ router.post("/order", async (req: Request, res: Response) => {
 });
 
 
+
+// PUT /api/marketplace/:id — Edita listing completo (auth required)
+router.put("/:id", async (req: Request, res: Response) => {
+  try {
+    const userId  = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    const listing = await (db as any).getListingById(parseInt(req.params.id));
+    if (!listing || listing.userId !== userId) {
+      return res.status(403).json({ success: false, error: "Sem permissão" });
+    }
+
+    const {
+      title, description, price, priceType,
+      benefits, whatsappNumber, checkoutUrl, contactEmail, checkoutType,
+      city, state, region, isNational,
+      regenerateLanding,
+    } = req.body;
+
+    const toJson = (v: any) => v != null ? JSON.stringify(v) : null;
+    const benefitsList = Array.isArray(benefits) ? benefits
+      : (typeof benefits === "string" ? benefits.split("\n").filter(Boolean) : listing.benefits || []);
+
+    // Gera nova landing page se solicitado OU se título/descrição mudaram
+    const titleChanged = title && title !== listing.title;
+    const descChanged  = description && description !== listing.description;
+    let landingData = null;
+    let html: string | null = null;
+
+    if (regenerateLanding || titleChanged || descChanged) {
+      landingData = await generateLandingPage({
+        title:       title || listing.title,
+        niche:       listing.niche,
+        description: description || listing.description,
+        price:       price != null ? Number(price) : listing.price,
+        priceType:   priceType || listing.priceType,
+        benefits:    benefitsList,
+        checkoutType: checkoutType || listing.checkoutType,
+        whatsappNumber: whatsappNumber || listing.whatsappNumber,
+      });
+      const mockListing = {
+        title:       title || listing.title,
+        checkoutUrl: checkoutUrl || listing.checkoutUrl,
+        whatsappNumber: whatsappNumber || listing.whatsappNumber,
+      };
+      html = renderLandingHtml(landingData, mockListing);
+    }
+
+    const updates: Record<string, any> = {};
+    if (title !== undefined)          updates.title           = title;
+    if (description !== undefined)    updates.description     = description;
+    if (price !== undefined)          updates.price           = price != null ? Number(price) : null;
+    if (priceType !== undefined)      updates.priceType       = priceType;
+    if (benefits !== undefined)       updates.benefits        = toJson(benefitsList);
+    if (whatsappNumber !== undefined) updates.whatsappNumber  = whatsappNumber || null;
+    if (checkoutUrl !== undefined)    updates.checkoutUrl     = checkoutUrl || null;
+    if (contactEmail !== undefined)   updates.contactEmail    = contactEmail || null;
+    if (checkoutType !== undefined)   updates.checkoutType    = checkoutType || null;
+    if (city !== undefined)           updates.city            = city || null;
+    if (state !== undefined)          updates.state           = state || null;
+    if (region !== undefined)         updates.region          = region || null;
+    if (isNational !== undefined)     updates.isNational      = isNational !== false;
+    if (landingData) {
+      updates.landingPage    = toJson(landingData);
+      updates.landingPageHtml = html;
+      updates.headline       = landingData.sections?.hero?.headline || title || listing.title;
+      updates.subheadline    = landingData.sections?.hero?.subheadline || "";
+      updates.ctaText        = landingData.sections?.hero?.cta || listing.ctaText;
+      updates.guarantee      = landingData.sections?.pricing?.guarantee || "";
+      updates.faq            = toJson(landingData.sections?.faq?.items || []);
+      updates.aiScore        = landingData.aiScore || null;
+      updates.aiSuggestions  = toJson(landingData.aiSuggestions || []);
+    }
+
+    await (db as any).updateMarketplaceListing(listing.id, updates);
+    const updated = await (db as any).getListingById(listing.id);
+    log.info("marketplace", "Listing editado", { listingId: listing.id, userId, regenerated: !!landingData });
+    res.json({ success: true, listing: updated, regenerated: !!landingData });
+  } catch (e: any) {
+    log.warn("marketplace", "edit error", { error: e.message });
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // PATCH /api/marketplace/:id/status — Ativa/pausa listing (auth required)
 router.patch("/:id/status", async (req: Request, res: Response) => {
   try {

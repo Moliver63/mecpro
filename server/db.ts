@@ -1181,3 +1181,21 @@ export async function getScrapedAdsByProject(projectId: number): Promise<any[]> 
   return res.rows;
 }
 
+
+export async function updateMarketplaceListing(id: number, data: Record<string, any>) {
+  const pool = await getPool();
+  if (!pool) throw new Error("DB unavailable");
+  const allowed = ["title","description","price","priceType","benefits","faq",
+    "whatsappNumber","checkoutUrl","contactEmail","checkoutType",
+    "city","state","region","isNational","headline","subheadline",
+    "ctaText","guarantee","landingPage","landingPageHtml","aiScore","aiSuggestions","status"];
+  const entries = Object.entries(data).filter(([k]) => allowed.includes(k));
+  if (entries.length === 0) return;
+  const sets  = entries.map(([k], i) => `"${k}" = $${i + 2}`).join(", ");
+  const vals  = entries.map(([, v]) => v);
+  await pool.query(
+    `UPDATE marketplace_listings SET ${sets}, "updatedAt" = NOW() WHERE id = $1`,
+    [id, ...vals]
+  );
+}
+
