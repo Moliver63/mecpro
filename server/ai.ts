@@ -456,7 +456,7 @@ const QUOTA_RESET_MS = 60 * 60 * 1000; // 60 min — evita tentar chave esgotada
 // ── Cache de resultados Gemini para evitar chamadas repetidas ────────────────
 // Evita que o mesmo concorrente/prompt seja analisado várias vezes em sequência
 const _geminiCache = new Map<string, { result: string; ts: number }>();
-const GEMINI_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const GEMINI_CACHE_TTL = 15 * 60 * 1000; // 15 minutos
 
 function getCachedGemini(key: string): string | null {
   const entry = _geminiCache.get(key);
@@ -469,8 +469,13 @@ function getCachedGemini(key: string): string | null {
 }
 
 function setCachedGemini(key: string, result: string) {
-  // Limita cache a 50 entradas para não consumir memória
-  if (_geminiCache.size >= 50) {
+  // Limita cache a 500 entradas (~5MB estimado — seguro para 512MB RAM do Render)
+  if (_geminiCache.size >= 500) {
+    // Remove as 50 entradas mais antigas de uma vez (batch cleanup)
+    const keys = [..._geminiCache.keys()].slice(0, 50);
+    keys.forEach(k => _geminiCache.delete(k));
+  }
+  if (_geminiCache.size >= 500) {
     const firstKey = _geminiCache.keys().next().value;
     if (firstKey) _geminiCache.delete(firstKey);
   }
@@ -1981,20 +1986,62 @@ function mockResponse(prompt: string): string {
 // Controla quando usar LLM vs motor determinístico
 // ════════════════════════════════════════════════════════════════════════════
 
-// Contadores de uso por janela de 15min
+// Contadores de uso por janela de 15min — persiste no banco entre deploys
 const _quotaWindow = {
   startMs:     Date.now(),
   windowMs:    15 * 60 * 1000,
   calls:       0,
   tokens:      0,
-  // Calculado dinamicamente baseado nas chaves disponíveis
-  // 5 chaves × ~60 req/min free tier × 15min / 5 (segurança) = 900
-  // Mas usamos 100 como base segura — ajusta no boot
   maxCalls:    100,
-  maxTokens:   1_000_000, // ~1M tokens por janela com 5 chaves
-  ecoMode:     false, // ativado automaticamente quando quota está perto do limite
-  ecoThreshold: 0.8,  // ativa modo eco quando 80% da quota usada
+  maxTokens:   1_000_000,
+  ecoMode:     false,
+  ecoThreshold: 0.8,
+  _loaded:     false,
 };
+
+// Carrega quota salva do banco ao iniciar (não bloqueia boot)
+async function _loadPersistedQuota() {
+  if (_quotaWindow._loaded) return;
+  _quotaWindow._loaded = true;
+  try {
+    const pool = await db.getPool();
+    if (!pool) return;
+    const res = await pool.query(
+      `SELECT value FROM app_settings WHERE key = 'quota_window' LIMIT 1`
+    );
+    if (res.rows[0]?.value) {
+      const saved = JSON.parse(res.rows[0].value);
+      const age = Date.now() - (saved.startMs || 0);
+      if (age < _quotaWindow.windowMs) {
+        _quotaWindow.startMs = saved.startMs;
+        _quotaWindow.calls   = saved.calls   || 0;
+        _quotaWindow.tokens  = saved.tokens  || 0;
+        _quotaWindow.ecoMode = saved.ecoMode || false;
+        log.info("ai", "Quota restaurada do banco após deploy", {
+          calls: _quotaWindow.calls, tokens: _quotaWindow.tokens,
+          ecoMode: _quotaWindow.ecoMode,
+        });
+      }
+    }
+  } catch { /* falha silenciosa — começa do zero */ }
+}
+setTimeout(() => _loadPersistedQuota().catch(() => {}), 3000); // 3s após boot
+
+// Persiste quota no banco (fire and forget — nunca bloqueia)
+function _persistQuota() {
+  db.getPool().then(pool => {
+    if (!pool) return;
+    const data = JSON.stringify({
+      startMs: _quotaWindow.startMs, calls: _quotaWindow.calls,
+      tokens:  _quotaWindow.tokens,  ecoMode: _quotaWindow.ecoMode,
+    });
+    pool.query(
+      `INSERT INTO app_settings (key, value) VALUES ('quota_window', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [data]
+    ).catch(() => {});
+  }).catch(() => {});
+}
 
 function _resetWindowIfNeeded() {
   const now = Date.now();
@@ -2004,6 +2051,7 @@ function _resetWindowIfNeeded() {
     _quotaWindow.tokens  = 0;
     _quotaWindow.ecoMode = false;
     log.info("ai", "Quota window resetada", { newWindow: new Date(now).toISOString() });
+    _persistQuota(); // persiste o reset
   }
 }
 
@@ -2020,6 +2068,8 @@ export function trackLLMCall(tokens: number) {
       calls: _quotaWindow.calls, tokens: _quotaWindow.tokens,
     });
   }
+  // Persiste a cada 5 chamadas (não a cada uma — evita thrashing do banco)
+  if (_quotaWindow.calls % 5 === 0) _persistQuota();
 }
 
 // Retorna true se deve usar LLM, false se deve usar motor determinístico
@@ -5076,6 +5126,35 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     for (let i = 0; i < opens; i++)  s += "]";
     for (let i = 0; i < braces; i++) s += "}";
     return s;
+  }
+
+  // Eco mode: pula toda a geração via LLM e usa motor híbrido diretamente
+  if (!shouldUseLLM("high")) {
+    log.info("ai", "generateCampaign: ecoMode HIGH — usando buildCampaignFromAds diretamente", {
+      projectId: input.projectId, adsCount: allAds.length,
+    });
+    try {
+      const hybrid = await buildCampaignFromAds(input.projectId, input.objective, clientProfile, allAds);
+      strategy         = hybrid.strategy;
+      adSets           = JSON.stringify(hybrid.adSets);
+      creatives        = JSON.stringify(hybrid.creatives);
+      conversionFunnel = JSON.stringify(hybrid.conversionFunnel || []);
+      executionPlan    = JSON.stringify(hybrid.executionPlan    || []);
+      aiResponse       = JSON.stringify({ metrics: hybrid.metrics, generatedBy: "hybrid_engine_eco", _isMock: false });
+      log.info("ai", "✅ Campanha híbrida (ecoMode) gerada", { projectId: input.projectId });
+    } catch (ecoErr: any) {
+      log.warn("ai", "buildCampaignFromAds falhou no ecoMode", { error: ecoErr.message });
+      // Não interrompe — deixa cair no try/catch principal abaixo
+    }
+    if (strategy) {
+      // Salva e retorna sem chamar nenhum LLM
+      await db.updateCampaign(campaignId, {
+        strategy, adSets, creatives, conversionFunnel, executionPlan, aiResponse,
+        status: "ready", publishStatus: "unpublished",
+      } as any);
+      log.info("ai", "generateCampaign done (ecoMode)", { campaignId });
+      return { success: true, campaignId, motor: "hybrid_eco" };
+    }
   }
 
   try {
