@@ -370,7 +370,8 @@ router.post("/publish-direct", async (req: Request, res: Response) => {
 
     const { title, niche, description, price, priceType, campaignId,
             benefits, checkoutType, whatsappNumber, checkoutUrl,
-            contactEmail, region, city, state, isNational } = req.body;
+            contactEmail, region, city, state, isNational,
+            imageUrl, imageHash, nicheLabel, subniche } = req.body || {};
 
     if (!title || !niche) return res.status(400).json({ success: false, error: "title e niche são obrigatórios" });
 
@@ -385,7 +386,14 @@ router.post("/publish-direct", async (req: Request, res: Response) => {
     // Gera landing page (com fallback se IA falhar)
     const toJson = (v: any) => v != null ? JSON.stringify(v) : null;
     const benefitsList = Array.isArray(benefits) ? benefits : (typeof benefits === "string" ? benefits.split("\n").filter(Boolean) : []);
-    const landingData = await generateLandingPage({ title, niche, description, price: price ? Number(price) : undefined, priceType, benefits: benefitsList, checkoutType, whatsappNumber });
+    const landingData = await generateLandingPage({
+      title, niche, description,
+      price: price ? Number(price) : undefined,
+      priceType, benefits: benefitsList, checkoutType, whatsappNumber,
+      // Campos extras para contexto da IA
+      nicheLabel: nicheLabel || niche,
+      subniche:   subniche   || "",
+    } as any);
     const mockListing = { title, checkoutUrl, whatsappNumber };
     const html = renderLandingHtml(landingData, mockListing);
 
@@ -416,6 +424,7 @@ router.post("/publish-direct", async (req: Request, res: Response) => {
       isNational:     isNational !== false,
       landingPage:    toJson(landingData),
       landingPageHtml: html,
+      imageUrl:       imageUrl || null,
       aiScore:        landingData.aiScore || null,
       aiSuggestions:  toJson(landingData.aiSuggestions || []),
       publishedAt:    new Date(),

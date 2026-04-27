@@ -147,8 +147,10 @@ app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
 
 // ── Marketplace REST API ──────────────────────────────────────────────────────
 // Middleware JWT leve para injetar req.user (opcional — rotas públicas não precisam)
-// cookieParser registrado AQUI antes do marketplace para req.cookies funcionar
+// cookieParser + json parser registrados ANTES do marketplace para req.cookies e req.body funcionarem
 app.use(cookieParser());
+app.use(json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 const marketplaceAuthMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -682,9 +684,7 @@ app.get("/privacy/tiktok-developers-site-verification.txt", (_req, res) => {
 
 // ─── Body parsers ─────────────────────────────────────────
 // Limite de 50MB para suportar upload de imagens e vídeos em base64 via tRPC
-app.use(json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-// cookieParser já registrado antes do marketplace router (não duplicar aqui)
+// json, urlencoded e cookieParser já registrados antes do marketplace router
 
 // ─── Google OAuth ──────────────────────────────────────────
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {

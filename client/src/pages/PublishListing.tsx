@@ -77,6 +77,14 @@ export default function PublishListing() {
   const [published, setPublished]   = useState<any>(null);
   const [publishProgress, setPublishProgress] = useState("");
 
+  // ── Mídia para a landing page ──
+  const [mediaFile,    setMediaFile]    = useState<File | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string>("");
+  const [mediaHash,    setMediaHash]    = useState<string>("");  // hash Meta (para campanhas)
+  const [mediaUrl,     setMediaUrl]     = useState<string>("");  // URL pública (para marketplace)
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [uploadDone,   setUploadDone]   = useState(false);
+
   const [form, setForm] = useState({
     title: "", niche: "", subniche: "", description: "", benefits: "",
     price: "", priceType: "fixed",
@@ -101,6 +109,41 @@ export default function PublishListing() {
       })
       .catch(() => {});
   }, [campaignId]);
+
+  // ── Upload de imagem para o marketplace ──
+  async function handleUploadMedia(file: File) {
+    if (!file) return;
+    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
+    if (!isImage) { toast.error("Apenas imagens JPG, PNG, GIF ou WebP."); return; }
+    if (file.size > 10 * 1024 * 1024) { toast.error("Imagem muito grande — máximo 10MB."); return; }
+    setUploadingMedia(true);
+    setMediaFile(file);
+    setMediaPreview(URL.createObjectURL(file));
+    try {
+      // Tenta fazer upload para o Meta (para usar em campanhas vinculadas)
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      const res = await fetch("/api/meta/upload-image", {
+        method: "POST", body: formData, credentials: "include"
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.hash) {
+        setMediaHash(data.hash);
+        toast.success("✓ Imagem enviada!");
+      } else {
+        // Fallback: usa preview local como URL
+        setMediaUrl(URL.createObjectURL(file));
+        toast.success("✓ Imagem carregada (preview local)");
+      }
+      setUploadDone(true);
+    } catch {
+      setMediaUrl(URL.createObjectURL(file));
+      setUploadDone(true);
+      toast.success("✓ Imagem carregada");
+    } finally {
+      setUploadingMedia(false);
+    }
+  }
 
   // ── Publicação automática: gera landing + publica em 1 chamada ──
   async function publishDirect() {
@@ -129,6 +172,8 @@ export default function PublishListing() {
           benefits:    form.benefits.split("\n").filter(Boolean),
           campaignId:  campaignId ? Number(campaignId) : undefined,
           copyHints:   selectedNiche?.copyHints,
+          imageUrl:    mediaUrl || undefined,
+          imageHash:   mediaHash || undefined,
         }),
       });
 
@@ -306,6 +351,50 @@ export default function PublishListing() {
                 <textarea className="input" value={form.benefits} onChange={e => set("benefits", e.target.value)}
                   placeholder={"Localização privilegiada\nDocumentação 100% digital\nFinanciamento facilitado"}
                   style={{ width: "100%", height: 72, fontSize: 13, resize: "vertical" }} />
+              </Field>
+
+              {/* Upload de imagem da oferta */}
+              <Field label="Imagem da oferta (opcional — melhora a conversão)">
+                <div
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleUploadMedia(f); }}
+                  style={{
+                    border: `2px dashed ${uploadDone ? "#16a34a" : "var(--border)"}`,
+                    borderRadius: 12, padding: "16px", textAlign: "center",
+                    background: uploadDone ? "#f0fdf4" : "var(--off)", cursor: "pointer",
+                    transition: "all .2s",
+                  }}
+                  onClick={() => document.getElementById("mp-img-input")?.click()}
+                >
+                  <input id="mp-img-input" type="file" accept="image/jpeg,image/png,image/gif,image/webp"
+                    style={{ display: "none" }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadMedia(f); }} />
+                  {mediaPreview ? (
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <img src={mediaPreview} alt="preview"
+                        style={{ maxHeight: 140, maxWidth: "100%", borderRadius: 8, objectFit: "cover" }} />
+                      <button
+                        onClick={e => { e.stopPropagation(); setMediaFile(null); setMediaPreview(""); setMediaHash(""); setMediaUrl(""); setUploadDone(false); }}
+                        style={{ position: "absolute", top: -8, right: -8, background: "#dc2626", color: "white",
+                          border: "none", borderRadius: "50%", width: 22, height: 22, cursor: "pointer", fontSize: 12 }}>✕</button>
+                    </div>
+                  ) : uploadingMedia ? (
+                    <div style={{ color: "var(--muted)", fontSize: 13 }}>⏳ Enviando...</div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: 24, marginBottom: 6 }}>🖼️</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>
+                        Clique ou arraste uma imagem aqui
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>JPG, PNG, GIF ou WebP · máx 10MB</div>
+                    </div>
+                  )}
+                  {uploadDone && mediaHash && (
+                    <div style={{ marginTop: 6, fontSize: 10, color: "#16a34a", fontWeight: 700 }}>
+                      ✓ Imagem enviada para Meta Ads (pode ser usada em campanhas vinculadas)
+                    </div>
+                  )}
+                </div>
               </Field>
 
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
