@@ -2446,6 +2446,26 @@ const campaignsRouter = router({
         : placementKey === "reels"
           ? (adCopy as any).reels?.creative || (adCopy as any).stories?.creative || creativeList[0]
           : (adCopy as any).feed?.creative || creativeList[0];
+
+      // CRÍTICO: garantir que feedImageHash/storyImageHash dos uploads manuais
+      // não sejam perdidos quando adCopy.feed.creative sobrescreve o criativo do banco
+      // Merge: dados do adCopy + dados de mídia do banco (que têm os hashes upados)
+      const creativeFromBank = creativeList[input.creativeIndex ?? 0] ?? creativeList[0];
+      const mergedCreative = creative ? {
+        ...creative,
+        // Preserva hashes de imagem do banco se o adCopy não trouxer
+        feedImageHash:       creative.feedImageHash       || creativeFromBank?.feedImageHash       || null,
+        storyImageHash:      creative.storyImageHash      || creativeFromBank?.storyImageHash      || null,
+        squareImageHash:     creative.squareImageHash     || creativeFromBank?.squareImageHash     || null,
+        feedImageUrl:        creative.feedImageUrl        || creativeFromBank?.feedImageUrl        || null,
+        storyImageUrl:       creative.storyImageUrl       || creativeFromBank?.storyImageUrl       || null,
+        squareImageUrl:      creative.squareImageUrl      || creativeFromBank?.squareImageUrl      || null,
+        feedVideoId:         creative.feedVideoId         || creativeFromBank?.feedVideoId         || null,
+        storyVideoId:        creative.storyVideoId        || creativeFromBank?.storyVideoId        || null,
+        squareVideoId:       creative.squareVideoId       || creativeFromBank?.squareVideoId       || null,
+        publishMedia:        creative.publishMedia        || creativeFromBank?.publishMedia        || null,
+        manualImageOverride: creative.manualImageOverride || creativeFromBank?.manualImageOverride || false,
+      } : creativeFromBank;
       const creativeScore = creative?.finalScore ? {
         hookStrength: creative.hookStrength,
         clarity: creative.clarity,
@@ -2459,7 +2479,7 @@ const campaignsRouter = router({
       if ((creativeScore?.finalScore || 0) < 60) {
         publishWarnings.push(`Criativo com score ${creativeScore.finalScore}/100. Revise antes de escalar.`);
       }
-      const selectedCreativeRaw = creative as CampaignCreative | null;
+      const selectedCreativeRaw = mergedCreative as CampaignCreative | null;
       const selectedCreative = selectedCreativeRaw
         ? mergeCreativeWithProjectedLegacy(selectedCreativeRaw)
         : null;

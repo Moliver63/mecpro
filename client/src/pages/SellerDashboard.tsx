@@ -226,139 +226,170 @@ export default function SellerDashboard() {
         .edit-input:focus { outline:none; border-color:var(--blue); }
       `}</style>
 
-      {/* ── Modal de Edição ── */}
+      {/* ── Modal de Edição — Layout redesenhado ── */}
       {editingListing && (
-        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }} onClick={e => { if (e.target === e.currentTarget) setEditingListing(null); }}>
-          <div style={{ background:"var(--card)", borderRadius:20, width:"100%", maxWidth:560, maxHeight:"90vh", overflowY:"auto", padding:"28px 24px", boxShadow:"0 24px 80px rgba(0,0,0,.25)" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-              <h2 style={{ margin:0, fontSize:18, fontWeight:900, color:"var(--black)", letterSpacing:"-0.03em" }}>✏️ Editar oferta</h2>
-              <button onClick={() => { setEditingListing(null); setMediaPreview(null); }} style={{ background:"none", border:"none", fontSize:20, cursor:"pointer", color:"var(--muted)", lineHeight:1 }}>×</button>
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.6)", zIndex:1000, display:"flex", alignItems:"flex-start", justifyContent:"center", padding:"16px 16px", overflowY:"auto" }}
+          onClick={e => { if (e.target === e.currentTarget) { setEditingListing(null); setMediaPreview(null); } }}>
+          <div style={{ background:"#fff", borderRadius:20, width:"100%", maxWidth:620, margin:"auto", boxShadow:"0 32px 80px rgba(0,0,0,.3)", overflow:"hidden" }}>
+
+            {/* Header fixo */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"20px 24px 16px", borderBottom:"1px solid #f1f5f9", background:"#fff", position:"sticky", top:0, zIndex:1 }}>
+              <div>
+                <div style={{ fontSize:17, fontWeight:900, color:"#0f172a", letterSpacing:"-0.03em" }}>✏️ Editar oferta</div>
+                <div style={{ fontSize:11, color:"#94a3b8", marginTop:2 }}>{editingListing.title?.slice(0,50)}</div>
+              </div>
+              <button onClick={() => { setEditingListing(null); setMediaPreview(null); }}
+                style={{ width:32, height:32, borderRadius:50, background:"#f1f5f9", border:"none", cursor:"pointer", fontSize:18, color:"#64748b", display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
             </div>
 
-            <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            {/* Conteúdo com scroll */}
+            <div style={{ padding:"20px 24px", display:"flex", flexDirection:"column", gap:18, maxHeight:"70vh", overflowY:"auto" }}>
 
-              {/* ── Mídia: imagem ou vídeo ── */}
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:8 }}>📸 IMAGEM / VÍDEO DA OFERTA</label>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
-                  <label htmlFor="mp-photo-input" style={{
-                    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6,
-                    padding:"14px 8px", borderRadius:12, border:"2px dashed #94a3b8", background:"#f8fafc",
-                    cursor: uploadingMedia ? "wait" : "pointer", opacity: uploadingMedia ? .6 : 1, textAlign:"center",
-                  }}>
-                    <span style={{ fontSize:24 }}>🖼️</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:"#334155" }}>{uploadingMedia ? "Enviando..." : "Foto"}</span>
-                    <span style={{ fontSize:10, color:"#94a3b8" }}>JPG, PNG, WebP</span>
+              {/* ── MÍDIA ── */}
+              <div style={{ background:"#f8fafc", borderRadius:14, padding:"16px" }}>
+                <div style={{ fontSize:11, fontWeight:800, color:"#64748b", letterSpacing:"0.05em", marginBottom:12 }}>📸 IMAGEM OU VÍDEO DA OFERTA</div>
+
+                {/* Preview */}
+                {(mediaPreview || editingListing?.imageUrl || editingListing?.videoUrl) ? (
+                  <div style={{ position:"relative", borderRadius:12, overflow:"hidden", marginBottom:10, border:"2px solid #e2e8f0" }}>
+                    {(mediaPreview?.type === "video" || (!mediaPreview && editingListing?.videoUrl)) ? (
+                      <video src={mediaPreview?.url || editingListing?.videoUrl} controls style={{ width:"100%", maxHeight:220, objectFit:"cover", display:"block", background:"#000" }} />
+                    ) : (
+                      <img src={mediaPreview?.url || editingListing?.imageUrl} alt="" style={{ width:"100%", maxHeight:220, objectFit:"cover", display:"block" }} />
+                    )}
+                    {uploadingMedia && (
+                      <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                        <div style={{ width:24, height:24, border:"3px solid white", borderTopColor:"transparent", borderRadius:"50%", animation:"spin 1s linear infinite" }} />
+                        <span style={{ color:"white", fontWeight:700, fontSize:13 }}>Enviando...</span>
+                      </div>
+                    )}
+                    <button onClick={() => { setMediaPreview(null); set("imageUrl",""); set("videoUrl",""); }}
+                      style={{ position:"absolute", top:8, right:8, background:"rgba(0,0,0,.65)", color:"white", border:"none", borderRadius:"50%", width:28, height:28, cursor:"pointer", fontSize:16, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 }}>×</button>
+                  </div>
+                ) : (
+                  <div style={{ borderRadius:12, border:"2px dashed #cbd5e1", background:"white", padding:"24px", textAlign:"center", marginBottom:10 }}>
+                    <div style={{ fontSize:28, marginBottom:6 }}>📤</div>
+                    <div style={{ fontSize:12, fontWeight:700, color:"#475569" }}>Nenhuma mídia adicionada</div>
+                    <div style={{ fontSize:11, color:"#94a3b8" }}>Clique nos botões abaixo para adicionar</div>
+                  </div>
+                )}
+
+                {/* Botões upload */}
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  <label htmlFor="mp-photo-input" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, padding:"10px", borderRadius:10, border:"1.5px solid #bfdbfe", background:"#eff6ff", cursor: uploadingMedia ? "wait" : "pointer", opacity: uploadingMedia ? .6 : 1 }}>
+                    <span style={{ fontSize:18 }}>🖼️</span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:"#1d4ed8" }}>{uploadingMedia ? "Enviando..." : "Trocar foto"}</div>
+                      <div style={{ fontSize:10, color:"#60a5fa" }}>JPG, PNG, WebP</div>
+                    </div>
                   </label>
                   <input id="mp-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" style={{ display:"none" }}
                     onChange={e => { const f=e.target.files?.[0]; if(f) handleMediaUpload(f); e.currentTarget.value=""; }} />
 
-                  <label htmlFor="mp-video-input" style={{
-                    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6,
-                    padding:"14px 8px", borderRadius:12, border:"2px dashed #a78bfa", background:"#faf5ff",
-                    cursor: uploadingMedia ? "wait" : "pointer", opacity: uploadingMedia ? .6 : 1, textAlign:"center",
-                  }}>
-                    <span style={{ fontSize:24 }}>🎬</span>
-                    <span style={{ fontSize:11, fontWeight:700, color:"#7c3aed" }}>{uploadingMedia ? "Enviando..." : "Vídeo"}</span>
-                    <span style={{ fontSize:10, color:"#a78bfa" }}>MP4, MOV (máx 50MB)</span>
+                  <label htmlFor="mp-video-input" style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, padding:"10px", borderRadius:10, border:"1.5px solid #d8b4fe", background:"#faf5ff", cursor: uploadingMedia ? "wait" : "pointer", opacity: uploadingMedia ? .6 : 1 }}>
+                    <span style={{ fontSize:18 }}>🎬</span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:"#7c3aed" }}>{uploadingMedia ? "Enviando..." : "Adicionar vídeo"}</div>
+                      <div style={{ fontSize:10, color:"#a78bfa" }}>MP4, MOV (máx 50MB)</div>
+                    </div>
                   </label>
                   <input id="mp-video-input" type="file" accept="video/mp4,video/mov,video/quicktime,video/webm" style={{ display:"none" }}
                     onChange={e => { const f=e.target.files?.[0]; if(f) handleMediaUpload(f); e.currentTarget.value=""; }} />
                 </div>
+              </div>
 
-                {/* Preview da mídia atual ou carregada */}
-                {(mediaPreview || editingListing?.imageUrl || editingListing?.videoUrl) && (
-                  <div style={{ position:"relative", borderRadius:12, overflow:"hidden", border:"2px solid var(--border)", marginBottom:4 }}>
-                    {(mediaPreview?.type === "video" || (!mediaPreview && editingListing?.videoUrl)) ? (
-                      <video src={mediaPreview?.url || editingListing?.videoUrl} controls style={{ width:"100%", maxHeight:200, objectFit:"cover", display:"block" }} />
-                    ) : (
-                      <img src={mediaPreview?.url || editingListing?.imageUrl} alt="" style={{ width:"100%", maxHeight:200, objectFit:"cover", display:"block" }} />
-                    )}
-                    {uploadingMedia && (
-                      <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", color:"white", fontWeight:700, fontSize:14 }}>
-                        ⏳ Enviando...
-                      </div>
-                    )}
-                    <button onClick={() => { setMediaPreview(null); set("imageUrl",""); set("videoUrl",""); }}
-                      style={{ position:"absolute", top:6, right:6, background:"rgba(0,0,0,.6)", color:"white", border:"none", borderRadius:20, width:26, height:26, cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+              {/* ── INFORMAÇÕES ── */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:800, color:"#64748b", letterSpacing:"0.05em", marginBottom:10 }}>📝 INFORMAÇÕES DA OFERTA</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Título *</label>
+                    <input className="edit-input" value={editForm.title} onChange={e => set("title", e.target.value)} placeholder="Ex: Apartamento de alto padrão em BC" maxLength={120} />
+                    <div style={{ fontSize:10, color:"#94a3b8", marginTop:3 }}>{editForm.title?.length || 0}/120 caracteres</div>
                   </div>
-                )}
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Descrição</label>
+                    <textarea className="edit-input" value={editForm.description} onChange={e => set("description", e.target.value)} placeholder="Descreva os principais diferenciais da oferta..." rows={3} style={{ resize:"vertical", minHeight:80 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Benefícios <span style={{ fontWeight:400, color:"#94a3b8" }}>(um por linha)</span></label>
+                    <textarea className="edit-input" value={editForm.benefits} onChange={e => set("benefits", e.target.value)} placeholder={"✓ Piscina e área de lazer\n✓ Localização privilegiada\n✓ Alto padrão construtivo"} rows={4} style={{ resize:"vertical" }} />
+                  </div>
+                </div>
               </div>
 
-              {/* Separador */}
-              <div style={{ height:1, background:"var(--border)" }} />
-
-              {/* ── Texto ── */}
+              {/* ── PREÇO ── */}
               <div>
-                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>TÍTULO *</label>
-                <input className="edit-input" value={editForm.title} onChange={e => set("title", e.target.value)} placeholder="Título da oferta" maxLength={120} />
-              </div>
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>DESCRIÇÃO</label>
-                <textarea className="edit-input" value={editForm.description} onChange={e => set("description", e.target.value)} placeholder="Descreva sua oferta..." rows={3} style={{ resize:"vertical" }} />
-              </div>
-              <div>
-                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>BENEFÍCIOS (um por linha)</label>
-                <textarea className="edit-input" value={editForm.benefits} onChange={e => set("benefits", e.target.value)} placeholder={"Benefício 1\nBenefício 2\nBenefício 3"} rows={3} style={{ resize:"vertical" }} />
-              </div>
-
-              {/* ── Preço ── */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>PREÇO (R$)</label>
-                  <input className="edit-input" type="number" value={editForm.price} onChange={e => set("price", e.target.value)} placeholder="Ex: 1500" min="0" />
-                </div>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>TIPO</label>
-                  <select className="edit-input" value={editForm.priceType} onChange={e => set("priceType", e.target.value)}>
-                    <option value="fixed">Preço fixo</option>
-                    <option value="monthly">Mensalidade</option>
-                    <option value="negotiable">A negociar</option>
-                    <option value="free">Gratuito</option>
-                  </select>
+                <div style={{ fontSize:11, fontWeight:800, color:"#64748b", letterSpacing:"0.05em", marginBottom:10 }}>💰 PREÇO</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Valor (R$)</label>
+                    <div style={{ position:"relative" }}>
+                      <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", fontSize:13, fontWeight:700, color:"#64748b" }}>R$</span>
+                      <input className="edit-input" type="number" value={editForm.price} onChange={e => set("price", e.target.value)} placeholder="0,00" min="0" style={{ paddingLeft:30 }} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Tipo</label>
+                    <select className="edit-input" value={editForm.priceType} onChange={e => set("priceType", e.target.value)}>
+                      <option value="fixed">💳 Preço fixo</option>
+                      <option value="monthly">🔄 Mensalidade</option>
+                      <option value="negotiable">🤝 A negociar</option>
+                      <option value="free">🎁 Gratuito</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* ── Contato ── */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>WHATSAPP</label>
-                  <input className="edit-input" value={editForm.whatsappNumber} onChange={e => set("whatsappNumber", e.target.value)} placeholder="47999999999" />
-                </div>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>EMAIL</label>
-                  <input className="edit-input" type="email" value={editForm.contactEmail} onChange={e => set("contactEmail", e.target.value)} placeholder="seu@email.com" />
-                </div>
-              </div>
+              {/* ── CONTATO ── */}
               <div>
-                <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>LINK DE CHECKOUT / SITE / WHATSAPP URL</label>
-                <input className="edit-input" value={editForm.checkoutUrl} onChange={e => set("checkoutUrl", e.target.value)} placeholder="https://..." />
+                <div style={{ fontSize:11, fontWeight:800, color:"#64748b", letterSpacing:"0.05em", marginBottom:10 }}>📞 CONTATO E CONVERSÃO</div>
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                    <div>
+                      <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>WhatsApp</label>
+                      <div style={{ position:"relative" }}>
+                        <span style={{ position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", fontSize:13 }}>📱</span>
+                        <input className="edit-input" value={editForm.whatsappNumber} onChange={e => set("whatsappNumber", e.target.value)} placeholder="47999999999" style={{ paddingLeft:30 }} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>E-mail</label>
+                      <input className="edit-input" type="email" value={editForm.contactEmail} onChange={e => set("contactEmail", e.target.value)} placeholder="seu@email.com" />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Link de Checkout / Site / WhatsApp URL</label>
+                    <input className="edit-input" value={editForm.checkoutUrl} onChange={e => set("checkoutUrl", e.target.value)} placeholder="https://wa.me/47999... ou https://seu-site.com" />
+                  </div>
+                </div>
               </div>
 
-              {/* ── Localização ── */}
-              <div style={{ display:"grid", gridTemplateColumns:"1fr auto", gap:10 }}>
-                <div>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>CIDADE</label>
-                  <input className="edit-input" value={editForm.city} onChange={e => set("city", e.target.value)} placeholder="Balneário Camboriú" />
-                </div>
-                <div style={{ width:80 }}>
-                  <label style={{ fontSize:11, fontWeight:700, color:"var(--muted)", display:"block", marginBottom:5 }}>UF</label>
-                  <input className="edit-input" value={editForm.state} onChange={e => set("state", e.target.value.toUpperCase())} placeholder="SC" maxLength={2} />
+              {/* ── LOCALIZAÇÃO ── */}
+              <div>
+                <div style={{ fontSize:11, fontWeight:800, color:"#64748b", letterSpacing:"0.05em", marginBottom:10 }}>📍 LOCALIZAÇÃO</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 80px", gap:10 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>Cidade</label>
+                    <input className="edit-input" value={editForm.city} onChange={e => set("city", e.target.value)} placeholder="Balneário Camboriú" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:700, color:"#475569", display:"block", marginBottom:4 }}>UF</label>
+                    <input className="edit-input" value={editForm.state} onChange={e => set("state", e.target.value.toUpperCase())} placeholder="SC" maxLength={2} style={{ textAlign:"center", fontWeight:700 }} />
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div style={{ display:"flex", gap:8, marginTop:20, borderTop:"1px solid var(--border)", paddingTop:16 }}>
+            {/* Footer com botões — fixo no fundo */}
+            <div style={{ padding:"16px 24px", borderTop:"1px solid #f1f5f9", background:"#fff", display:"flex", gap:8 }}>
               <button onClick={() => saveEdit(false)} disabled={saving || !editForm.title?.trim()}
-                style={{ flex:1, padding:"10px 0", borderRadius:10, border:"none", cursor:"pointer", fontWeight:800, fontSize:13, background:"#334155", color:"white", opacity: saving ? .7 : 1 }}>
-                {saving ? "⏳ Salvando..." : "◎ Salvar"}
+                style={{ flex:1, padding:"12px 0", borderRadius:12, border:"none", cursor: saving || !editForm.title?.trim() ? "not-allowed" : "pointer", fontWeight:800, fontSize:13, background: saving || !editForm.title?.trim() ? "#e2e8f0" : "#0f172a", color: saving || !editForm.title?.trim() ? "#94a3b8" : "white", transition:"all .2s" }}>
+                {saving ? "⏳ Salvando..." : "◎ Salvar alterações"}
               </button>
               <button onClick={() => saveEdit(true)} disabled={saving || !editForm.title?.trim()}
-                style={{ flex:1, padding:"10px 0", borderRadius:10, border:"1px solid var(--blue)", cursor:"pointer", fontWeight:800, fontSize:13, background:"var(--blue-l)", color:"var(--blue)", opacity: saving ? .7 : 1 }}>
+                style={{ flex:1, padding:"12px 0", borderRadius:12, border:"1.5px solid #3b82f6", cursor: saving || !editForm.title?.trim() ? "not-allowed" : "pointer", fontWeight:800, fontSize:13, background:"white", color:"#3b82f6", opacity: saving || !editForm.title?.trim() ? .5 : 1 }}>
                 {saving ? "⏳ Salvando..." : "🤖 Salvar + Regenerar LP"}
-              </button>
-              <button onClick={() => setEditingListing(null)} style={{ padding:"10px 16px", borderRadius:10, border:"1px solid var(--border)", cursor:"pointer", fontWeight:700, fontSize:13, background:"transparent", color:"var(--muted)" }}>
-                Cancelar
               </button>
             </div>
           </div>
