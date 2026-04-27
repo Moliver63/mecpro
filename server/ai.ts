@@ -1717,7 +1717,7 @@ async function callGroqAPI(
         outputTok:  data.usage?.completion_tokens,
         finishReason: data.choices?.[0]?.finish_reason,
       });
-
+      trackLLMCall((data.usage?.prompt_tokens || 0) + (data.usage?.completion_tokens || 0));
       return text;
 
     } catch (e: any) {
@@ -1775,6 +1775,7 @@ async function callGensparkAPI(
 
       if (text) {
         log.info("ai", "Genspark OK", { model, chars: text.length });
+        trackLLMCall(Math.round(text.length / 4));
         return text;
       }
     } catch (err: any) {
@@ -1836,7 +1837,7 @@ async function callClaudeAPI(
     outputTok:  data.usage?.output_tokens,
     stopReason: data.stop_reason,
   });
-
+  trackLLMCall((data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0));
   return text;
 }
 
@@ -1986,8 +1987,11 @@ const _quotaWindow = {
   windowMs:    15 * 60 * 1000,
   calls:       0,
   tokens:      0,
-  maxCalls:    50,    // máximo de chamadas por janela (free tier ~60/min mas conservador)
-  maxTokens:   500_000, // ~500k tokens por janela (limita custo)
+  // Calculado dinamicamente baseado nas chaves disponíveis
+  // 5 chaves × ~60 req/min free tier × 15min / 5 (segurança) = 900
+  // Mas usamos 100 como base segura — ajusta no boot
+  maxCalls:    100,
+  maxTokens:   1_000_000, // ~1M tokens por janela com 5 chaves
   ecoMode:     false, // ativado automaticamente quando quota está perto do limite
   ecoThreshold: 0.8,  // ativa modo eco quando 80% da quota usada
 };
@@ -2067,35 +2071,31 @@ function _cacheKey(prompt: string, fn: string): string {
 }
 
 export function cacheGet(prompt: string, fn: string): string | null {
-  const key = _cacheKey(prompt, fn);
-  const entry = _llmCache.get(key);
-  if (!entry || Date.now() > entry.expiresAt) {
-    _llmCache.delete(key);
-    _cacheMisses++;
-    return null;
+  // Usa o _geminiCache existente como backend
+  const key = prompt.slice(0, 200) + fn + "0.3";
+  const cached = getCachedGemini(key);
+  if (cached) {
+    _cacheHits++;
+    log.info("ai", `Cache HIT [${fn}]`);
+    return cached;
   }
-  entry.hits++;
-  _cacheHits++;
-  log.info("ai", `Cache HIT [${fn}]`, { key: key.slice(0, 12), hits: entry.hits });
-  return entry.value;
+  _cacheMisses++;
+  return null;
 }
 
-export function cacheSet(prompt: string, fn: string, value: string, ttlMs = 15 * 60 * 1000) {
-  const key = _cacheKey(prompt, fn);
-  _llmCache.set(key, { value, expiresAt: Date.now() + ttlMs, hits: 0 });
-  // Limpa entradas expiradas a cada 100 sets
-  if (_llmCache.size % 100 === 0) {
-    const now = Date.now();
-    for (const [k, v] of _llmCache) { if (now > v.expiresAt) _llmCache.delete(k); }
-  }
+export function cacheSet(prompt: string, fn: string, value: string, _ttlMs = 15 * 60 * 1000) {
+  // Usa o _geminiCache existente como backend
+  const key = prompt.slice(0, 200) + fn + "0.3";
+  setCachedGemini(key, value);
 }
 
 export function getCacheStats() {
+  // Usa o _geminiCache que já existe e está integrado na função gemini()
   const total = _cacheHits + _cacheMisses;
   return {
-    size: _llmCache.size,
-    hits: _cacheHits,
-    misses: _cacheMisses,
+    size:    _geminiCache.size,           // tamanho real do cache ativo
+    hits:    _cacheHits,                  // hits rastreados pelo sistema novo
+    misses:  _cacheMisses,
     hitRate: total > 0 ? Math.round(_cacheHits / total * 100) : 0,
   };
 }
@@ -2334,6 +2334,10 @@ export async function hybridGenerateAds(opts: {
 
   // LLM usado APENAS para humanização — prompt <500 tokens
   if (useLLMRefine && patternAds.length > 0) {
+    if (!shouldUseLLM("low")) {
+      log.info("ai", "hybridGenerateAds: ecoMode ativo — retornando templates sem refinamento LLM");
+      return { ads: patternAds, tokensUsed: 0, source: "hybrid" };
+    }
     const refinePrompt = `Humanize e melhore estes anúncios mantendo a estrutura. Responda em JSON array com os mesmos campos (headline, body, cta):
 ${JSON.stringify(patternAds.map(a => ({ headline: a.headline, body: a.body, cta: a.cta })))}
 Contexto: empresa="${clientName}", produto="${product}", nicho="${niche}".
@@ -4429,7 +4433,13 @@ async function generateMockAds(competitorId: number, projectId: number, competit
   let selectedAds: any[] | null = null;
   let generator = "static";
 
-  if (MECPRO_AI_URL) {
+  // Eco mode: pula MECPro AI e Gemini, vai direto para motor híbrido local
+  const useExternalLLM = shouldUseLLM("low");
+  if (!useExternalLLM) {
+    log.info("ai", "generateMockAds: ecoMode — usando motor híbrido local", { name, niche });
+  }
+
+  if (useExternalLLM && MECPRO_AI_URL) {
     try {
       log.info("ai", "[M2] generateMockAds via MECPro AI start", { name, niche });
       const res = await fetch(`${MECPRO_AI_URL}/generate-mock-ads`, {
@@ -5487,6 +5497,10 @@ Gere copies para 3 estágios do funil. Responda SOMENTE em JSON:
 
   log.info("ai", `generateCampaignPart start`, { campaignId: input.campaignId, part: input.part });
 
+  if (!shouldUseLLM("medium")) {
+    log.info("ai", "generateCampaignPart: ecoMode — usando buildCampaignFromAds");
+    return null; // caller vai usar motor híbrido
+  }
   const raw    = await gemini(prompt, { temperature: 0.7 });
   const clean  = raw.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
