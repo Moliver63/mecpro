@@ -2175,10 +2175,8 @@ function buildMarketAnalysisFromData(
   if (unusedFmts.includes("carousel")) opps.push("Carrossel pouco explorado — ideal para mostrar múltiplos produtos/benefícios");
 
   return {
-    competitiveGaps: gaps.length > 0 ? gaps.map((g,i)=>`${i+1}. ${g}`).join("
-") : `Concorrentes bem distribuídos — diferenciação por qualidade de copy e frequência.`,
-    unexploredOpportunities: opps.length > 0 ? opps.map((o,i)=>`${i+1}. ${o}`).join("
-") : `Continue monitorando — banco de padrões crescendo com cada análise.`,
+    competitiveGaps: gaps.length > 0 ? gaps.map((g,i)=>`${i+1}. ${g}`).join("\n") : `Concorrentes bem distribuídos — diferenciação por qualidade de copy e frequência.`,
+    unexploredOpportunities: opps.length > 0 ? opps.map((o,i)=>`${i+1}. ${o}`).join("\n") : `Continue monitorando — banco de padrões crescendo com cada análise.`,
     suggestedPositioning: `Diferencie ${company} pelo tom ${dominantTone === "rational" ? "emocional" : "racional"} e formato ${unusedFmts[0]||"vídeo"}. Concorrentes dominam ${topFmt} (${topFmtPct}%) com CTAs ${topCtas.join("/")} — explore o gap.`,
     threats: mostActive ? `${mostActive[0]} mais ativo (${mostActive[1]} anúncios rodando). ${activeRate}% dos anúncios dos concorrentes estão ativos — mercado ${activeRate > 60 ? "aquecido" : "moderado"}.` : `${competitors.length} concorrentes monitorados. ${total} anúncios na base.`,
     competitiveMap: `${competitors.length} concorrentes | ${total} anúncios | ${activeAds.length} ativos (${activeRate}%) | Formato líder: ${topFmt} ${topFmtPct}% | Tom dominante: ${dominantTone} | Padrões salvos: ${adPatterns.length}`,
