@@ -476,7 +476,7 @@ function MarketplaceHome() {
                         borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 600,
                         background: isActive ? nc.bg : "var(--card)",
                         color: isActive ? nc.color : "var(--muted)",
-                      }}>{nc.icon} {nc.label.replace(/[^a-zA-ZÀ-ú\s]/g, "").trim()}</button>
+                      }}>{nc.icon} {nc.label.replace(/[^a-zA-ZÀ-ú\s\u0080-\uFFFF]/g, "").trim() || nc.label}</button>
                   );
                 })}
               </div>

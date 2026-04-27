@@ -78,13 +78,16 @@ export default function PublishListing() {
   const [publishProgress, setPublishProgress] = useState("");
 
   const [form, setForm] = useState({
-    title: "", niche: "", description: "", benefits: "",
+    title: "", niche: "", subniche: "", description: "", benefits: "",
     price: "", priceType: "fixed",
-    checkoutType: "whatsapp", whatsappNumber: "", checkoutUrl: "", contactEmail: "",
+    checkoutType: "whatsapp" as string, whatsappNumber: "", checkoutUrl: "", contactEmail: "",
     city: "", state: "", isNational: true,
   });
 
   function set(k: string, v: any) { setForm(f => ({ ...f, [k]: v })); }
+
+  // selectedNiche derivado do niche selecionado
+  const selectedNiche = NICHE_MAP[form.niche] || null;
 
   // Pré-preenche se veio de campanha
   useEffect(() => {
@@ -212,7 +215,7 @@ export default function PublishListing() {
               Ver vitrine
             </button>
             <button className="btn btn-md" style={{ fontWeight: 600, fontSize: 12 }}
-              onClick={() => { setPublished(null); setForm({ title:"", niche:"", description:"", benefits:"", price:"", priceType:"fixed", checkoutType:"whatsapp", whatsappNumber:"", checkoutUrl:"", contactEmail:"", city:"", state:"", isNational:true }); setStep(0); }}>
+              onClick={() => { setPublished(null); setForm({ title:"", niche:"", subniche:"", description:"", benefits:"", price:"", priceType:"fixed", checkoutType:"whatsapp", whatsappNumber:"", checkoutUrl:"", contactEmail:"", city:"", state:"", isNational:true }); setStep(0); }}>
               + Publicar outra
             </button>
           </div>
@@ -271,7 +274,7 @@ export default function PublishListing() {
 
               {/* Subnicho — aparece após selecionar o segmento */}
               {selectedNiche && selectedNiche.subniches.length > 0 && (
-                <Field label={`Tipo de ${selectedNiche.label.replace(/[^a-zA-ZÀ-ú\s]/g, "").trim()}`}>
+                <Field label={`Tipo de ${selectedNiche.label.replace(/[^\w\sÀ-ú]/g, "").trim() || selectedNiche.label}`}>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {selectedNiche.subniches.map(s => (
                       <button key={s.key} onClick={() => set("subniche", s.key)} style={{
@@ -441,7 +444,7 @@ export default function PublishListing() {
                 {[
                   { label: "Título",       val: form.title },
                   { label: "Segmento",    val: selectedNiche?.label || form.niche },
-                  form.subniche ? { label: "Tipo",        val: selectedNiche?.subniches.find(s => s.key === form.subniche)?.label || "" } : null,
+                  ...(form.subniche ? [{ label: "Tipo", val: selectedNiche?.subniches.find(s => s.key === form.subniche)?.label || form.subniche }] : []),
                   { label: "Preço",        val: form.priceType === "free" ? "Gratuito" : form.priceType === "negotiable" ? "A negociar" : form.price ? `R$ ${Number(form.price).toLocaleString("pt-BR")} (${PRICE_TYPES.find(p=>p.key===form.priceType)?.label})` : "Não informado" },
                   { label: "Abrangência",  val: form.isNational ? "🇧🇷 Nacional" : `📍 ${[form.city, form.state].filter(Boolean).join(", ")}` },
                   { label: "Contato",      val: form.checkoutType === "whatsapp" ? `WhatsApp: ${form.whatsappNumber || "não informado"}` : form.checkoutType === "link" ? `Link: ${form.checkoutUrl || "não informado"}` : `E-mail: ${form.contactEmail || "não informado"}` },
