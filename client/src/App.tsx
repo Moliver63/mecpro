@@ -151,6 +151,8 @@ export default function App() {
             <Route path="/courses" component={Courses} />
             <Route path="/courses/:slug" component={CourseDetail} />
             <Route path="/marketplace" component={Marketplace} />
+            <Route path="/marketplace/publish"><ProtectedRoute><PublishListing /></ProtectedRoute></Route>
+            <Route path="/marketplace/seller"><ProtectedRoute><SellerDashboard /></ProtectedRoute></Route>
             <Route path="/marketplace/:slug" component={Marketplace} />
             <Route path="/ebooks" component={Ebooks} />
             <Route path="/ebook/:id" component={EbookReader} />
@@ -224,8 +226,6 @@ export default function App() {
             <Route path="/projects/:id/facebook-campaign"><ProtectedRoute><FacebookCampaignCreator /></ProtectedRoute></Route>
             <Route path="/consultas"><ProtectedRoute><Consultas /></ProtectedRoute></Route>
             <Route path="/billing"><ProtectedRoute><Billing /></ProtectedRoute></Route>
-            <Route path="/marketplace/publish"><ProtectedRoute><PublishListing /></ProtectedRoute></Route>
-            <Route path="/marketplace/seller"><ProtectedRoute><SellerDashboard /></ProtectedRoute></Route>
             <Route path="/my-subscription"><ProtectedRoute><MySubscription /></ProtectedRoute></Route>
             <Route path="/notifications"><ProtectedRoute><Notifications /></ProtectedRoute></Route>
             <Route path="/messages"><ProtectedRoute><Messages /></ProtectedRoute></Route>
