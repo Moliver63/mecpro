@@ -43,10 +43,30 @@ export default function SellerDashboard() {
   const [saving, setSaving]         = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  // Lê ?edit=ID da URL para abrir o modal automaticamente
+  const editIdFromUrl = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("edit")
+    : null;
+
   useEffect(() => {
     fetch("/api/marketplace/seller/dashboard", { credentials: "include" })
       .then(r => r.json())
-      .then(d => { if (d.success) setData(d); else setData(MOCK_DATA); })
+      .then(d => {
+        if (d.success) {
+          setData(d);
+          // Abre modal automaticamente se ?edit=ID estiver na URL
+          if (editIdFromUrl && d.listings) {
+            const target = d.listings.find((l: any) => String(l.id) === editIdFromUrl);
+            if (target) {
+              setTimeout(() => openEdit(target), 100);
+              // Limpa o parâmetro da URL sem recarregar
+              window.history.replaceState({}, "", "/marketplace/seller");
+            }
+          }
+        } else {
+          setData(MOCK_DATA);
+        }
+      })
       .catch(() => setData(MOCK_DATA))
       .finally(() => setLoading(false));
   }, []);

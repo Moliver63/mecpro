@@ -122,6 +122,7 @@ function SkeletonCard() {
 // ─── Landing page individual ──────────────────────────────────────────────────
 function ListingLanding({ slug }: { slug: string }) {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
   const [listing, setListing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -184,14 +185,31 @@ function ListingLanding({ slug }: { slug: string }) {
       `}</style>
       <div style={{ fontFamily: "var(--font)", maxWidth: 780, margin: "0 auto", padding: "0 0 80px" }}>
 
-        {/* Breadcrumb */}
-        <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 8 }}>
-          <button onClick={() => setLocation("/marketplace")}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 12 }}>
-            ← Marketplace
-          </button>
-          <span style={{ color: "var(--border)", fontSize: 12 }}>/</span>
-          <span style={{ fontSize: 12, color: "var(--muted)" }}>{listing.title?.slice(0, 40)}...</span>
+        {/* Breadcrumb + barra do dono */}
+        <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => setLocation("/marketplace")}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 12 }}>
+              ← Marketplace
+            </button>
+            <span style={{ color: "var(--border)", fontSize: 12 }}>/</span>
+            <span style={{ fontSize: 12, color: "var(--muted)" }}>{listing.title?.slice(0, 40)}...</span>
+          </div>
+          {/* Botão de editar para o dono — aparece quando logado como dono */}
+          {user && user.id === listing.userId && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => setLocation(`/marketplace/seller?edit=${listing.id}`)}
+                style={{ fontSize: 12, fontWeight: 700, background: "#334155", color: "white", border: "none", borderRadius: 10, padding: "7px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                ✏️ Editar esta oferta
+              </button>
+              <button
+                onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/marketplace/${listing.slug}`).then(() => alert("Link copiado!"))}
+                style={{ fontSize: 12, fontWeight: 600, background: "var(--off)", color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 10, padding: "7px 12px", cursor: "pointer" }}>
+                🔗 Copiar link
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Hero */}
