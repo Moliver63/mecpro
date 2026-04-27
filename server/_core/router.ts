@@ -934,6 +934,17 @@ const competitorsRouter = router({
       return result;
     }),
 
+
+  // ── Status de quota e cache do motor de IA ──────────────────────────────
+  quotaStatus: protectedProcedure
+    .query(async () => {
+      const { getQuotaStatus, getCacheStats } = await import("../ai");
+      return {
+        quota: getQuotaStatus(),
+        cache: getCacheStats(),
+      };
+    }),
+
   // -- Reanalisa forçando nova coleta (limpa dados estimados) --
 
   // -- MECPro Analyzer — análise de anúncio por input manual ----------------

@@ -1166,3 +1166,18 @@ export async function updatePatternScore(id: number, score: number): Promise<voi
   );
 }
 
+
+export async function getScrapedAdsByProject(projectId: number): Promise<any[]> {
+  const pool = await getPool();
+  if (!pool) return [];
+  const res = await pool.query(
+    `SELECT sa.*, comp.name AS "competitorName"
+     FROM scraped_ads sa
+     JOIN competitors comp ON sa.competitor_id = comp.id
+     WHERE comp.project_id = $1
+     ORDER BY sa.created_at DESC`,
+    [projectId]
+  );
+  return res.rows;
+}
+

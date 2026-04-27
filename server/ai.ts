@@ -1573,6 +1573,9 @@ async function _geminiImpl(
   if (result && opts.useCache !== false && retryCount === 0) {
     const cacheKey = prompt.slice(0, 200) + (opts.temperature || 0.3);
     setCachedGemini(cacheKey, result);
+    // Rastreia uso para controle de quota
+    const estTokens = Math.round((prompt.length + result.length) / 4);
+    trackLLMCall(estTokens);
   }
   return result;
 }
@@ -1970,6 +1973,217 @@ function mockResponse(prompt: string): string {
 }
 
 
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// SISTEMA DE CONTROLE DE QUOTA E MODO ECONÔMICO
+// Controla quando usar LLM vs motor determinístico
+// ════════════════════════════════════════════════════════════════════════════
+
+// Contadores de uso por janela de 15min
+const _quotaWindow = {
+  startMs:     Date.now(),
+  windowMs:    15 * 60 * 1000,
+  calls:       0,
+  tokens:      0,
+  maxCalls:    50,    // máximo de chamadas por janela (free tier ~60/min mas conservador)
+  maxTokens:   500_000, // ~500k tokens por janela (limita custo)
+  ecoMode:     false, // ativado automaticamente quando quota está perto do limite
+  ecoThreshold: 0.8,  // ativa modo eco quando 80% da quota usada
+};
+
+function _resetWindowIfNeeded() {
+  const now = Date.now();
+  if (now - _quotaWindow.startMs > _quotaWindow.windowMs) {
+    _quotaWindow.startMs = now;
+    _quotaWindow.calls   = 0;
+    _quotaWindow.tokens  = 0;
+    _quotaWindow.ecoMode = false;
+    log.info("ai", "Quota window resetada", { newWindow: new Date(now).toISOString() });
+  }
+}
+
+export function trackLLMCall(tokens: number) {
+  _resetWindowIfNeeded();
+  _quotaWindow.calls++;
+  _quotaWindow.tokens += tokens;
+  const callsPct  = _quotaWindow.calls  / _quotaWindow.maxCalls;
+  const tokensPct = _quotaWindow.tokens / _quotaWindow.maxTokens;
+  const usage = Math.max(callsPct, tokensPct);
+  if (usage >= _quotaWindow.ecoThreshold && !_quotaWindow.ecoMode) {
+    _quotaWindow.ecoMode = true;
+    log.warn("ai", `🔋 Modo econômico ATIVADO — quota ${Math.round(usage*100)}% usada`, {
+      calls: _quotaWindow.calls, tokens: _quotaWindow.tokens,
+    });
+  }
+}
+
+// Retorna true se deve usar LLM, false se deve usar motor determinístico
+export function shouldUseLLM(priority: "high" | "medium" | "low" = "medium"): boolean {
+  _resetWindowIfNeeded();
+  if (_quotaWindow.ecoMode) {
+    // No modo econômico: só usa LLM para prioridade alta
+    return priority === "high";
+  }
+  // Modo normal: sempre usa LLM (exceto se todas as chaves esgotadas)
+  const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean);
+  const available = allKeys.filter(k => !_exhaustedKeys.has(k));
+  return available.length > 0;
+}
+
+export function getQuotaStatus() {
+  _resetWindowIfNeeded();
+  const callsPct  = Math.round(_quotaWindow.calls  / _quotaWindow.maxCalls  * 100);
+  const tokensPct = Math.round(_quotaWindow.tokens / _quotaWindow.maxTokens * 100);
+  return {
+    ecoMode:   _quotaWindow.ecoMode,
+    callsPct,
+    tokensPct,
+    calls:     _quotaWindow.calls,
+    tokens:    _quotaWindow.tokens,
+    maxCalls:  _quotaWindow.maxCalls,
+    maxTokens: _quotaWindow.maxTokens,
+    windowMinutes: Math.round((_quotaWindow.windowMs - (Date.now() - _quotaWindow.startMs)) / 60000),
+  };
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// CACHE DE RESPOSTAS LLM — evita chamadas repetidas para prompts similares
+// TTL: 15min para insights, 60min para market analysis, 5min para copies
+// ════════════════════════════════════════════════════════════════════════════
+
+interface CacheEntry { value: string; expiresAt: number; hits: number; }
+const _llmCache = new Map<string, CacheEntry>();
+let _cacheHits = 0, _cacheMisses = 0;
+
+function _cacheKey(prompt: string, fn: string): string {
+  // Gera chave baseada nos primeiros 200 chars + últimos 100 chars do prompt
+  const sig = prompt.slice(0, 200) + "|" + prompt.slice(-100) + "|" + fn;
+  // Hash simples por soma de char codes
+  let h = 0;
+  for (let i = 0; i < sig.length; i++) h = (h * 31 + sig.charCodeAt(i)) & 0xffffffff;
+  return fn + "_" + Math.abs(h).toString(36);
+}
+
+export function cacheGet(prompt: string, fn: string): string | null {
+  const key = _cacheKey(prompt, fn);
+  const entry = _llmCache.get(key);
+  if (!entry || Date.now() > entry.expiresAt) {
+    _llmCache.delete(key);
+    _cacheMisses++;
+    return null;
+  }
+  entry.hits++;
+  _cacheHits++;
+  log.info("ai", `Cache HIT [${fn}]`, { key: key.slice(0, 12), hits: entry.hits });
+  return entry.value;
+}
+
+export function cacheSet(prompt: string, fn: string, value: string, ttlMs = 15 * 60 * 1000) {
+  const key = _cacheKey(prompt, fn);
+  _llmCache.set(key, { value, expiresAt: Date.now() + ttlMs, hits: 0 });
+  // Limpa entradas expiradas a cada 100 sets
+  if (_llmCache.size % 100 === 0) {
+    const now = Date.now();
+    for (const [k, v] of _llmCache) { if (now > v.expiresAt) _llmCache.delete(k); }
+  }
+}
+
+export function getCacheStats() {
+  const total = _cacheHits + _cacheMisses;
+  return {
+    size: _llmCache.size,
+    hits: _cacheHits,
+    misses: _cacheMisses,
+    hitRate: total > 0 ? Math.round(_cacheHits / total * 100) : 0,
+  };
+}
+
+
+// ── Análise de mercado determinística — usa dados reais do banco ──────────────
+// Chamado quando LLMs falham OU modo econômico ativo
+function buildMarketAnalysisFromData(
+  competitors: any[],
+  allAds: any[],
+  clientProfile: any,
+  adPatterns: any[],
+): any {
+  const niche   = clientProfile?.niche || "negócios";
+  const company = clientProfile?.companyName || "sua empresa";
+  const total   = allAds.length;
+
+  if (total === 0) {
+    return {
+      competitiveGaps:         `Nenhum dado coletado ainda — adicione concorrentes e execute análise.`,
+      unexploredOpportunities: `Cadastre concorrentes no Módulo 2 para análise competitiva real.`,
+      suggestedPositioning:    `Defina seu nicho no perfil do cliente para análise personalizada.`,
+      threats:                 `Sem dados de concorrentes — mercado não mapeado.`,
+      competitiveMap:          `0 concorrentes | 0 anúncios`,
+    };
+  }
+
+  // Analisa dados reais
+  const activeAds   = allAds.filter((a: any) => a.isActive);
+  const activeRate  = Math.round(activeAds.length / total * 100);
+
+  // Formatos dominantes dos concorrentes
+  const fmtCount: Record<string, number> = {};
+  for (const a of allAds) { const f = a.adType || "image"; fmtCount[f] = (fmtCount[f]||0)+1; }
+  const fmtRanked = Object.entries(fmtCount).sort((x:any,y:any)=>y[1]-x[1]);
+  const topFmt    = fmtRanked[0]?.[0] || "image";
+  const topFmtPct = Math.round((fmtRanked[0]?.[1]||0) / total * 100);
+  const unusedFmts = ["image","video","carousel"].filter(f => !fmtCount[f] || fmtCount[f] < 2);
+
+  // CTAs dominantes
+  const ctaCount: Record<string, number> = {};
+  for (const a of allAds) { if (a.cta) ctaCount[a.cta] = (ctaCount[a.cta]||0)+1; }
+  const topCtas = Object.entries(ctaCount).sort((x:any,y:any)=>y[1]-x[1]).slice(0,3).map(([k])=>k);
+
+  // Padrões de copy (da tabela ad_patterns)
+  const patternTones = adPatterns.reduce((acc:any, p:any)=>{acc[p.tone]=(acc[p.tone]||0)+1;return acc;},{});
+  const dominantTone = Object.entries(patternTones).sort((x:any,y:any)=>y[1]-x[1])[0]?.[0] || "rational";
+  const hasUrgency   = adPatterns.some((p:any) => p.tone === "urgent");
+  const hasEmotional = adPatterns.some((p:any) => p.tone === "emotional");
+  const hasPremium   = adPatterns.some((p:any) => p.tone === "premium");
+
+  // Concorrente mais ativo
+  const compActivity: Record<string, number> = {};
+  for (const a of activeAds) { const n = a.competitorName || "?"; compActivity[n] = (compActivity[n]||0)+1; }
+  const mostActive = Object.entries(compActivity).sort((x:any,y:any)=>y[1]-x[1])[0];
+
+  // Análise de longevidade (ads mais antigos = mais testados)
+  const longRunning = allAds.filter((a:any) => {
+    if (!a.startDate) return false;
+    const days = (Date.now() - new Date(a.startDate).getTime()) / 86400000;
+    return days > 14;
+  });
+
+  // Gaps reais baseados nos dados
+  const gaps: string[] = [];
+  if (unusedFmts.length > 0) gaps.push(`Formatos ${unusedFmts.join("/")} pouco explorados pelos concorrentes (< 2 ads)`);
+  if (!hasEmotional) gaps.push("Copy emocional ausente nos concorrentes — oportunidade para diferenciação por identidade");
+  if (!hasPremium)   gaps.push("Posicionamento premium não explorado — espaço para oferta de alto valor");
+  if (topCtas.length <= 2) gaps.push("Pouca variação de CTA — mercado testando pouco WhatsApp vs formulário vs agendamento");
+  if (activeRate < 40) gaps.push("Concorrentes com baixa atividade atual — janela favorável para aumentar pressão");
+
+  // Oportunidades
+  const opps: string[] = [];
+  if (longRunning.length > 3) opps.push(`${longRunning.length} anúncios rodando há mais de 14 dias — padrões vencedores identificados para replicar`);
+  if (!hasEmotional) opps.push("Mercado focado em racional — copy emocional terá baixa competição e maior recall");
+  if (unusedFmts.includes("video")) opps.push("Vídeo curto (15-30s) pouco usado pelos concorrentes — alto potencial de engajamento");
+  if (unusedFmts.includes("carousel")) opps.push("Carrossel pouco explorado — ideal para mostrar múltiplos produtos/benefícios");
+
+  return {
+    competitiveGaps: gaps.length > 0 ? gaps.map((g,i)=>`${i+1}. ${g}`).join("
+") : `Concorrentes bem distribuídos — diferenciação por qualidade de copy e frequência.`,
+    unexploredOpportunities: opps.length > 0 ? opps.map((o,i)=>`${i+1}. ${o}`).join("
+") : `Continue monitorando — banco de padrões crescendo com cada análise.`,
+    suggestedPositioning: `Diferencie ${company} pelo tom ${dominantTone === "rational" ? "emocional" : "racional"} e formato ${unusedFmts[0]||"vídeo"}. Concorrentes dominam ${topFmt} (${topFmtPct}%) com CTAs ${topCtas.join("/")} — explore o gap.`,
+    threats: mostActive ? `${mostActive[0]} mais ativo (${mostActive[1]} anúncios rodando). ${activeRate}% dos anúncios dos concorrentes estão ativos — mercado ${activeRate > 60 ? "aquecido" : "moderado"}.` : `${competitors.length} concorrentes monitorados. ${total} anúncios na base.`,
+    competitiveMap: `${competitors.length} concorrentes | ${total} anúncios | ${activeAds.length} ativos (${activeRate}%) | Formato líder: ${topFmt} ${topFmtPct}% | Tom dominante: ${dominantTone} | Padrões salvos: ${adPatterns.length}`,
+  };
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // MOTOR HÍBRIDO — geração de anúncios sem LLM + refinamento opcional
@@ -4512,10 +4726,16 @@ Gere uma análise de mercado completa em JSON:
       competitors:   competitorsPayload,
     });
 
-    // Fallback para Gemini/Claude
+    // Fallback para Gemini direto (com controle de quota)
     if (!result) {
-      const raw = await gemini(prompt, { temperature: 0.3 });
-      result = JSON.parse(raw);
+      if (shouldUseLLM("medium")) {
+        const raw = await gemini(prompt, { temperature: 0.3 });
+        result = JSON.parse(raw);
+      } else {
+        log.info("ai", "Market analysis: modo econômico ativo — usando dados locais do banco");
+        result = null; // força fallback local abaixo
+        throw new Error("eco_mode");
+      }
     }
 
     // Normaliza resposta aninhada (ex: { data: { competitiveGaps: ... } })
@@ -4523,14 +4743,11 @@ Gere uma análise de mercado completa em JSON:
       result = result.data ?? result.result ?? result.response;
     }
   } catch (e: any) {
-    log.warn("ai", "Market analysis parse error", { error: e.message });
-    result = {
-      competitiveGaps:          `Análise baseada em ${allAds.length} anúncios de ${competitors.length} concorrentes.`,
-      unexploredOpportunities:  "Configure MECPRO_AI_URL ou GEMINI_API_KEY para análise completa.",
-      suggestedPositioning:     "Dados coletados — integre o MECPro AI Service para insights.",
-      threats:                  "Monitoramento ativo.",
-      competitiveMap:           `${competitors.length} concorrentes | ${allAds.length} anúncios coletados.`,
-    };
+    const isEcoMode = e.message === "eco_mode";
+    log.warn("ai", isEcoMode ? "Market analysis: modo econômico — usando dados locais" : "Market analysis parse error", { error: e.message });
+    // Usa dados REAIS do banco em vez de mensagens genéricas
+    const adPatterns = await db.getAdPatterns(clientProfile?.niche || "geral", undefined, 50).catch(() => [] as any[]);
+    result = buildMarketAnalysisFromData(competitors, allAds, clientProfile, adPatterns);
   }
 
   const aiModel = MECPRO_AI_URL ? "mecpro-ai/groq" : GEMINI_API_KEY ? "gemini-2.5-flash" : "mock";

@@ -87,6 +87,95 @@ function QualityBar({ value, max = 100, color }: { value: number; max?: number; 
   );
 }
 
+function QuotaMonitor({ quota, cache, onRefresh }: { quota?: any; cache?: any; onRefresh?: () => void }) {
+  if (!quota) return null;
+
+  const q = quota;
+  const c = cache;
+  const usagePct = Math.max(q.callsPct || 0, q.tokensPct || 0);
+  const barColor = usagePct >= 80 ? "#dc2626" : usagePct >= 60 ? "#d97706" : "#059669";
+
+  return (
+    <div style={{
+      background: "#fff", border: `1px solid ${q.ecoMode ? "#fde68a" : "#e2e8f0"}`,
+      borderRadius: 16, padding: "18px 24px", marginBottom: 20,
+      transition: "border-color .3s",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 2 }}>
+            {q.ecoMode ? "🔋 Modo Econômico ATIVO" : "📡 Monitor de Quota"}
+          </div>
+          <div style={{ fontSize: 12, color: "#64748b" }}>
+            {q.ecoMode
+              ? "LLM reservado para operações críticas — motor determinístico ativo"
+              : `Janela atual: ${q.windowMinutes} min restantes`}
+          </div>
+        </div>
+        <button onClick={onRefresh} style={{
+          background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8,
+          padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "#64748b",
+        }}>↻ Atualizar</button>
+      </div>
+
+      {/* Barras de uso */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+        {[
+          { label: "Chamadas LLM", value: q.callsPct, used: q.calls, max: q.maxCalls, unit: "req" },
+          { label: "Tokens",       value: q.tokensPct, used: Math.round(q.tokens/1000), max: Math.round(q.maxTokens/1000), unit: "k" },
+        ].map(m => (
+          <div key={m.label}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>{m.label}</span>
+              <span style={{ fontSize: 11, color: barColor, fontWeight: 700 }}>{m.value}% ({m.used}/{m.max}{m.unit})</span>
+            </div>
+            <div style={{ height: 6, background: "#f1f5f9", borderRadius: 999, overflow: "hidden" }}>
+              <div style={{
+                height: "100%", width: `${Math.min(m.value, 100)}%`,
+                background: barColor, borderRadius: 999,
+                transition: "width .5s ease, background .3s",
+              }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Cache stats */}
+      {c && (
+        <div style={{
+          display: "flex", gap: 16, padding: "10px 14px",
+          background: "#f8fafc", borderRadius: 10, flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 11, color: "#64748b" }}>
+            💾 Cache: <strong style={{ color: "#0f172a" }}>{c.size} entradas</strong>
+          </span>
+          <span style={{ fontSize: 11, color: "#64748b" }}>
+            ✅ Hits: <strong style={{ color: "#059669" }}>{c.hits}</strong>
+          </span>
+          <span style={{ fontSize: 11, color: "#64748b" }}>
+            ❌ Misses: <strong style={{ color: "#dc2626" }}>{c.misses}</strong>
+          </span>
+          <span style={{ fontSize: 11, color: "#64748b" }}>
+            📈 Hit rate: <strong style={{ color: c.hitRate >= 30 ? "#059669" : "#d97706" }}>{c.hitRate}%</strong>
+          </span>
+        </div>
+      )}
+
+      {q.ecoMode && (
+        <div style={{
+          marginTop: 12, padding: "8px 12px", borderRadius: 8,
+          background: "#fffbeb", border: "1px solid #fde68a",
+          fontSize: 12, color: "#92400e",
+        }}>
+          ⚡ Modo econômico: apenas operações com prioridade <strong>alta</strong> usarão LLM.
+          Análise de concorrentes e scraping continuam 100% funcionais.
+          Reset em <strong>{q.windowMinutes} minutos</strong>.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QualityControlPanel({ llmMode }: { llmMode?: string }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const isLLMOn = llmMode !== "off";
@@ -315,6 +404,7 @@ export default function AutonomousAgentPage() {
   // Queries e mutations
   const { data: status } = (trpc as any).agent?.status?.useQuery?.() ?? { data: null };
   const { data: llmMode, refetch: refetchLLM } = (trpc as any).llm?.getMode?.useQuery?.() ?? { data: null, refetch: () => {} };
+  const { data: quotaData, refetch: refetchQuota } = (trpc as any).campaigns?.quotaStatus?.useQuery?.() ?? { data: null, refetch: () => {} };
 
   const setLLMMutation = (trpc as any).llm?.setMode?.useMutation?.({
     onSuccess: (data: any) => {
@@ -528,6 +618,9 @@ export default function AutonomousAgentPage() {
 
         {/* ── Painel de Controle de Qualidade do Motor ── */}
         <QualityControlPanel llmMode={llmMode?.mode} />
+
+        {/* ── Monitor de Quota e Cache ── */}
+        <QuotaMonitor quota={quotaData?.quota} cache={quotaData?.cache} onRefresh={() => refetchQuota?.()} />
 
         {/* ── Configuração e disparo ── */}
         <div style={{
