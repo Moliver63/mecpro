@@ -152,6 +152,8 @@ export default function CampaignResult() {
   const [publishing,   setPublishing]   = useState(false);
   const [publishResult,setPublishResult]= useState<any>(null);
   const [pageId,       setPageId]       = useState("");
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+  const [multiPageMode,   setMultiPageMode]   = useState(false);
   const [imageUrl,     setImageUrl]     = useState("");
   const [linkUrl,      setLinkUrl]      = useState("");
   const [adSetIndex,   setAdSetIndex]   = useState(0);
@@ -629,6 +631,53 @@ export default function CampaignResult() {
     return null;
   }
 
+  // ── Publicação em múltiplas páginas sequencial ──────────────────────────────
+  async function handlePublishMultiPage(pageIds: string[]) {
+    if (!pageIds.length) { toast.error("Selecione pelo menos uma página"); return; }
+
+    const results: { pageId: string; pageName: string; success: boolean; error?: string }[] = [];
+    let successCount = 0;
+
+    for (const pid of pageIds) {
+      const pageName = (pages as any[]).find(p => p.id === pid)?.name || pid;
+      toast.loading(`📤 Publicando em ${pageName}...`, { id: `pub-${pid}` });
+      try {
+        // Chama handlePublish com a página específica — seta pageId e publica
+        const prevPageId = pageId;
+        setPageId(pid);
+        await new Promise(r => setTimeout(r, 50)); // aguarda state update
+        await publishMutation.mutateAsync({
+          campaignId: id,
+          projectId,
+          pageId: pid,
+          destination: leadDestination,
+          linkUrl: normalizeDestinationUrl(linkUrl) || undefined,
+          ageMin, ageMax,
+          placementMode,
+          placements: selectedPlacements.length > 0 ? selectedPlacements : undefined,
+          locationMode,
+          regions:   locationMode === "brasil"  ? regions            : undefined,
+          countries: locationMode === "paises"  ? countries          : undefined,
+          geoCity:   locationMode === "raio"    ? geoCity.trim()     : undefined,
+          geoRadius: locationMode === "raio"    ? geoRadius          : undefined,
+        } as any);
+        setPageId(prevPageId);
+        results.push({ pageId: pid, pageName, success: true });
+        successCount++;
+        toast.success(`✅ ${pageName}`, { id: `pub-${pid}`, duration: 3000 });
+      } catch (e: any) {
+        results.push({ pageId: pid, pageName, success: false, error: e.message });
+        toast.error(`❌ ${pageName}: ${(e.message || "").slice(0, 60)}`, { id: `pub-${pid}`, duration: 5000 });
+      }
+    }
+
+    if (successCount === pageIds.length) {
+      toast.success(`🎉 Campanha publicada em todas as ${successCount} páginas!`);
+    } else {
+      toast.warning(`Publicado em ${successCount}/${pageIds.length} páginas. Verifique os erros acima.`);
+    }
+  }
+
   async function handlePublish() {
     if (!pageId.trim()) { toast.error("Informe o ID da Página do Facebook"); return; }
     if (ageMin >= ageMax) { toast.error("A idade mínima deve ser menor que a idade máxima."); return; }
@@ -744,7 +793,12 @@ export default function CampaignResult() {
         geoRadius: locationMode === "raio" ? geoRadius : undefined,
       };
 
-      await publishMutation.mutateAsync(publishPayload as any);
+      // Multi-página: publica em todas as páginas selecionadas
+      if (multiPageMode && selectedPageIds.length > 1) {
+        await handlePublishMultiPage(selectedPageIds);
+      } else {
+        await publishMutation.mutateAsync(publishPayload as any);
+      }
     } finally { setPublishing(false); }
   }
 
@@ -2715,25 +2769,112 @@ export default function CampaignResult() {
                   </div>
                 )}
 
-                {/* Página do Facebook */}
-                <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Página do Facebook *</label>
+                {/* Página do Facebook — seleção simples ou múltipla */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)" }}>Página do Facebook *</label>
+                  {pages.length > 1 && (
+                    <button
+                      onClick={() => { setMultiPageMode(m => !m); setSelectedPageIds([]); }}
+                      style={{ fontSize: 11, fontWeight: 700, background: multiPageMode ? "#1e293b" : "var(--off)",
+                        color: multiPageMode ? "white" : "var(--muted)", border: "1px solid var(--border)",
+                        borderRadius: 20, padding: "3px 12px", cursor: "pointer" }}>
+                      {multiPageMode ? "✓ Multi-página ativo" : "Publicar em múltiplas páginas"}
+                    </button>
+                  )}
+                </div>
                 {loadingPages ? (
                   <div style={{ fontSize: 13, color: "var(--muted)", padding: "10px 0", marginBottom: 14 }}>⏳ Buscando suas páginas...</div>
                 ) : pages.length > 0 ? (
                   <div style={{ marginBottom: 14 }}>
-                    <select className="input" style={{ width: "100%", marginBottom: 4 }} value={pageId} onChange={e => {
-                      setPageId(e.target.value);
-                      // Auto-detecta WhatsApp da página selecionada
-                      const selected = pages.find((p: any) => p.id === e.target.value);
-                      const integration = (metaIntegration as any[])?.find(i => i.provider === "meta");
-                      if (selected && integration?.accessToken) {
-                        autoDetectWhatsApp(selected, integration.accessToken);
-                      }
-                    }}>
-                      <option value="">Selecione uma página...</option>
-                      {pages.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
-                    </select>
-                    <p style={{ fontSize: 11, color: "var(--muted)" }}>Páginas carregadas automaticamente da sua conta.</p>
+                    {!multiPageMode ? (
+                      /* Seleção simples — dropdown normal */
+                      <>
+                        <select className="input" style={{ width: "100%", marginBottom: 4 }} value={pageId} onChange={e => {
+                          setPageId(e.target.value);
+                          const selected = pages.find((p: any) => p.id === e.target.value);
+                          const integration = (metaIntegration as any[])?.find(i => i.provider === "meta");
+                          if (selected && integration?.accessToken) {
+                            autoDetectWhatsApp(selected, integration.accessToken);
+                          }
+                        }}>
+                          <option value="">Selecione uma página...</option>
+                          {pages.map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
+                        </select>
+                        <p style={{ fontSize: 11, color: "var(--muted)" }}>Páginas carregadas automaticamente da sua conta.</p>
+                      </>
+                    ) : (
+                      /* Seleção múltipla — checkboxes */
+                      <div style={{ border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", marginBottom: 4 }}>
+                        {pages.map((p: any, pi: number) => {
+                          const isChecked = selectedPageIds.includes(p.id);
+                          return (
+                            <div key={p.id}
+                              onClick={() => {
+                                setSelectedPageIds(prev =>
+                                  prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                                );
+                                // Define pageId como o primeiro selecionado
+                                if (!isChecked) setPageId(p.id);
+                              }}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 10,
+                                padding: "10px 14px", cursor: "pointer",
+                                background: isChecked ? "var(--blue-l)" : pi % 2 === 0 ? "var(--off)" : "white",
+                                borderBottom: pi < pages.length - 1 ? "1px solid var(--border)" : "none",
+                                transition: "background .15s",
+                              }}>
+                              {/* Checkbox visual */}
+                              <div style={{
+                                width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                                background: isChecked ? "var(--blue)" : "white",
+                                border: `2px solid ${isChecked ? "var(--blue)" : "var(--border)"}`,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                              }}>
+                                {isChecked && <span style={{ color: "white", fontSize: 11, fontWeight: 900 }}>✓</span>}
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: isChecked ? "var(--blue)" : "var(--black)" }}>
+                                  {p.name}
+                                </div>
+                                <div style={{ fontSize: 10, color: "var(--muted)", fontFamily: "monospace" }}>{p.id}</div>
+                              </div>
+                              {isChecked && (
+                                <span style={{ fontSize: 10, background: "var(--blue)", color: "white",
+                                  padding: "2px 8px", borderRadius: 20, fontWeight: 700 }}>
+                                  #{selectedPageIds.indexOf(p.id) + 1}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {/* Seleção rápida */}
+                        <div style={{ display: "flex", gap: 8, padding: "8px 14px", background: "var(--off)", borderTop: "1px solid var(--border)" }}>
+                          <button onClick={() => { setSelectedPageIds(pages.map((p: any) => p.id)); setPageId(pages[0]?.id || ""); }}
+                            style={{ fontSize: 11, fontWeight: 700, background: "none", border: "1px solid var(--border)",
+                              borderRadius: 8, padding: "4px 10px", cursor: "pointer", color: "var(--muted)" }}>
+                            Selecionar todas
+                          </button>
+                          <button onClick={() => { setSelectedPageIds([]); setPageId(""); }}
+                            style={{ fontSize: 11, fontWeight: 700, background: "none", border: "1px solid var(--border)",
+                              borderRadius: 8, padding: "4px 10px", cursor: "pointer", color: "var(--muted)" }}>
+                            Limpar
+                          </button>
+                          {selectedPageIds.length > 0 && (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--blue)", marginLeft: "auto",
+                              alignSelf: "center" }}>
+                              {selectedPageIds.length} página{selectedPageIds.length > 1 ? "s" : ""} selecionada{selectedPageIds.length > 1 ? "s" : ""}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {multiPageMode && selectedPageIds.length > 0 && (
+                      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10,
+                        padding: "8px 12px", marginTop: 6, fontSize: 11, color: "#1d4ed8" }}>
+                        ℹ️ A campanha será publicada em <strong>{selectedPageIds.length} página{selectedPageIds.length > 1 ? "s" : ""}</strong> sequencialmente.
+                        Cada página terá seu próprio conjunto de anúncios.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div style={{ marginBottom: 14 }}>
@@ -3394,7 +3535,11 @@ export default function CampaignResult() {
                   <button onClick={handlePublish} disabled={publishing}
                     className="btn-publish"
                     style={{ width: "100%", background: publishing ? "#93c5fd" : "#1877f2", color: "white", fontWeight: 800, fontSize: 14, padding: "13px", borderRadius: 12, border: "none", cursor: publishing ? "not-allowed" : "pointer", transition: "all .2s" }}>
-                    {publishing ? "⏳ Publicando..." : "📘 Publicar no Meta Ads"}
+                    {publishing
+                      ? `⏳ Publicando${multiPageMode && selectedPageIds.length > 1 ? ` em ${selectedPageIds.length} páginas` : ""}...`
+                      : multiPageMode && selectedPageIds.length > 1
+                        ? `📘 Publicar em ${selectedPageIds.length} páginas`
+                        : "📘 Publicar no Meta Ads"}
                   </button>
                   <button className="btn btn-md btn-ghost" onClick={() => setShowModal(false)}
                     style={{ width: "100%", padding: "10px", borderRadius: 10, fontSize: 13 }}>
