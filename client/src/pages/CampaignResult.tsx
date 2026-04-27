@@ -269,6 +269,8 @@ export default function CampaignResult() {
   const [regenContext,    setRegenContext]     = useState("");
   const [showRegenModal,  setShowRegenModal]  = useState<string | null>(null);
   const [replacingCreativeImage, setReplacingCreativeImage] = useState<number | null>(null);
+  // Preview local de vídeo por criativo (URL.createObjectURL após upload bem-sucedido)
+  const [creativeVideoPreviews, setCreativeVideoPreviews] = useState<Record<number, string>>({});
   // ── Estados formulário de leads (usados no modal) ──
   const [leadDestination, setLeadDestination] = useState<"website" | "lead_form">("website");
   const [leadFormId,      setLeadFormId]      = useState<string>("");
@@ -871,6 +873,9 @@ export default function CampaignResult() {
       if (isVid || isAud) {
         if (!data.videoId) { toast.error("Upload concluído mas sem videoId retornado."); return; }
         await updateCreativeImageMutation.mutateAsync({ campaignId: id, creativeIndex, format, videoId: data.videoId });
+        // Salva preview local para exibir no card
+        const previewUrl = URL.createObjectURL(file);
+        setCreativeVideoPreviews(prev => ({ ...prev, [creativeIndex]: previewUrl }));
         toast.success(`◎ ${isAud ? "Áudio" : "Vídeo"} vinculado ao criativo ${creativeIndex + 1}!`);
       } else {
         if (!data.hash) { toast.error("Upload concluído mas sem hash retornado."); return; }
@@ -1936,7 +1941,18 @@ export default function CampaignResult() {
               return (
               <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", marginBottom: 14, background: i === 0 ? "var(--green-l)" : "white" }}>
                 {editingCreative === i ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "clamp(120px,18%,160px) 1fr", gap: 16, alignItems: "start" }}>
+                    {/* Preview da imagem mantido durante edição */}
+                    <div>
+                      {creativeVideoPreviews[i] ? (
+                        <video src={creativeVideoPreviews[i]} style={{ width: "100%", borderRadius: 10, border: "2px solid #6366f1", aspectRatio: creativeFormat === "stories" ? "9/16" : "4/5" }} muted playsInline />
+                      ) : creativeImage ? (
+                        <img src={creativeImage} alt="" style={{ width: "100%", borderRadius: 10, border: "1px solid #e5e7eb", objectFit: "cover", aspectRatio: creativeFormat === "stories" ? "9/16" : "4/5" }} />
+                      ) : (
+                        <div style={{ width: "100%", borderRadius: 10, border: "1px dashed #cbd5e1", background: "#f8fafc", aspectRatio: "4/5", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🎨</div>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     <div>
                       <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", display: "block", marginBottom: 4 }}>HEADLINE</label>
                       <input value={editDraft.headline ?? cr.headline ?? ""} onChange={e => setEditDraft((d: any) => ({ ...d, headline: e.target.value }))}
@@ -1978,48 +1994,82 @@ export default function CampaignResult() {
                       </button>
                       <button onClick={() => { setEditingCreative(null); setEditDraft({}); }} className="btn btn-sm btn-ghost">Cancelar</button>
                     </div>
+                    </div>
                   </div>
                 ) : (
                   <>
                     <div style={{ display: "grid", gridTemplateColumns: creativeImage ? "clamp(160px,22%,220px) 1fr" : "1fr", gap: 16, alignItems: "start" }}>
                       <div>
-                        {creativeImage ? (
-                          <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", borderRadius: 12, border: "1px solid #e5e7eb", objectFit: "cover", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }} />
-                        ) : (
-                          <div style={{ width: "100%", borderRadius: 12, border: "1px dashed #cbd5e1", background: "#f8fafc", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 12, fontWeight: 700, textAlign: "center", padding: 16 }}>
-                            <div style={{ fontSize: 24, marginBottom: 8 }}>🎨</div>
-                            <div>Imagem não gerada</div>
-                            <div style={{ fontSize: 10, fontWeight: 400, marginTop: 4, color: "#94a3b8" }}>
-                              Faça upload do seu criativo<br/>ou configure geração automática
-                            </div>
+                        {/* Preview: vídeo ou imagem */}
+                        {creativeVideoPreviews[i] ? (
+                          <div style={{ position: "relative", width: "100%", borderRadius: 12, overflow: "hidden", border: "2px solid #6366f1", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }}>
+                            <video src={creativeVideoPreviews[i]} style={{ width: "100%", height: "100%", objectFit: "cover" }} controls muted playsInline />
+                            <div style={{ position: "absolute", top: 6, left: 6, background: "#6366f1", color: "white", fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 20 }}>🎬 VÍDEO</div>
                           </div>
-                        )}
-                        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                          <button
-                            onClick={() => regenerateCreativeImageMutation.mutate({ campaignId: id, creativeIndex: i, format: creativeFormat })}
-                            disabled={regenerateCreativeImageMutation.isLoading}
-                            style={{ fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>
-                            🖼️ {regenerateCreativeImageMutation.isLoading ? "Gerando..." : creativeImage && !creativeImage.includes("placehold") ? "Regenerar imagem" : "Gerar com HeyGen"}
-                          </button>
-                          <label
-                            htmlFor={`creative-image-input-${i}`}
-                            style={{ fontSize: 11, fontWeight: 700, background: "#ecfccb", color: "#3f6212", border: "1px solid #bef264", borderRadius: 8, padding: "6px 10px", cursor: replacingCreativeImage === i ? "wait" : "pointer", opacity: replacingCreativeImage === i ? 0.7 : 1 }}>
-                            {replacingCreativeImage === i ? "⏳ Enviando..." : "⬆️ Trocar foto/vídeo"}
+                        ) : creativeImage ? (
+                          <div style={{ position: "relative", width: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid #e5e7eb", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }}>
+                            <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          </div>
+                        ) : (
+                          <label htmlFor={`creative-image-input-${i}`} style={{
+                            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                            width: "100%", borderRadius: 12, border: "2px dashed #94a3b8", background: "#f8fafc",
+                            aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5",
+                            color: "#64748b", cursor: "pointer", textAlign: "center", padding: 16,
+                            transition: "all .2s",
+                          }}>
+                            <div style={{ fontSize: 32, marginBottom: 8 }}>📤</div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: "#334155", marginBottom: 4 }}>Subir foto ou vídeo</div>
+                            <div style={{ fontSize: 10, color: "#94a3b8" }}>JPG, PNG, MP4, MOV</div>
                           </label>
-                          <input
-                            id={`creative-image-input-${i}`}
-                            type="file"
-                            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,video/mp4,video/mov,video/quicktime,video/webm,video/avi,audio/mpeg,audio/mp3,audio/aac,audio/wav,.mp4,.mov,.mp3,.webm,.avi,.mkv,.aac,.wav"
+                        )}
+
+                        {/* Botões de mídia — separados por tipo */}
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                          {/* Foto */}
+                          <label htmlFor={`creative-photo-input-${i}`} style={{
+                            display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                            fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8",
+                            border: "1px solid #bfdbfe", borderRadius: 8, padding: "7px 0",
+                            cursor: replacingCreativeImage === i ? "wait" : "pointer",
+                            opacity: replacingCreativeImage === i ? 0.7 : 1,
+                          }}>
+                            📷 {replacingCreativeImage === i ? "Enviando..." : "Foto"}
+                          </label>
+                          <input id={`creative-photo-input-${i}`} type="file"
+                            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
                             style={{ display: "none" }}
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleManualCreativeImage(file, i, creativeFormat);
-                              e.currentTarget.value = "";
-                            }}
+                            onChange={e => { const f = e.target.files?.[0]; if (f) handleManualCreativeImage(f, i, creativeFormat); e.currentTarget.value = ""; }}
                           />
-                          <span style={{ fontSize: 10, fontWeight: 700, background: "#f8fafc", color: "#475569", borderRadius: 999, padding: "6px 10px" }}>
-                            {creativeFormat === "stories" ? "Stories 9:16" : creativeFormat === "square" ? "Square 1:1" : "Feed 4:5"}
-                          </span>
+
+                          {/* Vídeo */}
+                          <label htmlFor={`creative-video-input-${i}`} style={{
+                            display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                            fontSize: 11, fontWeight: 700, background: "#f3e8ff", color: "#7c3aed",
+                            border: "1px solid #d8b4fe", borderRadius: 8, padding: "7px 0",
+                            cursor: replacingCreativeImage === i ? "wait" : "pointer",
+                            opacity: replacingCreativeImage === i ? 0.7 : 1,
+                          }}>
+                            🎬 {replacingCreativeImage === i ? "Enviando..." : "Vídeo"}
+                          </label>
+                          <input id={`creative-video-input-${i}`} type="file"
+                            accept="video/mp4,video/mov,video/quicktime,video/webm,video/avi,.mp4,.mov,.webm,.avi,.mkv"
+                            style={{ display: "none" }}
+                            onChange={e => { const f = e.target.files?.[0]; if (f) handleManualCreativeImage(f, i, creativeFormat); e.currentTarget.value = ""; }}
+                          />
+                        </div>
+
+                        {/* Regenerar com IA */}
+                        <button
+                          onClick={() => regenerateCreativeImageMutation.mutate({ campaignId: id, creativeIndex: i, format: creativeFormat })}
+                          disabled={regenerateCreativeImageMutation.isLoading}
+                          style={{ width: "100%", fontSize: 11, fontWeight: 700, background: "var(--off)", color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 0", cursor: "pointer", marginTop: 4 }}>
+                          🤖 {regenerateCreativeImageMutation.isLoading ? "Gerando..." : "Gerar imagem com IA"}
+                        </button>
+
+                        {/* Badge de formato */}
+                        <div style={{ textAlign: "center", marginTop: 6, fontSize: 10, fontWeight: 700, color: "#64748b" }}>
+                          {creativeFormat === "stories" ? "⭕ Stories 9:16" : creativeFormat === "square" ? "⬜ Square 1:1" : "📱 Feed 4:5"}
                         </div>
                       </div>
                       <div>
@@ -2044,8 +2094,8 @@ export default function CampaignResult() {
                                 format:   cr.format   ?? cr.type ?? "",
                               });
                             }}
-                            style={{ fontSize: 11, color: "#6b7280", background: "none", border: "1px solid #e5e7eb", borderRadius: 6, padding: "3px 10px", cursor: "pointer", flexShrink: 0 }}>
-                            ✏️ Editar
+                            style={{ fontSize: 12, fontWeight: 700, color: "white", background: "#334155", border: "none", borderRadius: 8, padding: "5px 14px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", gap: 5 }}>
+                            ✏️ Editar texto
                           </button>
                         </div>
                         {cr.hook && <p style={{ fontSize: 11, color: "#7c3aed", fontStyle: "italic", marginBottom: 4 }}>🎣 Hook: "{cr.hook}"</p>}
