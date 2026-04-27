@@ -7,19 +7,13 @@ import { useState, useEffect } from "react";
 import { useLocation, useParams } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { useAuth } from "@/hooks/useAuth";
+import { NICHE_TAXONOMY, NICHE_GROUPS } from "@/lib/nicheTaxonomy";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
+// Niches from taxonomy - built dynamically
 const NICHES = [
-  { key: "",                 label: "Todos" },
-  { key: "imobiliario",     label: "🏠 Imobiliário" },
-  { key: "servicos",        label: "⚙️ Serviços" },
-  { key: "infoprodutos",    label: "🎓 Infoprodutos" },
-  { key: "produtos_fisicos",label: "📦 Produtos físicos" },
-  { key: "negocios_locais", label: "📍 Negócios locais" },
-  { key: "saude_beleza",    label: "💆 Saúde & Beleza" },
-  { key: "educacao",        label: "📚 Educação" },
-  { key: "alimentacao",     label: "🍽️ Alimentação" },
-  { key: "ecommerce",       label: "🛒 E-commerce" },
+  { key: "", label: "Todos", icon: "🔍" },
+  ...NICHE_TAXONOMY.map(n => ({ key: n.key, label: n.label, icon: n.icon })),
 ];
 
 const PRICE_TYPES = [
@@ -30,17 +24,10 @@ const PRICE_TYPES = [
   { key: "negotiable", label: "A negociar" },
 ];
 
+// Dynamic colors from taxonomy
 const NICHE_COLORS: Record<string, { bg: string; color: string }> = {
-  imobiliario:      { bg: "#e6f1fb", color: "#185fa5" },
-  servicos:         { bg: "#eaf3de", color: "#3b6d11" },
-  infoprodutos:     { bg: "#eeedfe", color: "#534ab7" },
-  produtos_fisicos: { bg: "#fbeaf0", color: "#993556" },
-  negocios_locais:  { bg: "#e1f5ee", color: "#0f6e56" },
-  saude_beleza:     { bg: "#faeeda", color: "#854f0b" },
-  educacao:         { bg: "#e6f1fb", color: "#185fa5" },
-  alimentacao:      { bg: "#fcebeb", color: "#a32d2d" },
-  ecommerce:        { bg: "#eeedfe", color: "#534ab7" },
-  outros:           { bg: "#f1efe8", color: "#5f5e5a" },
+  ...Object.fromEntries(NICHE_TAXONOMY.map(n => [n.key, { bg: n.bg, color: n.color }])),
+  outros: { bg: "#f1efe8", color: "#5f5e5a" },
 };
 
 // ─── Componente card da vitrine ───────────────────────────────────────────────
@@ -462,17 +449,38 @@ function MarketplaceHome() {
           </form>
         </div>
 
-        {/* Filtros nicho */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", marginBottom: 12 }}>
-          {NICHES.map(n => (
-            <button key={n.key} className={`niche-chip${niche === n.key ? " active" : ""}`}
-              onClick={() => setNiche(n.key)}
-              style={{
-                border: "1px solid var(--border)", borderRadius: 20,
-                padding: "5px 14px", fontSize: 12, fontWeight: 600,
-                background: niche === n.key ? "var(--blue)" : "var(--card)",
-                color: niche === n.key ? "white" : "var(--muted)",
-              }}>{n.label}</button>
+        {/* Filtros de nicho — agrupados */}
+        <div style={{ marginBottom: 16 }}>
+          {/* Botão "Todos" */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", marginBottom: 8 }}>
+            <button className={`niche-chip${niche === "" ? " active" : ""}`} onClick={() => setNiche("")}
+              style={{ border: "1px solid var(--border)", borderRadius: 20, padding: "5px 14px",
+                fontSize: 12, fontWeight: 600, background: niche === "" ? "var(--blue)" : "var(--card)",
+                color: niche === "" ? "white" : "var(--muted)" }}>🔍 Todos</button>
+          </div>
+          {/* Grupos de nichos */}
+          {NICHE_GROUPS.map(group => (
+            <div key={group.label} style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase",
+                letterSpacing: 1, marginBottom: 4, textAlign: "center" }}>{group.label}</div>
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "center" }}>
+                {group.keys.map(k => {
+                  const nc = NICHE_TAXONOMY.find(n => n.key === k);
+                  if (!nc) return null;
+                  const isActive = niche === k;
+                  return (
+                    <button key={k} className={`niche-chip${isActive ? " active" : ""}`}
+                      onClick={() => setNiche(isActive ? "" : k)}
+                      style={{
+                        border: `1px solid ${isActive ? nc.color : "var(--border)"}`,
+                        borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 600,
+                        background: isActive ? nc.bg : "var(--card)",
+                        color: isActive ? nc.color : "var(--muted)",
+                      }}>{nc.icon} {nc.label.replace(/[^a-zA-ZÀ-ú\s]/g, "").trim()}</button>
+                  );
+                })}
+              </div>
+            </div>
           ))}
         </div>
 

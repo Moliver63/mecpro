@@ -8,19 +8,9 @@ import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { toast } from "sonner";
+import { NICHE_TAXONOMY, NICHE_MAP, type NicheConfig } from "@/lib/nicheTaxonomy";
 
-const NICHES = [
-  { key: "imobiliario",      label: "🏠 Imobiliário",       desc: "Imóveis, terrenos, loteamentos" },
-  { key: "servicos",         label: "⚙️ Serviços",          desc: "Consultoria, freelance, agências" },
-  { key: "infoprodutos",     label: "🎓 Infoprodutos",      desc: "Cursos, e-books, mentorias" },
-  { key: "produtos_fisicos", label: "📦 Produtos físicos",  desc: "Loja física, e-commerce, dropshipping" },
-  { key: "negocios_locais",  label: "📍 Negócios locais",   desc: "Restaurante, clínica, academia" },
-  { key: "saude_beleza",     label: "💆 Saúde & Beleza",    desc: "Estética, nutrição, terapias" },
-  { key: "educacao",         label: "📚 Educação",          desc: "Escola, curso presencial, tutoria" },
-  { key: "alimentacao",      label: "🍽️ Alimentação",       desc: "Delivery, buffet, food service" },
-  { key: "ecommerce",        label: "🛒 E-commerce",        desc: "Loja virtual, marketplace próprio" },
-  { key: "outros",           label: "◌ Outros",             desc: "Outro tipo de oferta" },
-];
+// Niches now from NICHE_TAXONOMY in nicheTaxonomy.ts
 
 const CHECKOUT_TYPES = [
   { key: "whatsapp", label: "WhatsApp",    icon: "💬", desc: "Contato direto pelo WhatsApp" },
@@ -131,9 +121,11 @@ export default function PublishListing() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
-          price:      form.price ? Number(form.price) : undefined,
-          benefits:   form.benefits.split("\n").filter(Boolean),
-          campaignId: campaignId ? Number(campaignId) : undefined,
+          nicheLabel:  selectedNiche?.label || form.niche,
+          price:       form.price ? Number(form.price) : undefined,
+          benefits:    form.benefits.split("\n").filter(Boolean),
+          campaignId:  campaignId ? Number(campaignId) : undefined,
+          copyHints:   selectedNiche?.copyHints,
         }),
       });
 
@@ -261,21 +253,45 @@ export default function PublishListing() {
                   style={{ width: "100%", fontSize: 14 }} />
               </Field>
 
-              <Field label="Nicho" required>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  {NICHES.map(n => (
-                    <button key={n.key} onClick={() => set("niche", n.key)} style={{
-                      border: `2px solid ${form.niche === n.key ? "var(--blue)" : "var(--border)"}`,
+              <Field label="Segmento" required>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
+                  {NICHE_TAXONOMY.map(n => (
+                    <button key={n.key} onClick={() => { set("niche", n.key); set("subniche", ""); set("priceType", n.defaultPriceType); }} style={{
+                      border: `2px solid ${form.niche === n.key ? n.color : "var(--border)"}`,
                       borderRadius: 10, padding: "8px 12px", cursor: "pointer",
-                      background: form.niche === n.key ? "var(--blue-l)" : "transparent",
+                      background: form.niche === n.key ? n.bg : "transparent",
                       textAlign: "left", transition: "all .15s",
                     }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: form.niche === n.key ? "var(--blue)" : "var(--black)" }}>{n.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: form.niche === n.key ? n.color : "var(--black)" }}>{n.icon} {n.label}</div>
                       <div style={{ fontSize: 10, color: "var(--muted)" }}>{n.desc}</div>
                     </button>
                   ))}
                 </div>
               </Field>
+
+              {/* Subnicho — aparece após selecionar o segmento */}
+              {selectedNiche && selectedNiche.subniches.length > 0 && (
+                <Field label={`Tipo de ${selectedNiche.label.replace(/[^a-zA-ZÀ-ú\s]/g, "").trim()}`}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {selectedNiche.subniches.map(s => (
+                      <button key={s.key} onClick={() => set("subniche", s.key)} style={{
+                        border: `2px solid ${form.subniche === s.key ? selectedNiche.color : "var(--border)"}`,
+                        borderRadius: 20, padding: "5px 14px", cursor: "pointer", fontSize: 12,
+                        background: form.subniche === s.key ? selectedNiche.bg : "transparent",
+                        color: form.subniche === s.key ? selectedNiche.color : "var(--muted)",
+                        fontWeight: form.subniche === s.key ? 700 : 400, transition: "all .15s",
+                      }}>
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                  {form.subniche && (
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                      {selectedNiche.subniches.find(s => s.key === form.subniche)?.desc}
+                    </div>
+                  )}
+                </Field>
+              )}
 
               <Field label="Descrição (o que você oferece)">
                 <textarea className="input" value={form.description} onChange={e => set("description", e.target.value)}
@@ -424,7 +440,8 @@ export default function PublishListing() {
                 <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Resumo da oferta</div>
                 {[
                   { label: "Título",       val: form.title },
-                  { label: "Nicho",        val: NICHES.find(n => n.key === form.niche)?.label || form.niche },
+                  { label: "Segmento",    val: selectedNiche?.label || form.niche },
+                  form.subniche ? { label: "Tipo",        val: selectedNiche?.subniches.find(s => s.key === form.subniche)?.label || "" } : null,
                   { label: "Preço",        val: form.priceType === "free" ? "Gratuito" : form.priceType === "negotiable" ? "A negociar" : form.price ? `R$ ${Number(form.price).toLocaleString("pt-BR")} (${PRICE_TYPES.find(p=>p.key===form.priceType)?.label})` : "Não informado" },
                   { label: "Abrangência",  val: form.isNational ? "🇧🇷 Nacional" : `📍 ${[form.city, form.state].filter(Boolean).join(", ")}` },
                   { label: "Contato",      val: form.checkoutType === "whatsapp" ? `WhatsApp: ${form.whatsappNumber || "não informado"}` : form.checkoutType === "link" ? `Link: ${form.checkoutUrl || "não informado"}` : `E-mail: ${form.contactEmail || "não informado"}` },

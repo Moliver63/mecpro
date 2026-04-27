@@ -43,10 +43,13 @@ async function generateLandingPage(input: GenerateLandingInput): Promise<any> {
 Crie uma landing page completa para a seguinte oferta:
 
 TÍTULO: ${input.title}
-NICHO: ${input.niche}
-DESCRIÇÃO: ${input.description}
-PREÇO: ${input.price ? `R$ ${input.price}` : "A negociar"}
+SEGMENTO: ${(input as any).nicheLabel || input.niche}${(input as any).subniche ? ` — ${(input as any).subniche}` : ""}
+DESCRIÇÃO: ${input.description || "não informado"}
+PREÇO: ${input.price ? `R$ ${input.price}${input.priceType === "monthly" ? "/mês" : ""}` : "A negociar"}
 BENEFÍCIOS FORNECIDOS: ${input.benefits?.join(", ") || "não especificado"}
+${(input as any).copyHints ? `DOR DO CLIENTE: ${(input as any).copyHints.painTemplate}
+CTA IDEAL: ${(input as any).copyHints.ctaTemplate}
+GARANTIA: ${(input as any).copyHints.guaranteeTemplate}` : ""}
 
 Gere em JSON com TODOS os campos preenchidos de forma persuasiva e específica para o nicho:
 {
