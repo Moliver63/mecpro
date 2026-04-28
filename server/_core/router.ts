@@ -3084,10 +3084,8 @@ const campaignsRouter = router({
             }
 
             if (!videoThumbHash) {
-              throw new TRPCError({
-                code: "BAD_REQUEST",
-                message: "Vídeo sem thumbnail válida. Envie uma thumbnail antes de publicar no Meta.",
-              });
+              // Meta gera thumbnail automaticamente — não bloquear publicação
+              log.warn("meta", "Vídeo sem thumbnail — Meta irá gerar automaticamente", { effectiveVideoId });
             }
 
             const videoDataPayload: Record<string, any> = {

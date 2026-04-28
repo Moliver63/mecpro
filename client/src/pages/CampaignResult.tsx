@@ -171,6 +171,32 @@ export default function CampaignResult() {
   const [uploadedThumbPreview, setUploadedThumbPreview] = useState<string>("");
   const pendingAutoUploadRef = useRef<File | null>(null); // arquivo aguardando auto-upload
   const autoAssigningCreativeImagesRef = useRef(false);
+
+  // ── Reseta estado de mídia — evita conflito entre uploads e tentativas ──────
+  function resetMediaState() {
+    setUploadedHash("");
+    setUploadedVid("");
+    setUploadedThumbHash("");
+    setUploadDone(false);
+    setMediaType(null);
+  }
+
+  // ── Normaliza payload de mídia — garante 1 tipo apenas (vídeo OU imagem) ───
+  function buildMediaPayload(opts?: { forceImageHash?: string; forceVideoId?: string }) {
+    const vid  = opts?.forceVideoId  || uploadedVid;
+    const hash = opts?.forceImageHash || uploadedHash;
+    if (vid) {
+      return { videoId: vid, videoThumbnailHash: uploadedThumbHash || undefined };
+    }
+    if (hash) {
+      return { imageHash: hash };
+    }
+    const url = imageUrl.trim();
+    if (url) {
+      return { imageUrl: url };
+    }
+    return {};
+  }
   const [uploading,    setUploading]    = useState(false);
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const [uploadDone,   setUploadDone]   = useState(false);
@@ -665,12 +691,10 @@ export default function CampaignResult() {
         const prevPageId = pageId;
         setPageId(pid);
         await new Promise(r => setTimeout(r, 50));
-        // Resolve mídia — campos que estavam faltando causando "Nenhuma mídia disponível"
+        // buildMediaPayload garante payload limpo e sem conflito de tipos
+        const mpMedia = buildMediaPayload();
         const mpValidHashes = uploadedHashes.filter(h => !!h);
-        const mpImageHash   = uploadedVid ? undefined : (uploadedHash || undefined);
-        const mpVideoId     = uploadedVid || undefined;
         const mpImageHashes = !uploadedVid && mpValidHashes.length >= 2 ? mpValidHashes : undefined;
-        const mpImageUrl    = !uploadedVid && !mpImageHash && !mpImageHashes ? (imageUrl.trim() || undefined) : undefined;
 
         await publishMutation.mutateAsync({
           campaignId: id,
@@ -686,10 +710,11 @@ export default function CampaignResult() {
           countries: locationMode === "paises"  ? countries          : undefined,
           geoCity:   locationMode === "raio"    ? geoCity.trim()     : undefined,
           geoRadius: locationMode === "raio"    ? geoRadius          : undefined,
-          imageHash:   mpImageHash,
-          videoId:     mpVideoId,
+          imageHash:   mpMedia.imageHash,
+          videoId:     mpMedia.videoId,
           imageHashes: mpImageHashes,
-          imageUrl:    mpImageUrl,
+          imageUrl:    mpMedia.imageUrl,
+          videoThumbnailHash: mpMedia.videoThumbnailHash,
         } as any);
         setPageId(prevPageId);
         results.push({ pageId: pid, pageName, success: true });
@@ -3714,7 +3739,7 @@ export default function CampaignResult() {
                       { key: "url",    label: "URL" },
                     ].map(m => (
                       <button key={m.key}
-                        onClick={() => setMediaMode(m.key as any)}
+                        onClick={() => { setMediaMode(m.key as any); resetMediaState(); }}
                         style={{
                           flex: 1, padding: "6px 8px", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer",
                           border: `1.5px solid ${mediaMode === m.key ? "var(--green)" : "var(--border)"}`,
