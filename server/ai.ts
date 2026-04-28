@@ -5101,29 +5101,33 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
   // Tenta reparar JSON truncado fechando chaves/colchetes abertos e strings
   function repairJson(raw: string): string {
     let s = raw.replace(/```json|```/g, "").trim();
-    // Remove trailing vírgulas antes de fechar
+
+    // Remove trailing vírgulas antes de fechar colchete/chave
     s = s.replace(/,\s*([}\]])/g, "$1");
 
-    // Detecta string truncada no meio: termina com " sem fechar
-    // Ex: "text": "valor truncado aqui   → fecha a string
-    const lastQuote = s.lastIndexOf('"');
-    const secondLast = s.lastIndexOf('"', lastQuote - 1);
-    if (lastQuote > 0 && secondLast > 0) {
-      const afterLastQuote = s.slice(lastQuote + 1).trim();
-      // Se depois da última aspas não há : , } ] significa string aberta
-      if (!afterLastQuote.match(/^[\s]*[:,}\]]/)) {
-        s = s.slice(0, lastQuote) + '"'; // fecha a string
-      }
-    }
+    // Padrão específico: "chave":] → "chave":[] (array vazio malformado)
+    s = s.replace(/"([^"]+)":\s*\]/g, '"$1":[]');
 
-    // Remove última propriedade incompleta (chave sem valor)
+    // Padrão: "chave": sem valor no final → remove
     s = s.replace(/,?\s*"[^"]*"\s*:\s*$/, "");
     s = s.replace(/,?\s*"[^"]*"\s*$/, "");
 
-    // Conta colchetes e chaves abertas e fecha se necessário
-    const opens = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
+    // Detecta string truncada: termina sem fechar aspas
+    const lastQuote = s.lastIndexOf('"');
+    if (lastQuote > 0) {
+      const afterLastQuote = s.slice(lastQuote + 1).trim();
+      if (!afterLastQuote.match(/^[\s]*[:,}\]]/)) {
+        s = s.slice(0, lastQuote) + '"';
+      }
+    }
+
+    // Remove vírgula no final antes de fechar (segunda passagem)
+    s = s.replace(/,\s*([}\]])/g, "$1");
+
+    // Conta e fecha colchetes/chaves abertas
+    const opens  = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
     const braces = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
-    for (let i = 0; i < opens; i++)  s += "]";
+    for (let i = 0; i < opens;  i++) s += "]";
     for (let i = 0; i < braces; i++) s += "}";
     return s;
   }

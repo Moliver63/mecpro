@@ -371,10 +371,16 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
     });
 
     const raw = await res.text().catch(() => "{}");
-    log.info("image-generation", "HeyGen /v1/image.generation resposta", {
+    log.info("image-generation", "HeyGen /v2/image.generate resposta", {
       status: res.status,
-      preview: raw.slice(0, 400),
+      preview: raw.slice(0, 200),
     });
+
+    // 404 = endpoint não existe neste plano; 403 = sem permissão de imagem
+    if (res.status === 404 || res.status === 403) {
+      log.warn("image-generation", "HeyGen não suporta geração de imagem neste plano — pulando", { status: res.status });
+      return null;
+    }
 
     if (res.ok) {
       let data: any = {};
@@ -457,6 +463,38 @@ async function generateWithGenspark(
   const dim    = FORMAT_DIMENSIONS[format];
 
   // Genspark usa API compatível com OpenAI para imagens
+// ── Pollinations.AI — geração gratuita sem API key ───────────────────────────
+// Funciona via URL direta: https://image.pollinations.ai/prompt/{encoded}
+async function tryPollinations(prompt: string, format: CreativeImageFormat): Promise<string | null> {
+  try {
+    const dim = FORMAT_DIMENSIONS[format];
+    const encoded = encodeURIComponent(prompt.slice(0, 500));
+    // Pollinations retorna imagem direta via GET — sem necessidade de API key
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&model=flux`;
+
+    // Verifica se o endpoint responde (timeout 15s)
+    const testRes = await fetch(url, {
+      method: "HEAD",
+      signal: AbortSignal.timeout(15000),
+    }).catch(() => null);
+
+    if (testRes && (testRes.ok || testRes.status === 200)) {
+      log.info("image-generation", "Pollinations.AI OK", { format, url: url.slice(0, 80) });
+      return url;
+    }
+    // GET direto como fallback
+    const getRes = await fetch(url, { signal: AbortSignal.timeout(20000) }).catch(() => null);
+    if (getRes?.ok) {
+      log.info("image-generation", "Pollinations.AI GET OK", { format });
+      return url;
+    }
+    return null;
+  } catch (e: any) {
+    log.warn("image-generation", "Pollinations.AI falhou", { error: e.message?.slice(0, 60) });
+    return null;
+  }
+}
+
   // Endpoint: POST /v1/images/generations
   if (isProviderExhausted("genspark")) {
     log.info("image-generation", "Genspark marcado como sem créditos — pulando");
@@ -589,6 +627,17 @@ export async function generateAdImage(
         IMAGE_CACHE.set(cacheKey, url);
         return url;
       }
+    }
+
+    // Última tentativa: Pollinations.AI (gratuito, sem API key)
+    const pollinationsUrl = await tryPollinations(
+      `${creative?.headline || objective} ${creative?.copy?.slice(0, 100) || ""}`,
+      format
+    ).catch(() => null);
+    if (pollinationsUrl) {
+      IMAGE_CACHE.set(cacheKey, pollinationsUrl);
+      log.info("image-generation", "✅ Pollinations.AI como fallback final", { format });
+      return pollinationsUrl;
     }
 
     const mockUrl = buildMockUrl(creative, objective, format);
