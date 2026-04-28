@@ -2689,13 +2689,26 @@ const campaignsRouter = router({
               ig_shop:         { pub: "instagram",        pos: "shop" },
             };
 
-            // fb_reels é rejeitado pela Meta API (erro 1815433) — filtrar antes de processar
-            const API_UNSUPPORTED = ["fb_reels"];
+            // Filtro inteligente: combina restrição fixa + contexto de objetivo e nicho
+            // fb_reels funciona em awareness/engagement mas não em sales ou special_ad_categories
+            const niche = clientProfile?.niche || "";
+            const isSpecialCategory = /imov|imobi|apart|casa|polít|politi|crédito|credit|emprego|housing|financ/i.test(niche);
+            const isSales = campaignObjective === "OUTCOME_SALES";
+
+            const API_UNSUPPORTED: string[] = [];
+            // Sempre remover se objetivo = SALES (catalog/conversões não suportam reels)
+            if (isSales) API_UNSUPPORTED.push("fb_reels", "ig_reels");
+            // Special ad categories: apenas feed e story são seguros
+            if (isSpecialCategory) API_UNSUPPORTED.push("fb_reels", "ig_reels", "fb_instream", "ig_explore");
+            // fb_reels fixo (erro 1815433 em contas sem Reels API access)
+            if (!API_UNSUPPORTED.includes("fb_reels")) API_UNSUPPORTED.push("fb_reels");
+
             const filteredPlacements = input.placements!.filter(p => !API_UNSUPPORTED.includes(p));
             if (filteredPlacements.length < input.placements!.length) {
               const removed = input.placements!.filter(p => API_UNSUPPORTED.includes(p));
-              log.warn("meta", "Posicionamentos não suportados via API removidos automaticamente", {
-                removed, kept: filteredPlacements
+              log.warn("meta", "Posicionamentos removidos automaticamente", {
+                removed, kept: filteredPlacements,
+                reason: isSpecialCategory ? `special_ad_category (nicho: ${niche})` : isSales ? "OUTCOME_SALES incompatível" : "API não suporta",
               });
             }
 
