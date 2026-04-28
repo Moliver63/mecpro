@@ -665,6 +665,13 @@ export default function CampaignResult() {
         const prevPageId = pageId;
         setPageId(pid);
         await new Promise(r => setTimeout(r, 50));
+        // Resolve mídia — campos que estavam faltando causando "Nenhuma mídia disponível"
+        const mpValidHashes = uploadedHashes.filter(h => !!h);
+        const mpImageHash   = uploadedVid ? undefined : (uploadedHash || undefined);
+        const mpVideoId     = uploadedVid || undefined;
+        const mpImageHashes = !uploadedVid && mpValidHashes.length >= 2 ? mpValidHashes : undefined;
+        const mpImageUrl    = !uploadedVid && !mpImageHash && !mpImageHashes ? (imageUrl.trim() || undefined) : undefined;
+
         await publishMutation.mutateAsync({
           campaignId: id,
           projectId,
@@ -679,6 +686,10 @@ export default function CampaignResult() {
           countries: locationMode === "paises"  ? countries          : undefined,
           geoCity:   locationMode === "raio"    ? geoCity.trim()     : undefined,
           geoRadius: locationMode === "raio"    ? geoRadius          : undefined,
+          imageHash:   mpImageHash,
+          videoId:     mpVideoId,
+          imageHashes: mpImageHashes,
+          imageUrl:    mpImageUrl,
         } as any);
         setPageId(prevPageId);
         results.push({ pageId: pid, pageName, success: true });

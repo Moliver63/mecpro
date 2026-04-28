@@ -451,18 +451,6 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
   return null;
 }
 
-async function generateWithGenspark(
-  creative: any,
-  objective: string,
-  format: CreativeImageFormat,
-): Promise<string | null> {
-  const apiKey = (process.env.GENSPARK_API_KEY || "").trim();
-  if (!apiKey) return null;
-
-  const prompt = inferPrompt(creative, "", objective, format);
-  const dim    = FORMAT_DIMENSIONS[format];
-
-  // Genspark usa API compatível com OpenAI para imagens
 // ── Pollinations.AI — geração gratuita sem API key ───────────────────────────
 // Funciona via URL direta: https://image.pollinations.ai/prompt/{encoded}
 async function tryPollinations(prompt: string, format: CreativeImageFormat): Promise<string | null> {
@@ -495,6 +483,18 @@ async function tryPollinations(prompt: string, format: CreativeImageFormat): Pro
   }
 }
 
+async function generateWithGenspark(
+  creative: any,
+  objective: string,
+  format: CreativeImageFormat,
+): Promise<string | null> {
+  const apiKey = (process.env.GENSPARK_API_KEY || "").trim();
+  if (!apiKey) return null;
+
+  const prompt = inferPrompt(creative, "", objective, format);
+  const dim    = FORMAT_DIMENSIONS[format];
+
+  // Genspark usa API compatível com OpenAI para imagens
   // Endpoint: POST /v1/images/generations
   if (isProviderExhausted("genspark")) {
     log.info("image-generation", "Genspark marcado como sem créditos — pulando");
