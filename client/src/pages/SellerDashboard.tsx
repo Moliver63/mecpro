@@ -111,18 +111,21 @@ export default function SellerDashboard() {
   function openEdit(l: any) {
     setEditingListing(l);
     setEditForm({
-      title:          l.title || "",
-      description:    l.description || "",
-      price:          l.price ? String(l.price) : "",
-      priceType:      l.priceType || "fixed",
+      title:          l.title          || "",
+      description:    l.description    || "",
+      price:          l.price          ? String(l.price) : "",
+      priceType:      l.priceType      || "fixed",
       benefits:       Array.isArray(l.benefits)
         ? l.benefits.map((b: any) => typeof b === "string" ? b : b.title || "").join("\n")
         : (typeof l.benefits === "string" ? l.benefits : ""),
       whatsappNumber: l.whatsappNumber || "",
       checkoutUrl:    l.checkoutUrl    || "",
       contactEmail:   l.contactEmail   || "",
+      checkoutType:   l.checkoutType   || "whatsapp",
       city:           l.city           || "",
       state:          l.state          || "",
+      region:         l.region         || "",
+      isNational:     l.isNational !== false,
       imageUrl:       l.imageUrl       || "",
       videoUrl:       l.videoUrl       || "",
     });
@@ -228,26 +231,31 @@ export default function SellerDashboard() {
     }
   }
 
-  // Remove foto individual da galeria
+  // Remove foto individual da galeria via PATCH /gallery
   async function deleteGalleryPhoto(listingId: number, photoUrl: string) {
-    if (!confirm("Remover esta foto?")) return;
+    if (!confirm("Remover esta foto da galeria?")) return;
     setDeletingPhoto(photoUrl);
     try {
-      // Atualiza galeria removendo o item
-      const newGallery = galleryItems.filter(m => m.url !== photoUrl);
-      await fetch(`/api/marketplace/${listingId}`, {
-        method: "PUT",
+      const res = await fetch(`/api/marketplace/${listingId}/gallery`, {
+        method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gallery: JSON.stringify(newGallery) }),
+        body: JSON.stringify({ removeUrl: photoUrl }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao remover");
+      // Atualiza state local
+      const newGallery = data.gallery || [];
       setGalleryItems(newGallery);
-      // Se era a imagem principal, limpa
-      if (editForm.imageUrl === photoUrl) set("imageUrl", newGallery.find(m => m.type === "image")?.url || "");
-      if (editForm.videoUrl === photoUrl) set("videoUrl", newGallery.find(m => m.type === "video")?.url || "");
-      toast.success("Foto removida");
-    } catch { toast.error("Erro ao remover foto"); }
-    finally { setDeletingPhoto(null); }
+      if (editForm.imageUrl === photoUrl) set("imageUrl", newGallery.find((m: any) => m.type === "image")?.url || "");
+      if (editForm.videoUrl === photoUrl) set("videoUrl", newGallery.find((m: any) => m.type === "video")?.url || "");
+      if (mediaPreview?.url === photoUrl) setMediaPreview(null);
+      toast.success("✓ Foto removida");
+    } catch (e: any) {
+      toast.error("Erro ao remover: " + (e.message || "tente novamente"));
+    } finally {
+      setDeletingPhoto(null);
+    }
   }
 
   async function toggleStatus(listing: any) {

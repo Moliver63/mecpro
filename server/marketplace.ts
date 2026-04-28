@@ -117,17 +117,52 @@ Gere em JSON com TODOS os campos preenchidos de forma persuasiva e específica p
     const parsed = JSON.parse(clean);
     return { ...parsed, theme, niche: input.niche };
   } catch (e: any) {
-    log.warn("marketplace", "generateLandingPage IA falhou — usando estrutura mínima", { error: e.message });
-    // Fallback estruturado quando IA não está disponível
+    log.warn("marketplace", "generateLandingPage IA falhou — usando fallback por nicho", { error: e.message });
+
+    // Fallback inteligente por nicho
+    const n = (input.niche || "").toLowerCase();
+    const isImovel    = n.includes("imovel") || n.includes("imóvel");
+    const isSaude     = n.includes("saude") || n.includes("saúde") || n.includes("estetica") || n.includes("clinica");
+    const isCurso     = n.includes("curso") || n.includes("educacao") || n.includes("infoproduto");
+    const isServico   = n.includes("servico") || n.includes("serviço") || n.includes("profissional");
+    const isAliment   = n.includes("aliment") || n.includes("restaurante") || n.includes("delivery");
+
+    const nicheConfig = isImovel ? {
+      problem:  ["Dificuldade em encontrar imóvel com localização ideal", "Documentação complicada e burocracia excessiva", "Insegurança na hora de fechar o negócio"],
+      solution: `${input.description || "Imóvel com localização privilegiada, documentação em dia e atendimento consultivo completo do início ao fim."}`,
+      ctaProblem: "Encontrar o imóvel perfeito é difícil — mas não precisa ser assim.",
+      faq: [{ q: "A documentação está em dia?", a: "Sim, toda a documentação é verificada antes de apresentarmos ao cliente." }, { q: "Posso financiar?", a: "Sim, trabalhamos com os principais bancos e facilitamos todo o processo de financiamento." }, { q: "Há visitas disponíveis?", a: "Sim, agende uma visita pelo botão acima. Atendemos no horário que for mais conveniente para você." }],
+    } : isSaude ? {
+      problem:  ["Resultados insatisfatórios com tratamentos anteriores", "Atendimento impessoal e sem acompanhamento", "Dificuldade em encaixar horários na rotina"],
+      solution: `${input.description || "Tratamento personalizado com profissionais especializados, resultado comprovado e acompanhamento completo."}`,
+      ctaProblem: "Você merece cuidado de qualidade — com resultado real.",
+      faq: [{ q: "Preciso de agendamento?", a: "Sim, agende pelo botão acima. Temos horários flexíveis incluindo fins de semana." }, { q: "Quais são os resultados esperados?", a: "Os resultados variam por pessoa, mas nossos pacientes relatam melhoras visíveis já nas primeiras sessões." }, { q: "Como é feito o pagamento?", a: "Aceitamos cartão, Pix e parcelamento. Entre em contato para saber as condições." }],
+    } : isCurso ? {
+      problem:  ["Falta de conhecimento prático para avançar na carreira", "Cursos caros sem suporte e sem resultado", "Dificuldade em aprender no próprio ritmo"],
+      solution: `${input.description || "Conteúdo prático, direto ao ponto, com suporte e acesso vitalício para aprender no seu tempo."}`,
+      ctaProblem: "Sua evolução profissional começa com o conhecimento certo.",
+      faq: [{ q: "Por quanto tempo terei acesso?", a: "Acesso vitalício — você estuda no seu ritmo, quando quiser." }, { q: "E se eu não gostar?", a: "Oferecemos garantia de satisfação. Se não ficar satisfeito nos primeiros 7 dias, devolvemos 100% do valor." }, { q: "Precisa de conhecimento prévio?", a: "Não — o conteúdo foi desenvolvido para iniciantes e avançados." }],
+    } : isAliment ? {
+      problem:  ["Dificuldade em encontrar comida de qualidade com entrega rápida", "Sabor industrial e sem personalidade", "Atendimento demorado e sem consistência"],
+      solution: `${input.description || "Sabor artesanal, ingredientes frescos e entrega no prazo — toda vez."}`,
+      ctaProblem: "Comer bem não precisa ser complicado.",
+      faq: [{ q: "Qual o tempo de entrega?", a: "Entregamos em até 45 minutos na região. Consulte sua área." }, { q: "Aceitam encomendas?", a: "Sim! Encomendas com até 24h de antecedência garantem prioridade." }, { q: "Como pedir?", a: "Clique no botão acima e fale conosco pelo WhatsApp. É rápido e fácil." }],
+    } : {
+      problem:  ["Dificuldade em encontrar profissional de confiança", "Serviços sem garantia e sem comprometimento", "Preços abusivos sem transparência"],
+      solution: `${input.description || "Profissionais qualificados, atendimento ágil, resultado garantido e preço justo."}`,
+      ctaProblem: "Você merece um serviço que funciona — sem surpresas.",
+      faq: [{ q: "Como funciona o atendimento?", a: "Entre em contato pelo botão abaixo. Respondemos em até 2 horas." }, { q: "Há garantia no serviço?", a: "Sim, garantimos a qualidade do que entregamos. Se algo não estiver certo, corrigimos sem custo." }, { q: "Qual o prazo?", a: "O prazo varia conforme o serviço. Informamos no momento do orçamento." }],
+    };
+
     return {
       sections: {
-        hero:     { headline: input.title, subheadline: input.description || "Entre em contato para saber mais", cta: "Entrar em contato" },
-        problem:  { title: "Você precisa de uma solução?", points: ["Dificuldade em encontrar o produto certo", "Preços altos no mercado", "Falta de atendimento personalizado"] },
-        solution: { title: "Apresentamos a solução ideal", description: input.description || "Temos a solução que você precisa com qualidade e atendimento diferenciado." },
-        benefits: { title: "Por que escolher nossa oferta:", items: (input.benefits || ["Qualidade garantida", "Atendimento personalizado", "Melhor preço"]).slice(0,4).map((b: string) => ({ icon: "✓", title: typeof b === "string" ? b : String(b), desc: "" })) },
-        social:   { testimonials: [{ name: "Cliente satisfeito", text: "Excelente produto e atendimento. Recomendo!", rating: 5 }, { name: "Usuário verificado", text: "Superou minhas expectativas. Vale cada centavo.", rating: 5 }] },
-        pricing:  { title: "Investimento", price: input.price ? `R$ ${input.price}` : "Consulte", installments: "", guarantee: "Satisfação garantida ou seu dinheiro de volta" },
-        faq:      { items: [{ q: "Como faço para adquirir?", a: "Entre em contato conosco pelo botão abaixo e nossa equipe te atenderá rapidamente." }, { q: "Qual o prazo de entrega/atendimento?", a: "Entramos em contato em até 24 horas após seu pedido." }] },
+        hero:     { headline: input.title, subheadline: input.description || "Clique abaixo e saiba mais.", cta: input.checkoutType === "whatsapp" ? "Falar no WhatsApp" : "Entrar em contato" },
+        problem:  { title: nicheConfig.ctaProblem, points: nicheConfig.problem },
+        solution: { title: `A solução que você procurava`, description: nicheConfig.solution },
+        benefits: { title: "Por que escolher esta oferta:", items: (input.benefits?.length ? input.benefits : ["Qualidade comprovada", "Atendimento personalizado", "Resultado garantido"]).slice(0,4).map((b: string) => ({ icon: "✓", title: typeof b === "string" ? b : String(b), desc: "" })) },
+        social:   { testimonials: [{ name: "Cliente verificado", text: "Superou minhas expectativas. Recomendo sem hesitar!", rating: 5 }, { name: "Usuário satisfeito", text: "Atendimento rápido e produto de excelente qualidade.", rating: 5 }] },
+        pricing:  { title: "Investimento", price: input.price ? `R$ ${Number(input.price).toLocaleString("pt-BR")}` : "Consulte", installments: "", guarantee: "Satisfação garantida" },
+        faq:      { items: nicheConfig.faq },
         finalCta: { headline: "Pronto para começar?", cta: "Quero saber mais" },
       },
       theme,
@@ -696,7 +731,7 @@ router.put("/:id", async (req: Request, res: Response) => {
       title, description, price, priceType,
       benefits, whatsappNumber, checkoutUrl, contactEmail, checkoutType,
       city, state, region, isNational,
-      regenerateLanding,
+      regenerateLanding, gallery,
     } = req.body;
 
     const toJson = (v: any) => v != null ? JSON.stringify(v) : null;
@@ -746,6 +781,7 @@ router.put("/:id", async (req: Request, res: Response) => {
     const { imageUrl, videoUrl } = req.body;
     if (imageUrl !== undefined)       updates.imageUrl        = imageUrl || null;
     if (videoUrl !== undefined)       updates.videoUrl        = videoUrl || null;
+    if (gallery  !== undefined)       updates.gallery         = gallery  || null;
     if (landingData) {
       updates.landingPage    = toJson(landingData);
       updates.landingPageHtml = html;
@@ -764,6 +800,43 @@ router.put("/:id", async (req: Request, res: Response) => {
     res.json({ success: true, listing: updated, regenerated: !!landingData });
   } catch (e: any) {
     log.warn("marketplace", "edit error", { error: e.message });
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// PATCH /api/marketplace/:id/gallery — Remove foto individual da galeria
+router.patch("/:id/gallery", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    const listing = await (db as any).getListingById(parseInt(req.params.id));
+    if (!listing || listing.userId !== userId)
+      return res.status(403).json({ success: false, error: "Sem permissão" });
+
+    const { removeUrl } = req.body;
+    if (!removeUrl) return res.status(400).json({ success: false, error: "removeUrl obrigatório" });
+
+    // Remove o item da galeria
+    let gallery: any[] = [];
+    try { gallery = listing.gallery ? JSON.parse(listing.gallery) : []; } catch {}
+    const newGallery = gallery.filter((m: any) => m.url !== removeUrl);
+    
+    // Atualiza campos relacionados se era imagem/vídeo principal
+    const updates: Record<string, any> = { gallery: JSON.stringify(newGallery) };
+    if (listing.imageUrl === removeUrl) {
+      const nextImg = newGallery.find((m: any) => m.type === "image");
+      updates.imageUrl = nextImg?.url || null;
+    }
+    if (listing.videoUrl === removeUrl) {
+      const nextVid = newGallery.find((m: any) => m.type === "video");
+      updates.videoUrl = nextVid?.url || null;
+    }
+
+    await (db as any).updateMarketplaceListing(listing.id, updates);
+    log.info("marketplace", "Foto removida da galeria", { listingId: listing.id, removed: removeUrl });
+    res.json({ success: true, gallery: newGallery });
+  } catch (e: any) {
+    log.warn("marketplace", "gallery delete error", { error: e.message });
     res.status(500).json({ success: false, error: e.message });
   }
 });
