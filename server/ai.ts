@@ -5248,7 +5248,16 @@ ${compSummary || "Nenhum cadastrado."}
 ${metaInsights ? `Performance real: CPC R$${metaInsights.cpc.toFixed(2)}, CPM R$${metaInsights.cpm.toFixed(2)}, CTR ${metaInsights.ctr.toFixed(2)}%` : ""}
 ${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}
 
-Gere JSON com: strategy(string), campaignName(string), adSets(array com name/audience/budget/objective/funnelStage), creatives(array com type/format/orientation/headline/copy/bodyText/hook/pain/solution/cta/funnelStage/complianceScore/targetAudience/platforms/budget/duration), conversionFunnel(array com stage/format/audience/budget/kpi), executionPlan(array com week/action/budget/kpi), metrics(objeto com estimatedCPC/CPM/CTR/leads/ROAS/breakEven/insight).`;
+Gere JSON com:
+- strategy: string com estratégia geral
+- campaignName: string
+- adSets: array com {name, audience, budget(%), objective, funnelStage}
+- creatives: array com {type, format, orientation, headline, copy, hook, cta, funnelStage, complianceScore, targetAudience}
+- conversionFunnel: array com {stage, format, audience, budget, kpi}
+- executionPlan: array com 4 itens OBRIGATORIAMENTE com {week("Semana 1-7" etc), title, action, budget("R$ X/semana"), kpi("métrica específica"), decision("regra de otimização")}
+- metrics: {estimatedCPC, estimatedCPM, estimatedCTR, estimatedLeads, estimatedROAS, estimatedCPL, insight}
+- hooks: array com 5 variações de hook
+- abTests: array com {test, variationA, variationB, metric}`;
     })();
     try {
       // Sistema mínimo para Groq — evita 413 com prompt+sistema muito grande
@@ -5355,17 +5364,17 @@ Gere JSON com: strategy(string), campaignName(string), adSets(array com name/aud
         log.warn("ai", "Todos os LLMs falharam — usando motor híbrido", { error: mecErr.message });
         try {
           const [scrapedAds, profile] = await Promise.all([
-            db.getScrapedAdsByProject(projectId).catch(()=>[] as any[]),
-            db.getClientProfile(projectId).catch(()=>null),
+            db.getScrapedAdsByProject(input.projectId).catch(()=>[] as any[]),
+            db.getClientProfile(input.projectId).catch(()=>null),
           ]);
-          const hybrid = await buildCampaignFromAds(projectId, objective, profile, scrapedAds);
+          const hybrid = await buildCampaignFromAds(input.projectId, input.objective, profile, scrapedAds);
           strategy         = hybrid.strategy;
           adSets           = JSON.stringify(hybrid.adSets);
           creatives        = JSON.stringify(hybrid.creatives);
           conversionFunnel = JSON.stringify(hybrid.conversionFunnel || []);
           executionPlan    = JSON.stringify(hybrid.executionPlan    || []);
           aiResponse       = JSON.stringify({ metrics: hybrid.metrics, generatedBy: "hybrid_engine", _isMock: false });
-          log.info("ai", "✅ Motor híbrido gerou campanha completa", { projectId, creatives: hybrid.creatives.length, hasFunnel: !!(hybrid.conversionFunnel?.length), hasPlan: !!(hybrid.executionPlan?.length) });
+          log.info("ai", "✅ Motor híbrido gerou campanha completa", { projectId: input.projectId, creatives: hybrid.creatives.length, hasFunnel: !!(hybrid.conversionFunnel?.length), hasPlan: !!(hybrid.executionPlan?.length) });
         } catch {
           const mock=JSON.parse(mockResponse("campanha"));
           strategy=mock.strategy; adSets=JSON.stringify(mock.adSets); creatives=JSON.stringify(mock.creatives);

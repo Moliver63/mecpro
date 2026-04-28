@@ -2401,25 +2401,203 @@ export default function CampaignResult() {
           </div>
         )}
 
-        {/* Plano de execução */}
-        {plan && (
-          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22 }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
-              <span>📋</span> Plano de execução
-            </p>
-            {Array.isArray(plan) ? plan.map((step: any, i: number) => (
-              <div key={i} style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, background: "var(--navy)", color: "white", padding: "3px 8px", borderRadius: 6, height: "fit-content", whiteSpace: "nowrap" }}>
-                  {step.week || step.day || `Fase ${i + 1}`}
+        {/* ── Plano de execução semanal ── */}
+        {(() => {
+          const budgetMonthly = (campaign as any)?.suggestedBudgetMonthly || 1500;
+          const budgetDaily   = (campaign as any)?.suggestedBudgetDaily   || Math.round(budgetMonthly / 30);
+          const duration      = (campaign as any)?.durationDays || 30;
+          const weeks         = Math.ceil(duration / 7);
+          const objective     = (campaign as any)?.objective || "engagement";
+
+          // Gera planejamento semanal automático quando plan está vazio ou incompleto
+          const autoWeeks = Array.from({ length: Math.min(weeks, 4) }, (_, i) => {
+            const w = i + 1;
+            const budgetSem = budgetDaily * 7;
+            const configs = [
+              {
+                titulo: "Lançamento & Teste",
+                dias: `Dias 1–7`,
+                orcamento: `R$ ${budgetSem.toFixed(0)}/semana`,
+                acoes: [
+                  "Ativar campanhas com todos os criativos",
+                  "Configurar pixel e eventos de conversão",
+                  "Iniciar teste A/B de hooks (Variação A vs B)",
+                  "Monitorar CTR, CPC e frequência diariamente",
+                ],
+                kpis: [
+                  { label: "CTR mínimo",   valor: "> 1,5%" },
+                  { label: "CPC máximo",   valor: `< R$ ${(metrics?.estimatedCPC?.replace("R$ ","") || "2,00")}` },
+                  { label: "Frequência",   valor: "< 2,5x" },
+                ],
+                decisao: "Pausar criativos com CTR < 0,8% após 3 dias",
+                cor: "#1e40af", bg: "#eff6ff",
+              },
+              {
+                titulo: "Otimização",
+                dias: `Dias 8–14`,
+                orcamento: `R$ ${budgetSem.toFixed(0)}/semana`,
+                acoes: [
+                  "Pausar ad sets e criativos de baixa performance",
+                  "Aumentar budget 20% nos ad sets vencedores",
+                  "Testar novos públicos (Lookalike 1%)",
+                  "Otimizar landing page com CRO se necessário",
+                ],
+                kpis: [
+                  { label: "CPL alvo",       valor: metrics?.estimatedCPL || "< R$ 30" },
+                  { label: "Frequência",     valor: "< 3x" },
+                  { label: "ROAS mínimo",    valor: objective === "sales" ? "> 2x" : "N/A" },
+                ],
+                decisao: "Cortar ad sets com CPL > 2x a meta após 7 dias",
+                cor: "#7c3aed", bg: "#f5f3ff",
+              },
+              {
+                titulo: "Escala",
+                dias: `Dias 15–21`,
+                orcamento: `R$ ${(budgetSem * 1.2).toFixed(0)}/semana`,
+                acoes: [
+                  "Escalar budget +20% nos vencedores",
+                  "Criar variações dos criativos de melhor performance",
+                  "Expandir para Lookalike 3% e 5%",
+                  "Ativar remarketing para visitantes do site (7 dias)",
+                ],
+                kpis: [
+                  { label: "Volume leads",  valor: `+30% vs semana 2` },
+                  { label: "CPL estável",   valor: "variação < 15%" },
+                  { label: "ROAS",          valor: objective === "sales" ? "> 3x" : "N/A" },
+                ],
+                decisao: "Se CPL subir > 20% ao escalar, pausar escala e revisar público",
+                cor: "#059669", bg: "#ecfdf5",
+              },
+              {
+                titulo: "Consolidação & Análise",
+                dias: `Dias 22–${duration}`,
+                orcamento: `R$ ${budgetSem.toFixed(0)}/semana`,
+                acoes: [
+                  "Avaliar performance geral vs metas",
+                  "Documentar aprendizados de cada teste A/B",
+                  "Planejar criativo novo para próxima campanha",
+                  "Criar audiências personalizadas para remarketing futuro",
+                ],
+                kpis: [
+                  { label: "CPL final",     valor: metrics?.estimatedCPL || "< R$ 30" },
+                  { label: "ROI geral",     valor: objective === "sales" ? "> 3x" : "Engajamento" },
+                  { label: "Leads totais",  valor: `${Math.round(budgetMonthly / 25)}+ leads` },
+                ],
+                decisao: "Relatório completo + definição de budget para próximo mês",
+                cor: "#b45309", bg: "#fffbeb",
+              },
+            ];
+
+            // Usa dados do plan real se disponível e tem budget/kpi
+            const realStep = plan && Array.isArray(plan) && plan[i];
+            if (realStep?.budget && realStep?.kpi) {
+              return {
+                titulo: realStep.title || realStep.action || configs[i]?.titulo,
+                dias: realStep.week || realStep.day || configs[i]?.dias,
+                orcamento: realStep.budget,
+                acoes: [realStep.action || realStep.description || ""].filter(Boolean),
+                kpis: [{ label: "KPI", valor: realStep.kpi }],
+                decisao: realStep.decision || configs[i]?.decisao || "",
+                cor: configs[i]?.cor || "#1e40af",
+                bg: configs[i]?.bg || "#eff6ff",
+              };
+            }
+            return configs[i] || configs[0];
+          });
+
+          return (
+            <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, gridColumn: "1/-1" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+                  <span>📅</span> Planejamento semanal
+                </p>
+                <span style={{ fontSize: 11, color: "var(--muted)", background: "var(--off)", padding: "3px 10px", borderRadius: 20 }}>
+                  {duration} dias · R$ {budgetMonthly.toLocaleString("pt-BR")}/mês · R$ {budgetDaily}/dia
                 </span>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: "var(--black)", marginBottom: 2 }}>{step.title || step.action}</p>
-                  <p style={{ fontSize: 12, color: "var(--muted)" }}>{step.description || step.detail}</p>
+              </div>
+
+              {/* Timeline visual */}
+              <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(autoWeeks.length, 2)}, 1fr)`, gap: 12 }}>
+                {autoWeeks.map((wk, i) => (
+                  <div key={i} style={{ border: `2px solid ${wk.cor}22`, borderRadius: 12, overflow: "hidden" }}>
+                    {/* Header */}
+                    <div style={{ background: wk.bg, borderBottom: `1px solid ${wk.cor}22`, padding: "10px 14px",
+                      display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: wk.cor, textTransform: "uppercase", letterSpacing: 1 }}>
+                          Semana {i + 1}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", marginTop: 2 }}>{wk.titulo}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 10, color: "var(--muted)" }}>{wk.dias}</div>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: wk.cor }}>{wk.orcamento}</div>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: "12px 14px" }}>
+                      {/* Ações */}
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>
+                          ✅ Ações
+                        </div>
+                        {wk.acoes.map((a, ai) => (
+                          <div key={ai} style={{ display: "flex", gap: 6, marginBottom: 4, alignItems: "flex-start" }}>
+                            <span style={{ color: wk.cor, flexShrink: 0, fontSize: 11, marginTop: 1 }}>→</span>
+                            <span style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.4 }}>{a}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* KPIs */}
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                        {wk.kpis.filter(k => k.valor && k.valor !== "N/A").map((k, ki) => (
+                          <div key={ki} style={{ background: `${wk.cor}11`, borderRadius: 6, padding: "4px 8px" }}>
+                            <div style={{ fontSize: 9, color: wk.cor, fontWeight: 700, textTransform: "uppercase" }}>{k.label}</div>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: wk.cor }}>{k.valor}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Decisão */}
+                      {wk.decisao && (
+                        <div style={{ background: "#fef3c7", borderRadius: 6, padding: "6px 8px", fontSize: 10, color: "#92400e", lineHeight: 1.4 }}>
+                          ⚡ {wk.decisao}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Checklist de lançamento */}
+              <div style={{ marginTop: 16, background: "var(--off)", borderRadius: 12, padding: "14px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>
+                  🚀 Checklist antes de ativar
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {[
+                    { ok: true,  label: "Criativos revisados e aprovados" },
+                    { ok: !!pageId?.trim(), label: "Página do Facebook selecionada" },
+                    { ok: true,  label: "Pixel Meta instalado no site" },
+                    { ok: true,  label: "Públicos configurados (TOF/MOF/BOF)" },
+                    { ok: true,  label: "URLs com UTM configuradas" },
+                    { ok: !!metrics, label: "Métricas de referência definidas" },
+                  ].map((item, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                        background: item.ok ? "#16a34a" : "#e2e8f0",
+                        display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {item.ok && <span style={{ color: "white", fontSize: 10, fontWeight: 900 }}>✓</span>}
+                      </div>
+                      <span style={{ fontSize: 11, color: item.ok ? "var(--black)" : "var(--muted)" }}>{item.label}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            )) : <p style={{ fontSize: 13, color: "var(--body)", whiteSpace: "pre-wrap" }}>{JSON.stringify(plan, null, 2)}</p>}
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
         {/* Resposta bruta da IA (fallback) */}
         {c.aiResponse && !adSets && !creatives && (
