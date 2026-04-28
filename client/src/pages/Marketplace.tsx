@@ -34,82 +34,140 @@ const NICHE_COLORS: Record<string, { bg: string; color: string }> = {
 function ListingCard({ listing, onClick }: { listing: any; onClick: () => void }) {
   const nc = NICHE_COLORS[listing.niche] || NICHE_COLORS.outros;
   const nicheLabel = NICHES.find(n => n.key === listing.niche)?.label || listing.niche;
+
+  // Badge inteligente baseado em dados reais
+  const badge = (() => {
+    const score = listing.aiScore || 0;
+    const views = listing.views || 0;
+    const clicks = listing.clicks || 0;
+    const ctr = views > 0 ? clicks / views : 0;
+    const daysSince = listing.publishedAt
+      ? Math.floor((Date.now() - new Date(listing.publishedAt).getTime()) / 86400000)
+      : 999;
+
+    if (listing.boostActive)         return { label: "⚡ Destaque", bg: "#ff9f0a", color: "white" };
+    if (score >= 85)                  return { label: "✦ IA Recomenda", bg: "#1d4ed8", color: "white" };
+    if (ctr > 0.15 && views > 10)    return { label: "🔥 Alta conversão", bg: "#dc2626", color: "white" };
+    if (daysSince <= 3)               return { label: "🆕 Novo", bg: "#16a34a", color: "white" };
+    if (views > 50)                   return { label: "👁 Popular", bg: "#7c3aed", color: "white" };
+    return null;
+  })();
+
+  // Barra de score visual
+  const score = listing.aiScore || 0;
+  const scoreColor = score >= 80 ? "#16a34a" : score >= 65 ? "#2563eb" : score >= 50 ? "#d97706" : "#94a3b8";
+
   return (
     <div onClick={onClick} className="mp-card" style={{
       background: "var(--card)", border: "1px solid var(--border)",
       borderRadius: 16, overflow: "hidden", cursor: "pointer",
-      transition: "all .2s var(--ease)", display: "flex", flexDirection: "column",
+      transition: "transform .2s, box-shadow .2s, border-color .2s",
+      display: "flex", flexDirection: "column",
+      position: "relative",
     }}>
+      {/* Imagem */}
       <div style={{
-        height: 130, background: `linear-gradient(135deg,${nc.bg},${nc.color}22)`,
-        display: "flex", alignItems: "center", justifyContent: "center", position: "relative",
+        height: 148, background: `linear-gradient(135deg,${nc.bg},${nc.color}22)`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        position: "relative", overflow: "hidden",
       }}>
         {listing.imageUrl
-          ? <img src={listing.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          : <span style={{ fontSize: 36 }}>{NICHES.find(n => n.key === listing.niche)?.label?.split(" ")[0] || "🛒"}</span>
+          ? <img src={listing.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover",
+              transition: "transform .3s", }} className="mp-card-img" />
+          : <span style={{ fontSize: 40, opacity: 0.7 }}>{NICHES.find(n => n.key === listing.niche)?.label?.split(" ")[0] || "🛒"}</span>
         }
-        {listing.boostActive && (
+        {/* Overlay gradient para legibilidade */}
+        <div style={{ position: "absolute", inset: 0,
+          background: "linear-gradient(to top, rgba(0,0,0,0.25) 0%, transparent 50%)" }} />
+
+        {/* Badge */}
+        {badge && (
           <div style={{
-            position: "absolute", top: 8, right: 8,
-            background: "#ff9f0a", color: "white",
-            fontSize: 9, fontWeight: 800, padding: "3px 8px", borderRadius: 20, letterSpacing: 1,
-          }}>⚡ Destaque</div>
+            position: "absolute", top: 8, left: 8,
+            background: badge.bg, color: badge.color,
+            fontSize: 9, fontWeight: 800, padding: "3px 9px",
+            borderRadius: 20, letterSpacing: 0.5,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+          }}>{badge.label}</div>
+        )}
+
+        {/* Views no canto */}
+        {listing.views > 0 && (
+          <div style={{ position: "absolute", bottom: 7, right: 8,
+            background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)",
+            color: "white", fontSize: 9, fontWeight: 600,
+            padding: "2px 7px", borderRadius: 20 }}>
+            👁 {listing.views > 999 ? `${(listing.views/1000).toFixed(1)}k` : listing.views}
+          </div>
         )}
       </div>
+
+      {/* Conteúdo */}
       <div style={{ padding: "12px 14px", flex: 1, display: "flex", flexDirection: "column" }}>
-        <div style={{ marginBottom: 6 }}>
-          <span style={{
-            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-            background: nc.bg, color: nc.color,
+        {/* Nicho */}
+        <div style={{ marginBottom: 5 }}>
+          <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+            background: nc.bg, color: nc.color, textTransform: "uppercase", letterSpacing: 0.5,
           }}>{nicheLabel}</span>
         </div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", lineHeight: 1.35, marginBottom: 4, flex: 1 }}>
+
+        {/* Título */}
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--black)",
+          lineHeight: 1.35, marginBottom: 4, flex: 1 }}>
           {listing.title}
         </div>
+
+        {/* Subtítulo */}
         {listing.subheadline && (
           <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.4, marginBottom: 8 }}>
-            {listing.subheadline.slice(0, 80)}{listing.subheadline.length > 80 ? "..." : ""}
+            {listing.subheadline.slice(0, 72)}{listing.subheadline.length > 72 ? "…" : ""}
           </div>
         )}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "auto" }}>
-          <div>
-            {listing.price
-              ? <span style={{ fontSize: 15, fontWeight: 800, color: "var(--blue)" }}>
-                  R$ {Number(listing.price).toLocaleString("pt-BR")}
-                  {listing.priceType === "monthly" ? "/mês" : ""}
-                </span>
-              : <span style={{ fontSize: 13, color: "var(--muted)" }}>A negociar</span>
-            }
+
+        {/* Preço */}
+        <div style={{ marginBottom: 8 }}>
+          {listing.price
+            ? <span style={{ fontSize: 16, fontWeight: 900, color: nc.color, letterSpacing: "-0.02em" }}>
+                R$ {Number(listing.price).toLocaleString("pt-BR")}
+                {listing.priceType === "monthly" && <span style={{ fontSize: 11, fontWeight: 500, color: "var(--muted)" }}>/mês</span>}
+              </span>
+            : <span style={{ fontSize: 12, color: "var(--muted)", fontStyle: "italic" }}>A negociar</span>
+          }
+        </div>
+
+        {/* Barra de score animada */}
+        {score > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+              <span style={{ fontSize: 9, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                Qualidade IA
+              </span>
+              <span style={{ fontSize: 9, fontWeight: 800, color: scoreColor }}>{score}/100</span>
+            </div>
+            <div style={{ height: 3, background: "#e2e8f0", borderRadius: 99, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${score}%`, background: scoreColor,
+                borderRadius: 99, transition: "width .6s ease" }} />
+            </div>
           </div>
+        )}
+
+        {/* Localização + CTA */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {(listing.city || listing.state) && (
-            <span style={{ fontSize: 10, color: "var(--muted)" }}>
+            <span style={{ fontSize: 9, color: "var(--muted)", flex: 1, whiteSpace: "nowrap",
+              overflow: "hidden", textOverflow: "ellipsis" }}>
               📍 {[listing.city, listing.state].filter(Boolean).join(", ")}
             </span>
           )}
-          {listing.views > 0 && (
-            <span style={{ fontSize: 10, color: "var(--muted)" }}>
-              👁 {listing.views > 999 ? `${(listing.views/1000).toFixed(1)}k` : listing.views}
-            </span>
-          )}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
           <div style={{
-            flex: 1, background: "var(--blue)", color: "white",
-            borderRadius: 10, padding: "7px 0", fontSize: 12, fontWeight: 700, textAlign: "center",
-          }}>Ver oferta →</div>
-          {listing.aiScore && (() => {
-            const s = listing.aiScore;
-            const grade = s >= 80 ? "A" : s >= 65 ? "B" : s >= 50 ? "C" : "D";
-            const col = s >= 80 ? "#16a34a" : s >= 65 ? "#2563eb" : s >= 50 ? "#d97706" : "#dc2626";
-            const bg  = s >= 80 ? "#dcfce7" : s >= 65 ? "#dbeafe" : s >= 50 ? "#fef3c7" : "#fee2e2";
-            return (
-              <div title={`Score de qualidade: ${grade} (${s}/100)`} style={{
-                background: bg, borderRadius: 8, padding: "4px 8px",
-                fontSize: 10, fontWeight: 800, color: col, textAlign: "center",
-                border: `1px solid ${col}33`,
-              }}>{grade} {s}</div>
-            );
-          })()}
+            background: nc.color, color: "white",
+            borderRadius: 8, padding: "6px 12px",
+            fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+            boxShadow: `0 2px 8px ${nc.color}44`,
+            marginLeft: "auto",
+          }}>
+            Ver oferta →
+          </div>
         </div>
       </div>
     </div>
@@ -120,16 +178,18 @@ function ListingCard({ listing, onClick }: { listing: any; onClick: () => void }
 function SkeletonCard() {
   return (
     <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 16, overflow: "hidden" }}>
-      <div style={{ height: 130, background: "var(--off)" }} />
+      <div className="mp-skeleton" style={{ height: 148 }} />
       <div style={{ padding: "12px 14px" }}>
-        <div style={{ height: 14, background: "var(--off)", borderRadius: 6, marginBottom: 10, width: "60%" }} />
-        <div style={{ height: 16, background: "var(--off)", borderRadius: 6, marginBottom: 6 }} />
-        <div style={{ height: 16, background: "var(--off)", borderRadius: 6, width: "80%", marginBottom: 16 }} />
-        <div style={{ height: 32, background: "var(--off)", borderRadius: 10 }} />
+        <div className="mp-skeleton" style={{ height: 9, width: 56, marginBottom: 8 }} />
+        <div className="mp-skeleton" style={{ height: 13, marginBottom: 4 }} />
+        <div className="mp-skeleton" style={{ height: 13, width: "68%", marginBottom: 10 }} />
+        <div className="mp-skeleton" style={{ height: 3, borderRadius: 99, marginBottom: 10 }} />
+        <div className="mp-skeleton" style={{ height: 30, borderRadius: 8 }} />
       </div>
     </div>
   );
 }
+
 
 // ─── Landing page individual ──────────────────────────────────────────────────
 function ListingLanding({ slug }: { slug: string }) {
@@ -237,6 +297,14 @@ function ListingLanding({ slug }: { slug: string }) {
         .lp-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
         .faq-item { cursor: pointer; }
         .faq-item:hover { background: var(--off) !important; }
+        .sticky-cta-lp {
+          position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+          padding: 10px 16px 16px; background: rgba(255,255,255,0.96);
+          backdrop-filter: blur(12px); border-top: 1px solid var(--border);
+          display: none; gap: 8px;
+        }
+        @media (max-width: 680px) { .sticky-cta-lp { display: flex; } }
+        @media (max-width: 680px) { .lp-hide-mobile { display: none !important; } }
       `}</style>
       <div style={{ fontFamily: "var(--font)", maxWidth: 780, margin: "0 auto", padding: "0 0 80px" }}>
 
@@ -771,10 +839,41 @@ function MarketplaceHome() {
   return (
     <Layout>
       <style>{`
-        .mp-card:hover { transform:translateY(-3px); box-shadow:var(--shadow-md); border-color:var(--blue-l)!important; }
-        .niche-chip { transition:all .15s; cursor:pointer; }
-        .niche-chip:hover { border-color:var(--blue)!important; color:var(--blue)!important; }
-        .niche-chip.active { background:var(--blue)!important; color:white!important; border-color:var(--blue)!important; }
+        @keyframes shimmer {
+          0%   { background-position: -400px 0; }
+          100% { background-position: 400px 0; }
+        }
+        @keyframes fadeUp {
+          from { opacity:0; transform:translateY(12px); }
+          to   { opacity:1; transform:translateY(0); }
+        }
+        .mp-card {
+          animation: fadeUp .35s ease both;
+        }
+        .mp-card:hover {
+          transform: translateY(-4px) scale(1.01);
+          box-shadow: 0 12px 32px rgba(0,0,0,0.1);
+          border-color: var(--blue-l) !important;
+        }
+        .mp-card:hover .mp-card-img {
+          transform: scale(1.06);
+        }
+        .mp-skeleton {
+          background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+          background-size: 400px 100%;
+          animation: shimmer 1.4s infinite linear;
+          border-radius: 8px;
+        }
+        .niche-chip { transition: all .15s; cursor: pointer; }
+        .niche-chip:hover { border-color: var(--blue) !important; color: var(--blue) !important; }
+        .niche-chip.active { background: var(--blue) !important; color: white !important; border-color: var(--blue) !important; }
+        .sticky-cta {
+          position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+          padding: 12px 16px; background: rgba(255,255,255,0.95);
+          backdrop-filter: blur(12px); border-top: 1px solid var(--border);
+          display: none;
+        }
+        @media (max-width: 640px) { .sticky-cta { display: flex; } }
       `}</style>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 16px 60px", fontFamily: "var(--font)" }}>
 
@@ -855,8 +954,10 @@ function MarketplaceHome() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 16 }}>
           {loading && listings.length === 0
             ? Array(6).fill(0).map((_, i) => <SkeletonCard key={i} />)
-            : listings.map(l => (
-                <ListingCard key={l.id} listing={l} onClick={() => setLocation(`/marketplace/${l.slug}`)} />
+            : listings.map((l, i) => (
+                <div key={l.id} style={{ animationDelay: `${Math.min(i * 0.06, 0.5)}s`, animation: "fadeUp .4s ease both" }}>
+                  <ListingCard listing={l} onClick={() => setLocation(`/marketplace/${l.slug}`)} />
+                </div>
               ))
           }
         </div>
