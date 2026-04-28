@@ -502,5 +502,13 @@ export async function runMigrations(): Promise<void> {
       }
     });
 
+        // ── Colunas de mídia para marketplace_listings ───────────────────────
+    await pool.query(`
+      ALTER TABLE marketplace_listings
+        ADD COLUMN IF NOT EXISTS "gallery"      TEXT,
+        ADD COLUMN IF NOT EXISTS "videoUrl"     TEXT,
+        ADD COLUMN IF NOT EXISTS "thumbnailUrl" TEXT
+    `).catch(() => {});
+
         console.log('[migrations] ✅ Migrations applied successfully');
 }

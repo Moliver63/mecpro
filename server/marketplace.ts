@@ -3,15 +3,9 @@
 
 import { Router, Request, Response } from "express";
 import multer from "multer";
-import { v2 as cloudinary } from "cloudinary";
 import * as db from "./db";
 
-// Configura Cloudinary para uploads do marketplace
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+// Cloudinary usado via REST API direta (sem SDK)
 
 const _mpUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 import { gemini } from "./ai";
@@ -488,13 +482,22 @@ router.post("/upload-media", _mpUpload.single("file"), async (req: Request, res:
     // Upload para Cloudinary
     const folder = `mecproai/marketplace/${userId}`;
     const resourceType = isVideo ? "video" : "image";
-    const uploadResult: any = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        { folder, resource_type: resourceType, transformation: isImage ? [{ quality: "auto", fetch_format: "auto" }] : undefined },
-        (err, result) => err ? reject(err) : resolve(result)
-      );
-      stream.end(req.file!.buffer);
-    });
+    // Upload via REST API (sem SDK cloudinary)
+    const cloudName3  = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey3     = process.env.CLOUDINARY_API_KEY;
+    const apiSecret3  = process.env.CLOUDINARY_API_SECRET;
+    if (!cloudName3 || !apiKey3 || !apiSecret3) throw new Error("Cloudinary não configurado");
+    const cryptoU    = await import("crypto");
+    const ts3        = Math.floor(Date.now() / 1000).toString();
+    const sig3       = cryptoU.createHash("sha1").update(`folder=${folder}&timestamp=${ts3}${apiSecret3}`).digest("hex");
+    const fd3 = new FormData();
+    fd3.append("file", new Blob([req.file!.buffer], { type: req.file!.mimetype }), req.file!.originalname);
+    fd3.append("api_key", apiKey3); fd3.append("timestamp", ts3);
+    fd3.append("signature", sig3); fd3.append("folder", folder);
+    fd3.append("resource_type", resourceType);
+    const r3 = await fetch(`https://api.cloudinary.com/v1_1/${cloudName3}/${resourceType}/upload`, { method: "POST", body: fd3 as any });
+    const uploadResult: any = await r3.json();
+    if (!r3.ok || !uploadResult.secure_url) throw new Error(uploadResult.error?.message || "Upload failed");
 
     const mediaUrl = uploadResult.secure_url;
 
@@ -808,6 +811,76 @@ router.post("/boost", async (req: Request, res: Response) => {
     log.info("marketplace", "Boost ativado", { listingId, boostType, days });
     res.json({ success: true, boost });
   } catch (e: any) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/marketplace/upload-gallery — Upload de imagem para galeria da oferta
+router.post("/:id/upload-gallery", _mpUpload.single("file"), async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+    const listingId = parseInt(req.params.id);
+    const listing = await db.getListingById(listingId);
+    if (!listing || (listing as any).userId !== userId)
+      return res.status(403).json({ success: false, error: "Sem permissão" });
+
+    if (!req.file) return res.status(400).json({ success: false, error: "Nenhum arquivo enviado" });
+
+    const file = req.file;
+    const isVideo = file.mimetype.startsWith("video/");
+
+    // Upload para Cloudinary via API REST (sem SDK)
+    const cloudName  = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey     = process.env.CLOUDINARY_API_KEY;
+    const apiSecret  = process.env.CLOUDINARY_API_SECRET;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      return res.status(500).json({ success: false, error: "Cloudinary não configurado" });
+    }
+
+    const crypto    = await import("crypto");
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const folder    = "mecpro-marketplace";
+    const sigStr    = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+    const signature = crypto.createHash("sha1").update(sigStr).digest("hex");
+
+    const cloudForm = new FormData();
+    cloudForm.append("file", new Blob([file.buffer], { type: file.mimetype }), file.originalname);
+    cloudForm.append("api_key", apiKey);
+    cloudForm.append("timestamp", timestamp);
+    cloudForm.append("signature", signature);
+    cloudForm.append("folder", folder);
+    cloudForm.append("resource_type", isVideo ? "video" : "image");
+
+    const resourceType = isVideo ? "video" : "image";
+    const cloudRes = await fetch(
+      `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
+      { method: "POST", body: cloudForm as any }
+    );
+    const uploadResult: any = await cloudRes.json();
+    if (!cloudRes.ok || !uploadResult.secure_url) {
+      throw new Error(uploadResult.error?.message || "Cloudinary upload failed");
+    }
+
+    const mediaUrl = uploadResult.secure_url;
+    const thumbUrl = isVideo ? (uploadResult.eager?.[0]?.secure_url || "") : "";
+
+    // Adiciona à galeria existente
+    const current = (listing as any).gallery;
+    let gallery: any[] = [];
+    try { gallery = current ? JSON.parse(current) : []; } catch {}
+    gallery.push({ type: isVideo ? "video" : "image", url: mediaUrl, thumb: thumbUrl || undefined });
+
+    await (db as any).updateMarketplaceListing(listingId, {
+      gallery: JSON.stringify(gallery),
+      ...(gallery.length === 1 && !isVideo ? { imageUrl: mediaUrl } : {}),
+      ...(isVideo && !( listing as any).videoUrl ? { videoUrl: mediaUrl, thumbnailUrl: thumbUrl } : {}),
+    });
+
+    res.json({ success: true, url: mediaUrl, thumb: thumbUrl, type: isVideo ? "video" : "image", gallery });
+  } catch (e: any) {
+    log.warn("marketplace", "upload-gallery error", { error: e.message });
     res.status(500).json({ success: false, error: e.message });
   }
 });

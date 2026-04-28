@@ -127,6 +127,8 @@ function ListingLanding({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [contactSent, setContactSent] = useState(false);
+  const [activeMedia, setActiveMedia] = useState(0); // índice da mídia ativa na galeria
+  const [showVideo,   setShowVideo]   = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -197,12 +199,45 @@ function ListingLanding({ slug }: { slug: string }) {
           </div>
           {/* Botão de editar para o dono — aparece quando logado como dono */}
           {user && user.id === listing.userId && (
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 onClick={() => setLocation(`/marketplace/seller?edit=${listing.id}`)}
                 style={{ fontSize: 12, fontWeight: 700, background: "#334155", color: "white", border: "none", borderRadius: 10, padding: "7px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                ✏️ Editar esta oferta
+                ✏️ Editar oferta
               </button>
+              {/* Upload de mídia direta na landing page */}
+              <label style={{ fontSize: 12, fontWeight: 700, background: "#16a34a", color: "white",
+                border: "none", borderRadius: 10, padding: "7px 14px", cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 5 }}>
+                <input type="file" accept="image/*,video/mp4,video/mov,video/webm" multiple
+                  style={{ display: "none" }}
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (!files.length) return;
+                    for (const file of files) {
+                      const fd = new FormData();
+                      fd.append("file", file);
+                      try {
+                        const res = await fetch(`/api/marketplace/${listing.id}/upload-gallery`, {
+                          method: "POST", body: fd, credentials: "include"
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                          // Reload para mostrar nova mídia
+                          setListing((prev: any) => ({
+                            ...prev,
+                            imageUrl: data.type === "image" && !prev.imageUrl ? data.url : prev.imageUrl,
+                            videoUrl: data.type === "video" && !prev.videoUrl ? data.url : prev.videoUrl,
+                            gallery: JSON.stringify(data.gallery),
+                          }));
+                          setActiveMedia(0);
+                        }
+                      } catch {}
+                    }
+                    e.target.value = "";
+                  }} />
+                📸 Adicionar fotos/vídeo
+              </label>
               <button
                 onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/marketplace/${listing.slug}`).then(() => alert("Link copiado!"))}
                 style={{ fontSize: 12, fontWeight: 600, background: "var(--off)", color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 10, padding: "7px 12px", cursor: "pointer" }}>
@@ -212,41 +247,149 @@ function ListingLanding({ slug }: { slug: string }) {
           )}
         </div>
 
-        {/* Hero */}
-        <div style={{
-          background: `linear-gradient(135deg, ${nc.color}18, ${nc.bg}44)`,
-          border: `1px solid ${nc.color}33`,
-          borderRadius: 20, margin: "0 16px 24px", padding: "36px 32px", textAlign: "center",
-        }}>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            background: "var(--card)", borderRadius: 20, padding: "4px 12px",
-            fontSize: 10, fontWeight: 700, color: nc.color, marginBottom: 16,
-            border: `1px solid ${nc.color}33`, textTransform: "uppercase", letterSpacing: 1,
-          }}>🤖 Gerado com MecProAI</div>
+        {/* ── Hero com mídia de destaque ── */}
+        {(() => {
+          // Monta galeria de mídias disponíveis
+          const gallery: { type: "image" | "video"; url: string; thumb?: string }[] = [];
+          if (listing.imageUrl) gallery.push({ type: "image", url: listing.imageUrl });
+          if (listing.videoUrl) gallery.push({ type: "video", url: listing.videoUrl, thumb: listing.thumbnailUrl || listing.imageUrl });
+          try {
+            const extra = listing.gallery ? JSON.parse(listing.gallery) : [];
+            (extra as any[]).forEach((m: any) => gallery.push(m));
+          } catch {}
+          const hasMedia = gallery.length > 0;
+          const active = gallery[Math.min(activeMedia, gallery.length - 1)];
 
-          <h1 style={{ fontSize: "clamp(22px,4vw,34px)", fontWeight: 900, color: "var(--black)", margin: "0 0 12px", lineHeight: 1.2, letterSpacing: "-0.03em" }}>
-            {lp?.hero?.headline || listing.headline || listing.title}
-          </h1>
-          <p style={{ fontSize: 15, color: "var(--muted)", margin: "0 0 28px", maxWidth: 540, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
-            {lp?.hero?.subheadline || listing.subheadline || listing.description}
-          </p>
+          return (
+            <div style={{ margin: "0 16px 24px" }}>
+              {/* Imagem/vídeo de destaque */}
+              {hasMedia && (
+                <div style={{ position: "relative", borderRadius: 16, overflow: "hidden",
+                  background: "#0f172a", marginBottom: 16,
+                  aspectRatio: active?.type === "video" ? "16/9" : "16/9",
+                  maxHeight: 440,
+                }}>
+                  {active?.type === "video" && showVideo ? (
+                    <video
+                      src={active.url}
+                      controls autoPlay
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                    />
+                  ) : active?.type === "video" ? (
+                    /* Thumbnail do vídeo com botão play */
+                    <>
+                      {active.thumb
+                        ? <img src={active.thumb} alt="thumbnail" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }} />
+                        : <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1e293b,#0f172a)" }} />
+                      }
+                      <button
+                        onClick={() => setShowVideo(true)}
+                        style={{ position: "absolute", inset: 0, background: "none", border: "none", cursor: "pointer",
+                          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+                        <div style={{ width: 72, height: 72, borderRadius: "50%", background: "rgba(255,255,255,0.15)",
+                          backdropFilter: "blur(8px)", border: "2px solid rgba(255,255,255,0.4)",
+                          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>▶</div>
+                        <span style={{ color: "white", fontSize: 13, fontWeight: 700, background: "rgba(0,0,0,0.4)",
+                          padding: "6px 16px", borderRadius: 20, backdropFilter: "blur(4px)" }}>
+                          Assistir vídeo
+                        </span>
+                      </button>
+                    </>
+                  ) : (
+                    <img
+                      src={active.url}
+                      alt={listing.title}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
 
-          <button className="lp-btn" onClick={handleCta} style={{
-            background: nc.color, color: "white", border: "none", cursor: "pointer",
-            borderRadius: 14, padding: "14px 40px", fontSize: 15, fontWeight: 800, letterSpacing: 0.3,
-          }}>{ctaText}</button>
+                  {/* Badge tipo mídia */}
+                  <div style={{ position: "absolute", top: 10, left: 10,
+                    background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+                    color: "white", fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>
+                    {active?.type === "video" ? "🎬 Vídeo" : "🖼️ Foto"}
+                    {gallery.length > 1 && ` · ${activeMedia + 1}/${gallery.length}`}
+                  </div>
+                </div>
+              )}
 
-          {listing.price && (
-            <div style={{ marginTop: 16, fontSize: 13, color: "var(--muted)" }}>
-              <strong style={{ fontSize: 20, color: nc.color, fontWeight: 900 }}>
-                R$ {Number(listing.price).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </strong>
-              {listing.priceType === "monthly" && <span>/mês</span>}
-              {listing.priceType === "negotiable" && <span style={{ color: "var(--muted)", fontSize: 12 }}> · A negociar</span>}
+              {/* Galeria de thumbnails — aparece quando tem mais de 1 mídia */}
+              {gallery.length > 1 && (
+                <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+                  {gallery.map((m, i) => (
+                    <div key={i}
+                      onClick={() => { setActiveMedia(i); setShowVideo(false); }}
+                      style={{
+                        width: 72, height: 54, borderRadius: 8, overflow: "hidden", flexShrink: 0,
+                        cursor: "pointer", border: `2px solid ${activeMedia === i ? nc.color : "transparent"}`,
+                        background: "#0f172a", position: "relative", transition: "border-color .15s",
+                      }}>
+                      {m.type === "video"
+                        ? <>
+                            {m.thumb && <img src={m.thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }} />}
+                            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 16, color: "white" }}>▶</div>
+                          </>
+                        : <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }} />
+                      }
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Hero texto + CTA */}
+              <div style={{
+                background: `linear-gradient(135deg, ${nc.color}18, ${nc.bg}44)`,
+                border: `1px solid ${nc.color}33`,
+                borderRadius: hasMedia ? 16 : 20, padding: hasMedia ? "24px" : "36px 32px",
+                textAlign: "center", marginTop: hasMedia ? 16 : 0,
+              }}>
+                <div style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: "var(--card)", borderRadius: 20, padding: "4px 12px",
+                  fontSize: 10, fontWeight: 700, color: nc.color, marginBottom: 12,
+                  border: `1px solid ${nc.color}33`, textTransform: "uppercase", letterSpacing: 1,
+                }}>🤖 Gerado com MecProAI</div>
+
+                <h1 style={{ fontSize: "clamp(20px,4vw,32px)", fontWeight: 900, color: "var(--black)",
+                  margin: "0 0 10px", lineHeight: 1.2, letterSpacing: "-0.03em" }}>
+                  {lp?.hero?.headline || listing.headline || listing.title}
+                </h1>
+                <p style={{ fontSize: 14, color: "var(--muted)", margin: "0 0 20px",
+                  maxWidth: 520, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
+                  {lp?.hero?.subheadline || listing.subheadline || listing.description}
+                </p>
+
+                <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", alignItems: "center" }}>
+                  <button className="lp-btn" onClick={handleCta} style={{
+                    background: nc.color, color: "white", border: "none", cursor: "pointer",
+                    borderRadius: 14, padding: "13px 36px", fontSize: 15, fontWeight: 800,
+                  }}>{ctaText}</button>
+
+                  {listing.videoUrl && !hasMedia && (
+                    <button onClick={() => { setActiveMedia(gallery.findIndex(m => m.type === "video")); setShowVideo(true); }}
+                      style={{ background: "rgba(0,0,0,0.08)", border: "none", borderRadius: 14, padding: "13px 20px",
+                        fontSize: 13, fontWeight: 700, cursor: "pointer", color: "var(--black)" }}>
+                      ▶ Ver vídeo
+                    </button>
+                  )}
+                </div>
+
+                {listing.price && (
+                  <div style={{ marginTop: 14, fontSize: 13, color: "var(--muted)" }}>
+                    <strong style={{ fontSize: 22, color: nc.color, fontWeight: 900 }}>
+                      R$ {Number(listing.price).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </strong>
+                    {listing.priceType === "monthly" && <span>/mês</span>}
+                    {listing.priceType === "negotiable" && <span style={{ color: "var(--muted)", fontSize: 12 }}> · A negociar</span>}
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Problema */}
         {lp?.problem && (
