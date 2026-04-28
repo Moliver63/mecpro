@@ -910,6 +910,84 @@ router.post("/:id/upload-gallery", _mpUpload.single("file"), async (req: Request
   }
 });
 
+// POST /api/marketplace/:id/generate-video — Gera slideshow a partir das fotos da oferta
+router.post("/:id/generate-video", async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: "Não autenticado" });
+
+    const listingId = parseInt(req.params.id);
+    const listing   = await db.getListingById(listingId);
+    if (!listing) return res.status(404).json({ success: false, error: "Oferta não encontrada" });
+    if ((listing as any).userId !== userId) return res.status(403).json({ success: false, error: "Sem permissão" });
+
+    const {
+      photos,       // array de URLs — se não enviado, usa fotos da oferta
+      title,
+      subtitle,
+      duration    = 4,
+      transition  = "fade",
+      format      = "feed",
+      quality     = "standard",
+    } = req.body || {};
+
+    // Monta lista de fotos — usa as da oferta se não enviado
+    let photoUrls: string[] = photos || [];
+    if (!photoUrls.length) {
+      if ((listing as any).imageUrl) photoUrls.push((listing as any).imageUrl);
+      try {
+        const gal = (listing as any).gallery ? JSON.parse((listing as any).gallery) : [];
+        gal.forEach((m: any) => { if (m.type === "image" && m.url) photoUrls.push(m.url); });
+      } catch {}
+    }
+    if (!photoUrls.length) {
+      return res.status(400).json({ success: false, error: "Nenhuma foto encontrada. Adicione fotos à oferta antes de gerar o vídeo." });
+    }
+
+    log.info("marketplace", "generate-video start", {
+      listingId, userId, photos: photoUrls.length, format, transition
+    });
+
+    const { generateSlideshow, cleanupVideo } = await import("./videoGenerator.js");
+    const result = await generateSlideshow({
+      photos:     photoUrls.slice(0, 10),
+      title:      title  || (listing as any).headline  || (listing as any).title,
+      subtitle:   subtitle || (listing as any).subheadline || undefined,
+      duration:   Math.min(Math.max(Number(duration) || 4, 2), 8),
+      transition: transition as any,
+      format:     format as any,
+      quality:    quality as any,
+    });
+
+    if (!result.success || !result.videoPath) {
+      log.warn("marketplace", "generate-video failed", { listingId, error: result.error });
+      return res.status(500).json({ success: false, error: result.error || "Falha ao gerar vídeo" });
+    }
+
+    log.info("marketplace", "generate-video OK", {
+      listingId, durationSecs: result.durationSecs, format
+    });
+
+    // Envia o arquivo como download
+    const fileName = `video-${(listing as any).slug || listingId}-${format}.mp4`;
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.setHeader("X-Video-Duration", String(result.durationSecs));
+
+    const fileStream = (await import("fs")).createReadStream(result.videoPath);
+    fileStream.pipe(res);
+    fileStream.on("end", () => { cleanupVideo(result.videoPath!); });
+    fileStream.on("error", () => {
+      cleanupVideo(result.videoPath!);
+      if (!res.headersSent) res.status(500).json({ success: false, error: "Erro ao enviar arquivo" });
+    });
+
+  } catch (e: any) {
+    log.warn("marketplace", "generate-video exception", { error: e.message });
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // POST /api/marketplace/:id/click — Registra clique na landing page
 router.post("/:id/click", async (req: Request, res: Response) => {
   try {

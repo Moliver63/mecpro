@@ -46,6 +46,15 @@ export default function SellerDashboard() {
   const [mediaPreview, setMediaPreview] = useState<{ url: string; type: "image" | "video" } | null>(null);
   const [galleryItems, setGalleryItems]   = useState<{ type: "image"|"video"; url: string; thumb?: string }[]>([]);
   const [deletingPhoto, setDeletingPhoto] = useState<string | null>(null);
+  // ── Gerador de vídeo ──────────────────────────────────────────────────────
+  const [showVideoGen,  setShowVideoGen]  = useState(false);
+  const [videoFormat,   setVideoFormat]   = useState<"feed"|"stories"|"square">("feed");
+  const [videoTransition, setVideoTransition] = useState<"fade"|"dissolve"|"wiperight"|"slideleft"|"circleopen">("fade");
+  const [videoDuration, setVideoDuration] = useState(4);
+  const [videoTitle,    setVideoTitle]    = useState("");
+  const [videoSub,      setVideoSub]      = useState("");
+  const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [videoProgress, setVideoProgress]   = useState("");
 
   // Lê ?edit=ID da URL para abrir o modal automaticamente
   const editIdFromUrl = typeof window !== "undefined"
@@ -170,6 +179,52 @@ export default function SellerDashboard() {
       toast.error("Erro ao remover");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  // ── Gera vídeo slideshow com FFmpeg ──────────────────────────────────────
+  async function generateVideo(listingId: number) {
+    setGeneratingVideo(true);
+    setVideoProgress("⏳ Gerando vídeo — pode levar até 60s...");
+    try {
+      const res = await fetch(`/api/marketplace/${listingId}/generate-video`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format:     videoFormat,
+          transition: videoTransition,
+          duration:   videoDuration,
+          title:      videoTitle || undefined,
+          subtitle:   videoSub   || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Erro ${res.status}`);
+      }
+
+      // Faz o download do vídeo gerado
+      const blob = await res.blob();
+      const durHeader = res.headers.get("X-Video-Duration");
+      const url  = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const fmt  = videoFormat === "stories" ? "reels" : videoFormat;
+      link.href  = url;
+      link.download = `video-${fmt}-mecproai.mp4`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      const dur = durHeader ? `${durHeader}s` : "";
+      setVideoProgress(`✅ Vídeo ${dur} gerado e baixado!`);
+      toast.success(`🎬 Vídeo ${fmt} gerado com sucesso!`);
+      setTimeout(() => { setVideoProgress(""); setShowVideoGen(false); }, 3000);
+    } catch (e: any) {
+      setVideoProgress(`❌ ${e.message}`);
+      toast.error("Erro ao gerar vídeo: " + e.message);
+    } finally {
+      setGeneratingVideo(false);
     }
   }
 
@@ -407,7 +462,81 @@ export default function SellerDashboard() {
                 </div>
               </div>
 
-              {/* ── CONTATO ── */}
+              {/* ── GERADOR DE VIDEO ── */}
+              <div style={{ background:"linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius:14, padding:16 }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: showVideoGen ? 14 : 0 }}>
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:800, color:"white" }}>&#127916; Gerar Video para Redes Sociais</div>
+                    <div style={{ fontSize:10, color:"#94a3b8", marginTop:2 }}>Converte suas fotos em MP4 pronto para postar</div>
+                  </div>
+                  <button onClick={() => setShowVideoGen(v => !v)}
+                    style={{ background: showVideoGen ? "#334155" : "#3b82f6", color:"white", border:"none", borderRadius:8, padding:"6px 12px", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                    {showVideoGen ? "Fechar" : "Criar video"}
+                  </button>
+                </div>
+                {showVideoGen && editingListing && (
+                  <div>
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:10, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>Formato</div>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
+                        {[["feed","Feed 4:5"],["stories","Stories 9:16"],["square","Quadrado 1:1"]].map(([k,l]: any) => (
+                          <button key={k} onClick={() => setVideoFormat(k)}
+                            style={{ padding:"8px 4px", borderRadius:8, border:"none", cursor:"pointer", textAlign:"center",
+                              background: videoFormat===k ? "#3b82f6" : "#1e293b",
+                              color: videoFormat===k ? "white" : "#94a3b8", fontSize:11, fontWeight:700 }}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:10, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>
+                        Duracao por foto: <strong style={{ color:"white" }}>{videoDuration}s</strong>
+                      </div>
+                      <input type="range" min={2} max={8} value={videoDuration}
+                        onChange={e => setVideoDuration(Number(e.target.value))} style={{ width:"100%", accentColor:"#3b82f6" }} />
+                    </div>
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:10, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:4 }}>Transicao</div>
+                      <select value={videoTransition} onChange={e => setVideoTransition(e.target.value as any)}
+                        style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:"none", background:"#1e293b", color:"white", fontSize:12 }}>
+                        <option value="fade">Fade</option>
+                        <option value="dissolve">Dissolve</option>
+                        <option value="slideleft">Slide esquerda</option>
+                        <option value="wiperight">Wipe direita</option>
+                        <option value="circleopen">Circulo</option>
+                      </select>
+                    </div>
+                    <div style={{ marginBottom:10 }}>
+                      <div style={{ fontSize:10, color:"#94a3b8", fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:6 }}>Texto sobreposto (opcional)</div>
+                      <input placeholder="Titulo" value={videoTitle} onChange={e => setVideoTitle(e.target.value)} maxLength={60}
+                        style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:"none", background:"#1e293b", color:"white", fontSize:12, marginBottom:6, boxSizing:"border-box" as any }} />
+                      <input placeholder="Subtitulo" value={videoSub} onChange={e => setVideoSub(e.target.value)} maxLength={80}
+                        style={{ width:"100%", padding:"8px 10px", borderRadius:8, border:"none", background:"#1e293b", color:"white", fontSize:12, boxSizing:"border-box" as any }} />
+                    </div>
+                    <div style={{ background:"#0f172a", borderRadius:8, padding:"8px 10px", marginBottom:10, fontSize:11, color:"#94a3b8" }}>
+                      {galleryItems.length + (editForm.imageUrl ? 1 : 0)} foto(s) disponiveis
+                      {galleryItems.length + (editForm.imageUrl ? 1 : 0) === 0 && <span style={{ color:"#f87171" }}> - adicione fotos primeiro</span>}
+                    </div>
+                    {videoProgress && (
+                      <div style={{ background:"#1e293b", borderRadius:8, padding:"8px 10px", marginBottom:10, fontSize:11,
+                        color: videoProgress.startsWith("✅") ? "#34d399" : videoProgress.startsWith("❌") ? "#f87171" : "#93c5fd" }}>
+                        {videoProgress}
+                      </div>
+                    )}
+                    <button onClick={() => generateVideo(editingListing.id)}
+                      disabled={generatingVideo || galleryItems.length + (editForm.imageUrl ? 1 : 0) === 0}
+                      style={{ width:"100%", padding:"12px 0", borderRadius:10, border:"none", fontWeight:800, fontSize:13,
+                        background: generatingVideo || galleryItems.length + (editForm.imageUrl ? 1 : 0) === 0 ? "#1e293b" : "#3b82f6",
+                        color: generatingVideo || galleryItems.length + (editForm.imageUrl ? 1 : 0) === 0 ? "#475569" : "white",
+                        cursor:"pointer" }}>
+                      {generatingVideo ? "Gerando video..." : "Gerar e baixar MP4"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+                            {/* ── CONTATO ── */}
               <div>
                 <div style={{ fontSize:11, fontWeight:800, color:"#64748b", letterSpacing:"0.05em", marginBottom:10 }}>📞 CONTATO E CONVERSÃO</div>
                 <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
