@@ -169,15 +169,17 @@ function ListingLanding({ slug }: { slug: string }) {
     });
     document.head.appendChild(schema);
     return () => { document.getElementById("mp-schema")?.remove(); };
-    let desc = document.querySelector('meta[name="description"]');
-    if (!desc) { desc = document.createElement('meta'); desc.setAttribute('name', 'description'); document.head.appendChild(desc); }
-    desc.setAttribute('content', (listing.description || listing.headline || listing.title).slice(0, 155));
-    let og = document.querySelector('meta[property="og:title"]') as HTMLMetaElement;
-    if (!og) { og = document.createElement('meta'); og.setAttribute('property', 'og:title'); document.head.appendChild(og); }
-    og.content = listing.title;
-    let ogImg = document.querySelector('meta[property="og:image"]') as HTMLMetaElement;
-    if (!ogImg) { ogImg = document.createElement('meta'); ogImg.setAttribute('property', 'og:image'); document.head.appendChild(ogImg); }
-    if (listing.imageUrl) ogImg.content = listing.imageUrl;
+    // Description meta
+    const descEl = (document.querySelector('meta[name="description"]') || (() => { const m = document.createElement('meta'); m.setAttribute('name', 'description'); document.head.appendChild(m); return m; })()) as HTMLMetaElement;
+    descEl.content = (listing.description || listing.headline || listing.title).slice(0, 155);
+    // OG title
+    const ogEl = (document.querySelector('meta[property="og:title"]') || (() => { const m = document.createElement('meta'); m.setAttribute('property', 'og:title'); document.head.appendChild(m); return m; })()) as HTMLMetaElement;
+    ogEl.content = listing.title;
+    // OG image
+    if (listing.imageUrl) {
+      const ogImgEl = (document.querySelector('meta[property="og:image"]') || (() => { const m = document.createElement('meta'); m.setAttribute('property', 'og:image'); document.head.appendChild(m); return m; })()) as HTMLMetaElement;
+      ogImgEl.content = listing.imageUrl;
+    }
     return () => { document.title = 'MecProAI'; };
   }, [listing]);
 
@@ -347,9 +349,9 @@ function ListingLanding({ slug }: { slug: string }) {
           )}
         </div>
 
-        {/* ── Hero com mídia de destaque ── */}
+        {/* ── Galeria + Info principal (estilo Shopee/Mercado Livre) ── */}
         {(() => {
-          // Monta galeria de mídias disponíveis
+          // Monta galeria
           const gallery: { type: "image" | "video"; url: string; thumb?: string }[] = [];
           if (listing.imageUrl) gallery.push({ type: "image", url: listing.imageUrl });
           if (listing.videoUrl) gallery.push({ type: "video", url: listing.videoUrl, thumb: listing.thumbnailUrl || listing.imageUrl });
@@ -358,134 +360,226 @@ function ListingLanding({ slug }: { slug: string }) {
             (extra as any[]).forEach((m: any) => gallery.push(m));
           } catch {}
           const hasMedia = gallery.length > 0;
-          const active = gallery[Math.min(activeMedia, gallery.length - 1)];
+          const active   = gallery[Math.min(activeMedia, gallery.length - 1)];
+          const goNext   = () => { setShowVideo(false); setActiveMedia(i => (i + 1) % gallery.length); };
+          const goPrev   = () => { setShowVideo(false); setActiveMedia(i => (i - 1 + gallery.length) % gallery.length); };
+
+          // Insights por nicho
+          const niche = listing.niche || "";
+          const lp2: any = (() => { try { return listing.landingPage ? JSON.parse(listing.landingPage) : null; } catch { return null; } })();
+          const nicheInsights: { icon: string; label: string; value: string }[] = [];
+          if (niche.includes("imovel")) {
+            if (listing.price)     nicheInsights.push({ icon: "💰", label: "Valor",       value: `R$ ${Number(listing.price).toLocaleString("pt-BR")}${listing.priceType === "monthly" ? "/mês" : ""}` });
+            if (lp2?.details?.area || listing.area)       nicheInsights.push({ icon: "📐", label: "Área",        value: `${lp2?.details?.area || listing.area} m²` });
+            if (lp2?.details?.rooms || listing.rooms)     nicheInsights.push({ icon: "🛏", label: "Quartos",     value: String(lp2?.details?.rooms || listing.rooms || "–") });
+            if (lp2?.details?.garage || listing.garage)   nicheInsights.push({ icon: "🚗", label: "Vagas",       value: String(lp2?.details?.garage || listing.garage || "–") });
+            if (listing.city || listing.state)            nicheInsights.push({ icon: "📍", label: "Localização", value: [listing.city, listing.state].filter(Boolean).join(", ") });
+          } else if (niche.includes("saude") || niche.includes("estetica") || niche.includes("clinica")) {
+            if (lp2?.details?.duration) nicheInsights.push({ icon: "⏱", label: "Duração",    value: lp2.details.duration });
+            if (listing.price)          nicheInsights.push({ icon: "💰", label: "Valor",      value: `R$ ${Number(listing.price).toLocaleString("pt-BR")}` });
+            nicheInsights.push({ icon: "📅", label: "Agendamento", value: "Online ou presencial" });
+            if (listing.city)           nicheInsights.push({ icon: "📍", label: "Local",      value: listing.city });
+          } else if (niche.includes("curso") || niche.includes("educacao") || niche.includes("infoproduto")) {
+            if (lp2?.details?.duration)  nicheInsights.push({ icon: "⏱", label: "Duração",    value: lp2.details.duration });
+            if (lp2?.details?.lessons)   nicheInsights.push({ icon: "🎓", label: "Aulas",      value: String(lp2.details.lessons) });
+            nicheInsights.push({ icon: "🌐", label: "Formato",   value: "Online — acesso imediato" });
+            if (lp2?.details?.guarantee) nicheInsights.push({ icon: "🛡", label: "Garantia",   value: lp2.details.guarantee });
+          } else if (niche.includes("servico") || niche.includes("profissional")) {
+            if (lp2?.details?.delivery)  nicheInsights.push({ icon: "⚡", label: "Entrega",    value: lp2.details.delivery });
+            if (listing.price)           nicheInsights.push({ icon: "💰", label: "A partir de",value: `R$ ${Number(listing.price).toLocaleString("pt-BR")}` });
+            nicheInsights.push({ icon: "✅", label: "Satisfação",  value: "Garantida ou reembolso" });
+            if (listing.city || listing.isNational) nicheInsights.push({ icon: "📍", label: "Atendimento", value: listing.isNational ? "Todo o Brasil" : listing.city || "" });
+          } else if (niche.includes("produto") || niche.includes("alimento")) {
+            if (listing.price)           nicheInsights.push({ icon: "💰", label: "Preço",      value: `R$ ${Number(listing.price).toLocaleString("pt-BR")}` });
+            nicheInsights.push({ icon: "🚚", label: "Entrega",    value: "Consultar frete" });
+            nicheInsights.push({ icon: "🔄", label: "Troca",      value: "30 dias garantidos" });
+          } else {
+            // Genérico
+            if (listing.price)           nicheInsights.push({ icon: "💰", label: "Valor",      value: `R$ ${Number(listing.price).toLocaleString("pt-BR")}${listing.priceType === "monthly" ? "/mês" : ""}` });
+            if (listing.city || listing.isNational) nicheInsights.push({ icon: "📍", label: "Atendimento", value: listing.isNational ? "Todo o Brasil" : listing.city || "" });
+          }
 
           return (
-            <div style={{ margin: "0 16px 24px" }}>
-              {/* Imagem/vídeo de destaque */}
+            <div style={{ margin: "0 0 0" }}>
+              {/* ── GALERIA com navegação ← → ── */}
               {hasMedia && (
-                <div style={{ position: "relative", borderRadius: 16, overflow: "hidden",
-                  background: "#0f172a", marginBottom: 16,
-                  aspectRatio: active?.type === "video" ? "16/9" : "16/9",
-                  maxHeight: 440,
+                <div style={{ position: "relative", background: "#0f172a", marginBottom: 0,
+                  maxHeight: 440, overflow: "hidden",
+                  aspectRatio: "4/3",
                 }}>
+                  {/* Imagem ou vídeo ativo */}
                   {active?.type === "video" && showVideo ? (
-                    <video
-                      src={active.url}
-                      controls autoPlay
-                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                    />
+                    <video src={active.url} controls autoPlay
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                   ) : active?.type === "video" ? (
-                    /* Thumbnail do vídeo com botão play */
                     <>
                       {active.thumb
-                        ? <img src={active.thumb} alt="thumbnail" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }} />
-                        : <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#1e293b,#0f172a)" }} />
-                      }
-                      <button
-                        onClick={() => setShowVideo(true)}
+                        ? <img src={active.thumb} alt="video" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }} />
+                        : <div style={{ width: "100%", height: "100%", background: "#1e293b" }} />}
+                      <button onClick={() => setShowVideo(true)}
                         style={{ position: "absolute", inset: 0, background: "none", border: "none", cursor: "pointer",
-                          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                        <div style={{ width: 72, height: 72, borderRadius: "50%", background: "rgba(255,255,255,0.15)",
-                          backdropFilter: "blur(8px)", border: "2px solid rgba(255,255,255,0.4)",
-                          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>▶</div>
-                        <span style={{ color: "white", fontSize: 13, fontWeight: 700, background: "rgba(0,0,0,0.4)",
-                          padding: "6px 16px", borderRadius: 20, backdropFilter: "blur(4px)" }}>
-                          Assistir vídeo
-                        </span>
+                          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                        <div style={{ width: 64, height: 64, borderRadius: "50%", background: "rgba(255,255,255,0.15)",
+                          border: "2px solid rgba(255,255,255,0.4)", display: "flex", alignItems: "center",
+                          justifyContent: "center", fontSize: 26 }}>▶</div>
+                        <span style={{ color: "white", fontSize: 13, fontWeight: 700,
+                          background: "rgba(0,0,0,0.5)", padding: "5px 14px", borderRadius: 20 }}>Assistir vídeo</span>
                       </button>
                     </>
                   ) : (
-                    <img
-                      src={active.url}
-                      alt={listing.title}
+                    <img src={active?.url || ""} alt={listing.title}
                       style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                   )}
 
-                  {/* Badge tipo mídia */}
-                  <div style={{ position: "absolute", top: 10, left: 10,
+                  {/* Setas navegação ← → */}
+                  {gallery.length > 1 && (
+                    <>
+                      <button onClick={goPrev}
+                        style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                          width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,0.55)",
+                          border: "none", color: "white", fontSize: 16, cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          backdropFilter: "blur(4px)", zIndex: 2 }}>←</button>
+                      <button onClick={goNext}
+                        style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                          width: 36, height: 36, borderRadius: "50%", background: "rgba(0,0,0,0.55)",
+                          border: "none", color: "white", fontSize: 16, cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          backdropFilter: "blur(4px)", zIndex: 2 }}>→</button>
+                    </>
+                  )}
+
+                  {/* Indicador de posição (bolinhas) */}
+                  {gallery.length > 1 && (
+                    <div style={{ position: "absolute", bottom: 10, left: "50%", transform: "translateX(-50%)",
+                      display: "flex", gap: 5, zIndex: 2 }}>
+                      {gallery.slice(0, 5).map((_, i) => (
+                        <div key={i} onClick={() => { setActiveMedia(i); setShowVideo(false); }}
+                          style={{ width: activeMedia === i ? 18 : 7, height: 7, borderRadius: 4,
+                            background: activeMedia === i ? "white" : "rgba(255,255,255,0.5)",
+                            cursor: "pointer", transition: "all .2s" }} />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Badge tipo */}
+                  <div style={{ position: "absolute", top: 10, right: 10,
                     background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
                     color: "white", fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20 }}>
-                    {active?.type === "video" ? "🎬 Vídeo" : "🖼️ Foto"}
-                    {gallery.length > 1 && ` · ${activeMedia + 1}/${gallery.length}`}
+                    {active?.type === "video" ? "🎬 Vídeo" : `🖼 ${activeMedia + 1}/${gallery.length}`}
                   </div>
                 </div>
               )}
 
-              {/* Galeria de thumbnails — aparece quando tem mais de 1 mídia */}
+              {/* Thumbnails clicáveis abaixo da galeria */}
               {gallery.length > 1 && (
-                <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+                <div style={{ display: "flex", gap: 6, padding: "8px 16px",
+                  background: "var(--off)", borderBottom: "1px solid var(--border)", overflowX: "auto" }}>
                   {gallery.slice(0, 5).map((m, i) => (
-                    <div key={i}
-                      onClick={() => { setActiveMedia(i); setShowVideo(false); }}
-                      style={{
-                        width: 72, height: 54, borderRadius: 8, overflow: "hidden", flexShrink: 0,
-                        cursor: "pointer", border: `2px solid ${activeMedia === i ? nc.color : "transparent"}`,
-                        background: "#0f172a", position: "relative", transition: "border-color .15s",
-                      }}>
+                    <div key={i} onClick={() => { setActiveMedia(i); setShowVideo(false); }}
+                      style={{ width: 58, height: 44, borderRadius: 6, overflow: "hidden", flexShrink: 0,
+                        cursor: "pointer", border: `2px solid ${activeMedia === i ? nc.color : "var(--border)"}`,
+                        background: "#0f172a", position: "relative", transition: "border-color .15s" }}>
                       {m.type === "video"
-                        ? <>
-                            {m.thumb && <img src={m.thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }} />}
-                            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 16, color: "white" }}>▶</div>
-                          </>
-                        : <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }} />
-                      }
+                        ? <>{m.thumb && <img src={m.thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.7 }} />}
+                            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center",
+                              justifyContent: "center", fontSize: 14, color: "white" }}>▶</div></>
+                        : <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Hero texto + CTA */}
-              <div style={{
-                background: `linear-gradient(135deg, ${nc.color}18, ${nc.bg}44)`,
-                border: `1px solid ${nc.color}33`,
-                borderRadius: hasMedia ? 16 : 20, padding: hasMedia ? "24px" : "36px 32px",
-                textAlign: "center", marginTop: hasMedia ? 16 : 0,
-              }}>
-                <div style={{
-                  display: "inline-flex", alignItems: "center", gap: 6,
-                  background: "var(--card)", borderRadius: 20, padding: "4px 12px",
-                  fontSize: 10, fontWeight: 700, color: nc.color, marginBottom: 12,
-                  border: `1px solid ${nc.color}33`, textTransform: "uppercase", letterSpacing: 1,
-                }}>🤖 Gerado com MecProAI</div>
-
-                <h1 style={{ fontSize: "clamp(20px,4vw,32px)", fontWeight: 900, color: "var(--black)",
-                  margin: "0 0 10px", lineHeight: 1.2, letterSpacing: "-0.03em" }}>
-                  {lp?.hero?.headline || listing.headline || listing.title}
-                </h1>
-                <p style={{ fontSize: 14, color: "var(--muted)", margin: "0 0 20px",
-                  maxWidth: 520, marginLeft: "auto", marginRight: "auto", lineHeight: 1.6 }}>
-                  {lp?.hero?.subheadline || listing.subheadline || listing.description}
-                </p>
-
-                <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", alignItems: "center" }}>
-                  <button className="lp-btn" onClick={handleCta} style={{
-                    background: nc.color, color: "white", border: "none", cursor: "pointer",
-                    borderRadius: 14, padding: "13px 36px", fontSize: 15, fontWeight: 800,
-                  }}>{ctaText}</button>
-
-                  {listing.videoUrl && !hasMedia && (
-                    <button onClick={() => { setActiveMedia(gallery.findIndex(m => m.type === "video")); setShowVideo(true); }}
-                      style={{ background: "rgba(0,0,0,0.08)", border: "none", borderRadius: 14, padding: "13px 20px",
-                        fontSize: 13, fontWeight: 700, cursor: "pointer", color: "var(--black)" }}>
-                      ▶ Ver vídeo
-                    </button>
-                  )}
+              {/* ── BLOCO PRINCIPAL: título + preço + insights + CTA ── */}
+              <div style={{ padding: "20px 16px", borderBottom: "1px solid var(--border)" }}>
+                {/* Nicho badge */}
+                <div style={{ marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                    background: nc.bg, color: nc.color, textTransform: "uppercase", letterSpacing: 1 }}>
+                    {NICHES.find(n => n.key === listing.niche)?.label || listing.niche}
+                  </span>
                 </div>
 
+                {/* Título principal */}
+                <h1 style={{ fontSize: "clamp(18px,5vw,28px)", fontWeight: 900, color: "var(--black)",
+                  margin: "0 0 6px", lineHeight: 1.2, letterSpacing: "-0.02em" }}>
+                  {lp?.hero?.headline || listing.headline || listing.title}
+                </h1>
+
+                {/* Subtítulo/descritivo */}
+                {(lp?.hero?.subheadline || listing.subheadline || listing.description) && (
+                  <p style={{ fontSize: 14, color: "var(--muted)", margin: "0 0 14px", lineHeight: 1.65 }}>
+                    {lp?.hero?.subheadline || listing.subheadline || listing.description}
+                  </p>
+                )}
+
+                {/* Preço em destaque */}
                 {listing.price && (
-                  <div style={{ marginTop: 14, fontSize: 13, color: "var(--muted)" }}>
-                    <strong style={{ fontSize: 22, color: nc.color, fontWeight: 900 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+                    <span style={{ fontSize: 28, fontWeight: 900, color: nc.color, letterSpacing: "-0.03em" }}>
                       R$ {Number(listing.price).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </strong>
-                    {listing.priceType === "monthly" && <span>/mês</span>}
-                    {listing.priceType === "negotiable" && <span style={{ color: "var(--muted)", fontSize: 12 }}> · A negociar</span>}
+                    </span>
+                    {listing.priceType === "monthly" && <span style={{ fontSize: 14, color: "var(--muted)" }}>/mês</span>}
+                    {listing.priceType === "negotiable" && <span style={{ fontSize: 13, color: "var(--muted)", fontStyle: "italic" }}>Negociável</span>}
+                    {listing.guarantee && (
+                      <span style={{ fontSize: 11, background: "#dcfce7", color: "#166534",
+                        padding: "2px 8px", borderRadius: 20, fontWeight: 700 }}>🛡 {listing.guarantee.slice(0, 30)}</span>
+                    )}
                   </div>
                 )}
+
+                {/* ── Insights por nicho (estilo ficha técnica) ── */}
+                {nicheInsights.length > 0 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+                    gap: 8, marginBottom: 16, padding: "12px", background: "var(--off)",
+                    borderRadius: 12, border: "1px solid var(--border)" }}>
+                    {nicheInsights.map((ins, i) => (
+                      <div key={i} style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 18, marginBottom: 2 }}>{ins.icon}</div>
+                        <div style={{ fontSize: 10, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase",
+                          letterSpacing: "0.05em", marginBottom: 1 }}>{ins.label}</div>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: "var(--black)" }}>{ins.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* CTA principal */}
+                <button className="lp-btn" onClick={handleCta}
+                  style={{ width: "100%", background: nc.color, color: "white", border: "none",
+                    cursor: "pointer", borderRadius: 12, padding: "14px 0",
+                    fontSize: 15, fontWeight: 800, letterSpacing: 0.3, marginBottom: 8 }}>
+                  {ctaText}
+                </button>
+
+                {/* CTA secundário — WhatsApp */}
+                {listing.whatsappNumber && listing.checkoutType !== "whatsapp" && (
+                  <button onClick={() => window.open(`https://wa.me/${listing.whatsappNumber}`, "_blank")}
+                    style={{ width: "100%", background: "#25d366", color: "white", border: "none",
+                      cursor: "pointer", borderRadius: 12, padding: "12px 0",
+                      fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center",
+                      justifyContent: "center", gap: 6 }}>
+                    💬 Perguntar no WhatsApp
+                  </button>
+                )}
+
+                {/* Trust signals */}
+                <div style={{ display: "flex", gap: 12, marginTop: 12, justifyContent: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
+                    🔒 Anúncio verificado
+                  </span>
+                  {listing.views > 0 && (
+                    <span style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
+                      👁 {listing.views} pessoas viram este anúncio
+                    </span>
+                  )}
+                  {listing.clicks > 0 && (
+                    <span style={{ fontSize: 11, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
+                      ❤️ {listing.clicks} demonstraram interesse
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           );
