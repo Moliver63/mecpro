@@ -44,6 +44,8 @@ export default function SellerDashboard() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaPreview, setMediaPreview] = useState<{ url: string; type: "image" | "video" } | null>(null);
+  const [galleryItems, setGalleryItems]   = useState<{ type: "image"|"video"; url: string; thumb?: string }[]>([]);
+  const [deletingPhoto, setDeletingPhoto] = useState<string | null>(null);
 
   // Lê ?edit=ID da URL para abrir o modal automaticamente
   const editIdFromUrl = typeof window !== "undefined"
@@ -119,6 +121,11 @@ export default function SellerDashboard() {
     if (l.videoUrl) setMediaPreview({ url: l.videoUrl, type: "video" });
     else if (l.imageUrl) setMediaPreview({ url: l.imageUrl, type: "image" });
     else setMediaPreview(null);
+    // Carrega galeria de fotos extras
+    try {
+      const gal = l.gallery ? JSON.parse(l.gallery) : [];
+      setGalleryItems(gal);
+    } catch { setGalleryItems([]); }
   }
 
   async function saveEdit(regenerate = false) {
@@ -164,6 +171,28 @@ export default function SellerDashboard() {
     } finally {
       setDeletingId(null);
     }
+  }
+
+  // Remove foto individual da galeria
+  async function deleteGalleryPhoto(listingId: number, photoUrl: string) {
+    if (!confirm("Remover esta foto?")) return;
+    setDeletingPhoto(photoUrl);
+    try {
+      // Atualiza galeria removendo o item
+      const newGallery = galleryItems.filter(m => m.url !== photoUrl);
+      await fetch(`/api/marketplace/${listingId}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gallery: JSON.stringify(newGallery) }),
+      });
+      setGalleryItems(newGallery);
+      // Se era a imagem principal, limpa
+      if (editForm.imageUrl === photoUrl) set("imageUrl", newGallery.find(m => m.type === "image")?.url || "");
+      if (editForm.videoUrl === photoUrl) set("videoUrl", newGallery.find(m => m.type === "video")?.url || "");
+      toast.success("Foto removida");
+    } catch { toast.error("Erro ao remover foto"); }
+    finally { setDeletingPhoto(null); }
   }
 
   async function toggleStatus(listing: any) {
@@ -271,6 +300,43 @@ export default function SellerDashboard() {
                     <div style={{ fontSize:28, marginBottom:6 }}>📤</div>
                     <div style={{ fontSize:12, fontWeight:700, color:"#475569" }}>Nenhuma mídia adicionada</div>
                     <div style={{ fontSize:11, color:"#94a3b8" }}>Clique nos botões abaixo para adicionar</div>
+                  </div>
+                )}
+
+                {/* Galeria de fotos com exclusão */}
+                {galleryItems.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#64748b", textTransform: "uppercase",
+                      letterSpacing: "0.05em", marginBottom: 6 }}>
+                      Galeria ({galleryItems.length}/5)
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {galleryItems.map((m, i) => (
+                        <div key={i} style={{ position: "relative", width: 68, height: 52,
+                          borderRadius: 8, overflow: "hidden", border: "2px solid #e2e8f0",
+                          flexShrink: 0 }}>
+                          {m.type === "video"
+                            ? <div style={{ width: "100%", height: "100%", background: "#1e293b",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                color: "white", fontSize: 18 }}>▶</div>
+                            : <img src={m.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                onError={e => { (e.target as HTMLImageElement).src = ""; }} />}
+                          {/* Botão excluir foto */}
+                          <button
+                            onClick={() => editingListing && deleteGalleryPhoto(editingListing.id, m.url)}
+                            disabled={deletingPhoto === m.url}
+                            style={{ position: "absolute", top: 2, right: 2,
+                              width: 18, height: 18, borderRadius: "50%",
+                              background: deletingPhoto === m.url ? "#94a3b8" : "#dc2626",
+                              color: "white", border: "none", cursor: "pointer",
+                              fontSize: 10, fontWeight: 900, display: "flex",
+                              alignItems: "center", justifyContent: "center",
+                              lineHeight: 1, padding: 0 }}>
+                            {deletingPhoto === m.url ? "…" : "✕"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -382,15 +448,33 @@ export default function SellerDashboard() {
             </div>
 
             {/* Footer com botões — fixo no fundo */}
-            <div style={{ padding:"16px 24px", borderTop:"1px solid #f1f5f9", background:"#fff", display:"flex", gap:8 }}>
-              <button onClick={() => saveEdit(false)} disabled={saving || !editForm.title?.trim()}
-                style={{ flex:1, padding:"12px 0", borderRadius:12, border:"none", cursor: saving || !editForm.title?.trim() ? "not-allowed" : "pointer", fontWeight:800, fontSize:13, background: saving || !editForm.title?.trim() ? "#e2e8f0" : "#0f172a", color: saving || !editForm.title?.trim() ? "#94a3b8" : "white", transition:"all .2s" }}>
-                {saving ? "⏳ Salvando..." : "◎ Salvar alterações"}
+            <div style={{ padding:"16px 24px", borderTop:"1px solid #f1f5f9", background:"#fff" }}>
+              {/* Botão excluir anúncio */}
+              <button
+                onClick={() => {
+                  if (editingListing) {
+                    deleteListing(editingListing.id);
+                    setEditingListing(null);
+                  }
+                }}
+                disabled={deletingId === editingListing?.id}
+                style={{ width:"100%", marginBottom:8, padding:"10px 0", borderRadius:10,
+                  border:"1px solid #fca5a5", background:"#fef2f2", color:"#dc2626",
+                  cursor:"pointer", fontWeight:700, fontSize:13,
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+                {deletingId === editingListing?.id ? "⏳ Removendo..." : "🗑 Excluir este anúncio permanentemente"}
               </button>
-              <button onClick={() => saveEdit(true)} disabled={saving || !editForm.title?.trim()}
-                style={{ flex:1, padding:"12px 0", borderRadius:12, border:"1.5px solid #3b82f6", cursor: saving || !editForm.title?.trim() ? "not-allowed" : "pointer", fontWeight:800, fontSize:13, background:"white", color:"#3b82f6", opacity: saving || !editForm.title?.trim() ? .5 : 1 }}>
-                {saving ? "⏳ Salvando..." : "🤖 Salvar + Regenerar LP"}
-              </button>
+              {/* Salvar */}
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => saveEdit(false)} disabled={saving || !editForm.title?.trim()}
+                  style={{ flex:1, padding:"12px 0", borderRadius:12, border:"none", cursor: saving || !editForm.title?.trim() ? "not-allowed" : "pointer", fontWeight:800, fontSize:13, background: saving || !editForm.title?.trim() ? "#e2e8f0" : "#0f172a", color: saving || !editForm.title?.trim() ? "#94a3b8" : "white", transition:"all .2s" }}>
+                  {saving ? "⏳ Salvando..." : "◎ Salvar alterações"}
+                </button>
+                <button onClick={() => saveEdit(true)} disabled={saving || !editForm.title?.trim()}
+                  style={{ flex:1, padding:"12px 0", borderRadius:12, border:"1.5px solid #3b82f6", cursor: saving || !editForm.title?.trim() ? "not-allowed" : "pointer", fontWeight:800, fontSize:13, background:"white", color:"#3b82f6", opacity: saving || !editForm.title?.trim() ? .5 : 1 }}>
+                  {saving ? "⏳ Salvando..." : "🤖 Salvar + Regenerar LP"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
