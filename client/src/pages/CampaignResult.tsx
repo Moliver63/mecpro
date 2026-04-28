@@ -642,16 +642,35 @@ export default function CampaignResult() {
       const pageName = (pages as any[]).find(p => p.id === pid)?.name || pid;
       toast.loading(`📤 Publicando em ${pageName}...`, { id: `pub-${pid}` });
       try {
-        // Chama handlePublish com a página específica — seta pageId e publica
+        // ── Resolve automaticamente o link de cada página via backend ────────
+        // O backend usa o token Meta do usuário para consultar a Graph API
+        // Prioridade: 1) link manual digitado  2) WhatsApp da página  3) website da página
+        let pageAutoLink: string | undefined = normalizeDestinationUrl(linkUrl) || undefined;
+
+        if (!pageAutoLink) {
+          // Sem link manual → busca automaticamente pela página
+          try {
+            const resolved = await (trpc as any).campaigns?.resolvePageLink?.query?.({ pageId: pid });
+            if (resolved?.whatsappUrl) {
+              pageAutoLink = resolved.whatsappUrl;
+              toast.loading(`📱 ${pageName}: WhatsApp ...${resolved.phone?.slice(-4)} detectado`, { id: `pub-${pid}` });
+            } else if (resolved?.website) {
+              pageAutoLink = resolved.website.startsWith("http") ? resolved.website : `https://${resolved.website}`;
+              toast.loading(`🌐 ${pageName}: site detectado`, { id: `pub-${pid}` });
+            }
+          } catch { /* ignora — publica sem link automático */ }
+        }
+        // Se usuário digitou link manual → usa o manual (nunca sobrescreve)
+
         const prevPageId = pageId;
         setPageId(pid);
-        await new Promise(r => setTimeout(r, 50)); // aguarda state update
+        await new Promise(r => setTimeout(r, 50));
         await publishMutation.mutateAsync({
           campaignId: id,
           projectId,
           pageId: pid,
           destination: leadDestination,
-          linkUrl: normalizeDestinationUrl(linkUrl) || undefined,
+          linkUrl: pageAutoLink,
           ageMin, ageMax,
           placementMode,
           placements: selectedPlacements.length > 0 ? selectedPlacements : undefined,

@@ -945,6 +945,47 @@ const competitorsRouter = router({
       };
     }),
 
+
+  // ── Resolve automaticamente o link de uma página Meta (WhatsApp ou website) ──
+  // Usado na publicação multi-página para cada página ter seu link próprio
+  resolvePageLink: protectedProcedure
+    .input(z.object({ pageId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken) {
+        return { pageId: input.pageId, whatsappUrl: null, website: null, source: "no_token" };
+      }
+      const token = (integration as any).accessToken as string;
+      try {
+        const res = await fetch(
+          `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,website,name&access_token=${token}`,
+          { signal: AbortSignal.timeout(6000) }
+        );
+        const data: any = await res.json();
+        if (data.error) {
+          log.warn("meta", "resolvePageLink erro Graph API", { pageId: input.pageId, error: data.error.message });
+          return { pageId: input.pageId, whatsappUrl: null, website: null, source: "graph_error" };
+        }
+        const waPhone = data.whatsapp_connected_id
+          ? String(data.whatsapp_connected_id).replace(/\D/g, "")
+          : null;
+        const website = data.website || null;
+        const whatsappUrl = waPhone ? `https://wa.me/${waPhone}` : null;
+        log.info("meta", "resolvePageLink OK", { pageId: input.pageId, hasWhatsApp: !!waPhone, hasWebsite: !!website });
+        return {
+          pageId:      input.pageId,
+          pageName:    data.name || null,
+          whatsappUrl,
+          website,
+          phone:       waPhone,
+          source:      waPhone ? "whatsapp" : website ? "website" : "none",
+        };
+      } catch (e: any) {
+        log.warn("meta", "resolvePageLink exception", { error: e.message?.slice(0, 80) });
+        return { pageId: input.pageId, whatsappUrl: null, website: null, source: "error" };
+      }
+    }),
+
   // -- Reanalisa forçando nova coleta (limpa dados estimados) --
 
   // -- MECPro Analyzer — análise de anúncio por input manual ----------------
