@@ -628,7 +628,26 @@ Sugira melhorias ESPECÍFICAS e ACIONÁVEIS em JSON:
     const suggestions = JSON.parse(raw.replace(/```json|```/g, "").trim());
     
     await (db as any).updateListingOptimization(listing.id, suggestions);
-    res.json({ success: true, suggestions });
+
+    // Auto-aplica headline/CTA quando CTR < 1% e tiver dados suficientes
+    const autoApplied: string[] = [];
+    if (parseFloat(ctr) < 1 && listing.views > 20) {
+      const autoUpdates: Record<string, any> = {};
+      if (suggestions.newHeadline && suggestions.newHeadline !== listing.headline) {
+        autoUpdates.headline = suggestions.newHeadline;
+        autoApplied.push("headline");
+      }
+      if (suggestions.newCta && suggestions.newCta !== listing.ctaText) {
+        autoUpdates.ctaText = suggestions.newCta;
+        autoApplied.push("CTA");
+      }
+      if (Object.keys(autoUpdates).length > 0) {
+        await (db as any).updateMarketplaceListing(listing.id, autoUpdates);
+        log.info("marketplace", "Auto-otimização aplicada", { listingId: listing.id, ctr, fields: autoApplied });
+      }
+    }
+
+    res.json({ success: true, suggestions, autoApplied });
   } catch (e: any) {
     res.status(500).json({ success: false, error: e.message });
   }

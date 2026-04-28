@@ -86,18 +86,30 @@ function ListingCard({ listing, onClick }: { listing: any; onClick: () => void }
               📍 {[listing.city, listing.state].filter(Boolean).join(", ")}
             </span>
           )}
+          {listing.views > 0 && (
+            <span style={{ fontSize: 10, color: "var(--muted)" }}>
+              👁 {listing.views > 999 ? `${(listing.views/1000).toFixed(1)}k` : listing.views}
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
           <div style={{
             flex: 1, background: "var(--blue)", color: "white",
             borderRadius: 10, padding: "7px 0", fontSize: 12, fontWeight: 700, textAlign: "center",
           }}>Ver oferta →</div>
-          {listing.aiScore && (
-            <div style={{
-              background: "var(--off)", borderRadius: 8, padding: "6px 8px",
-              fontSize: 10, fontWeight: 700, color: "var(--muted)", textAlign: "center",
-            }}>IA {listing.aiScore}</div>
-          )}
+          {listing.aiScore && (() => {
+            const s = listing.aiScore;
+            const grade = s >= 80 ? "A" : s >= 65 ? "B" : s >= 50 ? "C" : "D";
+            const col = s >= 80 ? "#16a34a" : s >= 65 ? "#2563eb" : s >= 50 ? "#d97706" : "#dc2626";
+            const bg  = s >= 80 ? "#dcfce7" : s >= 65 ? "#dbeafe" : s >= 50 ? "#fef3c7" : "#fee2e2";
+            return (
+              <div title={`Score de qualidade: ${grade} (${s}/100)`} style={{
+                background: bg, borderRadius: 8, padding: "4px 8px",
+                fontSize: 10, fontWeight: 800, color: col, textAlign: "center",
+                border: `1px solid ${col}33`,
+              }}>{grade} {s}</div>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -129,6 +141,45 @@ function ListingLanding({ slug }: { slug: string }) {
   const [contactSent, setContactSent] = useState(false);
   const [activeMedia, setActiveMedia] = useState(0); // índice da mídia ativa na galeria
   const [showVideo,   setShowVideo]   = useState(false);
+
+  // SEO: schema.org JSON-LD + meta tags quando listing carrega
+  useEffect(() => {
+    if (!listing) return;
+    document.title = `${listing.title} — MecProAI Marketplace`;
+    // Schema.org para SEO
+    const existing = document.getElementById("mp-schema");
+    if (existing) existing.remove();
+    const schema = document.createElement("script");
+    schema.id = "mp-schema";
+    schema.type = "application/ld+json";
+    schema.text = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": listing.niche?.includes("imovel") ? "RealEstateListing" : "Product",
+      "name": listing.title,
+      "description": listing.description || listing.headline || "",
+      "image": listing.imageUrl || "",
+      "url": `https://www.mecproai.com/marketplace/${listing.slug}`,
+      "offers": listing.price ? {
+        "@type": "Offer",
+        "price": listing.price,
+        "priceCurrency": "BRL",
+        "availability": "https://schema.org/InStock",
+      } : undefined,
+      "provider": { "@type": "Organization", "name": "MecProAI" },
+    });
+    document.head.appendChild(schema);
+    return () => { document.getElementById("mp-schema")?.remove(); };
+    let desc = document.querySelector('meta[name="description"]');
+    if (!desc) { desc = document.createElement('meta'); desc.setAttribute('name', 'description'); document.head.appendChild(desc); }
+    desc.setAttribute('content', (listing.description || listing.headline || listing.title).slice(0, 155));
+    let og = document.querySelector('meta[property="og:title"]') as HTMLMetaElement;
+    if (!og) { og = document.createElement('meta'); og.setAttribute('property', 'og:title'); document.head.appendChild(og); }
+    og.content = listing.title;
+    let ogImg = document.querySelector('meta[property="og:image"]') as HTMLMetaElement;
+    if (!ogImg) { ogImg = document.createElement('meta'); ogImg.setAttribute('property', 'og:image'); document.head.appendChild(ogImg); }
+    if (listing.imageUrl) ogImg.content = listing.imageUrl;
+    return () => { document.title = 'MecProAI'; };
+  }, [listing]);
 
   useEffect(() => {
     setLoading(true);
@@ -197,6 +248,31 @@ function ListingLanding({ slug }: { slug: string }) {
             <span style={{ color: "var(--border)", fontSize: 12 }}>/</span>
             <span style={{ fontSize: 12, color: "var(--muted)" }}>{listing.title?.slice(0, 40)}...</span>
           </div>
+          {/* ── Painel de sugestões da IA para o dono ── */}
+          {user && user.id === listing.userId && listing.aiSuggestions && (() => {
+            const suggs = Array.isArray(listing.aiSuggestions) ? listing.aiSuggestions : (listing.aiSuggestions?.improvements || []);
+            if (!suggs.length) return null;
+            return (
+              <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12,
+                padding: "12px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#92400e", marginBottom: 8,
+                  textTransform: "uppercase", letterSpacing: 1 }}>
+                  🤖 Sugestões da IA para melhorar sua oferta
+                </div>
+                {suggs.slice(0, 3).map((s: string, i: number) => (
+                  <div key={i} style={{ display: "flex", gap: 6, marginBottom: 4, fontSize: 12, color: "#78350f" }}>
+                    <span style={{ flexShrink: 0 }}>→</span><span>{s}</span>
+                  </div>
+                ))}
+                {listing.aiScore && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: "#92400e" }}>
+                    Score atual: <strong>{listing.aiScore}/100</strong> — otimize para aumentar visibilidade
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Botão de editar para o dono — aparece quando logado como dono */}
           {user && user.id === listing.userId && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
