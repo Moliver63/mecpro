@@ -710,7 +710,7 @@ export default function CampaignResult() {
         ? ["fb_feed", "ig_feed", "fb_story", "ig_story"]
         : ["fb_feed", "ig_feed"];
     const requiresStoryAsset = placementsToCheck.some((p) => ["fb_story", "ig_story", "messenger_story"].includes(p));
-    const requiresReelsVideo = placementsToCheck.some((p) => ["fb_reels", "ig_reels"].includes(p));
+    const requiresReelsVideo = placementsToCheck.some((p) => ["ig_reels"].includes(p)); // fb_reels removido
     const hasUploadedMedia = !!uploadedVid || !!uploadedHash || uploadedHashes.filter(Boolean).length >= 2 || !!imageUrl.trim();
 
     // Verifica se criativos têm apenas imagens placeholder (placehold.co)

@@ -2675,7 +2675,8 @@ const campaignsRouter = router({
             const PLACEMENT_MAP: Record<string, { pub: string; pos: string }> = {
               fb_feed:         { pub: "facebook",         pos: "feed" },
               fb_story:        { pub: "facebook",         pos: "story" },
-              fb_reels:        { pub: "facebook",         pos: "reels" },
+              // fb_reels REMOVIDO: Meta API rejeita "reels" em facebook_positions (erro 1815433)
+              // Facebook Reels não é suportado via API padrão — apenas Instagram Reels funciona
               fb_instream:     { pub: "facebook",         pos: "instream_video" },
               fb_marketplace:  { pub: "facebook",         pos: "marketplace" },
               fb_search:       { pub: "facebook",         pos: "search" },
@@ -2688,7 +2689,17 @@ const campaignsRouter = router({
               ig_shop:         { pub: "instagram",        pos: "shop" },
             };
 
-            input.placements!.forEach(id => {
+            // fb_reels é rejeitado pela Meta API (erro 1815433) — filtrar antes de processar
+            const API_UNSUPPORTED = ["fb_reels"];
+            const filteredPlacements = input.placements!.filter(p => !API_UNSUPPORTED.includes(p));
+            if (filteredPlacements.length < input.placements!.length) {
+              const removed = input.placements!.filter(p => API_UNSUPPORTED.includes(p));
+              log.warn("meta", "Posicionamentos não suportados via API removidos automaticamente", {
+                removed, kept: filteredPlacements
+              });
+            }
+
+            filteredPlacements.forEach(id => {
               const map = PLACEMENT_MAP[id];
               if (!map) return;
               publishers.add(map.pub);

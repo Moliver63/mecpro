@@ -14,7 +14,7 @@ interface Props {
 const PLACEMENT_LABELS: Record<string, { label: string; icon: string; platform: "fb" | "ig" | "an" }> = {
   fb_feed:         { label: "Feed Facebook",       icon: "📘", platform: "fb" },
   fb_story:        { label: "Stories Facebook",    icon: "📘", platform: "fb" },
-  fb_reels:        { label: "Reels Facebook",      icon: "📘", platform: "fb" },
+  fb_reels:        { label: "Reels FB ⚠️",          icon: "📘", platform: "fb", disabled: true }, // API rejeita
   fb_instream:     { label: "In-stream Facebook",  icon: "📘", platform: "fb" },
   fb_marketplace:  { label: "Marketplace",         icon: "📘", platform: "fb" },
   fb_search:       { label: "Busca Facebook",      icon: "📘", platform: "fb" },

@@ -220,9 +220,11 @@ export const META_PLACEMENT_RULES: Record<string, PlacementRule> = {
     tip: "Hook impactante nos primeiros 3s — maior alcance orgânico",
   },
 
-  // ── FACEBOOK REELS ─────────────────────────────────────────────────────────
+  // ── FACEBOOK REELS — NÃO SUPORTADO VIA API PADRÃO ────────────────────────
+  // Meta API retorna erro 1815433 ao usar "reels" em facebook_positions
+  // Use Instagram Reels (ig_reels) em vez disso
   fb_reels: {
-    id: "fb_reels", label: "Facebook Reels",
+    id: "fb_reels", label: "Facebook Reels ⚠️",
     allowedMediaTypes: ["video"],
     idealRatios:    ["9:16"],
     acceptedRatios: [],
@@ -231,10 +233,12 @@ export const META_PLACEMENT_RULES: Record<string, PlacementRule> = {
     maxFileSizeMB: 4000,
     requiresInstagram: false, requiresThreads: false,
     notes: [
+      "❌ NÃO suportado via API padrão (erro 1815433)",
+      "✅ Use Instagram Reels (ig_reels) para Reels",
       "⚠️ APENAS vídeo — imagens NÃO são aceitas",
-      "⚠️ APENAS proporção 9:16",
     ],
-    tip: "Reels FB têm menor alcance que IG — mas custo menor",
+    tip: "Facebook Reels via API retorna erro — use apenas Instagram Reels",
+    apiUnsupported: true,
   },
 
   // ── AUDIENCE NETWORK VÍDEO INCENTIVADO ────────────────────────────────────

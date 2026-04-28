@@ -568,7 +568,7 @@ export function getFormatRecommendations(
       });
       recs.push({
         ratio: "9:16", type: "video", priority: "primary",
-        placements: ["ig_story", "fb_story", "ig_reels", "fb_reels"],
+        placements: ["ig_story", "fb_story", "ig_reels"], // fb_reels removido — API rejeita
         reason: "Stories e Reels têm custo por lead menor em média 40%",
         specs: "1080×1920px, MP4, máx 15s (Story) ou 30s (Reels)",
       });
@@ -583,7 +583,7 @@ export function getFormatRecommendations(
     if (objective === "branding" || objective === "engagement") {
       recs.push({
         ratio: "9:16", type: "video", priority: "primary",
-        placements: ["ig_reels", "fb_reels", "ig_story", "fb_story"],
+        placements: ["ig_reels", "ig_story", "fb_story"], // fb_reels removido — API rejeita
         reason: "Reels têm alcance orgânico boosted — ideal para awareness",
         specs: "1080×1920px, MP4, 15–30s com música/hook forte",
       });
