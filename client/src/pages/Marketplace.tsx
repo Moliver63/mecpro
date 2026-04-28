@@ -206,15 +206,32 @@ function ListingLanding({ slug }: { slug: string }) {
                 ✏️ Editar oferta
               </button>
               {/* Upload de mídia direta na landing page */}
-              <label style={{ fontSize: 12, fontWeight: 700, background: "#16a34a", color: "white",
-                border: "none", borderRadius: 10, padding: "7px 14px", cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 5 }}>
+              {(() => {
+                let gl: any[] = [];
+                try { gl = listing.gallery ? JSON.parse(listing.gallery) : []; } catch {}
+                const total = Math.min(5, gl.length + (listing.imageUrl && !gl.some((m: any) => m.url === listing.imageUrl) ? 1 : 0));
+                const remaining = 5 - total;
+                return (
+              <label style={{ fontSize: 12, fontWeight: 700,
+                background: remaining > 0 ? "#16a34a" : "#94a3b8",
+                color: "white", border: "none", borderRadius: 10, padding: "7px 14px",
+                cursor: remaining > 0 ? "pointer" : "not-allowed",
+                display: "flex", alignItems: "center", gap: 5 }}
+                title={remaining > 0 ? `${remaining} vaga(s) restante(s)` : "Limite atingido"}>
                 <input type="file" accept="image/*,video/mp4,video/mov,video/webm" multiple
                   style={{ display: "none" }}
                   onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (!files.length) return;
-                    for (const file of files) {
+                    // Conta mídias já existentes
+                    let currentGallery: any[] = [];
+                    try { currentGallery = listing.gallery ? JSON.parse(listing.gallery) : []; } catch {}
+                    if (listing.imageUrl && !currentGallery.length) currentGallery = [{ type: "image", url: listing.imageUrl }];
+                    const remaining = Math.max(0, 5 - currentGallery.length);
+                    if (remaining === 0) { alert("Limite de 5 fotos/vídeos atingido. Remova uma mídia antes de adicionar."); return; }
+                    const toUpload = files.slice(0, remaining);
+                    if (files.length > remaining) alert(`Apenas ${remaining} arquivo(s) serão enviados — limite de 5 mídias por oferta.`);
+                    for (const file of toUpload) {
                       const fd = new FormData();
                       fd.append("file", file);
                       try {
@@ -236,8 +253,15 @@ function ListingLanding({ slug }: { slug: string }) {
                     }
                     e.target.value = "";
                   }} />
-                📸 Adicionar fotos/vídeo
+                📸 {(() => {
+                  let gl2: any[] = [];
+                  try { gl2 = listing.gallery ? JSON.parse(listing.gallery) : []; } catch {}
+                  const tot = Math.min(5, gl2.length + (listing.imageUrl && !gl2.some((m: any) => m.url === listing.imageUrl) ? 1 : 0));
+                  return `Adicionar fotos/vídeo (${tot}/5)`;
+                })()}
               </label>
+                );
+              })()}
               <button
                 onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/marketplace/${listing.slug}`).then(() => alert("Link copiado!"))}
                 style={{ fontSize: 12, fontWeight: 600, background: "var(--off)", color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 10, padding: "7px 12px", cursor: "pointer" }}>
@@ -317,7 +341,7 @@ function ListingLanding({ slug }: { slug: string }) {
               {/* Galeria de thumbnails — aparece quando tem mais de 1 mídia */}
               {gallery.length > 1 && (
                 <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
-                  {gallery.map((m, i) => (
+                  {gallery.slice(0, 5).map((m, i) => (
                     <div key={i}
                       onClick={() => { setActiveMedia(i); setShowVideo(false); }}
                       style={{

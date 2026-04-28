@@ -491,7 +491,7 @@ router.post("/upload-media", _mpUpload.single("file"), async (req: Request, res:
     const ts3        = Math.floor(Date.now() / 1000).toString();
     const sig3       = cryptoU.createHash("sha1").update(`folder=${folder}&timestamp=${ts3}${apiSecret3}`).digest("hex");
     const fd3 = new FormData();
-    fd3.append("file", new Blob([req.file!.buffer], { type: req.file!.mimetype }), req.file!.originalname);
+    fd3.append("file", new Blob([new Uint8Array(req.file!.buffer)], { type: req.file!.mimetype }), req.file!.originalname);
     fd3.append("api_key", apiKey3); fd3.append("timestamp", ts3);
     fd3.append("signature", sig3); fd3.append("folder", folder);
     fd3.append("resource_type", resourceType);
@@ -846,7 +846,7 @@ router.post("/:id/upload-gallery", _mpUpload.single("file"), async (req: Request
     const signature = crypto.createHash("sha1").update(sigStr).digest("hex");
 
     const cloudForm = new FormData();
-    cloudForm.append("file", new Blob([file.buffer], { type: file.mimetype }), file.originalname);
+    cloudForm.append("file", new Blob([new Uint8Array(file.buffer)], { type: file.mimetype }), file.originalname);
     cloudForm.append("api_key", apiKey);
     cloudForm.append("timestamp", timestamp);
     cloudForm.append("signature", signature);
@@ -866,10 +866,16 @@ router.post("/:id/upload-gallery", _mpUpload.single("file"), async (req: Request
     const mediaUrl = uploadResult.secure_url;
     const thumbUrl = isVideo ? (uploadResult.eager?.[0]?.secure_url || "") : "";
 
-    // Adiciona à galeria existente
+    // Adiciona à galeria existente (máximo 5 mídias)
     const current = (listing as any).gallery;
     let gallery: any[] = [];
     try { gallery = current ? JSON.parse(current) : []; } catch {}
+    // Conta imagem principal separada se não estiver na galeria
+    const hasMainImg = (listing as any).imageUrl && !gallery.some((m: any) => m.url === (listing as any).imageUrl);
+    const totalCount = gallery.length + (hasMainImg ? 1 : 0);
+    if (totalCount >= 5) {
+      return res.status(400).json({ success: false, error: "Limite de 5 mídias por oferta atingido. Remova uma antes de adicionar." });
+    }
     gallery.push({ type: isVideo ? "video" : "image", url: mediaUrl, thumb: thumbUrl || undefined });
 
     await (db as any).updateMarketplaceListing(listingId, {
