@@ -2760,7 +2760,12 @@ const campaignsRouter = router({
       // 3. Ad Creative
       const creativeName = `${c.name} — Criativo`.slice(0, 100);
       const VALID_CTAS = ["LEARN_MORE","SIGN_UP","CONTACT_US","APPLY_NOW","GET_QUOTE","BOOK_NOW","SHOP_NOW","SUBSCRIBE","DOWNLOAD","WATCH_VIDEO","CALL_NOW","WHATSAPP_MESSAGE","MESSAGE_PAGE","ORDER_NOW","GET_IN_TOUCH","INQUIRE_NOW","MAKE_AN_APPOINTMENT","ASK_ABOUT_SERVICES","BOOK_A_CONSULTATION","GET_A_QUOTE","BUY_NOW","GET_OFFER"];
-      const baseCtaType = VALID_CTAS.includes(preferredCtaText) ? preferredCtaText : "LEARN_MORE";
+      const rawCtaType = VALID_CTAS.includes(preferredCtaText) ? preferredCtaText : "LEARN_MORE";
+      // CRÍTICO: WHATSAPP_MESSAGE sem WhatsApp vinculado à página → erro 1815630
+      // Se isWhatsAppDestination=false mas CTA é WHATSAPP_MESSAGE, trocar para CONTACT_US
+      const baseCtaType = (!isWhatsAppDestination && rawCtaType === "WHATSAPP_MESSAGE")
+        ? "CONTACT_US"
+        : rawCtaType;
       const ctaType = isWhatsAppDestination ? "WHATSAPP_MESSAGE" : baseCtaType;
       const ctaValue = isWhatsAppDestination ? { app_destination: "WHATSAPP" } : { link: finalLink };
       const selectedGeneratedImageHash = placementKey === "stories" || placementKey === "reels"
