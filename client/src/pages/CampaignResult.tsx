@@ -1032,6 +1032,103 @@ export default function CampaignResult() {
   const tracking     = extra?.tracking     || null;
   const optimization = extra?.optimization || null;
   const scaling      = extra?.scaling      || null;
+  // ── Helpers determinísticos para diagnóstico e priorização ──────────────────
+
+  function diagnoseCTR(ctr: string | number | null): { label: string; color: string; detail: string } {
+    const v = parseFloat(String(ctr || "0").replace(",", ".").replace("%", ""));
+    if (!v) return { label: "Sem dados", color: "#94a3b8", detail: "CTR não disponível" };
+    if (v >= 4)   return { label: "Excelente", color: "#059669", detail: `${v}% — acima da média. Escale com confiança.` };
+    if (v >= 2)   return { label: "Bom",       color: "#2563eb", detail: `${v}% — dentro da média do setor. Otimize copy.` };
+    if (v >= 1)   return { label: "Atenção",   color: "#d97706", detail: `${v}% — abaixo do ideal. Troque o criativo ou headline.` };
+    return         { label: "Crítico",  color: "#dc2626", detail: `${v}% — muito baixo. Pausar e revisar público + criativo.` };
+  }
+
+  function diagnoseCPC(cpc: string | null, niche: string): { label: string; color: string; detail: string } {
+    const v = parseFloat(String(cpc || "0").replace("R$", "").replace(",", ".").trim());
+    if (!v) return { label: "Sem dados", color: "#94a3b8", detail: "CPC não disponível" };
+    const isImoveis = /imov|imobi|apart|casa/i.test(niche);
+    const isServico = /clinica|saude|beleza|academia/i.test(niche);
+    const benchmarkLow  = isImoveis ? 0.5  : isServico ? 0.3  : 0.2;
+    const benchmarkHigh = isImoveis ? 2.5  : isServico ? 1.5  : 1.0;
+    if (v < benchmarkLow)  return { label: "Suspeito", color: "#d97706", detail: `R$${v.toFixed(2)} — muito baixo para o nicho. Pode ser público de baixa qualidade.` };
+    if (v > benchmarkHigh) return { label: "Alto",     color: "#dc2626", detail: `R$${v.toFixed(2)} — acima do benchmark. Revisar segmentação.` };
+    return                   { label: "Normal",   color: "#059669", detail: `R$${v.toFixed(2)} — dentro do esperado para ${niche}.` };
+  }
+
+  function calcROI(
+    budget: number | null,
+    leadsPerMonth: string | null,
+    niche: string
+  ): { ticketEstimado: number; valorPorLead: number; roiPotencial: string; insight: string } | null {
+    const isImoveis = /imov|imobi|apart|casa/i.test(niche);
+    const isAcademia = /academia|fitness|gym/i.test(niche);
+    const isServico  = /clinica|saude|beleza|restaurante/i.test(niche);
+
+    const tickets: Record<string, number> = {
+      imoveis: 500_000, academia: 800, servico: 300, default: 1_500
+    };
+    const conversionRates: Record<string, number> = {
+      imoveis: 0.02, academia: 0.15, servico: 0.10, default: 0.08
+    };
+    const commissions: Record<string, number> = {
+      imoveis: 0.05, academia: 1.0, servico: 1.0, default: 1.0
+    };
+
+    const cat = isImoveis ? "imoveis" : isAcademia ? "academia" : isServico ? "servico" : "default";
+    const ticket = tickets[cat];
+    const conv   = conversionRates[cat];
+    const comm   = commissions[cat];
+
+    const leads = parseInt(String(leadsPerMonth || "0").replace(/\D/g, "")) || 0;
+    if (!leads || !budget) return null;
+
+    const salesPerMonth   = leads * conv;
+    const revenuePerMonth = salesPerMonth * ticket * comm;
+    const roiMultiplier   = budget > 0 ? (revenuePerMonth / budget) : 0;
+    const valorPorLead    = leads > 0 ? revenuePerMonth / leads : 0;
+
+    return {
+      ticketEstimado: ticket,
+      valorPorLead:   Math.round(valorPorLead),
+      roiPotencial:   roiMultiplier >= 1 ? `${roiMultiplier.toFixed(1)}x` : `${Math.round(roiMultiplier * 100)}%`,
+      insight: isImoveis
+        ? `Ticket médio estimado R$ ${ticket.toLocaleString("pt-BR")}. Com ${leads} leads/mês e taxa de conversão ${conv * 100}%, cada lead pode valer até R$ ${Math.round(valorPorLead).toLocaleString("pt-BR")} em comissão.`
+        : `Com ${leads} leads/mês e conversão de ${conv * 100}%, retorno potencial de R$ ${Math.round(revenuePerMonth).toLocaleString("pt-BR")}/mês sobre budget de R$ ${budget?.toLocaleString("pt-BR")}.`,
+    };
+  }
+
+  function buildActionPlan(
+    ctr: string | null,
+    plan: any[] | null,
+    hooks: any[] | null,
+    abTests: any[] | null,
+    creativeList: any[],
+  ): Array<{ window: "AGORA" | "48H" | "7 DIAS"; icon: string; action: string; why: string }> {
+    const actions: Array<{ window: "AGORA" | "48H" | "7 DIAS"; icon: string; action: string; why: string }> = [];
+    const ctrVal = parseFloat(String(ctr || "0").replace(",", ".").replace("%", ""));
+
+    // AGORA
+    const hasVideo = creativeList.some(cr => cr.adType === "video" || cr.feedVideoId || cr.storyVideoId);
+    if (!hasVideo) actions.push({ window: "AGORA", icon: "🎬", action: "Criar criativo em vídeo (15-30s)", why: "Vídeo gera 3x mais CTR que imagem no Meta. Maior impacto rápido." });
+    if (ctrVal > 0 && ctrVal < 1) actions.push({ window: "AGORA", icon: "🛑", action: "Pausar anúncios com CTR < 1%", why: `CTR atual de ${ctrVal}% indica criativo ou público fraco.` });
+    if (!hooks || hooks.length === 0) actions.push({ window: "AGORA", icon: "🎣", action: "Testar 3 hooks diferentes nos primeiros 3s", why: "Os primeiros 3 segundos definem 80% do resultado do vídeo." });
+    if (actions.length < 1) actions.push({ window: "AGORA", icon: "📊", action: "Ativar a campanha e monitorar primeiras 48h", why: "Dados iniciais são críticos para ajustes rápidos." });
+
+    // 48H
+    if (abTests && abTests.length > 0) {
+      actions.push({ window: "48H", icon: "🔀", action: `Iniciar Teste A/B: ${abTests[0]?.test || "Copy vs Headline"}`, why: "Testes paralelos aceleram a identificação do criativo vencedor." });
+    }
+    actions.push({ window: "48H", icon: "📝", action: "Adicionar prova social ao copy (depoimento real ou número)", why: "Proof points aumentam conversão em média 20-35%." });
+    if (ctrVal >= 2) actions.push({ window: "48H", icon: "💰", action: "Aumentar budget 20% nos conjuntos com melhor CTR", why: `CTR de ${ctrVal}% acima da média — hora de escalar.` });
+
+    // 7 DIAS
+    actions.push({ window: "7 DIAS", icon: "👥", action: "Criar Lookalike 1-3% a partir dos leads gerados", why: "Lookalike de clientes reais é o público mais rentável do Meta." });
+    actions.push({ window: "7 DIAS", icon: "🔁", action: "Ativar remarketing para visitantes dos últimos 7 dias", why: "Quem já viu o anúncio converte 2-5x mais barato." });
+    if (plan && plan.length >= 2) actions.push({ window: "7 DIAS", icon: "📋", action: plan[1]?.action?.slice(0, 80) || "Executar Semana 2 do plano", why: "Seguir o plano estruturado garante consistência." });
+
+    return actions.slice(0, 7); // máximo 7 ações
+  }
+
 
   const leadFormsQuery = (trpc as any).integrations?.listLeadForms?.useQuery?.(
     { pageId: pageId.trim() },
@@ -2396,7 +2493,134 @@ export default function CampaignResult() {
         );
       })()}
 
+
+      {/* ════ BLOCO DE DECISÃO: O QUE FAZER AGORA ════ */}
+      {(() => {
+        const niche = (clientProfile as any)?.niche || "";
+        const budget = (clientProfile as any)?.monthlyBudget || null;
+        const ctrRaw = metrics?.estimatedCTR || metrics?.ctr || null;
+        const leadsRaw = metrics?.leadsPerMonth || metrics?.estimatedLeads || null;
+        const actionPlan = buildActionPlan(ctrRaw, plan, hooks, abTests, creativeList);
+        const ctrDiag = diagnoseCTR(ctrRaw);
+        const cpcDiag = diagnoseCPC(metrics?.estimatedCPC || null, niche);
+        const roiCalc = calcROI(budget, String(leadsRaw || ""), niche);
+
+        return (
+          <div style={{ marginBottom: 24 }}>
+
+            {/* ── Bloco 72h ── */}
+            <div style={{ background: "white", border: "2px solid #0f172a", borderRadius: 16, padding: "20px 22px", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⚡</div>
+                <div>
+                  <p style={{ fontSize: 15, fontWeight: 900, color: "#0f172a", margin: 0, letterSpacing: "-0.03em" }}>O que fazer agora</p>
+                  <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>Ações priorizadas por impacto e urgência</p>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {actionPlan.map((a, i) => {
+                  const colors = {
+                    "AGORA": { bg: "#fef2f2", border: "#fecaca", badge: "#dc2626", text: "#7f1d1d" },
+                    "48H":   { bg: "#fffbeb", border: "#fde68a", badge: "#d97706", text: "#78350f" },
+                    "7 DIAS":{ bg: "#f0fdf4", border: "#bbf7d0", badge: "#059669", text: "#14532d" },
+                  }[a.window];
+                  return (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "72px 32px 1fr", gap: 10, alignItems: "start", padding: "12px 14px", background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 900, color: "white", background: colors.badge, borderRadius: 20, padding: "3px 0", textAlign: "center", letterSpacing: "0.05em", marginTop: 2 }}>{a.window}</div>
+                      <div style={{ fontSize: 20, textAlign: "center" }}>{a.icon}</div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: colors.text, marginBottom: 3 }}>{a.action}</div>
+                        <div style={{ fontSize: 11, color: "#64748b", lineHeight: 1.5 }}>{a.why}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* ── Diagnóstico de Métricas ── */}
+            {(ctrRaw || metrics?.estimatedCPC) && (
+              <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: "20px 22px", marginBottom: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🔬</div>
+                  <div>
+                    <p style={{ fontSize: 15, fontWeight: 900, color: "#0f172a", margin: 0, letterSpacing: "-0.03em" }}>Diagnóstico das métricas</p>
+                    <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>Interpretação com base no benchmark do nicho</p>
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {ctrRaw && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+                      <div style={{ width: 48, height: 48, borderRadius: 12, background: ctrDiag.color + "18", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 14, fontWeight: 900, color: ctrDiag.color }}>CTR</span>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                          <span style={{ fontSize: 16, fontWeight: 900, color: "#0f172a" }}>{ctrRaw}</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, background: ctrDiag.color + "20", color: ctrDiag.color, padding: "2px 8px", borderRadius: 20 }}>{ctrDiag.label}</span>
+                        </div>
+                        <p style={{ fontSize: 12, color: "#475569", margin: 0 }}>{ctrDiag.detail}</p>
+                      </div>
+                    </div>
+                  )}
+                  {metrics?.estimatedCPC && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+                      <div style={{ width: 48, height: 48, borderRadius: 12, background: cpcDiag.color + "18", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 14, fontWeight: 900, color: cpcDiag.color }}>CPC</span>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                          <span style={{ fontSize: 16, fontWeight: 900, color: "#0f172a" }}>{metrics.estimatedCPC}</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, background: cpcDiag.color + "20", color: cpcDiag.color, padding: "2px 8px", borderRadius: 20 }}>{cpcDiag.label}</span>
+                        </div>
+                        <p style={{ fontSize: 12, color: "#475569", margin: 0 }}>{cpcDiag.detail}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── ROI e Valor por Lead ── */}
+            {roiCalc && (
+              <div style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)", borderRadius: 16, padding: "20px 22px", marginBottom: 16, color: "white" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(255,255,255,.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>💰</div>
+                  <div>
+                    <p style={{ fontSize: 15, fontWeight: 900, color: "white", margin: 0, letterSpacing: "-0.03em" }}>Projeção financeira</p>
+                    <p style={{ fontSize: 11, color: "rgba(255,255,255,.6)", margin: 0 }}>ROI estimado baseado no nicho {niche}</p>
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                  <div style={{ background: "rgba(255,255,255,.1)", borderRadius: 12, padding: "14px 16px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.6)", marginBottom: 4 }}>VALOR POR LEAD</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#34d399", fontFamily: "var(--font-display)" }}>
+                      R$ {roiCalc.valorPorLead.toLocaleString("pt-BR")}
+                    </div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,.5)", marginTop: 2 }}>receita potencial por lead</div>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,.1)", borderRadius: 12, padding: "14px 16px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.6)", marginBottom: 4 }}>ROI POTENCIAL</div>
+                    <div style={{ fontSize: 22, fontWeight: 900, color: "#fbbf24", fontFamily: "var(--font-display)" }}>
+                      {roiCalc.roiPotencial}
+                    </div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,.5)", marginTop: 2 }}>retorno sobre o investimento</div>
+                  </div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,.08)", borderRadius: 10, padding: "12px 14px" }}>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,.8)", margin: 0, lineHeight: 1.6 }}>
+                    💡 {roiCalc.insight}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── Métricas estimadas — redesign premium ── */}
+
       {metrics && (
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
