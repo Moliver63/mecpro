@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { toast } from "sonner";
 import { useParams, useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
