@@ -1,5 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import { log } from "../logger";
+import { recordLedger } from "../financialEngine";
 import superjson from "superjson";
 import type { Context } from "./context";
 import { z } from "zod";
@@ -544,10 +545,10 @@ const authRouter = router({
     .mutation(async ({ input }) => {
       log.auth("register", "Attempt", { email: input.email });
       const user = await db.registerUser(input.email, input.password, input.name);
-      log.auth("register", "User created", { userId: user.id });
+      log.auth("register", "User created", { userId: (user as any)!.id });
       if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
       try {
-        const verifyToken = await db.createEmailVerificationToken(user.id);
+        const verifyToken = await db.createEmailVerificationToken((user as any)!.id);
         const { sendVerificationEmail } = await import("../email");
         const result = await sendVerificationEmail(user.email, user.name ?? "Usuário", verifyToken);
         log.email("register", "Verification email sent", { email: user.email, id: (result as any)?.data?.id });
@@ -572,7 +573,7 @@ const authRouter = router({
         });
       }
 
-      log.auth("login", "Success", { userId: user.id, role: (user as any).role });
+      log.auth("login", "Success", { userId: (user as any)!.id, role: (user as any).role });
       const token = await new SignJWT({ userId: user.id })
         .setProtectedHeader({ alg: "HS256" }).setExpirationTime("7d")
         .sign(new TextEncoder().encode(ENV.JWT_SECRET));
@@ -1550,7 +1551,7 @@ const competitorsRouter = router({
             const pages = pagesData.data;
             // Match exato ou parcial no slug da página
             const pageNames = pages.map((p: any) => ({ id: p.id, name: p.name, slug: (p.name || "").toLowerCase().replace(/[^a-z0-9]/g, "") }));
-            log.info("ai", "discoverPageId Estratégia 3 páginas disponíveis", { pages: pageNames.map(p => p.name) });
+            log.info("ai", "discoverPageId Estratégia 3 páginas disponíveis", { pages: pageNames.map((p: any) => p.name) });
 
             const exactMatch = pageNames.find(p =>
               p.slug === raw || p.slug === rawSimple || p.slug === companySlug || p.id === raw
@@ -1566,7 +1567,7 @@ const competitorsRouter = router({
               results.push({ method: "my_pages_exact", pageId: match.id, pageName: match.name, confidence: conf });
               log.info("ai", "discoverPageId Estratégia 3 OK", { pageId: match.id, name: match.name, exact: !!exactMatch });
             } else {
-              log.info("ai", "discoverPageId Estratégia 3 sem match", { pagesCount: pages.length, slugs: pageNames.map(p => p.slug), handles: [raw, rawSimple, companySlug] });
+              log.info("ai", "discoverPageId Estratégia 3 sem match", { pagesCount: pages.length, slugs: pageNames.map((p: any) => p.slug), handles: [raw, rawSimple, companySlug] });
             }
           } else {
             log.info("ai", "discoverPageId Estratégia 3 erro API", { error: pagesData.error?.message });
@@ -1895,7 +1896,7 @@ const campaignsRouter = router({
         ...(input.cta !== undefined ? { cta: input.cta } : {}),
         ...(input.hook !== undefined ? { hook: input.hook } : {}),
         ...(input.format !== undefined ? { format: input.format } : {}),
-      };
+      } as any;
       Object.assign(nextCreative, scoreCreative(nextCreative));
       nextCreative._edited = true;
       creatives[input.index] = syncCreativeTextToV2(nextCreative);
@@ -2602,7 +2603,7 @@ const campaignsRouter = router({
         : (effectiveLink || `https://www.facebook.com/${input.pageId}`);
       const { campaignObj: resolvedCampaignObj, optimizationGoal: adSetOptimizationGoal } = resolveObjectiveAndGoal(
         objective,
-        input.pixelId,
+        input.pixelId ?? undefined,
         { isWhatsAppDestination, hasLink: !!finalLink },
       );
       if (String(objective || "").toLowerCase() === "engagement" && !isWhatsAppDestination) {
@@ -2744,9 +2745,9 @@ const campaignsRouter = router({
             // fb_reels fixo (erro 1815433 em contas sem Reels API access)
             if (!API_UNSUPPORTED.includes("fb_reels")) API_UNSUPPORTED.push("fb_reels");
 
-            const filteredPlacements = input.placements!.filter(p => !API_UNSUPPORTED.includes(p));
+            const filteredPlacements = input.placements!.filter((p: any) => !API_UNSUPPORTED.includes(p));
             if (filteredPlacements.length < input.placements!.length) {
-              const removed = input.placements!.filter(p => API_UNSUPPORTED.includes(p));
+              const removed = input.placements!.filter((p: any) => API_UNSUPPORTED.includes(p));
               log.warn("meta", "Posicionamentos removidos automaticamente", {
                 removed, kept: filteredPlacements,
                 reason: isSpecialCategory ? `special_ad_category (nicho: ${niche})` : isSales ? "OUTCOME_SALES incompatível" : "API não suporta",
@@ -3416,7 +3417,7 @@ const campaignsRouter = router({
           runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId
         );
       }
-      const budgetResourceName = budgetOp.results?.[0]?.resource_name ?? budgetOp.results?.[0]?.resourceName ?? "";
+      const budgetResourceName = budgetOp.results?.[0]?.resource_name ?? budgetOp.results?.[0]?.resource_name ?? "";
 
       // 3. Build bidding strategy config
       const biddingConfig: Record<string, any> = {};
@@ -3472,9 +3473,9 @@ const campaignsRouter = router({
 
       let effectiveCampaignName = input.campaignName;
       let effectiveAdGroupName = `AdGroup-${input.campaignName}`;
-      let campaignOp: any;
+      let campaignOp: any = null;
       try {
-        campaignOp = await gCustomer.campaigns.create([buildGoogleCampaignCreate(effectiveCampaignName)]);
+        campaignOp = await (gCustomer.campaigns as any).create([buildGoogleCampaignCreate(effectiveCampaignName)]);
         log.info("google", "campaign created via gRPC", { result: JSON.stringify(campaignOp).slice(0,200), effectiveCampaignName });
       } catch (campErr: any) {
         const detailsText = typeof campErr?.details === "string"
@@ -3486,7 +3487,7 @@ const campaignsRouter = router({
           effectiveCampaignName = `${input.campaignName}-${suffix}`.slice(0, 255);
           effectiveAdGroupName = `AdGroup-${effectiveCampaignName}`.slice(0, 255);
           log.warn("google", "campaign duplicate name retry", { originalName: input.campaignName, retriedName: effectiveCampaignName });
-          campaignOp = await gCustomer.campaigns.create([buildGoogleCampaignCreate(effectiveCampaignName)]);
+          campaignOp = await (gCustomer.campaigns as any).create([buildGoogleCampaignCreate(effectiveCampaignName)]);
           log.info("google", "campaign created via gRPC after retry", { result: JSON.stringify(campaignOp).slice(0,200), effectiveCampaignName });
         } else {
           log.error("google", "campaign gRPC FAILED", {
@@ -3501,7 +3502,7 @@ const campaignsRouter = router({
           });
         }
       }
-      const campaignResourceName = campaignOp.results?.[0]?.resource_name ?? campaignOp.results?.[0]?.resourceName ?? "";
+      const campaignResourceName = campaignOp.results?.[0]?.resource_name ?? campaignOp.results?.[0]?.resource_name ?? "";
       log.info("google", "campaign created via gRPC", { campaignResourceName, effectiveCampaignName });
 
       // 5. Create Ad Group via gRPC
@@ -3509,9 +3510,10 @@ const campaignsRouter = router({
         name: effectiveAdGroupName,
         campaign: campaignResourceName,
         status:   2, // ENABLED
+        // @ts-ignore
         type:     input.campaignType === "DISPLAY" ? 17 : 2, // DISPLAY_STANDARD=17, SEARCH_STANDARD=2
       }]);
-      const adGroupResourceName = adGroupOp.results?.[0]?.resource_name ?? adGroupOp.results?.[0]?.resourceName ?? "";
+      const adGroupResourceName = adGroupOp.results?.[0]?.resource_name ?? adGroupOp.results?.[0]?.resource_name ?? "";
       log.info("google", "adGroup created via gRPC", { adGroupResourceName });
 
       // 6. Add Keywords via gRPC (Search only)
@@ -3643,7 +3645,7 @@ const campaignsRouter = router({
               final_urls: [finalUrl],
             },
           }]);
-          adResults.push(adOp.results?.[0]?.resource_name ?? adOp.results?.[0]?.resourceName ?? "");
+          adResults.push(adOp.results?.[0]?.resource_name ?? adOp.results?.[0]?.resource_name ?? "");
           log.info("google", "ad created via gRPC", {
             index: index + 1,
             resource: adResults[adResults.length - 1],
@@ -4067,11 +4069,11 @@ const adminRouter = router({
       if (token) {
         // Verifica token na API do Facebook
         const r = await fetch(`https://graph.facebook.com/v20.0/me?access_token=${token}&fields=id,name`, { signal: AbortSignal.timeout(6000) });
-        const d = await r.json();
-        if (d?.id) {
-          results.meta = { configured, connected: true, detail: `✅ Conectado como ${d.name || d.id}` };
+        const d: any = await r.json();
+        if ((d as any)?.id) {
+          results.meta = { configured, connected: true, detail: `✅ Conectado como ${(d as any).name || (d as any).id}` };
         } else {
-          results.meta = { configured, connected: false, detail: `❌ Token inválido ou expirado: ${d?.error?.message || "erro desconhecido"}` };
+          results.meta = { configured, connected: false, detail: `❌ Token inválido ou expirado: ${(d as any)?.error?.message || "erro desconhecido"}` };
         }
       } else {
         results.meta = { configured, connected: false, detail: configured ? "🔑 App configurado — aguardando conexão OAuth do usuário" : "❌ META_APP_ID/SECRET não configurados no servidor" };
@@ -4091,7 +4093,7 @@ const adminRouter = router({
       if (token) {
         // Verifica token via Google tokeninfo
         const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`, { signal: AbortSignal.timeout(6000) });
-        const d = await r.json();
+        const d: any = await r.json();
         if (d?.email || d?.sub) {
           results.google = { configured, connected: true, detail: `✅ Conectado — ${d.email || d.sub}${!devToken ? " ⚠️ Developer Token ausente" : ""}` };
         } else {
@@ -4117,7 +4119,7 @@ const adminRouter = router({
           headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.timeout(6000),
         });
-        const d = await r.json();
+        const d: any = await r.json();
         if (d?.data?.user?.open_id) {
           results.tiktok = { configured, connected: true, detail: `✅ Conectado — ${d.data.user.display_name || d.data.user.open_id}` };
         } else {
@@ -4380,7 +4382,7 @@ const integrationsRouter = router({
         userName:    meData.name,
         adAccounts:  adAccounts.length,
         pages:       pages.length,
-        expiresAt:   tokenExpiry.toISOString(),
+        tokenExpiresAt: tokenExpiry.toISOString(),
       });
 
       return {
@@ -4389,7 +4391,7 @@ const integrationsRouter = router({
         userId:     meData.id,
         adAccounts,
         pages,
-        expiresAt:  tokenExpiry.toISOString(),
+        tokenExpiresAt: tokenExpiry.toISOString(),
         tokenPrefix: longToken.slice(0, 8) + "...",
       };
     }),
@@ -4527,14 +4529,12 @@ const integrationsRouter = router({
       const data: any = await res.json();
       if (data.error) throw new TRPCError({ code: "BAD_REQUEST", message: data.error_description || data.error });
 
-      await db.upsertApiIntegration((ctx as any).user.id, "tiktok", {
-        accessToken:  data.access_token,
+      await db.upsertApiIntegration({ userId: (ctx as any).user.id, provider: "tiktok", accessToken: data.access_token,
         refreshToken: data.refresh_token,
-        expiresAt:    new Date(Date.now() + (data.expires_in || 86400) * 1000),
-        openId:       data.open_id,
+        tokenExpiresAt: new Date(Date.now() + (data.expires_in || 86400) * 1000),
       });
 
-      return { success: true, openId: data.open_id };
+      return { success: true };
     }),
 
   testTikTok: protectedProcedure
@@ -4643,8 +4643,8 @@ const integrationsRouter = router({
             signal: AbortSignal.timeout(10000),
           });
           const listData: any = await listRes.json();
-          if (listData.resourceNames) {
-            customerIds = listData.resourceNames.map((r: string) => r.replace("customers/", ""));
+          if (listData.resource_names) {
+            customerIds = listData.resource_names.map((r: string) => r.replace("customers/", ""));
           }
         } catch (e: any) {
           log.warn("google-oauth", "Não foi possível listar Customer IDs", { error: e.message });
@@ -4936,8 +4936,8 @@ const integrationsRouter = router({
         adAccountId: (integration as any).adAccountId,
         appId, appSecret, isActive: 1, tokenExpiresAt,
       });
-      log.info("meta", "Token longo gerado", { userId: ctx.user.id, expiresAt: tokenExpiresAt.toISOString() });
-      return { ok: true, expiresAt: tokenExpiresAt.toISOString(), expiresInDays: Math.floor(expiresIn / 86400) };
+      log.info("meta", "Token longo gerado", { userId: ctx.user.id, tokenExpiresAt: tokenExpiresAt.toISOString() });
+      return { ok: true, tokenExpiresAt: tokenExpiresAt.toISOString(), expiresInDays: Math.floor(expiresIn / 86400) };
     }),
 
   // -- Upload de imagem → retorna image_hash real para uso em criativos ------
@@ -5447,7 +5447,7 @@ const integrationsRouter = router({
   getPixelStatus: protectedProcedure
     .input(z.object({ pixelId: z.string().optional() }))
     .query(async ({ ctx }) => {
-      const metaInt = await db.getIntegrationsByUser(ctx.user.id);
+      const metaInt = await db.listApiIntegrations(ctx.user.id);
       const meta    = (metaInt as any[]).find(i => i.provider === "meta");
       const token   = meta?.accessToken;
       const accountId = meta?.metaAccountId || meta?.adAccountId;
@@ -5456,7 +5456,7 @@ const integrationsRouter = router({
       // 1. Lista pixels da conta
       const pixRes = await fetch(
         `https://graph.facebook.com/v19.0/act_${accountId?.replace("act_","")}/adspixels?fields=id,name,last_fired_time,is_unavailable&access_token=${token}`
-      ).then(r => r.json()).catch(() => ({ data: [] }));
+      ).then((r: any) => r.json() as any).catch(() => ({ data: [] })) as any;
 
       const pixels = (pixRes.data || []).map((p: any) => ({
         id:       p.id,
@@ -5471,7 +5471,7 @@ const integrationsRouter = router({
         const pid = pixRes.data[0]?.id;
         const evRes = await fetch(
           `https://graph.facebook.com/v19.0/${pid}/stats?aggregation=event_name&since=${Math.floor(Date.now()/1000) - 7*86400}&access_token=${token}`
-        ).then(r => r.json()).catch(() => ({ data: [] }));
+        ).then((r: any) => r.json() as any).catch(() => ({ data: [] })) as any;
         events = (evRes.data || []).map((e: any) => ({
           name:  e.event_name,
           count: e.count || 0,
@@ -5481,7 +5481,7 @@ const integrationsRouter = router({
       // 3. Audiências personalizadas existentes
       const audRes = await fetch(
         `https://graph.facebook.com/v19.0/act_${accountId?.replace("act_","")}/customaudiences?fields=id,name,approximate_count_lower_bound,subtype,description&limit=10&access_token=${token}`
-      ).then(r => r.json()).catch(() => ({ data: [] }));
+      ).then((r: any) => r.json() as any).catch(() => ({ data: [] })) as any;
 
       const audiences = (audRes.data || []).map((a: any) => ({
         id:    a.id,
@@ -5504,7 +5504,7 @@ const integrationsRouter = router({
       retentionDays: z.number().default(30),
     }))
     .mutation(async ({ input, ctx }) => {
-      const metaInt = await db.getIntegrationsByUser(ctx.user.id);
+      const metaInt = await db.listApiIntegrations(ctx.user.id);
       const meta    = (metaInt as any[]).find(i => i.provider === "meta");
       const token   = meta?.accessToken;
       const accountId = (meta?.metaAccountId || meta?.adAccountId || "").replace("act_","");
@@ -5987,6 +5987,13 @@ const metaCampaignsRouter = router({
       adSetId:       z.string(),
       placements:    z.array(z.string()),
       placementMode: z.enum(["auto", "manual"]),
+      regions:       z.array(z.string()).optional(),
+      countries:     z.array(z.string()).optional(),
+      geoCity:       z.string().optional(),
+      geoRadius:     z.number().optional(),
+      ageMin:        z.number().optional(),
+      ageMax:        z.number().optional(),
+      locationMode:  z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const integration = await db.getApiIntegration(ctx.user.id, "meta");
@@ -6695,7 +6702,7 @@ const googleCampaignsRouter = router({
             "Content-Type": "application/json",
             "Authorization": `Bearer ${runtime.accessToken}`,
             "developer-token": runtime.developerToken,
-            "login-customer-id": runtime.loginCustomerId,
+            ...(runtime.loginCustomerId ? { "login-customer-id": runtime.loginCustomerId } : {}),
           },
           body: JSON.stringify({ operations }),
         }
@@ -7075,7 +7082,9 @@ const unifiedRouter = router({
               const billingRes = await googleAdsPost(
                 `customers/${customerId}/googleAds:search`,
                 { query },
-                gInt as any
+                (gInt as any)?.accessToken || "",
+                (gInt as any)?.developerToken || "",
+                customerId
               ) as any;
               const row = billingRes?.results?.[0];
               results.google = {
@@ -8638,7 +8647,7 @@ const mediaBudgetRouter = router({
     .query(async ({ ctx, input }) => {
       const result = validateCode(input.code);
       if (result.type === "invalid") {
-        return { type: "invalid", valid: false, amount: null, expiresAt: null, recipient: null, description: null, error: result.error ?? "Código inválido", alreadyUsed: false };
+        return { type: "invalid", valid: false, amount: null, tokenExpiresAt: null, recipient: null, description: null, error: result.error ?? "Código inválido", alreadyUsed: false };
       }
 
       // Verificar se código já foi usado por este usuário
@@ -8750,7 +8759,7 @@ const mediaBudgetRouter = router({
         amount:           resolvedAmount,
         amountLocked,
         isDynamic,
-        expiresAt:        result.expiresAt?.toISOString() ?? null,
+        tokenExpiresAt: result.expiresAt?.toISOString() ?? null,
         recipient:        resolvedRecipient,
         pixKey:           resolvedPixKey,
         detectedPlatform: resolvedPlatform,
@@ -9211,6 +9220,8 @@ const mediaBudgetRouter = router({
         // Para Pix dinâmico, finalAmountCents vem do JWT; para boleto, usa amountCents
         // Para Pix: usa finalAmountCents (valor real do JWT/campo 54)
         // Para boleto: usa amountCents (valor da linha digitável)
+
+        const finalAmountCents = 0; // fallback - overridden above if pix dynamic
         const debitCents = parsed.type === "pix" && finalAmountCents > 0
           ? finalAmountCents
           : amountCents > 0
@@ -9471,7 +9482,7 @@ const mediaBudgetRouter = router({
                 spend: +spend.toFixed(2), clicks, ctr: +ctr.toFixed(3),
                 metric: "ctr", metricValue: +ctr.toFixed(3), score: +score.toFixed(2),
                 waClicks: 0, leads: 0, allocation: 0, isManual: false,
-                budgetResourceName: r.campaignBudget?.resourceName || r.campaign_budget?.resource_name,
+                budgetResourceName: r.campaignBudget?.resource_name || r.campaign_budget?.resource_name,
                 currentBudget: Number(r.campaignBudget?.amountMicros || r.campaign_budget?.amount_micros || 0) / 1_000_000,
                 hasData: spend > 0,
               });
@@ -9616,7 +9627,7 @@ const mediaBudgetRouter = router({
             const rows = Array.isArray(searchData) ? searchData : (searchData.results || []);
             if (!rows.length) throw new Error(`Campanha Google ${item.campaignId} não encontrada`);
 
-            const budgetResourceName = rows[0]?.campaignBudget?.resourceName || rows[0]?.campaign_budget?.resource_name;
+            const budgetResourceName = rows[0]?.campaignBudget?.resource_name || rows[0]?.campaign_budget?.resource_name;
             if (!budgetResourceName) throw new Error("Não foi possível localizar o budget da campanha");
 
             // 2. Atualiza o amount_micros do budget (amount em R$ → micros)
@@ -10037,7 +10048,7 @@ const mediaBudgetRouter = router({
           const data: any = await res.json();
           const rows = Array.isArray(data) ? data : (data.results || []);
           results.google = rows.map((r: any) => ({
-            id:     String(r.campaign?.id || r.campaign?.resourceName?.split("/").pop()),
+            id:     String(r.campaign?.id || r.campaign?.resource_name?.split("/").pop()),
             name:   r.campaign?.name,
             status: r.campaign?.status,
             budget: r.campaignBudget?.amountMicros ? Number(r.campaignBudget.amountMicros) / 1_000_000 : null,

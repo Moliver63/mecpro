@@ -229,7 +229,7 @@ export async function uploadImageBufferToCloudinary(buffer: Buffer, fileName: st
   const signature = crypto.createHash("sha1").update(signatureBase).digest("hex");
 
   const form = new FormData();
-  form.append("file", new Blob([buffer]), fileName);
+  form.append("file", new Blob([new Uint8Array(buffer)]), fileName);
   form.append("folder", folder);
   form.append("api_key", apiKey);
   form.append("timestamp", String(timestamp));

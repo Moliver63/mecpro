@@ -13,7 +13,7 @@ import { Router, Request, Response } from "express";
 import crypto from "crypto";
 import { getPool } from "./db";
 import { log } from "./logger";
-import db from "./db";
+import * as db from "./db";
 
 const router = Router();
 
@@ -425,7 +425,7 @@ Para cada variaÃ§Ã£o: headline, body (2-3 linhas), CTA, plataforma recomenda
 // â”€â”€ Gerenciamento de API Keys (autenticado via sessÃ£o normal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // GET /api/v1/keys â€” lista keys do usuÃ¡rio
 router.get("/keys", async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id || (req.session as any)?.userId;
+  const userId = (req as any).user?.id || ((req as any).session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "not_authenticated", message: "FaÃ§a login no MECPro." });
 
   const pool = await getPool();
@@ -443,7 +443,7 @@ router.get("/keys", async (req: Request, res: Response) => {
 
 // POST /api/v1/keys â€” cria nova key
 router.post("/keys", async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id || (req.session as any)?.userId;
+  const userId = (req as any).user?.id || ((req as any).session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "not_authenticated" });
 
   const { name = "Minha API Key" } = req.body || {};
@@ -476,7 +476,7 @@ router.post("/keys", async (req: Request, res: Response) => {
 
 // DELETE /api/v1/keys/:id â€” revoga key
 router.delete("/keys/:id", async (req: Request, res: Response) => {
-  const userId = (req as any).user?.id || (req.session as any)?.userId;
+  const userId = (req as any).user?.id || ((req as any).session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "not_authenticated" });
 
   const pool = await getPool();

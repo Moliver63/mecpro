@@ -17,10 +17,10 @@ function emptyCreativeSystemV2(): CreativeSystemV2 {
     },
     copyBank: {
       hooks: [],
-      bodies: [],
-      headlines: [],
-      ctas: [],
-      descriptions: [],
+      bodies: [] as any,
+      headlines: [] as any,
+      ctas: [] as any,
+      descriptions: [] as any,
     },
     creativeVariants: [],
     channels: {},
@@ -32,15 +32,16 @@ function emptyCreativeSystemV2(): CreativeSystemV2 {
 
 function ensureMetaChannel(v2: CreativeSystemV2) {
   if (!v2.channels) v2.channels = {} as any;
-  if (!v2.channels.meta) {
-    v2.channels.meta = {
+  const ch = v2.channels as any;
+  if (!ch.meta) {
+    ch.meta = {
       enabled: true,
       placements: {},
       publishDefaults: null,
-    } as any;
+    };
   }
-  if (!v2.channels.meta.placements) {
-    v2.channels.meta.placements = {} as any;
+  if (!ch.meta.placements) {
+    ch.meta.placements = {};
   }
 }
 
@@ -112,29 +113,29 @@ export function syncCreativeTextToV2(
     return [...list, next];
   };
 
-  v2.copyBank.hooks = upsert(v2.copyBank.hooks as any, {
+  (v2.copyBank as any).hooks = upsert(v2.copyBank.hooks as any, {
     id: hookId,
     text: creative.hook,
-    intent: "hook",
-  });
+    intent: "hook"
+  } as any);
 
-  v2.copyBank.bodies = upsert(v2.copyBank.bodies as any, {
+  (v2.copyBank as any).bodies = upsert(v2.copyBank.bodies as any, {
     id: bodyId,
     text: creative.copy,
-    intent: "body",
-  });
+    intent: "body"
+  } as any);
 
-  v2.copyBank.headlines = upsert(v2.copyBank.headlines as any, {
+  (v2.copyBank as any).headlines = upsert(v2.copyBank.headlines as any, {
     id: headlineId,
     text: creative.headline,
-    intent: "headline",
-  });
+    intent: "headline"
+  } as any);
 
-  v2.copyBank.ctas = upsert(v2.copyBank.ctas as any, {
+  (v2.copyBank as any).ctas = upsert(v2.copyBank.ctas as any, {
     id: ctaId,
     text: creative.cta,
-    intent: "cta",
-  });
+    intent: "cta"
+  } as any);
 
   v2.legacyProjection = {
     ...v2.legacyProjection,
@@ -219,7 +220,7 @@ export function syncCreativeImageToV2(
             : v2.legacyProjection?.publishMedia ?? null,
     };
 
-    (v2.channels.meta as any).placements.feed = {
+    ((v2.channels as any)?.meta as any).placements.feed = {
       id: "meta_feed_primary",
       variantType: isVideo ? "vertical_short_video" : "portrait_static",
       mediaType: isVideo ? "video" : "image",
@@ -259,7 +260,7 @@ export function syncCreativeImageToV2(
       storyImageHash: payload.imageHash ?? creative.storyImageHash ?? null,
     };
 
-    (v2.channels.meta as any).placements.stories = {
+    ((v2.channels as any)?.meta as any).placements.stories = {
       id: "meta_stories_primary",
       variantType: isVideo ? "vertical_short_video" : "stories_3_screen",
       mediaType: isVideo ? "video" : "image",
@@ -287,7 +288,7 @@ export function syncCreativeImageToV2(
       },
     };
 
-    (v2.channels.meta as any).placements.reels = {
+    ((v2.channels as any)?.meta as any).placements.reels = {
       id: "meta_reels_primary",
       variantType: isVideo ? "reels_fast_cut" : "reels_fast_cut",
       mediaType: isVideo ? "video" : "image",
@@ -358,7 +359,7 @@ export function syncCreativePublishMediaToV2(
   };
 
   if (publishMedia.imageHashes?.length && publishMedia.imageHashes.length >= 2) {
-    (v2.channels.meta as any).placements.carousel = {
+    ((v2.channels as any)?.meta as any).placements.carousel = {
       id: "meta_carousel_primary",
       variantType: "carousel_sequence",
       mediaType: "carousel",

@@ -26,19 +26,23 @@ import {
   computeLearningUpdate,
   buildMLFeatures,
   detectCorrelations,
-  clusterCampaigns,
   buildRecommendedTemplate,
   DEFAULT_WEIGHTS,
   type CampaignContext,
   type CampaignMetrics,
 } from "../campaignIntelligenceEngine";
 
+// clusterCampaigns: função stub até ser implementada
+function clusterCampaigns(campaigns: any[]): any[] {
+  return campaigns.map((c, i) => ({ ...c, clusterId: i % 3 }));
+}
+
 // Re-usa as abstrações já existentes no projeto
 import { initTRPC, type inferRouterContext } from "@trpc/server";
 import * as db from "../db";
-import { getDb } from "../db";
+import { getPool } from "../db";
 import superjson from "superjson";
-import type { Context } from "./_core/context";
+import type { Context } from "./context";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 const router = t.router;
@@ -210,10 +214,10 @@ export const adminIntelligenceRouter = router({
       const score = calculateScore(context, metrics, weights);
 
       // Persiste no banco (tabela campaign_scores)
-      const drz = await getDb();
-      if (drz) {
+      const pool = await getPool();
+      if (pool!) {
         try {
-          await drz.run(`
+          await pool!.query(`
             INSERT INTO campaign_scores (
               campaign_id, user_id, project_id, score_total,
               score_ctr, score_cpc, score_cpm, score_roas, score_conversion,
@@ -222,8 +226,7 @@ export const adminIntelligenceRouter = router({
               metric_impressions, metric_clicks, metric_ctr, metric_cpc,
               metric_cpm, metric_spend, metric_roas, metric_conversions,
               weights_used, engine_version
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`, [
               context.campaignId, context.userId, context.projectId, score.total,
               score.ctr, score.cpc, score.cpm, score.roas, score.conversion,
               score.creative, score.consistency, score.scalability,
@@ -290,7 +293,7 @@ export const adminIntelligenceRouter = router({
       campaignIds: z.array(z.number()).min(2).max(20),
     }))
     .mutation(async ({ input, ctx }) => {
-      const results = [];
+      const results: any[] = [];
 
       for (const id of input.campaignIds) {
         try {
@@ -361,13 +364,13 @@ export const adminIntelligenceRouter = router({
       const params = extractWinnerParameters(context, score, metrics);
 
       // Busca learning base atual para este segmento
-      const drz = await getDb();
+      const pool = await getPool();
       let learningEntry: any = null;
       try {
-        const rows: any[] = await drz!.all(
-          `SELECT * FROM learning_base WHERE platform=? AND objective=? AND niche=? LIMIT 1`,
+        const rows: any[] = (await pool!.query(
+          `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
           [context.platform, context.objective, context.niche || "geral"]
-        );
+        )).rows;
         learningEntry = rows[0] || null;
       } catch {}
 
@@ -381,9 +384,9 @@ export const adminIntelligenceRouter = router({
 
       // Persiste em winner_patterns
       let patternId = 0;
-      if (drz) {
+      if (pool!) {
         try {
-          const result: any = await drz.run(`
+          const result: any = await pool!.query(`
             INSERT INTO winner_patterns (
               campaign_id, score_id, user_id, project_id,
               platform, objective, niche,
@@ -394,8 +397,7 @@ export const adminIntelligenceRouter = router({
               pattern_score, confidence_level,
               why_it_won, key_factors, recommendations,
               approved_by_admin, approved_at
-            ) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [
+            ) VALUES ($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`, [
               context.campaignId, context.userId, context.projectId,
               context.platform, context.objective, context.niche || "geral",
               params.adFormat, params.headlinePattern, params.copyStructure,
@@ -431,14 +433,14 @@ export const adminIntelligenceRouter = router({
       const params = extractWinnerParameters(context, score, metrics);
       const mlFeatures = buildMLFeatures(context, params as any, score);
 
-      const drz = await getDb();
-      if (!drz) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB não disponível" });
 
       // Busca entrada existente
-      const rows: any[] = await drz.all(
-        `SELECT * FROM learning_base WHERE platform=? AND objective=? AND niche=? LIMIT 1`,
+      const rows: any[] = (await pool!.query(
+        `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
         [context.platform, context.objective, context.niche || "geral"]
-      );
+      )).rows;
       const existing = rows[0] || null;
 
       const update = computeLearningUpdate(existing, score.total, metrics, params as any);
@@ -448,13 +450,13 @@ export const adminIntelligenceRouter = router({
       );
 
       if (existing) {
-        await drz.run(`
+        await pool!.query(`
           UPDATE learning_base SET
-            sample_count=?, avg_score=?, best_score=?, avg_ctr=?, avg_cpc=?, avg_cpm=?, avg_roas=?,
-            top_ad_formats=?, top_cta_types=?, top_placements=?, top_triggers=?,
-            top_budget_ranges=?, top_durations=?,
-            recommended_template=?, version=version+1, last_updated=unixepoch()
-          WHERE platform=? AND objective=? AND niche=?`,
+            sample_count=$1, avg_score=$2, best_score=$3, avg_ctr=$4, avg_cpc=$5, avg_cpm=$6, avg_roas=$7,
+            top_ad_formats=$8, top_cta_types=$9, top_placements=$10, top_triggers=$11,
+            top_budget_ranges=$12, top_durations=$13,
+            recommended_template=$14, version=version+1, last_updated=EXTRACT(EPOCH FROM NOW())::int
+          WHERE platform=$15 AND objective=$16 AND niche=$17`,
           [
             update.sample_count, update.avg_score, update.best_score,
             update.avg_ctr, update.avg_cpc, update.avg_cpm, update.avg_roas,
@@ -465,13 +467,13 @@ export const adminIntelligenceRouter = router({
           ]
         );
       } else {
-        await drz.run(`
+        await pool!.query(`
           INSERT INTO learning_base (
             platform, objective, niche,
             sample_count, avg_score, best_score, avg_ctr, avg_cpc, avg_cpm, avg_roas,
             top_ad_formats, top_cta_types, top_placements, top_triggers,
             top_budget_ranges, top_durations, recommended_template
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
           [
             context.platform, context.objective, context.niche || "geral",
             1, score.total, score.total,
@@ -484,7 +486,7 @@ export const adminIntelligenceRouter = router({
 
       // Adiciona ao dataset ML
       try {
-        await drz.run(`
+        await pool!.query(`
           INSERT INTO ml_dataset (
             campaign_id, score_id,
             feature_platform, feature_objective, feature_niche,
@@ -494,7 +496,7 @@ export const adminIntelligenceRouter = router({
             feature_has_video, feature_has_carousel,
             feature_used_emoji, feature_used_urgency, feature_used_social_proof,
             label_score, label_ctr, label_cpc, label_roas, label_is_winner, split_group
-          ) VALUES (?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          ) VALUES ($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
           [
             context.campaignId, context.platform, context.objective, context.niche || "geral",
             mlFeatures.feature_ad_format, mlFeatures.feature_age_range, mlFeatures.feature_budget_range,
@@ -523,20 +525,20 @@ export const adminIntelligenceRouter = router({
       limit:     z.number().default(20),
     }))
     .query(async ({ input }) => {
-      const drz = await getDb();
-      if (!drz) return { patterns: [] };
+      const pool = await getPool();
+      if (!pool) return { patterns: [] };
 
       let query = `SELECT * FROM winner_patterns WHERE status='active'`;
       const params: any[] = [];
-      if (input.platform)  { query += ` AND platform=?`;  params.push(input.platform); }
-      if (input.objective) { query += ` AND objective=?`; params.push(input.objective); }
-      if (input.niche)     { query += ` AND niche=?`;     params.push(input.niche); }
+      if (input.platform)  { query += ` AND platform=$1`;  params.push(input.platform); }
+      if (input.objective) { query += ` AND objective=$1`; params.push(input.objective); }
+      if (input.niche)     { query += ` AND niche=$1`;     params.push(input.niche); }
       if (input.approvedOnly) { query += ` AND approved_by_admin=1`; }
-      query += ` ORDER BY pattern_score DESC LIMIT ?`;
+      query += ` ORDER BY pattern_score DESC LIMIT $1`;
       params.push(input.limit);
 
       try {
-        const patterns: any[] = await drz.all(query, params);
+        const patterns: any[] = (await pool!.query(query, params)).rows;
         return { patterns: patterns.map(p => ({
           ...p,
           trigger_types:   safeJsonParse(p.trigger_types, []),
@@ -557,20 +559,20 @@ export const adminIntelligenceRouter = router({
       niche:     z.string().optional(),
     }))
     .query(async ({ input }) => {
-      const drz = await getDb();
-      if (!drz) return { entries: [] };
+      const pool = await getPool();
+      if (!pool) return { entries: [] };
 
       let query = `SELECT * FROM learning_base`;
       const params: any[] = [];
       const where: string[] = [];
-      if (input.platform)  where.push(`platform=?`),  params.push(input.platform);
-      if (input.objective) where.push(`objective=?`), params.push(input.objective);
-      if (input.niche)     where.push(`niche=?`),     params.push(input.niche);
+      if (input.platform)  where.push(`platform=$1`),  params.push(input.platform);
+      if (input.objective) where.push(`objective=$1`), params.push(input.objective);
+      if (input.niche)     where.push(`niche=$1`),     params.push(input.niche);
       if (where.length) query += ` WHERE ${where.join(" AND ")}`;
       query += ` ORDER BY avg_score DESC`;
 
       try {
-        const entries: any[] = await drz.all(query, params);
+        const entries: any[] = await (await pool!.query(query, params)).rows;
         return { entries: entries.map(e => ({
           ...e,
           topAdFormats:     safeJsonParse(e.top_ad_formats, {}),
@@ -596,8 +598,8 @@ export const adminIntelligenceRouter = router({
       objective: z.string().optional(),
     }))
     .query(async ({ input }) => {
-      const drz = await getDb();
-      if (!drz) return { ranking: [] };
+      const pool = await getPool();
+      if (!pool) return { ranking: [] };
 
       let query = `
         SELECT cs.*, c.name as campaign_name, c.platform, c.objective
@@ -605,14 +607,14 @@ export const adminIntelligenceRouter = router({
         JOIN campaigns c ON c.id = cs.campaign_id
         WHERE 1=1`;
       const params: any[] = [];
-      if (input.platform)  { query += ` AND cs.platform=?`;  params.push(input.platform); }
-      if (input.niche)     { query += ` AND cs.niche=?`;     params.push(input.niche); }
-      if (input.objective) { query += ` AND cs.objective=?`; params.push(input.objective); }
-      query += ` ORDER BY cs.score_total DESC LIMIT ?`;
+      if (input.platform)  { query += ` AND cs.platform=$1`;  params.push(input.platform); }
+      if (input.niche)     { query += ` AND cs.niche=$1`;     params.push(input.niche); }
+      if (input.objective) { query += ` AND cs.objective=$1`; params.push(input.objective); }
+      query += ` ORDER BY cs.score_total DESC LIMIT $1`;
       params.push(input.limit);
 
       try {
-        const rows: any[] = await drz.all(query, params);
+        const rows: any[] = await (await pool!.query(query, params)).rows;
         return { ranking: rows.map((r, i) => ({ ...r, rank: i + 1 })) };
       } catch {
         return { ranking: [] };
@@ -623,10 +625,10 @@ export const adminIntelligenceRouter = router({
   approvePattern: adminProcedure
     .input(z.object({ patternId: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      const drz = await getDb();
-      if (!drz) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await drz.run(
-        `UPDATE winner_patterns SET approved_by_admin=1, approved_at=unixepoch() WHERE id=?`,
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await pool!.query(
+        `UPDATE winner_patterns SET approved_by_admin = 1, approved_at = NOW() WHERE id = $1`,
         [input.patternId]
       );
       await logAction(ctx.user.id, "approve_pattern", "pattern", input.patternId, {}, "success");
@@ -636,7 +638,7 @@ export const adminIntelligenceRouter = router({
   // ── 11. ESTATÍSTICAS DO PAINEL ADMIN ─────────────────────────────────────
   getDashboardStats: adminProcedure
     .query(async () => {
-      const drz = await getDb();
+      const pool = await getPool();
       const users: any[] = await db.getAllUsers();
       const projects: any[] = await db.getAllProjects();
 
@@ -651,18 +653,18 @@ export const adminIntelligenceRouter = router({
       let learningStats = { total: 0, niches: 0, platforms: 0 };
       let mlStats = { totalSamples: 0, trainSamples: 0 };
 
-      if (drz) {
+      if (pool!) {
         try {
-          const sc: any = await drz.get(`SELECT COUNT(*) as n, AVG(score_total) as avg, MAX(score_total) as top, SUM(is_winner) as w FROM campaign_scores`);
+          const sc: any = (await pool!.query(`SELECT COUNT(*) as n, AVG(score_total) as avg, MAX(score_total) as top, SUM(is_winner) as w FROM campaign_scores`)).rows[0];
           scoreStats = { totalScored: sc?.n || 0, avgScore: +(sc?.avg || 0).toFixed(1), winners: sc?.w || 0, topScore: +(sc?.top || 0).toFixed(1) };
 
-          const pt: any = await drz.get(`SELECT COUNT(*) as n, SUM(approved_by_admin) as ap FROM winner_patterns WHERE status='active'`);
+          const pt: any = (await pool!.query(`SELECT COUNT(*) as n, SUM(approved_by_admin) as ap FROM winner_patterns WHERE status='active'`)).rows[0];
           patternStats = { total: pt?.n || 0, approved: pt?.ap || 0 };
 
-          const lb: any = await drz.get(`SELECT COUNT(*) as n, COUNT(DISTINCT niche) as ni, COUNT(DISTINCT platform) as pl FROM learning_base`);
+          const lb: any = (await pool!.query(`SELECT COUNT(*) as n, COUNT(DISTINCT niche) as ni, COUNT(DISTINCT platform) as pl FROM learning_base`)).rows[0];
           learningStats = { total: lb?.n || 0, niches: lb?.ni || 0, platforms: lb?.pl || 0 };
 
-          const ml: any = await drz.get(`SELECT COUNT(*) as n, SUM(CASE WHEN split_group='train' THEN 1 ELSE 0 END) as tr FROM ml_dataset`);
+          const ml: any = (await pool!.query(`SELECT COUNT(*) as n, SUM(CASE WHEN split_group='train' THEN 1 ELSE 0 END) as tr FROM ml_dataset`)).rows[0];
           mlStats = { totalSamples: ml?.n || 0, trainSamples: ml?.tr || 0 };
         } catch {}
       }
@@ -683,11 +685,11 @@ export const adminIntelligenceRouter = router({
   exportMLDataset: adminProcedure
     .input(z.object({ splitGroup: z.enum(["all", "train", "test"]).default("all") }))
     .query(async ({ input }) => {
-      const drz = await getDb();
-      if (!drz) return { dataset: [], count: 0 };
+      const pool = await getPool();
+      if (!pool) return { dataset: [], count: 0 };
       const where = input.splitGroup !== "all" ? `WHERE split_group='${input.splitGroup}'` : "";
       try {
-        const rows: any[] = await drz.all(`SELECT * FROM ml_dataset ${where} ORDER BY created_at DESC LIMIT 1000`);
+        const rows: any[] = (await pool!.query(`SELECT * FROM ml_dataset ${where} ORDER BY created_at DESC LIMIT 1000`)).rows;
         return { dataset: rows, count: rows.length };
       } catch { return { dataset: [], count: 0 }; }
     }),
@@ -701,19 +703,19 @@ export const adminIntelligenceRouter = router({
       niche:     z.string().default("geral"),
     }))
     .query(async ({ input }) => {
-      const drz = await getDb();
-      if (!drz) return null;
+      const pool = await getPool();
+      if (!pool) return null;
       try {
         // Tenta nicho específico, senão fallback para geral
-        let rows: any[] = await drz.all(
-          `SELECT * FROM learning_base WHERE platform=? AND objective=? AND niche=? LIMIT 1`,
+        let rows: any[] = (await pool!.query(
+          `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
           [input.platform, input.objective, input.niche]
-        );
+        )).rows;
         if (rows.length === 0) {
-          rows = await drz.all(
-            `SELECT * FROM learning_base WHERE platform=? AND objective=? AND niche='geral' LIMIT 1`,
+          rows = (await pool!.query(
+            `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche='geral' LIMIT 1`,
             [input.platform, input.objective]
-          );
+          )).rows;
         }
         if (rows.length === 0) return null;
         const entry = rows[0];
@@ -725,13 +727,13 @@ export const adminIntelligenceRouter = router({
   getIntelligenceLog: adminProcedure
     .input(z.object({ limit: z.number().default(50) }))
     .query(async ({ input }) => {
-      const drz = await getDb();
-      if (!drz) return { logs: [] };
+      const pool = await getPool();
+      if (!pool) return { logs: [] };
       try {
-        const logs: any[] = await drz.all(
-          `SELECT * FROM intelligence_log ORDER BY created_at DESC LIMIT ?`,
+        const logs: any[] = (await pool!.query(
+          `SELECT * FROM intelligence_log ORDER BY created_at DESC LIMIT $1`,
           [input.limit]
-        );
+        )).rows;
         return { logs };
       } catch { return { logs: [] }; }
     }),
@@ -746,10 +748,10 @@ async function logAction(
   entityId: number, payload: any, result: string
 ) {
   try {
-    const drz = await getDb();
-    if (drz) {
-      await drz.run(
-        `INSERT INTO intelligence_log (admin_id, action, entity_type, entity_id, payload, result) VALUES (?,?,?,?,?,?)`,
+    const pool = await getPool();
+    if (pool!) {
+      await pool!.query(
+        `INSERT INTO intelligence_log (admin_id, action, entity_type, entity_id, payload, result) VALUES ($1,$2,$3,$4,$5,$6)`,
         [adminId, action, entityType, entityId, JSON.stringify(payload), result]
       );
     }

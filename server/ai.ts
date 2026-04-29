@@ -1,5 +1,14 @@
 import "dotenv/config";
 import { log } from "./logger";
+
+// Type stub for Meta API fetch results
+type MetaFetchResult = {
+  id?: string;
+  name?: string;
+  data?: any[];
+  error?: { message?: string; code?: number };
+  [key: string]: any;
+};
 import * as db from "./db";
 import type { CampaignCreative } from "../shared/campaignCreative.schema";
 import { syncCreativeTextToV2, syncCreativeImageToV2 } from "../shared/campaignCreative.sync";
@@ -1047,7 +1056,7 @@ async function resolvePageId(
             `https://graph.facebook.com/v20.0/${fbUser[1]}?fields=id,name&access_token=${metaToken}`,
             { signal: AbortSignal.timeout(6000) }
           );
-          const d = await r.json();
+          const d: any = await r.json();
           if (d?.id && /^\d+$/.test(d.id)) {
             log.info("ai", "pageId resolvido via username do site", { compName, username: fbUser[1], pageId: d.id });
             return d.id;
@@ -1068,7 +1077,7 @@ async function resolvePageId(
       try {
         const url = `https://graph.facebook.com/v20.0/pages/search?q=${encodeURIComponent(query)}&fields=id,name,link&limit=5&access_token=${metaToken}`;
         const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-        const d = await r.json();
+        const d: any = await r.json();
 
         if (d?.data?.length > 0) {
           const qNorm = norm(query);
@@ -1110,7 +1119,7 @@ async function resolvePageId(
           `https://graph.facebook.com/v20.0/${igUser}?fields=id,name&access_token=${metaToken}`,
           { signal: AbortSignal.timeout(6000) }
         );
-        const d = await r.json();
+        const d: any = await r.json();
         if (d?.id && /^\d+$/.test(d.id)) {
           log.info("ai", "pageId via Instagram username", { compName, igUser, pageId: d.id });
           return d.id;
@@ -2081,7 +2090,7 @@ export function shouldUseLLM(priority: "high" | "medium" | "low" = "medium"): bo
   }
   // Modo normal: sempre usa LLM (exceto se todas as chaves esgotadas)
   const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean);
-  const available = allKeys.filter(k => !_exhaustedKeys.has(k));
+  const available = allKeys.filter(k => k && !_exhaustedKeys.has(k));
   return available.length > 0;
 }
 
@@ -4039,12 +4048,13 @@ async function fetchViaGraphAPIPosts(
     const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
     const data = await res.json();
 
-    if (data?.error) {
-      log.warn("ai", "[M2] Graph API /posts erro", { code: data.error.code, msg: data.error.message?.slice(0, 80) });
+    const d2 = data as any;
+    if (d2?.error) {
+      log.warn("ai", "[M2] Graph API /posts erro", { code: d2.error.code, msg: d2.error.message?.slice(0, 80) });
       return false;
     }
 
-    const posts: any[] = data?.data || [];
+    const posts: any[] = d2?.data || [];
     if (posts.length === 0) {
       log.info("ai", "[M2] Graph API /posts: sem posts públicos", { competitorId, pageId });
       return false;
@@ -4522,7 +4532,7 @@ async function generateMockAds(competitorId: number, projectId: number, competit
 
   // ── 2. Fallback estático com 13 nichos ────────────────────────────────────
   if (!selectedAds) {
-    selectedAds = _staticMockAds(name, niche);
+    selectedAds = _staticMockAds(name, niche ?? "");
   }
 
   // ── 3. Persiste no banco ──────────────────────────────────────────────────
@@ -4955,16 +4965,16 @@ ${input.extraContext}` : ""}
 
 DADOS REAIS DE PERFORMANCE — META ADS INSIGHTS API (últimos 30 dias da conta):
 ${metaInsights ? `
-✅ Fonte: ${metaInsights.source}
-- Investimento real (30d): R$ ${metaInsights.spend.toFixed(2)}
-- Impressões: ${metaInsights.impressions.toLocaleString("pt-BR")}
-- Cliques: ${metaInsights.clicks.toLocaleString("pt-BR")}
-- CPC real da conta: R$ ${metaInsights.cpc.toFixed(2)}
-- CPM real da conta: R$ ${metaInsights.cpm.toFixed(2)}
-- CTR real da conta: ${metaInsights.ctr.toFixed(2)}%
-- CPL real da conta: ${metaInsights.cpl > 0 ? "R$ " + metaInsights.cpl.toFixed(2) : "sem dados de lead"}
-- ROAS real da conta: ${metaInsights.roas > 0 ? metaInsights.roas.toFixed(2) + "x" : "sem dados de compra"}
-- Leads gerados (30d): ${metaInsights.leads}
+✅ Fonte: ${metaInsights?.source}
+- Investimento real (30d): R$ ${metaInsights?.spend.toFixed(2)}
+- Impressões: ${metaInsights?.impressions.toLocaleString("pt-BR")}
+- Cliques: ${metaInsights?.clicks.toLocaleString("pt-BR")}
+- CPC real da conta: R$ ${metaInsights?.cpc.toFixed(2)}
+- CPM real da conta: R$ ${metaInsights?.cpm.toFixed(2)}
+- CTR real da conta: ${metaInsights?.ctr.toFixed(2)}%
+- CPL real da conta: ${(metaInsights?.cpl ?? 0) > 0 ? "R$ " + (metaInsights?.cpl ?? 0).toFixed(2) : "sem dados de lead"}
+- ROAS real da conta: ${metaInsights?.roas > 0 ? metaInsights?.roas.toFixed(2) + "x" : "sem dados de compra"}
+- Leads gerados (30d): ${metaInsights?.leads}
 USE ESSES VALORES REAIS como base principal para as métricas estimadas da campanha.
 ` : `⚠️ Meta Insights indisponível — usando benchmarks do nicho como referência.`}
 
@@ -4981,7 +4991,7 @@ INSTRUÇÃO PARA MÉTRICAS:
 - Budget desta campanha: R$ ${input.budget}/mês (R$ ${budgetDaily}/dia)
 - ${longRunningAds.length} anúncios dos concorrentes rodando 30+ dias = mercado ativo
 - Formato dominante dos concorrentes: "${dominantFormat}" → ajuste CPM (vídeo +20%, imagem = base)
-- Leads estimados = R$ ${input.budget} ÷ CPL ${metaInsights?.cpl > 0 ? "real R$ " + metaInsights.cpl.toFixed(2) : "referência do nicho"}
+- Leads estimados = R$ ${input.budget} ÷ CPL ${metaInsights?.cpl > 0 ? "real R$ " + (metaInsights?.cpl ?? 0).toFixed(2) : "referência do nicho"}
 - breakEvenROAS baseado no produto: "${(clientProfile as any)?.productService || "não informado"}"
 - O insight deve mencionar se os dados são reais (Meta API) ou estimados (benchmark)
 
@@ -5245,7 +5255,7 @@ Budget: R$${input.budget}/mês. Plataforma: ${input.platform}.
 Dor: ${p?.mainPain || "—"}. Proposta: ${p?.uniqueValueProposition || "—"}.
 Concorrentes:
 ${compSummary || "Nenhum cadastrado."}
-${metaInsights ? `Performance real: CPC R$${metaInsights.cpc.toFixed(2)}, CPM R$${metaInsights.cpm.toFixed(2)}, CTR ${metaInsights.ctr.toFixed(2)}%` : ""}
+${metaInsights ? `Performance real: CPC R$${metaInsights?.cpc.toFixed(2)}, CPM R$${metaInsights?.cpm.toFixed(2)}, CTR ${metaInsights?.ctr.toFixed(2)}%` : ""}
 ${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}
 
 Gere JSON com:

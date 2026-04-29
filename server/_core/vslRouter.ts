@@ -212,7 +212,7 @@ export const vslRouter = router({
     .mutation(async ({ input }) => {
       log.info("vsl", "generateScript iniciado", { format: input.format, product: input.productName });
 
-      const result = await generateScriptWithGemini(input);
+      const result = await generateScriptWithGemini(input as any);
 
       log.info("vsl", "generateScript OK", { scenes: result.scenes.length, title: result.title });
 
@@ -405,7 +405,7 @@ export const vslRouter = router({
       scenes: z.array(z.object({ narration: z.string() })),
     }))
     .query(({ input }) => {
-      const totalChars = estimateTTSChars(input.scenes);
+      const totalChars = estimateTTSChars(input.scenes as any);
       const configured = !!(process.env.ELEVENLABS_API_KEY || "").trim();
       return { totalChars, configured, estimatedSeconds: Math.round(totalChars / 15) };
     }),

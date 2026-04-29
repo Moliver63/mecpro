@@ -792,7 +792,7 @@ app.post('/api/meta/upload-image', upload.single('file'), async (req: Request, r
 
     const form = new FormData();
     form.append('access_token', metaToken);
-    form.append('source', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname);
+    form.append('source', new Blob([new Uint8Array(req.file.buffer)], { type: req.file.mimetype }), req.file.originalname);
 
     const uploadResp = await fetch(`https://graph.facebook.com/v19.0/${act}/adimages`, {
       method: 'POST', body: form as any,
@@ -845,7 +845,7 @@ app.post('/api/meta/upload-video', upload.single('file'), async (req: Request, r
 
     const form = new FormData();
     form.append('access_token', metaToken);
-    form.append('source', new Blob([req.file.buffer], { type: req.file.mimetype || 'video/mp4' }), req.file.originalname);
+    form.append('source', new Blob([new Uint8Array(req.file.buffer)], { type: req.file.mimetype || 'video/mp4' }), req.file.originalname);
 
     const uploadResp = await fetch(`https://graph.facebook.com/v19.0/${act}/advideos`, {
       method: 'POST', body: form as any,
@@ -873,7 +873,7 @@ app.post('/api/meta/upload-media', upload.single('file'), async (req: Request, r
     if (!adAccountId || !accessToken) return res.status(400).json({ error: 'adAccountId and accessToken are required' });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const formData = new FormData();
-    formData.append('source', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname);
+    formData.append('source', new Blob([new Uint8Array(req.file.buffer)], { type: req.file.mimetype }), req.file.originalname);
     const uploadResp = await fetch(`https://graph.facebook.com/v19.0/act_${adAccountId}/adimages`, {
       method: 'POST', headers: { Authorization: `Bearer ${accessToken}` }, body: formData as any,
     });

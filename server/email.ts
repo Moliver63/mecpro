@@ -144,6 +144,7 @@ export async function sendWeeklyReport(
     `,
   });
 
+}
 export function sendRechargeReminderEmail(
   email:      string,
   name:       string,
@@ -301,5 +302,4 @@ export function sendExternalPaymentEmail(
       </div>
     `,
   });
-}
 }
