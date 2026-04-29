@@ -222,7 +222,7 @@ export default function AdminDashboard() {
           <div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,.5)", marginBottom: 4 }}>Meu plano atual (superadmin)</div>
             <div style={{ fontSize: 16, fontWeight: 800, color: "#4ade80" }}>
-              {{ free: "Free", basic: "Basic", premium: "Premium", vip: "VIP" }[(user as any)?.plan] || "Free"}
+              {({ free: "Free", basic: "Basic", premium: "Premium", vip: "VIP" } as any)[(user as any)?.plan] ?? "Free"}
             </div>
           </div>
           <button onClick={() => setShowMyPlan(true)}
