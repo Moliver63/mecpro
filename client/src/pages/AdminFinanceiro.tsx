@@ -45,7 +45,7 @@ export default function AdminFinanceiro() {
   const [modeGuide,   setModeGuide]   = useState(true);
   const [feePercent,  setFeePercent]  = useState(10);
   const [dist,        setDist]        = useState({ meta: 50, google: 30, tiktok: 20 });
-  const [landingMode, setLandingMode] = useState<"promo"|"normal">("promo");
+  const [landingMode, setLandingMode] = useState<"promo"|"normal">("normal");
   const [activeTab,   setActiveTab]   = useState<"overview"|"settings"|"transactions"|"creditos">("overview");
 
   // Controle de créditos

@@ -10272,7 +10272,7 @@ const mediaBudgetRouter = router({
 const publicRouter = router({
   getLandingMode: publicProcedure.query(async () => {
     const mode = await db.getAdminSetting("landing_mode");
-    return { mode: (mode || "promo") as "promo" | "normal" };
+    return { mode: (mode || "normal") as "promo" | "normal" };
   }),
 });
 

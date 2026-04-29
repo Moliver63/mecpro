@@ -127,8 +127,8 @@ function LandingRouter() {
   useEffect(() => {
     fetch("/api/trpc/public.getLandingMode", { credentials: "include" })
       .then(r => r.json())
-      .then(d => setMode(d?.result?.data?.mode ?? "promo"))
-      .catch(() => setMode("promo"));
+      .then(d => setMode(d?.result?.data?.mode ?? "normal"))
+      .catch(() => setMode("normal"));
   }, []);
   if (mode === null) return null; // loading silencioso
   return mode === "normal" ? <LandingNormal /> : <Landing />;
