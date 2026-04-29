@@ -92,6 +92,39 @@ const COURSES = [
     tags: ["e-commerce", "remarketing", "conversão"],
     highlights: ["Funil completo com IA", "Sazonalidade automática", "Upsell inteligente"],
   },
+  {
+    id: 9, slug: "publicacao-meta-ads-com-mecpro",
+    title: "Publicação no Meta Ads com MECPro",
+    description: "Conecte sua conta Meta, publique campanhas no Facebook e Instagram e use publicação em múltiplas páginas com detecção automática de WhatsApp.",
+    instructor: "Time MECPro", duration: "2h 45min", lessons: 9,
+    level: "Intermediário", category: "Tráfego Pago", rating: 4.9, students: 320,
+    isPro: false, badge: "NOVO", badgeColor: "#2563eb", thumb: "📤",
+    gradient: "135deg, #1e3a5f, #1877f2",
+    tags: ["meta ads", "publicação", "facebook", "instagram"],
+    highlights: ["Conectar conta Meta via API", "Publicação em múltiplas páginas", "WhatsApp automático por página"],
+  },
+  {
+    id: 10, slug: "marketplace-mecpro-do-zero",
+    title: "Marketplace MECPro — Publique e Venda",
+    description: "Crie landing pages com IA em 4 passos, publique no Marketplace, edite fotos e vídeos e gerencie suas ofertas pelo Dashboard do Vendedor.",
+    instructor: "Time MECPro", duration: "1h 50min", lessons: 7,
+    level: "Iniciante", category: "Marketplace", rating: 4.8, students: 185,
+    isPro: false, badge: "NOVO", badgeColor: "#2563eb", thumb: "🛍️",
+    gradient: "135deg, #064e3b, #0d9488",
+    tags: ["marketplace", "landing page", "venda"],
+    highlights: ["Landing page gerada por IA", "Upload de foto e vídeo", "Dashboard do Vendedor"],
+  },
+  {
+    id: 11, slug: "agente-autonomo-e-qualidade-de-ia",
+    title: "Agente Autônomo — Controle e Qualidade",
+    description: "Entenda como o Agente Autônomo funciona, controle o uso de IA, interprete o painel de qualidade e opere em modo econômico sem perder resultados.",
+    instructor: "Time MECPro", duration: "1h 30min", lessons: 6,
+    level: "Intermediário", category: "Plataforma", rating: 4.9, students: 97,
+    isPro: true, badge: "PRO", badgeColor: "#7c3aed", thumb: "🤖",
+    gradient: "135deg, #1e1b4b, #4c1d95",
+    tags: ["agente", "autonomo", "IA", "qualidade"],
+    highlights: ["Painel de qualidade em tempo real", "Motor determinístico como backup", "Controle de quota e modo econômico"],
+  },
 ];
 
 const SOCIAL_STRATEGY: Record<string, any[]> = {
@@ -215,7 +248,7 @@ const EBOOKS = [
 ];
 
 const COMING_SOON = [
-  { emoji: "🤖", title: "IA Generativa para Vídeo Ads", eta: "Maio/2026", category: "Criativo" },
+  { emoji: "🎬", title: "VSL Maker — Roteiro e Vídeo com IA", eta: "Maio/2026", category: "Criativo" },
   { emoji: "📡", title: "TikTok Ads com MECPro", eta: "Junho/2026", category: "Tráfego Pago" },
   { emoji: "🧠", title: "Matching Engine — Masterclass", eta: "Julho/2026", category: "Avançado" },
 ];
@@ -230,7 +263,7 @@ export default function Academy() {
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState<number|null>(null);
 
-  const categories = ["Todos","Plataforma","Inteligência","Copywriting","Tráfego Pago","Social Media","Analytics","E-commerce"];
+  const categories = ["Todos","Plataforma","Inteligência","Copywriting","Tráfego Pago","Social Media","Analytics","E-commerce","Marketplace"];
   const levels = ["Todos","Iniciante","Intermediário","Avançado"];
 
   const filteredCourses = COURSES.filter(c => {
