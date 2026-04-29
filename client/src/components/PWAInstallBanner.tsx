@@ -18,6 +18,12 @@ export default function PWAInstallBanner() {
     if (localStorage.getItem("pwa-banner-dismissed") === "1") return;
     // Verifica se já está instalado (modo standalone)
     if (window.matchMedia("(display-mode: standalone)").matches) return;
+    // Bump SW cache version to force reinstall after fixes
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration('/').then(reg => {
+        if (reg) reg.update(); // force check for new SW version
+      }).catch(() => {});
+    }
 
     // iOS — não tem beforeinstallprompt, mostra instrução manual
     const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;

@@ -1,18 +1,17 @@
 // MecProAI Service Worker — PWA
-const CACHE_VERSION = 'mecproai-v1';
+const CACHE_VERSION = 'mecproai-v2'; // v2: fixed /dashboard cache issue
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 
 // Recursos estáticos para cache (shell do app)
 const STATIC_ASSETS = [
   '/',
-  '/dashboard',
   '/manifest.json',
   '/favicon.ico',
   '/favicon-192.png',
   '/favicon-512.png',
   '/apple-touch-icon.png',
-  '/logo.png',
+  // Nota: /dashboard NÃO incluído — requer autenticação e causaria falha no install
 ];
 
 // ── Install: pre-cache o shell estático ──────────────────────────────────────
@@ -73,11 +72,17 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Navegação (rotas SPA) — Network First com fallback para /
+  // Navegação (rotas SPA) — Network First, sem interceptar autenticação
   if (request.mode === 'navigate') {
+    // Não intercepta /api/* — deixa o servidor responder
+    if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/trpc/')) {
+      event.respondWith(fetch(request));
+      return;
+    }
     event.respondWith(
       fetch(request).catch(() =>
-        caches.match('/').then(cached => cached || fetch('/'))
+        // Fallback: serve a raiz que o Vite serve como index.html
+        caches.match('/') || fetch('/')
       )
     );
     return;

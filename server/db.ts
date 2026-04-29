@@ -90,11 +90,33 @@ export async function updateUserRole(userId: number, role: "user" | "admin" | "s
 }
 export async function findOrCreateUserByProvider(profile: { openId: string; email: string; name?: string; loginMethod?: string }) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  // 1. Busca por openId (login OAuth repetido)
   let user: any = await db.select().from(users).where(eq(users.openId, profile.openId)).limit(1).then(r => r[0] ?? null);
-  if (user) { await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, user.id)); return getUserById(user.id); }
-  user = await getUserByEmail(profile.email);
-  if (user) { await db.update(users).set({ openId: profile.openId, loginMethod: profile.loginMethod ?? "google", lastSignedIn: new Date() }).where(eq(users.id, user.id)); return getUserById(user.id); }
-  const r = await db.insert(users).values({ openId: profile.openId, email: profile.email, name: profile.name, loginMethod: profile.loginMethod ?? "google" }).returning({ id: users.id });
+  if (user) {
+    // Atualiza lastSignedIn e garante emailVerified=1 para OAuth
+    await db.update(users).set({ lastSignedIn: new Date(), emailVerified: 1 }).where(eq(users.id, user.id));
+    return getUserById(user.id);
+  }
+  // 2. Busca por email (usuário já existe com senha, agora faz login OAuth)
+  const emailUser: any = await getUserByEmail(profile.email);
+  if (emailUser) {
+    // Vincula openId sem sobrescrever role existente
+    await db.update(users).set({
+      openId:        profile.openId,
+      loginMethod:   profile.loginMethod ?? "google",
+      emailVerified: 1,  // OAuth confirma email automaticamente
+      lastSignedIn:  new Date(),
+    }).where(eq(users.id, emailUser.id));
+    return getUserById(emailUser.id);
+  }
+  // 3. Cria novo usuário OAuth
+  const r = await db.insert(users).values({
+    openId:        profile.openId,
+    email:         profile.email,
+    name:          profile.name,
+    loginMethod:   profile.loginMethod ?? "google",
+    emailVerified: 1,  // Google já verificou o email
+  }).returning({ id: users.id });
   return getUserById(r[0].id);
 }
 
