@@ -1,4 +1,14 @@
 // ============ server/marketplace.ts — Router completo do Marketplace ============
+
+// Limpeza de rastros de IA nos textos gerados
+function stripAITraces(text: string): string {
+  if (!text) return text;
+  text = text.replace(/\p{Emoji}/gu, "");
+  text = text.replace(/^(Certainly!|Sure,|Of course,|Here's|Below is|Let me|<AI>|\[AI\])\s*/gim, "");
+  text = text.replace(/[—–―]/g, "-");
+  text = text.replace(/  +/g, " ").trim();
+  return text;
+}
 // Adicionar ao projeto MecProAI como novo módulo
 
 import { Router, Request, Response } from "express";

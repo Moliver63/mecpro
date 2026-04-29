@@ -1,4 +1,5 @@
 import { useLocation, useParams } from "wouter";
+import { cleanAICopy } from "@/lib/cleanAITraces";
 import PlacementSelector from "@/components/PlacementSelector";
 import { PlacementPresetSelector } from "@/components/PlacementPresetSelector";
 import VSLGeneratorPanel from "@/components/VSLGeneratorPanel";
@@ -2189,7 +2190,9 @@ export default function CampaignResult() {
                     </div>
                     <div>
                       <label style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", display: "block", marginBottom: 4 }}>COPY (texto principal)</label>
-                      <textarea value={editDraft.copy ?? cr.copy ?? ""} onChange={e => setEditDraft((d: any) => ({ ...d, copy: e.target.value }))}
+                      <textarea value={editDraft.copy ?? cr.copy ?? ""}
+                        onChange={e => setEditDraft((d: any) => ({ ...d, copy: e.target.value }))}
+                        onBlur={e => setEditDraft((d: any) => ({ ...d, copy: cleanAICopy(e.target.value) }))}
                         placeholder="Texto principal (máx 125 chars)" className="textarea w-full" rows={3} maxLength={125} />
                     </div>
                     <div>

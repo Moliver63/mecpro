@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { cleanAICopy } from "@/lib/cleanAITraces";
 import Layout from "@/components/layout/Layout";
 import { toast } from "sonner";
 
