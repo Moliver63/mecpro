@@ -175,7 +175,7 @@ export default function LandingNormal() {
         {/* STATS */}
         <section style={{padding:"52px 28px",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
           <div className="sg" style={{maxWidth:1100,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:1}}>
-            {[{v:"500+",l:"Agências ativas",a:"#4ade80"},{v:"10.000+",l:"Campanhas geradas",a:"#60a5fa"},{v:"7 camadas",l:"Pipeline de IA",a:"#f472b6"},{v:"99,9%",l:"Uptime garantido",a:"#fb923c"}].map((s,i)=>(
+            {[{v:"",l:"Agências ativas",a:"#4ade80"},{v:"10.000+",l:"Campanhas geradas",a:"#60a5fa"},{v:"7 camadas",l:"Pipeline de IA",a:"#f472b6"},{v:"99,9%",l:"Uptime garantido",a:"#fb923c"}].map((s,i)=>(
               <div key={i} style={{textAlign:"center",padding:"28px 16px",background:"rgba(255,255,255,.02)",borderRight:i<3?"1px solid rgba(255,255,255,.06)":"none"}}>
                 <div style={{fontFamily:"'Syne',sans-serif",fontSize:34,fontWeight:900,color:s.a,letterSpacing:-1.5,marginBottom:6}}>{s.v}</div>
                 <div style={{fontSize:12,color:"rgba(255,255,255,.35)",fontWeight:500}}>{s.l}</div>
