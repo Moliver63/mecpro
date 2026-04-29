@@ -1039,13 +1039,13 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
   // Banner qualidade
   type DataBanner = { icon: string; title: string; desc: string; bg: string; border: string; titleColor: string; descColor: string; };
   const dataBanner: DataBanner | null = ads.length === 0 ? null :
-    hasOfficial  ? { icon: "◎", title: "Dados reais — Meta Ads API Oficial (camada 1)", desc: `${realCount} anúncio(s) via API oficial. Dados confiáveis e atualizados.`, bg: "#f0fdf4", border: "#86efac", titleColor: "#166534", descColor: "#15803d" } :
-    hasLibrary && !mixed ? { icon: "🔎", title: "Dados reais — Ads Library pública (camada 2-3)", desc: `${realCount} anúncio(s) da Ads Library${comp.facebookPageId ? " · Page ID: " + comp.facebookPageId : ""}`, bg: "#eff6ff", border: "#93c5fd", titleColor: "#1e40af", descColor: "#1d4ed8" } :
-    hasWebsite   ? { icon: "🌐", title: "Inferido do site (camada 5)", desc: `${realCount} anúncio(s) gerado(s) a partir do site de ${comp.name} — headlines e CTAs reais.`, bg: "#e0f2fe", border: "#7dd3fc", titleColor: "#0e7490", descColor: "#0369a1" } :
-    hasSEO       ? { icon: "🔍", title: "Análise SEO/IA (camada 6)", desc: `${realCount} anúncio(s) inferido(s) via análise digital de ${comp.name}.`, bg: "#ede9fe", border: "#a78bfa", titleColor: "#7c3aed", descColor: "#6d28d9" } :
-    mixed        ? { icon: "⚡", title: "Dados mistos (reais + estimados)", desc: `${realCount} real(is) + ${estimatedCount} estimado(s).`, bg: "#fefce8", border: "#fde047", titleColor: "#854d0e", descColor: "#92400e" } :
-    hasEstAI     ? { icon: "🤖", title: "Estimativas IA — camada 7", desc: `Coleta bloqueada. MECPro AI gerou ${estimatedCount} anúncio(s) representativos do nicho.`, bg: "#faf5ff", border: "#c4b5fd", titleColor: "#6d28d9", descColor: "#7c3aed" } :
-    { icon: "◬", title: "Estimativas por nicho — camada 7",
+    hasOfficial  ? { icon: "◎", title: "", desc: `${realCount} anúncio(s) via API oficial. Dados confiáveis e atualizados.`, bg: "#f0fdf4", border: "#86efac", titleColor: "#166534", descColor: "#15803d" } :
+    hasLibrary && !mixed ? { icon: "🔎", title: "", desc: `${realCount} anúncio(s) da Ads Library${comp.facebookPageId ? " · Page ID: " + comp.facebookPageId : ""}`, bg: "#eff6ff", border: "#93c5fd", titleColor: "#1e40af", descColor: "#1d4ed8" } :
+    hasWebsite   ? { icon: "🌐", title: "", desc: `${realCount} anúncio(s) gerado(s) a partir do site de ${comp.name} — headlines e CTAs reais.`, bg: "#e0f2fe", border: "#7dd3fc", titleColor: "#0e7490", descColor: "#0369a1" } :
+    hasSEO       ? { icon: "🔍", title: "", desc: `${realCount} anúncio(s) inferido(s) via análise digital de ${comp.name}.`, bg: "#ede9fe", border: "#a78bfa", titleColor: "#7c3aed", descColor: "#6d28d9" } :
+    mixed        ? { icon: "⚡", title: "", desc: `${realCount} real(is) + ${estimatedCount} estimado(s).`, bg: "#fefce8", border: "#fde047", titleColor: "#854d0e", descColor: "#92400e" } :
+    hasEstAI     ? { icon: "🤖", title: "", desc: `Coleta bloqueada. MECPro AI gerou ${estimatedCount} anúncio(s) representativos do nicho.`, bg: "#faf5ff", border: "#c4b5fd", titleColor: "#6d28d9", descColor: "#7c3aed" } :
+    { icon: "◬", title: "",
       desc: `Todas as camadas de coleta falharam para ${comp.name}. Causa mais provável: o App Meta ainda não tem aprovação para Ads Library API (code=10). Solução: acesse facebook.com/ads/library/api → "Get Access" com o mesmo App do seu token. O token de publicação de campanhas está funcionando normalmente — é apenas a leitura de anúncios de concorrentes que requer aprovação separada.`,
       bg: "#fef3c7", border: "#fcd34d", titleColor: "#92400e", descColor: "#b45309" };
 
@@ -2730,11 +2730,11 @@ function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
 
   const blueOcean = [
     hasTikTok
-      ? { icon:"🎵", title:"TikTok — terreno do concorrente", desc:`${comp.name} tem ${tiktokCount} ad(s) no TikTok com ${tiktokViews.toLocaleString("pt-BR")} views. ${myScores.tiktok_presenca===0?"Sua empresa ainda não marcou presença — oportunidade antes que o mercado sature.":"Diferencie o formato."}` }
-      : { icon:"🎵", title:"TikTok — canal não verificado", desc:`Não confirmado. Use "Buscar TikTok" no Raio-X para verificar presença do ${comp.name}.` },
+      ? { icon:"🎵", title: "", desc:`${comp.name} tem ${tiktokCount} ad(s) no TikTok com ${tiktokViews.toLocaleString("pt-BR")} views. ${myScores.tiktok_presenca===0?"Sua empresa ainda não marcou presença — oportunidade antes que o mercado sature.":"Diferencie o formato."}` }
+      : { icon:"🎵", title: "", desc:`Não confirmado. Use "Buscar TikTok" no Raio-X para verificar presença do ${comp.name}.` },
     hasGoogle
       ? { icon:"🔍", title:`Google Ads — ${googleKeywords.length} keywords`, desc:`Palavras-chave do nicho: ${googleKeywords.slice(0,3).map((k:any)=>k.headline).join(", ")}` }
-      : { icon:"🔍", title:"Google Ads — não coletado", desc:`Integre Google Ads em Configurações para incluir essa dimensão.` },
+      : { icon:"🔍", title: "", desc:`Integre Google Ads em Configurações para incluir essa dimensão.` },
     { icon:"🎨", title:`Além do ${topFormat}`, desc:`${comp.name} foca em ${topFormat}. Explore formatos menos saturados.` },
     { icon:"🎯", title:`CTA além de "${topCta}"`, desc:`CTAs mais específicos ao momento do cliente convertem melhor que "${topCta}".` },
   ];
@@ -3350,8 +3350,7 @@ export default function CompetitorAnalysis() {
                                 background: "#1877f2", color: "white", border: "none",
                                 borderRadius: 8, padding: "0 8px", fontSize: 13,
                                 cursor: "pointer", height: 30, display: "flex",
-                                alignItems: "center", justifyContent: "center",
-                                title: "Buscar pelo Page ID",
+                                alignItems: "center", justifyContent: "center"
                               }}>
                               📡
                             </button>

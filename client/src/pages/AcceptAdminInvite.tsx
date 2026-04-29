@@ -12,19 +12,20 @@ export default function AcceptAdminInvite() {
   const [errorMsg, setErrorMsg] = useState("");
 
   // Validate token via tRPC
-  const validateInvite = trpc.invites?.getByToken?.useQuery?.(
+  const validateInvite = (trpc as any).invites?.getByToken?.useQuery?.(
     { token },
-    {
-      enabled: !!token,
-      onSuccess: (data: any) => {
-        if (data) { setInviteData(data); setStatus("valid"); }
-        else setStatus("invalid");
-      },
-      onError: () => setStatus("invalid"),
-    }
+    { enabled: !!token }
   );
 
-  const acceptInvite = trpc.invites?.accept?.useMutation?.({
+  useEffect(() => {
+    if (!validateInvite) return;
+    const data = (validateInvite as any)?.data;
+    const isError = (validateInvite as any)?.isError;
+    if (data) { setInviteData(data); setStatus("valid"); }
+    else if (isError) setStatus("invalid");
+  }, [(validateInvite as any)?.data, (validateInvite as any)?.isError]);
+
+  const acceptInvite = (trpc as any).invites?.accept?.useMutation?.({
     onSuccess: () => { setStatus("success"); setTimeout(() => setLocation("/admin"), 3000); },
     onError: (e: any) => { setErrorMsg(e.message ?? "Erro ao aceitar convite."); setStatus("error"); },
   });

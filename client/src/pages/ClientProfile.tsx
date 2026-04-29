@@ -145,7 +145,7 @@ export default function ClientProfile() {
       alert("Preencha os campos obrigatórios: Empresa, Nicho e Produto/Serviço.");
       return;
     }
-    upsert.mutate({ projectId, ...form });
+    upsert.mutate({ projectId, ...form } as any);
   }
 
   const isValidDoc = docType === "cnpj"
@@ -297,8 +297,8 @@ export default function ClientProfile() {
       <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 14 }}>
         {saved && <span style={{ fontSize: 13, color: "var(--green-d)", fontWeight: 600 }}>✓ Salvo com sucesso!</span>}
         {upsert.isError && <span style={{ fontSize: 13, color: "#dc2626" }}>Erro ao salvar. Tente novamente.</span>}
-        <button className="btn btn-lg btn-green" onClick={handleSubmit} disabled={upsert.isLoading}>
-          {upsert.isLoading ? "Salvando..." : profile ? "💾 Atualizar perfil" : "💾 Salvar perfil"}
+        <button className="btn btn-lg btn-green" onClick={handleSubmit} disabled={upsert.isPending}>
+          {upsert.isPending ? "Salvando..." : profile ? "💾 Atualizar perfil" : "💾 Salvar perfil"}
         </button>
         {profile && (
           <div style={{

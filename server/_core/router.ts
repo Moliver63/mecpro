@@ -586,6 +586,52 @@ const authRouter = router({
     ctx.res.clearCookie("token");
     return { success: true };
   }),
+  updateProfile: protectedProcedure
+    .input(z.object({
+      name:  z.string().min(1).optional(),
+      phone: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const uid = (ctx as any).user?.id;
+      if (!uid) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const pool = await getPool();
+      if (input.name !== undefined) {
+        await pool!.query(`UPDATE users SET name = $1, "updatedAt" = NOW() WHERE id = $2`, [input.name, uid]);
+      }
+      return { success: true };
+    }),
+
+  changePassword: protectedProcedure
+    .input(z.object({
+      current: z.string().min(1),
+      next:    z.string().min(8),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const uid = (ctx as any).user?.id;
+      if (!uid) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const user = await db.getUserById(uid);
+      if (!user) throw new TRPCError({ code: "NOT_FOUND" });
+      const bcrypt = await import("bcryptjs");
+      const comparePassword = (plain: string, hash: string) => bcrypt.compare(plain, hash);
+      const hashPassword = (plain: string) => bcrypt.hash(plain, 10);
+      const ok = await comparePassword(input.current, (user as any).passwordHash ?? "");
+      if (!ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Senha atual incorreta" });
+      const newHash = await hashPassword(input.next);
+      const pool = await getPool();
+      await pool!.query(`UPDATE users SET "passwordHash" = $1, "updatedAt" = NOW() WHERE id = $2`, [newHash, uid]);
+      return { success: true };
+    }),
+
+  getMe: protectedProcedure
+    .query(async ({ ctx }) => {
+      const uid = (ctx as any).user?.id;
+      if (!uid) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const user = await db.getUserById(uid);
+      if (!user) throw new TRPCError({ code: "NOT_FOUND" });
+      const { passwordHash, ...safe } = user as any;
+      return safe;
+    }),
+
 });
 
 // ============ PROJECTS ROUTER ============
@@ -1553,11 +1599,11 @@ const competitorsRouter = router({
             const pageNames = pages.map((p: any) => ({ id: p.id, name: p.name, slug: (p.name || "").toLowerCase().replace(/[^a-z0-9]/g, "") }));
             log.info("ai", "discoverPageId Estratégia 3 páginas disponíveis", { pages: pageNames.map((p: any) => p.name) });
 
-            const exactMatch = pageNames.find(p =>
+            const exactMatch = pageNames.find((p: any) =>
               p.slug === raw || p.slug === rawSimple || p.slug === companySlug || p.id === raw
             );
             // Match parcial: nome da página contém o handle ou vice-versa
-            const partialMatch = !exactMatch && pageNames.find(p =>
+            const partialMatch = !exactMatch && pageNames.find((p: any) =>
               p.slug.includes(rawSimple) || rawSimple.includes(p.slug) ||
               p.slug.includes(companySlug) || companySlug.includes(p.slug)
             );
@@ -10230,8 +10276,38 @@ const publicRouter = router({
   }),
 });
 
+export 
+// ── Invites router ────────────────────────────────────────────────────────────
+const invitesRouter = router({
+  getByToken: publicProcedure
+    .input(z.object({ token: z.string() }))
+    .query(async ({ input }) => {
+      const pool = await getPool();
+      const row = await pool!.query(
+        `SELECT * FROM admin_invites WHERE token = $1 AND used_at IS NULL AND expires_at > NOW() LIMIT 1`,
+        [input.token]
+      );
+      return row.rows[0] ?? null;
+    }),
+
+  accept: publicProcedure
+    .input(z.object({ token: z.string() }))
+    .mutation(async ({ input }) => {
+      const pool = await getPool();
+      const row = await pool!.query(
+        `SELECT * FROM admin_invites WHERE token = $1 AND used_at IS NULL AND expires_at > NOW() LIMIT 1`,
+        [input.token]
+      );
+      const invite = row.rows[0];
+      if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "Convite inválido ou expirado" });
+      await pool!.query(`UPDATE admin_invites SET used_at = NOW() WHERE id = $1`, [invite.id]);
+      return { success: true, email: invite.email, role: invite.role };
+    }),
+});
+
 export const appRouter = router({
   auth: authRouter,
+  invites: invitesRouter,
   projects: projectsRouter,
   integrations: integrationsRouter,
   clientProfile: clientProfileRouter,

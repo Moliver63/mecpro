@@ -1009,7 +1009,7 @@ app.use(
   createExpressMiddleware({
     router: appRouter,
     createContext,
-    onError({ error, path }) {
+    onError({ error, path }: { error: any; path: string | undefined }) {
       log.error('trpc', `[${path}] ${error.message}`);
     },
   })

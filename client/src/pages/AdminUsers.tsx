@@ -114,7 +114,7 @@ export default function AdminUsers() {
   });
 
   // ── Filtering ─────────────────────────────────────────────────────────────
-  const filtered = (users as User[]).filter((u) => {
+  const filtered = (users as any[]).filter((u) => {
     const matchSearch =
       u.name?.toLowerCase().includes(search.toLowerCase()) ||
       u.email?.toLowerCase().includes(search.toLowerCase());
@@ -151,7 +151,7 @@ export default function AdminUsers() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Gerenciar Usuários</h1>
-            <p className="text-sm text-gray-500">{(users as User[]).length} usuários cadastrados</p>
+            <p className="text-sm text-gray-500">{(users as any[]).length} usuários cadastrados</p>
           </div>
           {/* Hierarquia visual */}
           <div className="text-xs bg-gray-50 border rounded-lg px-3 py-2 flex gap-2 items-center flex-wrap">
@@ -397,7 +397,7 @@ export default function AdminUsers() {
               </button>
               <button
                 onClick={handlePlanSubmit}
-                disabled={!planValue || updatePlan.isLoading || requestPlan.isPending}
+                disabled={!planValue || updatePlan.isPending || requestPlan.isPending}
                 className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
               >
                 {isSuperadmin ? "Salvar" : "Enviar Solicitação"}

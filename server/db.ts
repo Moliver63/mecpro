@@ -90,7 +90,7 @@ export async function updateUserRole(userId: number, role: "user" | "admin" | "s
 }
 export async function findOrCreateUserByProvider(profile: { openId: string; email: string; name?: string; loginMethod?: string }) {
   const db = await getDb(); if (!db) throw new Error("DB unavailable");
-  let user = await db.select().from(users).where(eq(users.openId, profile.openId)).limit(1).then(r => r[0] ?? null);
+  let user: any = await db.select().from(users).where(eq(users.openId, profile.openId)).limit(1).then(r => r[0] ?? null);
   if (user) { await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, user.id)); return getUserById(user.id); }
   user = await getUserByEmail(profile.email);
   if (user) { await db.update(users).set({ openId: profile.openId, loginMethod: profile.loginMethod ?? "google", lastSignedIn: new Date() }).where(eq(users.id, user.id)); return getUserById(user.id); }

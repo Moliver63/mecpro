@@ -152,7 +152,7 @@ export default function Settings() {
               disabled={!pwForm.current || pwForm.next !== pwForm.confirm || pwForm.next.length < 8 || changePassword?.isPending}
               onClick={() => {
                 setPwError("");
-                changePassword?.mutate?.({ currentPassword: pwForm.current, newPassword: pwForm.next });
+                changePassword?.mutate?.({ current: pwForm.current, next: pwForm.next });
               }}>
               {changePassword?.isPending ? "Alterando..." : "Atualizar senha"}
             </button>

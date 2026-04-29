@@ -2392,14 +2392,14 @@ export default function CampaignResult() {
                       </div>
                     </div>
                     <div style={{ marginTop: 14 }}>
-                      <AdPreviewPanel
+                      {(() => { const P = AdPreviewPanel as any; return <P
                         creative={{ ...cr, format: creativeFormat === "stories" ? "stories" : creativeFormat === "square" ? "image" : "image" }}
                         platform={(campaign as any)?.platform || "meta"}
                         objective={(campaign as any)?.objective}
                         clientName={(clientProfile as any)?.companyName}
                         creativeImageDataUrl={creativeImage || undefined}
                         mediaPreview={creativeImage && !creativeImage.startsWith("data:") ? creativeImage : undefined}
-                      />
+                      />; })()}
                     </div>
                   </>
                 )}

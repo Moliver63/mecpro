@@ -4532,7 +4532,7 @@ async function generateMockAds(competitorId: number, projectId: number, competit
 
   // ── 2. Fallback estático com 13 nichos ────────────────────────────────────
   if (!selectedAds) {
-    selectedAds = _staticMockAds(name, niche ?? "");
+    selectedAds = _staticMockAds((name || "") as string, (niche || "") as string);
   }
 
   // ── 3. Persiste no banco ──────────────────────────────────────────────────
@@ -4964,7 +4964,7 @@ ${input.extraContext ? `CONTEXTO ADICIONAL DO CLIENTE:
 ${input.extraContext}` : ""}
 
 DADOS REAIS DE PERFORMANCE — META ADS INSIGHTS API (últimos 30 dias da conta):
-${metaInsights ? `
+${metaInsights! ? `
 ✅ Fonte: ${metaInsights?.source}
 - Investimento real (30d): R$ ${metaInsights?.spend.toFixed(2)}
 - Impressões: ${metaInsights?.impressions.toLocaleString("pt-BR")}
@@ -4991,7 +4991,7 @@ INSTRUÇÃO PARA MÉTRICAS:
 - Budget desta campanha: R$ ${input.budget}/mês (R$ ${budgetDaily}/dia)
 - ${longRunningAds.length} anúncios dos concorrentes rodando 30+ dias = mercado ativo
 - Formato dominante dos concorrentes: "${dominantFormat}" → ajuste CPM (vídeo +20%, imagem = base)
-- Leads estimados = R$ ${input.budget} ÷ CPL ${metaInsights?.cpl > 0 ? "real R$ " + (metaInsights?.cpl ?? 0).toFixed(2) : "referência do nicho"}
+- Leads estimados = R$ ${input.budget} ÷ CPL ${((metaInsights?.cpl ?? 0) > 0) ? "real R$ " + (metaInsights?.cpl ?? 0).toFixed(2) : "referência do nicho"}
 - breakEvenROAS baseado no produto: "${(clientProfile as any)?.productService || "não informado"}"
 - O insight deve mencionar se os dados são reais (Meta API) ou estimados (benchmark)
 
@@ -5255,7 +5255,7 @@ Budget: R$${input.budget}/mês. Plataforma: ${input.platform}.
 Dor: ${p?.mainPain || "—"}. Proposta: ${p?.uniqueValueProposition || "—"}.
 Concorrentes:
 ${compSummary || "Nenhum cadastrado."}
-${metaInsights ? `Performance real: CPC R$${metaInsights?.cpc.toFixed(2)}, CPM R$${metaInsights?.cpm.toFixed(2)}, CTR ${metaInsights?.ctr.toFixed(2)}%` : ""}
+${metaInsights! ? `Performance real: CPC R$${metaInsights?.cpc.toFixed(2)}, CPM R$${metaInsights?.cpm.toFixed(2)}, CTR ${metaInsights?.ctr.toFixed(2)}%` : ""}
 ${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}
 
 Gere JSON com:

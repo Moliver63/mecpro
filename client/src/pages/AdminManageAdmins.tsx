@@ -76,7 +76,7 @@ export default function AdminManageAdmins() {
               <option value="superadmin">Super Admin</option>
             </select>
             {sent && <p style={{ fontSize: 13, color: "var(--green-d)", fontWeight: 600, marginBottom: 10 }}>✓ Convite enviado!</p>}
-            <button className="btn btn-md btn-green btn-full" disabled={!isSuperAdmin || createInvite.isLoading || !inviteForm.email}
+            <button className="btn btn-md btn-green btn-full" disabled={!isSuperAdmin || createInvite.isPending || !inviteForm.email}
               onClick={() => createInvite.mutate(inviteForm)}>
               {createInvite.isPending ? "Enviando..." : "Enviar convite"}
             </button>

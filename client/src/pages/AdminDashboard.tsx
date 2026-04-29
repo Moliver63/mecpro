@@ -157,7 +157,7 @@ export default function AdminDashboard() {
           <div>
             <p style={{ fontSize:12, color:"rgba(255,255,255,.5)", marginBottom:4, textTransform:"uppercase", letterSpacing:1 }}>Meu plano atual</p>
             <p style={{ fontSize:18, fontWeight:800, color:"white", marginBottom:2 }}>
-              {{ free:"🆓 Free", basic:"⚡ Basic", premium:"⭐ Premium", vip:"👑 VIP" }[(user as any)?.plan || "free"]}
+              {(({ free:"🆓 Free", basic:"⚡ Basic", premium:"⭐ Premium", vip:"👑 VIP" } as any)[(user as any)?.plan || "free"])}
             </p>
             <p style={{ fontSize:11, color:"rgba(255,255,255,.4)" }}>Você pode alterar seu próprio plano como superadmin</p>
           </div>
