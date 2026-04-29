@@ -11,7 +11,7 @@ interface Props {
   onChange: (presetId: string, placements: string[]) => void;
 }
 
-const PLACEMENT_LABELS: Record<string, { label: string; icon: string; platform: "fb" | "ig" | "an" }> = {
+const PLACEMENT_LABELS: Record<string, { label: string; icon: string; platform: "fb" | "ig" | "an"; disabled?: boolean }> = {
   fb_feed:         { label: "Feed Facebook",       icon: "📘", platform: "fb" },
   fb_story:        { label: "Stories Facebook",    icon: "📘", platform: "fb" },
   fb_reels:        { label: "Reels FB ⚠️",          icon: "📘", platform: "fb", disabled: true }, // API rejeita

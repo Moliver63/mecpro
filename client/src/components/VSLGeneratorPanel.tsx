@@ -82,6 +82,8 @@ export default function VSLGeneratorPanel({
   const [pollInterval, setPollInterval] = useState<any>(null);
   const [expanded, setExpanded]         = useState(false);
   const [serviceAvailable, setServiceAvailable] = useState<boolean | null>(null);
+  const [ttsPreview, setTtsPreview]     = useState<{ sceneIdx: number; url: string } | null>(null);
+  const [ttsLoading, setTtsLoading]     = useState<number | null>(null);
 
   // Form de configuração do roteiro
   const [form, setForm] = useState({

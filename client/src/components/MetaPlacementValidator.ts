@@ -121,6 +121,9 @@ interface PlacementRule {
   notes:         string[];
   // Dica de performance
   tip:           string;
+  // API support flags
+  apiUnsupported?: boolean;
+  disabled?: boolean;
 }
 
 export const META_PLACEMENT_RULES: Record<string, PlacementRule> = {

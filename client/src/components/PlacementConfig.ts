@@ -18,6 +18,9 @@ export interface Placement {
   minResolution?: string;    // ex: "1080×1920"
   maxDuration?:   number;    // segundos (vídeo)
   performanceTip?: string;
+  apiUnsupported?: boolean;
+  disabled?: boolean;
+  recommended?: boolean;
 }
 
 export interface PlacementGroup {
