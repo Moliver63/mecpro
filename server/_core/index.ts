@@ -720,7 +720,22 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
   // Callback do Google
   app.get('/api/auth/google/callback',
-    passport.authenticate('google', { session: false, failureRedirect: '/login?error=oauth_failed' }),
+    (req: Request, res: Response, next: any) => {
+      passport.authenticate('google', { session: false }, (err: any, user: any) => {
+        if (err) {
+          // TokenError: Malformed auth code — código OAuth usado 2x ou expirado
+          const isTokenErr = err.name === 'TokenError' || err.message?.includes('Malformed');
+          log.warn('oauth', 'Google callback error', { name: err.name, msg: err.message?.slice(0, 80) });
+          return res.redirect(isTokenErr
+            ? '/login?error=oauth_expired'   // código expirou/reutilizado — pede novo login
+            : '/login?error=oauth_failed'
+          );
+        }
+        if (!user) return res.redirect('/login?error=oauth_failed');
+        req.user = user;
+        next();
+      })(req, res, next);
+    },
     async (req: Request, res: Response) => {
       try {
         const user = req.user as any;

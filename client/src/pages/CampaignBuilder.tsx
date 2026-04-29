@@ -237,6 +237,7 @@ export default function CampaignBuilder() {
   const [step, setStep] = useState(1);
   const [showBuilderAudit, setShowBuilderAudit] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const generatingRef = useRef(false); // evita duplo envio por clique rápido
   const [matchResult, setMatchResult] = useState<any>(null);
   const [matching, setMatching] = useState(false);
   const [segment, setSegment]   = useState<string>("");
@@ -294,6 +295,8 @@ export default function CampaignBuilder() {
 
   async function handleGenerate() {
     if (!form.name.trim()) return;
+    if (generatingRef.current) return; // previne duplo clique
+    generatingRef.current = true;
     setGenerating(true);
     try {
       await generate.mutateAsync({
@@ -310,6 +313,7 @@ export default function CampaignBuilder() {
       });
     } finally {
       setGenerating(false);
+      generatingRef.current = false;
     }
   }
 

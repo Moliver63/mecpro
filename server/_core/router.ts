@@ -37,6 +37,7 @@ import {
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
 export const router = t.router;
+const _genLocks: Record<string, number> = {};
 export const publicProcedure = t.procedure;
 // -- Helpers de data ---------------------------------------------------------
 function daysAgo(n: number): string {
@@ -2165,6 +2166,17 @@ const campaignsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const check = await db.checkPlanLimit(ctx.user.id, "campaigns", { projectId: input.projectId });
       if (!check.allowed) throw new TRPCError({ code: "FORBIDDEN", message: check.reason });
+
+      // Dedup: previne geração duplicada do mesmo projeto em <10s
+      const dedupKey = `gen:${ctx.user.id}:${input.projectId}`;
+      const now = Date.now();
+      if ((_genLocks as any)[dedupKey] && now - (_genLocks as any)[dedupKey] < 10_000) {
+        log.warn("ai", "Geração duplicada bloqueada", { projectId: input.projectId, userId: ctx.user.id });
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Geração já em andamento para este projeto. Aguarde alguns segundos." });
+      }
+      (_genLocks as any)[dedupKey] = now;
+      setTimeout(() => { delete (_genLocks as any)[dedupKey]; }, 15_000);
+
       const { generateCampaign } = await import("../ai");
       // Consolida contexto de segmentação no extraContext
       const segmentContext = [
