@@ -1,4 +1,5 @@
 import { Switch, Route, Redirect } from "wouter";
+import PWAInstallBanner from "@/components/PWAInstallBanner";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { trpc, trpcClient } from "@/lib/trpc";
@@ -277,6 +278,7 @@ export default function App() {
           </Switch>
           <CookieConsent />
           <MECPROAssistantChat />
+          <PWAInstallBanner />
           <Toaster richColors position="top-right" />
         </QueryClientProvider>
       </trpc.Provider>
