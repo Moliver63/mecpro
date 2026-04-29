@@ -162,7 +162,7 @@ export default function LandingNormal() {
         <div style={{borderTop:"1px solid rgba(255,255,255,.06)",borderBottom:"1px solid rgba(255,255,255,.06)",padding:"14px 28px",background:"rgba(255,255,255,.02)"}}>
           <div style={{maxWidth:1100,margin:"0 auto",display:"flex",alignItems:"center",gap:24,flexWrap:"wrap",justifyContent:"center"}}>
             <span style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,.2)",textTransform:"uppercase",letterSpacing:1.2}}>Confiado por</span>
-            {["500+ Agências","E-commerce","SaaS","Consultorias","Freelancers"].map(l=>(
+            {["Para sua Agência","E-commerce","SaaS","Consultorias","Freelancers"].map(l=>(
               <span key={l} style={{fontSize:13,fontWeight:600,color:"rgba(255,255,255,.3)"}}>{l}</span>
             ))}
             <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5}}>
