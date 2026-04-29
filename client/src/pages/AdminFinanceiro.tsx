@@ -45,7 +45,8 @@ export default function AdminFinanceiro() {
   const [modeGuide,   setModeGuide]   = useState(true);
   const [feePercent,  setFeePercent]  = useState(10);
   const [dist,        setDist]        = useState({ meta: 50, google: 30, tiktok: 20 });
-  const [landingMode, setLandingMode] = useState<"promo"|"normal">("normal");
+  const [landingMode,    setLandingMode]    = useState<"promo"|"normal">("normal");
+  const [paymentGateway, setPaymentGateway] = useState<"stripe"|"asaas">("stripe");
   const [activeTab,   setActiveTab]   = useState<"overview"|"settings"|"transactions"|"creditos">("overview");
 
   // Controle de créditos
@@ -70,7 +71,8 @@ export default function AdminFinanceiro() {
       setModeWallet(ps.modeWallet);
       setModeGuide(ps.modeGuide);
       setFeePercent(ps.feePercent);
-      if (ps.landingMode) setLandingMode(ps.landingMode);
+      if (ps.landingMode)    setLandingMode(ps.landingMode);
+      if (ps.paymentGateway) setPaymentGateway(ps.paymentGateway);
       setDist(ps.defaultDist);
     }
   }, [ps]);
@@ -81,7 +83,7 @@ export default function AdminFinanceiro() {
       toast.error(`Distribuição deve somar 100% (atual: ${totalDist}%)`);
       return;
     }
-    (savePS as any).mutate({ modeWallet, modeGuide, feePercent, defaultDist: dist, landingMode });
+    (savePS as any).mutate({ modeWallet, modeGuide, feePercent, defaultDist: dist, landingMode, paymentGateway });
   }
 
   const tabs = [
@@ -339,6 +341,97 @@ export default function AdminFinanceiro() {
                   ⚠️ Modo normal ativo — a promoção está oculta. Visitantes verão apenas a landing padrão sem oferta especial.
                 </div>
               )}
+            </div>
+
+            {/* Gateway de Pagamento */}
+            <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: "22px 24px" }}>
+              <h2 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 800 }}>Gateway de Pagamento</h2>
+              <p style={{ margin: "0 0 18px", fontSize: 13, color: "#64748b" }}>
+                Define qual provedor processa os pagamentos de assinatura dos planos.
+              </p>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                {([
+                  {
+                    value: "stripe",
+                    label: "Stripe",
+                    desc: "Cartão de crédito/débito internacional. Checkout hospedado, webhooks automáticos e suporte a recorrência.",
+                    color: "#6772e5",
+                    bg: "#f0f0ff",
+                    border: "#a5b4fc",
+                    logo: "💳",
+                  },
+                  {
+                    value: "asaas",
+                    label: "Asaas",
+                    desc: "Pix, boleto e cartão nacional (Brasil). Ideal para clientes que preferem pagamento local.",
+                    color: "#16a34a",
+                    bg: "#f0fdf4",
+                    border: "#86efac",
+                    logo: "Pix",
+                  },
+                ] as const).map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setPaymentGateway(opt.value)}
+                    style={{
+                      padding: "18px 20px", borderRadius: 14, textAlign: "left", cursor: "pointer",
+                      border: `2px solid ${paymentGateway === opt.value ? opt.border : "#e5e7eb"}`,
+                      background: paymentGateway === opt.value ? opt.bg : "#fff",
+                      transition: "all .15s", fontFamily: "inherit",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: opt.color }}>{opt.logo}</span>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: paymentGateway === opt.value ? opt.color : "#374151" }}>
+                          {opt.label}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 99,
+                        background: paymentGateway === opt.value ? opt.color : "#e5e7eb",
+                        color: paymentGateway === opt.value ? "#fff" : "#6b7280",
+                      }}>
+                        {paymentGateway === opt.value ? "ATIVO" : "INATIVO"}
+                      </span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 12, color: "#6b7280", lineHeight: 1.65 }}>{opt.desc}</p>
+                  </button>
+                ))}
+              </div>
+
+              {/* Status do gateway ativo */}
+              <div style={{ marginTop: 14, padding: "12px 16px", borderRadius: 10, fontSize: 12, lineHeight: 1.6,
+                background: paymentGateway === "stripe" ? "#f0f0ff" : "#f0fdf4",
+                border: `1px solid ${paymentGateway === "stripe" ? "#a5b4fc" : "#86efac"}`,
+                color: paymentGateway === "stripe" ? "#4338ca" : "#15803d",
+              }}>
+                {paymentGateway === "stripe"
+                  ? "Stripe ativo — assinaturas via cartao de credito/debito. Variaveis necessarias: STRIPE_SECRET_KEY, STRIPE_PRICE_BASIC, STRIPE_PRICE_PREMIUM, STRIPE_PRICE_VIP."
+                  : "Asaas ativo — pagamentos via Pix, boleto e cartao nacional. Variavel necessaria: ASAAS_API_KEY. Webhook configurado em /api/asaas/webhook."
+                }
+              </div>
+
+              {/* Checklist de variaveis de ambiente */}
+              <div style={{ marginTop: 12, padding: "12px 16px", background: "#fafafa", border: "1px solid #e5e7eb", borderRadius: 10 }}>
+                <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: ".5px" }}>
+                  Variaveis de ambiente necessarias
+                </p>
+                {paymentGateway === "stripe" ? (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {["STRIPE_SECRET_KEY","STRIPE_WEBHOOK_SECRET","STRIPE_PRICE_BASIC","STRIPE_PRICE_PREMIUM","STRIPE_PRICE_VIP"].map(v => (
+                      <code key={v} style={{ fontSize: 11, background: "#1e293b", color: "#4ade80", padding: "2px 8px", borderRadius: 4, fontFamily: "monospace" }}>{v}</code>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {["ASAAS_API_KEY","ASAAS_WEBHOOK_TOKEN"].map(v => (
+                      <code key={v} style={{ fontSize: 11, background: "#1e293b", color: "#4ade80", padding: "2px 8px", borderRadius: 4, fontFamily: "monospace" }}>{v}</code>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Distribuição padrão */}

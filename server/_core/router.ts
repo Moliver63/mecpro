@@ -3915,29 +3915,32 @@ const adminRouter = router({
   // ── Payment mode settings ──────────────────────────────────────────────
   getPaymentSettings: adminProcedure
     .query(async () => {
-      const [modeA, modeB, feePercent, defaultDist, landingMode] = await Promise.all([
+      const [modeA, modeB, feePercent, defaultDist, landingMode, gateway] = await Promise.all([
         db.getAdminSetting("payment_mode_wallet"),
         db.getAdminSetting("payment_mode_guide"),
         db.getAdminSetting("payment_fee_percent"),
         db.getAdminSetting("payment_default_dist"),
         db.getAdminSetting("landing_mode"),
+        db.getAdminSetting("payment_gateway"),
       ]);
       return {
-        modeWallet:   modeA !== "false",
-        modeGuide:    modeB !== "false",
-        feePercent:   Number(feePercent || "10"),
-        defaultDist:  defaultDist ? JSON.parse(defaultDist) : { meta: 50, google: 30, tiktok: 20 },
-        landingMode:  (landingMode || "promo") as "promo" | "normal",
+        modeWallet:      modeA !== "false",
+        modeGuide:       modeB !== "false",
+        feePercent:      Number(feePercent || "10"),
+        defaultDist:     defaultDist ? JSON.parse(defaultDist) : { meta: 50, google: 30, tiktok: 20 },
+        landingMode:     (landingMode || "normal") as "promo" | "normal",
+        paymentGateway:  (gateway || "stripe") as "stripe" | "asaas",
       };
     }),
 
   savePaymentSettings: adminProcedure
     .input(z.object({
-      modeWallet:  z.boolean(),
-      modeGuide:   z.boolean(),
-      feePercent:  z.number().min(0).max(50),
-      defaultDist: z.object({ meta: z.number(), google: z.number(), tiktok: z.number() }),
-      landingMode: z.enum(["promo","normal"]).default("promo"),
+      modeWallet:     z.boolean(),
+      modeGuide:      z.boolean(),
+      feePercent:     z.number().min(0).max(50),
+      defaultDist:    z.object({ meta: z.number(), google: z.number(), tiktok: z.number() }),
+      landingMode:    z.enum(["promo","normal"]).default("normal"),
+      paymentGateway: z.enum(["stripe","asaas"]).default("stripe"),
     }))
     .mutation(async ({ input }) => {
       await Promise.all([
@@ -3946,8 +3949,9 @@ const adminRouter = router({
         db.saveAdminSetting("payment_fee_percent",  String(input.feePercent)),
         db.saveAdminSetting("payment_default_dist", JSON.stringify(input.defaultDist)),
         db.saveAdminSetting("landing_mode",         input.landingMode),
+        db.saveAdminSetting("payment_gateway",      input.paymentGateway),
       ]);
-      log.info("admin", "Payment settings atualizadas", input);
+      log.info("admin", "Payment settings atualizadas", { ...input, paymentGateway: input.paymentGateway });
       return { success: true };
     }),
 
@@ -10273,6 +10277,11 @@ const publicRouter = router({
   getLandingMode: publicProcedure.query(async () => {
     const mode = await db.getAdminSetting("landing_mode");
     return { mode: (mode || "normal") as "promo" | "normal" };
+  }),
+
+  getPaymentGateway: publicProcedure.query(async () => {
+    const gateway = await db.getAdminSetting("payment_gateway");
+    return { gateway: (gateway || "stripe") as "stripe" | "asaas" };
   }),
 });
 

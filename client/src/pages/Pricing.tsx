@@ -45,7 +45,10 @@ export default function Pricing() {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [error, setError] = useState("");
   const { isAuthenticated } = useAuth();
-  const createCheckout = trpc.subscriptions.createCheckout.useMutation();
+  const createCheckout   = trpc.subscriptions.createCheckout.useMutation();
+  const createAsaas      = (trpc as any).subscriptions?.createAsaasAnnual?.useMutation?.();
+  const { data: gatewayData } = (trpc as any).public?.getPaymentGateway?.useQuery?.() ?? { data: null };
+  const activeGateway: "stripe" | "asaas" = gatewayData?.gateway ?? "stripe";
 
   const getPrice = (base: string) => {
     const num = parseInt(base);
@@ -53,12 +56,18 @@ export default function Pricing() {
   };
 
   const handleSubscribe = async (slug: "basic" | "premium" | "vip") => {
-    if (!isAuthenticated) { window.location.href = "/login"; return; }
+    if (!isAuthenticated) { window.location.href = "/login?next=/pricing"; return; }
     setError("");
     setLoadingPlan(slug);
     try {
-      const result = await createCheckout.mutateAsync({ planSlug: slug });
-      if (result.url) window.open(result.url, "_blank");
+      if (activeGateway === "asaas") {
+        // Asaas: redireciona para checkout interno com Pix/boleto
+        window.location.href = `/checkout/asaas?plan=${slug}&billing=${billing}`;
+      } else {
+        // Stripe: abre checkout hospedado
+        const result = await createCheckout.mutateAsync({ planSlug: slug, billing } as any);
+        if ((result as any).url) window.open((result as any).url, "_blank");
+      }
     } catch (e: any) {
       setError(e.message || "Erro ao criar checkout. Tente novamente.");
     } finally {
