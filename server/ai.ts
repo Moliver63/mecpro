@@ -1219,7 +1219,7 @@ const AI_TIMEOUTS = {
   resolvePageIdMs:          8000,  // 8s
   geminiMs:                55000,  // 55s — campanha/análise precisa de mais tempo (era 35s)
   geminiFinalRetryMs:      55000,  // 55s retry final
-  geminiFinalRetryDelayMs:  3000,  // 3s wait (era 5s)
+  geminiFinalRetryDelayMs:   500,  // 0.5s wait — era 3s (inútil esperar quando todas as chaves esgotadas)
   metaOfficialMs:          15000,  // 15s
   publicProxyMs:           10000,  // 10s
   publicDirectMs:           8000,  // 8s
@@ -1519,7 +1519,9 @@ async function _geminiImpl(
 
     const isCrossFamily = (model.startsWith("gemini-2.5") && nextModel.startsWith("gemini-2.0")) ||
                           (model.startsWith("gemini-2.0") && nextModel.startsWith("gemini-2.5"));
-    const delay  = is404 ? 50 : isCrossFamily ? 300 : 1000 * (retryCount + 1);
+    // Quota esgotada: vai direto para próximo sem esperar (chave já marcada como exausta)
+    // Rate limit: espera mínimo para não bater no rate limiter
+    const delay  = is404 ? 50 : isQuota ? 50 : isCrossFamily ? 300 : 500;
     log.warn("ai", `Gemini ${is404 ? "modelo inválido" : "sobrecarregado"} (${model}) → ${nextModel} em ${delay}ms`);
     await sleep(delay);
     return gemini(prompt, opts, retryCount + 1);
