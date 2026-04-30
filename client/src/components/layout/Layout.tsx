@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import UserMenu from "@/components/shared/UserMenu";
+import { trpc } from "@/lib/trpc";
 
 // ── Nav items ──────────────────────────────────────────────────────────────
 // Itens que podem ser ocultados pelo admin (key = path sem /)
