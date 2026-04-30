@@ -74,8 +74,8 @@ export function detectLayer(ads: any[]): number {
 }
 
 type AddMode = "url" | "name" | "instagram";
-type AdTab   = "ativos" | "todos" | "insights" | "cascade";
-type AdFilter = "todos" | "image" | "video" | "carousel";
+export type AdTab   = "ativos" | "todos" | "insights" | "cascade";
+export type AdFilter = "todos" | "image" | "video" | "carousel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENTE: CASCATA VISUAL EM TEMPO REAL

@@ -17,7 +17,20 @@ import { CompetitiveBanner, CompetitivePanel } from "@/components/competitors/co
 import { TikTokVerifier, GoogleVerifier, InstagramVerifier } from "@/components/competitors/competitorVerifiers";
 import { AdInputAnalyzer, ScoreBar } from "@/components/competitors/AdInputAnalyzer";
 import { useCompetitorData, useClientProfile } from "@/components/competitors/useCompetitorData";
-import { sourceBadge, detectLayer, formatDate, copyToClipboard, buildAdsLibraryUrl, extractPageId, extractIgHandle } from "@/components/competitors/competitorHelpers";
+import { sourceBadge, detectLayer, formatDate, copyToClipboard, buildAdsLibraryUrl, extractPageId, extractIgHandle, type AdTab, type AdFilter } from "@/components/competitors/competitorHelpers";
+
+interface MyCompanyData { name: string; instagram: string; facebook: string; website: string; }
+
+interface RaioXProps {
+  comp: any;
+  onClose: () => void;
+  onAnalyze: (id: number, force?: boolean) => void;
+  analyzing: boolean;
+  onEdit: () => void;
+  projectId: number;
+  onTikTokResult: (data: any) => void;
+  onRefetch: () => void;
+}
 
 function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTokResult, onRefetch }: RaioXProps) {
   const [adTab, setAdTab]           = useState<AdTab>("ativos");

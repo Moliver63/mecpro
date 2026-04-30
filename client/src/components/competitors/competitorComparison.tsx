@@ -143,7 +143,7 @@ export function CompetitiveBanner({ comp, myCompany, profileLoaded, onCompare, o
 // COMPONENTE: PAINEL COMPARATIVO (Competitive Intelligence Matrix)
 // Método: SWOT Competitiva + Blue Ocean Strategy + Jobs-to-be-Done
 // ─────────────────────────────────────────────────────────────────────────────
-interface MyCompanyData {
+export interface MyCompanyData {
   name: string;
   instagram?: string;
   facebook?: string;
