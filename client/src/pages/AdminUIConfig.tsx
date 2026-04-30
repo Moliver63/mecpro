@@ -53,7 +53,7 @@ export default function AdminUIConfig() {
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty]     = useState(false);
 
-  const getUIConfig  = (trpc as any).admin?.getUIConfig?.useQuery?.();
+  const getUIConfig  = (trpc as any).public?.getUIConfig?.useQuery?.();
   const saveUIConfig = (trpc as any).admin?.saveUIConfig?.useMutation?.({
     onSuccess: () => { toast.success("◎ Configurações salvas!"); setDirty(false); },
     onError:   (e: any) => toast.error(`Erro: ${e.message}`),
