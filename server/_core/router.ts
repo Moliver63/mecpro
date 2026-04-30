@@ -3964,6 +3964,9 @@ const adminRouter = router({
         db.saveAdminSetting("payment_gateway",      input.paymentGateway),
       ]);
       log.info("admin", "Payment settings atualizadas", { ...input, paymentGateway: input.paymentGateway });
+      // Invalida cache do gateway ativo para próximas requisições usarem o novo
+      const { invalidateGatewayCache } = await import("../paymentService");
+      invalidateGatewayCache();
       return { success: true };
     }),
 
@@ -5748,40 +5751,33 @@ const consultasRouter = router({
 
 // ============ SUBSCRIPTIONS ROUTER ============
 const subscriptionsRouter = router({
+  // ─── createCheckout — usa gateway ativo (Stripe ou Asaas) ──────────────────
   createCheckout: protectedProcedure
     .input(z.object({
       planSlug: z.enum(["basic", "premium", "vip"]),
       billing:  z.enum(["monthly", "yearly"]).default("monthly"),
+      cpfCnpj:  z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const stripeKey = process.env.STRIPE_SECRET_KEY;
-      if (!stripeKey) throw new TRPCError({ code: "BAD_REQUEST", message: "Stripe não configurado. Contate o suporte." });
+      const { getActiveProvider } = await import("../paymentService");
+      const provider = await getActiveProvider();
+      const appUrl   = process.env.APP_URL || "https://www.mecproai.com";
 
-      const { getStripePriceId, isPlanStripeConfigured } = await import("../stripe-config");
-      if (!isPlanStripeConfigured(input.planSlug)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Plano "${input.planSlug}" sem priceId configurado. Verifique STRIPE_PRICE_${input.planSlug.toUpperCase()} no Render.` });
+      try {
+        const result = await provider.createSubscription({
+          userId:   ctx.user.id,
+          email:    ctx.user.email,
+          planSlug: input.planSlug,
+          billing:  input.billing,
+          cpfCnpj:  input.cpfCnpj,
+          appUrl,
+        });
+        log.info("payment", "Checkout criado", { gateway: provider.name, userId: ctx.user.id, planSlug: input.planSlug });
+        return result;
+      } catch (err: any) {
+        log.error("payment", `${provider.name} createSubscription falhou`, { error: err.message, userId: ctx.user.id });
+        throw new TRPCError({ code: "BAD_REQUEST", message: err.message || "Erro ao criar checkout. Tente novamente." });
       }
-      const priceId = getStripePriceId(input.planSlug)!;
-
-      const Stripe = (await import("stripe")).default;
-      const stripe = new Stripe(stripeKey, { apiVersion: "2024-11-20.acacia" as any });
-
-      const user = ctx.user;
-      const appUrl = process.env.APP_URL || "https://mecpro-ai.onrender.com";
-
-      const session = await stripe.checkout.sessions.create({
-        mode: "subscription",
-        payment_method_types: ["card"],
-        line_items: [{ price: priceId, quantity: 1 }],
-        customer_email: user.email,
-        success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url:  `${appUrl}/billing`,
-        metadata: { user_id: String(user.id), plan_slug: input.planSlug, billing: input.billing },
-        locale: "pt-BR",
-      });
-
-      log.info("stripe", "Checkout session criada", { userId: user.id, planSlug: input.planSlug, sessionId: session.id });
-      return { url: session.url };
     }),
 
   // ─── Checkout Asaas — Plano Anual com Crédito Promocional ─────────────────

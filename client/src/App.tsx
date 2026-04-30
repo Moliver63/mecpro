@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect } from "wouter";
 import PWAInstallBanner from "@/components/PWAInstallBanner";
+import CheckoutAsaas from "@/pages/CheckoutAsaas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { trpc, trpcClient } from "@/lib/trpc";
