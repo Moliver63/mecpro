@@ -510,5 +510,89 @@ export async function runMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS "thumbnailUrl" TEXT
     `).catch(() => {});
 
+
+    // ── ML Intelligence Tables ──────────────────────────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS winner_patterns (
+        id                 SERIAL PRIMARY KEY,
+        platform           TEXT NOT NULL,
+        objective          TEXT NOT NULL,
+        niche              TEXT DEFAULT 'geral',
+        score              NUMERIC(5,2) NOT NULL,
+        statistical_conf   NUMERIC(5,3) DEFAULT 0,
+        volume_weight      NUMERIC(5,2) DEFAULT 0,
+        ad_format          TEXT,
+        headline_pattern   TEXT,
+        copy_structure     TEXT,
+        cta_type           TEXT,
+        main_promise       TEXT,
+        trigger_types      TEXT,
+        media_types        TEXT,
+        key_factors        TEXT,
+        recommendations    TEXT,
+        why_it_won         TEXT,
+        success_probability NUMERIC(5,2) DEFAULT 0,
+        status             TEXT DEFAULT 'active',
+        approved_by_admin  INTEGER DEFAULT 0,
+        approved_at        TIMESTAMPTZ,
+        campaign_id        INTEGER,
+        user_id            INTEGER,
+        project_id         INTEGER,
+        ml_features        TEXT,
+        created_at         TIMESTAMPTZ DEFAULT NOW(),
+        updated_at         TIMESTAMPTZ DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS learning_base (
+        id                 SERIAL PRIMARY KEY,
+        platform           TEXT NOT NULL,
+        objective          TEXT NOT NULL,
+        niche              TEXT DEFAULT 'geral',
+        sample_count       INTEGER DEFAULT 0,
+        avg_score          NUMERIC(5,2) DEFAULT 0,
+        best_score         NUMERIC(5,2) DEFAULT 0,
+        avg_ctr            NUMERIC(8,4) DEFAULT 0,
+        avg_cpc            NUMERIC(8,4) DEFAULT 0,
+        avg_cpm            NUMERIC(8,4) DEFAULT 0,
+        avg_roas           NUMERIC(8,4) DEFAULT 0,
+        top_ad_formats     TEXT DEFAULT '{}',
+        top_cta_types      TEXT DEFAULT '{}',
+        top_placements     TEXT DEFAULT '{}',
+        top_triggers       TEXT DEFAULT '{}',
+        top_budget_ranges  TEXT DEFAULT '{}',
+        top_durations      TEXT DEFAULT '{}',
+        top_copy_structures TEXT DEFAULT '{}',
+        top_media_types    TEXT DEFAULT '{}',
+        version            INTEGER DEFAULT 1,
+        last_updated       TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(platform, objective, niche)
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS intelligence_log (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER,
+        action     TEXT NOT NULL,
+        entity     TEXT,
+        entity_id  INTEGER,
+        data       TEXT,
+        status     TEXT DEFAULT 'success',
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_winner_patterns_platform_obj
+        ON winner_patterns(platform, objective, niche)
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_learning_base_lookup
+        ON learning_base(platform, objective, niche)
+    `).catch(() => {});
+
         console.log('[migrations] ✅ Migrations applied successfully');
 }

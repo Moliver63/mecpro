@@ -64,6 +64,7 @@ export default function AdminDashboard() {
             { label: "Planos",         path: "/admin/plans",                  icon: "🏷" },
             { label: "Financeiro",     path: "/admin/financeiro",             icon: "◉" },
             { label: "Admins",         path: "/admin/manage-admins",          icon: "🛡" },
+            { label: "ML",              path: "/admin/intelligence",            icon: "🧠" },
           ].map(a => (
             <button key={a.path} onClick={() => setLocation(a.path)}
               style={{ background: "white", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", color: "var(--black)", display: "flex", alignItems: "center", gap: 5 }}>
@@ -205,6 +206,7 @@ export default function AdminDashboard() {
           { icon: "🏷", label: "Planos",          path: "/admin/plans" },
           { icon: "◉",  label: "Financeiro",     path: "/admin/financeiro" },
           { icon: "🛡",  label: "Admins",         path: "/admin/manage-admins" },
+          { icon: "🧠",  label: "ML / Inteligência", path: "/admin/intelligence" },
         ].map(a => (
           <button key={a.path} onClick={() => setLocation(a.path)}
             style={{ background: "white", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 12px", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, cursor: "pointer", transition: "all .15s", fontSize: 22 }}
