@@ -765,6 +765,33 @@ Responda SOMENTE em JSON:
 // ============ COMPETITORS ROUTER ============
 const competitorsRouter = router({
   list: protectedProcedure.input(z.object({ projectId: z.number() })).query(({ input }) => db.getCompetitorsByProjectId(input.projectId)),
+  // ── Auto-descoberta de concorrentes com base no perfil do cliente ──────────
+  discoverCompetitors: protectedProcedure
+    .input(z.object({ projectId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const profile = await db.getClientProfile(input.projectId);
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "Perfil do cliente não encontrado. Preencha o Módulo 1 primeiro." });
+
+      const { discoverCompetitors } = await import("../ai");
+      const suggestions = await discoverCompetitors({
+        companyName:     profile.companyName,
+        niche:           profile.niche,
+        productService:  profile.productService,
+        websiteUrl:      profile.websiteUrl,
+        targetAudience:  (profile as any).targetAudience,
+      });
+
+      log.info("competitors", "discoverCompetitors", {
+        projectId: input.projectId,
+        userId:    ctx.user.id,
+        niche:     profile.niche,
+        found:     suggestions.length,
+      });
+
+      return { suggestions };
+    }),
+
+
 
   // -- Estima gasto mensal do concorrente em trafego pago --
   estimateSpend: protectedProcedure

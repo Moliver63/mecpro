@@ -935,6 +935,10 @@ export default function CompetitorAnalysis() {
   }) ?? { mutate: () => {}, isPending: false };
 
   const [adding,    setAdding]    = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [suggestions,  setSuggestions] = useState<any[]>([]);
+  const [selectedSugs, setSelectedSugs] = useState<Set<number>>(new Set());
+  const [savingSugs,   setSavingSugs]  = useState(false);
   const [analyzing, setAnalyzing] = useState<number | null>(null);
   const [selected,  setSelected]  = useState<number | null>(null);
   const [editing,   setEditing]   = useState<number | null>(null);
@@ -942,6 +946,22 @@ export default function CompetitorAnalysis() {
 
   const { data: project       } = (trpc as any).projects?.get?.useQuery?.({ id: projectId }, { enabled: !!projectId }) ?? { data: null };
   const { data: clientProfile } = (trpc as any).clientProfile?.get?.useQuery?.({ projectId }, { enabled: !!projectId }) ?? { data: null };
+
+  const discoverMut = (trpc as any).competitors?.discoverCompetitors?.useMutation?.({
+    onSuccess: (data: any) => {
+      if (!data?.suggestions?.length) {
+        toast.warning("Nenhum concorrente encontrado para este perfil. Tente adicionar manualmente.");
+        return;
+      }
+      setSuggestions(data.suggestions);
+      setSelectedSugs(new Set(data.suggestions.map((_: any, i: number) => i)));
+    },
+    onError: (e: any) => toast.error(e.message || "Erro ao buscar concorrentes"),
+  }) ?? { mutate: () => {}, isPending: false };
+
+  const createMut = (trpc as any).competitors?.create?.useMutation?.({
+    onSuccess: () => refetch(),
+  }) ?? { mutateAsync: null };
 
   const derivedCompany: MyCompanyData = {
     name: clientProfile?.companyName ?? project?.name ?? "",
@@ -966,6 +986,30 @@ export default function CompetitorAnalysis() {
       setMyCompanyReady(true);
     }
   }, [derivedCompany.name, myCompanyReady]);
+
+  async function handleSaveSuggestions() {
+    const toSave = suggestions.filter((_, i) => selectedSugs.has(i));
+    if (!toSave.length) { toast.warning("Selecione pelo menos um concorrente"); return; }
+    setSavingSugs(true);
+    try {
+      for (const s of toSave) {
+        await (createMut as any).mutateAsync?.({
+          projectId,
+          name:            s.name,
+          websiteUrl:      s.websiteUrl      || undefined,
+          facebookPageUrl: s.facebookPageUrl || undefined,
+          instagramUrl:    s.instagramUrl    || undefined,
+        });
+      }
+      toast.success(`◎ ${toSave.length} concorrente${toSave.length > 1 ? "s" : ""} adicionado${toSave.length > 1 ? "s" : ""}!`);
+      setSuggestions([]);
+      setSelectedSugs(new Set());
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao salvar concorrentes");
+    } finally {
+      setSavingSugs(false);
+    }
+  }
 
   async function handleAnalyze(id: number, force = false) {
     setAnalyzing(id);
@@ -1055,7 +1099,21 @@ export default function CompetitorAnalysis() {
                 <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24, maxWidth: 380, margin: "0 auto 24px" }}>
                   Cole o link da Ads Library, pesquise pelo nome da empresa ou pelo @handle do Instagram. O sistema usará as 7 camadas para encontrar os anúncios.
                 </p>
-                <button className="btn btn-lg btn-green" onClick={() => setAdding(true)} style={{ margin: "0 auto" }}>+ Adicionar concorrente</button>
+                <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                  <button className="btn btn-lg btn-green" onClick={() => setAdding(true)}>+ Adicionar manualmente</button>
+                  <button
+                    onClick={() => {
+                      if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
+                      discoverMut.mutate({ projectId });
+                    }}
+                    disabled={(discoverMut as any).isPending}
+                    style={{ fontSize: 14, fontWeight: 800, padding: "12px 22px", borderRadius: 12,
+                      border: "2px solid #7c3aed", background: "#faf5ff", color: "#7c3aed",
+                      cursor: (discoverMut as any).isPending ? "wait" : "pointer",
+                      display: "flex", alignItems: "center", gap: 8 }}>
+                    {(discoverMut as any).isPending ? "⏳ Buscando concorrentes..." : "🔍 Descobrir concorrentes com IA"}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1067,6 +1125,87 @@ export default function CompetitorAnalysis() {
                 </div>
                 <AddCompetitorForm projectId={projectId} onDone={() => { refetch(); setAdding(false); }} />
               </>
+            )}
+
+
+            {/* ── Modal de sugestões da IA ── */}
+            {suggestions.length > 0 && (
+              <div style={{ background: "white", border: "2px solid #7c3aed", borderRadius: 16, padding: "20px 22px", marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div>
+                    <p style={{ fontSize: 15, fontWeight: 900, color: "#0f172a", margin: "0 0 3px", letterSpacing: "-0.03em" }}>
+                      🔍 Concorrentes encontrados pela IA
+                    </p>
+                    <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
+                      Baseado no perfil: <strong>{clientProfile?.niche}</strong> · Selecione quais analisar
+                    </p>
+                  </div>
+                  <button onClick={() => { setSuggestions([]); setSelectedSugs(new Set()); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "#94a3b8" }}>×</button>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                  {suggestions.map((s, i) => {
+                    const checked = selectedSugs.has(i);
+                    return (
+                      <div key={i}
+                        onClick={() => {
+                          const next = new Set(selectedSugs);
+                          if (checked) next.delete(i); else next.add(i);
+                          setSelectedSugs(next);
+                        }}
+                        style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+                          borderRadius: 10, border: `1.5px solid ${checked ? "#7c3aed" : "#e2e8f0"}`,
+                          background: checked ? "#faf5ff" : "#f8fafc", cursor: "pointer", transition: "all .15s" }}>
+                        <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${checked ? "#7c3aed" : "#cbd5e1"}`,
+                          background: checked ? "#7c3aed" : "white", display: "flex", alignItems: "center",
+                          justifyContent: "center", flexShrink: 0, fontSize: 12, color: "white" }}>
+                          {checked ? "✓" : ""}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a" }}>{s.name}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20,
+                              background: s.confidence === "high" ? "#dcfce7" : s.confidence === "medium" ? "#fef3c7" : "#f1f5f9",
+                              color: s.confidence === "high" ? "#166534" : s.confidence === "medium" ? "#92400e" : "#475569" }}>
+                              {s.confidence === "high" ? "Alta" : s.confidence === "medium" ? "Média" : "Baixa"} confiança
+                            </span>
+                          </div>
+                          {s.description && (
+                            <p style={{ fontSize: 11, color: "#64748b", margin: "3px 0 0", lineHeight: 1.4 }}>{s.description}</p>
+                          )}
+                          <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                            {s.websiteUrl && <a href={s.websiteUrl} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontSize: 10, color: "#3b82f6", textDecoration: "none" }}>🌐 site</a>}
+                            {s.facebookPageUrl && <a href={s.facebookPageUrl} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontSize: 10, color: "#1877f2", textDecoration: "none" }}>📘 facebook</a>}
+                            {s.instagramUrl && <a href={s.instagramUrl} target="_blank" rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              style={{ fontSize: 10, color: "#e1306c", textDecoration: "none" }}>📸 instagram</a>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => setSelectedSugs(new Set(suggestions.map((_,i)=>i)))}
+                    style={{ fontSize: 12, fontWeight: 600, color: "#7c3aed", background: "none", border: "none", cursor: "pointer" }}>
+                    Selecionar todos
+                  </button>
+                  <button onClick={handleSaveSuggestions} disabled={savingSugs || selectedSugs.size === 0}
+                    style={{ padding: "9px 20px", borderRadius: 10, border: "none",
+                      background: selectedSugs.size === 0 ? "#e2e8f0" : "#7c3aed",
+                      color: selectedSugs.size === 0 ? "#94a3b8" : "white",
+                      cursor: savingSugs || selectedSugs.size === 0 ? "not-allowed" : "pointer",
+                      fontWeight: 700, fontSize: 13 }}>
+                    {savingSugs ? "⏳ Adicionando..." : `◎ Adicionar ${selectedSugs.size} selecionado${selectedSugs.size !== 1 ? "s" : ""}`}
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Tabela comparativa de gasto */}
@@ -1153,7 +1292,21 @@ export default function CompetitorAnalysis() {
                     <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>
                       Concorrentes <span style={{ color: "var(--muted)", fontWeight: 400 }}>({competitors?.length})</span>
                     </span>
-                    <button className="btn btn-sm btn-primary" onClick={() => { setAdding(true); setSelected(null); }}>+ Adicionar</button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={() => {
+                          if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
+                          discoverMut.mutate({ projectId });
+                        }}
+                        disabled={(discoverMut as any).isPending}
+                        style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8,
+                          border: "1px solid #a78bfa", background: "#faf5ff", color: "#7c3aed",
+                          cursor: (discoverMut as any).isPending ? "wait" : "pointer",
+                          display: "flex", alignItems: "center", gap: 5 }}>
+                        {(discoverMut as any).isPending ? "⏳ Buscando..." : "🔍 Descobrir com IA"}
+                      </button>
+                      <button className="btn btn-sm btn-primary" onClick={() => { setAdding(true); setSelected(null); }}>+ Adicionar</button>
+                    </div>
                   </div>
                 )}
 

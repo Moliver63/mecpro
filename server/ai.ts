@@ -2770,6 +2770,93 @@ function generateLocalInsights(ads: any[], competitorName: string, isEstimated: 
 // ── Lock global para evitar análises simultâneas do mesmo concorrente ────────
 const _analyzingLock = new Map<number, Promise<any>>();
 
+
+// ═══════════════════════════════════════════════════════════════════
+// AUTO-DESCOBERTA DE CONCORRENTES com base no perfil do cliente
+// ═══════════════════════════════════════════════════════════════════
+export async function discoverCompetitors(profile: {
+  companyName: string;
+  niche: string;
+  productService: string;
+  websiteUrl?: string | null;
+  targetAudience?: string | null;
+}): Promise<Array<{
+  name: string;
+  websiteUrl?: string;
+  facebookPageUrl?: string;
+  instagramUrl?: string;
+  description?: string;
+  confidence: "high" | "medium" | "low";
+}>> {
+  const { companyName, niche, productService, websiteUrl, targetAudience } = profile;
+
+  // Extrai região do público-alvo ou website
+  const regionHint = targetAudience?.match(/(norte|sul|sudeste|nordeste|centro-oeste|brasil|são paulo|rio|sc|rs|pr|ba|mg|rj|sp|ceará|pernambuco|amazonas)/gi)?.[0] || "Brasil";
+
+  const prompt = `Você é um especialista em inteligência competitiva de mercado brasileiro.
+
+Dado o perfil abaixo, liste os 5 principais CONCORRENTES DIRETOS que mais provavelmente competem por atenção nos anúncios digitais:
+
+Empresa: ${companyName}
+Nicho: ${niche}
+Produto/Serviço: ${productService}
+Região: ${regionHint}
+${websiteUrl ? `Website: ${websiteUrl}` : ""}
+
+INSTRUÇÕES:
+- Foque em empresas que anunciam no Meta Ads (Facebook/Instagram) no mesmo nicho
+- Priorize empresas da mesma região/cidade quando possível
+- Inclua tanto grandes players quanto concorrentes locais relevantes
+- NÃO inclua a própria empresa "${companyName}"
+- Para cada concorrente, forneça nome, site e URL do Facebook/Instagram se souber
+
+Responda APENAS com JSON válido neste formato exato:
+[
+  {
+    "name": "Nome do Concorrente",
+    "websiteUrl": "https://site.com.br",
+    "facebookPageUrl": "https://facebook.com/pagina",
+    "instagramUrl": "https://instagram.com/handle",
+    "description": "O que fazem e por que competem com ${companyName}",
+    "confidence": "high"
+  }
+]
+
+confidence: "high" = certeza alta | "medium" = provável | "low" = possível`;
+
+  try {
+    // Usa Gemini com Grounding (busca real na web)
+    const raw = await geminiWithGrounding(prompt);
+    if (Array.isArray(raw) && raw.length > 0) {
+      log.info("ai", "discoverCompetitors: Grounding OK", { niche, count: raw.length });
+      return raw.slice(0, 5).map((r: any) => ({
+        name:           String(r.name || "").slice(0, 255),
+        websiteUrl:     r.websiteUrl    || undefined,
+        facebookPageUrl:r.facebookPageUrl || undefined,
+        instagramUrl:   r.instagramUrl  || undefined,
+        description:    r.description   || undefined,
+        confidence:     (["high","medium","low"].includes(r.confidence) ? r.confidence : "medium") as "high"|"medium"|"low",
+      }));
+    }
+
+    // Fallback: Gemini sem grounding
+    const fallbackPrompt = prompt + "\n\nImportante: mesmo sem acesso à web, use seu conhecimento sobre o mercado brasileiro para sugerir concorrentes plausíveis.";
+    const text = await gemini(fallbackPrompt, { maxOutputTokens: 800, temperature: 0.3 });
+    if (text) {
+      const clean = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      if (Array.isArray(parsed)) {
+        log.info("ai", "discoverCompetitors: fallback Gemini OK", { niche, count: parsed.length });
+        return parsed.slice(0, 5);
+      }
+    }
+  } catch (e: any) {
+    log.warn("ai", "discoverCompetitors erro", { error: e.message?.slice(0, 80) });
+  }
+
+  return [];
+}
+
 export async function analyzeCompetitor(competitorId: number, projectId: number, force = false) {
   // Se já está analisando este concorrente, aguarda e retorna o mesmo resultado
   // force=true pula o lock para garantir nova análise imediata
