@@ -259,12 +259,14 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
     try { return localStorage.getItem("sidebar-collapsed") === "1"; } catch { return false; }
   });
 
-  // getUIConfig: hook real e incondicional — DEVE estar antes de qualquer return (Rules of Hooks)
-  const { data: uiConfig } = trpc.public.getUIConfig.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000,  // cache 5 min — evita refetch a cada render
-    retry: false,               // não retenta se falhar (não é crítico)
-  });
-  const uiVisibility: Record<string, boolean> = (uiConfig as any)?.visibility ?? {};
+  // getUIConfig: hook incondicional — DEVE estar antes de qualquer return (Rules of Hooks)
+  const uiConfigQuery = trpc.public.getUIConfig.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+    // Se falhar, retorna visibilidade vazia (menu completo) — sem crash
+    onError: () => {},
+  } as any);
+  const uiVisibility: Record<string, boolean> = (uiConfigQuery.data as any)?.visibility ?? {};
 
   const toggle = () => {
     const next = !collapsed;

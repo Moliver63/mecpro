@@ -1,5 +1,5 @@
 // MecProAI Service Worker — PWA
-const CACHE_VERSION = 'mecproai-v2'; // v2: fixed /dashboard cache issue
+const CACHE_VERSION = 'mecproai-v3'; // v3: fixed Layout trpc import
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 
