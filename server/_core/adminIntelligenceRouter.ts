@@ -740,6 +740,232 @@ export const adminIntelligenceRouter = router({
         return { logs };
       } catch { return { logs: [] }; }
     }),
+  // ── 13. ANÁLISE COMPLETA — calcula scores + extrai padrões + atualiza base ─
+  runFullAnalysis: adminProcedure
+    .input(z.object({
+      minScore:    z.number().default(60),     // score mínimo para virar padrão
+      limit:       z.number().default(200),    // max campanhas a processar
+      autoApprove: z.boolean().default(false), // aprovar padrões automaticamente
+      niche:       z.string().optional(),
+      platform:    z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const pool     = await getPool();
+      const projects = await db.getAllProjects();
+
+      const report = {
+        totalCampaigns:   0,
+        scored:           0,
+        patternsExtracted: 0,
+        learningUpdated:  0,
+        mlSamples:        0,
+        topScore:         0,
+        avgScore:         0,
+        skipped:          0,
+        errors:           0,
+        winners:          [] as Array<{ id: number; name: string; score: number; platform: string; objective: string; niche: string }>,
+      };
+
+      const allScores: number[] = [];
+
+      for (const project of projects) {
+        const campaigns: any[] = await db.getCampaignsByProjectId(project.id).catch(() => []);
+
+        for (const c of campaigns) {
+          if (report.scored >= input.limit) break;
+          if (input.platform && c.platform !== input.platform) continue;
+          report.totalCampaigns++;
+
+          try {
+            // ── 1. Carrega contexto e calcula score ──────────────────────────
+            const { context, metrics } = await loadCampaignContext(c.id);
+            if (input.niche && context.niche !== input.niche) continue;
+            if (!context.platform) { report.skipped++; continue; }
+
+            const score = calculateScore(context, metrics);
+            allScores.push(score.total);
+            report.scored++;
+            if (score.total > report.topScore) report.topScore = score.total;
+
+            // ── 2. Persiste score no banco ───────────────────────────────────
+            if (pool) {
+              try {
+                await pool.query(`
+                  INSERT INTO campaign_scores (
+                    campaign_id, user_id, project_id, score_total,
+                    score_ctr, score_cpc, score_cpm, score_roas,
+                    score_creative, score_consistency, score_scalability,
+                    platform, objective, niche,
+                    metric_impressions, metric_clicks, metric_ctr, metric_cpc,
+                    metric_cpm, metric_spend, metric_roas,
+                    is_winner, statistical_conf, volume_weight,
+                    is_false_winner, false_winner_reason,
+                    score_explanation, key_insights, engine_version
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+                  ON CONFLICT DO NOTHING`,
+                  [
+                    c.id, context.userId, context.projectId, score.total,
+                    score.ctr, score.cpc, score.cpm, score.roas,
+                    score.creative, score.consistency, score.scalability,
+                    context.platform, context.objective, context.niche || "geral",
+                    metrics.impressions, metrics.clicks, metrics.ctr, metrics.cpc,
+                    metrics.cpm, metrics.spend, metrics.roas ?? 0,
+                    (!score.isFalseWinner && score.total >= input.minScore) ? 1 : 0,
+                    score.statisticalConf, score.volumeWeight,
+                    score.isFalseWinner ? 1 : 0, score.falseWinnerReason || null,
+                    score.explanation, JSON.stringify(score.keyInsights), "2.0",
+                  ]
+                );
+              } catch {}
+            }
+
+            // ── 3. Extrai padrão se score ≥ minScore e não é falso vencedor ──
+            if (score.total >= input.minScore && !score.isFalseWinner) {
+              try {
+                const params   = extractWinnerParameters(context, score, metrics);
+                const template = buildRecommendedTemplate(params, context.platform, context.objective, context.niche || "geral");
+
+                if (pool) {
+                  await pool.query(`
+                    INSERT INTO winner_patterns (
+                      campaign_id, user_id, project_id,
+                      platform, objective, niche,
+                      ad_format, headline_pattern, copy_structure, cta_type, main_promise,
+                      trigger_types, media_types, key_factors, recommendations,
+                      score, statistical_conf, volume_weight, success_probability,
+                      approved_by_admin, approved_at, status
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+                    ON CONFLICT DO NOTHING`,
+                    [
+                      c.id, context.userId, context.projectId,
+                      context.platform, context.objective, context.niche || "geral",
+                      params.adFormat, params.headlinePattern, params.copyStructure,
+                      params.ctaType, params.mainPromise,
+                      JSON.stringify(params.triggerTypes), JSON.stringify(params.mediaTypes),
+                      JSON.stringify(params.keyFactors), JSON.stringify((params as any).recommendations || []),
+                      score.total, score.statisticalConf, score.volumeWeight,
+                      params.successProbability,
+                      input.autoApprove ? 1 : 0,
+                      input.autoApprove ? new Date() : null,
+                      "active",
+                    ]
+                  );
+                  report.patternsExtracted++;
+                  report.winners.push({
+                    id: c.id, name: c.name, score: score.total,
+                    platform: context.platform, objective: context.objective,
+                    niche: context.niche || "geral",
+                  });
+                }
+              } catch {}
+            }
+
+            // ── 4. Atualiza learning base (todas as campanhas, não só vencedoras) ──
+            try {
+              const params = extractWinnerParameters(context, score, metrics);
+              const rows   = pool ? (await pool.query(
+                `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
+                [context.platform, context.objective, context.niche || "geral"]
+              )).rows : [];
+              const existing = rows[0] || null;
+              const update   = computeLearningUpdate(existing, score.total, metrics, params as any);
+
+              if (pool) {
+                if (existing) {
+                  await pool.query(`
+                    UPDATE learning_base SET
+                      sample_count=$1, avg_score=$2, best_score=$3,
+                      avg_ctr=$4, avg_cpc=$5, avg_cpm=$6, avg_roas=$7,
+                      top_ad_formats=$8, top_cta_types=$9, top_placements=$10,
+                      top_triggers=$11, top_budget_ranges=$12, top_durations=$13,
+                      top_copy_structures=$14, top_media_types=$15,
+                      last_updated=NOW()
+                    WHERE platform=$16 AND objective=$17 AND niche=$18`,
+                    [
+                      update.sample_count, update.avg_score, update.best_score,
+                      update.avg_ctr, update.avg_cpc, update.avg_cpm, update.avg_roas,
+                      update.top_ad_formats, update.top_cta_types, update.top_placements,
+                      update.top_triggers, update.top_budget_ranges, update.top_durations,
+                      update.top_copy_structures, update.top_media_types,
+                      context.platform, context.objective, context.niche || "geral",
+                    ]
+                  );
+                } else {
+                  await pool.query(`
+                    INSERT INTO learning_base (
+                      platform, objective, niche, sample_count,
+                      avg_score, best_score, avg_ctr, avg_cpc, avg_cpm, avg_roas,
+                      top_ad_formats, top_cta_types, top_placements, top_triggers,
+                      top_budget_ranges, top_durations, top_copy_structures, top_media_types
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+                    [
+                      context.platform, context.objective, context.niche || "geral", 1,
+                      score.total, score.total,
+                      metrics.ctr, metrics.cpc, metrics.cpm, metrics.roas ?? 0,
+                      update.top_ad_formats, update.top_cta_types, update.top_placements,
+                      update.top_triggers, update.top_budget_ranges, update.top_durations,
+                      update.top_copy_structures, update.top_media_types,
+                    ]
+                  );
+                }
+                report.learningUpdated++;
+              }
+            } catch {}
+
+            // ── 5. Adiciona ao dataset ML ────────────────────────────────────
+            try {
+              const params     = extractWinnerParameters(context, score, metrics);
+              const mlFeatures = buildMLFeatures(context, params as any, score);
+              if (pool) {
+                await pool.query(`
+                  INSERT INTO ml_dataset (
+                    campaign_id, feature_platform, feature_objective, feature_niche,
+                    feature_ad_format, feature_budget_range, feature_duration,
+                    feature_has_video, feature_has_carousel,
+                    feature_used_urgency, feature_used_social_proof,
+                    feature_copy_type, feature_creative_type,
+                    feature_statistical_conf, feature_volume_weight, feature_is_false_winner,
+                    label_score, label_ctr, label_cpc, label_roas,
+                    label_is_winner, label_success_probability, split_group
+                  ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+                  ON CONFLICT DO NOTHING`,
+                  [
+                    c.id, context.platform, context.objective, context.niche || "geral",
+                    mlFeatures.feature_ad_format, mlFeatures.feature_budget_range,
+                    mlFeatures.feature_duration, mlFeatures.feature_has_video,
+                    mlFeatures.feature_has_carousel, mlFeatures.feature_used_urgency,
+                    mlFeatures.feature_used_social_proof, mlFeatures.feature_copy_type,
+                    mlFeatures.feature_creative_type, mlFeatures.feature_statistical_conf,
+                    mlFeatures.feature_volume_weight, mlFeatures.feature_is_false_winner,
+                    mlFeatures.label_score, mlFeatures.label_ctr, mlFeatures.label_cpc,
+                    mlFeatures.label_roas, mlFeatures.label_is_winner,
+                    mlFeatures.label_success_probability, mlFeatures.split_group,
+                  ]
+                );
+                report.mlSamples++;
+              }
+            } catch {}
+
+          } catch { report.errors++; }
+        }
+      }
+
+      report.avgScore = allScores.length
+        ? +(allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(1)
+        : 0;
+
+      // Ordena vencedores por score
+      report.winners.sort((a, b) => b.score - a.score);
+
+      await logAction(ctx.user.id, "run_full_analysis", "system", 0, {
+        scored: report.scored, patterns: report.patternsExtracted, learning: report.learningUpdated,
+      }, "success");
+
+      log.info("intelligence", "runFullAnalysis concluído", report);
+      return report;
+    }),
+
+
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

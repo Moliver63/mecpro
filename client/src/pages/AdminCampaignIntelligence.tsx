@@ -947,6 +947,57 @@ function TabCompare() {
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENTE PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
+function AnalysisReportCard({ report, onClose }: { report: any; onClose: () => void }) {
+  if (!report) return null;
+  return (
+    <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 16, padding: "20px 24px", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 24 }}>🧠</span>
+          <div>
+            <p style={{ fontWeight: 800, fontSize: 15, color: "#14532d", margin: 0 }}>Análise Histórica Concluída</p>
+            <p style={{ fontSize: 12, color: "#16a34a", margin: 0 }}>Base de aprendizado atualizada com dados reais</p>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#6b7280" }}>×</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 16 }}>
+        {[
+          { label: "Processadas",  value: report.scored,            icon: "📊", color: "#1e40af" },
+          { label: "Score médio",  value: `${report.avgScore}/100`, icon: "⭐", color: "#d97706" },
+          { label: "Score top",    value: `${report.topScore}/100`, icon: "🏆", color: "#16a34a" },
+          { label: "Padrões",      value: report.patternsExtracted, icon: "◈",  color: "#7c3aed" },
+          { label: "Nichos atualizados", value: report.learningUpdated, icon: "📚", color: "#0891b2" },
+        ].map(s => (
+          <div key={s.label} style={{ background: "white", borderRadius: 12, padding: "12px 10px", textAlign: "center", border: "1px solid #e5e7eb" }}>
+            <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: s.color, letterSpacing: "-0.5px", lineHeight: 1 }}>{s.value}</div>
+            <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4, fontWeight: 600 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+      {report.winners?.length > 0 && (
+        <div>
+          <p style={{ fontWeight: 700, fontSize: 12, color: "#14532d", marginBottom: 8 }}>
+            🏆 Top {Math.min(5, report.winners.length)} campanhas vencedoras:
+          </p>
+          {report.winners.slice(0, 5).map((w: any, i: number) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "white", borderRadius: 10, padding: "8px 12px", border: "1px solid #dcfce7", marginBottom: 6 }}>
+              <span style={{ fontWeight: 900, fontSize: 14, color: "#16a34a", minWidth: 24 }}>#{i+1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontWeight: 700, fontSize: 12, color: "#111827", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.name}</p>
+                <p style={{ fontSize: 10, color: "#6b7280", margin: 0 }}>{w.platform} · {w.objective} · {w.niche}</p>
+              </div>
+              <span style={{ fontWeight: 900, fontSize: 14, color: "#16a34a", flexShrink: 0 }}>{w.score}/100</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function AdminCampaignIntelligence() {
   const [, setLocation]  = useLocation();
   const [activeTab, setActiveTab] = useState<TabMain>("dashboard");
@@ -969,6 +1020,15 @@ export default function AdminCampaignIntelligence() {
   const batchMutation = (trpc as any).intelligence?.calculateBatchScores?.useMutation?.({
     onSuccess: (d: any) => toast.success(`◎ ${d.processed} campanhas processadas!`),
     onError:   (e: any) => toast.error(`✕ ${e.message}`),
+  });
+
+  const [analysisReport, setAnalysisReport] = useState<any>(null);
+  const fullAnalysisMutation = (trpc as any).intelligence?.runFullAnalysis?.useMutation?.({
+    onSuccess: (d: any) => {
+      setAnalysisReport(d);
+      toast.success(`Análise completa: ${d.scored} campanhas · ${d.patternsExtracted} padrões · ${d.learningUpdated} nichos atualizados`);
+    },
+    onError: (e: any) => toast.error(e.message || "Erro na análise"),
   });
 
   const TABS: Array<{ key: TabMain; icon: string; label: string }> = [
@@ -1013,6 +1073,25 @@ export default function AdminCampaignIntelligence() {
             }}
           >
             {batchMutation?.isPending ? "⏳ Processando..." : "⚡ Score em lote"}
+          </button>
+
+          {/* BOTÃO PRINCIPAL: ANÁLISE COMPLETA */}
+          <button
+            onClick={() => fullAnalysisMutation?.mutate({ minScore: 60, limit: 200, autoApprove: false })}
+            disabled={fullAnalysisMutation?.isPending}
+            style={{
+              background: fullAnalysisMutation?.isPending
+                ? "#f1f5f9"
+                : "linear-gradient(135deg,#16a34a,#15803d)",
+              color: fullAnalysisMutation?.isPending ? "#94a3b8" : "white",
+              fontWeight: 800, fontSize: 13, border: "none",
+              borderRadius: 10, padding: "10px 20px", cursor: fullAnalysisMutation?.isPending ? "wait" : "pointer",
+              boxShadow: fullAnalysisMutation?.isPending ? "none" : "0 4px 14px rgba(22,163,74,.35)",
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+            {fullAnalysisMutation?.isPending
+              ? "🔄 Analisando campanhas..."
+              : "🧠 Analisar Histórico Completo"}
           </button>
         </div>
       </div>
