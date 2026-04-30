@@ -1,5 +1,6 @@
-// competitorCards.tsx — Componentes de card/status sem dependência de estado pai
+// competitorCards.tsx — Componentes de card/status
 import { useState, useEffect, useRef } from "react";
+import { sourceBadge, formatDate, copyToClipboard, detectLayer } from "./competitorHelpers";
 
 export function CascadeStatus({ analyzing, successLayer, hasAds }: {
   analyzing: boolean;
