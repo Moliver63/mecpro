@@ -2541,25 +2541,83 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
   const company = clientProfile?.companyName || "sua empresa";
   const product = clientProfile?.productService || "seu produto";
   const budget  = clientProfile?.monthlyBudget || 1500;
+  const platform = clientProfile?.platform || "meta";
 
   const formats = ads.reduce((acc:any,a:any)=>{acc[a.adType||"image"]=(acc[a.adType||"image"]||0)+1;return acc;},{});
-  const topFmt  = Object.entries(formats).sort((x:any,y:any)=>y[1]-x[1])[0]?.[0]||"image";
+  let topFmt  = Object.entries(formats).sort((x:any,y:any)=>y[1]-x[1])[0]?.[0]||"image";
   const realCtas= [...new Set(ads.map((a:any)=>a.cta).filter(Boolean))].slice(0,4) as string[];
-  const topCta  = realCtas[0]||"Saiba mais";
+  let topCta  = realCtas[0]||"Saiba mais";
   const activeAds = ads.filter((a:any) => a.isActive);
   const avgActivity = ads.length > 0 ? Math.round(activeAds.length / ads.length * 100) : 50;
+
+  // ── Consulta learning_base e winner_patterns ──────────────────────────────
+  let mlData: any = null;
+  let winnerPattern: any = null;
+  let usingML = false;
+  try {
+    const { getPool } = await import("./db");
+    const pool = await getPool();
+    if (pool) {
+      // 1. Busca dados médios do nicho na learning_base
+      const lb = await pool.query(
+        `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
+        [platform, objective, niche]
+      );
+      if (lb.rows[0] && lb.rows[0].sample_count >= 3) {
+        mlData = lb.rows[0];
+        log.info("ai", "ML: learning_base encontrada", {
+          niche, objective, platform,
+          samples: mlData.sample_count,
+          avgCtr: mlData.avg_ctr, avgCpc: mlData.avg_cpc,
+        });
+        usingML = true;
+      }
+
+      // 2. Busca melhor winner_pattern aprovado para este segmento
+      const wp = await pool.query(
+        `SELECT * FROM winner_patterns WHERE platform=$1 AND objective=$2 AND niche=$3
+         AND status='active' ORDER BY score DESC LIMIT 1`,
+        [platform, objective, niche]
+      );
+      if (wp.rows[0]) {
+        winnerPattern = wp.rows[0];
+        // Usa formato e CTA do padrão vencedor se disponíveis
+        const wFmt = winnerPattern.ad_format;
+        const wCta = winnerPattern.cta_type;
+        if (wFmt) { topFmt = wFmt; }
+        if (wCta) { topCta = wCta; }
+        log.info("ai", "ML: winner_pattern aplicado", {
+          patternId: winnerPattern.id, score: winnerPattern.score,
+          adFormat: wFmt, ctaType: wCta,
+        });
+      }
+    }
+  } catch (mlErr: any) {
+    log.warn("ai", "ML lookup falhou — usando benchmarks padrão", { error: mlErr.message });
+  }
 
   const tones: Array<"urgent"|"emotional"|"rational"|"premium"> = ["urgent","emotional","rational","premium"];
   const hybrid  = await hybridGenerateAds({niche,clientName:company,product,tones,useLLMRefine:false,count:4});
   const budgets: Record<string,number> = {leads:40,sales:50,traffic:30,engagement:25,branding:20};
   const total   = budgets[objective]||30;
 
-  // Métricas estimadas baseadas no nicho e dados reais de concorrentes
+  // Métricas: usa learning_base se disponível, senão estimativas por nicho
   const isImoveis = /imov|imobi|apart|casa/i.test(niche);
   const isServico = /clinica|saude|beleza|academia|restaurante/i.test(niche);
-  const estimatedCPC = isImoveis ? 1.80 : isServico ? 0.90 : 1.20;
-  const estimatedCTR = isImoveis ? 2.8  : isServico ? 3.5  : 2.5;
-  const estimatedCPM = Math.round(estimatedCPC * estimatedCTR * 10) / 10;
+  const estimatedCPC = mlData?.avg_cpc > 0
+    ? +Number(mlData.avg_cpc).toFixed(2)
+    : isImoveis ? 1.80 : isServico ? 0.90 : 1.20;
+  const estimatedCTR = mlData?.avg_ctr > 0
+    ? +Number(mlData.avg_ctr).toFixed(2)
+    : isImoveis ? 2.8  : isServico ? 3.5  : 2.5;
+  const estimatedCPM = mlData?.avg_cpm > 0
+    ? +Number(mlData.avg_cpm).toFixed(2)
+    : Math.round(estimatedCPC * estimatedCTR * 10) / 10;
+  if (usingML) {
+    log.info("ai", "buildCampaignFromAds: usando métricas reais do ML", {
+      cpc: estimatedCPC, ctr: estimatedCTR, cpm: estimatedCPM, samples: mlData?.sample_count,
+    });
+  }
   const monthlyLeads = budget > 0 ? Math.round((budget * 0.7) / (estimatedCPC * 15)) : 0;
 
   // Funil de conversão baseado no objetivo
@@ -2595,7 +2653,11 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
     estimatedCTR: `${estimatedCTR}%`,
     estimatedCPM: `R$${estimatedCPM.toFixed(2)}`,
     estimatedLeads: monthlyLeads,
-    insight: `Baseado em ${ads.length} anúncios de concorrentes (${avgActivity}% ativos). Formato dominante: ${topFmt}. Benchmark do nicho ${niche}.`,
+    insight: usingML
+      ? `Baseado em ${ads.length} anúncios + ${mlData?.sample_count || 0} campanhas reais do nicho ${niche} (ML). CPC médio real: R$${estimatedCPC.toFixed(2)} · CTR médio: ${estimatedCTR.toFixed(2)}%.${winnerPattern ? ` Padrão vencedor score ${winnerPattern.score}/100 aplicado.` : ""}`
+      : `Baseado em ${ads.length} anúncios de concorrentes (${avgActivity}% ativos). Formato dominante: ${topFmt}. Benchmark estimado do nicho ${niche}.`,
+    mlEnriched: usingML,
+    mlSamples:  mlData?.sample_count || 0,
   };
 
   return {
@@ -4912,6 +4974,28 @@ export async function generateCampaign(input: {
     try { (metaInsights as any) = JSON.parse(metaInsights as string); } catch {}
     log.info("ai", "Meta Insights: usando cache (sem chamada API)", { userId });
   }
+  // ── Consulta learning_base para enriquecer o prompt ────────────────────
+  let mlLearning: any = null;
+  try {
+    const { getPool } = await import("./db");
+    const pool = await getPool();
+    if (pool) {
+      const niche    = (clientProfile as any)?.niche || "geral";
+      const platform = input.platform === "both" || input.platform === "all" ? "meta" : input.platform;
+      const rows = await pool.query(
+        `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
+        [platform, input.objective, niche]
+      );
+      if (rows.rows[0]?.sample_count >= 3) {
+        mlLearning = rows.rows[0];
+        log.info("ai", "ML learning_base enriquecendo prompt", {
+          niche, platform, objective: input.objective,
+          samples: mlLearning.sample_count, avgScore: mlLearning.avg_score,
+        });
+      }
+    }
+  } catch { /* falha silenciosa — prompt continua sem ML */ }
+
   const activeAds      = allAds.filter((a: any) => a.isActive);
   const longRunningAds = allAds.filter((a: any) => {
     if (!a.startDate) return false;
@@ -5011,19 +5095,31 @@ ${input.extraContext}` : ""}
 
 DADOS REAIS DE PERFORMANCE — META ADS INSIGHTS API (últimos 30 dias da conta):
 ${metaInsights! ? `
-✅ Fonte: ${metaInsights?.source}
-- Investimento real (30d): R$ ${metaInsights?.spend.toFixed(2)}
-- Impressões: ${metaInsights?.impressions.toLocaleString("pt-BR")}
-- Cliques: ${metaInsights?.clicks.toLocaleString("pt-BR")}
-- CPC real da conta: R$ ${metaInsights?.cpc.toFixed(2)}
-- CPM real da conta: R$ ${metaInsights?.cpm.toFixed(2)}
-- CTR real da conta: ${metaInsights?.ctr.toFixed(2)}%
-- CPL real da conta: ${(metaInsights?.cpl ?? 0) > 0 ? "R$ " + (metaInsights?.cpl ?? 0).toFixed(2) : "sem dados de lead"}
-- ROAS real da conta: ${metaInsights?.roas > 0 ? metaInsights?.roas.toFixed(2) + "x" : "sem dados de compra"}
-- Leads gerados (30d): ${metaInsights?.leads}
+✅ Fonte: ${(metaInsights as any)?.source}
+- Investimento real (30d): R$ ${(metaInsights as any)?.spend?.toFixed(2)}
+- Impressões: ${(metaInsights as any)?.impressions?.toLocaleString("pt-BR")}
+- Cliques: ${(metaInsights as any)?.clicks?.toLocaleString("pt-BR")}
+- CPC real da conta: R$ ${(metaInsights as any)?.cpc?.toFixed(2)}
+- CPM real da conta: R$ ${(metaInsights as any)?.cpm?.toFixed(2)}
+- CTR real da conta: ${(metaInsights as any)?.ctr?.toFixed(2)}%
+- CPL real da conta: ${((metaInsights as any)?.cpl ?? 0) > 0 ? "R$ " + ((metaInsights as any)?.cpl ?? 0).toFixed(2) : "sem dados de lead"}
+- ROAS real da conta: ${(metaInsights as any)?.roas > 0 ? (metaInsights as any)?.roas?.toFixed(2) + "x" : "sem dados de compra"}
+- Leads gerados (30d): ${(metaInsights as any)?.leads}
 USE ESSES VALORES REAIS como base principal para as métricas estimadas da campanha.
 ` : `⚠️ Meta Insights indisponível — usando benchmarks do nicho como referência.`}
 
+${mlLearning ? `
+DADOS DE APRENDIZADO HISTÓRICO (ML interno — campanhas reais da plataforma):
+⭐ Baseado em ${mlLearning.sample_count} campanhas reais para ${input.platform}/${input.objective}/${clientProfile?.niche || "geral"}
+- CPC médio histórico: R$ ${Number(mlLearning.avg_cpc).toFixed(2)}
+- CTR médio histórico: ${Number(mlLearning.avg_ctr).toFixed(2)}%
+- CPM médio histórico: R$ ${Number(mlLearning.avg_cpm).toFixed(2)}
+- Score médio das campanhas: ${Number(mlLearning.avg_score).toFixed(0)}/100
+- Formato que mais converte: ${(() => { try { const t = JSON.parse(mlLearning.top_ad_formats || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1])[0]?.[0]||"image"; } catch { return "image"; } })()}
+- CTAs que mais performam: ${(() => { try { const t = JSON.parse(mlLearning.top_cta_types || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1]).slice(0,3).map(([k])=>k).join(", "); } catch { return "—"; } })()}
+- Gatilhos mais eficazes: ${(() => { try { const t = JSON.parse(mlLearning.top_triggers || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1]).slice(0,3).map(([k])=>k).join(", "); } catch { return "—"; } })()}
+INSTRUÇÃO: PRIORIZE esses dados históricos reais sobre os benchmarks gerais abaixo.
+` : ""}
 BENCHMARKS DO NICHO "${benchmarks.label}" (referência secundária — WordStream BR 2025):
 - CPC referência: ${fmtRange(benchmarks.cpc)}
 - CPL referência: ${fmtRange(benchmarks.cpl)}
@@ -5037,7 +5133,7 @@ INSTRUÇÃO PARA MÉTRICAS:
 - Budget desta campanha: R$ ${input.budget}/mês (R$ ${budgetDaily}/dia)
 - ${longRunningAds.length} anúncios dos concorrentes rodando 30+ dias = mercado ativo
 - Formato dominante dos concorrentes: "${dominantFormat}" → ajuste CPM (vídeo +20%, imagem = base)
-- Leads estimados = R$ ${input.budget} ÷ CPL ${((metaInsights?.cpl ?? 0) > 0) ? "real R$ " + (metaInsights?.cpl ?? 0).toFixed(2) : "referência do nicho"}
+- Leads estimados = R$ ${input.budget} ÷ CPL ${(((metaInsights as any)?.cpl ?? 0) > 0) ? "real R$ " + ((metaInsights as any)?.cpl ?? 0).toFixed(2) : "referência do nicho"}
 - breakEvenROAS baseado no produto: "${(clientProfile as any)?.productService || "não informado"}"
 - O insight deve mencionar se os dados são reais (Meta API) ou estimados (benchmark)
 
@@ -5301,7 +5397,7 @@ Budget: R$${input.budget}/mês. Plataforma: ${input.platform}.
 Dor: ${p?.mainPain || "—"}. Proposta: ${p?.uniqueValueProposition || "—"}.
 Concorrentes:
 ${compSummary || "Nenhum cadastrado."}
-${metaInsights! ? `Performance real: CPC R$${metaInsights?.cpc.toFixed(2)}, CPM R$${metaInsights?.cpm.toFixed(2)}, CTR ${metaInsights?.ctr.toFixed(2)}%` : ""}
+${metaInsights! ? `Performance real: CPC R$${(metaInsights as any)?.cpc.toFixed(2)}, CPM R$${(metaInsights as any)?.cpm.toFixed(2)}, CTR ${(metaInsights as any)?.ctr.toFixed(2)}%` : ""}
 ${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}
 
 Gere JSON com:
