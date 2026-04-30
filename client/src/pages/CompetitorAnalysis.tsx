@@ -17,7 +17,19 @@ import { CompetitiveBanner, CompetitivePanel } from "@/components/competitors/co
 import { TikTokVerifier, GoogleVerifier, InstagramVerifier } from "@/components/competitors/competitorVerifiers";
 import { AdInputAnalyzer, ScoreBar } from "@/components/competitors/AdInputAnalyzer";
 import { useCompetitorData, useClientProfile } from "@/components/competitors/useCompetitorData";
-import { sourceBadge, detectLayer, formatDate, copyToClipboard, buildAdsLibraryUrl, extractPageId, extractIgHandle, type AdTab, type AdFilter } from "@/components/competitors/competitorHelpers";
+import { ClientAdsCollector } from "@/components/competitors/ClientAdsCollector";  // ← FIX: import adicionado
+import {
+  sourceBadge,
+  detectLayer,
+  formatDate,
+  copyToClipboard,
+  buildAdsLibraryUrl,
+  extractPageId,
+  extractIgHandle,
+  CASCADE_LAYERS,  // ← FIX: import adicionado
+  type AdTab,
+  type AdFilter,
+} from "@/components/competitors/competitorHelpers";
 
 interface MyCompanyData { name: string; instagram: string; facebook: string; website: string; }
 
@@ -49,7 +61,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
     onSuccess: (d) => {
       setTiktokResult(d);
       setTiktokLoading(false);
-      onTikTokResult?.(d);  // propaga para o pai
+      onTikTokResult?.(d);
       toast.success(`🎵 TikTok: ${(d as any).adsFound} anúncio(s) encontrado(s)!`);
     },
     onError: (e) => {
@@ -99,7 +111,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
   const realCount    = ads.length - estimatedCount;
   const successLayer = ads.length > 0 ? detectLayer(ads) : null;
 
-  const sources    = ads.map((a: any) => a.source || "unknown");
+  const sources     = ads.map((a: any) => a.source || "unknown");
   const hasOfficial = sources.some((s: string) => s === "meta_ads_archive");
   const hasLibrary  = sources.some((s: string) => s.startsWith("ads_library"));
   const hasWebsite  = sources.some((s: string) => s === "website_scraping");
@@ -117,7 +129,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
       try {
         insightJson = JSON.parse(jsonMatch[1]);
       } catch { insightJson = null; }
-      // Usa o texto depois do JSON para os blocos de markdown
       const textPart = comp.aiInsights.replace(/__JSON__.+?__ENDjson__\n\n/s, "");
       insightBlocks = textPart.split("\n\n").filter(Boolean);
     } else {
@@ -125,7 +136,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
     }
   }
 
-  // Formato icon
   const fmtIcon = (t: string) => t === "video" ? "🎬" : t === "carousel" ? "🎠" : "🖼️";
 
   async function handleCopyInsights() {
@@ -149,7 +159,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
 
   return (
     <>
-      {/* Modal detalhe do ad */}
       {selectedAd && <AdDetailModal ad={selectedAd} onClose={() => setSelectedAd(null)} />}
 
       <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 18, padding: 24 }}>
@@ -164,9 +173,9 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
               <span style={{ fontSize: 11, color: "var(--muted)" }}>{ads.length} anúncios · {adsAtivos.length} ativos</span>
               {realCount > 0      && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#e8f0fe", color: "#1877f2" }}>◎ {realCount} reais</span>}
               {estimatedCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#fef3c7", color: "#92400e" }}>⚠️ {estimatedCount} estimados</span>}
-              {successLayer && CASCADE_LAYERS[successLayer-1] && (
-                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: CASCADE_LAYERS[successLayer-1]?.bg || "#f1f5f9", color: CASCADE_LAYERS[successLayer-1]?.color || "#64748b" }}>
-                  {CASCADE_LAYERS[successLayer-1]?.icon} Camada {successLayer}
+              {successLayer && CASCADE_LAYERS[successLayer - 1] && (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: CASCADE_LAYERS[successLayer - 1]?.bg || "#f1f5f9", color: CASCADE_LAYERS[successLayer - 1]?.color || "#64748b" }}>
+                  {CASCADE_LAYERS[successLayer - 1]?.icon} Camada {successLayer}
                 </span>
               )}
               {comp.aiGeneratedAt && <span style={{ fontSize: 10, color: "var(--muted)" }}>⏱ {formatDate(comp.aiGeneratedAt)}</span>}
@@ -217,10 +226,10 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
         {ads.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10, marginBottom: 18 }}>
             {[
-              { label: "Total", value: ads.length, color: "var(--navy)", bg: "#f0f4ff" },
-              { label: "Ativos", value: adsAtivos.length, color: "#166534", bg: "#dcfce7" },
-              { label: "Reais", value: realCount, color: "#1877f2", bg: "#e8f0fe" },
-              { label: "Estimados", value: estimatedCount, color: "#92400e", bg: "#fef3c7" },
+              { label: "Total",     value: ads.length,       color: "var(--navy)", bg: "#f0f4ff" },
+              { label: "Ativos",    value: adsAtivos.length, color: "#166534",     bg: "#dcfce7" },
+              { label: "Reais",     value: realCount,        color: "#1877f2",     bg: "#e8f0fe" },
+              { label: "Estimados", value: estimatedCount,   color: "#92400e",     bg: "#fef3c7" },
             ].map(k => (
               <div key={k.label} style={{ background: k.bg, borderRadius: 12, padding: "12px 10px", textAlign: "center" }}>
                 <p style={{ fontSize: 22, fontWeight: 900, color: k.color, margin: 0, lineHeight: 1 }}>{k.value}</p>
@@ -265,10 +274,10 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
         {/* Tabs */}
         <div style={{ display: "flex", gap: 0, borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)", marginBottom: 18 }}>
           {([
-            { key: "ativos",   label: `Ativos (${adsAtivos.length})`,  icon: "●" },
-            { key: "todos",    label: `Todos (${ads.length})`,         icon: "≡" },
-            { key: "insights", label: "Insights IA",                   icon: "🤖" },
-            { key: "cascade",  label: "Debug Cascata",                 icon: "🧪" },
+            { key: "ativos",   label: `Ativos (${adsAtivos.length})`, icon: "●" },
+            { key: "todos",    label: `Todos (${ads.length})`,        icon: "≡" },
+            { key: "insights", label: "Insights IA",                  icon: "🤖" },
+            { key: "cascade",  label: "Debug Cascata",                icon: "🧪" },
           ] as { key: AdTab; label: string; icon: string }[]).map((t, i) => (
             <button key={t.key} onClick={() => { setAdTab(t.key); setAdsPage(1); }} style={{
               flex: 1, padding: "10px 8px", border: "none", cursor: "pointer",
@@ -285,7 +294,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
         {/* ── Tab: Anúncios (ativos / todos) ─────────────────────────── */}
         {(adTab === "ativos" || adTab === "todos") && (
           <>
-            {/* Filtros de formato */}
             {displayAds.length > 0 && (
               <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, color: "var(--muted)", paddingTop: 3 }}>Formato:</span>
@@ -346,12 +354,10 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
         {/* ── Tab: Insights IA ─────────────────────────────────────── */}
         {adTab === "insights" && (
           <div>
-            {/* ── MECPro Analyzer — input manual ── */}
             <AdInputAnalyzer projectId={projectId} compName={comp.name} competitorId={comp.id} ads={ads} />
 
             {/* ── TikTok Dashboard ─────────────────────────────── */}
             {(() => {
-              // Extrai vídeos TikTok salvos no banco
               const ttAds = ads.filter((a: any) => a.platform === "tiktok");
               const ttVideos = ttAds.map((a: any) => {
                 let raw: any = {};
@@ -372,7 +378,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                 };
               });
 
-              // Métricas agregadas
               const totalViews    = ttVideos.reduce((s: number, v: any) => s + v.viewCount, 0);
               const totalLikes    = ttVideos.reduce((s: number, v: any) => s + v.likeCount, 0);
               const totalComments = ttVideos.reduce((s: number, v: any) => s + v.commentCount, 0);
@@ -388,7 +393,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                 ? Math.round(ttVideos.reduce((s: number, v: any) => s + v.duration, 0) / ttVideos.length)
                 : 0;
 
-              // Frequência de postagem
               const sorted = [...ttVideos].filter((v: any) => v.createTime > 0).sort((a: any, b: any) => b.createTime - a.createTime);
               let freqLabel = "—";
               if (sorted.length >= 2) {
@@ -402,19 +406,16 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                             avgDiff < 14 ? "Semanal" : "Quinzenal ou menos";
               }
 
-              // Tendência (últimos 5 vs anteriores)
-              const recent = ttVideos.slice(0, 5);
-              const older  = ttVideos.slice(5, 10);
+              const recent    = ttVideos.slice(0, 5);
+              const older     = ttVideos.slice(5, 10);
               const avgRecent = recent.length ? recent.reduce((s: number, v: any) => s + v.viewCount, 0) / recent.length : 0;
               const avgOlder  = older.length  ? older.reduce((s: number, v: any) => s + v.viewCount, 0)  / older.length  : 0;
-              const trend = avgOlder === 0 ? "neutro" : avgRecent > avgOlder * 1.1 ? "crescendo" : avgRecent < avgOlder * 0.9 ? "caindo" : "estável";
+              const trend     = avgOlder === 0 ? "neutro" : avgRecent > avgOlder * 1.1 ? "crescendo" : avgRecent < avgOlder * 0.9 ? "caindo" : "estável";
 
-              // Perfil TikTok (do primeiro vídeo com profile)
               const profileData = ttVideos.find((v: any) => v.profile)?.profile || null;
 
               return (
                 <div style={{ marginTop: 12, background: "#0a0a0a", borderRadius: 16, overflow: "hidden" }}>
-                  {/* Header */}
                   <div style={{ padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #1a1a1a" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div style={{ width: 34, height: 34, borderRadius: 10, background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🎵</div>
@@ -452,7 +453,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                   ) : (
                     <div style={{ padding: "14px 18px" }}>
 
-                      {/* Perfil */}
                       {profileData && (
                         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, padding: "10px 14px", background: "#1a1a1a", borderRadius: 12 }}>
                           {profileData.avatarUrl && (
@@ -465,9 +465,9 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                             </div>
                             <div style={{ display: "flex", gap: 14, marginTop: 4 }}>
                               {[
-                                { l: "Seguidores", v: (profileData.followerCount || 0).toLocaleString("pt-BR") },
-                                { l: "Likes totais", v: (profileData.likesCount || 0).toLocaleString("pt-BR") },
-                                { l: "Vídeos", v: profileData.videoCount || "—" },
+                                { l: "Seguidores",  v: (profileData.followerCount || 0).toLocaleString("pt-BR") },
+                                { l: "Likes totais",v: (profileData.likesCount    || 0).toLocaleString("pt-BR") },
+                                { l: "Vídeos",      v: profileData.videoCount || "—" },
                               ].map((m: any) => (
                                 <div key={m.l}>
                                   <p style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "white" }}>{m.v}</p>
@@ -479,16 +479,15 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                         </div>
                       )}
 
-                      {/* KPIs */}
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, marginBottom: 14 }}>
                         {[
-                          { icon: "👁️", label: "Views médias",    value: avgViews.toLocaleString("pt-BR"),       color: "#fe2c55" },
-                          { icon: "❤️", label: "Eng. Rate",        value: `${engRate}%`,                         color: "#ff9f43" },
-                          { icon: "📈", label: "Tendência",        value: trend === "crescendo" ? "↑ Subindo" : trend === "caindo" ? "↓ Caindo" : "→ Estável",
+                          { icon: "👁️", label: "Views médias",  value: avgViews.toLocaleString("pt-BR"),       color: "#fe2c55" },
+                          { icon: "❤️", label: "Eng. Rate",      value: `${engRate}%`,                         color: "#ff9f43" },
+                          { icon: "📈", label: "Tendência",      value: trend === "crescendo" ? "↑ Subindo" : trend === "caindo" ? "↓ Caindo" : "→ Estável",
                             color: trend === "crescendo" ? "#00f2ea" : trend === "caindo" ? "#fe2c55" : "#94a3b8" },
-                          { icon: "🔁", label: "Frequência",       value: freqLabel,                             color: "#a78bfa" },
-                          { icon: "⏱️", label: "Duração média",    value: avgDuration > 0 ? `${avgDuration}s` : "—", color: "#60a5fa" },
-                          { icon: "📊", label: "Total views",      value: totalViews > 0 ? `${(totalViews/1000).toFixed(1)}K` : "—", color: "#34d399" },
+                          { icon: "🔁", label: "Frequência",     value: freqLabel,                             color: "#a78bfa" },
+                          { icon: "⏱️", label: "Duração média",  value: avgDuration > 0 ? `${avgDuration}s` : "—", color: "#60a5fa" },
+                          { icon: "📊", label: "Total views",    value: totalViews > 0 ? `${(totalViews / 1000).toFixed(1)}K` : "—", color: "#34d399" },
                         ].map((k: any) => (
                           <div key={k.label} style={{ background: "#1a1a1a", borderRadius: 10, padding: "10px 12px", border: `1px solid ${k.color}22` }}>
                             <p style={{ margin: "0 0 4px", fontSize: 16 }}>{k.icon}</p>
@@ -498,7 +497,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                         ))}
                       </div>
 
-                      {/* Top vídeo */}
                       {topVideo && (
                         <div style={{ marginBottom: 14, background: "#1a1a1a", borderRadius: 12, overflow: "hidden" }}>
                           <div style={{ padding: "10px 14px 6px", display: "flex", alignItems: "center", gap: 6 }}>
@@ -514,10 +512,10 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                               </p>
                               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                                 {[
-                                  { icon: "👁️", v: topVideo.viewCount.toLocaleString("pt-BR") },
-                                  { icon: "❤️", v: topVideo.likeCount.toLocaleString("pt-BR") },
+                                  { icon: "👁️", v: topVideo.viewCount.toLocaleString("pt-BR")    },
+                                  { icon: "❤️", v: topVideo.likeCount.toLocaleString("pt-BR")    },
                                   { icon: "💬", v: topVideo.commentCount.toLocaleString("pt-BR") },
-                                  { icon: "↗️", v: topVideo.shareCount.toLocaleString("pt-BR") },
+                                  { icon: "↗️", v: topVideo.shareCount.toLocaleString("pt-BR")   },
                                 ].map((m: any) => (
                                   <span key={m.icon} style={{ fontSize: 11, color: "rgba(255,255,255,.6)" }}>{m.icon} {m.v}</span>
                                 ))}
@@ -533,7 +531,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                         </div>
                       )}
 
-                      {/* Lista de vídeos */}
                       <div>
                         <p style={{ margin: "0 0 8px", fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,.4)", textTransform: "uppercase" }}>
                           Últimos {Math.min(ttVideos.length, 8)} vídeos
@@ -560,8 +557,8 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                                     {v.title.slice(0, 60) || `Vídeo ${i + 1}`}
                                   </p>
                                   <div style={{ display: "flex", gap: 8, marginTop: 3 }}>
-                                    <span style={{ fontSize: 10, color: "rgba(255,255,255,.4)" }}>👁️ {(v.viewCount/1000).toFixed(1)}K</span>
-                                    <span style={{ fontSize: 10, color: "rgba(255,255,255,.4)" }}>❤️ {(v.likeCount/1000).toFixed(1)}K</span>
+                                    <span style={{ fontSize: 10, color: "rgba(255,255,255,.4)" }}>👁️ {(v.viewCount / 1000).toFixed(1)}K</span>
+                                    <span style={{ fontSize: 10, color: "rgba(255,255,255,.4)" }}>❤️ {(v.likeCount / 1000).toFixed(1)}K</span>
                                     <span style={{ fontSize: 10, color: "#fe2c55" }}>⚡ {engV}%</span>
                                     {v.duration > 0 && <span style={{ fontSize: 10, color: "rgba(255,255,255,.3)" }}>{v.duration}s</span>}
                                   </div>
@@ -576,7 +573,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                         </div>
                       </div>
 
-                      {/* Insight TikTok via analyzeTikTok */}
                       {tiktokResult && (tiktokResult as any).insight && (
                         <div style={{ marginTop: 12, padding: "10px 14px", background: "#1a1a1a", borderRadius: 10, borderLeft: "3px solid #fe2c55" }}>
                           <p style={{ margin: "0 0 4px", fontSize: 10, fontWeight: 700, color: "#fe2c55", textTransform: "uppercase" }}>💡 Insight IA</p>
@@ -631,11 +627,10 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                   </div>
                 )}
 
-                {/* ── Painel estruturado (novo formato com JSON embutido) ── */}
+                {/* Painel estruturado (novo formato com JSON embutido) */}
                 {insightJson && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
 
-                    {/* Interpretação */}
                     {insightJson.interpretacao && (
                       <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
                         <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", marginBottom: 10, textTransform: "uppercase" }}>🔬 Interpretação</p>
@@ -657,7 +652,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                       </div>
                     )}
 
-                    {/* Avaliação */}
                     {insightJson.avaliacao && (
                       <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
                         <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", marginBottom: 10, textTransform: "uppercase" }}>📊 Avaliação do Concorrente</p>
@@ -692,7 +686,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                       </div>
                     )}
 
-                    {/* Falhas e Oportunidades */}
                     {((insightJson.falhas?.length > 0) || (insightJson.oportunidades?.length > 0)) && (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                         {insightJson.falhas?.length > 0 && (
@@ -714,7 +707,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                       </div>
                     )}
 
-                    {/* Gatilhos */}
                     {insightJson.gatilhos?.length > 0 && (
                       <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
                         <p style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>🧠 Gatilhos Mentais</p>
@@ -738,7 +730,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                       </div>
                     )}
 
-                    {/* Estratégia */}
                     {insightJson.estrategia && (
                       <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
                         <p style={{ margin: "0 0 10px", fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase" }}>🎯 Estratégia Detectada</p>
@@ -760,7 +751,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                       </div>
                     )}
 
-                    {/* Conclusão */}
                     {insightJson.conclusao && (
                       <div style={{ background: "linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius: 12, padding: 14 }}>
                         <p style={{ margin: "0 0 6px", fontSize: 11, fontWeight: 800, color: "#4ade80" }}>🏆 Como ganhar desse concorrente</p>
@@ -775,9 +765,8 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {insightBlocks.map((block, i) => {
-                    const isHeader = block.startsWith("##") || block.startsWith("**");
+                    const isHeader  = block.startsWith("##") || block.startsWith("**");
                     const cleanBlock = block.replace(/^##\s*/, "").replace(/\*\*/g, "");
-
                     return (
                       <div key={i} style={{
                         background: isHeader ? "var(--navy)" : "var(--off)",
@@ -785,11 +774,9 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                         borderLeft: !isHeader ? "3px solid var(--green)" : "none",
                       }}>
                         <p style={{
-                          fontSize: isHeader ? 13 : 13,
-                          fontWeight: isHeader ? 800 : 400,
+                          fontSize: 13, fontWeight: isHeader ? 800 : 400,
                           color: isHeader ? "white" : "var(--body)",
-                          lineHeight: 1.7, margin: 0,
-                          whiteSpace: "pre-wrap",
+                          lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap",
                         }}>
                           {cleanBlock}
                         </p>
@@ -816,14 +803,13 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
               🧪 Debug — Pipeline de 7 camadas
             </p>
 
-            {/* Info do concorrente */}
             <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 14 }}>
               <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", marginBottom: 8, textTransform: "uppercase" }}>Dados de entrada</p>
               {[
                 { label: "Facebook Page ID", value: comp.facebookPageId, icon: "🔵" },
-                { label: "Ads Library URL", value: comp.facebookPageUrl, icon: "🔗", truncate: true },
-                { label: "Instagram", value: comp.instagramUrl, icon: "📸" },
-                { label: "Site", value: comp.websiteUrl, icon: "🌐" },
+                { label: "Ads Library URL",  value: comp.facebookPageUrl, icon: "🔗", truncate: true },
+                { label: "Instagram",        value: comp.instagramUrl,    icon: "📸" },
+                { label: "Site",             value: comp.websiteUrl,      icon: "🌐" },
               ].map(row => (
                 <div key={row.label} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 12, width: 16 }}>{row.icon}</span>
@@ -835,7 +821,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
               ))}
             </div>
 
-            {/* Status por camada */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               {CASCADE_LAYERS.map(layer => {
                 const layerSources: Record<number, string[]> = {
@@ -847,11 +832,10 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                   6: ["seo_analysis"],
                   7: ["estimated", "estimated_ai", "unknown"],
                 };
-                const lSrc = layerSources[layer.n] || [];
+                const lSrc         = layerSources[layer.n] || [];
                 const adsFromLayer = ads.filter((a: any) => lSrc.includes(a.source || "unknown") || (layer.n === 7 && (!a.source || a.source === "unknown")));
-                const isSuccess = successLayer === layer.n;
-                const wasTried  = successLayer !== null && layer.n < (successLayer || 0);
-                const isActive  = analyzing;
+                const isSuccess    = successLayer === layer.n;
+                const wasTried     = successLayer !== null && layer.n < (successLayer || 0);
 
                 return (
                   <div key={layer.n} style={{
@@ -888,7 +872,6 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
               })}
             </div>
 
-            {/* Distribuição de sources */}
             {ads.length > 0 && (
               <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
                 <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", marginBottom: 10, textTransform: "uppercase" }}>Distribuição por fonte</p>
@@ -899,7 +882,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
                     return acc;
                   }, {} as Record<string, number>)
                 ).sort((a: any, b: any) => b[1] - a[1]).map(([src, cnt]: any) => {
-                  const b = sourceBadge(src);
+                  const b   = sourceBadge(src);
                   const pct = Math.round((cnt / ads.length) * 100);
                   return (
                     <div key={src} style={{ marginBottom: 8 }}>
@@ -933,30 +916,20 @@ export default function CompetitorAnalysis() {
   );
   const deleteComp  = trpc.competitors.delete.useMutation({ onSuccess: () => refetch() });
   const analyzeComp = trpc.competitors.analyze.useMutation({ onSuccess: () => refetch() });
+
   const fetchTikTokCompetitorMutation = (trpc as any).competitors?.fetchTikTokCompetitor?.useMutation?.({
     onSuccess: (data: any) => {
-      if (data?.needsAuth) {
-        toast.error(data.message);
-        return;
-      }
-      if (data?.videosSaved > 0) {
-        toast.success(data.message);
-        refetch();
-      } else {
-        toast.error(data?.message || "✕ Nenhum vídeo TikTok encontrado.");
-      }
+      if (data?.needsAuth) { toast.error(data.message); return; }
+      if (data?.videosSaved > 0) { toast.success(data.message); refetch(); }
+      else toast.error(data?.message || "✕ Nenhum vídeo TikTok encontrado.");
     },
     onError: (e: any) => toast.error("✕ TikTok: " + (e?.message || "Erro ao buscar")),
   }) ?? { mutate: () => {}, isPending: false };
 
   const fetchAdsByPageIdMutation = (trpc as any).competitors?.fetchAdsByPageId?.useMutation?.({
     onSuccess: (data: any) => {
-      if (data?.adsSaved > 0) {
-        toast.success(data.message);
-        refetch();
-      } else {
-        toast.error(data?.message || "✕ Nenhum dado encontrado. Verifique permissões do token Meta.");
-      }
+      if (data?.adsSaved > 0) { toast.success(data.message); refetch(); }
+      else toast.error(data?.message || "✕ Nenhum dado encontrado. Verifique permissões do token Meta.");
     },
     onError: (e: any) => toast.error("✕ " + (e?.message || "Erro ao buscar pelo Page ID")),
   }) ?? { mutate: () => {}, isPending: false };
@@ -967,24 +940,16 @@ export default function CompetitorAnalysis() {
   const [editing,   setEditing]   = useState<number | null>(null);
   const [searchQ,   setSearchQ]   = useState("");
 
-  // ── Minha empresa — carrega automaticamente do clientProfile ─────────────
   const { data: project       } = (trpc as any).projects?.get?.useQuery?.({ id: projectId }, { enabled: !!projectId }) ?? { data: null };
   const { data: clientProfile } = (trpc as any).clientProfile?.get?.useQuery?.({ projectId }, { enabled: !!projectId }) ?? { data: null };
 
-  // Monta myCompany a partir do perfil salvo — usuário pode sobrescrever
   const derivedCompany: MyCompanyData = {
-    name:      clientProfile?.companyName ?? project?.name ?? "",
+    name: clientProfile?.companyName ?? project?.name ?? "",
     instagram: (() => {
-      try {
-        const links = JSON.parse(clientProfile?.socialLinks || "{}");
-        return links.instagram || links.ig || "";
-      } catch { return ""; }
+      try { const l = JSON.parse(clientProfile?.socialLinks || "{}"); return l.instagram || l.ig || ""; } catch { return ""; }
     })(),
-    facebook:  (() => {
-      try {
-        const links = JSON.parse(clientProfile?.socialLinks || "{}");
-        return links.facebook || links.fb || "";
-      } catch { return ""; }
+    facebook: (() => {
+      try { const l = JSON.parse(clientProfile?.socialLinks || "{}"); return l.facebook || l.fb || ""; } catch { return ""; }
     })(),
     website: clientProfile?.websiteUrl || "",
   };
@@ -993,9 +958,8 @@ export default function CompetitorAnalysis() {
   const [showComparative, setShowComparative] = useState(false);
   const [compareTarget,   setCompareTarget]   = useState<any>(null);
   const [myCompanyReady,  setMyCompanyReady]  = useState(false);
-  const [tiktokResultMap, setTiktokResultMap] = useState<Record<number,any>>({});
+  const [tiktokResultMap, setTiktokResultMap] = useState<Record<number, any>>({});
 
-  // Sincroniza derivedCompany → myCompany quando carrega (apenas uma vez)
   useEffect(() => {
     if (!myCompanyReady && derivedCompany.name) {
       setMyCompany(derivedCompany);
@@ -1029,9 +993,9 @@ export default function CompetitorAnalysis() {
   const selectedComp  = competitors?.find((c: any) => c.id === selected);
   const noCompetitors = (competitors?.length || 0) === 0;
   const gridCols =
-    selected && !adding    ? "370px 1fr" :
-    adding  && !selected   ? "1fr 1fr"   :
-    noCompetitors && !adding ? "1fr"      : "370px 1fr";
+    selected && !adding     ? "370px 1fr" :
+    adding   && !selected   ? "1fr 1fr"   :
+    noCompetitors && !adding ? "1fr"       : "370px 1fr";
 
   return (
     <Layout>
@@ -1046,7 +1010,6 @@ export default function CompetitorAnalysis() {
           </div>
         </div>
 
-        {/* Banner cascata */}
         <div style={{ background: "var(--navy)", borderRadius: 14, padding: "14px 18px" }}>
           <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
             <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>🧠</span>
@@ -1064,7 +1027,6 @@ export default function CompetitorAnalysis() {
         </div>
       </div>
 
-      {/* Error state */}
       {isError && (
         <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 12, padding: 16, marginBottom: 16, textAlign: "center" }}>
           <p style={{ fontSize: 14, color: "#dc2626", fontWeight: 700 }}>✕ Erro ao carregar concorrentes</p>
@@ -1086,7 +1048,6 @@ export default function CompetitorAnalysis() {
 
           {/* ── COLUNA ESQUERDA ── */}
           <div>
-            {/* Estado vazio */}
             {noCompetitors && !adding && (
               <div style={{ background: "white", border: "2px dashed var(--green)", borderRadius: 18, padding: 48, textAlign: "center" }}>
                 <div style={{ fontSize: 48, marginBottom: 14 }}>🏁</div>
@@ -1098,7 +1059,6 @@ export default function CompetitorAnalysis() {
               </div>
             )}
 
-            {/* Formulário de adição */}
             {adding && (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -1109,11 +1069,11 @@ export default function CompetitorAnalysis() {
               </>
             )}
 
-            {/* ── Tabela comparativa de gasto dos concorrentes ── */}
+            {/* Tabela comparativa de gasto */}
             {(competitors?.length || 0) > 1 && !adding && (
               <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, padding: 18, marginBottom: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{"◈"}</div>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>◈</div>
                   <div>
                     <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Estimativa de Investimento em Tráfego Pago</p>
                     <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Baseado em anúncios ativos, dias no ar, formato e CPM do nicho</p>
@@ -1130,29 +1090,29 @@ export default function CompetitorAnalysis() {
                     </thead>
                     <tbody>
                       {(competitors || []).map((comp: any) => {
-                        const compAds   = comp.scrapedAds || [];
+                        const compAds = comp.scrapedAds || [];
                         if (compAds.length === 0) return (
                           <tr key={comp.id} style={{ borderBottom: "1px solid var(--border)" }}>
                             <td style={{ padding: "10px 12px", fontWeight: 600 }}>{comp.name}</td>
                             <td colSpan={5} style={{ padding: "10px 12px", color: "var(--muted)", fontSize: 11 }}>Sem anúncios — analise o concorrente primeiro</td>
                           </tr>
                         );
-                        const activeC  = compAds.filter((a: any) => a.isActive || a.isActive === 1).length;
-                        const now3     = Date.now();
-                        const daysC    = compAds.filter((a: any) => a.startDate).map((a: any) =>
+                        const activeC = compAds.filter((a: any) => a.isActive || a.isActive === 1).length;
+                        const now3    = Date.now();
+                        const daysC   = compAds.filter((a: any) => a.startDate).map((a: any) =>
                           Math.max(1, Math.round((now3 - new Date(a.startDate).getTime()) / 86400000)));
-                        const avgDC    = daysC.length > 0 ? Math.round(daysC.reduce((s: number, d: number) => s + d, 0) / daysC.length) : 30;
-                        const fmtsC    = compAds.map((a: any) => (a.adType || "image") as string);
-                        const vidC     = fmtsC.filter((f: string) => f.toLowerCase().includes("video")).length;
-                        const isVidC   = vidC > fmtsC.length * 0.5;
-                        const multC    = isVidC ? 1.4 : 1.0;
-                        const mfC      = 30 / Math.min(Math.max(avgDC, 1), 90);
-                        const daily    = isVidC ? 800 : 500;
-                        const spMin    = Math.round((Math.max(activeC,1) * avgDC * daily * 0.7 * 10 * multC / 1000) * mfC);
-                        const spMax    = Math.round((Math.max(activeC,1) * avgDC * daily * 1.3 * 25 * multC / 1000) * mfC);
-                        const conf     = activeC >= 10 && daysC.length >= 5 ? "alta" : activeC >= 3 ? "média" : "baixa";
-                        const confClr  = conf === "alta" ? "#166534" : conf === "média" ? "#92400e" : "#64748b";
-                        const confBg2  = conf === "alta" ? "#dcfce7" : conf === "média" ? "#fef3c7" : "#f1f5f9";
+                        const avgDC   = daysC.length > 0 ? Math.round(daysC.reduce((s: number, d: number) => s + d, 0) / daysC.length) : 30;
+                        const fmtsC   = compAds.map((a: any) => (a.adType || "image") as string);
+                        const vidC    = fmtsC.filter((f: string) => f.toLowerCase().includes("video")).length;
+                        const isVidC  = vidC > fmtsC.length * 0.5;
+                        const multC   = isVidC ? 1.4 : 1.0;
+                        const mfC     = 30 / Math.min(Math.max(avgDC, 1), 90);
+                        const daily   = isVidC ? 800 : 500;
+                        const spMin   = Math.round((Math.max(activeC, 1) * avgDC * daily * 0.7 * 10 * multC / 1000) * mfC);
+                        const spMax   = Math.round((Math.max(activeC, 1) * avgDC * daily * 1.3 * 25 * multC / 1000) * mfC);
+                        const conf    = activeC >= 10 && daysC.length >= 5 ? "alta" : activeC >= 3 ? "média" : "baixa";
+                        const confClr = conf === "alta" ? "#166534" : conf === "média" ? "#92400e" : "#64748b";
+                        const confBg2 = conf === "alta" ? "#dcfce7" : conf === "média" ? "#fef3c7" : "#f1f5f9";
                         return (
                           <tr key={comp.id} style={{ borderBottom: "1px solid var(--border)", cursor: "pointer" }}
                             onClick={() => setSelected((selected === comp.id ? null : comp.id) as any)}>
@@ -1180,7 +1140,7 @@ export default function CompetitorAnalysis() {
                   </table>
                 </div>
                 <p style={{ fontSize: 10, color: "var(--muted)", marginTop: 8 }}>
-                  {"⚠️ Estimativa baseada em dados públicos da Meta Ads Library. Valores reais podem variar."}
+                  ⚠️ Estimativa baseada em dados públicos da Meta Ads Library. Valores reais podem variar.
                 </p>
               </div>
             )}
@@ -1197,7 +1157,6 @@ export default function CompetitorAnalysis() {
                   </div>
                 )}
 
-                {/* Busca */}
                 {(competitors?.length || 0) > 3 && !adding && (
                   <div style={{ position: "relative", marginBottom: 10 }}>
                     <input className="input" placeholder="Buscar concorrente…" value={searchQ} onChange={e => setSearchQ(e.target.value)}
@@ -1216,8 +1175,8 @@ export default function CompetitorAnalysis() {
                     const src = a.source || (a.adId?.startsWith("estimated_") ? "estimated" : null);
                     return !src || src === "unknown" || src === "estimated" || src === "estimated_ai";
                   }).length;
-                  const allEst   = hasAds && estCount === (c.adsCount || 0);
-                  const layer    = hasAds ? detectLayer(c.scrapedAds || []) : null;
+                  const allEst    = hasAds && estCount === (c.adsCount || 0);
+                  const layer     = hasAds ? detectLayer(c.scrapedAds || []) : null;
                   const layerInfo = (layer && layer >= 1 && layer <= 7) ? CASCADE_LAYERS[layer - 1] : null;
 
                   return (
@@ -1262,7 +1221,6 @@ export default function CompetitorAnalysis() {
                           </div>
                         </div>
 
-                        {/* Barra de progresso durante análise */}
                         {isAnalyzing && (
                           <div style={{ marginBottom: 8 }}>
                             <div style={{ height: 3, background: "var(--border)", borderRadius: 2, overflow: "hidden" }}>
@@ -1285,18 +1243,9 @@ export default function CompetitorAnalysis() {
                               onClick={e => {
                                 e.stopPropagation();
                                 const handle = (c.instagramUrl || "").replace(/^@/, "").replace(/.*tiktok\.com\/@?/, "");
-                                (fetchTikTokCompetitorMutation as any).mutate({
-                                  competitorId: c.id,
-                                  projectId,
-                                  tiktokHandle: handle,
-                                });
+                                (fetchTikTokCompetitorMutation as any).mutate({ competitorId: c.id, projectId, tiktokHandle: handle });
                               }}
-                              style={{
-                                background: "#010101", color: "white", border: "none",
-                                borderRadius: 8, padding: "0 8px", fontSize: 13,
-                                cursor: "pointer", height: 30, display: "flex",
-                                alignItems: "center", justifyContent: "center",
-                              }}>
+                              style={{ background: "#010101", color: "white", border: "none", borderRadius: 8, padding: "0 8px", fontSize: 13, cursor: "pointer", height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>
                               🎵
                             </button>
                           )}
@@ -1306,18 +1255,9 @@ export default function CompetitorAnalysis() {
                               disabled={isAnalyzing}
                               onClick={e => {
                                 e.stopPropagation();
-                                (fetchAdsByPageIdMutation as any).mutate({
-                                  competitorId: c.id,
-                                  projectId,
-                                  pageId: c.facebookPageId,
-                                });
+                                (fetchAdsByPageIdMutation as any).mutate({ competitorId: c.id, projectId, pageId: c.facebookPageId });
                               }}
-                              style={{
-                                background: "#1877f2", color: "white", border: "none",
-                                borderRadius: 8, padding: "0 8px", fontSize: 13,
-                                cursor: "pointer", height: 30, display: "flex",
-                                alignItems: "center", justifyContent: "center"
-                              }}>
+                              style={{ background: "#1877f2", color: "white", border: "none", borderRadius: 8, padding: "0 8px", fontSize: 13, cursor: "pointer", height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>
                               📡
                             </button>
                           )}
@@ -1331,7 +1271,7 @@ export default function CompetitorAnalysis() {
                               title="Abrir Ads Library">🔗</a>
                           )}
                           <button className="btn btn-sm btn-ghost"
-                            onClick={e => { e.stopPropagation(); if (confirm(`Remover "${c.name}"?`)) { deleteComp.mutate({ id: c.id }); if (selected === c.id) setSelected(null); }}}
+                            onClick={e => { e.stopPropagation(); if (confirm(`Remover "${c.name}"?`)) { deleteComp.mutate({ id: c.id }); if (selected === c.id) setSelected(null); } }}
                             style={{ fontSize: 12, color: "#ef4444", width: 30, padding: 0 }}>🗑</button>
                         </div>
                       </div>
@@ -1345,7 +1285,6 @@ export default function CompetitorAnalysis() {
                   </div>
                 )}
 
-                {/* Banner próximos passos */}
                 {!adding && (
                   <div style={{ background: "var(--navy)", borderRadius: 12, padding: 16, marginTop: 8 }}>
                     <p style={{ fontSize: 12, fontWeight: 700, color: "white", marginBottom: 8 }}>🎯 Para anúncios reais:</p>
@@ -1360,7 +1299,6 @@ export default function CompetitorAnalysis() {
                   </div>
                 )}
 
-                {/* CTA próximo módulo — igual ao padrão do Módulo 1 e Módulo 3 */}
                 {!noCompetitors && !adding && (
                   <div style={{
                     background: "linear-gradient(135deg, var(--navy) 0%, #1a3a6e 100%)",
@@ -1368,18 +1306,14 @@ export default function CompetitorAnalysis() {
                     display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16,
                   }}>
                     <div>
-                      <p style={{ fontSize: 14, fontWeight: 700, color: "white", marginBottom: 4 }}>
-                        ◎ Concorrentes cadastrados! Próximo passo:
-                      </p>
+                      <p style={{ fontSize: 14, fontWeight: 700, color: "white", marginBottom: 4 }}>◎ Concorrentes cadastrados! Próximo passo:</p>
                       <p style={{ fontSize: 12, color: "rgba(255,255,255,.7)", lineHeight: 1.5 }}>
                         Use os dados coletados para gerar a Análise de Mercado com IA.
                       </p>
                     </div>
-                    <button
-                      className="btn btn-green"
+                    <button className="btn btn-green"
                       style={{ whiteSpace: "nowrap", fontWeight: 700, fontSize: 13, padding: "10px 20px" }}
-                      onClick={() => setLocation(`/projects/${projectId}/market`)}
-                    >
+                      onClick={() => setLocation(`/projects/${projectId}/market`)}>
                       Ir para Módulo 3 →
                     </button>
                   </div>
@@ -1391,7 +1325,6 @@ export default function CompetitorAnalysis() {
           {/* ── COLUNA DIREITA: Raio-X ── */}
           {selectedComp && !adding && (
             <>
-              {/* Banner comparativo — aparece após análise, 1 clique só */}
               {selectedComp.aiInsights && (
                 <CompetitiveBanner
                   comp={selectedComp}
@@ -1401,7 +1334,6 @@ export default function CompetitorAnalysis() {
                   onEditCompany={(updated) => setMyCompany(updated)}
                 />
               )}
-
               <RaioX
                 comp={selectedComp}
                 onClose={() => setSelected(null)}
@@ -1415,7 +1347,6 @@ export default function CompetitorAnalysis() {
             </>
           )}
 
-          {/* Modal painel comparativo */}
           {showComparative && compareTarget && myCompany.name && (
             <CompetitivePanel
               comp={compareTarget}
@@ -1425,7 +1356,6 @@ export default function CompetitorAnalysis() {
             />
           )}
 
-          {/* Coluna direita ao adicionar */}
           {adding && !selected && (
             <div style={{ background: "var(--navy)", borderRadius: 16, padding: 24 }}>
               <p style={{ fontSize: 14, fontWeight: 700, color: "white", marginBottom: 14 }}>🧠 Pipeline de 7 camadas</p>
