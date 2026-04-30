@@ -2818,6 +2818,20 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
     log.info("ai", "Re-análise forçada — coletando novamente independente de dados existentes", { competitorId, existingCount: existingAds.length });
   }
 
+  // ── Pula regeneração de insights se já existem e são recentes (< 24h) ─────
+  // Economiza 1-4 chamadas LLM por concorrente quando o usuário reanalisar no mesmo dia
+  const insightsAge = (competitor as any).aiGeneratedAt
+    ? Date.now() - new Date((competitor as any).aiGeneratedAt).getTime()
+    : Infinity;
+  const insightsAreRecent = insightsAge < 24 * 60 * 60 * 1000; // 24 horas
+  const hasValidInsights   = !!(competitor as any).aiInsights && (competitor as any).aiInsights.length > 100;
+  const skipInsightsRegen  = !force && hasValidInsights && insightsAreRecent && hasRealAds;
+  if (skipInsightsRegen) {
+    log.info("ai", "[M2] insights recentes — pulando regeneração via LLM", {
+      competitorId, ageHours: Math.round(insightsAge / 3600000),
+    });
+  }
+
   let pageId       = (competitor as any).facebookPageId;
   const pageUrl    = (competitor as any).facebookPageUrl;
   const igUrl      = (competitor as any).instagramUrl;
@@ -4702,6 +4716,22 @@ export async function generateMarketAnalysis(projectId: number) {
 }
 
 async function _generateMarketAnalysisImpl(projectId: number) {
+  // Verifica se análise existente tem menos de 7 dias — evita regenerar sem necessidade
+  // Os dados de concorrentes raramente mudam de um dia para o outro
+  const existing = await db.getMarketAnalysis(projectId);
+  if (existing) {
+    const ageMs = Date.now() - new Date((existing as any).updatedAt || (existing as any).createdAt || 0).getTime();
+    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+    if (ageDays < 7) {
+      log.info("ai", "generateMarketAnalysis: análise recente reutilizada", {
+        projectId, ageDays: Math.round(ageDays * 10) / 10,
+      });
+      return existing;
+    }
+    log.info("ai", "generateMarketAnalysis: análise com mais de 7 dias — regenerando", {
+      projectId, ageDays: Math.round(ageDays),
+    });
+  }
   log.info("ai", "generateMarketAnalysis start", { projectId });
 
   const project       = await db.getProjectById(projectId);
@@ -4867,7 +4897,21 @@ export async function generateCampaign(input: {
   const userMetaToken     = (metaIntegration as any)?.accessToken  || undefined;
   const userMetaAccountId = (metaIntegration as any)?.adAccountId  || undefined;
 
-  const metaInsights = await fetchMetaInsightsBenchmarks(userMetaToken, userMetaAccountId);
+  // Cache de Meta Insights — válido por 4h (dados mudam pouco ao longo do dia)
+  const metaInsightsCacheKey = `meta_insights_${userId || 'global'}_${userMetaAccountId || 'none'}`;
+  let metaInsights = getCachedGemini(metaInsightsCacheKey);
+  if (!metaInsights) {
+    const freshInsights = await fetchMetaInsightsBenchmarks(userMetaToken, userMetaAccountId);
+    if (freshInsights && Object.keys(freshInsights).length > 0) {
+      setCachedGemini(metaInsightsCacheKey, JSON.stringify(freshInsights));
+      (metaInsights as any) = freshInsights;
+    } else {
+      (metaInsights as any) = freshInsights;
+    }
+  } else {
+    try { (metaInsights as any) = JSON.parse(metaInsights as string); } catch {}
+    log.info("ai", "Meta Insights: usando cache (sem chamada API)", { userId });
+  }
   const activeAds      = allAds.filter((a: any) => a.isActive);
   const longRunningAds = allAds.filter((a: any) => {
     if (!a.startDate) return false;
