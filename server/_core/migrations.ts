@@ -599,6 +599,22 @@ export async function runMigrations(): Promise<void> {
       )
     `).catch(() => {});
 
+    // UNIQUE constraints para ON CONFLICT DO NOTHING funcionar
+    await pool.query(`
+      ALTER TABLE campaign_scores ADD CONSTRAINT IF NOT EXISTS
+        uniq_campaign_scores_campaign UNIQUE(campaign_id)
+    `).catch(() => {});
+
+    await pool.query(`
+      ALTER TABLE winner_patterns ADD CONSTRAINT IF NOT EXISTS
+        uniq_winner_patterns_campaign UNIQUE(campaign_id)
+    `).catch(() => {});
+
+    await pool.query(`
+      ALTER TABLE ml_dataset ADD CONSTRAINT IF NOT EXISTS
+        uniq_ml_dataset_campaign UNIQUE(campaign_id)
+    `).catch(() => {});
+
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_campaign_scores_campaign
         ON campaign_scores(campaign_id)

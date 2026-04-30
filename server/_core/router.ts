@@ -3648,12 +3648,18 @@ const campaignsRouter = router({
       }
 
       // 7. Create Ads
+      // stripEmojis: Google Ads não aceita emojis em RSA headlines/descriptions
+      const stripEmojis = (s: string) =>
+        s.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F000}-\u{1FFFF}]/gu, "")
+         .replace(/\s+/g, " ").trim();
+
       const normalizeAssetTexts = (values: string[] | undefined, maxChars: number, maxItems: number) => {
         const seen = new Set<string>();
         const cleaned: Array<{ text: string }> = [];
         for (const raw of values ?? []) {
-          const text = String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, maxChars);
-          if (!text) continue;
+          // Remove emojis ANTES de truncar — evita TOO_LONG no Google gRPC
+          const text = stripEmojis(String(raw ?? "")).slice(0, maxChars);
+          if (!text || text.length < 2) continue;
           const key = text.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
