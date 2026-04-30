@@ -300,11 +300,34 @@ export default function CampaignBuilder() {
     }
   }
 
+  // Polling: verifica se campanha foi criada após timeout
+  async function pollForCampaign(afterTs: number, retries = 6): Promise<boolean> {
+    for (let i = 0; i < retries; i++) {
+      await new Promise(r => setTimeout(r, 3000)); // espera 3s entre checks
+      try {
+        const res = await fetch(`/api/campaigns/latest?projectId=${projectId}&after=${afterTs}`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.id) {
+            toast.success("◎ Campanha gerada com sucesso!", { duration: 5000 });
+            refetch();
+            setLocation(`/projects/${projectId}/campaign/result/${data.id}`);
+            return true;
+          }
+        }
+      } catch { /* continua tentando */ }
+    }
+    return false;
+  }
+
   async function handleGenerate() {
     if (!form.name.trim()) return;
-    if (generatingRef.current) return; // previne duplo clique
+    if (generatingRef.current) return;
     generatingRef.current = true;
     setGenerating(true);
+    const startTs = Date.now();
     try {
       await generate.mutateAsync({
         projectId,
@@ -318,6 +341,20 @@ export default function CampaignBuilder() {
           form.audienceProfile !== 'geral' ? `Perfil do público: ${form.audienceProfile}` : '',
         ].filter(Boolean).join('. '),
       });
+    } catch (err: any) {
+      const msg = err?.message || "";
+      const isTimeout = msg.includes("transform response") || msg.includes("Unable to transform")
+        || msg.includes("Failed to fetch") || msg.includes("TIMEOUT") || msg.includes("demorou");
+      if (isTimeout) {
+        // Pode ter gerado mas a conexão caiu — verifica em background
+        toast.loading("⏳ Verificando se a campanha foi criada...", { id: "poll-toast" });
+        const found = await pollForCampaign(startTs);
+        toast.dismiss("poll-toast");
+        if (!found) {
+          toast.warning("⚠️ Não foi possível confirmar. Verifique em 'Campanhas' — ela pode ter sido criada.", { duration: 10000 });
+        }
+      }
+      // onError do mutation já vai tratar o toast de erro
     } finally {
       setGenerating(false);
       generatingRef.current = false;

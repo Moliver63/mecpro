@@ -355,6 +355,26 @@ app.get('/api/health/ai', async (req: any, res: any) => {
   }
 });
 
+
+// GET /api/campaigns/latest — verifica se campanha foi criada recentemente (polling pós-timeout)
+app.get('/api/campaigns/latest', requireAuth, async (req: any, res: any) => {
+  try {
+    const projectId = parseInt(req.query.projectId as string);
+    const after     = parseInt(req.query.after as string) || 0;
+    if (!projectId) return res.json(null);
+    const pool = await getPool();
+    if (!pool) return res.json(null);
+    const afterDate = new Date(after);
+    const result = await pool.query(
+      `SELECT id, name, "createdAt" FROM campaigns
+       WHERE "projectId" = $1 AND "userId" = $2 AND "createdAt" > $3
+       ORDER BY "createdAt" DESC LIMIT 1`,
+      [projectId, req.user.id, afterDate]
+    );
+    res.json(result.rows[0] || null);
+  } catch { res.json(null); }
+});
+
 // ─── Diagnóstico Meta Ads (admin only) ────────────────────
 app.get('/api/diag/meta', async (req, res) => {
   const key = req.query.key as string;
