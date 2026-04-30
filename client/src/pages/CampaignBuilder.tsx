@@ -190,8 +190,15 @@ export default function CampaignBuilder() {
     },
     onError: (e: any) => {
       const msg = e.message || "";
-      if (msg.includes("Failed to fetch") || msg.includes("abort") || msg.includes("TIMEOUT") || msg.includes("demorou")) {
-        toast.error("⏱ A geração demorou mais que o esperado. Verifique a lista de campanhas — ela pode ter sido criada.", { duration: 8000 });
+      const isTimeout = msg.includes("Failed to fetch")
+        || msg.includes("abort")
+        || msg.includes("TIMEOUT")
+        || msg.includes("demorou")
+        || msg.includes("transform response")  // Render cortou a conexão
+        || msg.includes("Unable to transform")  // tRPC não conseguiu parsear
+        || msg.includes("network");
+      if (isTimeout) {
+        toast.warning("⏱ A geração está demorando. Aguarde 10 segundos e clique em 'Campanhas' para verificar se foi criada.", { duration: 10000 });
       } else {
         toast.error(`Erro ao gerar campanha: ${msg}`, { duration: 6000 });
       }

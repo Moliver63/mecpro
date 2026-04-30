@@ -1217,8 +1217,8 @@ const AI_TIMEOUTS = {
   hfWarmIntervalMs:        25 * 60 * 1000,
   mecproAiMs:              30000,  // 30s
   resolvePageIdMs:          8000,  // 8s
-  geminiMs:                55000,  // 55s — campanha/análise precisa de mais tempo (era 35s)
-  geminiFinalRetryMs:      55000,  // 55s retry final
+  geminiMs:                22000,  // 22s — Render tem timeout de 30s, não adianta esperar mais
+  geminiFinalRetryMs:      22000,  // 22s retry final
   geminiFinalRetryDelayMs:   500,  // 0.5s wait — era 3s (inútil esperar quando todas as chaves esgotadas)
   metaOfficialMs:          15000,  // 15s
   publicProxyMs:           10000,  // 10s
