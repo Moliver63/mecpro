@@ -2824,19 +2824,39 @@ Responda APENAS com JSON válido neste formato exato:
 
 confidence: "high" = certeza alta | "medium" = provável | "low" = possível`;
 
+  // Função auxiliar: tenta encontrar o site real via busca web se não veio no resultado
+  async function enrichWithWebsite(suggestion: any): Promise<any> {
+    if (suggestion.websiteUrl) return suggestion; // já tem site
+    try {
+      // Busca simples: "Site oficial [nome empresa]"
+      const searchPrompt = `Qual é o site oficial da empresa brasileira "${suggestion.name}"? Responda APENAS com a URL completa (ex: https://empresa.com.br) ou "não encontrado".`;
+      const result = await gemini(searchPrompt, { maxOutputTokens: 50, temperature: 0 });
+      if (result && result.startsWith("http") && !result.includes("não encontrado")) {
+        const url = result.trim().split(/\s/)[0]; // pega só a URL
+        log.info("ai", "discoverCompetitors: site enriquecido", { name: suggestion.name, url });
+        return { ...suggestion, websiteUrl: url };
+      }
+    } catch { /* ignora — site é opcional */ }
+    return suggestion;
+  }
+
   try {
     // Usa Gemini com Grounding (busca real na web)
     const raw = await geminiWithGrounding(prompt);
     if (Array.isArray(raw) && raw.length > 0) {
       log.info("ai", "discoverCompetitors: Grounding OK", { niche, count: raw.length });
-      return raw.slice(0, 5).map((r: any) => ({
-        name:           String(r.name || "").slice(0, 255),
-        websiteUrl:     r.websiteUrl    || undefined,
-        facebookPageUrl:r.facebookPageUrl || undefined,
-        instagramUrl:   r.instagramUrl  || undefined,
-        description:    r.description   || undefined,
-        confidence:     (["high","medium","low"].includes(r.confidence) ? r.confidence : "medium") as "high"|"medium"|"low",
+      const base = raw.slice(0, 5).map((r: any) => ({
+        name:            String(r.name || "").slice(0, 255),
+        websiteUrl:      r.websiteUrl      || undefined,
+        facebookPageUrl: r.facebookPageUrl || undefined,
+        instagramUrl:    r.instagramUrl    || undefined,
+        description:     r.description     || undefined,
+        confidence:      (["high","medium","low"].includes(r.confidence) ? r.confidence : "medium") as "high"|"medium"|"low",
       }));
+
+      // Enriquece em paralelo: busca site para quem não tem
+      const enriched = await Promise.all(base.map(s => enrichWithWebsite(s)));
+      return enriched;
     }
 
     // Fallback: Gemini sem grounding
@@ -2847,7 +2867,9 @@ confidence: "high" = certeza alta | "medium" = provável | "low" = possível`;
       const parsed = JSON.parse(clean);
       if (Array.isArray(parsed)) {
         log.info("ai", "discoverCompetitors: fallback Gemini OK", { niche, count: parsed.length });
-        return parsed.slice(0, 5);
+        // Enriquece sites no fallback também
+        const enriched = await Promise.all(parsed.slice(0, 5).map((s: any) => enrichWithWebsite(s)));
+        return enriched;
       }
     }
   } catch (e: any) {
