@@ -9978,6 +9978,13 @@ const mediaBudgetRouter = router({
     }),
 
   // Admin: listar todos os depósitos pendentes
+  saveUIConfig: adminProcedure
+    .input(z.object({ visibility: z.record(z.boolean()) }))
+    .mutation(async ({ input }) => {
+      await db.saveAdminSetting("ui_visibility", JSON.stringify(input.visibility));
+      return { success: true };
+    }),
+
   adminListPending: protectedProcedure
     .query(async ({ ctx }) => {
       if (!["admin", "superadmin"].includes((ctx.user as any)?.role || "")) {
@@ -10305,13 +10312,6 @@ const publicRouter = router({
       return { visibility: null };
     }
   }),
-
-  saveUIConfig: adminProcedure
-    .input(z.object({ visibility: z.record(z.boolean()) }))
-    .mutation(async ({ input }) => {
-      await db.saveAdminSetting("ui_visibility", JSON.stringify(input.visibility));
-      return { success: true };
-    }),
 
 
 });

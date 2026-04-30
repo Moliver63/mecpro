@@ -49,8 +49,8 @@ const PRESETS: Record<string, { label: string; desc: string; keys: string[] }> =
 };
 
 export default function AdminUIConfig() {
-  const { data: uiConfig, refetch } = (trpc as any).public?.getUIConfig?.useQuery?.() ?? { data: null, refetch: () => {} };
-  const saveConfig = (trpc as any).public?.saveUIConfig?.useMutation?.({
+  const { data: uiConfig, refetch } = trpc.public.getUIConfig.useQuery();
+  const saveConfig = trpc.admin.saveUIConfig.useMutation({
     onSuccess: () => { toast.success("Configuração salva! Usuários verão o menu atualizado."); refetch(); },
     onError:   (e: any) => toast.error(e.message || "Erro ao salvar"),
   });
