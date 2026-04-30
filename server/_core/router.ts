@@ -4289,6 +4289,14 @@ const adminRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Apenas Superadmin" });
       return db.rejectPlanRequest(input.requestId, ctx.user.id, input.note);
     }),
+
+  // Visibilidade de páginas e features — /admin/ui-config
+  saveUIConfig: adminProcedure
+    .input(z.object({ visibility: z.record(z.boolean()) }))
+    .mutation(async ({ input }) => {
+      await db.saveAdminSetting("ui_visibility", JSON.stringify(input.visibility));
+      return { success: true };
+    }),
 });
 
 // ============ PLAN CHANGE REQUESTS ROUTER ============
@@ -9978,13 +9986,6 @@ const mediaBudgetRouter = router({
     }),
 
   // Admin: listar todos os depósitos pendentes
-  saveUIConfig: adminProcedure
-    .input(z.object({ visibility: z.record(z.boolean()) }))
-    .mutation(async ({ input }) => {
-      await db.saveAdminSetting("ui_visibility", JSON.stringify(input.visibility));
-      return { success: true };
-    }),
-
   adminListPending: protectedProcedure
     .query(async ({ ctx }) => {
       if (!["admin", "superadmin"].includes((ctx.user as any)?.role || "")) {
