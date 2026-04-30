@@ -530,11 +530,12 @@ export const adminIntelligenceRouter = router({
 
       let query = `SELECT * FROM winner_patterns WHERE status='active'`;
       const params: any[] = [];
-      if (input.platform)  { query += ` AND platform=$1`;  params.push(input.platform); }
-      if (input.objective) { query += ` AND objective=$1`; params.push(input.objective); }
-      if (input.niche)     { query += ` AND niche=$1`;     params.push(input.niche); }
+      let pIdxW = 1;
+      if (input.platform)  { query += ` AND platform=$${pIdxW++}`;  params.push(input.platform); }
+      if (input.objective) { query += ` AND objective=$${pIdxW++}`; params.push(input.objective); }
+      if (input.niche)     { query += ` AND niche=$${pIdxW++}`;     params.push(input.niche); }
       if (input.approvedOnly) { query += ` AND approved_by_admin=1`; }
-      query += ` ORDER BY pattern_score DESC LIMIT $1`;
+      query += ` ORDER BY score DESC LIMIT $${pIdxW}`;
       params.push(input.limit);
 
       try {
@@ -565,9 +566,10 @@ export const adminIntelligenceRouter = router({
       let query = `SELECT * FROM learning_base`;
       const params: any[] = [];
       const where: string[] = [];
-      if (input.platform)  where.push(`platform=$1`),  params.push(input.platform);
-      if (input.objective) where.push(`objective=$1`), params.push(input.objective);
-      if (input.niche)     where.push(`niche=$1`),     params.push(input.niche);
+      let pIdxL = 1;
+      if (input.platform)  where.push(`platform=$${pIdxL++}`),  params.push(input.platform);
+      if (input.objective) where.push(`objective=$${pIdxL++}`), params.push(input.objective);
+      if (input.niche)     where.push(`niche=$${pIdxL++}`),     params.push(input.niche);
       if (where.length) query += ` WHERE ${where.join(" AND ")}`;
       query += ` ORDER BY avg_score DESC`;
 
@@ -607,10 +609,11 @@ export const adminIntelligenceRouter = router({
         JOIN campaigns c ON c.id = cs.campaign_id
         WHERE 1=1`;
       const params: any[] = [];
-      if (input.platform)  { query += ` AND cs.platform=$1`;  params.push(input.platform); }
-      if (input.niche)     { query += ` AND cs.niche=$1`;     params.push(input.niche); }
-      if (input.objective) { query += ` AND cs.objective=$1`; params.push(input.objective); }
-      query += ` ORDER BY cs.score_total DESC LIMIT $1`;
+      let pIdx = 1;
+      if (input.platform)  { query += ` AND cs.platform=$${pIdx++}`;  params.push(input.platform); }
+      if (input.niche)     { query += ` AND cs.niche=$${pIdx++}`;     params.push(input.niche); }
+      if (input.objective) { query += ` AND cs.objective=$${pIdx++}`; params.push(input.objective); }
+      query += ` ORDER BY cs.score_total DESC LIMIT $${pIdx}`;
       params.push(input.limit);
 
       try {

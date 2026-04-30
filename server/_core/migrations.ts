@@ -511,6 +511,109 @@ export async function runMigrations(): Promise<void> {
     `).catch(() => {});
 
 
+
+    // ── ML Scoring Tables (campaign_scores + ml_dataset) ────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS campaign_scores (
+        id                  SERIAL PRIMARY KEY,
+        campaign_id         INTEGER NOT NULL,
+        user_id             INTEGER NOT NULL,
+        project_id          INTEGER NOT NULL,
+        score_total         NUMERIC(5,2) NOT NULL DEFAULT 0,
+        score_ctr           NUMERIC(5,2) DEFAULT 0,
+        score_cpc           NUMERIC(5,2) DEFAULT 0,
+        score_cpm           NUMERIC(5,2) DEFAULT 0,
+        score_roas          NUMERIC(5,2) DEFAULT 0,
+        score_conversion    NUMERIC(5,2) DEFAULT 0,
+        score_creative      NUMERIC(5,2) DEFAULT 0,
+        score_consistency   NUMERIC(5,2) DEFAULT 0,
+        score_scalability   NUMERIC(5,2) DEFAULT 0,
+        platform            TEXT,
+        objective           TEXT,
+        niche               TEXT,
+        segment             TEXT,
+        budget_total        NUMERIC(10,2),
+        duration_days       INTEGER,
+        metric_impressions  NUMERIC(12,2) DEFAULT 0,
+        metric_clicks       NUMERIC(12,2) DEFAULT 0,
+        metric_ctr          NUMERIC(8,4)  DEFAULT 0,
+        metric_cpc          NUMERIC(8,4)  DEFAULT 0,
+        metric_cpm          NUMERIC(8,4)  DEFAULT 0,
+        metric_spend        NUMERIC(10,2) DEFAULT 0,
+        metric_roas         NUMERIC(8,4)  DEFAULT 0,
+        metric_conversions  NUMERIC(10,2) DEFAULT 0,
+        metric_leads        NUMERIC(10,2) DEFAULT 0,
+        weights_used        TEXT,
+        engine_version      TEXT DEFAULT '2.0',
+        rank_global         INTEGER,
+        rank_by_niche       INTEGER,
+        rank_by_platform    INTEGER,
+        is_winner           INTEGER DEFAULT 0,
+        statistical_conf    NUMERIC(5,3) DEFAULT 0,
+        volume_weight       NUMERIC(5,2) DEFAULT 0,
+        is_false_winner     INTEGER DEFAULT 0,
+        false_winner_reason TEXT,
+        score_explanation   TEXT,
+        key_insights        TEXT,
+        calculated_at       TIMESTAMPTZ DEFAULT NOW(),
+        notes               TEXT
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ml_dataset (
+        id                       SERIAL PRIMARY KEY,
+        campaign_id              INTEGER NOT NULL,
+        score_id                 INTEGER,
+        feature_platform         TEXT,
+        feature_objective        TEXT,
+        feature_niche            TEXT,
+        feature_ad_format        TEXT,
+        feature_age_range        TEXT,
+        feature_budget_range     TEXT,
+        feature_duration         TEXT,
+        feature_placement        TEXT,
+        feature_bid_strategy     TEXT,
+        feature_copy_length      NUMERIC(5,4),
+        feature_num_creatives    NUMERIC(5,4),
+        feature_has_video        INTEGER DEFAULT 0,
+        feature_has_carousel     INTEGER DEFAULT 0,
+        feature_used_emoji       INTEGER DEFAULT 0,
+        feature_used_urgency     INTEGER DEFAULT 0,
+        feature_used_social_proof INTEGER DEFAULT 0,
+        feature_copy_type        TEXT,
+        feature_creative_type    TEXT,
+        feature_promise_type     TEXT,
+        feature_audience_type    TEXT,
+        feature_statistical_conf NUMERIC(5,3),
+        feature_volume_weight    NUMERIC(5,2),
+        feature_is_false_winner  INTEGER DEFAULT 0,
+        label_score              NUMERIC(5,2) NOT NULL,
+        label_ctr                NUMERIC(8,4),
+        label_cpc                NUMERIC(8,4),
+        label_roas               NUMERIC(8,4),
+        label_is_winner          INTEGER DEFAULT 0,
+        label_success_probability NUMERIC(5,2),
+        split_group              TEXT DEFAULT 'train',
+        created_at               TIMESTAMPTZ DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_campaign_scores_campaign
+        ON campaign_scores(campaign_id)
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_campaign_scores_platform_obj
+        ON campaign_scores(platform, objective, niche)
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ml_dataset_split
+        ON ml_dataset(split_group)
+    `).catch(() => {});
+
     // ── ML Intelligence Tables ──────────────────────────────────────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS winner_patterns (
