@@ -453,7 +453,7 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
 
 // ── Pollinations.AI — geração gratuita sem API key ───────────────────────────
 // Funciona via URL direta: https://image.pollinations.ai/prompt/{encoded}
-async function tryPollinations(prompt: string, format: CreativeImageFormat): Promise<string | null> {
+const tryPollinations = async (prompt: string, format: CreativeImageFormat): Promise<string | null> => {
   try {
     const dim = FORMAT_DIMENSIONS[format];
     const encoded = encodeURIComponent(prompt.slice(0, 500));
