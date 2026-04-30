@@ -357,8 +357,19 @@ app.get('/api/health/ai', async (req: any, res: any) => {
 
 
 // GET /api/campaigns/latest — verifica se campanha foi criada recentemente (polling pós-timeout)
-app.get('/api/campaigns/latest', requireAuth, async (req: any, res: any) => {
+app.get('/api/campaigns/latest', async (req: any, res: any) => {
   try {
+    // Auth inline — mesmo padrão do marketplaceAuthMiddleware
+    const cookieToken = req.cookies?.token;
+    const headerToken = (req.headers.authorization || "").replace("Bearer ", "").trim();
+    const token = cookieToken || headerToken;
+    if (!token) return res.json(null);
+    const { jwtVerify } = await import('jose');
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+    const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null }));
+    if (!payload?.sub) return res.json(null);
+    const userId = parseInt(String(payload.sub));
+
     const projectId = parseInt(req.query.projectId as string);
     const after     = parseInt(req.query.after as string) || 0;
     if (!projectId) return res.json(null);
@@ -369,7 +380,7 @@ app.get('/api/campaigns/latest', requireAuth, async (req: any, res: any) => {
       `SELECT id, name, "createdAt" FROM campaigns
        WHERE "projectId" = $1 AND "userId" = $2 AND "createdAt" > $3
        ORDER BY "createdAt" DESC LIMIT 1`,
-      [projectId, req.user.id, afterDate]
+      [projectId, userId, afterDate]
     );
     res.json(result.rows[0] || null);
   } catch { res.json(null); }
