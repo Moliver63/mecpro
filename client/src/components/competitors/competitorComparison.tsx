@@ -1,5 +1,5 @@
 // competitorComparison.tsx — Painel de comparação competitiva
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export function CompetitiveBanner({ comp, myCompany, profileLoaded, onCompare, onEditCompany }: {
   comp:           any;
