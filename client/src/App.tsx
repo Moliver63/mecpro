@@ -1,5 +1,21 @@
 import { Switch, Route, Redirect } from "wouter";
 import PWAInstallBanner from "@/components/PWAInstallBanner";
+import { useEffect } from "react";
+
+// Carrega config de visibilidade uma vez e salva no sessionStorage
+// Feito fora do Layout para evitar hook tRPC em componente crítico
+function UIConfigLoader() {
+  const { data } = trpc.public.getUIConfig.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  useEffect(() => {
+    if ((data as any)?.visibility) {
+      try { sessionStorage.setItem("mecpro_ui_visibility", JSON.stringify((data as any).visibility)); } catch {}
+    }
+  }, [data]);
+  return null;
+}
 import AdminUIConfig from "@/pages/AdminUIConfig";
 import CheckoutAsaas from "@/pages/CheckoutAsaas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -283,6 +299,7 @@ export default function App() {
           </Switch>
           <CookieConsent />
           <MECPROAssistantChat />
+          <UIConfigLoader />
           <PWAInstallBanner />
           <Toaster richColors position="top-right" />
         </QueryClientProvider>

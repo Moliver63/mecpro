@@ -60,7 +60,10 @@ export default function AdminUIConfig() {
 
   useEffect(() => {
     if ((uiConfig as any)?.visibility) {
-      setVisibility((uiConfig as any).visibility);
+      const vis = (uiConfig as any).visibility;
+      setVisibility(vis);
+      // Persiste no sessionStorage para o Layout ler sem hook tRPC
+      try { sessionStorage.setItem("mecpro_ui_visibility", JSON.stringify(vis)); } catch {}
     }
   }, [uiConfig]);
 
@@ -83,6 +86,8 @@ export default function AdminUIConfig() {
 
   const save = () => {
     saveConfig?.mutate({ visibility });
+    // Atualiza sessionStorage imediatamente para o menu refletir sem reload
+    try { sessionStorage.setItem("mecpro_ui_visibility", JSON.stringify(visibility)); } catch {}
     setDirty(false);
   };
 

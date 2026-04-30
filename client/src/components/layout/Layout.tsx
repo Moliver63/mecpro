@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import UserMenu from "@/components/shared/UserMenu";
-import { trpc } from "@/lib/trpc";
 
 // ── Nav items ──────────────────────────────────────────────────────────────
 // Itens que podem ser ocultados pelo admin (key = path sem /)
@@ -259,14 +258,14 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
     try { return localStorage.getItem("sidebar-collapsed") === "1"; } catch { return false; }
   });
 
-  // getUIConfig: hook incondicional — DEVE estar antes de qualquer return (Rules of Hooks)
-  const uiConfigQuery = trpc.public.getUIConfig.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-    // Se falhar, retorna visibilidade vazia (menu completo) — sem crash
-    onError: () => {},
-  } as any);
-  const uiVisibility: Record<string, boolean> = (uiConfigQuery.data as any)?.visibility ?? {};
+  // Visibilidade do menu: carregada do sessionStorage (populado pelo AdminUIConfig)
+  // Não usa hook tRPC aqui para evitar qualquer risco de crash no Layout
+  const uiVisibility: Record<string, boolean> = (() => {
+    try {
+      const raw = sessionStorage.getItem("mecpro_ui_visibility");
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  })();
 
   const toggle = () => {
     const next = !collapsed;
