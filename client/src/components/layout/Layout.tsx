@@ -258,6 +258,10 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
     try { return localStorage.getItem("sidebar-collapsed") === "1"; } catch { return false; }
   });
 
+  // getUIConfig DEVE estar antes de qualquer return condicional (Rules of Hooks)
+  const { data: uiConfig } = (trpc as any).public?.getUIConfig?.useQuery?.() ?? { data: null };
+  const uiVisibility: Record<string, boolean> = (uiConfig as any)?.visibility ?? {};
+
   const toggle = () => {
     const next = !collapsed;
     setCollapsed(next);
@@ -274,14 +278,11 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
   // Usuário logado no marketplace ainda vê a sidebar (experiência completa)
 
   const isAdmin  = ["admin","superadmin"].includes(user?.role ?? "");
-  const { data: uiConfig } = (trpc as any).public?.getUIConfig?.useQuery?.() ?? { data: null };
-  const visibility: Record<string, boolean> = (uiConfig as any)?.visibility ?? {};
 
   const allUserItems = NAV_USER.filter(item => {
     if (item.alwaysVisible) return true;
-    // Se a key não está no mapa → visível por padrão (admin ainda não configurou)
-    if (!(item.key in visibility)) return true;
-    return visibility[item.key];
+    if (!(item.key in uiVisibility)) return true;
+    return uiVisibility[item.key];
   });
 
   const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : allUserItems;
