@@ -7,7 +7,7 @@ import { toast } from "sonner";
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS
 // ─────────────────────────────────────────────────────────────────────────────
-type TabMain = "dashboard" | "campaigns" | "ranking" | "patterns" | "learning" | "ml" | "compare";
+type TabMain = "dashboard" | "campaigns" | "ranking" | "patterns" | "learning" | "ml" | "compare" | "insights";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS VISUAIS
@@ -801,6 +801,289 @@ function TabML() {
 // ─────────────────────────────────────────────────────────────────────────────
 // ABA COMPARAR CAMPANHAS
 // ─────────────────────────────────────────────────────────────────────────────
+function TabInsights() {
+  const [projectFilter, setProjectFilter] = useState<string>("");
+  const [platformFilter, setPlatformFilter] = useState<string>("");
+  const [minScore, setMinScore] = useState(60);
+  const [section, setSection] = useState<"ads"|"competitors"|"patterns"|"learning"|"strategies">("ads");
+
+  const { data, isLoading, refetch } = (trpc as any).intelligence?.extractBestInsights?.useQuery?.({
+    platform: platformFilter || undefined,
+    minScore,
+    limit: 50,
+  }, { enabled: true }) ?? { data: null, isLoading: false, refetch: () => {} };
+
+  const d = data as any;
+
+  const SECTIONS = [
+    { key: "ads",          icon: "📢", label: "Anúncios Reais",     count: d?.topAds?.length },
+    { key: "competitors",  icon: "🔍", label: "Insights Concorrentes", count: d?.competitorInsights?.length },
+    { key: "patterns",     icon: "◈",  label: "Padrões Vencedores", count: d?.winnerPatterns?.length },
+    { key: "learning",     icon: "📊", label: "Base de Aprendizado", count: d?.learningBase?.length },
+    { key: "strategies",   icon: "🗺", label: "Estratégias Top",     count: d?.topStrategies?.length },
+  ] as const;
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ background: "linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius: 16, padding: "20px 24px", marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ color: "#fff", fontWeight: 800, fontSize: 18, margin: 0 }}>💡 Melhores Insights do Banco</h2>
+          <p style={{ color: "rgba(255,255,255,.5)", fontSize: 12, margin: "4px 0 0" }}>
+            Cruza anúncios reais · insights de concorrentes · padrões vencedores · base de aprendizado
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <select value={platformFilter} onChange={e => setPlatformFilter(e.target.value)}
+            style={{ ...selectStyle, background: "rgba(255,255,255,.1)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }}>
+            <option value="">Todas plataformas</option>
+            <option value="meta">Meta</option>
+            <option value="google">Google</option>
+            <option value="tiktok">TikTok</option>
+          </select>
+          <select value={minScore} onChange={e => setMinScore(Number(e.target.value))}
+            style={{ ...selectStyle, background: "rgba(255,255,255,.1)", color: "#fff", border: "1px solid rgba(255,255,255,.2)" }}>
+            <option value={0}>Score: todos</option>
+            <option value={50}>Score ≥ 50</option>
+            <option value={60}>Score ≥ 60</option>
+            <option value={70}>Score ≥ 70</option>
+            <option value={80}>Score ≥ 80</option>
+          </select>
+          <button onClick={() => refetch()} style={{ ...actionBtn("#4ade80"), background: "#4ade8018", color: "#16a34a" }}>
+            🔄 Atualizar
+          </button>
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      {d?.summary && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 20 }}>
+          {[
+            { label: "Anúncios reais",    value: d.summary.totalAdsAnalyzed,    icon: "📢", color: "#1e40af" },
+            { label: "Concorrentes",       value: d.summary.totalCompetitors,     icon: "🔍", color: "#7c3aed" },
+            { label: "Padrões vencedores", value: d.summary.totalWinnerPatterns,  icon: "◈",  color: "#16a34a" },
+            { label: "Nichos na base",     value: d.summary.totalLearningNiches,  icon: "📊", color: "#d97706" },
+            { label: "Anúncios ativos %",  value: `${d.summary.activeAdsPct}%`,   icon: "✅", color: "#0891b2" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "14px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 20, marginBottom: 4 }}>{s.icon}</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: s.color, letterSpacing: "-0.5px", lineHeight: 1 }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4, fontWeight: 600 }}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Top CTAs e Formatos */}
+      {d?.summary && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "16px 18px" }}>
+            <p style={{ fontWeight: 800, fontSize: 13, color: "#111", marginBottom: 10, margin: "0 0 10px" }}>CTAs mais usados pelos concorrentes</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(d.summary.topCtas || []).map((cta: string, i: number) => (
+                <span key={i} style={{ background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0", borderRadius: 99, padding: "4px 12px", fontSize: 12, fontWeight: 700 }}>
+                  {cta}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "16px 18px" }}>
+            <p style={{ fontWeight: 800, fontSize: 13, color: "#111", margin: "0 0 10px" }}>Formatos dominantes</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(d.summary.topFormats || []).map((fmt: string, i: number) => (
+                <span key={i} style={{ background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", borderRadius: 99, padding: "4px 12px", fontSize: 12, fontWeight: 700 }}>
+                  {fmt}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, background: "#f8fafc", borderRadius: 10, padding: 4 }}>
+        {SECTIONS.map(s => (
+          <button key={s.key} onClick={() => setSection(s.key as any)}
+            style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 11,
+              background: section === s.key ? "#fff" : "transparent",
+              color:      section === s.key ? "#111" : "#6b7280",
+              boxShadow:  section === s.key ? "0 1px 4px rgba(0,0,0,.08)" : "none",
+            }}>
+            {s.icon} {s.label} {s.count != null ? `(${s.count})` : ""}
+          </button>
+        ))}
+      </div>
+
+      {isLoading && <p style={{ textAlign: "center", color: "#6b7280", padding: 40 }}>⏳ Carregando insights...</p>}
+
+      {/* ANÚNCIOS REAIS */}
+      {section === "ads" && !isLoading && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
+          {(d?.topAds || []).map((ad: any, i: number) => (
+            <div key={i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {ad.is_active ? <span style={{ background: "#dcfce7", color: "#16a34a", fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 99 }}>ATIVO</span> : null}
+                  <span style={{ background: "#eff6ff", color: "#1e40af", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 99 }}>{ad.ad_type || "image"}</span>
+                </div>
+                <span style={{ fontSize: 10, color: "#9ca3af" }}>{ad.competitor_name}</span>
+              </div>
+              {ad.headline && <p style={{ fontWeight: 700, fontSize: 13, color: "#111", margin: "0 0 6px", lineHeight: 1.4 }}>{ad.headline}</p>}
+              {ad.body_text && <p style={{ fontSize: 11, color: "#6b7280", margin: "0 0 8px", lineHeight: 1.55, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{ad.body_text}</p>}
+              {ad.cta && <span style={{ background: "#fef3c7", color: "#d97706", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 6 }}>CTA: {ad.cta}</span>}
+              {ad.spend_range && <span style={{ fontSize: 10, color: "#9ca3af", marginLeft: 8 }}>Investimento: {ad.spend_range}</span>}
+            </div>
+          ))}
+          {(!d?.topAds || d.topAds.length === 0) && !isLoading && (
+            <div style={{ gridColumn: "span 2", textAlign: "center", padding: "40px 0", color: "#6b7280" }}>
+              <p style={{ fontSize: 32, marginBottom: 8 }}>📢</p>
+              <p>Nenhum anúncio encontrado. Adicione e analise concorrentes primeiro.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* INSIGHTS DE CONCORRENTES */}
+      {section === "competitors" && !isLoading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {(d?.competitorInsights || []).map((c: any, i: number) => (
+            <div key={i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <p style={{ fontWeight: 800, fontSize: 14, color: "#111", margin: 0 }}>{c.competitor}</p>
+                <span style={{ fontSize: 11, color: "#6b7280" }}>{c.adsAnalyzed} anúncios analisados</span>
+              </div>
+              {c.keyInsights.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "#16a34a", margin: "0 0 6px" }}>Dados-chave:</p>
+                  {c.keyInsights.map((ins: string, j: number) => (
+                    <p key={j} style={{ fontSize: 12, color: "#374151", margin: "0 0 4px", paddingLeft: 12, borderLeft: "2px solid #16a34a" }}>{ins}</p>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontSize: 11, color: "#9ca3af", margin: 0, lineHeight: 1.5 }}>{c.fullText.slice(0, 300)}...</p>
+            </div>
+          ))}
+          {(!d?.competitorInsights || d.competitorInsights.length === 0) && (
+            <div style={{ textAlign: "center", padding: "40px 0", color: "#6b7280" }}>
+              <p>Nenhum insight de concorrente. Clique em "Analisar" em cada concorrente primeiro.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PADRÕES VENCEDORES */}
+      {section === "patterns" && !isLoading && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
+          {(d?.winnerPatterns || []).map((p: any, i: number) => (
+            <div key={i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "16px 18px", borderTop: `3px solid ${p.score >= 80 ? "#16a34a" : p.score >= 60 ? "#2563eb" : "#d97706"}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <span style={{ background: "#f0fdf4", color: "#16a34a", fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 99 }}>{p.platform}</span>
+                  <span style={{ background: "#eff6ff", color: "#1e40af", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 99 }}>{p.objective}</span>
+                  {p.niche !== "geral" && <span style={{ background: "#fdf4ff", color: "#7c3aed", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 99 }}>{p.niche}</span>}
+                </div>
+                <span style={{ fontWeight: 900, fontSize: 16, color: SCORE_COLOR(p.score) }}>{p.score}/100</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                {[
+                  { l: "Formato", v: p.ad_format },
+                  { l: "CTA",     v: p.cta_type },
+                  { l: "Promessa", v: p.main_promise?.slice(0, 40) },
+                  { l: "Sucesso", v: `${p.successProbability}%` },
+                ].map(f => f.v ? (
+                  <div key={f.l} style={{ background: "#f8fafc", borderRadius: 8, padding: "6px 10px" }}>
+                    <p style={{ fontSize: 9, color: "#9ca3af", margin: 0, textTransform: "uppercase", letterSpacing: ".5px" }}>{f.l}</p>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#111", margin: 0 }}>{f.v}</p>
+                  </div>
+                ) : null)}
+              </div>
+              {p.triggerTypes?.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {p.triggerTypes.slice(0, 3).map((t: string, j: number) => (
+                    <span key={j} style={{ background: "#fef3c7", color: "#d97706", fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 99 }}>{t}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {(!d?.winnerPatterns || d.winnerPatterns.length === 0) && (
+            <div style={{ gridColumn: "span 2", textAlign: "center", padding: "40px 0", color: "#6b7280" }}>
+              <p>Nenhum padrão vencedor. Clique em "Analisar Histórico Completo" para extrair padrões.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* LEARNING BASE */}
+      {section === "learning" && !isLoading && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff", borderRadius: 12, overflow: "hidden", border: "1px solid #e5e7eb" }}>
+            <thead>
+              <tr style={{ background: "#f8fafc" }}>
+                {["Plataforma","Objetivo","Nicho","Amostras","Score médio","CTR médio","CPC médio","CPM médio","ROAS médio","Top Formatos","Top CTAs","Top Gatilhos"].map(h => (
+                  <th key={h} style={{ padding: "10px 12px", fontSize: 10, fontWeight: 800, color: "#6b7280", textAlign: "left", borderBottom: "1px solid #e5e7eb", textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(d?.learningBase || []).map((l: any, i: number) => (
+                <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 700 }}>{l.platform}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12 }}>{l.objective}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12 }}>{l.niche}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 700, color: l.samples >= 10 ? "#16a34a" : "#d97706" }}>{l.samples}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 800, color: SCORE_COLOR(l.avgScore) }}>{l.avgScore}/100</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12 }}>{l.avgCtr}%</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12 }}>R${l.avgCpc}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12 }}>R${l.avgCpm}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 12 }}>{l.avgRoas > 0 ? `${l.avgRoas}x` : "—"}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 11 }}>{l.topFormats.join(", ") || "—"}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 11 }}>{l.topCtas.join(", ") || "—"}</td>
+                  <td style={{ padding: "10px 12px", fontSize: 11 }}>{l.topTriggers.join(", ") || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(!d?.learningBase || d.learningBase.length === 0) && (
+            <p style={{ textAlign: "center", padding: "40px 0", color: "#6b7280" }}>
+              Base de aprendizado vazia. Execute "Analisar Histórico Completo" para popular.
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* TOP ESTRATÉGIAS */}
+      {section === "strategies" && !isLoading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {(d?.topStrategies || []).map((s: any, i: number) => (
+            <div key={i} style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <div>
+                  <p style={{ fontWeight: 800, fontSize: 14, color: "#111", margin: "0 0 4px" }}>{s.name}</p>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <span style={{ background: "#eff6ff", color: "#1e40af", fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99 }}>{s.platform}</span>
+                    <span style={{ background: "#f0fdf4", color: "#16a34a", fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 99 }}>{s.objective}</span>
+                    {s.isWinner && <span style={{ background: "#fef3c7", color: "#d97706", fontSize: 10, fontWeight: 800, padding: "2px 6px", borderRadius: 99 }}>⭐ VENCEDOR</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  {s.score && <p style={{ fontWeight: 900, fontSize: 18, color: SCORE_COLOR(s.score), margin: 0, lineHeight: 1 }}>{s.score}/100</p>}
+                  {s.ctr && <p style={{ fontSize: 10, color: "#6b7280", margin: "2px 0 0" }}>CTR {s.ctr}% · CPC R${s.cpc}</p>}
+                </div>
+              </div>
+              <p style={{ fontSize: 12, color: "#6b7280", margin: 0, lineHeight: 1.6 }}>{s.strategyPreview}</p>
+            </div>
+          ))}
+          {(!d?.topStrategies || d.topStrategies.length === 0) && (
+            <p style={{ textAlign: "center", padding: "40px 0", color: "#6b7280" }}>Nenhuma estratégia encontrada.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function TabCompare() {
   const [ids, setIds]       = useState("");
   const [result, setResult] = useState<any>(null);
@@ -1035,6 +1318,7 @@ export default function AdminCampaignIntelligence() {
     { key: "dashboard", icon: "📊", label: "Dashboard"  },
     { key: "campaigns", icon: "🎯", label: "Campanhas"  },
     { key: "ranking",   icon: "◆", label: "Ranking"    },
+    { key: "insights",  icon: "💡", label: "Insights"    },
     { key: "compare",   icon: "⚖️",  label: "Comparar"   },
     { key: "patterns",  icon: "🔍", label: "Padrões"    },
     { key: "learning",  icon: "🧠", label: "Aprendizado" },
@@ -1123,6 +1407,7 @@ export default function AdminCampaignIntelligence() {
           />
         )}
         {activeTab === "ranking"  && <TabRanking />}
+        {activeTab === "insights" && <TabInsights />}
         {activeTab === "compare"  && <TabCompare />}
         {activeTab === "patterns" && <TabPatterns onApprove={id => approveMutation?.mutate({ patternId: id })} />}
         {activeTab === "learning" && <TabLearning />}

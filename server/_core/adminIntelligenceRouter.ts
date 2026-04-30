@@ -966,6 +966,197 @@ export const adminIntelligenceRouter = router({
     }),
 
 
+  // ── 14. EXTRAI MELHORES INSIGHTS DO BANCO ────────────────────────────────
+  // Cruza: aiInsights de concorrentes + headlines reais de scraped_ads
+  //        + estratégias das campanhas + winner_patterns + learning_base
+  extractBestInsights: adminProcedure
+    .input(z.object({
+      projectId:  z.number().optional(),   // filtra por projeto específico
+      niche:      z.string().optional(),   // filtra por nicho
+      platform:   z.string().optional(),   // filtra por plataforma
+      minScore:   z.number().default(60),  // só padrões com score >= X
+      limit:      z.number().default(50),  // max anúncios por fonte
+    }))
+    .query(async ({ input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // ── 1. Melhores headlines reais de anúncios de concorrentes ─────────
+      const whereAds: string[] = ["sa.headline IS NOT NULL", "LENGTH(sa.headline) > 5"];
+      const paramsAds: any[]   = [];
+      let pIdx = 1;
+      if (input.projectId) { whereAds.push(`sa.project_id = $${pIdx++}`); paramsAds.push(input.projectId); }
+      if (input.platform)  { whereAds.push(`sa.platform = $${pIdx++}`);   paramsAds.push(input.platform); }
+
+      const adsRows = (await pool.query(`
+        SELECT sa.headline, sa.body_text, sa.cta, sa.ad_type,
+               sa.is_active, sa.spend_range, sa.reach_estimate,
+               c.name as competitor_name, c.niche as competitor_niche,
+               sa.platform
+        FROM scraped_ads sa
+        JOIN competitors c ON c.id = sa.competitor_id
+        WHERE ${whereAds.join(" AND ")}
+        ORDER BY sa.is_active DESC, sa.created_at DESC
+        LIMIT $${pIdx}
+      `, [...paramsAds, input.limit * 2]).catch(() => ({ rows: [] }))).rows;
+
+      // Deduplica e filtra headlines únicas com conteúdo
+      const seenHeadlines = new Set<string>();
+      const topAds = adsRows
+        .filter((r: any) => {
+          const h = (r.headline || "").trim().toLowerCase();
+          if (seenHeadlines.has(h) || h.length < 10) return false;
+          seenHeadlines.add(h);
+          return true;
+        })
+        .slice(0, input.limit);
+
+      // ── 2. Insights de concorrentes (aiInsights) ─────────────────────────
+      const whereComp: string[] = ["c.ai_insights IS NOT NULL"];
+      const paramsComp: any[]   = [];
+      let pIdxC = 1;
+      if (input.projectId) { whereComp.push(`c.project_id = $${pIdxC++}`); paramsComp.push(input.projectId); }
+
+      const compRows = (await pool.query(`
+        SELECT c.name, c.ai_insights, c.ai_generated_at, c.ai_ads_analyzed,
+               c.facebook_page_id, c.instagram_url
+        FROM competitors c
+        WHERE ${whereComp.join(" AND ")}
+        ORDER BY c.ai_generated_at DESC
+        LIMIT 20
+      `, paramsComp).catch(() => ({ rows: [] }))).rows;
+
+      // Extrai trechos valiosos dos aiInsights (remove ruído, pega bullet points)
+      const competitorInsights = compRows.map((c: any) => {
+        const raw = c.ai_insights || "";
+        // Extrai linhas com dados concretos (números, %)
+        const lines = raw.split("\n")
+          .map((l: string) => l.trim())
+          .filter((l: string) => l.length > 20 && (
+            /[0-9]/.test(l) ||          // contém número
+            /CPC|CTR|CPM|ROAS|R\$/i.test(l) || // contém métrica
+            /formatos?|copy|headline|CTA|gancho|hook/i.test(l) // contém conceito de copy
+          ));
+        return {
+          competitor: c.name,
+          adsAnalyzed: c.ai_ads_analyzed,
+          generatedAt: c.ai_generated_at,
+          keyInsights: lines.slice(0, 6),
+          fullText: raw.slice(0, 800),
+        };
+      }).filter((c: any) => c.keyInsights.length > 0 || c.fullText.length > 50);
+
+      // ── 3. Estratégias das campanhas com melhor performance ───────────────
+      const whereCamp: string[] = ["c.strategy IS NOT NULL"];
+      const paramsCamp: any[]   = [];
+      let pIdxP = 1;
+      if (input.projectId) { whereCamp.push(`c.project_id = $${pIdxP++}`); paramsCamp.push(input.projectId); }
+      if (input.platform && input.platform !== "all") {
+        whereCamp.push(`c.platform = $${pIdxP++}`); paramsCamp.push(input.platform);
+      }
+
+      const campRows = (await pool.query(`
+        SELECT c.id, c.name, c.objective, c.platform, c.strategy,
+               c.suggested_budget_monthly, c.duration_days,
+               cs.score_total, cs.is_winner, cs.metric_ctr, cs.metric_cpc
+        FROM campaigns c
+        LEFT JOIN campaign_scores cs ON cs.campaign_id = c.id
+        WHERE ${whereCamp.join(" AND ")}
+        ORDER BY COALESCE(cs.score_total, 0) DESC
+        LIMIT 10
+      `, paramsCamp).catch(() => ({ rows: [] }))).rows;
+
+      const topStrategies = campRows.map((c: any) => ({
+        campaignId: c.id,
+        name:       c.name,
+        objective:  c.objective,
+        platform:   c.platform,
+        score:      c.score_total ? +Number(c.score_total).toFixed(1) : null,
+        isWinner:   c.is_winner === 1,
+        ctr:        c.metric_ctr ? +Number(c.metric_ctr).toFixed(2) : null,
+        cpc:        c.metric_cpc ? +Number(c.metric_cpc).toFixed(2) : null,
+        strategyPreview: (c.strategy || "").slice(0, 300),
+      }));
+
+      // ── 4. Winner patterns aprovados ─────────────────────────────────────
+      const whereWP: string[] = ["status = 'active'", `score >= $1`];
+      const paramsWP: any[]   = [input.minScore];
+      let pIdxW = 2;
+      if (input.niche)    { whereWP.push(`niche = $${pIdxW++}`);    paramsWP.push(input.niche); }
+      if (input.platform) { whereWP.push(`platform = $${pIdxW++}`); paramsWP.push(input.platform); }
+
+      const wpRows = (await pool.query(`
+        SELECT id, platform, objective, niche, score,
+               ad_format, cta_type, main_promise, trigger_types,
+               key_factors, why_it_won, success_probability,
+               approved_by_admin
+        FROM winner_patterns
+        WHERE ${whereWP.join(" AND ")}
+        ORDER BY score DESC
+        LIMIT 20
+      `, paramsWP).catch(() => ({ rows: [] }))).rows;
+
+      const winnerPatterns = wpRows.map((w: any) => ({
+        ...w,
+        triggerTypes: (() => { try { return JSON.parse(w.trigger_types || "[]"); } catch { return []; } })(),
+        keyFactors:   (() => { try { return JSON.parse(w.key_factors   || "[]"); } catch { return []; } })(),
+        score: +Number(w.score).toFixed(1),
+        successProbability: +Number(w.success_probability || 0).toFixed(1),
+      }));
+
+      // ── 5. Learning base — médias por nicho ──────────────────────────────
+      const lbRows = (await pool.query(`
+        SELECT platform, objective, niche, sample_count,
+               avg_score, avg_ctr, avg_cpc, avg_cpm, avg_roas,
+               top_ad_formats, top_cta_types, top_triggers, top_copy_structures
+        FROM learning_base
+        ORDER BY sample_count DESC
+        LIMIT 30
+      `).catch(() => ({ rows: [] }))).rows;
+
+      const learningBase = lbRows.map((l: any) => ({
+        platform:   l.platform,
+        objective:  l.objective,
+        niche:      l.niche,
+        samples:    l.sample_count,
+        avgScore:   +Number(l.avg_score || 0).toFixed(1),
+        avgCtr:     +Number(l.avg_ctr   || 0).toFixed(2),
+        avgCpc:     +Number(l.avg_cpc   || 0).toFixed(2),
+        avgCpm:     +Number(l.avg_cpm   || 0).toFixed(2),
+        avgRoas:    +Number(l.avg_roas  || 0).toFixed(2),
+        topFormats: (() => { try { const t = JSON.parse(l.top_ad_formats || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1]).slice(0,3).map(([k])=>k); } catch { return []; } })(),
+        topCtas:    (() => { try { const t = JSON.parse(l.top_cta_types  || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1]).slice(0,3).map(([k])=>k); } catch { return []; } })(),
+        topTriggers:(() => { try { const t = JSON.parse(l.top_triggers   || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1]).slice(0,3).map(([k])=>k); } catch { return []; } })(),
+      }));
+
+      // ── Summary ───────────────────────────────────────────────────────────
+      const summary = {
+        totalAdsAnalyzed:    topAds.length,
+        totalCompetitors:    competitorInsights.length,
+        totalWinnerPatterns: winnerPatterns.length,
+        totalLearningNiches: learningBase.length,
+        totalStrategies:     topStrategies.length,
+        topCtas:    [...new Set(topAds.map((a: any) => a.cta).filter(Boolean))].slice(0, 8),
+        topFormats: [...topAds.reduce((acc: Map<string,number>, a: any) => {
+          acc.set(a.ad_type || "image", (acc.get(a.ad_type || "image") || 0) + 1);
+          return acc;
+        }, new Map()).entries()].sort((a,b)=>b[1]-a[1]).slice(0,4).map(([k])=>k),
+        activeAdsPct: topAds.length > 0
+          ? Math.round(topAds.filter((a:any) => a.is_active).length / topAds.length * 100)
+          : 0,
+      };
+
+      return {
+        summary,
+        topAds,
+        competitorInsights,
+        topStrategies,
+        winnerPatterns,
+        learningBase,
+      };
+    }),
+
+
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
