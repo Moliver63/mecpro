@@ -4,20 +4,21 @@ import { useAuth } from "@/hooks/useAuth";
 import UserMenu from "@/components/shared/UserMenu";
 
 // ── Nav items ──────────────────────────────────────────────────────────────
+// Itens que podem ser ocultados pelo admin (key = path sem /)
 const NAV_USER = [
-  { icon: "⊞",  label: "Dashboard",        path: "/dashboard" },
-  { icon: "◫",  label: "Projetos",          path: "/projects" },
-  { icon: "◈",  label: "Meta Ads",          path: "/meta-campaigns" },
-  { icon: "◉",  label: "Google Ads",        path: "/google-campaigns" },
-  { icon: "◍",  label: "TikTok Ads",        path: "/tiktok-campaigns" },
-  { icon: "⟳",  label: "Agente Autônomo",   path: "/autonomous-agent" },
-  { icon: "▣",  label: "Financeiro",        path: "/financeiro" },
-  { icon: "🛒", label: "Marketplace",        path: "/marketplace" },
-  { icon: "⊙",  label: "Academia",          path: "/academy" },
-  { icon: "◻",  label: "Notificações",      path: "/notifications" },
-  { icon: "◷",  label: "Mensagens",         path: "/messages" },
-  { icon: "⊘",  label: "Assinatura",        path: "/my-subscription" },
-  { icon: "⚙",  label: "Configurações",     path: "/settings" },
+  { icon: "⊞",  label: "Dashboard",        path: "/dashboard",         key: "dashboard",         alwaysVisible: true },
+  { icon: "◫",  label: "Projetos",          path: "/projects",          key: "projects",           alwaysVisible: true },
+  { icon: "◈",  label: "Meta Ads",          path: "/meta-campaigns",    key: "meta-campaigns",     alwaysVisible: false },
+  { icon: "◉",  label: "Google Ads",        path: "/google-campaigns",  key: "google-campaigns",   alwaysVisible: false },
+  { icon: "◍",  label: "TikTok Ads",        path: "/tiktok-campaigns",  key: "tiktok-campaigns",   alwaysVisible: false },
+  { icon: "⟳",  label: "Agente Autônomo",   path: "/autonomous-agent",  key: "autonomous-agent",   alwaysVisible: false },
+  { icon: "▣",  label: "Financeiro",        path: "/financeiro",        key: "financeiro",         alwaysVisible: false },
+  { icon: "🛒", label: "Marketplace",        path: "/marketplace",       key: "marketplace",        alwaysVisible: false },
+  { icon: "⊙",  label: "Academia",          path: "/academy",           key: "academy",            alwaysVisible: false },
+  { icon: "◻",  label: "Notificações",      path: "/notifications",     key: "notifications",      alwaysVisible: false },
+  { icon: "◷",  label: "Mensagens",         path: "/messages",          key: "messages",           alwaysVisible: false },
+  { icon: "⊘",  label: "Assinatura",        path: "/my-subscription",   key: "my-subscription",    alwaysVisible: false },
+  { icon: "⚙",  label: "Configurações",     path: "/settings",          key: "settings",           alwaysVisible: true },
 ];
 
 const NAV_ADMIN = [
@@ -273,7 +274,17 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
   // Usuário logado no marketplace ainda vê a sidebar (experiência completa)
 
   const isAdmin  = ["admin","superadmin"].includes(user?.role ?? "");
-  const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : NAV_USER;
+  const { data: uiConfig } = (trpc as any).public?.getUIConfig?.useQuery?.() ?? { data: null };
+  const visibility: Record<string, boolean> = (uiConfig as any)?.visibility ?? {};
+
+  const allUserItems = NAV_USER.filter(item => {
+    if (item.alwaysVisible) return true;
+    // Se a key não está no mapa → visível por padrão (admin ainda não configurou)
+    if (!(item.key in visibility)) return true;
+    return visibility[item.key];
+  });
+
+  const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : allUserItems;
 
   // Active page title
   const activeItem = navItems.find(i => location === i.path || location.startsWith(i.path + "/"));

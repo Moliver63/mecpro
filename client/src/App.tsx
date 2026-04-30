@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect } from "wouter";
 import PWAInstallBanner from "@/components/PWAInstallBanner";
+import AdminUIConfig from "@/pages/AdminUIConfig";
 import CheckoutAsaas from "@/pages/CheckoutAsaas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
@@ -266,6 +267,9 @@ export default function App() {
             <Route path="/admin/accept-invite"><ProtectedRoute role="admin"><AdminInvites /></ProtectedRoute></Route>
 
             {/* ── NOVO: Inteligência de Campanhas ─────────────────────────── */}
+            <Route path="/admin/ui-config">
+              <ProtectedRoute role="admin"><AdminUIConfig /></ProtectedRoute>
+            </Route>
             <Route path="/admin/intelligence">
               <ProtectedRoute role="admin"><AdminCampaignIntelligence /></ProtectedRoute>
             </Route>

@@ -10297,6 +10297,23 @@ const publicRouter = router({
     const gateway = await db.getAdminSetting("payment_gateway");
     return { gateway: (gateway || "stripe") as "stripe" | "asaas" };
   }),
+  getUIConfig: publicProcedure.query(async () => {
+    const raw = await db.getAdminSetting("ui_visibility");
+    try {
+      return { visibility: raw ? JSON.parse(raw) : null };
+    } catch {
+      return { visibility: null };
+    }
+  }),
+
+  saveUIConfig: adminProcedure
+    .input(z.object({ visibility: z.record(z.boolean()) }))
+    .mutation(async ({ input }) => {
+      await db.saveAdminSetting("ui_visibility", JSON.stringify(input.visibility));
+      return { success: true };
+    }),
+
+
 });
 
 export 
