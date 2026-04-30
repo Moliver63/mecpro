@@ -2485,7 +2485,7 @@ export async function geminiWithGrounding(prompt: string): Promise<any | null> {
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           tools: [{ google_search: {} }],
-          generationConfig: { temperature: 0, maxOutputTokens: 256 },
+          generationConfig: { temperature: 0, maxOutputTokens: 512 },
         }),
       });
       const data: any = await res.json();
@@ -2496,13 +2496,20 @@ export async function geminiWithGrounding(prompt: string): Promise<any | null> {
       if (queries.length > 0) log.info("ai", "geminiWithGrounding buscas", { model, queries });
       if (!text) continue;
 
-      try {
-        return JSON.parse(text.replace(/```json|```/g, "").trim());
-      } catch {
-        const m = text.match(/"pageId"\s*:\s*"?(\d{10,16})"?/);
-        if (m?.[1]) return { pageId: m[1], confidence: "medium" };
-        return null;
-      }
+      let cleaned = text.replace(/```json|```/g, "").trim();
+      // Tenta parse direto
+      try { return JSON.parse(cleaned); } catch {}
+      // Repara JSON truncado (Unterminated string)
+      const opens  = (cleaned.match(/[{]/g) || []).length;
+      const closes = (cleaned.match(/[}]/g) || []).length;
+      if (opens > closes) cleaned += "}".repeat(opens - closes);
+      const aopens  = (cleaned.match(/[\[]/g) || []).length;
+      const acloses = (cleaned.match(/[\]]/g) || []).length;
+      if (aopens > acloses) cleaned += "]".repeat(aopens - acloses);
+      try { return JSON.parse(cleaned); } catch {}
+      // Extrai pageId direto se disponível
+      const m = text.match(/"pageId"\s*:\s*"?(\d{10,16})"?/);
+      if (m?.[1]) return { pageId: m[1], confidence: "medium" };
     } catch {}
   }
   return null;
