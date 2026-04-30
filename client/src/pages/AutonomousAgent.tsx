@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -405,6 +405,20 @@ export default function AutonomousAgentPage() {
   const { data: status } = (trpc as any).agent?.status?.useQuery?.() ?? { data: null };
   const { data: llmMode, refetch: refetchLLM } = (trpc as any).llm?.getMode?.useQuery?.() ?? { data: null, refetch: () => {} };
   const { data: quotaData, refetch: refetchQuota } = (trpc as any).campaigns?.quotaStatus?.useQuery?.() ?? { data: null, refetch: () => {} };
+  const [aiHealth, setAiHealth] = useState<any>(null);
+  const [aiHealthLoading, setAiHealthLoading] = useState(false);
+
+  async function fetchAiHealth() {
+    setAiHealthLoading(true);
+    try {
+      const r = await fetch('/api/health/ai?key=mecpro-diag-2026', { credentials: 'include' });
+      const d = await r.json();
+      setAiHealth(d);
+    } catch { setAiHealth(null); }
+    finally { setAiHealthLoading(false); }
+  }
+
+  useEffect(() => { fetchAiHealth(); }, []);
 
   const setLLMMutation = (trpc as any).llm?.setMode?.useMutation?.({
     onSuccess: (data: any) => {
@@ -620,6 +634,67 @@ export default function AutonomousAgentPage() {
         <QualityControlPanel llmMode={llmMode?.mode} />
 
         {/* ── Monitor de Quota e Cache ── */}
+        {/* ── Painel Motor Híbrido ── */}
+        <div style={{ background: "white", border: `2px solid ${!aiHealth ? "#e2e8f0" : aiHealth.status === "ok" ? "#86efac" : aiHealth.status === "degraded" ? "#fde68a" : "#fca5a5"}`, borderRadius: 16, padding: "18px 20px", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: "#0f172a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🧠</div>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 900, color: "#0f172a", margin: 0, letterSpacing: "-0.03em" }}>Motor Híbrido de IA</p>
+                <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>Gemini → Groq → Claude — fallback automático</p>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {aiHealth && (
+                <span style={{ fontSize: 11, fontWeight: 800, padding: "4px 12px", borderRadius: 20,
+                  background: aiHealth.status === "ok" ? "#dcfce7" : aiHealth.status === "degraded" ? "#fef3c7" : "#fee2e2",
+                  color: aiHealth.status === "ok" ? "#166534" : aiHealth.status === "degraded" ? "#92400e" : "#7f1d1d",
+                }}>
+                  {aiHealth.status === "ok" ? "◎ Operacional" : aiHealth.status === "degraded" ? "⚠ Degradado" : "✕ Crítico"}
+                </span>
+              )}
+              <button onClick={fetchAiHealth} disabled={aiHealthLoading}
+                style={{ fontSize: 11, fontWeight: 700, padding: "5px 12px", borderRadius: 8, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", color: "#64748b" }}>
+                {aiHealthLoading ? "⏳" : "🔄 Check"}
+              </button>
+            </div>
+          </div>
+
+          {aiHealth ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+                {(aiHealth.providers || []).map((p: any) => (
+                  <div key={p.provider} style={{ padding: "10px 12px", borderRadius: 10, background: p.ok ? "#f0fdf4" : "#fef2f2", border: `1px solid ${p.ok ? "#86efac" : "#fca5a5"}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", textTransform: "capitalize" }}>{p.provider}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: p.ok ? "#059669" : "#dc2626" }}>{p.ok ? "✓" : "✕"}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#64748b" }}>{p.ok ? `${p.latency}ms` : (p.error || "falhou")}</div>
+                    {p.ok && p.preview && <div style={{ fontSize: 9, color: "#94a3b8", marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>"{p.preview}"</div>}
+                  </div>
+                ))}
+              </div>
+              {aiHealth.summary?.fallbackActive && (
+                <div style={{ padding: "8px 12px", borderRadius: 8, background: "#fffbeb", border: "1px solid #fde68a", fontSize: 11, color: "#92400e", fontWeight: 700 }}>
+                  ⚡ Fallback ativo — Gemini indisponível, usando: {aiHealth.summary.fallbackProviders?.join(", ")}
+                </div>
+              )}
+              {aiHealth.statusReason && (
+                <p style={{ fontSize: 11, color: "#64748b", margin: "8px 0 0" }}>{aiHealth.statusReason}</p>
+              )}
+              <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 10, color: "#94a3b8" }}>
+                <span>Chaves Gemini esgotadas: {aiHealth.internalState?.geminiKeysExhausted ?? "?"}/{aiHealth.internalState?.geminiKeysTotalUsed ?? "?"}</span>
+                <span>Modo LLM: {aiHealth.internalState?.llmMode ?? "?"}</span>
+                <span>Check em: {aiHealth.totalMs}ms total</span>
+              </div>
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "16px 0", color: "#94a3b8", fontSize: 12 }}>
+              {aiHealthLoading ? "⏳ Testando providers..." : "Clique em Check para verificar o motor híbrido"}
+            </div>
+          )}
+        </div>
+
         <QuotaMonitor quota={quotaData?.quota} cache={quotaData?.cache} onRefresh={() => refetchQuota?.()} />
 
         {/* ── Configuração e disparo ── */}

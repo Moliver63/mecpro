@@ -194,6 +194,167 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
+
+// ── /api/health/ai — Check do Motor Híbrido em Produção ──────────────────────
+// Testa providers reais com prompts mínimos e mede latência/fallback real
+app.get('/api/health/ai', async (req: any, res: any) => {
+  const key = req.query.key as string;
+  // Protege contra acesso público — exige token de diagnóstico
+  if (key !== (process.env.DEBUG_TOKEN || 'mecpro-diag-2026')) {
+    // Sem token: retorna status simplificado (sem dados internos)
+    try {
+      const ai = await import('../ai.js');
+      const hs = (ai as any).getHealthStatus?.() || {};
+      return res.json({
+        status: 'ok',
+        geminiKeysExhausted: hs.geminiKeys?.exhausted ?? 0,
+        groqConfigured: hs.groqFallback?.configured ?? false,
+        llmMode: hs.llmMode?.current ?? 'unknown',
+      });
+    } catch {
+      return res.json({ status: 'ok' });
+    }
+  }
+
+  const TIMEOUT_MS = 10000;
+  const results: any[] = [];
+  const start = Date.now();
+
+  async function testProvider(name: string, fn: () => Promise<string>): Promise<any> {
+    const t0 = Date.now();
+    try {
+      const resp = await Promise.race([
+        fn(),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout')), TIMEOUT_MS)),
+      ]);
+      return { provider: name, ok: true, latency: Date.now() - t0, preview: String(resp || '').slice(0, 60) };
+    } catch (e: any) {
+      return { provider: name, ok: false, latency: Date.now() - t0, error: e.message?.slice(0, 80) };
+    }
+  }
+
+  try {
+    const ai = await import('../ai.js');
+    const hs  = (ai as any).getHealthStatus?.() || {};
+
+    // ── Testa cada provider com prompt mínimo ───────────────────────────────
+    const MINI_PROMPT = 'Responda apenas "ok" em português.';
+
+    // 1. Gemini direto
+    const geminiResult = await testProvider('gemini', async () => {
+      return await (ai as any).gemini(MINI_PROMPT, { maxOutputTokens: 10 });
+    });
+    results.push(geminiResult);
+
+    // 2. Groq direto (importa callGroqAPI via ai interno)
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey) {
+      const groqResult = await testProvider('groq', async () => {
+        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: MINI_PROMPT }],
+            max_tokens: 10,
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+        const d: any = await r.json();
+        if (d.error) throw new Error(d.error.message || 'groq error');
+        return d.choices?.[0]?.message?.content || '';
+      });
+      results.push(groqResult);
+    } else {
+      results.push({ provider: 'groq', ok: false, latency: 0, error: 'GROQ_API_KEY não configurada' });
+    }
+
+    // 3. Anthropic/Claude
+    const anthropicKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+    if (anthropicKey) {
+      const claudeResult = await testProvider('claude', async () => {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': anthropicKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 10,
+            messages: [{ role: 'user', content: MINI_PROMPT }],
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+        const d: any = await r.json();
+        if (d.error) throw new Error(d.error.message || 'claude error');
+        return d.content?.[0]?.text || '';
+      });
+      results.push(claudeResult);
+    } else {
+      results.push({ provider: 'claude', ok: false, latency: 0, error: 'ANTHROPIC_API_KEY não configurada' });
+    }
+
+    // ── Calcula status do híbrido ────────────────────────────────────────────
+    const working = results.filter((r: any) => r.ok);
+    const failed  = results.filter((r: any) => !r.ok);
+    const geminiOk = results.find((r: any) => r.provider === 'gemini')?.ok ?? false;
+    const hasAnyOk = working.length > 0;
+
+    let hybridStatus: 'ok' | 'degraded' | 'critical';
+    let statusReason: string;
+
+    if (!hasAnyOk) {
+      hybridStatus = 'critical';
+      statusReason = 'Todos os providers falharam — nenhuma resposta de IA disponível';
+    } else if (!geminiOk && working.length === 1) {
+      hybridStatus = 'degraded';
+      statusReason = `Gemini indisponível — sistema operando apenas com ${working[0].provider}`;
+    } else if (!geminiOk) {
+      hybridStatus = 'degraded';
+      statusReason = `Gemini indisponível — fallback automático ativo (${working.map((r: any) => r.provider).join(', ')})`;
+    } else {
+      hybridStatus = 'ok';
+      statusReason = `Todos os providers respondem — motor híbrido operacional`;
+    }
+
+    // ── Estado interno do motor ──────────────────────────────────────────────
+    const internalState = {
+      geminiKeysExhausted:  hs.geminiKeys?.exhausted ?? 0,
+      geminiKeysTotalUsed:  [
+        process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY2,
+        process.env.GEMINI_API_KEY3, process.env.GEMINI_API_KEY4, process.env.GEMINI_API_KEY5,
+      ].filter(Boolean).length,
+      metaCBState:          hs.metaCircuitBreaker?.state ?? 'CLOSED',
+      llmMode:              hs.llmMode?.current ?? 'unknown',
+      groqConfigured:       hs.groqFallback?.configured ?? false,
+      groqModel:            hs.groqFallback?.model ?? 'n/a',
+      claudeConfigured:     hs.claudeFallback?.configured ?? false,
+    };
+
+    res.json({
+      status:        hybridStatus,
+      statusReason,
+      totalMs:       Date.now() - start,
+      providers:     results,
+      summary: {
+        total:   results.length,
+        working: working.length,
+        failed:  failed.length,
+        fastestMs: working.length > 0 ? Math.min(...working.map((r: any) => r.latency)) : null,
+        fallbackActive: !geminiOk && hasAnyOk,
+        fallbackProviders: working.filter((r: any) => r.provider !== 'gemini').map((r: any) => r.provider),
+      },
+      internalState,
+      timestamp:     new Date().toISOString(),
+    });
+
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
 // ─── Diagnóstico Meta Ads (admin only) ────────────────────
 app.get('/api/diag/meta', async (req, res) => {
   const key = req.query.key as string;
