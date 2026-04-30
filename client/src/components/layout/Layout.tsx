@@ -6,19 +6,19 @@ import UserMenu from "@/components/shared/UserMenu";
 // ── Nav items ──────────────────────────────────────────────────────────────
 // Itens que podem ser ocultados pelo admin (key = path sem /)
 const NAV_USER = [
-  { icon: "⊞",  label: "Dashboard",        path: "/dashboard",         key: "dashboard",         alwaysVisible: true },
-  { icon: "◫",  label: "Projetos",          path: "/projects",          key: "projects",           alwaysVisible: true },
-  { icon: "◈",  label: "Meta Ads",          path: "/meta-campaigns",    key: "meta-campaigns",     alwaysVisible: false },
-  { icon: "◉",  label: "Google Ads",        path: "/google-campaigns",  key: "google-campaigns",   alwaysVisible: false },
-  { icon: "◍",  label: "TikTok Ads",        path: "/tiktok-campaigns",  key: "tiktok-campaigns",   alwaysVisible: false },
-  { icon: "⟳",  label: "Agente Autônomo",   path: "/autonomous-agent",  key: "autonomous-agent",   alwaysVisible: false },
-  { icon: "▣",  label: "Financeiro",        path: "/financeiro",        key: "financeiro",         alwaysVisible: false },
-  { icon: "🛒", label: "Marketplace",        path: "/marketplace",       key: "marketplace",        alwaysVisible: false },
-  { icon: "⊙",  label: "Academia",          path: "/academy",           key: "academy",            alwaysVisible: false },
-  { icon: "◻",  label: "Notificações",      path: "/notifications",     key: "notifications",      alwaysVisible: false },
-  { icon: "◷",  label: "Mensagens",         path: "/messages",          key: "messages",           alwaysVisible: false },
-  { icon: "⊘",  label: "Assinatura",        path: "/my-subscription",   key: "my-subscription",    alwaysVisible: false },
-  { icon: "⚙",  label: "Configurações",     path: "/settings",          key: "settings",           alwaysVisible: true },
+  { icon: "⊞",  label: "Dashboard",        path: "/dashboard",         key: "dashboard",              alwaysVisible: true },
+  { icon: "◫",  label: "Projetos",          path: "/projects",          key: "projects",               alwaysVisible: true },
+  { icon: "◈",  label: "Meta Ads",          path: "/meta-campaigns",    key: "meta-campaigns",         alwaysVisible: false },
+  { icon: "◉",  label: "Google Ads",        path: "/google-campaigns",  key: "enableGoogle",           alwaysVisible: false },
+  { icon: "◍",  label: "TikTok Ads",        path: "/tiktok-campaigns",  key: "enableTikTok",           alwaysVisible: false },
+  { icon: "⟳",  label: "Agente Autônomo",   path: "/autonomous-agent",  key: "showAutonomousAgent",    alwaysVisible: false },
+  { icon: "▣",  label: "Financeiro",        path: "/financeiro",        key: "financeiro",             alwaysVisible: false },
+  { icon: "🛒", label: "Marketplace",        path: "/marketplace",       key: "showMarketplace",        alwaysVisible: false },
+  { icon: "⊙",  label: "Academia",          path: "/academy",           key: "showAcademy",            alwaysVisible: false },
+  { icon: "◻",  label: "Notificações",      path: "/notifications",     key: "notifications",          alwaysVisible: false },
+  { icon: "◷",  label: "Mensagens",         path: "/messages",          key: "messages",               alwaysVisible: false },
+  { icon: "⊘",  label: "Assinatura",        path: "/my-subscription",   key: "my-subscription",        alwaysVisible: false },
+  { icon: "⚙",  label: "Configurações",     path: "/settings",          key: "settings",               alwaysVisible: true },
 ];
 
 const NAV_ADMIN = [
@@ -284,10 +284,19 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
 
   const isAdmin  = ["admin","superadmin"].includes(user?.role ?? "");
 
+  // Defaults: itens visíveis por padrão se não houver config salva
+  const VISIBLE_BY_DEFAULT = new Set([
+    "showMarketplace", "showAcademy", "showAutonomousAgent",
+    "enableTikTok", "enableGoogle", "financeiro",
+    "notifications", "messages", "my-subscription", "meta-campaigns",
+  ]);
   const allUserItems = NAV_USER.filter(item => {
     if (item.alwaysVisible) return true;
-    if (!(item.key in uiVisibility)) return true;
-    return uiVisibility[item.key];
+    // Se config não foi carregada ainda → mostrar tudo (fallback seguro)
+    if (Object.keys(uiVisibility).length === 0) return true;
+    // Se a key não está no config → usar default (visível por padrão)
+    if (!(item.key in uiVisibility)) return VISIBLE_BY_DEFAULT.has(item.key);
+    return uiVisibility[item.key] === true;
   });
 
   const navItems = isAdmin && location.startsWith("/admin") ? NAV_ADMIN : allUserItems;
