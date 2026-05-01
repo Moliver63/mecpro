@@ -1386,8 +1386,8 @@ export default function CompetitorAnalysis() {
                             <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</p>
                             <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                               {c.facebookPageId && <span style={{ fontSize: 10, color: "var(--muted)" }}>🔵 {c.facebookPageId}</span>}
-                              {c.instagramUrl   && <span style={{ fontSize: 10, color: "#7c3aed" }}>📸 {extractIgHandle(c.instagramUrl)}</span>}
-                              {c.websiteUrl     && <span style={{ fontSize: 10, color: "#0369a1" }}>🌐 site</span>}
+                              {c.instagramUrl && <a href={c.instagramUrl.startsWith("http") ? c.instagramUrl : `https://instagram.com/${c.instagramUrl.replace(/^@/,"")}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 10, color: "#7c3aed", textDecoration: "none" }}>📸 {extractIgHandle(c.instagramUrl)}</a>}
+                              {c.websiteUrl && <a href={c.websiteUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 10, color: "#0369a1", textDecoration: "none" }}>🌐 site</a>}
                             </div>
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, marginLeft: 8 }}>

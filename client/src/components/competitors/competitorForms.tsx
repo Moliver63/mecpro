@@ -40,7 +40,55 @@ export function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
   const [igSocial, setIgSocial] = useState("");  // campo Instagram das redes sociais
   const [discoveredPageId, setDiscoveredPageId] = useState<string>("");
 
-  const discoverPageIdMutation = (trpc as any).competitors?.discoverPageId?.useMutation?.({
+  const discoverPageIdMutation = trpc.competitors.discoverPageId.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.pageId) {
+        setPageIdInput(data.pageId);
+        toast.success(`◎ Page ID encontrado: ${data.pageId}`);
+      } else {
+        toast.error("Page ID não encontrado. Cole manualmente da URL do Facebook.");
+      }
+    },
+    onError: () => toast.error("✕ Erro ao buscar Page ID."),
+  });
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENTE: FORMULÁRIO DE ADIÇÃO
+// ─────────────────────────────────────────────────────────────────────────────
+interface AddFormProps { projectId: number; onDone: () => void; }
+
+export function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
+  const [saveError, setSaveError] = useState<string>("");
+  const createComp = trpc.competitors.create.useMutation({
+    onSuccess: () => {
+      setSaveError("");
+      toast.success("◎ Concorrente adicionado!");
+      onDone();
+    },
+    onError: (e) => {
+      const raw = e.message || "";
+      const msg =
+        raw.includes("FORBIDDEN")    ? "Limite do plano atingido — faça upgrade" :
+        raw.includes("url")          ? "URL do site inválida — use https://..." :
+        raw.includes("zodError")     ? "Verifique os campos obrigatórios" :
+        raw.includes("Name")         ? "Nome obrigatório" :
+        raw.includes("DB")           ? "Erro de banco de dados — tente novamente" :
+        "Erro ao salvar — tente novamente";
+      setSaveError(msg);
+      toast.error("✕ " + msg);
+    },
+  });
+  const [mode, setMode]         = useState<AddMode>("url");
+  const [name, setName]         = useState("");
+  const [urlInput, setUrlInput] = useState("");
+  const [nameQ, setNameQ]       = useState("");
+  const [igInput, setIgInput]   = useState("");  // modo Instagram (localização)
+  const [igSocial, setIgSocial] = useState("");  // campo Instagram das redes sociais
+  const [discoveredPageId, setDiscoveredPageId] = useState<string>("");
+
+  const discoverPageIdMutation = trpc.competitors.discoverPageId.useMutation({
     onSuccess: (data: any) => {
       if (data?.found && data?.pageId) {
         setDiscoveredPageId(data.pageId);
@@ -68,7 +116,7 @@ export function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
       }
     },
     onError: () => toast.error("✕ Erro ao buscar Page ID. Verifique se a integração Meta está ativa."),
-  }) ?? { mutate: () => {}, isPending: false };
+  });
   const [country, setCountry]   = useState("BR");
   const [website,      setWebsite]      = useState("");
   const [tiktokInput,  setTiktokInput]  = useState("");
@@ -355,7 +403,7 @@ export function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDo
       toast.error("✕ " + msg);
     },
   });
-  const discoverPageId = (trpc as any).competitors?.discoverPageId?.useMutation?.({
+  const discoverPageId = trpc.competitors.discoverPageId.useMutation({
     onSuccess: (data: any) => {
       if (data?.found && data?.pageId) {
         setPageId(data.pageId);
@@ -370,7 +418,7 @@ export function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDo
       }
     },
     onError: () => toast.error("✕ Erro ao buscar Page ID."),
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
   const [name, setName]             = useState(comp.name || "");
   const [pageId, setPageId]         = useState(comp.facebookPageId || "");
@@ -464,4 +512,5 @@ export function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDo
       )}
     </div>
   );
+}
 }
