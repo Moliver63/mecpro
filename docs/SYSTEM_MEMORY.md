@@ -4,7 +4,7 @@
 > Contém o estado atual, bugs conhecidos, decisões de arquitetura e padrões estabelecidos.
 > Atualizar após cada sessão significativa.
 >
-> **Última atualização:** 2026-05-01 (sessão 3)
+> **Última atualização:** 2026-05-01 (sessão 4)
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|---|---|
 | Meta Ads Library API | ❌ `code=10` | App sem permissão Ads Library | Solicitar em developers.facebook.com → App → Ads Library API |
 | Meta Token | ⚠️ `code=190` | Token expirado/sessão inválida | Reconectar em Configurações → Meta Ads |
-| Gemini API | ⚠️ Quota limitada | 5 chaves com rotação, esgotam em uso intenso | Monitorar — fallback Groq ativo |
+| Gemini API | ❌ Todas 5 chaves esgotadas | Uso intenso esgotou RPD de todas as chaves | Reset automático em 60min — fallback Groq ativo |
 | Groq API | ✅ Fallback ativo | llama-3.3-70b-versatile | OK |
 | Google Ads API | ✅ Funcionando | gRPC configurado | OK |
 | Asaas (Pix) | ✅ Configurado | `ASAAS_API_KEY` set | OK |
@@ -105,6 +105,20 @@ Meta CB: OPEN após code=10 — reset em 30min
 - **Arquivo:** `client/src/pages/CompetitorAnalysis.tsx L1431`
 - **Commit:** b6c6358
 
+
+
+#### BUG-012: Gemini 5 tentativas inúteis quando todas as chaves esgotadas
+- **Causa:** Cascata de modelos continuava tentando modelos com chaves já marcadas como esgotadas
+- **Sintoma:** 5 tentativas × N chamadas = dezenas de requests, ~3s perdidos, esgota Groq 429 também
+- **Solução:** Após marcar chave como quota, verifica se todas esgotadas → fallback Groq inline imediato
+- **Commit:** 61e841d
+
+#### BUG-013: Groq 413 com prompts grandes (70b model)
+- **Causa:** maxChars=40000 para 70b ainda excedia 1MB de request body da API Groq
+- **Sintoma:** `Groq 413 (prompt muito grande) no modelo llama-3.1-8b-instant — truncando mais`
+- **Solução:** maxChars 70b: 40000 → 25000 (fica abaixo do limite com margem)
+- **Arquivo:** `server/ai.ts` — `callGroqAPI()`
+- **Commit:** 61e841d
 
 #### BUG-011: M2 — mensagem técnica de erro exposta ao usuário
 - **Causa:** Banner de falha mostrava `code=10`, URL `facebook.com/ads/library/api`, detalhes OAuth
