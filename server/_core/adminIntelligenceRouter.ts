@@ -802,7 +802,12 @@ export const adminIntelligenceRouter = router({
                     is_false_winner, false_winner_reason,
                     score_explanation, key_insights, engine_version
                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
-                  ON CONFLICT DO NOTHING`,
+                  ON CONFLICT (campaign_id) DO UPDATE SET
+                    score_total       = EXCLUDED.score_total,
+                    score_creative    = EXCLUDED.score_creative,
+                    score_explanation = EXCLUDED.score_explanation,
+                    is_winner         = EXCLUDED.is_winner,
+                    updated_at        = NOW()`,
                   [
                     c.id, context.userId, context.projectId, score.total,
                     score.ctr, score.cpc, score.cpm, score.roas,
@@ -835,7 +840,12 @@ export const adminIntelligenceRouter = router({
                       score, statistical_conf, volume_weight, success_probability,
                       approved_by_admin, approved_at, status
                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-                    ON CONFLICT DO NOTHING`,
+                    ON CONFLICT (campaign_id) DO UPDATE SET
+                    score_total       = EXCLUDED.score_total,
+                    score_creative    = EXCLUDED.score_creative,
+                    score_explanation = EXCLUDED.score_explanation,
+                    is_winner         = EXCLUDED.is_winner,
+                    updated_at        = NOW()`,
                     [
                       c.id, context.userId, context.projectId,
                       context.platform, context.objective, context.niche || "geral",
@@ -928,7 +938,12 @@ export const adminIntelligenceRouter = router({
                     label_score, label_ctr, label_cpc, label_roas,
                     label_is_winner, label_success_probability, split_group
                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
-                  ON CONFLICT DO NOTHING`,
+                  ON CONFLICT (campaign_id) DO UPDATE SET
+                    score_total       = EXCLUDED.score_total,
+                    score_creative    = EXCLUDED.score_creative,
+                    score_explanation = EXCLUDED.score_explanation,
+                    is_winner         = EXCLUDED.is_winner,
+                    updated_at        = NOW()`,
                   [
                     c.id, context.platform, context.objective, context.niche || "geral",
                     mlFeatures.feature_ad_format, mlFeatures.feature_budget_range,
