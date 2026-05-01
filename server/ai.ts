@@ -4531,6 +4531,35 @@ async function fetchViaSEOAnalysis(
   let niche = "marketing digital";
   let prompt = "";
 
+  // Tenta buscar anúncios REAIS via Google Search (Gemini com grounding)
+  try {
+    const groundedResult = await geminiWithGrounding(
+      `Busque anúncios reais ativos no Facebook e Instagram da empresa "${compName}" no Brasil.
+Retorne JSON com até 5 anúncios encontrados:
+{"ads":[{"headline":"titulo","bodyText":"texto","cta":"CTA","adType":"image|video","isActive":1}]}
+Se não encontrar anúncios reais, retorne {"ads":[]}`
+    );
+    if (groundedResult?.ads?.length > 0) {
+      const clientProfile = await db.getClientProfile(projectId) as any;
+      for (const ad of groundedResult.ads) {
+        await db.upsertScrapedAd({
+          competitorId, projectId, platform: "meta",
+          adId:     `grounded_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          adType:   ad.adType  || "image",
+          headline: ad.headline || null,
+          bodyText: ad.bodyText || null,
+          cta:      ad.cta     || null,
+          isActive: 1,
+          rawData: JSON.stringify({ source: "ads_library_public", via: "gemini-grounded-search", quality: "real" }),
+        });
+      }
+      log.info("ai", "[M2] fetchViaSEOAnalysis via grounding OK", { competitorId, count: groundedResult.ads.length });
+      return true;
+    }
+  } catch (groundErr: any) {
+    log.warn("ai", "Grounding search falhou — usando estimativa Gemini", { error: groundErr.message?.slice(0, 60) });
+  }
+
   try {
     log.info("ai", "[M2] fetchViaSEOAnalysis via Gemini start", { compName });
     const clientProfile = await db.getClientProfile(projectId) as any;
