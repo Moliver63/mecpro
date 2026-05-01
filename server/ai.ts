@@ -2831,19 +2831,78 @@ Responda APENAS com JSON válido neste formato exato:
 
 confidence: "high" = certeza alta | "medium" = provável | "low" = possível`;
 
-  // Função auxiliar: tenta encontrar o site real via busca web se não veio no resultado
-  async function enrichWithWebsite(suggestion: any): Promise<any> {
-    if (suggestion.websiteUrl) return suggestion; // já tem site
+  // Extrai site do bio do Instagram (sem token)
+  async function extractSiteFromInstagram(igUrl: string): Promise<string | null> {
     try {
-      // Busca simples: "Site oficial [nome empresa]"
-      const searchPrompt = `Qual é o site oficial da empresa brasileira "${suggestion.name}"? Responda APENAS com a URL completa (ex: https://empresa.com.br) ou "não encontrado".`;
-      const result = await gemini(searchPrompt, { maxOutputTokens: 50, temperature: 0 });
-      if (result && result.startsWith("http") && !result.includes("não encontrado")) {
-        const url = result.trim().split(/\s/)[0]; // pega só a URL
-        log.info("ai", "discoverCompetitors: site enriquecido", { name: suggestion.name, url });
-        return { ...suggestion, websiteUrl: url };
+      const handle = igUrl.replace(/\/+$/, "").split("/").pop()?.replace("@", "");
+      if (!handle) return null;
+      const res = await fetch(`https://www.instagram.com/${handle}/`, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)" },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) return null;
+      const html = await res.text();
+      // Extrai URL do bio — aparece em og:description ou "website":"https://..."
+      const ogMatch  = html.match(/"website":"(https?:\/\/[^"]+)"/);
+      const bioMatch = html.match(/external_url":"(https?:\/\/[^"]+)"/);
+      const url = ogMatch?.[1] || bioMatch?.[1] || null;
+      if (url) log.info("ai", "discoverCompetitors: site extraído do Instagram", { handle, url });
+      return url;
+    } catch { return null; }
+  }
+
+  // Extrai site da página do Facebook (sem token, via scraping)
+  async function extractSiteFromFacebook(fbUrl: string): Promise<string | null> {
+    try {
+      const res = await fetch(fbUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)", "Accept-Language": "pt-BR" },
+        signal: AbortSignal.timeout(6000),
+        redirect: "follow",
+      });
+      if (!res.ok) return null;
+      const html = await res.text();
+      // Procura website na seção "Sobre" da página FB
+      const match = html.match(/"website":"(https?:\/\/[^"\\]+)"/)
+                 || html.match(/\"website\":\"(https?:\/\/[^\"]+)\"/)
+                 || html.match(/rel="nofollow noopener"[^>]*href="(https?:\/\/(?!www\.facebook)[^"]+)"/);
+      const url = match?.[1]?.replace(/\\u[0-9a-f]{4}/gi, "")?.trim() || null;
+      if (url && !url.includes("facebook.com") && !url.includes("l.facebook.com")) {
+        log.info("ai", "discoverCompetitors: site extraído do Facebook", { fbUrl, url });
+        return url;
       }
-    } catch { /* ignora — site é opcional */ }
+      return null;
+    } catch { return null; }
+  }
+
+  // Função auxiliar: tenta encontrar o site a partir de FB/IG e depois via Gemini
+  async function enrichWithWebsite(suggestion: any): Promise<any> {
+    if (suggestion.websiteUrl) return suggestion;
+
+    // ESTRATÉGIA 1: extrai do Instagram (bio público, sem token)
+    if (suggestion.instagramUrl) {
+      const igSite = await extractSiteFromInstagram(suggestion.instagramUrl);
+      if (igSite) return { ...suggestion, websiteUrl: igSite };
+    }
+
+    // ESTRATÉGIA 2: extrai do Facebook (scraping da página)
+    if (suggestion.facebookPageUrl) {
+      const fbSite = await extractSiteFromFacebook(suggestion.facebookPageUrl);
+      if (fbSite) return { ...suggestion, websiteUrl: fbSite };
+    }
+
+    // ESTRATÉGIA 3: Gemini grounding busca site oficial
+    try {
+      const result = await geminiWithGrounding(
+        `Qual é o site oficial da empresa brasileira "${suggestion.name}"?
+Retorne APENAS JSON: {"websiteUrl":"https://..."} ou {"websiteUrl":null}`
+      );
+      const siteUrl = result?.websiteUrl;
+      if (siteUrl && typeof siteUrl === "string" && siteUrl.startsWith("http")) {
+        log.info("ai", "discoverCompetitors: site encontrado via Gemini", { name: suggestion.name, url: siteUrl });
+        return { ...suggestion, websiteUrl: siteUrl };
+      }
+    } catch { /* ignora */ }
+
     return suggestion;
   }
 
@@ -5758,7 +5817,8 @@ Gere JSON com:
   setImmediate(async () => {
     try {
       const { calculateScore, buildMLFeatures } = await import("./campaignIntelligenceEngine");
-      const pool = await getPool();
+      const { getPool: _getPool } = await import("./db");
+      const pool = await _getPool();
       if (!pool || !campaign) return;
 
       const campaignId  = (campaign as any).id;
