@@ -130,7 +130,7 @@ function SectionHeader({ title, sub }: { title: string; sub?: string }) {
 // ABA DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
 function TabDashboard() {
-  const stats = (trpc as any).intelligence?.getDashboardStats?.useQuery?.();
+  const stats = trpc.intelligence.getDashboardStats.useQuery(undefined, { retry: false });
   const s = stats?.data;
 
   if (stats?.isLoading) return <Loader />;
@@ -226,12 +226,11 @@ function TabCampaigns({ onScore, onExtract }: { onScore: (id: number) => void; o
   const [niche, setNiche]       = useState("");
   const [sortBy, setSortBy]     = useState<"created" | "score">("created");
 
-  const query = (trpc as any).intelligence?.listAllCampaigns?.useQuery?.({
-    page, limit: 30,
-    platform:  platform || undefined,
-    niche:     niche    || undefined,
-    sortBy,
-  });
+  const query = trpc.intelligence.listAllCampaigns.useQuery(
+    { page, pageSize: 20, platform: platform || undefined, niche: niche || undefined, sortBy },
+    { retry: false }
+  );
+
   const data = query?.data;
 
   if (query?.isLoading) return <Loader />;
@@ -336,7 +335,7 @@ function TabRanking() {
   const [platform, setPlatform] = useState("");
   const [niche, setNiche]       = useState("");
 
-  const query   = (trpc as any).intelligence?.getGlobalRanking?.useQuery?.({ limit: 25, platform: platform || undefined, niche: niche || undefined });
+  const query   = trpc.intelligence.getGlobalRanking.useQuery({ limit: 25, platform: platform || undefined, niche: niche || undefined }, { retry: false });
   const ranking = query?.data?.ranking ?? [];
 
   if (query?.isLoading) return <Loader />;
@@ -438,7 +437,7 @@ function TabPatterns({ onApprove }: { onApprove: (id: number) => void }) {
   const [niche, setNiche]       = useState("");
   const [approvedOnly, setApprovedOnly] = useState(false);
 
-  const query    = (trpc as any).intelligence?.getWinnerPatterns?.useQuery?.({ platform: platform || undefined, niche: niche || undefined, approvedOnly, limit: 30 });
+  const query    = trpc.intelligence.getWinnerPatterns.useQuery({ platform: platform || undefined, niche: niche || undefined, approvedOnly, limit: 30 }, { retry: false });
   const patterns = query?.data?.patterns ?? [];
 
   if (query?.isLoading) return <Loader />;
@@ -559,7 +558,7 @@ function TabPatterns({ onApprove }: { onApprove: (id: number) => void }) {
 // ABA BASE DE APRENDIZADO
 // ─────────────────────────────────────────────────────────────────────────────
 function TabLearning() {
-  const query   = (trpc as any).intelligence?.getLearningBase?.useQuery?.({});
+  const query   = trpc.intelligence.getLearningBase.useQuery({}, { retry: false });
   const entries = query?.data?.entries ?? [];
 
   if (query?.isLoading) return <Loader />;
@@ -674,7 +673,7 @@ function TabLearning() {
 // ABA DATASET ML
 // ─────────────────────────────────────────────────────────────────────────────
 function TabML() {
-  const query = (trpc as any).intelligence?.exportMLDataset?.useQuery?.({ splitGroup: "all" });
+  const query = trpc.intelligence.exportMLDataset.useQuery({ splitGroup: "all" }, { retry: false });
   const data  = query?.data;
 
   const trainCount  = data?.dataset?.filter((d: any) => d.split_group === "train").length || 0;
@@ -807,11 +806,10 @@ function TabInsights() {
   const [minScore, setMinScore] = useState(60);
   const [section, setSection] = useState<"ads"|"competitors"|"patterns"|"learning"|"strategies">("ads");
 
-  const { data, isLoading, refetch } = (trpc as any).intelligence?.extractBestInsights?.useQuery?.({
-    platform: platformFilter || undefined,
-    minScore,
-    limit: 50,
-  }, { enabled: true }) ?? { data: null, isLoading: false, refetch: () => {} };
+  const { data, isLoading, refetch } = trpc.intelligence.extractBestInsights.useQuery(
+    { platform: platformFilter || undefined, minScore, limit: 50 },
+    { retry: false }
+  )
 
   const d = data as any;
 
@@ -1089,7 +1087,7 @@ function TabCompare() {
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const compareMutation = (trpc as any).intelligence?.compareCampaigns?.useMutation?.({
+  const compareMutation = trpc.intelligence.compareCampaigns.useMutation({
     onSuccess: (d: any) => { setResult(d); setLoading(false); },
     onError:   (e: any) => { toast.error(`✕ ${e.message}`); setLoading(false); },
   });
@@ -1285,28 +1283,28 @@ export default function AdminCampaignIntelligence() {
   const [, setLocation]  = useLocation();
   const [activeTab, setActiveTab] = useState<TabMain>("dashboard");
 
-  const scoreMutation = (trpc as any).intelligence?.calculateCampaignScore?.useMutation?.({
+  const scoreMutation = trpc.intelligence.calculateCampaignScore.useMutation({
     onSuccess: (d: any) => toast.success(`◎ Score calculado: ${d.score.total}/100`),
     onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
-  const extractMutation = (trpc as any).intelligence?.extractAndSavePattern?.useMutation?.({
+  const extractMutation = trpc.intelligence.extractAndSavePattern.useMutation({
     onSuccess: (d: any) => toast.success(`◎ Padrão extraído! Score ${d.score.total}/100`),
     onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
-  const approveMutation = (trpc as any).intelligence?.approvePattern?.useMutation?.({
+  const approveMutation = trpc.intelligence.approvePattern.useMutation({
     onSuccess: () => toast.success("◎ Padrão aprovado e ativo no MECProAI!"),
     onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
-  const batchMutation = (trpc as any).intelligence?.calculateBatchScores?.useMutation?.({
+  const batchMutation = trpc.intelligence.calculateBatchScores.useMutation({
     onSuccess: (d: any) => toast.success(`◎ ${d.processed} campanhas processadas!`),
     onError:   (e: any) => toast.error(`✕ ${e.message}`),
   });
 
   const [analysisReport, setAnalysisReport] = useState<any>(null);
-  const fullAnalysisMutation = (trpc as any).intelligence?.runFullAnalysis?.useMutation?.({
+  const fullAnalysisMutation = trpc.intelligence.runFullAnalysis.useMutation({
     onSuccess: (d: any) => {
       setAnalysisReport(d);
       toast.success(`Análise completa: ${d.scored} campanhas · ${d.patternsExtracted} padrões · ${d.learningUpdated} nichos atualizados`);
