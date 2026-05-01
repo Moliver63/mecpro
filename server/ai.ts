@@ -3013,7 +3013,7 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
   let pageId       = (competitor as any).facebookPageId;
   const pageUrl    = (competitor as any).facebookPageUrl;
   const igUrl      = (competitor as any).instagramUrl;
-  const websiteUrl = (competitor as any).websiteUrl;
+  let websiteUrl = (competitor as any).websiteUrl as string | null | undefined;
   const compName   = (competitor as any).name || "";
 
   // ── Auto-descoberta de dados quando concorrente só tem o nome ───────────────
@@ -3023,7 +3023,12 @@ async function _analyzeCompetitorImpl(competitorId: number, projectId: number, f
     if (discovered.pageId) pageId = discovered.pageId;
     if (discovered.facebookPageUrl && !pageUrl) (competitor as any).facebookPageUrl = discovered.facebookPageUrl;
     if (discovered.igUrl    && !igUrl)    (competitor as any).instagramUrl = discovered.igUrl;
-    if (discovered.websiteUrl && !websiteUrl) (competitor as any).websiteUrl = discovered.websiteUrl;
+    if (discovered.websiteUrl && !websiteUrl) {
+      websiteUrl = discovered.websiteUrl;
+      (competitor as any).websiteUrl = discovered.websiteUrl;
+      // Persiste no banco imediatamente para próximas análises
+      try { await db.updateCompetitor(competitorId, { websiteUrl: websiteUrl }); } catch {}
+    }
   }
 
   // ── Extrai pageId da pageUrl quando disponível ──────────────────────────────
@@ -3254,45 +3259,16 @@ REGRA: só retorne pageId se tiver certeza absoluta. Nunca invente.`;
     if (!metaOk && !pipelineShortCircuited) {
       log.info("ai", "Meta Ads Library sem resultado — tentando fallback site/SEO", { compName, websiteUrl });
 
-      // Se não tem website cadastrado, tenta descobrir via Google Search
-      let effectiveWebsiteUrl = websiteUrl;
-      if (!effectiveWebsiteUrl) {
-        try {
-          const clientProfile = await db.getClientProfile(projectId) as any;
-          const niche = clientProfile?.niche || "";
-          const city  = clientProfile?.targetAudience?.match(/(Balneário|Camboriú|Itajaí|Florianópolis|Joinville|Blumenau|São Paulo|Rio de Janeiro|Curitiba|Belo Horizonte)/i)?.[0] || "";
-          const searchHint = city ? `${compName} ${city}` : compName;
-
-          log.info("ai", "[M2] Buscando site do concorrente via Google Search", { compName: searchHint });
-          const discovered = await geminiWithGrounding(
-            `Qual é o site oficial (URL completa com https://) da empresa "${searchHint}" que atua no nicho "${niche}" no Brasil?
-Retorne APENAS JSON: {"websiteUrl":"https://...","confidence":"high|medium|low"}
-Se não encontrar, retorne: {"websiteUrl":null}`
-          );
-          if (discovered?.websiteUrl && typeof discovered.websiteUrl === "string" && discovered.websiteUrl.startsWith("http")) {
-            effectiveWebsiteUrl = discovered.websiteUrl;
-            // Salva no banco para próximas análises
-            try {
-              const comp = await db.getCompetitorById(competitorId);
-              if (comp && !comp.websiteUrl) {
-                await db.updateCompetitor(competitorId, { websiteUrl: effectiveWebsiteUrl });
-                log.info("ai", "[M2] Site descoberto e salvo no concorrente", { competitorId, url: effectiveWebsiteUrl });
-              }
-            } catch {}
-          }
-        } catch (discErr: any) {
-          log.warn("ai", "Descoberta de site falhou", { error: discErr.message?.slice(0, 60) });
-        }
-      }
-
+      // websiteUrl já foi atualizado no início da função (via descoberta automática se necessário)
       let websiteOk = false;
-      if (effectiveWebsiteUrl) {
-        websiteOk = await fetchViaWebsiteScraping(competitorId, projectId, effectiveWebsiteUrl, compName);
-        if (websiteOk) log.info("ai", "✅ Fallback site OK", { competitorId, url: effectiveWebsiteUrl });
+      if (websiteUrl) {
+        log.info("ai", "[M2] Tentando web scraping", { competitorId, url: websiteUrl });
+        websiteOk = await fetchViaWebsiteScraping(competitorId, projectId, websiteUrl, compName);
+        if (websiteOk) log.info("ai", "✅ Web Scraping OK", { competitorId, url: websiteUrl });
       }
 
       if (!websiteOk) {
-        const seoOk = await fetchViaSEOAnalysis(competitorId, projectId, compName, effectiveWebsiteUrl, igUrl);
+        const seoOk = await fetchViaSEOAnalysis(competitorId, projectId, compName, websiteUrl, igUrl);
         if (seoOk) {
           log.info("ai", "✅ Fallback SEO OK", { competitorId });
         } else {
@@ -4561,35 +4537,6 @@ async function fetchViaSEOAnalysis(
 
   let niche = "marketing digital";
   let prompt = "";
-
-  // Tenta buscar anúncios REAIS via Google Search (Gemini com grounding)
-  try {
-    const groundedResult = await geminiWithGrounding(
-      `Busque anúncios reais ativos no Facebook e Instagram da empresa "${compName}" no Brasil.
-Retorne JSON com até 5 anúncios encontrados:
-{"ads":[{"headline":"titulo","bodyText":"texto","cta":"CTA","adType":"image|video","isActive":1}]}
-Se não encontrar anúncios reais, retorne {"ads":[]}`
-    );
-    if (groundedResult?.ads?.length > 0) {
-      const clientProfile = await db.getClientProfile(projectId) as any;
-      for (const ad of groundedResult.ads) {
-        await db.upsertScrapedAd({
-          competitorId, projectId, platform: "meta",
-          adId:     `grounded_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          adType:   ad.adType  || "image",
-          headline: ad.headline || null,
-          bodyText: ad.bodyText || null,
-          cta:      ad.cta     || null,
-          isActive: 1,
-          rawData: JSON.stringify({ source: "ads_library_public", via: "gemini-grounded-search", quality: "real" }),
-        });
-      }
-      log.info("ai", "[M2] fetchViaSEOAnalysis via grounding OK", { competitorId, count: groundedResult.ads.length });
-      return true;
-    }
-  } catch (groundErr: any) {
-    log.warn("ai", "Grounding search falhou — usando estimativa Gemini", { error: groundErr.message?.slice(0, 60) });
-  }
 
   try {
     log.info("ai", "[M2] fetchViaSEOAnalysis via Gemini start", { compName });
