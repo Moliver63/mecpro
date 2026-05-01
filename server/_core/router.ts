@@ -763,6 +763,19 @@ Responda SOMENTE em JSON:
 });
 
 // ============ COMPETITORS ROUTER ============
+// Sanitiza resposta para o usuário — oculta detalhes técnicos de erro
+function sanitizeCompetitorResult(result: any) {
+  if (!result || typeof result !== "object") return result;
+  const { error, debug, stackTrace, tokenInvalid, accessDenied, permissionDenied, ...clean } = result;
+  // Mensagem amigável baseada no status
+  if (clean.timedOut) {
+    clean.userMessage = "Análise em andamento, aguarde alguns segundos.";
+  } else if (clean.status === "partial") {
+    clean.userMessage = "Dados coletados com base em fontes disponíveis.";
+  }
+  return clean;
+}
+
 const competitorsRouter = router({
   list: protectedProcedure.input(z.object({ projectId: z.number() })).query(({ input }) => db.getCompetitorsByProjectId(input.projectId)),
   // ── Auto-descoberta de concorrentes com base no perfil do cliente ──────────
@@ -994,16 +1007,10 @@ const competitorsRouter = router({
         log.info("competitors", "analyze timeout — continua em background", {
           competitorId: input.competitorId, projectId: input.projectId,
         });
-        // Retorna imediatamente — frontend vai fazer polling
-        return {
-          status:      "running",
-          message:     "Análise em andamento. Aguarde alguns segundos e recarregue.",
-          adsCount:    0,
-          timedOut:    true,
-        };
+        return { status: "running", message: "Análise em andamento.", adsCount: 0, timedOut: true };
       }
 
-      return result;
+      return sanitizeCompetitorResult(result);
     }),
 
 

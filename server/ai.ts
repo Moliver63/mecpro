@@ -3156,8 +3156,28 @@ REGRA: só retorne pageId se tiver certeza absoluta. Nunca invente.`;
 
     // ① + ② + ③: tentativas Meta (pageId → pageUrl → igUrl → nome)
     // Circuit Breaker: se Meta está falhando por permissão, pula direto pro SEO
+    // Token inválido (190): não tenta mais — vai direto para scraping
     let pipelineShortCircuited = false;
-    if (metaCBisOpen()) {
+
+    // Early exit: se token já sabemos inválido, pula todo bloco Meta
+    const tokenKnownBad = effectiveToken && await (async () => {
+      try {
+        const testRes = await fetch(
+          `https://graph.facebook.com/v21.0/me?access_token=${effectiveToken}`,
+          { signal: AbortSignal.timeout(3000) }
+        );
+        const testData: any = await testRes.json();
+        return testData?.error?.code === 190;
+      } catch { return false; }
+    })();
+
+    if (tokenKnownBad) {
+      log.warn("ai", "Token Meta inválido detectado no início — pulando toda tentativa Meta", { competitorId });
+      metaTokenInvalid = true;
+      pipelineShortCircuited = false; // ainda precisa tentar scraping
+    }
+
+    if (!tokenKnownBad && metaCBisOpen()) {
       log.info("ai", "Meta CB OPEN — priorizando web scraping e /posts", { competitorId, hasPageId: !!pageId, hasWebsite: !!websiteUrl });
       metaPermissionDenied = true;
 
@@ -3180,6 +3200,16 @@ REGRA: só retorne pageId se tiver certeza absoluta. Nunca invente.`;
         }
       }
     }
+
+    // Token inválido (190): pula Meta, vai direto para scraping
+    if (tokenKnownBad && !pipelineShortCircuited && websiteUrl) {
+      const websiteOk = await fetchViaWebsiteScraping(competitorId, projectId, websiteUrl, compName);
+      if (websiteOk) {
+        log.info("ai", "✅ Scraping OK (token inválido, pulou Meta)", { competitorId });
+        pipelineShortCircuited = true;
+      }
+    }
+
     // Mesmo com CB aberto, tenta com pageId — code=10 só afeta keyword search
     if (!pipelineShortCircuited && pageId) {
       const result = await fetchMetaAdsById(competitorId, projectId, pageId, effectiveToken);
