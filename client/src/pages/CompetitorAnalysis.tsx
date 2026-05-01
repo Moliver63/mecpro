@@ -1013,14 +1013,47 @@ export default function CompetitorAnalysis() {
 
   async function handleAnalyze(id: number, force = false) {
     setAnalyzing(id);
+    const startedAt = Date.now();
     try {
-      await analyzeComp.mutateAsync({ competitorId: id, projectId, force });
+      const result: any = await analyzeComp.mutateAsync({ competitorId: id, projectId, force });
+
+      if (result?.timedOut) {
+        // Análise continua em background — inicia polling
+        toast.info("Análise em andamento... aguarde alguns segundos.", { duration: 4000 });
+        await refetch();
+
+        // Polling a cada 5s por até 90s
+        let attempts = 0;
+        const poll = setInterval(async () => {
+          attempts++;
+          try {
+            const resp = await fetch(
+              `/api/competitors/status?competitorId=${id}&after=${startedAt}`,
+              { credentials: "include" }
+            );
+            const data = await resp.json();
+            if (data?.ready || attempts >= 18) {
+              clearInterval(poll);
+              setAnalyzing(null);
+              await refetch();
+              if (data?.ready) {
+                toast.success(`Análise concluída! ${data.adsCount} anúncios encontrados.`);
+              } else {
+                toast.warning("Análise pode ainda estar em andamento. Recarregue em instantes.");
+              }
+            }
+          } catch { clearInterval(poll); setAnalyzing(null); }
+        }, 5000);
+        return; // não chama setAnalyzing(null) aqui — o polling vai fazer isso
+      }
+
       toast.success("Análise concluída!");
     } catch (err: any) {
-      console.error("Analyze error", err);
       const msg = err?.message || "Erro desconhecido";
-      if (msg.includes("TIMEOUT") || msg.includes("demorou")) {
-        toast.error("A análise demorou mais que o esperado. Tente novamente.", { duration: 6000 });
+      if (msg.includes("Unable to transform") || msg.includes("TIMEOUT") || msg.includes("demorou")) {
+        // Timeout HTTP do Render — análise pode ter continuado em background
+        toast.info("A análise está sendo processada. Aguarde 15 segundos e recarregue.", { duration: 8000 });
+        setTimeout(() => refetch(), 15000);
       } else {
         toast.error(`Erro na análise: ${msg.slice(0, 120)}`, { duration: 8000 });
       }

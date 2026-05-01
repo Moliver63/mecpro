@@ -386,6 +386,46 @@ app.get('/api/campaigns/latest', async (req: any, res: any) => {
   } catch { res.json(null); }
 });
 
+
+// GET /api/competitors/status — polling pós-timeout da análise de concorrentes
+app.get('/api/competitors/status', async (req: any, res: any) => {
+  try {
+    const cookieToken = req.cookies?.token;
+    const headerToken = (req.headers.authorization || "").replace("Bearer ", "").trim();
+    const token = cookieToken || headerToken;
+    if (!token) return res.json({ ready: false });
+    const { jwtVerify } = await import('jose');
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+    const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null }));
+    if (!payload?.sub) return res.json({ ready: false });
+
+    const competitorId = parseInt(req.query.competitorId as string);
+    const after        = parseInt(req.query.after as string) || 0;
+    if (!competitorId) return res.json({ ready: false });
+
+    const pool = await getPool();
+    if (!pool) return res.json({ ready: false });
+
+    // Verifica se apareceram novos scraped_ads após o timestamp
+    const afterDate = new Date(after);
+    const result = await pool.query(
+      `SELECT COUNT(*) as cnt FROM scraped_ads
+       WHERE "competitorId" = $1 AND "createdAt" > $2`,
+      [competitorId, afterDate]
+    );
+    const ready = parseInt(result.rows[0]?.cnt || "0") > 0;
+
+    // Busca contagem atual de ads
+    const adsResult = await pool.query(
+      `SELECT COUNT(*) as total FROM scraped_ads WHERE "competitorId" = $1`,
+      [competitorId]
+    );
+    const adsCount = parseInt(adsResult.rows[0]?.total || "0");
+
+    res.json({ ready, adsCount });
+  } catch { res.json({ ready: false, adsCount: 0 }); }
+});
+
 // ─── Diagnóstico Meta Ads (admin only) ────────────────────
 app.get('/api/diag/meta', async (req, res) => {
   const key = req.query.key as string;

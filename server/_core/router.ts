@@ -964,7 +964,7 @@ const competitorsRouter = router({
       force:        z.boolean().optional().default(false),
     }))
     .mutation(async ({ input }) => {
-      // Se force=true, limpa ads estimados/SEO antes de reanalisar
+      // Limpa ads não-reais se force=true
       if (input.force) {
         const existing = await db.getScrapedAdsByCompetitor(input.competitorId);
         const NON_REAL = new Set(["estimated", "estimated_ai", "seo_analysis", "website_scraping"]);
@@ -978,8 +978,32 @@ const competitorsRouter = router({
           try { await db.deleteScrapedAd((ad as any).id); } catch {}
         }
       }
+
       const { analyzeCompetitor } = await import("../ai");
-      return analyzeCompetitor(input.competitorId, input.projectId, input.force ?? false);
+
+      // Timeout de 25s (dentro do limite de 30s do Render)
+      // Se ultrapassar, retorna status TIMEOUT e a análise continua em background
+      const analysisPromise = analyzeCompetitor(input.competitorId, input.projectId, input.force ?? false);
+      const timeoutPromise  = new Promise<"TIMEOUT">((resolve) =>
+        setTimeout(() => resolve("TIMEOUT"), 25000)
+      );
+
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+
+      if (result === "TIMEOUT") {
+        log.info("competitors", "analyze timeout — continua em background", {
+          competitorId: input.competitorId, projectId: input.projectId,
+        });
+        // Retorna imediatamente — frontend vai fazer polling
+        return {
+          status:      "running",
+          message:     "Análise em andamento. Aguarde alguns segundos e recarregue.",
+          adsCount:    0,
+          timedOut:    true,
+        };
+      }
+
+      return result;
     }),
 
 
