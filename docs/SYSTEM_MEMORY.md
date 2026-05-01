@@ -4,7 +4,7 @@
 > Contém o estado atual, bugs conhecidos, decisões de arquitetura e padrões estabelecidos.
 > Atualizar após cada sessão significativa.
 >
-> **Última atualização:** 2026-05-01 (sessão 2)
+> **Última atualização:** 2026-05-01 (sessão 3)
 
 ---
 
@@ -105,6 +105,14 @@ Meta CB: OPEN após code=10 — reset em 30min
 - **Arquivo:** `client/src/pages/CompetitorAnalysis.tsx L1431`
 - **Commit:** b6c6358
 
+
+#### BUG-011: M2 — mensagem técnica de erro exposta ao usuário
+- **Causa:** Banner de falha mostrava `code=10`, URL `facebook.com/ads/library/api`, detalhes OAuth
+- **Sintoma:** Usuário via texto técnico incompreensível quando todas as camadas falhavam
+- **Solução:** Mensagem genérica amigável; dicas de melhoria específicas por camada via qualityMap
+- **Arquivo:** `CompetitorAnalysis.tsx` + `competitorCards.tsx`
+- **Commit:** 00bf14a
+
 #### BUG-008: `Unable to transform response` na análise de concorrentes
 - **Causa:** Pipeline de 7 camadas pode levar 60-90s; Render corta conexão em 30s
 - **Solução:** Timeout 25s no procedure → `{ timedOut: true }` → frontend faz polling via `/api/competitors/status`
@@ -151,6 +159,18 @@ Camada 7: Mock por Nicho
 - **Como funciona:** `UIConfigLoader` lê e salva em `sessionStorage` → `Layout` filtra `NAV_USER`
 - **Admins:** Sempre veem menu completo independente da config
 - **Páginas fixas:** Dashboard, Projetos, Configurações (sempre visíveis)
+
+
+### DA-007: Indicadores de qualidade do M2
+```
+Camadas 1-3 → badge "Real"    (dados verificáveis)
+Camadas 4-5 → badge "Parcial" (dados baseados em fontes secundárias)
+Camada 6    → badge "Estimado IA" (gerado por IA)
+Camada 7    → badge "Estimado"   (referência do nicho)
+```
+- Hover no badge mostra: "Camada X: [nome técnico]"
+- Dica de melhoria: só aparece se qualityMap.tip != "" (específica por camada)
+- Mensagens de erro: NUNCA expor code=10, URLs técnicas ou detalhes OAuth ao usuário
 
 ---
 
