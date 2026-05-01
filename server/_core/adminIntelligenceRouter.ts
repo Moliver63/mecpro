@@ -38,22 +38,9 @@ function clusterCampaigns(campaigns: any[]): any[] {
 }
 
 // Re-usa as abstrações já existentes no projeto
-import { initTRPC, type inferRouterContext } from "@trpc/server";
 import * as db from "../db";
 import { getPool } from "../db";
-import superjson from "superjson";
-import type { Context } from "./context";
-
-const t = initTRPC.context<Context>().create({ transformer: superjson });
-const router = t.router;
-
-// Guard: só admin/superadmin
-const adminProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.user || !["admin", "superadmin"].includes((ctx.user as any).role)) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Acesso restrito ao Admin" });
-  }
-  return next({ ctx: { ...ctx, user: ctx.user } });
-});
+import { router, adminProcedure } from "./router";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: carrega campanha + contexto completo do banco
