@@ -37,10 +37,10 @@ function clusterCampaigns(campaigns: any[]): any[] {
   return campaigns.map((c, i) => ({ ...c, clusterId: i % 3 }));
 }
 
-// Re-usa as abstrações já existentes no projeto
+// Importa instância compartilhada — sem circular import, tipos 100% compatíveis
+import { router, adminProcedure } from "./trpc";
 import * as db from "../db";
 import { getPool } from "../db";
-import { router, adminProcedure } from "./router";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: carrega campanha + contexto completo do banco
