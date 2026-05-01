@@ -4,7 +4,7 @@
 > Contém o estado atual, bugs conhecidos, decisões de arquitetura e padrões estabelecidos.
 > Atualizar após cada sessão significativa.
 >
-> **Última atualização:** 2026-05-01
+> **Última atualização:** 2026-05-01 (sessão 2)
 
 ---
 
@@ -89,6 +89,21 @@ Meta CB: OPEN após code=10 — reset em 30min
 - **Sintoma:** Vite build falhou com `Unexpected "export" at line 62`
 - **Solução:** Restaurar do git (`git show HASH:path > /tmp/file`) e reaplicar apenas a mudança necessária
 - **Lição:** Para correções em arquivos grandes, SEMPRE restaurar do git antes de reaplicar
+
+
+#### BUG-009: M2 — hooks condicionais em 6 arquivos do Módulo 2
+- **Causa:** `?.useMutation?.()` + `?? { mutate: () => {} }` em CompetitorAnalysis, AdInputAnalyzer, competitorVerifiers, useCompetitorData, ClientAdsCollector
+- **Sintoma:** Crash intermitente ao renderizar qualquer componente do Módulo 2
+- **Solução:** Substituídos por `trpc.namespace.procedure.useMutation()` tipados direto; removidos todos ?? fallbacks
+- **Regra reforçada:** Buscar `?.useMutation?.` + `?? { mutate:` antes de qualquer deploy do M2
+- **Commit:** b6c6358
+
+#### BUG-010: TikTok button usando instagramUrl em vez de tiktokUrl
+- **Causa:** `const handle = (c.instagramUrl || "")` no botão de coleta TikTok
+- **Sintoma:** Busca TikTok com handle de Instagram → falha ou dados errados
+- **Solução:** `c.tiktokUrl || c.instagramUrl` — prioriza campo correto com fallback
+- **Arquivo:** `client/src/pages/CompetitorAnalysis.tsx L1431`
+- **Commit:** b6c6358
 
 #### BUG-008: `Unable to transform response` na análise de concorrentes
 - **Causa:** Pipeline de 7 camadas pode levar 60-90s; Render corta conexão em 30s
@@ -267,6 +282,7 @@ APP_URL=https://www.mecproai.com
 | 🔴 | Meta App — solicitar permissão Ads Library API | Aguardando aprovação Facebook |
 | 🔴 | Token Meta expirado — reconectar | Ação do usuário necessária |
 | 🟡 | Módulo 2 — web scraping quando sem site cadastrado | ✅ Implementado (geminiWithGrounding) |
+| 🟡 | Módulo 2 — auditoria de hooks condicionais | ✅ Corrigido (commit b6c6358) |
 | 🟡 | Google Ads — headlines com emoji causando TOO_LONG | ✅ Corrigido (stripEmojis) |
 | 🟡 | ML — rodar `runFullAnalysis` para popular learning_base | Ação admin necessária |
 | 🟢 | Mercado Livre API | Aguardando credenciais DevCenter |
