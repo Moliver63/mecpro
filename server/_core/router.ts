@@ -3999,6 +3999,35 @@ const adminRouter = router({
       return { success: true };
     }),
 
+  // ── Memória Técnica do Sistema ────────────────────────────────────────────
+  getSystemMemory: adminProcedure.query(async () => {
+    const { getBugHistory, getSystemStatus, buildAIContext } = await import("../systemMemory");
+    const [bugs, status, context] = await Promise.all([
+      getBugHistory(),
+      getSystemStatus(),
+      buildAIContext(),
+    ]);
+    return { bugs, status, context };
+  }),
+
+  seedSystemMemory: adminProcedure.mutation(async () => {
+    const { seedKnownBugs } = await import("../systemMemory");
+    await seedKnownBugs();
+    return { success: true };
+  }),
+
+  updateSystemStatus: adminProcedure
+    .input(z.object({
+      metaAds:    z.string().optional(),
+      gemini:     z.string().optional(),
+      metaCBOpen: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { updateSystemStatus } = await import("../systemMemory");
+      await updateSystemStatus(input as any);
+      return { success: true };
+    }),
+
   getPaymentSettings: adminProcedure
     .query(async () => {
       const [modeA, modeB, feePercent, defaultDist, landingMode, gateway] = await Promise.all([
