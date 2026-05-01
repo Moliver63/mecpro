@@ -1517,10 +1517,24 @@ async function _geminiImpl(
     // Marca chave como esgotada quando for erro de quota
     if (isQuota && apiKey) markGeminiKeyExhausted(apiKey);
 
+    // Se todas as chaves esgotadas após marcar → pula direto para Groq sem tentar mais modelos
+    if (isQuota) {
+      const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
+      const stillAvailable = allKeys.filter(k => !_exhaustedKeys.has(k));
+      if (stillAvailable.length === 0) {
+        log.warn("ai", "Todas as chaves Gemini esgotadas — abortando cascata, indo direto para Groq");
+        // Pula toda a cascata restante e vai para fallback imediatamente
+        const _compressedQ = _compressPromptLight(prompt, 25000);
+        const groqFast = await callGroqAPI(_compressedQ, opts.systemInstruction, opts.temperature).catch(() => null);
+        if (groqFast) { log.info("ai", "✅ Groq fast-fallback OK (todas chaves Gemini esgotadas)"); return groqFast; }
+        const gsFast = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
+        if (gsFast) { log.info("ai", "✅ Genspark fast-fallback OK"); return gsFast; }
+        return mockResponse(prompt);
+      }
+    }
+
     const isCrossFamily = (model.startsWith("gemini-2.5") && nextModel.startsWith("gemini-2.0")) ||
                           (model.startsWith("gemini-2.0") && nextModel.startsWith("gemini-2.5"));
-    // Quota esgotada: vai direto para próximo sem esperar (chave já marcada como exausta)
-    // Rate limit: espera mínimo para não bater no rate limiter
     const delay  = is404 ? 50 : isQuota ? 50 : isCrossFamily ? 300 : 500;
     log.warn("ai", `Gemini ${is404 ? "modelo inválido" : "sobrecarregado"} (${model}) → ${nextModel} em ${delay}ms`);
     await sleep(delay);
@@ -1649,7 +1663,9 @@ async function callGroqAPI(
       // llama-3.3-70b-versatile: 128k ctx → ~100k chars safe
       // llama-3.1-8b-instant: 8k ctx → ~12k chars safe
       // O Groq retorna 413 quando o payload JSON excede ~1MB — truncar mais agressivamente
-      const maxChars = model.includes("8b") ? 4000 : 40000;
+      // Groq API limit: ~1MB request body. JSON wrapping adds ~30% overhead.
+      // 70b: reduce to 25k to avoid 413; 8b: keep at 4k for its 8k ctx limit
+      const maxChars = model.includes("8b") ? 4000 : 25000;
       const truncatedPrompt = prompt.length > maxChars
         ? prompt.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere a resposta JSON completa com base no que foi fornecido acima]"
         : prompt;
