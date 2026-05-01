@@ -1846,66 +1846,6 @@ REGRAS:
     }),
 
   // ── Descobre concorrentes por nicho usando Gemini + Google Search ─────────
-  discoverCompetitors: protectedProcedure
-    .input(z.object({
-      projectId: z.number(),
-      niche:     z.string().min(1).default("geral"),
-      city:      z.string().optional(),
-      limit:     z.number().default(5),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const userId = ctx.user.id;
-      const { geminiWithGrounding } = await import("../ai");
-      const cityPart = input.city ? ` em ${input.city}` : " no Brasil";
-
-      const queries = [
-        `principais concorrentes nicho ${input.niche}${cityPart}`,
-        `empresas ${input.niche}${cityPart} Facebook Ads`,
-        `melhores ${input.niche}${cityPart} marketing digital`,
-      ];
-
-      let found: any[] = [];
-
-      for (const q of queries) {
-        try {
-          const result = await geminiWithGrounding(
-            `Liste até ${input.limit} empresas reais que atuam no nicho "${input.niche}"${cityPart}.
-Retorne APENAS JSON válido sem markdown, no formato:
-{"companies":[{"name":"Nome da Empresa","website":"https://...","instagram":"@handle","facebookPage":"url ou null","description":"breve descrição"}]}
-Regras: apenas empresas reais, sem inventar URLs.`
-          );
-
-          // safeParseJSON — suporta resposta truncada do Gemini
-          let parsed: any = null;
-          if (typeof result === "object" && result !== null) {
-            parsed = result;
-          } else if (typeof result === "string") {
-            // Tenta reparar JSON truncado
-            let s = result.trim().replace(/^```json|```$/g, "").trim();
-            if (!s.endsWith("}")) s = s + ']}'; // fecha arrays/objetos abertos
-            try { parsed = JSON.parse(s); } catch {
-              // Extrai parcialmente com regex
-              const matches = s.match(/"name"\s*:\s*"([^"]+)"/g) || [];
-              if (matches.length > 0) {
-                parsed = { companies: matches.map(m => ({ name: m.replace(/"name"\s*:\s*"([^"]+)"/, "$1") })) };
-              }
-            }
-          }
-
-          const companies = parsed?.companies || [];
-          if (companies.length > 0) {
-            found = companies.slice(0, input.limit);
-            break;
-          }
-        } catch (e: any) {
-          log.warn("competitors", "discoverCompetitors query error", { q, error: e.message?.slice(0, 80) });
-        }
-      }
-
-      log.info("competitors", "discoverCompetitors", { projectId: input.projectId, userId, niche: input.niche, found: found.length });
-
-      return { found, count: found.length };
-    }),
 
 });
 
@@ -4387,13 +4327,6 @@ const adminRouter = router({
       return db.rejectPlanRequest(input.requestId, ctx.user.id, input.note);
     }),
 
-  // Visibilidade de páginas e features — /admin/ui-config
-  saveUIConfig: adminProcedure
-    .input(z.object({ visibility: z.record(z.boolean()) }))
-    .mutation(async ({ input }) => {
-      await db.saveAdminSetting("ui_visibility", JSON.stringify(input.visibility));
-      return { success: true };
-    }),
 });
 
 // ============ PLAN CHANGE REQUESTS ROUTER ============
