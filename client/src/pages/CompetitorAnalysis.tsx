@@ -154,7 +154,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
     mixed        ? { icon: "⚡", title: "", desc: `${realCount} real(is) + ${estimatedCount} estimado(s).`, bg: "#fefce8", border: "#fde047", titleColor: "#854d0e", descColor: "#92400e" } :
     hasEstAI     ? { icon: "🤖", title: "", desc: `Coleta bloqueada. MECPro AI gerou ${estimatedCount} anúncio(s) representativos do nicho.`, bg: "#faf5ff", border: "#c4b5fd", titleColor: "#6d28d9", descColor: "#7c3aed" } :
     { icon: "◬", title: "",
-      desc: `Todas as camadas de coleta falharam para ${comp.name}. Causa mais provável: o App Meta ainda não tem aprovação para Ads Library API (code=10). Solução: acesse facebook.com/ads/library/api → "Get Access" com o mesmo App do seu token. O token de publicação de campanhas está funcionando normalmente — é apenas a leitura de anúncios de concorrentes que requer aprovação separada.`,
+      desc: `Não foi possível coletar anúncios reais de ${comp.name} agora. Os dados exibidos são estimativas baseadas no nicho. Adicionar o site ou Instagram do concorrente pode melhorar a qualidade.`,
       bg: "#fef3c7", border: "#fcd34d", titleColor: "#92400e", descColor: "#b45309" };
 
   return (
@@ -1399,11 +1399,12 @@ export default function CompetitorAnalysis() {
                               {hasAds ? (allEst ? `~${c.adsCount} estimados` : `${c.adsCount} anúncios`) : "Não analisado"}
                             </span>
                             {layerInfo && (
-                              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: layerInfo.bg, color: layerInfo.color }}>
-                                {layerInfo.icon} Camada {layer}
+                              <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: layerInfo.bg, color: layerInfo.color }}
+                                title={`Camada ${layer}: ${layerInfo.label}`}>
+                                {layerInfo.icon} {layer <= 3 ? "Real" : layer <= 5 ? "Parcial" : layer === 6 ? "Estimado IA" : "Estimado"}
                               </span>
                             )}
-                            {c.aiInsights && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#e8f0fe", color: "#1877f2" }}>🤖 IA</span>}
+                            {c.aiInsights && <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#e8f0fe", color: "#1877f2" }} title="Insights gerados por IA">✨ IA</span>}
                           </div>
                         </div>
 

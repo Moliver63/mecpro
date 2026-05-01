@@ -28,14 +28,14 @@ export function CascadeStatus({ analyzing, successLayer, hasAds }: {
 
   if (!analyzing && !hasAds && successLayer === null) return null;
 
-  const qualityMap: Record<number, { pct: number; label: string; color: string; desc: string }> = {
-    1: { pct: 100, label: "Dados 100% reais",      color: "#16a34a", desc: "Meta API Oficial" },
-    2: { pct: 90,  label: "Dados 90% reais",       color: "#2563eb", desc: "Ads Library pública" },
-    3: { pct: 75,  label: "Dados 75% reais",       color: "#2563eb", desc: "Ads Library direta" },
-    4: { pct: 60,  label: "Dados 60% reais",       color: "#7c3aed", desc: "Instagram / Nome" },
-    5: { pct: 50,  label: "Dados 50% reais",       color: "#0e7490", desc: "Site do concorrente" },
-    6: { pct: 30,  label: "Dados 30% estimados",   color: "#7c3aed", desc: "Análise SEO com IA" },
-    7: { pct: 10,  label: "Dados 10% estimados",   color: "#b45309", desc: "Referência do nicho" },
+  const qualityMap: Record<number, { pct: number; label: string; color: string; desc: string; tip: string }> = {
+    1: { pct: 100, label: "Oficial — API Meta",    color: "#16a34a", desc: "Anúncios reais da Biblioteca de Anúncios",     tip: "" },
+    2: { pct: 90,  label: "Real — Ads Library",    color: "#2563eb", desc: "Dados públicos da Biblioteca de Anúncios",     tip: "" },
+    3: { pct: 75,  label: "Real — Ads Library",    color: "#2563eb", desc: "Dados da Biblioteca de Anúncios do Facebook",  tip: "" },
+    4: { pct: 60,  label: "Parcial — Instagram",   color: "#7c3aed", desc: "Dados via perfil do Instagram ou nome",        tip: "Adicione o Page ID do Facebook para dados mais completos" },
+    5: { pct: 50,  label: "Parcial — Site",        color: "#0e7490", desc: "Dados extraídos do site do concorrente",       tip: "" },
+    6: { pct: 30,  label: "Estimado — IA",         color: "#7c3aed", desc: "Estimativa gerada por IA com base no nicho",   tip: "Adicione o site ou Instagram do concorrente para dados mais precisos" },
+    7: { pct: 10,  label: "Estimado — Referência", color: "#b45309", desc: "Dados de referência do nicho (sem dados reais)",tip: "Adicione o site ou Instagram do concorrente" },
   };
 
   const layer   = successLayer || (analyzing ? currentStep : 7);
@@ -96,14 +96,10 @@ export function CascadeStatus({ analyzing, successLayer, hasAds }: {
           </div>
         ))}
       </div>
-      {!analyzing && quality.pct < 75 && (
+      {!analyzing && quality.tip && (
         <div style={{ marginTop: 10, padding: "8px 12px", background: "#fef9c3", border: "1px solid #fde047", borderRadius: 8 }}>
           <p style={{ fontSize: 11, color: "#713f12", margin: 0, lineHeight: 1.5 }}>
-            💡 <strong>Para aumentar a qualidade:</strong>{" "}
-            {quality.pct <= 10 ? "Adicione o site ou Instagram do concorrente"
-              : quality.pct <= 30 ? "Adicione o Instagram ou site para análise mais precisa"
-              : quality.pct <= 60 ? "Cadastre o Page ID do Facebook para dados reais"
-              : "Solicite permissão Ads Library API no Facebook"}
+            💡 <strong>Para melhorar:</strong> {quality.tip}
           </p>
         </div>
       )}
