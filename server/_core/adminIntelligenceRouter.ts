@@ -769,8 +769,16 @@ export const adminIntelligenceRouter = router({
             if (input.niche && context.niche !== input.niche) continue;
             if (!context.platform) { report.skipped++; continue; }
 
+            // Pula campanhas sem nenhuma métrica real (evita score artificial 100)
+            const hasRealMetrics = metrics.impressions > 0 || metrics.clicks > 0
+              || metrics.ctr > 0 || metrics.spend > 0;
             const score = calculateScore(context, metrics);
-            allScores.push(score.total);
+            // Penalidade para campanhas sem dados reais: cap no score
+            const effectiveScore = hasRealMetrics ? score.total : Math.min(score.total, 60);
+            if (!hasRealMetrics) {
+              score.total = effectiveScore;
+            }
+            allScores.push(effectiveScore);
             report.scored++;
             if (score.total > report.topScore) report.topScore = score.total;
 
@@ -790,11 +798,11 @@ export const adminIntelligenceRouter = router({
                     score_explanation, key_insights, engine_version
                   ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
                   ON CONFLICT (campaign_id) DO UPDATE SET
-                    score_total       = EXCLUDED.score_total,
-                    score_creative    = EXCLUDED.score_creative,
-                    score_explanation = EXCLUDED.score_explanation,
-                    is_winner         = EXCLUDED.is_winner,
-                    updated_at        = NOW()`,
+                    label_score       = EXCLUDED.label_score,
+                    label_ctr         = EXCLUDED.label_ctr,
+                    label_cpc         = EXCLUDED.label_cpc,
+                    label_is_winner   = EXCLUDED.label_is_winner,
+                    split_group       = EXCLUDED.split_group`,
                   [
                     c.id, context.userId, context.projectId, score.total,
                     score.ctr, score.cpc, score.cpm, score.roas,
@@ -828,11 +836,11 @@ export const adminIntelligenceRouter = router({
                       approved_by_admin, approved_at, status
                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
                     ON CONFLICT (campaign_id) DO UPDATE SET
-                    score_total       = EXCLUDED.score_total,
-                    score_creative    = EXCLUDED.score_creative,
-                    score_explanation = EXCLUDED.score_explanation,
-                    is_winner         = EXCLUDED.is_winner,
-                    updated_at        = NOW()`,
+                      score              = EXCLUDED.score,
+                      pattern_score      = EXCLUDED.score,
+                      approved_by_admin  = EXCLUDED.approved_by_admin,
+                      status             = EXCLUDED.status,
+                      updated_at         = NOW()`,
                     [
                       c.id, context.userId, context.projectId,
                       context.platform, context.objective, context.niche || "geral",

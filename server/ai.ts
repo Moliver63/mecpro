@@ -5798,7 +5798,11 @@ Gere JSON com:
       };
 
       const score    = calculateScore(context, metrics);
-      const features = buildMLFeatures(context, metrics, score);
+      // buildMLFeatures requer WinnerParameters, não CampaignMetrics
+      // extractWinnerParameters constrói os parâmetros corretos
+      const { extractWinnerParameters } = await import("./campaignIntelligenceEngine");
+      const winnerParams = extractWinnerParameters(context as any, score, metrics);
+      const features = buildMLFeatures(context as any, winnerParams as any, score);
 
       // Upsert em campaign_scores
       await pool.query(`
@@ -5832,17 +5836,45 @@ Gere JSON com:
         ]
       );
 
-      // Upsert em ml_dataset
+      // Upsert em ml_dataset — colunas individuais (schema real da tabela)
       await pool.query(`
-        INSERT INTO ml_dataset (campaign_id, user_id, project_id, features, label, split_group)
-        VALUES ($1,$2,$3,$4,$5,$6)
+        INSERT INTO ml_dataset (
+          campaign_id, feature_platform, feature_objective, feature_niche,
+          feature_ad_format, feature_budget_range, feature_duration,
+          feature_has_video, feature_has_carousel,
+          feature_used_urgency, feature_used_social_proof,
+          feature_copy_type, feature_creative_type,
+          feature_statistical_conf, feature_volume_weight, feature_is_false_winner,
+          label_score, label_ctr, label_cpc, label_roas,
+          label_is_winner, label_success_probability, split_group
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
         ON CONFLICT (campaign_id) DO UPDATE SET
-          features = EXCLUDED.features,
-          label    = EXCLUDED.label`,
+          label_score     = EXCLUDED.label_score,
+          label_ctr       = EXCLUDED.label_ctr,
+          label_cpc       = EXCLUDED.label_cpc,
+          label_is_winner = EXCLUDED.label_is_winner,
+          split_group     = EXCLUDED.split_group`,
         [
-          campaignId, userId, projectId,
-          JSON.stringify(features),
+          campaignId,
+          (features as any).feature_platform     || context.platform,
+          (features as any).feature_objective    || context.objective,
+          (features as any).feature_niche        || niche,
+          (features as any).feature_ad_format    || "image",
+          (features as any).feature_budget_range || "low",
+          (features as any).feature_duration     || "medium",
+          (features as any).feature_has_video    ?? 0,
+          (features as any).feature_has_carousel ?? 0,
+          (features as any).feature_used_urgency ?? 0,
+          (features as any).feature_used_social_proof ?? 0,
+          (features as any).feature_copy_type    || "curta_direta",
+          (features as any).feature_creative_type || "imagem_produto",
+          score.statisticalConf ?? 0,
+          score.volumeWeight    ?? 0,
+          score.isFalseWinner ? 1 : 0,
           score.total,
+          metrics.ctr, metrics.cpc, metrics.roas ?? 0,
+          (!score.isFalseWinner && score.total >= 70) ? 1 : 0,
+          0,
           Math.random() < 0.8 ? "train" : "test",
         ]
       );
