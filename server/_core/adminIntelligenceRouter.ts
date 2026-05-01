@@ -686,7 +686,7 @@ export const adminIntelligenceRouter = router({
 
   // ── 13. BUSCAR RECOMENDAÇÃO DA LEARNING BASE (usado no gerador) ───────────
   // Este endpoint é usado pelo gerador de campanhas para sugerir parâmetros
-  getRecommendation: t.procedure.use(({ ctx, next }) => next({ ctx }))  // público para usuários autenticados
+  getRecommendation: adminProcedure  // recomendação da learning base
     .input(z.object({
       platform:  z.string(),
       objective: z.string(),
