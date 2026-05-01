@@ -917,22 +917,22 @@ export default function CompetitorAnalysis() {
   const deleteComp  = trpc.competitors.delete.useMutation({ onSuccess: () => refetch() });
   const analyzeComp = trpc.competitors.analyze.useMutation({ onSuccess: () => refetch() });
 
-  const fetchTikTokCompetitorMutation = (trpc as any).competitors?.fetchTikTokCompetitor?.useMutation?.({
+  const fetchTikTokCompetitorMutation = trpc.competitors.fetchTikTokCompetitor.useMutation({
     onSuccess: (data: any) => {
       if (data?.needsAuth) { toast.error(data.message); return; }
       if (data?.videosSaved > 0) { toast.success(data.message); refetch(); }
       else toast.error(data?.message || "✕ Nenhum vídeo TikTok encontrado.");
     },
     onError: (e: any) => toast.error("✕ TikTok: " + (e?.message || "Erro ao buscar")),
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
-  const fetchAdsByPageIdMutation = (trpc as any).competitors?.fetchAdsByPageId?.useMutation?.({
+  const fetchAdsByPageIdMutation = trpc.competitors.fetchAdsByPageId.useMutation({
     onSuccess: (data: any) => {
       if (data?.adsSaved > 0) { toast.success(data.message); refetch(); }
       else toast.error(data?.message || "✕ Nenhum dado encontrado. Verifique permissões do token Meta.");
     },
     onError: (e: any) => toast.error("✕ " + (e?.message || "Erro ao buscar pelo Page ID")),
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
   const [adding,    setAdding]    = useState(false);
   const [discovering, setDiscovering] = useState(false);
@@ -944,10 +944,10 @@ export default function CompetitorAnalysis() {
   const [editing,   setEditing]   = useState<number | null>(null);
   const [searchQ,   setSearchQ]   = useState("");
 
-  const { data: project       } = (trpc as any).projects?.get?.useQuery?.({ id: projectId }, { enabled: !!projectId }) ?? { data: null };
-  const { data: clientProfile } = (trpc as any).clientProfile?.get?.useQuery?.({ projectId }, { enabled: !!projectId }) ?? { data: null };
+  const { data: project       } = trpc.projects.get.useQuery({ id: projectId }, { enabled: !!projectId });
+  const { data: clientProfile } = trpc.clientProfile.get.useQuery({ projectId }, { enabled: !!projectId });
 
-  const discoverMut = (trpc as any).competitors?.discoverCompetitors?.useMutation?.({
+  const discoverMut = trpc.competitors.discoverCompetitors.useMutation({
     onSuccess: (data: any) => {
       if (!data?.suggestions?.length) {
         toast.warning("Nenhum concorrente encontrado para este perfil. Tente adicionar manualmente.");
@@ -957,9 +957,9 @@ export default function CompetitorAnalysis() {
       setSelectedSugs(new Set(data.suggestions.map((_: any, i: number) => i)));
     },
     onError: (e: any) => toast.error(e.message || "Erro ao buscar concorrentes"),
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
-  const createMut = (trpc as any).competitors?.create?.useMutation?.({
+  const createMut = trpc.competitors.create.useMutation({
     onSuccess: () => refetch(),
   }) ?? { mutateAsync: null };
 
@@ -1428,7 +1428,7 @@ export default function CompetitorAnalysis() {
                               disabled={isAnalyzing}
                               onClick={e => {
                                 e.stopPropagation();
-                                const handle = (c.instagramUrl || "").replace(/^@/, "").replace(/.*tiktok\.com\/@?/, "");
+                                const handle = (c.tiktokUrl || c.instagramUrl || "").replace(/^@/, "").replace(/.*tiktok\.com\/@?/, "");
                                 (fetchTikTokCompetitorMutation as any).mutate({ competitorId: c.id, projectId, tiktokHandle: handle });
                               }}
                               style={{ background: "#010101", color: "white", border: "none", borderRadius: 8, padding: "0 8px", fontSize: 13, cursor: "pointer", height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>

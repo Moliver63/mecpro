@@ -126,7 +126,7 @@ export function InstagramVerifier({ handle, onConfirm, onClear }: {
 }) {
   const [status, setStatus]   = useState<"idle"|"loading"|"found"|"not_found"|"exists"|"unverified"|"error">("idle");
   const [profile, setProfile] = useState<any>(null);
-  const verifyMut = (trpc as any).competitors?.verifyInstagram?.useMutation?.({
+  const verifyMut = trpc.competitors.verifyInstagram.useMutation({
     onSuccess: (data: any) => {
       if (data?.found === true)  setStatus(data.source === "exists" ? "exists" : "found");
       else if (data?.found === false) setStatus("not_found");
@@ -134,7 +134,7 @@ export function InstagramVerifier({ handle, onConfirm, onClear }: {
       setProfile(data);
     },
     onError: () => setStatus("error"),
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
   const rawHandle = handle.replace(/^@/, "").trim();
 

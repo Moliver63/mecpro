@@ -42,8 +42,8 @@ export function useCompetitorData(projectId: number) {
 }
 
 export function useClientProfile(projectId: number) {
-  const { data: project       } = (trpc as any).projects?.get?.useQuery?.({ id: projectId }, { enabled: !!projectId }) ?? { data: null };
-  const { data: clientProfile } = (trpc as any).clientProfile?.get?.useQuery?.({ projectId }, { enabled: !!projectId }) ?? { data: null };
+  const { data: project       } = trpc.projects.get.useQuery({ id: projectId }, { enabled: !!projectId });
+  const { data: clientProfile } = trpc.clientProfile.get.useQuery({ projectId }, { enabled: !!projectId });
 
   const myCompany = {
     name:      clientProfile?.companyName ?? project?.name ?? "",

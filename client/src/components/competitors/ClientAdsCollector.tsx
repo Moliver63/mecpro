@@ -24,7 +24,7 @@ export function ClientAdsCollector({ competitorId, projectId, compName, pageId, 
   const [step,    setStep]    = useState<"idle" | "waiting" | "done">("idle");
   const [saving,  setSaving]  = useState(false);
 
-  const submitMut = (trpc as any).integrations?.submitClientAds?.useMutation?.({
+  const submitMut = trpc.integrations.submitClientAds.useMutation({
     onSuccess: (data: any) => {
       setSaving(false);
       setStep("done");
@@ -35,7 +35,7 @@ export function ClientAdsCollector({ competitorId, projectId, compName, pageId, 
       setSaving(false);
       toast.error("✕ Erro ao salvar: " + (e?.message || "tente novamente"));
     },
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
   // URL da Ads Library com pré-preenchimento do concorrente
   const adsLibraryUrl = pageId

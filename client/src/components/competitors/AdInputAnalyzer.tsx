@@ -40,10 +40,10 @@ export function AdInputAnalyzer({ projectId, compName, competitorId, ads = [] }:
     try { const s = JSON.parse(a.rawData||"{}").source||""; return !["meta_ads_archive","ads_library_public"].includes(s); } catch { return true; }
   });
 
-  const analyzeMut = (trpc as any).competitors?.analyzeAdInput?.useMutation?.({
+  const analyzeMut = trpc.competitors.analyzeAdInput.useMutation({
     onSuccess: (d: any) => { setResult(d?.data || null); setTab("resumo"); },
     onError:   (e: any) => { toast.error("✕ " + (e.message || "Erro ao analisar")); },
-  }) ?? { mutate: () => {}, isPending: false };
+  });
 
   function handleCopy(text: string, key: string) {
     navigator.clipboard?.writeText(text);
