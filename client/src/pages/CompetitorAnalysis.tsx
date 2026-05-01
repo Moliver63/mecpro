@@ -1104,7 +1104,7 @@ export default function CompetitorAnalysis() {
                   <button
                     onClick={() => {
                       if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
-                      discoverMut.mutate({ projectId });
+                      discoverMut.mutate({ projectId, niche: clientProfile?.niche || clientProfile?.companyName || "geral", city: clientProfile?.city || undefined });
                     }}
                     disabled={(discoverMut as any).isPending}
                     style={{ fontSize: 14, fontWeight: 800, padding: "12px 22px", borderRadius: 12,
@@ -1296,7 +1296,7 @@ export default function CompetitorAnalysis() {
                       <button
                         onClick={() => {
                           if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
-                          discoverMut.mutate({ projectId });
+                          discoverMut.mutate({ projectId, niche: clientProfile?.niche || clientProfile?.companyName || "geral", city: clientProfile?.city || undefined });
                         }}
                         disabled={(discoverMut as any).isPending}
                         style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8,

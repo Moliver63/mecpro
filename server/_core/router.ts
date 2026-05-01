@@ -1849,7 +1849,7 @@ REGRAS:
   discoverCompetitors: protectedProcedure
     .input(z.object({
       projectId: z.number(),
-      niche:     z.string(),
+      niche:     z.string().min(1).default("geral"),
       city:      z.string().optional(),
       limit:     z.number().default(5),
     }))
