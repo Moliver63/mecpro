@@ -1665,7 +1665,7 @@ async function callGroqAPI(
       // O Groq retorna 413 quando o payload JSON excede ~1MB — truncar mais agressivamente
       // Groq API limit: ~1MB request body. JSON wrapping adds ~30% overhead.
       // 70b: reduce to 25k to avoid 413; 8b: keep at 4k for its 8k ctx limit
-      const maxChars = model.includes("8b") ? 4000 : 25000;
+      const maxChars = model.includes("8b") ? 1500 : 25000;  // 8b: 8k ctx → 1500 chars safe
       const truncatedPrompt = prompt.length > maxChars
         ? prompt.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere a resposta JSON completa com base no que foi fornecido acima]"
         : prompt;
@@ -3040,10 +3040,29 @@ Retorne APENAS JSON: {"websiteUrl":"https://..."} ou {"websiteUrl":null}`
 
   // Encontra o nicho mais próximo (fuzzy match)
   const nicheWords = nicheLC.trim().split(/\s+/).filter(w => w.length > 3);
-  const matchedNiche = Object.keys(localFallbacks).find(k => {
-    // Match exato
+  
+  // Sinonimos e variações para nichos complexos
+  const nicheAliases: Record<string, string> = {
+    "digital": "marketing", "anuncio": "marketing", "publicidade": "marketing",
+    "trafego": "marketing", "social": "marketing", "midia": "marketing",
+    "saas": "tecnologia", "software": "tecnologia", "app": "tecnologia", "sistema": "tecnologia",
+    "comida": "alimentacao", "delivery": "alimentacao", "gastronomia": "alimentacao",
+    "roupa": "moda", "vestuario": "moda", "calcado": "moda",
+    "juridico": "advocacia", "direito": "advocacia", "advogad": "advocacia",
+    "invest": "financeiro", "banco": "financeiro", "credito": "financeiro",
+    "veiculo": "automoveis", "carro": "automoveis", "moto": "automoveis",
+    "curso": "educacao", "escola": "educacao", "treinamento": "educacao",
+    "medic": "saude", "hospital": "saude", "odonto": "saude", "dentist": "saude",
+    "farmac": "saude", "droga": "saude", "suplemento": "saude",
+  };
+
+  // Resolve alias: se uma palavra do nicho tem alias, usa o nicho mapeado
+  const resolvedNiche = nicheWords
+    .map(w => Object.entries(nicheAliases).find(([alias]) => w.startsWith(alias))?.[1])
+    .find(Boolean);
+
+  const matchedNiche = resolvedNiche || Object.keys(localFallbacks).find(k => {
     if (nicheLC.includes(k) || k.includes(nicheLC.trim())) return true;
-    // Match por palavra principal do nicho
     return nicheWords.some(w => k.includes(w) || w.includes(k.split(" ")[0]));
   });
 
