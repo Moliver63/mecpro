@@ -2311,12 +2311,13 @@ const campaignsRouter = router({
 
       // Busca todas as campanhas publicadas pelo MecProAI com metaCampaignId
       const rows = await pool.query(`
-        SELECT id, name, "metaCampaignId", "metaAdId", platform, objective, "projectId"
-        FROM campaigns
-        WHERE "metaCampaignId" IS NOT NULL
-          AND "publishStatus" = 'success'
-          AND "userId" = $1
-        ORDER BY "publishedAt" DESC
+        SELECT c.id, c.name, c."metaCampaignId", c."metaAdId", c.platform, c.objective, c."projectId"
+        FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE c."metaCampaignId" IS NOT NULL
+          AND c."publishStatus" = 'success'
+          AND p."userId" = $1
+        ORDER BY c."publishedAt" DESC
         LIMIT 100
       `, [ctx.user.id]);
 
@@ -2374,10 +2375,17 @@ const campaignsRouter = router({
               engine_version
             )
             SELECT
-              $1, "userId", "projectId", 50,
-              COALESCE("platform", 'meta'), COALESCE("objective", 'traffic'), 'geral',
+              c.id,
+              p."userId",
+              c."projectId",
+              50,
+              COALESCE(c.platform, 'meta'),
+              COALESCE(c.objective, 'traffic'),
+              'geral',
               $2, $3, $4, $5, $6, $7, $8, '2.0'
-            FROM campaigns WHERE id = $1
+            FROM campaigns c
+            JOIN projects p ON p.id = c."projectId"
+            WHERE c.id = $1
             ON CONFLICT (campaign_id) DO UPDATE SET
               metric_impressions = EXCLUDED.metric_impressions,
               metric_clicks      = EXCLUDED.metric_clicks,

@@ -381,7 +381,7 @@ export const adminIntelligenceRouter = router({
               trigger_types, media_types, num_variations,
               age_min, age_max, genders, placements,
               bidding_strategy, budget_range, duration_range,
-              pattern_score, confidence_level,
+              score, statistical_conf,
               why_it_won, key_factors, recommendations,
               approved_by_admin, approved_at
             ) VALUES ($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`, [
@@ -854,7 +854,7 @@ export const adminIntelligenceRouter = router({
                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
                     ON CONFLICT (campaign_id) DO UPDATE SET
                       score              = EXCLUDED.score,
-                      pattern_score      = EXCLUDED.score,
+                      score              = EXCLUDED.score,
                       approved_by_admin  = EXCLUDED.approved_by_admin,
                       status             = EXCLUDED.status,
                       updated_at         = NOW()`,
