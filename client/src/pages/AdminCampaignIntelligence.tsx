@@ -571,7 +571,7 @@ function TabLearning() {
         <EmptyState icon="🧠" title="Base de aprendizado vazia" sub="Calcule scores e extraia padrões para popular a base" />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {entries.map((e: any) => (
+          {entries.filter((e: any) => e && e.id).map((e: any) => (
             <div key={e.id} style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, padding: 24 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -583,7 +583,7 @@ function TabLearning() {
                       {e.platform} · {e.objective} · {NICHE_ICONS[e.niche] || "🌐"} {e.niche}
                     </div>
                     <div style={{ fontSize: 12, color: "#94a3b8" }}>
-                      {e.sample_count} amostra{e.sample_count !== 1 ? "s" : ""} · v{e.version}
+                      {e.sample_count || 0} amostra{(e.sample_count || 0) !== 1 ? "s" : ""}{e.version ? ` · v${e.version}` : ""}
                     </div>
                   </div>
                 </div>
@@ -625,13 +625,15 @@ function TabLearning() {
                   <div key={section.title}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 8 }}>{section.title}</div>
                     {Object.entries(section.data || {}).slice(0, 3).map(([k, v]) => {
-                      const maxV = Math.max(...Object.values(section.data || {}) as number[]);
+                      const vals = Object.values(section.data || {}) as number[];
+                      const maxV = vals.length > 0 ? Math.max(...vals) : 1;
+                      const pct  = maxV > 0 ? Math.round(((v as number) / maxV) * 100) : 0;
                       return (
                         <div key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 11, fontWeight: 600, color: "#334155" }}>{k}</div>
                             <div style={{ background: "#f1f5f9", borderRadius: 3, height: 4, marginTop: 3 }}>
-                              <div style={{ width: `${((v as number) / maxV) * 100}%`, height: "100%", borderRadius: 3, background: "#3b82f6" }} />
+                              <div style={{ width: `${pct}%`, height: "100%", borderRadius: 3, background: "#3b82f6" }} />
                             </div>
                           </div>
                           <span style={{ fontSize: 10, color: "#94a3b8" }}>{v as number}</span>
@@ -647,7 +649,7 @@ function TabLearning() {
                 <div style={{ marginTop: 18, background: "linear-gradient(135deg,#f0f9ff,#e0f2fe)", borderRadius: 12, padding: "14px 16px" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#0891b2", marginBottom: 8 }}>
                     ✨ Template recomendado para este segmento
-                    <span style={{ marginLeft: 8, fontSize: 10, opacity: 0.8 }}>(confiança: {e.recommendedTemplate?.confidenceLabel || "baixa"})</span>
+                    <span style={{ marginLeft: 8, fontSize: 10, opacity: 0.8 }}>(confiança: {(e.recommendedTemplate as any)?.confidenceLabel || "baixa"})</span>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {[
@@ -677,7 +679,7 @@ function TabML() {
   const data  = query?.data;
 
   const trainCount  = data?.dataset?.filter((d: any) => d.split_group === "train").length || 0;
-  const testCount   = data?.dataset?.filter((d: any) => d.split_group === "test").length  || 0;
+  const testCount   = data?.dataset?.filter((d: any) => d.split_group === "test").length || 0;
   const winnerCount = data?.dataset?.filter((d: any) => d.label_is_winner === 1).length  || 0;
   const total       = data?.count || 0;
   const mlReadiness = total >= 100 ? "ready" : total >= 30 ? "preparing" : "collecting";
