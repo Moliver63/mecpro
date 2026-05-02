@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { log } from "./logger";
+import { buildCacheKey, getCachedResponse, setCachedResponse, cleanExpiredCache, type CacheMeta } from "./aiCache";
 
 // Type stub for Meta API fetch results
 type MetaFetchResult = {
@@ -1350,6 +1351,8 @@ export async function gemini(
     systemInstruction?: string;
     jsonMode?: boolean;
     useCache?: boolean;
+    cacheAs?: string;    // nome da função para cache DB (ex: "campaign", "market")
+    cacheMeta?: CacheMeta; // metadados: niche, platform, objective, scope, city
   } = {},
   retryCount = 0
 ): Promise<string> {
@@ -1368,6 +1371,8 @@ async function _geminiImpl(
     systemInstruction?: string;
     jsonMode?: boolean;
     useCache?: boolean;
+    cacheAs?: string;
+    cacheMeta?: CacheMeta;
   } = {},
   retryCount = 0
 ): Promise<string> {
@@ -1446,12 +1451,19 @@ async function _geminiImpl(
     return mockResponse(prompt);
   }
 
-  // Cache: evita chamadas repetidas para o mesmo prompt em 5 minutos
+  // Cache DB persistente — sobrevive a deploys (verifica apenas na 1ª tentativa)
+  if (opts.useCache !== false && retryCount === 0 && opts.cacheAs) {
+    const dbKey    = buildCacheKey(prompt, opts.cacheAs);
+    const dbCached = await getCachedResponse(dbKey);
+    if (dbCached) return dbCached;
+  }
+
+  // Cache RAM — sessão atual (15min)
   if (opts.useCache !== false && retryCount === 0) {
     const cacheKey = prompt.slice(0, 200) + (opts.temperature || 0.3);
     const cached = getCachedGemini(cacheKey);
     if (cached) {
-      log.info("ai", "Gemini cache hit", { promptSlice: prompt.slice(0, 50) });
+      log.info("ai", "Gemini cache hit (RAM)", { promptSlice: prompt.slice(0, 50) });
       return cached;
     }
   }
@@ -1603,6 +1615,12 @@ async function _geminiImpl(
   if (result && opts.useCache !== false && retryCount === 0) {
     const cacheKey = prompt.slice(0, 200) + (opts.temperature || 0.3);
     setCachedGemini(cacheKey, result);
+    // Persiste no cache DB se cacheAs especificado
+    if (opts.cacheAs) {
+      const dbKey     = buildCacheKey(prompt, opts.cacheAs);
+      const estTokens = Math.round((prompt.length + result.length) / 4);
+      setCachedResponse(dbKey, result, opts.cacheAs, opts.cacheMeta, estTokens).catch(() => {});
+    }
     // Rastreia uso para controle de quota
     const estTokens = Math.round((prompt.length + result.length) / 4);
     trackLLMCall(estTokens);
@@ -4851,7 +4869,7 @@ Responda SOMENTE com JSON válido:
   ]
 }`;
 
-    const raw   = await gemini(prompt, { temperature: 0.5 });
+    const raw   = await gemini(prompt, { temperature: 0.5, cacheAs: "seo", cacheMeta: { niche: clientProfile?.niche } });
     const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
     const ads = parsed?.ads;
@@ -6287,7 +6305,7 @@ Gere copies para 3 estágios do funil. Responda SOMENTE em JSON:
     log.info("ai", "generateCampaignPart: ecoMode — usando buildCampaignFromAds");
     return null; // caller vai usar motor híbrido
   }
-  const raw    = await gemini(prompt, { temperature: 0.7 });
+  const raw    = await gemini(prompt, { temperature: 0.7, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective } });
   const clean  = raw.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
 

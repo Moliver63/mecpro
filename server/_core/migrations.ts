@@ -723,5 +723,30 @@ export async function runMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS "averageTicket"  INTEGER
     `).catch(() => {});
 
+    // ── Cache persistente de respostas IA ───────────────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_cache (
+        id          SERIAL PRIMARY KEY,
+        cache_key   TEXT UNIQUE NOT NULL,
+        response    TEXT NOT NULL,
+        niche       TEXT,
+        platform    TEXT,
+        objective   TEXT,
+        scope       TEXT,
+        city        TEXT,
+        fn_name     TEXT,
+        hit_count   INTEGER DEFAULT 1,
+        tokens_saved INTEGER DEFAULT 0,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        last_hit_at TIMESTAMPTZ DEFAULT NOW(),
+        expires_at  TIMESTAMPTZ NOT NULL
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ai_cache_key ON ai_cache(cache_key);
+      CREATE INDEX IF NOT EXISTS idx_ai_cache_expires ON ai_cache(expires_at);
+    `).catch(() => {});
+
         console.log('[migrations] ✅ Migrations applied successfully');
 }

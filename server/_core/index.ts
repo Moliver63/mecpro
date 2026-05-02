@@ -521,6 +521,11 @@ const allowedOrigins = [
   'http://localhost:5000',
 ];
 
+// Limpa cache DB expirado na inicialização
+import("../aiCache").then(({ cleanExpiredCache }) => {
+  cleanExpiredCache().then(n => { if (n > 0) console.log(`[CACHE] ${n} entradas expiradas removidas`); });
+}).catch(() => {});
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
