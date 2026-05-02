@@ -1307,7 +1307,16 @@ export default function AdminCampaignIntelligence() {
   const fullAnalysisMutation = trpc.intelligence.runFullAnalysis.useMutation({
     onSuccess: (d: any) => {
       setAnalysisReport(d);
-      toast.success(`Análise completa: ${d.scored} campanhas · ${d.patternsExtracted} padrões · ${d.learningUpdated} nichos atualizados`);
+      if (d.timedOut) {
+        toast.success(
+          `Processadas ${d.scored} campanhas (parcial). Clique novamente para continuar.`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.success(
+          `✅ Análise completa: ${d.scored} campanhas · ${d.patternsExtracted} padrões · ${d.learningUpdated} nichos atualizados`
+        );
+      }
     },
     onError: (e: any) => toast.error(e.message || "Erro na análise"),
   });
@@ -1359,8 +1368,8 @@ export default function AdminCampaignIntelligence() {
 
           {/* BOTÃO PRINCIPAL: ANÁLISE COMPLETA */}
           <button
-            onClick={() => fullAnalysisMutation?.mutate({ minScore: 60, limit: 200, autoApprove: false })}
-            disabled={fullAnalysisMutation?.isPending}
+            onClick={() => fullAnalysisMutation.mutate({ minScore: 60, limit: 200, autoApprove: true })}
+            disabled={fullAnalysisMutation.isPending}
             style={{
               background: fullAnalysisMutation?.isPending
                 ? "#f1f5f9"
@@ -1371,7 +1380,7 @@ export default function AdminCampaignIntelligence() {
               boxShadow: fullAnalysisMutation?.isPending ? "none" : "0 4px 14px rgba(22,163,74,.35)",
               display: "flex", alignItems: "center", gap: 8,
             }}>
-            {fullAnalysisMutation?.isPending
+            {fullAnalysisMutation.isPending
               ? "🔄 Analisando campanhas..."
               : "🧠 Analisar Histórico Completo"}
           </button>

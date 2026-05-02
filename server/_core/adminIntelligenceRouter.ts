@@ -750,10 +750,12 @@ export const adminIntelligenceRouter = router({
         avgScore:         0,
         skipped:          0,
         errors:           0,
+        timedOut:         false,
         winners:          [] as Array<{ id: number; name: string; score: number; platform: string; objective: string; niche: string }>,
       };
 
       const allScores: number[] = [];
+      const deadline = Date.now() + 22000; // 22s — dentro do limite de 30s do Render
 
       for (const project of projects) {
         const campaigns: any[] = await db.getCampaignsByProjectId(project.id).catch(() => []);
@@ -762,6 +764,15 @@ export const adminIntelligenceRouter = router({
           if (report.scored >= input.limit) break;
           if (input.platform && c.platform !== input.platform) continue;
           report.totalCampaigns++;
+
+          // Deadline: retorna resultado parcial se estiver perto do timeout do Render
+          if (Date.now() > deadline) {
+            report.timedOut = true;
+            log.info("intelligence", "runFullAnalysis: deadline atingido — retornando resultado parcial", {
+              scored: report.scored, remaining: campaigns.length - report.totalCampaigns
+            });
+            break;
+          }
 
           try {
             // ── 1. Carrega contexto e calcula score ──────────────────────────
