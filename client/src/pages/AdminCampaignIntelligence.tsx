@@ -1306,6 +1306,13 @@ export default function AdminCampaignIntelligence() {
   });
 
   const [analysisReport, setAnalysisReport] = useState<any>(null);
+  const syncMetricsMutation = trpc.campaigns.syncMetaCampaignMetrics.useMutation({
+    onSuccess: (d: any) => {
+      toast.success(`✅ ${d.message} Execute "Analisar Histórico" agora para atualizar o ML.`);
+    },
+    onError: (e: any) => toast.error(e.message || "Erro ao sincronizar métricas"),
+  });
+
   const fullAnalysisMutation = trpc.intelligence.runFullAnalysis.useMutation({
     onSuccess: (d: any) => {
       setAnalysisReport(d);
@@ -1366,6 +1373,19 @@ export default function AdminCampaignIntelligence() {
             }}
           >
             {batchMutation?.isPending ? "⏳ Processando..." : "⚡ Score em lote"}
+          </button>
+
+          {/* BOTÃO: SINCRONIZAR MÉTRICAS DO META */}
+          <button
+            onClick={() => syncMetricsMutation.mutate({ days: 30 })}
+            disabled={syncMetricsMutation.isPending}
+            style={{
+              background: syncMetricsMutation.isPending ? "#f1f5f9" : "linear-gradient(135deg,#1877f2,#0a5dc2)",
+              color: syncMetricsMutation.isPending ? "#94a3b8" : "white",
+              fontWeight: 700, fontSize: 12, border: "none",
+              borderRadius: 10, padding: "10px 18px", cursor: syncMetricsMutation.isPending ? "wait" : "pointer",
+            }}>
+            {syncMetricsMutation.isPending ? "⏳ Sincronizando..." : "📊 Sincronizar Métricas Meta"}
           </button>
 
           {/* BOTÃO PRINCIPAL: ANÁLISE COMPLETA */}

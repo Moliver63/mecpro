@@ -2292,6 +2292,123 @@ const campaignsRouter = router({
       return Promise.race([campaignPromise, timeoutPromise]);
     }),
 
+  // ── Sincroniza métricas reais do Meta para campanhas publicadas ─────────────
+  syncMetaCampaignMetrics: protectedProcedure
+    .input(z.object({
+      projectId: z.number().optional(),   // se informado, só sincroniza este projeto
+      days:      z.number().default(30),  // janela de tempo para buscar insights
+    }))
+    .mutation(async ({ ctx }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+      // Busca integração Meta do usuário
+      const metaInt = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!metaInt || !(metaInt as any).accessToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Token Meta não configurado. Vá em Configurações → Meta Ads." });
+      }
+      const token = (metaInt as any).accessToken as string;
+
+      // Busca todas as campanhas publicadas pelo MecProAI com metaCampaignId
+      const rows = await pool.query(`
+        SELECT id, name, "metaCampaignId", "metaAdId", platform, objective, "projectId"
+        FROM campaigns
+        WHERE "metaCampaignId" IS NOT NULL
+          AND "publishStatus" = 'success'
+          AND "userId" = $1
+        ORDER BY "publishedAt" DESC
+        LIMIT 100
+      `, [ctx.user.id]);
+
+      const campaigns = rows.rows;
+      if (campaigns.length === 0) {
+        return { synced: 0, message: "Nenhuma campanha publicada pelo MecProAI encontrada." };
+      }
+
+      log.info("sync", "Iniciando sync de métricas Meta", { userId: ctx.user.id, campaigns: campaigns.length });
+
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const today = new Date().toISOString().split("T")[0];
+
+      let synced = 0;
+      let errors = 0;
+
+      for (const camp of campaigns) {
+        try {
+          // Busca insights direto pelo ID da campanha no Meta
+          const insightsUrl = `https://graph.facebook.com/v21.0/${camp.metaCampaignId}/insights` +
+            `?fields=impressions,clicks,spend,ctr,cpm,cpc,actions,reach,frequency` +
+            `&time_range={"since":"${since}","until":"${today}"}` +
+            `&access_token=${token}`;
+
+          const res = await fetch(insightsUrl, { signal: AbortSignal.timeout(10000) });
+          const data: any = await res.json();
+
+          if (data.error) {
+            log.warn("sync", "Meta insights erro", { campaignId: camp.id, metaId: camp.metaCampaignId, error: data.error.message?.slice(0, 80) });
+            errors++;
+            continue;
+          }
+
+          const ins = data.data?.[0];
+          if (!ins) continue; // campanha sem dados no período
+
+          const impressions = Number(ins.impressions || 0);
+          const clicks      = Number(ins.clicks || 0);
+          const spend       = Number(ins.spend || 0);
+          const ctr         = Number(ins.ctr || 0);
+          const cpc         = Number(ins.cpc || 0);
+          const cpm         = Number(ins.cpm || 0);
+          const reach       = Number(ins.reach || 0);
+          const frequency   = Number(ins.frequency || 0);
+          const leads       = (ins.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
+          const purchases   = (ins.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
+
+          // Salva métricas na tabela campaign_scores (upsert)
+          await pool.query(`
+            INSERT INTO campaign_scores (
+              campaign_id, user_id, project_id, score_total,
+              platform, objective, niche,
+              metric_impressions, metric_clicks, metric_ctr,
+              metric_cpc, metric_cpm, metric_spend, metric_roas,
+              engine_version
+            )
+            SELECT
+              $1, "userId", "projectId", 50,
+              COALESCE("platform", 'meta'), COALESCE("objective", 'traffic'), 'geral',
+              $2, $3, $4, $5, $6, $7, $8, '2.0'
+            FROM campaigns WHERE id = $1
+            ON CONFLICT (campaign_id) DO UPDATE SET
+              metric_impressions = EXCLUDED.metric_impressions,
+              metric_clicks      = EXCLUDED.metric_clicks,
+              metric_ctr         = EXCLUDED.metric_ctr,
+              metric_cpc         = EXCLUDED.metric_cpc,
+              metric_cpm         = EXCLUDED.metric_cpm,
+              metric_spend       = EXCLUDED.metric_spend,
+              metric_roas        = EXCLUDED.metric_roas,
+              updated_at         = NOW()
+          `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, purchases > 0 && spend > 0 ? (purchases * 100 / spend) : 0]);
+
+          synced++;
+          log.info("sync", "Métricas sincronizadas", {
+            campaignId: camp.id, name: camp.name,
+            impressions, clicks, spend: spend.toFixed(2), ctr: ctr.toFixed(2),
+          });
+
+        } catch (e: any) {
+          errors++;
+          log.warn("sync", "Erro ao sincronizar campanha", { campaignId: camp.id, error: e.message?.slice(0, 60) });
+        }
+      }
+
+      return {
+        synced,
+        errors,
+        total: campaigns.length,
+        message: `${synced} campanhas sincronizadas com métricas reais do Meta.`,
+      };
+    }),
+
   publishToMeta: protectedProcedure
     .input(publishToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
