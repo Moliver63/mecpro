@@ -41,10 +41,16 @@ function normalizePrompt(prompt: string): string {
     .toLowerCase();
 }
 
-/** Gera chave de cache SHA-256 do prompt normalizado */
-export function buildCacheKey(prompt: string, fnName: CacheFn | string): string {
+/** Gera chave de cache SHA-256 do prompt normalizado + escopo do projeto */
+export function buildCacheKey(
+  prompt: string,
+  fnName: CacheFn | string,
+  projectId?: number,   // isola cache por projeto — evita vazar copy entre clientes
+  userId?: number,      // segunda camada de isolamento
+): string {
   const normalized = normalizePrompt(prompt);
-  return crypto.createHash("sha256").update(`${fnName}:${normalized}`).digest("hex").slice(0, 32);
+  const scope = [fnName, userId || "", projectId || ""].join(":");
+  return crypto.createHash("sha256").update(`${scope}:${normalized}`).digest("hex").slice(0, 32);
 }
 
 // ── API principal ─────────────────────────────────────────────────────────────
@@ -55,6 +61,8 @@ export interface CacheMeta {
   objective?: string;
   scope?:     string;
   city?:      string;
+  projectId?: number;  // isola cache por projeto
+  userId?:    number;  // isola cache por usuário
 }
 
 /** Busca resposta no cache persistente. Retorna null se não existe ou expirou. */
@@ -102,8 +110,8 @@ export async function setCachedResponse(
     const expiresAt  = new Date(Date.now() + ttlSeconds * 1000);
 
     await pool.query(
-      `INSERT INTO ai_cache (cache_key, response, fn_name, niche, platform, objective, scope, city, tokens_saved, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO ai_cache (cache_key, response, fn_name, niche, platform, objective, scope, city, tokens_saved, expires_at, project_id, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (cache_key) DO UPDATE SET
          response     = EXCLUDED.response,
          hit_count    = ai_cache.hit_count + 1,
@@ -114,6 +122,7 @@ export async function setCachedResponse(
         meta?.niche || null, meta?.platform || null,
         meta?.objective || null, meta?.scope || null,
         meta?.city || null, estimatedTokens, expiresAt,
+        meta?.projectId || null, meta?.userId || null,
       ]
     );
   } catch (e: any) {
@@ -132,6 +141,22 @@ export async function cleanExpiredCache(): Promise<number> {
     if (deleted > 0) log.info("ai", "Cache DB limpo", { deleted });
     return deleted;
   } catch { return 0; }
+}
+
+/** Invalida o cache de um projeto específico (chamar quando perfil muda) */
+export async function invalidateProjectCache(projectId: number): Promise<void> {
+  try {
+    const pool = await getPool();
+    if (!pool) return;
+    // Não temos como buscar por projectId no cache_key (é hash)
+    // Estratégia: marcar como expirado imediatamente por project_id
+    await pool.query(
+      `UPDATE ai_cache SET expires_at = NOW() - INTERVAL '1 second'
+       WHERE project_id = $1`,
+      [projectId]
+    );
+    log.info("ai", "Cache invalidado para projeto", { projectId });
+  } catch {}
 }
 
 /** Estatísticas do cache para o painel admin */

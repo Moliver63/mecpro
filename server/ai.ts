@@ -4869,7 +4869,7 @@ Responda SOMENTE com JSON válido:
   ]
 }`;
 
-    const raw   = await gemini(prompt, { temperature: 0.5, cacheAs: "seo", cacheMeta: { niche: clientProfile?.niche } });
+    const raw   = await gemini(prompt, { temperature: 0.5, cacheAs: "seo", cacheMeta: { niche: clientProfile?.niche, projectId } });
     const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
     const ads = parsed?.ads;
@@ -6305,7 +6305,7 @@ Gere copies para 3 estágios do funil. Responda SOMENTE em JSON:
     log.info("ai", "generateCampaignPart: ecoMode — usando buildCampaignFromAds");
     return null; // caller vai usar motor híbrido
   }
-  const raw    = await gemini(prompt, { temperature: 0.7, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective } });
+  const raw    = await gemini(prompt, { temperature: 0.7, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId } });
   const clean  = raw.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
 

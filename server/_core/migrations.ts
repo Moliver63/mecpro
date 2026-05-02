@@ -739,7 +739,9 @@ export async function runMigrations(): Promise<void> {
         tokens_saved INTEGER DEFAULT 0,
         created_at  TIMESTAMPTZ DEFAULT NOW(),
         last_hit_at TIMESTAMPTZ DEFAULT NOW(),
-        expires_at  TIMESTAMPTZ NOT NULL
+        expires_at  TIMESTAMPTZ NOT NULL,
+        project_id  INTEGER,
+        user_id     INTEGER
       )
     `).catch(() => {});
 
