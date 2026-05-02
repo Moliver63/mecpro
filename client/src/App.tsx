@@ -254,6 +254,7 @@ export default function App() {
             <Route path="/community/explore"><ProtectedRoute><CommunityExplore /></ProtectedRoute></Route>
             <Route path="/community/connections"><ProtectedRoute><CommunityConnections /></ProtectedRoute></Route>
             <Route path="/checkout/success"><ProtectedRoute><CheckoutSuccess /></ProtectedRoute></Route>
+            <Route path="/checkout/asaas"><ProtectedRoute><CheckoutAsaas /></ProtectedRoute></Route>
             <Route path="/academy"><ProtectedRoute><Academy /></ProtectedRoute></Route>
 
             {/* ADMIN */}

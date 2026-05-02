@@ -5992,6 +5992,39 @@ const consultasRouter = router({
 // ============ SUBSCRIPTIONS ROUTER ============
 const subscriptionsRouter = router({
   // ─── createCheckout — usa gateway ativo (Stripe ou Asaas) ──────────────────
+  // Busca Pix de uma assinatura Asaas já criada (para redirect do checkout)
+  getCheckoutPix: protectedProcedure
+    .input(z.object({ subId: z.string() }))
+    .query(async ({ input }) => {
+      const key = process.env.ASAAS_API_KEY;
+      if (!key) return null;
+      try {
+        // Busca cobrança da assinatura
+        const paymentsRes = await fetch(
+          `https://api.asaas.com/v3/payments?subscription=${input.subId}&status=PENDING&limit=1`,
+          { headers: { "access_token": key } }
+        );
+        const paymentsData: any = await paymentsRes.json();
+        const payment = paymentsData?.data?.[0];
+        if (!payment?.id) return null;
+
+        // Busca QR code Pix
+        const pixRes = await fetch(
+          `https://api.asaas.com/v3/payments/${payment.id}/pixQrCode`,
+          { headers: { "access_token": key } }
+        );
+        const pixData: any = await pixRes.json();
+        if (!pixData?.payload) return null;
+
+        return {
+          pixCode:   pixData.payload,
+          pixQr:     pixData.encodedImage || "",
+          expiresAt: payment.dueDate || "",
+          value:     payment.value || 0,
+        };
+      } catch { return null; }
+    }),
+
   createCheckout: protectedProcedure
     .input(z.object({
       planSlug: z.enum(["basic", "premium", "vip"]),
