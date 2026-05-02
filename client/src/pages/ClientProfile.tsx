@@ -232,7 +232,48 @@ export default function ClientProfile() {
                 onChange={e => set("monthlyBudget", e.target.value === "" ? null : Number(e.target.value))}
                 style={{ width: "100%" }} />
             </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Ticket médio (R$)</label>
+              <input className="input" type="number" placeholder="Ex: 500"
+                value={(form as any).averageTicket ?? ""}
+                onChange={e => set("averageTicket" as any, e.target.value === "" ? null : Number(e.target.value))}
+                style={{ width: "100%" }} />
+            </div>
           </div>
+
+          {/* Escopo geográfico */}
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
+            <p style={{ fontSize: 14, fontWeight: 800, color: "var(--navy)", marginBottom: 18, fontFamily: "var(--font-display)" }}>📍 Localização e Alcance</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Escopo do negócio</label>
+                <select className="input" value={(form as any).businessScope ?? "local"} onChange={e => set("businessScope" as any, e.target.value)} style={{ width: "100%" }}>
+                  <option value="local">🏠 Local — uma cidade/bairro</option>
+                  <option value="regional">🗺️ Regional — estado ou região</option>
+                  <option value="national">🇧🇷 Nacional — Brasil inteiro</option>
+                  <option value="global">🌍 Global — internacional</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Estado (UF)</label>
+                <input className="input" placeholder="Ex: SC" maxLength={2}
+                  value={(form as any).state ?? ""}
+                  onChange={e => set("state" as any, e.target.value.toUpperCase())}
+                  style={{ width: "100%" }} />
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Cidade principal</label>
+              <input className="input" placeholder="Ex: Balneário Camboriú"
+                value={(form as any).city ?? ""}
+                onChange={e => set("city" as any, e.target.value)}
+                style={{ width: "100%" }} />
+            </div>
+            <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 10, margin: "10px 0 0" }}>
+              💡 Negócios locais recebem copy com menção à cidade e targeting geográfico otimizado.
+            </p>
+          </div>
+
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
             <p style={{ fontSize: 14, fontWeight: 800, color: "var(--navy)", marginBottom: 18, fontFamily: "var(--font-display)" }}>🎯 Produto / Serviço</p>
             <Field label="O que você vende?" required placeholder="Descreva seu produto ou serviço principal..." textarea

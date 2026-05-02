@@ -70,6 +70,12 @@ export const clientProfiles = pgTable("client_profiles", {
   monthlyBudget: integer("monthlyBudget"),
   websiteUrl: varchar("websiteUrl", { length: 500 }),
   socialLinks: text("socialLinks"),
+  // ── Localização e escopo geográfico ────────────────────────────────────────
+  businessScope: varchar("businessScope", { length: 20 }).default("local"),  // local | regional | national | global
+  city:          varchar("city",          { length: 100 }),  // ex: "Balneário Camboriú"
+  state:         varchar("state",         { length: 2   }),  // ex: "SC"
+  country:       varchar("country",       { length: 50  }).default("Brasil"),
+  averageTicket: integer("averageTicket"),                   // ticket médio em R$
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

@@ -713,5 +713,15 @@ export async function runMigrations(): Promise<void> {
         ON learning_base(platform, objective, niche)
     `).catch(() => {});
 
+    // ── Localização e escopo geográfico ─────────────────────────────────────
+    await pool.query(`
+      ALTER TABLE client_profiles
+        ADD COLUMN IF NOT EXISTS "businessScope"  VARCHAR(20)  DEFAULT 'local',
+        ADD COLUMN IF NOT EXISTS "city"           VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS "state"          VARCHAR(2),
+        ADD COLUMN IF NOT EXISTS "country"        VARCHAR(50)  DEFAULT 'Brasil',
+        ADD COLUMN IF NOT EXISTS "averageTicket"  INTEGER
+    `).catch(() => {});
+
         console.log('[migrations] ✅ Migrations applied successfully');
 }

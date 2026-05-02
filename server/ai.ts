@@ -2854,7 +2854,39 @@ export async function discoverCompetitors(profile: {
   const { companyName, niche, productService, websiteUrl, targetAudience } = profile;
 
   // Extrai região do público-alvo ou website
-  const regionHint = targetAudience?.match(/(norte|sul|sudeste|nordeste|centro-oeste|brasil|são paulo|rio|sc|rs|pr|ba|mg|rj|sp|ceará|pernambuco|amazonas)/gi)?.[0] || "Brasil";
+  // Escopo geográfico — usa campos dedicados se disponíveis, senão extrai do targetAudience
+  const scope    = (profile as any).businessScope || "local";
+  const city     = (profile as any).city  || "";
+  const state    = (profile as any).state || "";
+  const country  = (profile as any).country || "Brasil";
+  const avgTicket = (profile as any).averageTicket || 0;
+
+  const regionHint = city && state ? `${city}, ${state}`
+    : city  ? city
+    : state ? state
+    : targetAudience?.match(/(norte|sul|sudeste|nordeste|centro-oeste|brasil|são paulo|rio|sc|rs|pr|ba|mg|rj|sp|ceará|pernambuco|amazonas)/gi)?.[0]
+    || country;
+
+  // Labels de escopo para o prompt
+  const scopeLabel = scope === "local"    ? `negócio local em ${regionHint}`
+    : scope === "regional" ? `negócio regional (${state || country})`
+    : scope === "national" ? "negócio nacional (Brasil)"
+    : "negócio global";
+
+  const scopeGeoTargeting = scope === "local"    ? `Segmentação: raio de 20-50km de ${city || regionHint}`
+    : scope === "regional" ? `Segmentação: estado ${state || regionHint} e limítrofes`
+    : scope === "national" ? "Segmentação: Brasil inteiro"
+    : "Segmentação: internacional";
+
+  const scopeCopyHint = scope === "local"
+    ? `Mencione a cidade/região (${regionHint}) no copy para criar conexão local. Use "aqui em ${city || regionHint}", "na sua cidade", etc.`
+    : scope === "regional"
+    ? `Use referências regionais (${state || regionHint}). Tom de "a empresa da sua região".`
+    : "Copy sem referências geográficas específicas — apele para identidade nacional ou universal.";
+
+  const ticketHint = avgTicket > 0
+    ? `Ticket médio: R$ ${avgTicket.toLocaleString("pt-BR")} — ${avgTicket < 200 ? "produto de impulso, foco em volume" : avgTicket < 2000 ? "ticket médio, equilíbrio volume/valor" : "ticket alto, foco em qualidade do lead"}`
+    : "";
 
   const prompt = `Você é um especialista em inteligência competitiva de mercado brasileiro.
 
@@ -3540,6 +3572,9 @@ CONTEXTO DO CLIENTE (use para identificar gaps competitivos):
 - Nicho: ${(clientProfile as any).niche}
 - Produto/Serviço: ${(clientProfile as any).productService}
 - Público-alvo: ${(clientProfile as any).targetAudience || "não informado"}
+- Escopo do negócio: ${(clientProfile as any).businessScope || "local"}
+- Localização: ${[(clientProfile as any).city, (clientProfile as any).state, (clientProfile as any).country || "Brasil"].filter(Boolean).join(", ") || "Brasil"}
+- Ticket médio: ${(clientProfile as any).averageTicket ? `R$ ${(clientProfile as any).averageTicket}` : "não informado"}
 - Dor principal: ${(clientProfile as any).mainPain || "não informado"}
 - Proposta de valor: ${(clientProfile as any).uniqueValueProposition || "não informado"}
 - Objeções dos clientes: ${(clientProfile as any).mainObjections || "não informado"}
