@@ -1665,9 +1665,11 @@ async function callGroqAPI(
       // O Groq retorna 413 quando o payload JSON excede ~1MB — truncar mais agressivamente
       // Groq API limit: ~1MB request body. JSON wrapping adds ~30% overhead.
       // 70b: reduce to 25k to avoid 413; 8b: keep at 4k for its 8k ctx limit
-      const maxChars = model.includes("8b") ? 1500 : 25000;  // 8b: 8k ctx → 1500 chars safe
+      // 8b: 8k ctx total, ~6k chars safe after JSON wrapping + system prompt overhead
+      // 70b: 128k ctx, limit by Groq API 1MB body → 25k chars
+      const maxChars = model.includes("8b") ? 800 : 25000;
       const truncatedPrompt = prompt.length > maxChars
-        ? prompt.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere a resposta JSON completa com base no que foi fornecido acima]"
+        ? prompt.slice(0, maxChars) + "\n[TRUNCADO]"
         : prompt;
 
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -3039,7 +3041,10 @@ Retorne APENAS JSON: {"websiteUrl":"https://..."} ou {"websiteUrl":null}`
   };
 
   // Encontra o nicho mais próximo (fuzzy match)
-  const nicheWords = nicheLC.trim().split(/\s+/).filter(w => w.length > 3);
+  // Normaliza acentos para matching consistente
+  const removeAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const nicheNorm  = removeAccents(nicheLC);
+  const nicheWords = nicheNorm.trim().split(/\s+/).filter(w => w.length > 3);
   
   // Sinonimos e variações para nichos complexos
   const nicheAliases: Record<string, string> = {
@@ -3050,6 +3055,8 @@ Retorne APENAS JSON: {"websiteUrl":"https://..."} ou {"websiteUrl":null}`
     "roupa": "moda", "vestuario": "moda", "calcado": "moda",
     "juridico": "advocacia", "direito": "advocacia", "advogad": "advocacia",
     "invest": "financeiro", "banco": "financeiro", "credito": "financeiro",
+    "imob": "imoveis", "apart": "imoveis", "casa": "imoveis", "loteam": "imoveis",
+    "incorpor": "imoveis", "constru": "imoveis", "corretor": "imoveis", "terreno": "imoveis",
     "veiculo": "automoveis", "carro": "automoveis", "moto": "automoveis",
     "curso": "educacao", "escola": "educacao", "treinamento": "educacao",
     "medic": "saude", "hospital": "saude", "odonto": "saude", "dentist": "saude",
@@ -3058,12 +3065,13 @@ Retorne APENAS JSON: {"websiteUrl":"https://..."} ou {"websiteUrl":null}`
 
   // Resolve alias: se uma palavra do nicho tem alias, usa o nicho mapeado
   const resolvedNiche = nicheWords
-    .map(w => Object.entries(nicheAliases).find(([alias]) => w.startsWith(alias))?.[1])
+    .map(w => Object.entries(nicheAliases).find(([alias]) => removeAccents(w).startsWith(alias))?.[1])
     .find(Boolean);
 
   const matchedNiche = resolvedNiche || Object.keys(localFallbacks).find(k => {
-    if (nicheLC.includes(k) || k.includes(nicheLC.trim())) return true;
-    return nicheWords.some(w => k.includes(w) || w.includes(k.split(" ")[0]));
+    const kNorm = removeAccents(k);
+    if (nicheNorm.includes(kNorm) || kNorm.includes(nicheNorm.trim())) return true;
+    return nicheWords.some(w => kNorm.includes(w) || w.includes(kNorm.split(" ")[0]));
   });
 
   if (matchedNiche) {
