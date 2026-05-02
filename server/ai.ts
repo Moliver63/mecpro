@@ -2488,7 +2488,26 @@ function buildBaseTemplate(
 export async function geminiWithGrounding(prompt: string): Promise<any | null> {
   const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
   const availableKeys = allKeys.filter(k => !_exhaustedKeys.has(k));
-  const apiKey = availableKeys[0] || allKeys[0];
+
+  // Se todas as chaves esgotadas, pula Gemini e vai direto para Groq fallback
+  if (allKeys.length > 0 && availableKeys.length === 0) {
+    log.warn("ai", "geminiWithGrounding: todas chaves esgotadas — pulando para Groq");
+    // Groq fallback direto (sem Google Search)
+    try {
+      const groqDirect = await callGroqAPI(
+        prompt + "\n\nResponda APENAS com JSON válido, sem markdown.",
+        "Você é um assistente de pesquisa de mercado brasileiro. Responda sempre em JSON válido.",
+        0
+      );
+      if (groqDirect) {
+        const c = groqDirect.replace(/```json|```/g, "").trim();
+        try { return JSON.parse(c); } catch {}
+      }
+    } catch {}
+    return null;
+  }
+
+  const apiKey = availableKeys[0];
   if (!apiKey) return null;
 
   for (const model of ["gemini-2.0-flash", "gemini-2.5-flash"]) {
@@ -3000,12 +3019,33 @@ Retorne APENAS JSON: {"websiteUrl":"https://..."} ou {"websiteUrl":null}`
     "auto eletrica": [{ name: "Auto Elétrica Nacional", websiteUrl: "", description: "Serviços elétricos automotivos", confidence: "low" }],
     automoveis:   [{ name: "OLX Autos",     websiteUrl: "https://autos.olx.com.br",       description: "Maior marketplace de veículos",                  confidence: "low" },
                    { name: "Webmotors",     websiteUrl: "https://www.webmotors.com.br",   description: "Busca e venda de veículos usados e novos",       confidence: "low" }],
+    politico:     [{ name: "Instituto Paraná Pesquisas", websiteUrl: "https://www.paranápesquisas.com.br", description: "Pesquisas e consultoria política", confidence: "low" },
+                   { name: "PoderData",     websiteUrl: "https://poderdata.com.br",       description: "Pesquisas de opinião e análise política",        confidence: "low" }],
+    educacao:     [{ name: "Hotmart",       websiteUrl: "https://www.hotmart.com",        description: "Plataforma de cursos online líder no Brasil",    confidence: "low" },
+                   { name: "Udemy",         websiteUrl: "https://www.udemy.com",          description: "Maior plataforma global de cursos online",       confidence: "low" }],
+    tecnologia:   [{ name: "Totvs",        websiteUrl: "https://www.totvs.com",          description: "Maior empresa de software de gestão do Brasil",  confidence: "low" },
+                   { name: "Sankhya",       websiteUrl: "https://www.sankhya.com.br",     description: "ERP para médias e grandes empresas",             confidence: "low" }],
+    moda:         [{ name: "Renner",        websiteUrl: "https://www.lojasrenner.com.br", description: "Maior varejista de moda do Brasil",              confidence: "low" },
+                   { name: "Riachuelo",     websiteUrl: "https://www.riachuelo.com.br",   description: "Moda acessível, rede de lojas nacional",         confidence: "low" }],
+    alimentacao:  [{ name: "iFood",         websiteUrl: "https://www.ifood.com.br",       description: "Maior delivery de comida do Brasil",             confidence: "low" },
+                   { name: "Rappi",         websiteUrl: "https://www.rappi.com.br",       description: "Super app de delivery",                         confidence: "low" }],
+    advocacia:    [{ name: "Advogados Brasil", websiteUrl: "https://www.advogadosbrasil.com.br", description: "Portal de serviços jurídicos",            confidence: "low" }],
+    financeiro:   [{ name: "Nubank",        websiteUrl: "https://nubank.com.br",          description: "Maior banco digital do Brasil",                  confidence: "low" },
+                   { name: "Inter",         websiteUrl: "https://www.inter.co",           description: "Banco digital completo",                        confidence: "low" }],
+    seguro:       [{ name: "Porto Seguro",  websiteUrl: "https://www.portoseguro.com.br", description: "Maior seguradora do Brasil",                     confidence: "low" },
+                   { name: "Bradesco Seguros", websiteUrl: "https://www.bradescoseguros.com.br", description: "Seguros de vida e veículo",               confidence: "low" }],
+    "agencia":    [{ name: "WMcCann",       websiteUrl: "https://www.wundermanthompson.com", description: "Agência de publicidade global",               confidence: "low" },
+                   { name: "Ogilvy Brasil", websiteUrl: "https://www.ogilvy.com/brasil",   description: "Agência criativa global",                      confidence: "low" }],
   };
 
-  // Encontra o nicho mais próximo
-  const matchedNiche = Object.keys(localFallbacks).find(k =>
-    nicheLC.includes(k) || k.includes(nicheLC.split(" ")[0])
-  );
+  // Encontra o nicho mais próximo (fuzzy match)
+  const nicheWords = nicheLC.trim().split(/\s+/).filter(w => w.length > 3);
+  const matchedNiche = Object.keys(localFallbacks).find(k => {
+    // Match exato
+    if (nicheLC.includes(k) || k.includes(nicheLC.trim())) return true;
+    // Match por palavra principal do nicho
+    return nicheWords.some(w => k.includes(w) || w.includes(k.split(" ")[0]));
+  });
 
   if (matchedNiche) {
     const fallbackResults = localFallbacks[matchedNiche].map(f => ({ ...f, facebookPageUrl: undefined, instagramUrl: undefined }));
