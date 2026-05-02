@@ -2528,6 +2528,25 @@ export async function geminiWithGrounding(prompt: string): Promise<any | null> {
       if (m?.[1]) return { pageId: m[1], confidence: "medium" };
     } catch {}
   }
+
+  // Fallback: Groq quando Gemini indisponível (sem Google Search, mas responde com conhecimento)
+  try {
+    const groqText = await callGroqAPI(
+      prompt + "\n\nIMPORTANTE: Responda APENAS com JSON válido, sem markdown.",
+      "Você é um assistente de pesquisa de mercado brasileiro. Responda sempre em JSON válido.",
+      0
+    );
+    if (groqText) {
+      const clean = groqText.replace(/```json|```/g, "").trim();
+      try { return JSON.parse(clean); } catch {}
+      // Tenta reparar JSON truncado
+      const opens  = (clean.match(/[{]/g) || []).length;
+      const closes = (clean.match(/[}]/g) || []).length;
+      const repaired = opens > closes ? clean + "}".repeat(opens - closes) : clean;
+      try { return JSON.parse(repaired); } catch {}
+    }
+  } catch {}
+
   return null;
 }
 
@@ -2956,6 +2975,42 @@ Retorne APENAS JSON: {"websiteUrl":"https://..."} ou {"websiteUrl":null}`
     }
   } catch (e: any) {
     log.warn("ai", "discoverCompetitors erro", { error: e.message?.slice(0, 80) });
+  }
+
+  // Fallback local: sugere concorrentes conhecidos por nicho quando todas as IAs falham
+  log.info("ai", "discoverCompetitors: usando fallback local por nicho", { niche });
+  const nicheLC = (niche || "").toLowerCase();
+  const localFallbacks: Record<string, Array<{ name: string; websiteUrl: string; description: string; confidence: "low" }>> = {
+    cosmeticos:   [{ name: "Natura",        websiteUrl: "https://www.natura.com.br",     description: "Maior player de cosméticos do Brasil",            confidence: "low" },
+                   { name: "O Boticário",    websiteUrl: "https://www.boticario.com.br",  description: "Franquia líder em cosméticos e perfumaria",       confidence: "low" },
+                   { name: "Avon",           websiteUrl: "https://www.avon.com.br",       description: "Venda direta de cosméticos",                     confidence: "low" }],
+    beleza:       [{ name: "Quem Disse, Berenice?", websiteUrl: "https://www.quemdisseberenice.com.br", description: "Marca de cosméticos coloridos", confidence: "low" },
+                   { name: "MAC Cosmetics", websiteUrl: "https://www.maccosmetics.com.br", description: "Maquiagem profissional internacional", confidence: "low" }],
+    imoveis:      [{ name: "QuintoAndar",   websiteUrl: "https://www.quintoandar.com.br", description: "Plataforma líder de aluguel e venda",            confidence: "low" },
+                   { name: "Loft",          websiteUrl: "https://www.loft.com.br",        description: "Compra e venda de imóveis digitais",             confidence: "low" }],
+    academia:     [{ name: "Smart Fit",     websiteUrl: "https://www.smartfit.com.br",    description: "Maior rede de academias da América Latina",       confidence: "low" },
+                   { name: "Bio Ritmo",     websiteUrl: "https://www.bioritmo.com.br",    description: "Rede premium de academias",                      confidence: "low" }],
+    restaurante:  [{ name: "iFood",         websiteUrl: "https://www.ifood.com.br",       description: "Maior plataforma de delivery do Brasil",         confidence: "low" }],
+    clinica:      [{ name: "Hapvida",       websiteUrl: "https://www.hapvida.com.br",     description: "Rede de saúde integrada",                        confidence: "low" },
+                   { name: "NotreDame",     websiteUrl: "https://www.intermedica.com.br", description: "Plano de saúde e rede médica",                   confidence: "low" }],
+    marketing:    [{ name: "RD Station",    websiteUrl: "https://www.rdstation.com",      description: "Plataforma de marketing digital líder no Brasil", confidence: "low" },
+                   { name: "Resultados Digitais", websiteUrl: "https://resultadosdigitais.com.br", description: "Agência e software de marketing",        confidence: "low" }],
+    saude:        [{ name: "Drogasil",      websiteUrl: "https://www.drogasil.com.br",    description: "Maior rede de farmácias do Brasil",              confidence: "low" },
+                   { name: "Ultrafarma",    websiteUrl: "https://www.ultrafarma.com.br",  description: "Farmácia online com menores preços",             confidence: "low" }],
+    "auto eletrica": [{ name: "Auto Elétrica Nacional", websiteUrl: "", description: "Serviços elétricos automotivos", confidence: "low" }],
+    automoveis:   [{ name: "OLX Autos",     websiteUrl: "https://autos.olx.com.br",       description: "Maior marketplace de veículos",                  confidence: "low" },
+                   { name: "Webmotors",     websiteUrl: "https://www.webmotors.com.br",   description: "Busca e venda de veículos usados e novos",       confidence: "low" }],
+  };
+
+  // Encontra o nicho mais próximo
+  const matchedNiche = Object.keys(localFallbacks).find(k =>
+    nicheLC.includes(k) || k.includes(nicheLC.split(" ")[0])
+  );
+
+  if (matchedNiche) {
+    const fallbackResults = localFallbacks[matchedNiche].map(f => ({ ...f, facebookPageUrl: undefined, instagramUrl: undefined }));
+    log.info("ai", "discoverCompetitors: fallback local retornou resultados", { niche, matched: matchedNiche, count: fallbackResults.length });
+    return fallbackResults as any;
   }
 
   return [];
