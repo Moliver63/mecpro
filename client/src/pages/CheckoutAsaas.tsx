@@ -2,7 +2,7 @@
  * CheckoutAsaas.tsx — Página de checkout via Pix (Asaas)
  * Rota: /checkout/asaas?plan=premium&billing=monthly
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/hooks/useAuth";
@@ -28,10 +28,16 @@ export default function CheckoutAsaas() {
   // Se já tem subId (vindo do redirect do backend), busca o Pix gerado
   const subStatus = trpc.subscriptions.getCheckoutPix.useQuery(
     { subId: subId! },
-    { enabled: !!subId, retry: false,
-      onSuccess: (d: any) => { if (d?.pixCode) setPix({ code: d.pixCode, qr: d.pixQr || "", expires: d.expiresAt || "" }); }
-    }
+    { enabled: !!subId, retry: 3, retryDelay: 2000 }
   );
+
+  // useEffect: atualiza pix quando a query retornar (onSuccess deprecated no React Query v5)
+  useEffect(() => {
+    const d = subStatus.data as any;
+    if (d?.pixCode && !pix) {
+      setPix({ code: d.pixCode, qr: d.pixQr || "", expires: d.expiresAt || "" });
+    }
+  }, [subStatus.data]);
 
   const monthly  = PLAN_PRICES[plan] || 197;
   const amount   = billing === "yearly" ? Math.floor(monthly * 0.8) * 12 : monthly;
@@ -111,8 +117,24 @@ export default function CheckoutAsaas() {
           )}
         </div>
 
-        {!pix ? (
-          /* Formulário CPF/CNPJ */
+        {/* Loading state quando veio do redirect com subId */}
+        {subId && !pix && subStatus.isLoading && (
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "32px", textAlign: "center" }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Gerando seu QR Code Pix...</p>
+            <p style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>Aguarde alguns segundos</p>
+          </div>
+        )}
+
+        {subId && !pix && !subStatus.isLoading && !subStatus.data && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 16, padding: "24px", textAlign: "center" }}>
+            <p style={{ fontSize: 14, color: "#dc2626", fontWeight: 600 }}>Erro ao buscar o código Pix.</p>
+            <p style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>Tente recarregar a página ou contate o suporte.</p>
+          </div>
+        )}
+
+        {!subId && !pix ? (
+          /* Formulário CPF/CNPJ — quando não veio do redirect */
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px" }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>
               CPF ou CNPJ *
@@ -137,7 +159,9 @@ export default function CheckoutAsaas() {
               <span style={{ fontSize: 12, color: "#9ca3af" }}>🔒 Pagamento seguro via Asaas</span>
             </div>
           </div>
-        ) : (
+        ) : null}
+
+        {pix ? (
           /* QR Code Pix */
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", textAlign: "center" }}>
             <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>

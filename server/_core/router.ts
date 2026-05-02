@@ -5997,23 +5997,31 @@ const subscriptionsRouter = router({
     .input(z.object({ subId: z.string() }))
     .query(async ({ input }) => {
       const key = process.env.ASAAS_API_KEY;
-      if (!key) return null;
+      if (!key) { log.warn("asaas", "ASAAS_API_KEY não configurada"); return null; }
       try {
-        // Busca cobrança da assinatura
+        // Busca cobrança da assinatura — tenta PENDING e RECEIVED
         const paymentsRes = await fetch(
-          `https://api.asaas.com/v3/payments?subscription=${input.subId}&status=PENDING&limit=1`,
-          { headers: { "access_token": key } }
+          `https://api.asaas.com/v3/payments?subscription=${input.subId}&limit=5`,
+          { headers: { "access_token": key }, signal: AbortSignal.timeout(8000) }
         );
         const paymentsData: any = await paymentsRes.json();
+        log.info("asaas", "getCheckoutPix payments", { subId: input.subId, total: paymentsData?.totalCount, data: paymentsData?.data?.map((p: any) => ({ id: p.id, status: p.status })) });
+
+        // Pega o pagamento mais recente (qualquer status)
         const payment = paymentsData?.data?.[0];
-        if (!payment?.id) return null;
+        if (!payment?.id) {
+          log.warn("asaas", "Nenhum pagamento encontrado para subscription", { subId: input.subId });
+          return null;
+        }
 
         // Busca QR code Pix
         const pixRes = await fetch(
           `https://api.asaas.com/v3/payments/${payment.id}/pixQrCode`,
-          { headers: { "access_token": key } }
+          { headers: { "access_token": key }, signal: AbortSignal.timeout(8000) }
         );
         const pixData: any = await pixRes.json();
+        log.info("asaas", "getCheckoutPix pixQrCode", { paymentId: payment.id, hasPayload: !!pixData?.payload, error: pixData?.errors });
+
         if (!pixData?.payload) return null;
 
         return {
@@ -6022,7 +6030,10 @@ const subscriptionsRouter = router({
           expiresAt: payment.dueDate || "",
           value:     payment.value || 0,
         };
-      } catch { return null; }
+      } catch (e: any) {
+        log.error("asaas", "getCheckoutPix erro", { subId: input.subId, error: e.message });
+        return null;
+      }
     }),
 
   createCheckout: protectedProcedure
