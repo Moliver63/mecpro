@@ -212,8 +212,8 @@ export default function About() {
         </h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
           {[
-            { name: "Free",    price: "Gratuito", color: "#64748b", features: ["3 projetos", "5 campanhas/mês", "Análise básica"] },
-            { name: "Basic",   price: "R$ 97/mês", color: "#0891b2", features: ["10 projetos", "20 campanhas/mês", "Análise de concorrentes"] },
+            { name: "Free",    price: "Gratuito",  color: "#64748b", features: ["1 projeto", "3 concorrentes", "Exploração da plataforma"] },
+            { name: "Basic",   price: "R$ 97/mês", color: "#0891b2", features: ["3 projetos", "8 campanhas/mês", "8 concorrentes", "Meta Ads"] },
             { name: "Premium", price: "R$ 197/mês", color: "#7c3aed", features: ["Projetos ilimitados", "Campanhas ilimitadas", "Todos os módulos"] },
             { name: "VIP",     price: "R$ 397/mês", color: "#16a34a", features: ["Tudo do Premium", "API access", "Suporte prioritário"] },
           ].map(plan => (

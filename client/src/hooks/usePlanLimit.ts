@@ -2,10 +2,10 @@ import { useAuth } from "./useAuth";
 
 // Limites por plano — espelham o backend (server/db.ts PLAN_LIMITS)
 const PLAN_LIMITS = {
-  free:    { maxProjects: 1,    maxCompetitors: 2,  maxCampaigns: 0,    hasAI: false, hasMeta: false, hasGoogle: false, hasExportPdf: false, hasExportXlsx: false },
-  basic:   { maxProjects: 3,    maxCompetitors: 5,  maxCampaigns: 3,    hasAI: true,  hasMeta: true,  hasGoogle: false, hasExportPdf: false, hasExportXlsx: false },
-  premium: { maxProjects: 10,   maxCompetitors: null, maxCampaigns: null, hasAI: true, hasMeta: true,  hasGoogle: true,  hasExportPdf: true,  hasExportXlsx: true  },
-  vip:     { maxProjects: null, maxCompetitors: null, maxCampaigns: null, hasAI: true, hasMeta: true,  hasGoogle: true,  hasExportPdf: true,  hasExportXlsx: true  },
+  free:    { maxProjects: 1,    maxCompetitors: 3,  maxCampaigns: 0,    hasAI: false, hasMeta: false, hasGoogle: false, hasTikTok: false, hasExportPdf: false, hasExportXlsx: false },
+  basic:   { maxProjects: 3,    maxCompetitors: 8,  maxCampaigns: 8,    hasAI: true,  hasMeta: true,  hasGoogle: false, hasTikTok: false, hasExportPdf: false, hasExportXlsx: false },
+  premium: { maxProjects: 10,   maxCompetitors: 15, maxCampaigns: null, hasAI: true,  hasMeta: true,  hasGoogle: true,  hasTikTok: true,  hasExportPdf: true,  hasExportXlsx: true  },
+  vip:     { maxProjects: null, maxCompetitors: null,maxCampaigns: null, hasAI: true,  hasMeta: true,  hasGoogle: true,  hasTikTok: true,  hasExportPdf: true,  hasExportXlsx: true  },
 } as const;
 
 const PLAN_NAMES: Record<string, string> = {

@@ -877,17 +877,21 @@ export async function getAllLessonProgress(userId: number) {
 
 // ============ PLAN LIMITS ============
 export const PLAN_LIMITS = {
-  free:    { maxProjects: 1,    maxCompetitors: 2,  maxCampaigns: 0,  hasAI: false, hasMeta: false, hasGoogle: false, hasExportPdf: false, hasExportXlsx: false },
-  basic:   { maxProjects: 3,    maxCompetitors: 5,  maxCampaigns: 3,  hasAI: true,  hasMeta: true,  hasGoogle: false, hasExportPdf: false, hasExportXlsx: false },
-  premium: { maxProjects: 10,   maxCompetitors: null, maxCampaigns: null, hasAI: true, hasMeta: true, hasGoogle: true, hasExportPdf: true, hasExportXlsx: true },
-  vip:     { maxProjects: null, maxCompetitors: null, maxCampaigns: null, hasAI: true, hasMeta: true, hasGoogle: true, hasExportPdf: true, hasExportXlsx: true },
+  // Free: exploração, sem geração de campanha
+  free:    { maxProjects: 1,    maxCompetitors: 3,  maxCampaigns: 0,    hasAI: false, hasMeta: false, hasGoogle: false, hasTikTok: false, hasExportPdf: false, hasExportXlsx: false },
+  // Basic: gestor individual ou pequena agência
+  basic:   { maxProjects: 3,    maxCompetitors: 8,  maxCampaigns: 8,    hasAI: true,  hasMeta: true,  hasGoogle: false, hasTikTok: false, hasExportPdf: false, hasExportXlsx: false },
+  // Premium: agência média ou gestor avançado
+  premium: { maxProjects: 10,   maxCompetitors: 15, maxCampaigns: null, hasAI: true,  hasMeta: true,  hasGoogle: true,  hasTikTok: true,  hasExportPdf: true,  hasExportXlsx: true  },
+  // VIP: agência grande ou uso intensivo
+  vip:     { maxProjects: null, maxCompetitors: null,maxCampaigns: null, hasAI: true,  hasMeta: true,  hasGoogle: true,  hasTikTok: true,  hasExportPdf: true,  hasExportXlsx: true  },
 } as const;
 
 export type PlanKey = keyof typeof PLAN_LIMITS;
 
 export async function checkPlanLimit(
   userId: number,
-  check: "projects" | "competitors" | "campaigns" | "ai" | "meta" | "google" | "exportPdf" | "exportXlsx",
+  check: "projects" | "competitors" | "campaigns" | "ai" | "meta" | "google" | "tiktok" | "exportPdf" | "exportXlsx",
   context?: { projectId?: number }
 ): Promise<{ allowed: boolean; reason?: string; upgrade?: string }> {
   const user = await getUserById(userId) as any;
@@ -895,7 +899,7 @@ export async function checkPlanLimit(
   const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
 
   const planNames: Record<string, string> = {
-    free: "Free", basic: "Basic (R$97/mês)", premium: "Premium (R$197/mês)", vip: "VIP (R$397/mês)"
+    free: "Free", basic: "Basic — R$97/mês", premium: "Premium — R$197/mês", vip: "VIP — R$397/mês"
   };
 
   switch (check) {
@@ -914,7 +918,7 @@ export async function checkPlanLimit(
       const competitors = await getCompetitorsByProjectId(context.projectId);
       if ((competitors as any[]).length >= limits.maxCompetitors!) {
         const next = plan === "free" ? "basic" : plan === "basic" ? "premium" : "vip";
-        return { allowed: false, reason: `Seu plano ${planNames[plan]} permite no máximo ${limits.maxCompetitors} concorrente(s) por projeto.`, upgrade: next };
+        return { allowed: false, reason: `Seu plano ${planNames[plan]} permite até ${limits.maxCompetitors} concorrentes por projeto. Faça upgrade para analisar mais.`, upgrade: next };
       }
       return { allowed: true };
     }
@@ -930,13 +934,14 @@ export async function checkPlanLimit(
         return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
       });
       if (monthCampaigns.length >= limits.maxCampaigns) {
-        return { allowed: false, reason: `Seu plano ${planNames[plan]} permite ${limits.maxCampaigns} campanha(s)/mês. Limite atingido. Renova em ${new Date(now.getFullYear(), now.getMonth()+1, 1).toLocaleDateString("pt-BR")}.`, upgrade: "premium" };
+        return { allowed: false, reason: `Você usou todas as ${limits.maxCampaigns} campanhas do plano ${planNames[plan]} este mês. Renova em ${new Date(now.getFullYear(), now.getMonth()+1, 1).toLocaleDateString("pt-BR")} — ou faça upgrade para ilimitado.`, upgrade: "premium" };
       }
       return { allowed: true };
     }
     case "ai":        return limits.hasAI        ? { allowed: true } : { allowed: false, reason: `Análise com IA não disponível no plano ${planNames[plan]}.`,       upgrade: "basic"   };
     case "meta":      return limits.hasMeta       ? { allowed: true } : { allowed: false, reason: `Integração Meta Ads não disponível no plano ${planNames[plan]}.`, upgrade: "basic"   };
     case "google":    return limits.hasGoogle     ? { allowed: true } : { allowed: false, reason: `Integração Google Ads disponível a partir do plano Premium.`,     upgrade: "premium" };
+    case "tiktok":    return (limits as any).hasTikTok   ? { allowed: true } : { allowed: false, reason: `Integração TikTok Ads disponível a partir do plano Premium.`,    upgrade: "premium" };
     case "exportPdf": return limits.hasExportPdf  ? { allowed: true } : { allowed: false, reason: `Exportação PDF disponível a partir do plano Premium.`,            upgrade: "premium" };
     case "exportXlsx":return limits.hasExportXlsx ? { allowed: true } : { allowed: false, reason: `Exportação XLSX disponível a partir do plano Premium.`,           upgrade: "premium" };
     default: return { allowed: true };
