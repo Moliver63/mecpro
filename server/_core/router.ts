@@ -798,6 +798,11 @@ const competitorsRouter = router({
         productService:  profile.productService,
         websiteUrl:      profile.websiteUrl,
         targetAudience:  (profile as any).targetAudience,
+        businessScope:   (profile as any).businessScope,
+        city:            (profile as any).city,
+        state:           (profile as any).state,
+        country:         (profile as any).country,
+        averageTicket:   (profile as any).averageTicket,
       });
 
       log.info("competitors", "discoverCompetitors", {

@@ -2843,6 +2843,11 @@ export async function discoverCompetitors(profile: {
   productService: string;
   websiteUrl?: string | null;
   targetAudience?: string | null;
+  businessScope?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  averageTicket?: number | null;
 }): Promise<Array<{
   name: string;
   websiteUrl?: string;
@@ -2852,13 +2857,12 @@ export async function discoverCompetitors(profile: {
   confidence: "high" | "medium" | "low";
 }>> {
   const { companyName, niche, productService, websiteUrl, targetAudience } = profile;
+  // Campos de localização — usados para buscar concorrentes na região correta
+  const scope   = profile.businessScope || "local";
+  const city    = profile.city  || "";
+  const state   = profile.state || "";
+  const country = profile.country || "Brasil";
 
-  // Extrai região do público-alvo ou website
-  // Escopo geográfico — usa campos dedicados se disponíveis, senão extrai do targetAudience
-  const scope    = (profile as any).businessScope || "local";
-  const city     = (profile as any).city  || "";
-  const state    = (profile as any).state || "";
-  const country  = (profile as any).country || "Brasil";
   const avgTicket = (profile as any).averageTicket || 0;
 
   const regionHint = city && state ? `${city}, ${state}`
