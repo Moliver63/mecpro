@@ -830,8 +830,14 @@ export const adminIntelligenceRouter = router({
               } catch {}
             }
 
-            // ── 3. Extrai padrão se score ≥ minScore e não é falso vencedor ──
-            if (score.total >= input.minScore && !score.isFalseWinner) {
+            // ── 3. Extrai padrão de copy (sempre) e de performance (só com métricas) ──
+            // Campanhas sem métricas reais ainda têm copy/criativos valiosos
+            const hasCopyData = context.creatives?.length > 0 ||
+              (context.aiResponse && context.aiResponse.length > 10);
+            const qualifiedByScore = score.total >= input.minScore;
+            const qualifiedByCopy  = hasCopyData && !hasRealMetrics; // sem métricas mas com copy
+            
+            if (qualifiedByScore || qualifiedByCopy) {
               try {
                 const params   = extractWinnerParameters(context, score, metrics);
                 const template = buildRecommendedTemplate(params, context.platform, context.objective, context.niche || "geral");
@@ -873,7 +879,9 @@ export const adminIntelligenceRouter = router({
                     niche: context.niche || "geral",
                   });
                 }
-              } catch {}
+              } catch (patternErr: any) {
+                log.warn("intelligence", "pattern INSERT falhou", { campaignId: c.id, error: patternErr.message?.slice(0, 80) });
+              }
             }
 
             // ── 4. Atualiza learning base (todas as campanhas, não só vencedoras) ──
