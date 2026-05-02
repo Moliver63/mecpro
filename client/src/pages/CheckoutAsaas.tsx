@@ -17,6 +17,7 @@ export default function CheckoutAsaas() {
   const params   = new URLSearchParams(search);
   const plan     = (params.get("plan") || "premium") as "basic" | "premium" | "vip";
   const billing  = (params.get("billing") || "monthly") as "monthly" | "yearly";
+  const subId    = params.get("sub") || null;
   const subId    = params.get("sub") || null;  // assinatura já criada pelo backend
 
   const { user } = useAuth();
@@ -25,19 +26,25 @@ export default function CheckoutAsaas() {
   const [pix, setPix]         = useState<{ code: string; qr: string; expires: string } | null>(null);
 
   const checkout = trpc.subscriptions.createCheckout.useMutation();
-  // Se já tem subId (vindo do redirect do backend), busca o Pix gerado
+
   const subStatus = trpc.subscriptions.getCheckoutPix.useQuery(
     { subId: subId! },
     { enabled: !!subId, retry: 3, retryDelay: 2000 }
   );
 
-  // useEffect: atualiza pix quando a query retornar (onSuccess deprecated no React Query v5)
   useEffect(() => {
     const d = subStatus.data as any;
     if (d?.pixCode && !pix) {
       setPix({ code: d.pixCode, qr: d.pixQr || "", expires: d.expiresAt || "" });
     }
   }, [subStatus.data]);
+  // Se já tem subId (vindo do redirect do backend), busca o Pix gerado
+  const subStatus = trpc.subscriptions.getCheckoutPix.useQuery(
+    { subId: subId! },
+    { enabled: !!subId, retry: false,
+      onSuccess: (d: any) => { if (d?.pixCode) setPix({ code: d.pixCode, qr: d.pixQr || "", expires: d.expiresAt || "" }); }
+    }
+  );
 
   const monthly  = PLAN_PRICES[plan] || 197;
   const amount   = billing === "yearly" ? Math.floor(monthly * 0.8) * 12 : monthly;
@@ -117,24 +124,16 @@ export default function CheckoutAsaas() {
           )}
         </div>
 
-        {/* Loading state quando veio do redirect com subId */}
         {subId && !pix && subStatus.isLoading && (
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "32px", textAlign: "center" }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-            <p style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Gerando seu QR Code Pix...</p>
+            <p style={{ fontSize: 16, marginBottom: 8 }}>⏳</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#111827" }}>Gerando QR Code Pix...</p>
             <p style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>Aguarde alguns segundos</p>
           </div>
         )}
 
-        {subId && !pix && !subStatus.isLoading && !subStatus.data && (
-          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 16, padding: "24px", textAlign: "center" }}>
-            <p style={{ fontSize: 14, color: "#dc2626", fontWeight: 600 }}>Erro ao buscar o código Pix.</p>
-            <p style={{ fontSize: 13, color: "#6b7280", marginTop: 6 }}>Tente recarregar a página ou contate o suporte.</p>
-          </div>
-        )}
-
-        {!subId && !pix ? (
-          /* Formulário CPF/CNPJ — quando não veio do redirect */
+        {!pix && !subId && (
+          /* Formulário CPF/CNPJ */
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px" }}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>
               CPF ou CNPJ *
@@ -159,9 +158,9 @@ export default function CheckoutAsaas() {
               <span style={{ fontSize: 12, color: "#9ca3af" }}>🔒 Pagamento seguro via Asaas</span>
             </div>
           </div>
-        ) : null}
+        )}
 
-        {pix ? (
+        {pix && (
           /* QR Code Pix */
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: "24px", textAlign: "center" }}>
             <div style={{ fontSize: 24, marginBottom: 8 }}>✅</div>
