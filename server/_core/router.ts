@@ -665,7 +665,13 @@ const clientProfileRouter = router({
       targetAudience: z.string().optional(), mainPain: z.string().optional(), desiredTransformation: z.string().optional(),
       uniqueValueProposition: z.string().optional(), mainObjections: z.string().optional(),
       campaignObjective: z.enum(["leads", "sales", "branding", "traffic", "engagement"]).optional(),
-      monthlyBudget: z.number().optional(), websiteUrl: z.string().optional(), socialLinks: z.string().optional(),
+      monthlyBudget: z.number().nullish(), websiteUrl: z.string().optional(), socialLinks: z.string().optional(),
+      // Campos de escopo geográfico (adicionados na sessão 4)
+      businessScope:  z.enum(["local","regional","national","global"]).optional(),
+      city:           z.string().optional(),
+      state:          z.string().optional(),
+      country:        z.string().optional(),
+      averageTicket:  z.number().nullish(),
     }))
     .mutation(({ input }) => {
       const websiteUrl = (() => {
