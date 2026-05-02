@@ -4,7 +4,7 @@
 > Contém o estado atual, bugs conhecidos, decisões de arquitetura e padrões estabelecidos.
 > Atualizar após cada sessão significativa.
 >
-> **Última atualização:** 2026-05-01 (sessão 4)
+> **Última atualização:** 2026-05-02 (sessão 5)
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|---|---|
 | Meta Ads Library API | ❌ `code=10` | App sem permissão Ads Library | Solicitar em developers.facebook.com → App → Ads Library API |
 | Meta Token | ⚠️ `code=190` | Token expirado/sessão inválida | Reconectar em Configurações → Meta Ads |
-| Gemini API | ❌ Todas 5 chaves esgotadas | Uso intenso esgotou RPD de todas as chaves | Reset automático em 60min — fallback Groq ativo |
+| Gemini API | ✅ Operacional | Reset às 00:00 UTC diário | 5 chaves com rotação, esgotam ~21h de uso intenso |
 | Groq API | ✅ Fallback ativo | llama-3.3-70b-versatile | OK |
 | Google Ads API | ✅ Funcionando | gRPC configurado | OK |
 | Asaas (Pix) | ✅ Configurado | `ASAAS_API_KEY` set | OK |
@@ -107,6 +107,26 @@ Meta CB: OPEN após code=10 — reset em 30min
 
 
 
+
+#### BUG-014: winner_patterns INSERT — coluna inexistente "pattern_score"
+- **Causa:** INSERT usava `pattern_score` mas tabela tem coluna `score`
+- **Sintoma:** `patternsExtracted: 0` em todas as execuções de runFullAnalysis
+- **Solução:** `pattern_score` → `score`; ON CONFLICT também corrigido
+- **Arquivo:** `server/_core/adminIntelligenceRouter.ts`
+- **Commit:** b8a3ffa
+
+#### BUG-015: syncMetaCampaignMetrics — coluna "userId" não existe em campaigns
+- **Causa:** `campaigns` não tem `userId` direto — usa `projectId` que referencia `projects.userId`
+- **Sintoma:** `column "userId" does not exist` ao clicar Sincronizar Métricas
+- **Solução:** `JOIN projects p ON p.id = c."projectId" WHERE p."userId" = $1`
+- **Arquivo:** `server/_core/router.ts` — `syncMetaCampaignMetrics`
+- **Commit:** b8a3ffa
+
+#### BUG-016: patternsExtracted=0 mesmo com score>=60
+- **Causa:** `detectFalseWinner` marca `isFalse=true` para campanhas sem métricas (impressions=0)
+- **Solução:** extrai padrão de copy se `hasCopyData && !hasRealMetrics` (qualifiedByCopy)
+- **Commit:** 4e8984b
+
 #### BUG-012: Gemini 5 tentativas inúteis quando todas as chaves esgotadas
 - **Causa:** Cascata de modelos continuava tentando modelos com chaves já marcadas como esgotadas
 - **Sintoma:** 5 tentativas × N chamadas = dezenas de requests, ~3s perdidos, esgota Groq 429 também
@@ -175,6 +195,37 @@ Camada 7: Mock por Nicho
 - **Páginas fixas:** Dashboard, Projetos, Configurações (sempre visíveis)
 
 
+
+### DA-008: Sync de métricas reais Meta → ML (sessão 5)
+```
+Fluxo completo:
+1. publishToMeta → salva metaCampaignId, metaAdSetId, metaAdId no banco
+2. syncMetaCampaignMetrics → busca insights reais via metaCampaignId
+   GET /v21.0/{metaCampaignId}/insights → impressions/clicks/ctr/cpc/cpm/spend
+   → salva em campaign_scores.metric_*
+3. runFullAnalysis → detectFalseWinner usa métricas reais → isFalse=false
+4. winner_patterns populado com padrões reais
+5. learning_base com benchmarks reais por nicho/plataforma
+```
+- Botão: /admin/intelligence → "📊 Sincronizar Métricas Meta"
+- Sequência: Sincronizar → Analisar Histórico (clicar 3-4x até processar tudo)
+
+### DA-009: Localização e escopo geográfico (sessão 5)
+```
+clientProfile novos campos:
+  businessScope: "local" | "regional" | "national" | "global"
+  city: "Balneário Camboriú"
+  state: "SC"
+  country: "Brasil"
+  averageTicket: 500
+
+Impacto no pipeline:
+  discoverCompetitors → prioriza concorrentes da região
+  buildCampaignFromAds → copy menciona cidade, targeting por escopo
+  scopeLabel, scopeGeoTargeting, scopeCopyHint injetados no prompt
+```
+- Campos no Módulo 1 → Perfil do Cliente
+- Bug corrigido: city/state não chegavam a discoverCompetitors (tipo sem os campos)
 ### DA-007: Indicadores de qualidade do M2
 ```
 Camadas 1-3 → badge "Real"    (dados verificáveis)
