@@ -156,6 +156,7 @@ export default function CampaignResult() {
   const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
   const [multiPageMode,   setMultiPageMode]   = useState(false);
   const [imageUrl,     setImageUrl]     = useState("");
+  const [showOverlay,  setShowOverlay]  = useState(true); // toggle overlay de texto nas imagens
   const [linkUrl,      setLinkUrl]      = useState("");
   const [adSetIndex,   setAdSetIndex]   = useState(0);
 
@@ -2155,6 +2156,11 @@ export default function CampaignResult() {
                   style={{ fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", borderRadius: 8, padding: "5px 12px", cursor: "pointer" }}>
                   🔄 Regenerar criativos
                 </button>
+                <button
+                  onClick={() => setShowOverlay(v => !v)}
+                  style={{ fontSize: 11, fontWeight: 700, background: showOverlay ? "#f0fdf4" : "#f8fafc", color: showOverlay ? "#16a34a" : "#6b7280", border: `1px solid ${showOverlay ? "#bbf7d0" : "#e2e8f0"}`, borderRadius: 8, padding: "5px 12px", cursor: "pointer" }}>
+                  {showOverlay ? "👁 Com texto" : "🖼 Só imagem"}
+                </button>
               </div>
             </div>
             {Array.isArray(creatives) ? creatives.map((cr: any, i: number) => {
@@ -2240,7 +2246,42 @@ export default function CampaignResult() {
                           </div>
                         ) : creativeImage ? (
                           <div style={{ position: "relative", width: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid #e5e7eb", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }}>
-                            <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            {/* Imagem de fundo */}
+                            <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                            {/* Overlay de texto — headline + CTA sobre a imagem */}
+                            {showOverlay && (cr.headline || cr.cta) && (
+                              <div style={{
+                                position: "absolute", inset: 0,
+                                display: "flex", flexDirection: "column", justifyContent: "flex-end",
+                                background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.18) 55%, transparent 100%)",
+                                padding: creativeFormat === "stories" ? "20px 14px" : "14px 12px",
+                              }}>
+                                {cr.headline && (
+                                  <p style={{
+                                    color: "#fff", fontWeight: 800,
+                                    fontSize: creativeFormat === "stories" ? 17 : 13,
+                                    lineHeight: 1.25, margin: "0 0 6px",
+                                    textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+                                    display: "-webkit-box", WebkitLineClamp: 3,
+                                    WebkitBoxOrient: "vertical", overflow: "hidden",
+                                  }}>
+                                    {cr.headline}
+                                  </p>
+                                )}
+                                {cr.cta && (
+                                  <span style={{
+                                    display: "inline-block", alignSelf: "flex-start",
+                                    background: "#1877f2", color: "#fff",
+                                    fontWeight: 800, fontSize: 10,
+                                    padding: "5px 12px", borderRadius: 20,
+                                    textTransform: "uppercase", letterSpacing: 0.5,
+                                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                                  }}>
+                                    {cr.cta}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <label htmlFor={`creative-image-input-${i}`} style={{
