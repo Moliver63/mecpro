@@ -6436,30 +6436,49 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     scored[index].imageGenerationMode = diagnostics.canGenerateRealImages ? "real" : "fallback";
   }
 
-  // Gera apenas 1 imagem por campanha para não bloquear a resposta
-  // O usuário pode gerar mais depois individualmente
-  // Se nenhum provider disponível, pula completamente (evita 30-60s de timeout)
-  const maxImages = diagnostics.canGenerateRealImages ? Math.min(1, scored.length) : 0;
-
+  // Gera imagens em todos os 3 formatos para o primeiro criativo (em paralelo)
+  // Os demais criativos podem gerar individualmente depois
   if (!diagnostics.canGenerateRealImages) {
     log.warn("ai", "Geração de imagens pulada — provider indisponível", {
       reason: diagnostics.reason, warnings: diagnostics.warnings,
     });
   }
 
-  for (let index = 0; index < maxImages; index++) {
-    const creative = scored[index];
-    const format = resolveCreativeImageFormat(creative);
-    // Timeout de 20s por imagem — evita bloquear campanha inteira
-    const imageUrl = await Promise.race([
-      generateAdImage(creative, context.segment, context.objective, config, format),
-      new Promise<null>(resolve => setTimeout(() => resolve(null), 20000)),
-    ]);
-    if (imageUrl) {
-      if (format === "stories") creative.storyImageUrl = imageUrl;
-      if (format === "feed")    creative.feedImageUrl = imageUrl;
-      if (format === "square")  creative.squareImageUrl = imageUrl;
-      creative.imageUpdatedAt = new Date().toISOString();
+  if (diagnostics.canGenerateRealImages && scored.length > 0) {
+    const creative = scored[0];
+    const FORMATS: Array<"feed" | "stories" | "square"> = ["feed", "stories", "square"];
+    const TIMEOUT_MS = 25000; // 25s por formato
+
+    // Gera os 3 formatos em paralelo
+    const results = await Promise.allSettled(
+      FORMATS.map(format =>
+        Promise.race([
+          generateAdImage(creative, context.segment, context.objective, config, format),
+          new Promise<null>(resolve => setTimeout(() => resolve(null), TIMEOUT_MS)),
+        ]).then(url => ({ format, url }))
+      )
+    );
+
+    let anyGenerated = false;
+    for (const result of results) {
+      if (result.status === "fulfilled" && result.value?.url) {
+        const { format, url } = result.value;
+        if (format === "feed")    creative.feedImageUrl = url;
+        if (format === "stories") creative.storyImageUrl = url;
+        if (format === "square")  creative.squareImageUrl = url;
+        anyGenerated = true;
+      }
+    }
+    if (anyGenerated) creative.imageUpdatedAt = new Date().toISOString();
+
+    // Para os demais criativos, gera apenas feed (mais importante)
+    for (let index = 1; index < scored.length; index++) {
+      const c = scored[index];
+      const url = await Promise.race([
+        generateAdImage(c, context.segment, context.objective, config, "feed"),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 20000)),
+      ]);
+      if (url) { c.feedImageUrl = url; c.imageUpdatedAt = new Date().toISOString(); }
     }
   }
 

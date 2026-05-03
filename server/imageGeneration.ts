@@ -10,9 +10,12 @@ const IMAGE_CACHE = new Map<string, string>();
 // SD 3.5 Large: alta qualidade, nova API
 // SDXL Turbo: fallback rápido
 const HF_MODELS = [
-  // Mantemos apenas o modelo confirmado neste endpoint.
-  // Os demais estavam retornando 400 "Model not supported by provider hf-inference".
+  // FLUX.1-dev: melhor qualidade, disponível via router HF
+  "black-forest-labs/FLUX.1-dev",
+  // FLUX.1-schnell: rápido, fallback
   "black-forest-labs/FLUX.1-schnell",
+  // SD 3.5: fallback adicional
+  "stabilityai/stable-diffusion-3.5-medium",
 ];
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
@@ -457,26 +460,34 @@ const tryPollinations = async (prompt: string, format: CreativeImageFormat): Pro
   try {
     const dim = FORMAT_DIMENSIONS[format];
     const encoded = encodeURIComponent(prompt.slice(0, 500));
-    // Pollinations retorna imagem direta via GET — sem necessidade de API key
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&model=flux`;
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&model=flux&seed=${Date.now()}`;
 
-    // Verifica se o endpoint responde (timeout 15s)
-    const testRes = await fetch(url, {
-      method: "HEAD",
-      signal: AbortSignal.timeout(15000),
-    }).catch(() => null);
+    // Faz download da imagem (necessário — Meta não aceita URLs dinâmicas do Pollinations)
+    const getRes = await fetch(url, { signal: AbortSignal.timeout(30000) }).catch(() => null);
+    if (!getRes?.ok) return null;
 
-    if (testRes && (testRes.ok || testRes.status === 200)) {
-      log.info("image-generation", "Pollinations.AI OK", { format, url: url.slice(0, 80) });
-      return url;
+    const contentType = getRes.headers.get("content-type") || "";
+    if (!contentType.includes("image")) {
+      log.warn("image-generation", "Pollinations retornou não-imagem", { contentType });
+      return null;
     }
-    // GET direto como fallback
-    const getRes = await fetch(url, { signal: AbortSignal.timeout(20000) }).catch(() => null);
-    if (getRes?.ok) {
-      log.info("image-generation", "Pollinations.AI GET OK", { format });
-      return url;
+
+    const arrayBuffer = await getRes.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    if (buffer.length < 1000) return null; // imagem muito pequena = erro
+
+    log.info("image-generation", "Pollinations.AI download OK", { format, bytes: buffer.length });
+
+    // Tenta fazer upload para Cloudinary (URL estável que o Meta consegue acessar)
+    const cloudUrl = await uploadImageBufferToCloudinary(buffer, `pollinations_${format}_${Date.now()}.jpg`);
+    if (cloudUrl) {
+      log.info("image-generation", "Pollinations → Cloudinary OK", { format, url: cloudUrl.slice(0, 60) });
+      return cloudUrl;
     }
-    return null;
+
+    // Sem Cloudinary: retorna a URL dinâmica mesmo (Meta pode ou não aceitar)
+    log.info("image-generation", "Pollinations.AI OK (sem Cloudinary)", { format });
+    return url;
   } catch (e: any) {
     log.warn("image-generation", "Pollinations.AI falhou", { error: e.message?.slice(0, 60) });
     return null;

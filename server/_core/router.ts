@@ -2367,6 +2367,9 @@ const campaignsRouter = router({
 
           // Salva métricas na tabela campaign_scores (upsert)
           await pool.query(`
+            DELETE FROM campaign_scores WHERE campaign_id = $1
+          `);
+          await pool.query(`
             INSERT INTO campaign_scores (
               campaign_id, user_id, project_id, score_total,
               platform, objective, niche,
@@ -2386,14 +2389,6 @@ const campaignsRouter = router({
             FROM campaigns c
             JOIN projects p ON p.id = c."projectId"
             WHERE c.id = $1
-            ON CONFLICT (campaign_id) DO UPDATE SET
-              metric_impressions = EXCLUDED.metric_impressions,
-              metric_clicks      = EXCLUDED.metric_clicks,
-              metric_ctr         = EXCLUDED.metric_ctr,
-              metric_cpc         = EXCLUDED.metric_cpc,
-              metric_cpm         = EXCLUDED.metric_cpm,
-              metric_spend       = EXCLUDED.metric_spend,
-              metric_roas        = EXCLUDED.metric_roas
           `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, purchases > 0 && spend > 0 ? (purchases * 100 / spend) : 0]);
 
           synced++;
