@@ -852,13 +852,7 @@ export const adminIntelligenceRouter = router({
                       score, statistical_conf, volume_weight, success_probability,
                       approved_by_admin, approved_at, status
                     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-                    ON CONFLICT (campaign_id) DO UPDATE SET
-                      score              = EXCLUDED.score,
-                      statistical_conf   = EXCLUDED.statistical_conf,
-                      volume_weight      = EXCLUDED.volume_weight,
-                      approved_by_admin  = EXCLUDED.approved_by_admin,
-                      status             = EXCLUDED.status,
-                      updated_at         = NOW()`,
+                    ON CONFLICT DO NOTHING`,
                     [
                       c.id, context.userId, context.projectId,
                       context.platform, context.objective, context.niche || "geral",

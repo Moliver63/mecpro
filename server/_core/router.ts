@@ -2393,8 +2393,7 @@ const campaignsRouter = router({
               metric_cpc         = EXCLUDED.metric_cpc,
               metric_cpm         = EXCLUDED.metric_cpm,
               metric_spend       = EXCLUDED.metric_spend,
-              metric_roas        = EXCLUDED.metric_roas,
-              updated_at         = NOW()
+              metric_roas        = EXCLUDED.metric_roas
           `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, purchases > 0 && spend > 0 ? (purchases * 100 / spend) : 0]);
 
           synced++;

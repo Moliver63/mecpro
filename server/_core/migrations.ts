@@ -713,6 +713,16 @@ export async function runMigrations(): Promise<void> {
         ON learning_base(platform, objective, niche)
     `).catch(() => {});
 
+    // ── Garante constraints únicas nas tabelas ML (caso migration anterior falhou) ─
+    await pool.query(`
+      ALTER TABLE winner_patterns ADD CONSTRAINT IF NOT EXISTS
+        uniq_winner_patterns_campaign UNIQUE(campaign_id)
+    `).catch(() => {});
+
+    await pool.query(`
+      ALTER TABLE campaign_scores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+    `).catch(() => {});
+
     // ── Localização e escopo geográfico ─────────────────────────────────────
     await pool.query(`
       ALTER TABLE client_profiles
