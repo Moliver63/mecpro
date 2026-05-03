@@ -2253,29 +2253,40 @@ export default function CampaignResult() {
                               <div style={{
                                 position: "absolute", inset: 0,
                                 display: "flex", flexDirection: "column", justifyContent: "flex-end",
-                                background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.18) 55%, transparent 100%)",
-                                padding: creativeFormat === "stories" ? "20px 14px" : "14px 12px",
+                                background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.15) 70%, transparent 100%)",
+                                padding: creativeFormat === "stories" ? "24px 14px" : "16px 12px",
                               }}>
                                 {cr.headline && (
                                   <p style={{
                                     color: "#fff", fontWeight: 800,
-                                    fontSize: creativeFormat === "stories" ? 17 : 13,
-                                    lineHeight: 1.25, margin: "0 0 6px",
-                                    textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+                                    fontSize: creativeFormat === "stories" ? 19 : 14,
+                                    lineHeight: 1.3, margin: "0 0 8px",
+                                    textShadow: "0 2px 8px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.8)",
                                     display: "-webkit-box", WebkitLineClamp: 3,
                                     WebkitBoxOrient: "vertical", overflow: "hidden",
                                   }}>
                                     {cr.headline}
                                   </p>
                                 )}
+                                {(cr.copy || cr.hook) && creativeFormat === "stories" && (
+                                  <p style={{
+                                    color: "rgba(255,255,255,0.88)", fontWeight: 500,
+                                    fontSize: 11, lineHeight: 1.4, margin: "0 0 10px",
+                                    textShadow: "0 1px 4px rgba(0,0,0,0.8)",
+                                    display: "-webkit-box", WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical", overflow: "hidden",
+                                  }}>
+                                    {(cr.copy || cr.hook || "").slice(0, 90)}
+                                  </p>
+                                )}
                                 {cr.cta && (
                                   <span style={{
                                     display: "inline-block", alignSelf: "flex-start",
                                     background: "#1877f2", color: "#fff",
-                                    fontWeight: 800, fontSize: 10,
-                                    padding: "5px 12px", borderRadius: 20,
+                                    fontWeight: 800, fontSize: 11,
+                                    padding: "7px 16px", borderRadius: 20,
                                     textTransform: "uppercase", letterSpacing: 0.5,
-                                    boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                                    boxShadow: "0 2px 12px rgba(0,0,0,0.4)",
                                   }}>
                                     {cr.cta}
                                   </span>

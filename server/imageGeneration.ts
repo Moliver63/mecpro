@@ -88,10 +88,12 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
     ? "full body portrait composition, person fully visible head to toe, centered frame, no cropping"
     : "upper body portrait or full scene, face and head always fully visible, no body cropping";
 
-  // Fix texto em outro idioma: proibir texto explicitamente com força máxima
-  const noTextFix = "ABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO SIGNS anywhere in the image. Pure visual photography only.";
+  // Fix texto: instrução máxima — colocada no INÍCIO e FIM do prompt para ter prioridade
+  const noTextFix = "NO TEXT NO WORDS NO LETTERS NO TYPOGRAPHY NO WRITING NO SIGNS NO LOGOS. Pure clean photography, text-free image.";
+  const noTextPrefix = "text-free photography, no words, no letters, no typography —";
 
   const parts = [
+    noTextPrefix, // NO INÍCIO — maior peso no modelo
     `Professional Brazilian advertising photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
@@ -103,7 +105,8 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
     compositionFix,
     "Photorealistic, high-end production quality, cinematic lighting, sharp focus on subjects.",
     noTextFix,
-    "Clean background areas for text overlay. Suitable for Meta Ads Brasil.",
+    "Clean background with empty space in lower third for text overlay. No typography anywhere.",
+    noTextFix, // repetido intencionalmente para reforçar — modelos de imagem ignoram restrições únicas
   ].filter(Boolean).join(" ");
 
   return parts;
@@ -582,7 +585,10 @@ const tryPollinations = async (prompt: string, format: CreativeImageFormat): Pro
     const encoded = encodeURIComponent(prompt.slice(0, 500));
     // notext=true: instrui o modelo a não gerar texto na imagem
     // enhance=true: melhora composição e qualidade geral
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&notext=true&enhance=true&model=flux&seed=${Date.now()}`;
+    // 'flux' com negative prompt forte via prompt engineering
+    // notext=true: parâmetro nativo do Pollinations para suprimir texto
+    const negativeEncoded = encodeURIComponent("text, words, letters, typography, writing, watermark, logo, sign, label, caption, title, heading, font");
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&notext=true&enhance=true&model=flux&negative=${negativeEncoded}&seed=${Date.now()}`;
 
     // Faz download da imagem (necessário — Meta não aceita URLs dinâmicas do Pollinations)
     const getRes = await fetch(url, { signal: AbortSignal.timeout(30000) }).catch(() => null);
