@@ -6069,6 +6069,7 @@ Gere JSON com:
       const features = buildMLFeatures(context as any, winnerParams as any, score);
 
       // Upsert em campaign_scores
+      await pool.query(`DELETE FROM campaign_scores WHERE campaign_id = $1`, [campaignId]).catch(() => {});
       await pool.query(`
         INSERT INTO campaign_scores (
           campaign_id, user_id, project_id, score_total,
@@ -6081,12 +6082,7 @@ Gere JSON com:
           is_false_winner, false_winner_reason,
           score_explanation, key_insights, engine_version
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
-        ON CONFLICT (campaign_id) DO UPDATE SET
-          score_total        = EXCLUDED.score_total,
-          score_creative     = EXCLUDED.score_creative,
-          score_explanation  = EXCLUDED.score_explanation,
-          key_insights       = EXCLUDED.key_insights,
-          updated_at         = NOW()`,
+ON CONFLICT DO NOTHING`,
         [
           campaignId, userId, projectId, score.total,
           score.ctr ?? 0, score.cpc ?? 0, score.cpm ?? 0, score.roas ?? 0,
@@ -6101,6 +6097,7 @@ Gere JSON com:
       );
 
       // Upsert em ml_dataset — colunas individuais (schema real da tabela)
+      await pool.query(`DELETE FROM ml_dataset WHERE campaign_id = $1`, [campaignId]).catch(() => {});
       await pool.query(`
         INSERT INTO ml_dataset (
           campaign_id, feature_platform, feature_objective, feature_niche,
@@ -6112,12 +6109,7 @@ Gere JSON com:
           label_score, label_ctr, label_cpc, label_roas,
           label_is_winner, label_success_probability, split_group
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
-        ON CONFLICT (campaign_id) DO UPDATE SET
-          label_score     = EXCLUDED.label_score,
-          label_ctr       = EXCLUDED.label_ctr,
-          label_cpc       = EXCLUDED.label_cpc,
-          label_is_winner = EXCLUDED.label_is_winner,
-          split_group     = EXCLUDED.split_group`,
+ON CONFLICT DO NOTHING`,
         [
           campaignId,
           (features as any).feature_platform     || context.platform,

@@ -9,14 +9,15 @@ const IMAGE_CACHE = new Map<string, string>();
 // FLUX.1-schnell: gratuito, rápido (4 steps), nova API
 // SD 3.5 Large: alta qualidade, nova API
 // SDXL Turbo: fallback rápido
+// HF hf-inference não suporta mais modelos de imagem (todos retornam 404/410/400)
+// Usando Inference API nativa com modelos que ainda funcionam
 const HF_MODELS = [
-  // FLUX.1-dev: melhor qualidade, disponível via router HF
-  "black-forest-labs/FLUX.1-dev",
-  // FLUX.1-schnell: rápido, fallback
-  "black-forest-labs/FLUX.1-schnell",
-  // SD 3.5: fallback adicional
-  "stabilityai/stable-diffusion-3.5-medium",
+  // Modelos disponíveis via HF Inference API (router endpoint)
+  "black-forest-labs/FLUX.1-schnell",  // tentativa — pode funcionar com URL correta
 ];
+
+// URL correta para HF Inference API (não hf-inference provider)
+const HF_ROUTER_URL = "https://router.huggingface.co/fal-ai/flux/schnell";
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
   feed: { width: 1080, height: 1350, ratio: "4:5", label: "Meta Feed" },
@@ -259,31 +260,43 @@ export async function uploadBase64ImageToCloudinary(base64Data: string, fileName
   return uploadImageBufferToCloudinary(Buffer.from(base64Clean, "base64"), fileName);
 }
 
-async function generateWithHuggingFace(prompt: string, apiKey: string, format: CreativeImageFormat): Promise<Buffer | null> {
+async function generateWithHuggingFace(prompt: string, apiKey: string, format: CreativeImageFormat): Promise<string | null> {
   const dim = FORMAT_DIMENSIONS[format];
 
   for (const model of HF_MODELS) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        // Todos os modelos usam a nova API do router HF
-        const apiUrl = "https://router.huggingface.co/hf-inference/models/" + model + "/v1/text-to-image";
+        // FAL-AI endpoint via HF router (suporta FLUX sem precisar de créditos FAL direto)
+        const apiUrl = model.includes("schnell")
+          ? "https://router.huggingface.co/fal-ai/flux/schnell"
+          : "https://router.huggingface.co/hf-inference/models/" + model + "/v1/text-to-image";
 
         // Payload adapta por modelo:
         // FLUX.1-schnell: sem guidance_scale, poucos steps
         // SD 3.5 / SDXL: com width/height e guidance
-        const isFlux   = model.includes("FLUX");
+        const isFlux   = model.includes("FLUX") || model.includes("schnell");
+        const isFalAi  = apiUrl.includes("fal-ai");
         const isTurbo  = model.includes("turbo");
-        const params: Record<string, any> = { inputs: prompt };
-        if (!isFlux) {
-          params.parameters = {
-            width:               Math.min(dim.width,  1024),
-            height:              Math.min(dim.height, 1024),
-            num_inference_steps: isTurbo ? 4 : 28,
-            guidance_scale:      isTurbo ? 0 : 7,
+        
+        let params: Record<string, any>;
+        if (isFalAi) {
+          // FAL-AI via HF router: payload diferente
+          params = {
+            prompt,
+            image_size: format === "stories" ? "portrait_16_9"
+              : format === "square"  ? "square_hd"
+              : "portrait_4_3",
+            num_inference_steps: 4,
+            num_images: 1,
+            enable_safety_checker: false,
           };
+        } else if (!isFlux) {
+          params = { inputs: prompt, parameters: {
+            width: Math.min(dim.width, 1024), height: Math.min(dim.height, 1024),
+            num_inference_steps: isTurbo ? 4 : 28, guidance_scale: isTurbo ? 0 : 7,
+          }};
         } else {
-          // FLUX.1-schnell: apenas steps (sem guidance_scale)
-          params.parameters = { num_inference_steps: 4 };
+          params = { inputs: prompt, parameters: { num_inference_steps: 4 } };
         }
 
         const res = await fetch(apiUrl, {
@@ -318,6 +331,26 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
         }
 
         const contentType = res.headers.get("content-type") || "";
+        
+        // FAL-AI retorna JSON com URL da imagem gerada
+        if (isFalAi && contentType.includes("application/json")) {
+          const falData: any = await res.json().catch(() => ({}));
+          const falUrl = falData?.images?.[0]?.url || falData?.image?.url;
+          if (falUrl) {
+            // Faz download da imagem e upload para Cloudinary
+            const imgRes = await fetch(falUrl, { signal: AbortSignal.timeout(20000) }).catch(() => null);
+            if (imgRes?.ok) {
+              const buf = Buffer.from(await imgRes.arrayBuffer());
+              const cloudUrl = await uploadImageBufferToCloudinary(buf, `flux_${format}_${Date.now()}.jpg`);
+              if (cloudUrl) {
+                log.info("image-generation", "HF FAL-AI → Cloudinary OK", { model, format, url: cloudUrl.slice(0, 60) });
+                return cloudUrl;
+              }
+            }
+          }
+          break; // FAL-AI falhou
+        }
+        
         if (!contentType.includes("image")) {
           const preview = await res.text().catch(() => "");
           log.warn("image-generation", "HF retornou conteúdo não-imagem", { model, preview: preview.slice(0, 160) });
@@ -325,7 +358,14 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
         }
 
         const arrayBuffer = await res.arrayBuffer();
-        return Buffer.from(arrayBuffer);
+        const hfBuffer = Buffer.from(arrayBuffer);
+        // Upload para Cloudinary — URL estável necessária para Meta Ads
+        const cloudUrl = await uploadImageBufferToCloudinary(hfBuffer, `hf_${format}_${Date.now()}.jpg`);
+        if (cloudUrl) {
+          log.info("image-generation", "HF → Cloudinary OK", { model, format, url: cloudUrl.slice(0, 60) });
+          return cloudUrl;
+        }
+        return null; // sem Cloudinary, buffer não pode ser usado como URL
       } catch (error: any) {
         log.warn("image-generation", "Erro na geração HF", { model, attempt, error: error?.message, format });
         if (attempt < 3) await sleep(1200 * attempt);
@@ -586,16 +626,10 @@ export async function generateAdImage(
   const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
     if (providerToTry === "huggingface" && apiKey) {
       const prompt = inferPrompt(creative, segment, objective, format);
-      const buffer = await generateWithHuggingFace(prompt, apiKey, format);
-      if (!buffer) return null;
-
-      const fileName = "creative-" + Date.now() + "-" + format + ".png";
-      const uploadedUrl = await uploadImageBufferToCloudinary(buffer, fileName);
-      if (uploadedUrl) return uploadedUrl;
-
-      log.info("image-generation", "HF gerou imagem — usando base64 data URL", { format });
-      const b64 = buffer.toString("base64");
-      return "data:image/png;base64," + b64;
+      // generateWithHuggingFace agora retorna URL (string) diretamente após upload Cloudinary
+      const hfUrl = await generateWithHuggingFace(prompt, apiKey, format);
+      if (hfUrl) return hfUrl;
+      return null;
     }
 
     if (providerToTry === "genspark") {
@@ -603,7 +637,9 @@ export async function generateAdImage(
     }
 
     if (providerToTry === "heygen") {
-      return await generateWithHeyGen(creative, objective, format);
+      // HeyGen desabilitado — endpoint /v2/image.generate retorna 404
+      // return await generateWithHeyGen(creative, objective, format);
+      return null;
     }
 
     return null;
