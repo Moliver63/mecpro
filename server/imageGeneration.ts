@@ -83,18 +83,27 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
   };
   const mood = objToMood[objective] || "performance marketing";
 
+  // Fix pessoa sem cabeça: sempre especificar composição completa
+  const compositionFix = format === "stories"
+    ? "full body portrait composition, person fully visible head to toe, centered frame, no cropping"
+    : "upper body portrait or full scene, face and head always fully visible, no body cropping";
+
+  // Fix texto em outro idioma: proibir texto explicitamente com força máxima
+  const noTextFix = "ABSOLUTELY NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO LOGOS, NO WATERMARKS, NO SIGNS anywhere in the image. Pure visual photography only.";
+
   const parts = [
-    `Professional Brazilian advertising photo for ${dim.label} (${dim.ratio} ratio).`,
+    `Professional Brazilian advertising photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
-    niche    ? `Industry context: ${niche}.` : "",
-    hook     ? `Visual concept based on: "${hook.slice(0, 80)}".` : "",
-    headline ? `Supporting message: "${headline.slice(0, 60)}".` : "",
-    pain     ? `Addresses pain point: ${pain.slice(0, 60)}.` : "",
-    solution ? `Shows solution: ${solution.slice(0, 60)}.` : "",
-    "Photorealistic, high-end production quality, cinematic lighting.",
-    "Leave clean space for text overlay. No text, logos or watermarks in image.",
-    "Suitable for Meta Ads, Instagram Feed and Stories.",
+    niche    ? `Brazilian market context: ${niche}.` : "",
+    hook     ? `Visual concept: ${hook.slice(0, 80)}.` : "",
+    headline ? `Scene theme: ${headline.slice(0, 60)}.` : "",
+    pain     ? `Relatable situation: ${pain.slice(0, 60)}.` : "",
+    solution ? `Visual resolution: ${solution.slice(0, 60)}.` : "",
+    compositionFix,
+    "Photorealistic, high-end production quality, cinematic lighting, sharp focus on subjects.",
+    noTextFix,
+    "Clean background areas for text overlay. Suitable for Meta Ads Brasil.",
   ].filter(Boolean).join(" ");
 
   return parts;
@@ -571,7 +580,9 @@ const tryPollinations = async (prompt: string, format: CreativeImageFormat): Pro
   try {
     const dim = FORMAT_DIMENSIONS[format];
     const encoded = encodeURIComponent(prompt.slice(0, 500));
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&model=flux&seed=${Date.now()}`;
+    // notext=true: instrui o modelo a não gerar texto na imagem
+    // enhance=true: melhora composição e qualidade geral
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&notext=true&enhance=true&model=flux&seed=${Date.now()}`;
 
     // Faz download da imagem (necessário — Meta não aceita URLs dinâmicas do Pollinations)
     const getRes = await fetch(url, { signal: AbortSignal.timeout(30000) }).catch(() => null);
