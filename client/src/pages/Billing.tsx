@@ -221,7 +221,7 @@ export default function Billing() {
                       className={`btn btn-md btn-full ${p.highlight ? "btn-green" : "btn-outline"}`}
                       disabled={isCurrent}
                       onClick={() => { if (!isCurrent) window.location.href = `/checkout/asaas?plan=${p.slug}&billing=${billing}`; }}>
-                      {isCurrent ? "✓ Plano atual" : "⚡ Pagar com Pix"}
+                      {isCurrent ? "✓ Plano atual" : "Assinar"}
                     </button>
                     {!isCurrent && <p style={{ fontSize:11, color:"#9ca3af", textAlign:"center", margin:"4px 0 0" }}>QR Code gerado na próxima tela · Pix instantâneo</p>}
                   </>
@@ -232,7 +232,7 @@ export default function Billing() {
                       className={`btn btn-md btn-full ${p.highlight ? "btn-green" : "btn-outline"}`}
                       disabled={isCurrent}
                       onClick={() => { if (!isCurrent) createCheckout.mutate({ planSlug: p.slug as any, billing }); }}>
-                      {isCurrent ? "✓ Plano atual" : "💳 Pagar com Cartão"}
+                      {isCurrent ? "✓ Plano atual" : "Assinar"}
                     </button>
 
                     {!isCurrent && pixEnabled && (
