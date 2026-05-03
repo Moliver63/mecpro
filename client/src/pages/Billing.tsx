@@ -213,22 +213,29 @@ export default function Billing() {
               </div>
 
               <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-                {/* Cartão */}
-                <button
-                  className={`btn btn-md btn-full ${p.highlight ? "btn-green" : "btn-outline"}`}
-                  disabled={isCurrent}
-                  onClick={() => {
-                    if (activeGateway === "asaas") {
-                      window.location.href = `/checkout/asaas?plan=${p.slug}&billing=${billing}`;
-                    } else {
-                      createCheckout.mutate({ planSlug: p.slug as any, billing });
-                    }
-                  }}>
-                  {isCurrent ? "✓ Plano atual" : activeGateway === "asaas" ? "⚡ Pagar com Pix" : "💳 Pagar com Cartão"}
-                </button>
 
-                {/* Pix — só exibe se pixEnabled e não for plano atual */}
-                {!isCurrent && pixEnabled && (
+                {activeGateway === "asaas" ? (
+                  /* ── Asaas: apenas Pix ── */
+                  <>
+                    <button
+                      className={`btn btn-md btn-full ${p.highlight ? "btn-green" : "btn-outline"}`}
+                      disabled={isCurrent}
+                      onClick={() => { if (!isCurrent) window.location.href = `/checkout/asaas?plan=${p.slug}&billing=${billing}`; }}>
+                      {isCurrent ? "✓ Plano atual" : "⚡ Pagar com Pix"}
+                    </button>
+                    {!isCurrent && <p style={{ fontSize:11, color:"#9ca3af", textAlign:"center", margin:"4px 0 0" }}>QR Code gerado na próxima tela · Pix instantâneo</p>}
+                  </>
+                ) : (
+                  /* ── Stripe: Cartão + Pix opcional ── */
+                  <>
+                    <button
+                      className={`btn btn-md btn-full ${p.highlight ? "btn-green" : "btn-outline"}`}
+                      disabled={isCurrent}
+                      onClick={() => { if (!isCurrent) createCheckout.mutate({ planSlug: p.slug as any, billing }); }}>
+                      {isCurrent ? "✓ Plano atual" : "💳 Pagar com Cartão"}
+                    </button>
+
+                    {!isCurrent && pixEnabled && (
                   <button
                     onClick={() => setPixPlan(p)}
                     style={{
@@ -239,6 +246,8 @@ export default function Billing() {
                     }}>
                     <span style={{ fontSize:16 }}>⚡</span> Pagar com Pix
                   </button>
+                )}
+                  </>
                 )}
               </div>
             </div>

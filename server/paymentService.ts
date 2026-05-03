@@ -164,9 +164,8 @@ class AsaasProvider implements PaymentProvider {
 
     const customerId = await this.createCustomer({ userId: data.userId, email: data.email, cpfCnpj: data.cpfCnpj });
 
-    const nextDue = new Date();
-    nextDue.setDate(nextDue.getDate() + 1);
-    const dueDateStr = nextDue.toISOString().split("T")[0];
+    // Vencimento HOJE — Asaas gera o QR Code Pix imediatamente
+    const todayStr = new Date().toISOString().split("T")[0];
 
     const res = await fetch("https://api.asaas.com/v3/subscriptions", {
       method: "POST", headers: this.headers(), signal: AbortSignal.timeout(10000),
@@ -174,10 +173,11 @@ class AsaasProvider implements PaymentProvider {
         customer:         customerId,
         billingType:      "PIX",
         value:            amount,
-        nextDueDate:      dueDateStr,
+        nextDueDate:      todayStr,          // hoje → QR Code gerado imediatamente
         cycle,
         description:      `MECProAI ${data.planSlug} ${cycle.toLowerCase()}`,
         externalReference:`user_${data.userId}_${data.planSlug}`,
+        sendPaymentByPostalService: false,   // não envia por email automaticamente
       }),
     });
     const rd: any = await res.json();
@@ -185,8 +185,43 @@ class AsaasProvider implements PaymentProvider {
 
     log.info("asaas", "Assinatura criada", { userId: data.userId, planSlug: data.planSlug, subId: rd.id });
 
-    // Busca Pix da primeira cobrança
+    // Busca QR Code Pix diretamente (não espera redirect)
     const appUrl = data.appUrl || process.env.APP_URL || "https://www.mecproai.com";
+
+    // Tenta buscar o QR code da primeira cobrança gerada
+    try {
+      const key = process.env.ASAAS_API_KEY!;
+      const pmRes = await fetch(
+        `https://api.asaas.com/v3/payments?subscription=${rd.id}&limit=1`,
+        { headers: { "access_token": key }, signal: AbortSignal.timeout(6000) }
+      );
+      const pmData: any = await pmRes.json();
+      const payment = pmData?.data?.[0];
+
+      if (payment?.id) {
+        const pixRes = await fetch(
+          `https://api.asaas.com/v3/payments/${payment.id}/pixQrCode`,
+          { headers: { "access_token": key }, signal: AbortSignal.timeout(6000) }
+        );
+        const pixData: any = await pixRes.json();
+
+        if (pixData?.payload) {
+          log.info("asaas", "QR Code Pix obtido diretamente", { paymentId: payment.id });
+          // Retorna pixCode direto — frontend não precisa redirecionar
+          return {
+            pixCode:   pixData.payload,
+            pixQr:     pixData.encodedImage || "",
+            expiresAt: payment.dueDate || "",
+            value:     payment.value || 0,
+            invoiceId: rd.id,
+          } as any;
+        }
+      }
+    } catch (e: any) {
+      log.warn("asaas", "Falha ao buscar QR Code direto — redirecionando", { error: e.message });
+    }
+
+    // Fallback: redireciona para página de checkout
     return {
       url:       `${appUrl}/checkout/asaas?sub=${rd.id}&plan=${data.planSlug}`,
       invoiceId: rd.id,
