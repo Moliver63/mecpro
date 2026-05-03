@@ -1367,10 +1367,6 @@ export default function CompetitorAnalysis() {
 
                   return (
                     <div key={c.id}>
-                      {isEditing && (
-                        <EditCompetitorForm comp={c} onDone={() => { setEditing(null); refetch(); }} onCancel={() => setEditing(null)} />
-                      )}
-
                       <div onClick={() => { if (!isAnalyzing && !isEditing) { setSelected(isActive ? null : c.id); setAdding(false); } }}
                         style={{
                           background: "white",
@@ -1449,8 +1445,8 @@ export default function CompetitorAnalysis() {
                             </button>
                           )}
                           <button className="btn btn-sm btn-ghost"
-                            onClick={e => { e.stopPropagation(); setEditing(isEditing ? null : c.id); setSelected(null); }}
-                            style={{ fontSize: 11, padding: "0 10px" }}>✏️</button>
+                            onClick={e => { e.stopPropagation(); setEditing(c.id); setSelected(null); }}
+                            style={{ fontSize: 13, padding: "0 12px", minWidth: 36, height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>✏️</button>
                           {c.facebookPageUrl && (
                             <a href={c.facebookPageUrl} target="_blank" rel="noopener noreferrer"
                               onClick={e => e.stopPropagation()}
@@ -1465,6 +1461,8 @@ export default function CompetitorAnalysis() {
                     </div>
                   );
                 })}
+
+
 
                 {filteredCompetitors.length === 0 && searchQ && (
                   <div style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>
@@ -1572,7 +1570,43 @@ export default function CompetitorAnalysis() {
         @keyframes loading-bar { 0% { width: 0% } 50% { width: 80% } 100% { width: 60% } }
         @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }
         @keyframes bounce { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-4px) } }
+        @keyframes slideUp { from { transform: translateY(100%) } to { transform: translateY(0) } }
       `}</style>
+
+      {/* ── Modal de edição de concorrente — nível raiz da página ── */}
+      {editing !== null && (() => {
+        const editComp = (competitors || []).find((c: any) => c.id === editing);
+        if (!editComp) return null;
+        return (
+          <div
+            style={{
+              position: "fixed", inset: 0, zIndex: 2000,
+              display: "flex", alignItems: "flex-end",
+              background: "rgba(0,0,0,0.5)",
+            }}
+            onClick={e => { if (e.target === e.currentTarget) setEditing(null); }}
+          >
+            <div style={{
+              width: "100%", maxWidth: 560, margin: "0 auto",
+              background: "white",
+              borderRadius: "20px 20px 0 0",
+              maxHeight: "92vh", overflowY: "auto",
+              padding: "8px 20px 32px",
+              boxShadow: "0 -8px 48px rgba(0,0,0,0.25)",
+              animation: "slideUp 0.22s ease",
+            }}>
+              {/* Handle bar */}
+              <div style={{ width: 40, height: 4, background: "#e2e8f0", borderRadius: 99, margin: "12px auto 20px" }} />
+              <EditCompetitorForm
+                comp={editComp}
+                onDone={() => { setEditing(null); refetch(); }}
+                onCancel={() => setEditing(null)}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
     </Layout>
   );
 }
