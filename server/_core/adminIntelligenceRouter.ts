@@ -842,7 +842,11 @@ export const adminIntelligenceRouter = router({
                 const params   = extractWinnerParameters(context, score, metrics);
                 const template = buildRecommendedTemplate(params, context.platform, context.objective, context.niche || "geral");
 
+
+
+                // Upsert: delete + insert para garantir dados atualizados
                 if (pool) {
+                  await pool.query(`DELETE FROM winner_patterns WHERE campaign_id = $1`, [c.id]).catch(() => {});
                   await pool.query(`
                     INSERT INTO winner_patterns (
                       campaign_id, user_id, project_id,
@@ -851,8 +855,7 @@ export const adminIntelligenceRouter = router({
                       trigger_types, media_types, key_factors, recommendations,
                       score, statistical_conf, volume_weight, success_probability,
                       approved_by_admin, approved_at, status
-                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-                    ON CONFLICT DO NOTHING`,
+                    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
                     [
                       c.id, context.userId, context.projectId,
                       context.platform, context.objective, context.niche || "geral",

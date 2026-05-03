@@ -86,7 +86,7 @@ async function fetchGoogleCompetitorInsights(
     seeds.push({ keyword: compName });
     if (seeds.length === 0) return false;
 
-    const kpUrl = `https://googleads.googleapis.com/v19_1/customers/${customerId}:generateKeywordIdeas`;
+    const kpUrl = `https://googleads.googleapis.com/v19/customers/${customerId}:generateKeywordIdeas`;
     const kpBody = {
       keywordSeed:        { keywords: [compName] },
       urlSeed:            websiteUrl ? { url: websiteUrl } : undefined,
@@ -4666,23 +4666,32 @@ Responda SOMENTE em JSON:
       log.info("ai", "Website scraping direto falhou — tentando HF Space", { message: e.message?.slice(0, 60) });
     }
 
-    // ① Raspa o site
-    const scrapeRes = await fetch(`${MECPRO_AI_URL}/scrape-website`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      signal:  AbortSignal.timeout(AI_TIMEOUTS.websiteScrapeMs),
-      body: JSON.stringify({ url: websiteUrl, competitorName: compName, maxPages: 3 }),
-    });
-
-    if (!scrapeRes.ok) {
-      log.warn("ai", "scrape-website falhou", { status: scrapeRes.status });
-      return false;
+    // ① Raspa o site — timeout curto para não bloquear o pipeline
+    let scrapeData: any = null;
+    if (MECPRO_AI_URL) {
+      try {
+        const scrapeRes = await fetch(`${MECPRO_AI_URL}/scrape-website`, {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          signal:  AbortSignal.timeout(Math.min(AI_TIMEOUTS.websiteScrapeMs, 8000)),
+          body: JSON.stringify({ url: websiteUrl, competitorName: compName, maxPages: 2 }),
+        });
+        if (scrapeRes.ok) {
+          const sd = await scrapeRes.json() as any;
+          if (sd.success && sd.data?.title) scrapeData = sd;
+          else log.warn("ai", "scrape-website retornou vazio", { success: sd.success });
+        } else {
+          log.warn("ai", "scrape-website HTTP falhou", { status: scrapeRes.status });
+        }
+      } catch (e: any) {
+        log.warn("ai", "scrape-website timeout/unreachable", { message: e.message?.slice(0, 50) });
+      }
     }
 
-    const scrapeData = await scrapeRes.json() as any;
-    if (!scrapeData.success || !scrapeData.data?.title) {
-      log.warn("ai", "scrape-website retornou vazio", { success: scrapeData.success });
-      return false;
+    // Se HF Space falhou, tenta scraping direto simplificado via Gemini grounding
+    if (!scrapeData) {
+      log.info("ai", "[M2] HF Space indisponível — usando Gemini grounding como substituto de scraping", { compName, websiteUrl });
+      return false; // Deixa o pipeline continuar para fetchViaSEOAnalysis
     }
 
     log.info("ai", "scrape-website OK", {
