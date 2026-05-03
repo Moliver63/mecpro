@@ -345,6 +345,9 @@ function TabRanking() {
   const ranking = query?.data?.ranking ?? [];
 
   if (query?.isLoading) return <Loader />;
+  if (query?.isError)   return (
+    <EmptyState icon="🏆" title="Ranking indisponível" sub="Execute 'Score em lote' para calcular os scores das campanhas." />
+  );
 
   return (
     <div>
@@ -368,11 +371,11 @@ function TabRanking() {
           {/* Top 3 */}
           {ranking.length >= 3 && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: 14, marginBottom: 24 }}>
-              {[ranking[1], ranking[0], ranking[2]].map((c: any, idx: number) => {
+              {[ranking[1], ranking[0], ranking[2]].filter(Boolean).map((c: any, idx: number) => {
                 const pos    = idx === 1 ? 1 : idx === 0 ? 2 : 3;
                 const medals = ["🥈","🥇","🥉"];
                 return (
-                  <div key={c.campaign_id} style={{
+                  <div key={c.campaign_id || idx} style={{
                     background: pos === 1 ? "linear-gradient(135deg,#fef9c3,#fde68a)" : "white",
                     border: `2px solid ${pos === 1 ? "#f59e0b" : "#e2e8f0"}`,
                     borderRadius: 18, padding: 20, textAlign: "center",
@@ -1447,7 +1450,11 @@ export default function AdminCampaignIntelligence() {
             onExtract={id => extractMutation?.mutate({ campaignId: id, approveNow: false })}
           />
         )}
-        {activeTab === "ranking"  && <TabRanking />}
+        {activeTab === "ranking"  && (
+        <ErrorBoundary fallback={<div style={{padding:24,textAlign:"center",color:"#ef4444"}}>⚠️ Erro ao carregar Ranking. <button onClick={() => window.location.reload()} style={{color:"#3b82f6",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Recarregar</button></div>}>
+          <TabRanking />
+        </ErrorBoundary>
+      )}
         {activeTab === "insights" && <TabInsights />}
         {activeTab === "compare"  && <TabCompare />}
         {activeTab === "patterns" && <TabPatterns onApprove={id => approveMutation?.mutate({ patternId: id })} />}
