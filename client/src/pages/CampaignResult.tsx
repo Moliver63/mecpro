@@ -467,7 +467,7 @@ export default function CampaignResult() {
     },
   }) ?? { mutateAsync: null, isLoading: false };
 
-  const regenerateCreativeImageMutation = (trpc as any).campaigns?.regenerateCreativeImage?.useMutation?.({
+  const regenerateCreativeImageMutation = trpc.campaigns.regenerateCreativeImage.useMutation({
     onSuccess: (data: any) => {
       if (data?.diagnostics?.reason) {
         toast.warning(`🖼️ Imagem atualizada com fallback: ${data.diagnostics.reason}`);
@@ -477,7 +477,7 @@ export default function CampaignResult() {
       refetchCampaign?.();
     },
     onError: (e: any) => toast.error("Erro ao regenerar imagem: " + e.message),
-  }) ?? { mutate: () => {}, isLoading: false };
+  });
 
   const discoverPageIdMutation = (trpc as any).competitors?.discoverPageId?.useMutation?.({
     onSuccess: (data: any) => {
@@ -1718,14 +1718,14 @@ export default function CampaignResult() {
 
   return (
     <Layout>
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 4px", fontFamily: "var(--font)" }}>
+      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 16px", fontFamily: "var(--font)" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setLocation(`/projects/${projectId}/campaign`)} style={{ paddingLeft: 0 }}>← Módulo 4</button>
           </div>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>{c.name}</h1>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(18px, 4vw, 26px)", fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>{c.name}</h1>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 11, fontWeight: 700, background: "var(--green-xl)", color: "var(--green-dk)", padding: "3px 10px", borderRadius: 6 }}>{c.objective}</span>
             <span style={{ fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1e40af", padding: "3px 10px", borderRadius: 6 }}>{c.platform}</span>
@@ -2230,7 +2230,7 @@ export default function CampaignResult() {
                   </div>
                 ) : (
                   <>
-                    <div style={{ display: "grid", gridTemplateColumns: creativeImage ? "clamp(160px,22%,220px) 1fr" : "1fr", gap: 16, alignItems: "start" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: creativeImage ? "clamp(180px,28%,260px) 1fr" : "1fr", gap: 18, alignItems: "start" }}>
                       <div>
                         {/* Preview: vídeo ou imagem */}
                         {creativeVideoPreviews[i] ? (
@@ -2250,9 +2250,10 @@ export default function CampaignResult() {
                             color: "#64748b", cursor: "pointer", textAlign: "center", padding: 16,
                             transition: "all .2s",
                           }}>
-                            <div style={{ fontSize: 32, marginBottom: 8 }}>📤</div>
-                            <div style={{ fontSize: 12, fontWeight: 800, color: "#334155", marginBottom: 4 }}>Subir foto ou vídeo</div>
-                            <div style={{ fontSize: 10, color: "#94a3b8" }}>JPG, PNG, MP4, MOV</div>
+                            <div style={{ fontSize: 28, marginBottom: 6 }}>🖼️</div>
+                            <div style={{ fontSize: 12, fontWeight: 800, color: "#334155", marginBottom: 4 }}>Sem imagem ainda</div>
+                            <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 4 }}>Gere com IA ou suba uma foto</div>
+                            <div style={{ fontSize: 9, color: "#cbd5e1" }}>JPG, PNG, MP4, MOV</div>
                           </label>
                         )}
 
@@ -2294,14 +2295,31 @@ export default function CampaignResult() {
                         {/* Regenerar com IA */}
                         <button
                           onClick={() => regenerateCreativeImageMutation.mutate({ campaignId: id, creativeIndex: i, format: creativeFormat })}
-                          disabled={regenerateCreativeImageMutation.isLoading}
-                          style={{ width: "100%", fontSize: 11, fontWeight: 700, background: "var(--off)", color: "var(--muted)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 0", cursor: "pointer", marginTop: 4 }}>
-                          🤖 {regenerateCreativeImageMutation.isLoading ? "Gerando..." : "Gerar imagem com IA"}
+                          disabled={regenerateCreativeImageMutation.isPending}
+                          style={{ width: "100%", fontSize: 11, fontWeight: 700,
+                            background: regenerateCreativeImageMutation.isPending ? "#e0e7ff" : "#eef2ff",
+                            color: regenerateCreativeImageMutation.isPending ? "#4338ca" : "#4f46e5",
+                            border: "1px solid #c7d2fe", borderRadius: 8, padding: "7px 0", cursor: regenerateCreativeImageMutation.isPending ? "wait" : "pointer", marginTop: 4,
+                            display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                          {regenerateCreativeImageMutation.isPending ? "⏳ Gerando imagem..." : "✨ Gerar imagem com IA"}
                         </button>
 
-                        {/* Badge de formato */}
-                        <div style={{ textAlign: "center", marginTop: 6, fontSize: 10, fontWeight: 700, color: "#64748b" }}>
-                          {creativeFormat === "stories" ? "⭕ Stories 9:16" : creativeFormat === "square" ? "⬜ Square 1:1" : "📱 Feed 4:5"}
+                        {/* Status de imagens por formato */}
+                        <div style={{ display: "flex", gap: 4, marginTop: 6, justifyContent: "center" }}>
+                          {[
+                            { key: "feed",    label: "Feed",    icon: "📱", has: !!(mergedCreative.feedImageUrl   || mergedCreative.feedImageHash) },
+                            { key: "stories", label: "Story",   icon: "⭕", has: !!(mergedCreative.storyImageUrl  || mergedCreative.storyImageHash) },
+                            { key: "square",  label: "Square",  icon: "⬜", has: !!(mergedCreative.squareImageUrl || mergedCreative.squareImageHash) },
+                          ].map(f => (
+                            <div key={f.key} style={{
+                              fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 6,
+                              background: f.has ? "#dcfce7" : "#f1f5f9",
+                              color: f.has ? "#166534" : "#94a3b8",
+                              border: `1px solid ${f.has ? "#bbf7d0" : "#e2e8f0"}`,
+                            }}>
+                              {f.icon} {f.has ? "✓" : "—"}
+                            </div>
+                          ))}
                         </div>
                       </div>
                       <div>
