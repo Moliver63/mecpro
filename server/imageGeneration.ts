@@ -403,19 +403,39 @@ async function generateWithCloudflare(
       return null;
     }
 
-    // Cloudflare retorna a imagem como binário direto (image/png)
+    // Cloudflare pode retornar:
+    // 1. JSON { result: { image: "base64..." } }  ← formato atual da REST API
+    // 2. Binário image/png                         ← formato antigo / Workers binding
     const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("image")) {
+    let buffer: Buffer | null = null;
+
+    if (contentType.includes("application/json")) {
+      // Formato JSON — extrai base64
+      const json: any = await res.json().catch(() => null);
+      const b64 = json?.result?.image || json?.image || json?.result;
+      if (typeof b64 === "string" && b64.length > 100) {
+        buffer = Buffer.from(b64, "base64");
+        log.info("image-generation", "Cloudflare JSON base64 OK", { format, bytes: buffer.length });
+      } else {
+        log.warn("image-generation", "Cloudflare JSON sem imagem", { keys: Object.keys(json?.result || json || {}) });
+        return null;
+      }
+    } else if (contentType.includes("image")) {
+      // Formato binário
+      buffer = Buffer.from(await res.arrayBuffer());
+    } else {
       const txt = await res.text().catch(() => "");
-      log.warn("image-generation", "Cloudflare retornou não-imagem", { contentType, preview: txt.slice(0, 80) });
+      log.warn("image-generation", "Cloudflare formato desconhecido", { contentType, preview: txt.slice(0, 80) });
       return null;
     }
 
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (buffer.length < 1000) { log.warn("image-generation", "Cloudflare imagem muito pequena", { bytes: buffer.length }); return null; }
+    if (!buffer || buffer.length < 1000) {
+      log.warn("image-generation", "Cloudflare imagem muito pequena ou nula", { bytes: buffer?.length });
+      return null;
+    }
 
     // Upload para Cloudinary → URL estável para o Meta Ads
-    const cloudUrl = await uploadImageBufferToCloudinary(buffer, `cf_flux_${format}_${Date.now()}.png`);
+    const cloudUrl = await uploadImageBufferToCloudinary(buffer, `cf_flux_${format}_${Date.now()}.jpg`);
     if (cloudUrl) {
       log.info("image-generation", "Cloudflare → Cloudinary OK", { format, bytes: buffer.length, url: cloudUrl.slice(0, 60) });
       return cloudUrl;
