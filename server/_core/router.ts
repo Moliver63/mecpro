@@ -6032,9 +6032,17 @@ const subscriptionsRouter = router({
 
   createCheckout: protectedProcedure
     .input(z.object({
-      planSlug: z.enum(["basic", "premium", "vip"]),
-      billing:  z.enum(["monthly", "yearly"]).default("monthly"),
-      cpfCnpj:  z.string().optional(),
+      planSlug:       z.enum(["basic", "premium", "vip"]),
+      billing:        z.enum(["monthly", "yearly"]).default("monthly"),
+      cpfCnpj:        z.string().optional(),
+      paymentMethod:  z.enum(["pix", "credit_card"]).default("pix"),
+      card: z.object({
+        holderName:  z.string(),
+        number:      z.string(),
+        expiryMonth: z.string(),
+        expiryYear:  z.string(),
+        ccv:         z.string(),
+      }).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const { getActiveProvider } = await import("../paymentService");
@@ -6043,12 +6051,14 @@ const subscriptionsRouter = router({
 
       try {
         const result = await provider.createSubscription({
-          userId:   ctx.user.id,
-          email:    ctx.user.email,
-          planSlug: input.planSlug,
-          billing:  input.billing,
-          cpfCnpj:  input.cpfCnpj,
+          userId:        ctx.user.id,
+          email:         ctx.user.email,
+          planSlug:      input.planSlug,
+          billing:       input.billing,
+          cpfCnpj:       input.cpfCnpj,
           appUrl,
+          paymentMethod: input.paymentMethod,
+          card:          input.card as any,
         });
         log.info("payment", "Checkout criado", { gateway: provider.name, userId: ctx.user.id, planSlug: input.planSlug });
         return result;

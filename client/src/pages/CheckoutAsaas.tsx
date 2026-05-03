@@ -22,6 +22,9 @@ export default function CheckoutAsaas() {
   const { user } = useAuth();
   const [cpf, setCpf]         = useState("");
   const [loading, setLoading] = useState(false);
+  const [method, setMethod]   = useState<"pix" | "credit_card">("pix");
+  const [card, setCard]       = useState({ holderName:"", number:"", expiryMonth:"", expiryYear:"", ccv:"" });
+  const setCardField = (f: keyof typeof card, v: string) => setCard(p => ({ ...p, [f]: v }));
   const [pix, setPix]         = useState<{ code: string; qr: string; expires: string } | null>(null);
 
   const checkout = trpc.subscriptions.createCheckout.useMutation();
@@ -44,13 +47,23 @@ export default function CheckoutAsaas() {
   const label    = PLAN_LABELS[plan] || plan;
 
   async function handlePay() {
-    if (!cpf.replace(/\D/g, "").match(/^\d{11}$|^\d{14}$/)) {
+    if (!cpf.replace(/\D/g, "").match(/^\d{11}$|\d{14}$/)) {
       toast.error("Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido");
       return;
     }
+    if (method === "credit_card") {
+      if (!card.holderName.trim()) { toast.error("Informe o nome no cartão"); return; }
+      if (card.number.replace(/\s/g, "").length < 13) { toast.error("Número do cartão inválido"); return; }
+      if (!card.expiryMonth || !card.expiryYear) { toast.error("Informe a validade do cartão"); return; }
+      if (!card.ccv || card.ccv.length < 3) { toast.error("CVV inválido"); return; }
+    }
     setLoading(true);
     try {
-      const result = await checkout.mutateAsync({ planSlug: plan, billing, cpfCnpj: cpf }) as any;
+      const result = await checkout.mutateAsync({
+        planSlug: plan, billing, cpfCnpj: cpf,
+        paymentMethod: method,
+        card: method === "credit_card" ? card : undefined,
+      }) as any;
 
       if (result.pixCode) {
         // Gateway retornou Pix direto
@@ -141,6 +154,56 @@ export default function CheckoutAsaas() {
             <p style={{ fontSize: 11, color: "#9ca3af", marginTop: 6 }}>
               Necessário para emissão do Pix no Asaas
             </p>
+
+            {/* Campos do cartão */}
+            {method === "credit_card" && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Nome no cartão</label>
+                  <input className="input" placeholder="NOME SOBRENOME"
+                    value={card.holderName}
+                    onChange={e => setCardField("holderName", e.target.value.toUpperCase())}
+                    style={{ width: "100%", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Número do cartão</label>
+                  <input className="input" placeholder="0000 0000 0000 0000" maxLength={19}
+                    value={card.number}
+                    onChange={e => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 16);
+                      setCardField("number", v.replace(/(.{4})/g, "$1 ").trim());
+                    }}
+                    style={{ width: "100%", boxSizing: "border-box", letterSpacing: 2 }} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Mês</label>
+                    <select className="input" value={card.expiryMonth}
+                      onChange={e => setCardField("expiryMonth", e.target.value)} style={{ width: "100%" }}>
+                      <option value="">MM</option>
+                      {Array.from({length:12},(_,i)=>String(i+1).padStart(2,"0")).map(m =>
+                        <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Ano</label>
+                    <select className="input" value={card.expiryYear}
+                      onChange={e => setCardField("expiryYear", e.target.value)} style={{ width: "100%" }}>
+                      <option value="">AAAA</option>
+                      {Array.from({length:10},(_,i)=>String(new Date().getFullYear()+i)).map(y =>
+                        <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>CVV</label>
+                    <input className="input" placeholder="123" maxLength={4}
+                      value={card.ccv}
+                      onChange={e => setCardField("ccv", e.target.value.replace(/\D/g, ""))}
+                      style={{ width: "100%", boxSizing: "border-box" }} />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <button onClick={handlePay} disabled={loading}
               style={{ width: "100%", marginTop: 16, background: loading ? "#9ca3af" : "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "14px 0", fontSize: 15, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", transition: "background .15s" }}>

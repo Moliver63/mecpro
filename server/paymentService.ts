@@ -15,12 +15,20 @@ export interface CreateCustomerData {
 }
 
 export interface CreateSubscriptionData {
-  userId:    number;
-  email:     string;
-  planSlug:  "basic" | "premium" | "vip";
-  billing:   "monthly" | "yearly";
-  cpfCnpj?:  string;
-  appUrl?:   string;
+  userId:         number;
+  email:          string;
+  planSlug:       "basic" | "premium" | "vip";
+  billing:        "monthly" | "yearly";
+  cpfCnpj?:      string;
+  appUrl?:        string;
+  paymentMethod?: "pix" | "credit_card";
+  card?: {
+    holderName:  string;
+    number:      string;
+    expiryMonth: string;
+    expiryYear:  string;
+    ccv:         string;
+  };
 }
 
 export interface CreatePaymentData {
@@ -164,68 +172,83 @@ class AsaasProvider implements PaymentProvider {
 
     const customerId = await this.createCustomer({ userId: data.userId, email: data.email, cpfCnpj: data.cpfCnpj });
 
-    // Vencimento HOJE — Asaas gera o QR Code Pix imediatamente
     const todayStr = new Date().toISOString().split("T")[0];
+    const appUrl   = data.appUrl || process.env.APP_URL || "https://www.mecproai.com";
+    const isCreditCard = data.paymentMethod === "credit_card" && !!data.card;
 
+    // ── Cartão de crédito ────────────────────────────────────────────────────
+    if (isCreditCard && data.card) {
+      const card = data.card;
+      const res = await fetch("https://api.asaas.com/v3/subscriptions", {
+        method: "POST", headers: this.headers(), signal: AbortSignal.timeout(12000),
+        body: JSON.stringify({
+          customer:         customerId,
+          billingType:      "CREDIT_CARD",
+          value:            amount,
+          nextDueDate:      todayStr,
+          cycle,
+          description:      `MECProAI ${data.planSlug} ${cycle.toLowerCase()}`,
+          externalReference:`user_${data.userId}_${data.planSlug}`,
+          sendPaymentByPostalService: false,
+          creditCard: {
+            holderName:  card.holderName,
+            number:      card.number.replace(/\s/g, ""),
+            expiryMonth: card.expiryMonth,
+            expiryYear:  card.expiryYear,
+            ccv:         card.ccv,
+          },
+          creditCardHolderInfo: {
+            name:    card.holderName,
+            email:   data.email,
+            cpfCnpj: (data.cpfCnpj || "").replace(/\D/g, ""),
+          },
+        }),
+      });
+      const rd: any = await res.json();
+      if (!rd.id) throw new Error(`Asaas cartão: ${rd.errors?.[0]?.description || JSON.stringify(rd)}`);
+      log.info("asaas", "Assinatura cartão criada", { userId: data.userId, planSlug: data.planSlug, subId: rd.id });
+      return { url: `${appUrl}/my-subscription?success=1`, invoiceId: rd.id } as any;
+    }
+
+    // ── Pix ─────────────────────────────────────────────────────────────────
     const res = await fetch("https://api.asaas.com/v3/subscriptions", {
       method: "POST", headers: this.headers(), signal: AbortSignal.timeout(10000),
       body: JSON.stringify({
         customer:         customerId,
         billingType:      "PIX",
         value:            amount,
-        nextDueDate:      todayStr,          // hoje → QR Code gerado imediatamente
+        nextDueDate:      todayStr,
         cycle,
         description:      `MECProAI ${data.planSlug} ${cycle.toLowerCase()}`,
         externalReference:`user_${data.userId}_${data.planSlug}`,
-        sendPaymentByPostalService: false,   // não envia por email automaticamente
+        sendPaymentByPostalService: false,
       }),
     });
     const rd: any = await res.json();
-    if (!rd.id) throw new Error(`Asaas createSubscription falhou: ${rd.errors?.[0]?.description || JSON.stringify(rd)}`);
+    if (!rd.id) throw new Error(`Asaas Pix: ${rd.errors?.[0]?.description || JSON.stringify(rd)}`);
+    log.info("asaas", "Assinatura Pix criada", { userId: data.userId, planSlug: data.planSlug, subId: rd.id });
 
-    log.info("asaas", "Assinatura criada", { userId: data.userId, planSlug: data.planSlug, subId: rd.id });
-
-    // Busca QR Code Pix diretamente (não espera redirect)
-    const appUrl = data.appUrl || process.env.APP_URL || "https://www.mecproai.com";
-
-    // Tenta buscar o QR code da primeira cobrança gerada
+    // Busca QR Code Pix imediatamente
     try {
       const key = process.env.ASAAS_API_KEY!;
-      const pmRes = await fetch(
-        `https://api.asaas.com/v3/payments?subscription=${rd.id}&limit=1`,
-        { headers: { "access_token": key }, signal: AbortSignal.timeout(6000) }
-      );
+      const pmRes  = await fetch(`https://api.asaas.com/v3/payments?subscription=${rd.id}&limit=1`,
+        { headers: { "access_token": key }, signal: AbortSignal.timeout(6000) });
       const pmData: any = await pmRes.json();
       const payment = pmData?.data?.[0];
-
       if (payment?.id) {
-        const pixRes = await fetch(
-          `https://api.asaas.com/v3/payments/${payment.id}/pixQrCode`,
-          { headers: { "access_token": key }, signal: AbortSignal.timeout(6000) }
-        );
+        const pixRes = await fetch(`https://api.asaas.com/v3/payments/${payment.id}/pixQrCode`,
+          { headers: { "access_token": key }, signal: AbortSignal.timeout(6000) });
         const pixData: any = await pixRes.json();
-
         if (pixData?.payload) {
           log.info("asaas", "QR Code Pix obtido diretamente", { paymentId: payment.id });
-          // Retorna pixCode direto — frontend não precisa redirecionar
-          return {
-            pixCode:   pixData.payload,
-            pixQr:     pixData.encodedImage || "",
-            expiresAt: payment.dueDate || "",
-            value:     payment.value || 0,
-            invoiceId: rd.id,
-          } as any;
+          return { pixCode: pixData.payload, pixQr: pixData.encodedImage || "",
+            expiresAt: payment.dueDate || "", value: payment.value || 0, invoiceId: rd.id } as any;
         }
       }
     } catch (e: any) {
-      log.warn("asaas", "Falha ao buscar QR Code direto — redirecionando", { error: e.message });
+      log.warn("asaas", "Falha ao buscar QR Code — redirecionando", { error: e.message });
     }
-
-    // Fallback: redireciona para página de checkout
-    return {
-      url:       `${appUrl}/checkout/asaas?sub=${rd.id}&plan=${data.planSlug}`,
-      invoiceId: rd.id,
-    };
+    return { url: `${appUrl}/checkout/asaas?sub=${rd.id}&plan=${data.planSlug}`, invoiceId: rd.id };
   }
 
   async createPayment(data: CreatePaymentData): Promise<PaymentResult> {
