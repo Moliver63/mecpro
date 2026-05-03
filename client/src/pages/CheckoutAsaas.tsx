@@ -18,7 +18,6 @@ export default function CheckoutAsaas() {
   const plan     = (params.get("plan") || "premium") as "basic" | "premium" | "vip";
   const billing  = (params.get("billing") || "monthly") as "monthly" | "yearly";
   const subId    = params.get("sub") || null;
-  const subId    = params.get("sub") || null;  // assinatura já criada pelo backend
 
   const { user } = useAuth();
   const [cpf, setCpf]         = useState("");
@@ -38,13 +37,7 @@ export default function CheckoutAsaas() {
       setPix({ code: d.pixCode, qr: d.pixQr || "", expires: d.expiresAt || "" });
     }
   }, [subStatus.data]);
-  // Se já tem subId (vindo do redirect do backend), busca o Pix gerado
-  const subStatus = trpc.subscriptions.getCheckoutPix.useQuery(
-    { subId: subId! },
-    { enabled: !!subId, retry: false,
-      onSuccess: (d: any) => { if (d?.pixCode) setPix({ code: d.pixCode, qr: d.pixQr || "", expires: d.expiresAt || "" }); }
-    }
-  );
+
 
   const monthly  = PLAN_PRICES[plan] || 197;
   const amount   = billing === "yearly" ? Math.floor(monthly * 0.8) * 12 : monthly;
