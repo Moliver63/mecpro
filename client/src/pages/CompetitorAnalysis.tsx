@@ -1423,17 +1423,17 @@ export default function CompetitorAnalysis() {
                             style={{ flex: 1, fontSize: 11 }}>
                             {isAnalyzing ? "⏳ Analisando..." : hasAds ? "🔄 Re-analisar" : "🔍 Analisar"}
                           </button>
-                          {c.instagramUrl && (
+                          {(c.tiktokUrl || c.instagramUrl) && (
                             <button
-                              title="Buscar vídeos/anúncios via TikTok API Oficial"
+                              title="Coletar anúncios via TikTok"
                               disabled={isAnalyzing}
                               onClick={e => {
                                 e.stopPropagation();
                                 const handle = (c.tiktokUrl || c.instagramUrl || "").replace(/^@/, "").replace(/.*tiktok\.com\/@?/, "");
-                                (fetchTikTokCompetitorMutation as any).mutate({ competitorId: c.id, projectId, tiktokHandle: handle });
+                                fetchTikTokCompetitorMutation.mutate({ competitorId: c.id, projectId, tiktokHandle: handle });
                               }}
-                              style={{ background: "#010101", color: "white", border: "none", borderRadius: 8, padding: "0 8px", fontSize: 13, cursor: "pointer", height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                              🎵
+                              style={{ background: "#010101", color: "white", border: "none", borderRadius: 8, padding: "0 8px", fontSize: 11, fontWeight: 700, cursor: "pointer", height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              TT
                             </button>
                           )}
                           {c.facebookPageId && (
@@ -1442,7 +1442,7 @@ export default function CompetitorAnalysis() {
                               disabled={isAnalyzing}
                               onClick={e => {
                                 e.stopPropagation();
-                                (fetchAdsByPageIdMutation as any).mutate({ competitorId: c.id, projectId, pageId: c.facebookPageId });
+                                fetchAdsByPageIdMutation.mutate({ competitorId: c.id, projectId, pageId: c.facebookPageId });
                               }}
                               style={{ background: "#1877f2", color: "white", border: "none", borderRadius: 8, padding: "0 8px", fontSize: 13, cursor: "pointer", height: 30, display: "flex", alignItems: "center", justifyContent: "center" }}>
                               📡

@@ -226,21 +226,21 @@ export function AddCompetitorForm({ projectId, onDone }: AddFormProps) {
               <button
                 onClick={() => {
                   if (!igInput.trim()) { toast.error("Digite o Instagram primeiro"); return; }
-                  (discoverPageIdMutation as any).mutate({
+                  discoverPageIdMutation.mutate({
                     instagramHandle: igInput,
                     companyName:     name,
                     websiteUrl:      website   || undefined,
                     facebookPageUrl: urlInput  || undefined,
                   });
                 }}
-                disabled={(discoverPageIdMutation as any).isPending || !igInput.trim()}
+                disabled={discoverPageIdMutation.isPending || !igInput.trim()}
                 style={{
-                  background: (discoverPageIdMutation as any).isPending ? "#e2e8f0" : "#1877f2",
-                  color: (discoverPageIdMutation as any).isPending ? "var(--muted)" : "white",
+                  background: discoverPageIdMutation.isPending ? "#e2e8f0" : "#1877f2",
+                  color: discoverPageIdMutation.isPending ? "var(--muted)" : "white",
                   border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer",
                   fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
                 }}>
-                {(discoverPageIdMutation as any).isPending ? "⏳ Buscando Page ID..." : "🔍 Descobrir Page ID automaticamente"}
+                {discoverPageIdMutation.isPending ? "⏳ Buscando Page ID..." : "🔍 Descobrir Page ID automaticamente"}
               </button>
               {discoveredPageId && (
                 <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, color: "#15803d" }}>
@@ -413,22 +413,22 @@ export function EditCompetitorForm({ comp, onDone, onCancel }: { comp: any; onDo
               onClick={() => {
                 const handle = igUrl || comp.name;
                 if (!handle) { toast.error("Informe o Instagram ou Website primeiro"); return; }
-                (discoverPageId as any).mutate({
+                discoverPageId.mutate({
                   instagramHandle: handle,
                   companyName:     comp.name,
                   websiteUrl:      websiteUrl || undefined,
                   facebookPageUrl: pageUrl    || undefined,
                 });
               }}
-              disabled={(discoverPageId as any).isPending}
+              disabled={discoverPageId.isPending}
               title="Descobrir Page ID automaticamente pelo Instagram"
               style={{
-                background: (discoverPageId as any).isPending ? "#e2e8f0" : "#1877f2",
-                color: (discoverPageId as any).isPending ? "var(--muted)" : "white",
+                background: discoverPageId.isPending ? "#e2e8f0" : "#1877f2",
+                color: discoverPageId.isPending ? "var(--muted)" : "white",
                 border: "none", borderRadius: 8, padding: "0 10px", cursor: "pointer",
                 fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
               }}>
-              {(discoverPageId as any).isPending ? "⏳" : "🔍 Auto"}
+              {discoverPageId.isPending ? "⏳" : "🔍 Auto"}
             </button>
           </div>
           <p style={{ fontSize: 10, color: "var(--muted)", marginTop: 3 }}>
