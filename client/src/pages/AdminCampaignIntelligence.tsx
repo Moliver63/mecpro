@@ -565,9 +565,12 @@ function TabPatterns({ onApprove }: { onApprove: (id: number) => void }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function TabLearning() {
   const query   = trpc.intelligence.getLearningBase.useQuery({}, { retry: false });
-  const entries = query?.data?.entries ?? [];
+  const entries = (query?.data?.entries ?? []).filter((e: any) => e && typeof e === "object");
 
   if (query?.isLoading) return <Loader />;
+  if (query?.isError)   return (
+    <EmptyState icon="🧠" title="Base de aprendizado vazia" sub="Execute 'Analisar Histórico Completo' para popular a base de aprendizado." />
+  );
 
   return (
     <div>
@@ -682,6 +685,10 @@ function TabLearning() {
 function TabML() {
   const query = trpc.intelligence.exportMLDataset.useQuery({ splitGroup: "all" }, { retry: false });
   const data  = query?.data;
+
+  if (query?.isError) return (
+    <EmptyState icon="🔬" title="Dataset ML vazio" sub="Execute 'Analisar Histórico Completo' para iniciar a coleta de dados de treinamento." />
+  );
 
   const trainCount  = data?.dataset?.filter((d: any) => d.split_group === "train").length || 0;
   const testCount   = data?.dataset?.filter((d: any) => d.split_group === "test").length || 0;
