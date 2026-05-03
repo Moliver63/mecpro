@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -47,6 +47,12 @@ const pageBtn = (disabled: boolean): React.CSSProperties => ({
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENTES BASE
 // ─────────────────────────────────────────────────────────────────────────────
+
+class ErrorBoundary extends React.Component<{children: React.ReactNode; fallback: React.ReactNode}, {hasError: boolean}> {
+  constructor(props: any) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  render() { return this.state.hasError ? this.props.fallback : this.props.children; }
+}
 
 function ScoreGauge({ score, size = 56 }: { score: number; size?: number }) {
   const r     = size * 0.38;
@@ -624,7 +630,7 @@ function TabLearning() {
                 ].map(section => (
                   <div key={section.title}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 8 }}>{section.title}</div>
-                    {Object.entries(section.data || {}).slice(0, 3).map(([k, v]) => {
+                    {Object.entries(typeof section.data === "object" && section.data !== null ? section.data : {}).slice(0, 3).map(([k, v]) => {
                       const vals = Object.values(section.data || {}) as number[];
                       const maxV = vals.length > 0 ? Math.max(...vals) : 1;
                       const pct  = maxV > 0 ? Math.round(((v as number) / maxV) * 100) : 0;
@@ -653,11 +659,10 @@ function TabLearning() {
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {[
-                      `Formato: ${e.recommendedTemplate?.recommendedFormat}`,
-                      `CTA: ${e.recommendedTemplate?.recommendedCta}`,
-                      `Gatilho: ${e.recommendedTemplate?.recommendedTrigger}`,
-                      `Orçamento: ${e.recommendedTemplate?.recommendedBudgetRange}`,
-                    ].map(tag => (
+                      e.recommendedTemplate?.recommendedFormat  && `Formato: ${e.recommendedTemplate.recommendedFormat}`,
+                      e.recommendedTemplate?.recommendedCta     && `CTA: ${e.recommendedTemplate.recommendedCta}`,
+                      e.recommendedTemplate?.recommendedTrigger && `Gatilho: ${e.recommendedTemplate.recommendedTrigger}`,
+                    ].filter(Boolean).map(tag => (
                       <span key={tag} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, background: "white", color: "#0891b2", fontWeight: 600, border: "1px solid #bae6fd" }}>{tag}</span>
                     ))}
                   </div>
@@ -1439,8 +1444,16 @@ export default function AdminCampaignIntelligence() {
         {activeTab === "insights" && <TabInsights />}
         {activeTab === "compare"  && <TabCompare />}
         {activeTab === "patterns" && <TabPatterns onApprove={id => approveMutation?.mutate({ patternId: id })} />}
-        {activeTab === "learning" && <TabLearning />}
-        {activeTab === "ml"       && <TabML />}
+        {activeTab === "learning" && (
+        <ErrorBoundary fallback={<div style={{padding:24,textAlign:"center",color:"#ef4444"}}>⚠️ Erro ao carregar dados de aprendizado. <button onClick={() => window.location.reload()} style={{color:"#3b82f6",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Recarregar</button></div>}>
+          <TabLearning />
+        </ErrorBoundary>
+      )}
+        {activeTab === "ml"       && (
+        <ErrorBoundary fallback={<div style={{padding:24,textAlign:"center",color:"#ef4444"}}>⚠️ Erro ao carregar Dataset ML. <button onClick={() => window.location.reload()} style={{color:"#3b82f6",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Recarregar</button></div>}>
+          <TabML />
+        </ErrorBoundary>
+      )}
       </div>
     </Layout>
   );
