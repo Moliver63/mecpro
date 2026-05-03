@@ -9,15 +9,13 @@ const IMAGE_CACHE = new Map<string, string>();
 // FLUX.1-schnell: gratuito, rápido (4 steps), nova API
 // SD 3.5 Large: alta qualidade, nova API
 // SDXL Turbo: fallback rápido
-// HF hf-inference não suporta mais modelos de imagem (todos retornam 404/410/400)
-// Usando Inference API nativa com modelos que ainda funcionam
-const HF_MODELS = [
-  // Modelos disponíveis via HF Inference API (router endpoint)
-  "black-forest-labs/FLUX.1-schnell",  // tentativa — pode funcionar com URL correta
-];
+// HF hf-inference não suporta mais modelos de imagem — desabilitado
+const HF_MODELS: string[] = [];
 
-// URL correta para HF Inference API (não hf-inference provider)
-const HF_ROUTER_URL = "https://router.huggingface.co/fal-ai/flux/schnell";
+// Cloudflare Workers AI — FLUX.1-schnell gratuito (10k neurons/dia)
+const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "";
+const CF_API_TOKEN  = process.env.CLOUDFLARE_API_TOKEN  || "";
+const CF_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
   feed: { width: 1080, height: 1350, ratio: "4:5", label: "Meta Feed" },
@@ -376,6 +374,59 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
   return null;
 }
 
+// ── Cloudflare Workers AI ─────────────────────────────────────────────────
+async function generateWithCloudflare(
+  prompt: string,
+  format: CreativeImageFormat
+): Promise<string | null> {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) {
+    log.warn("image-generation", "Cloudflare: CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurado");
+    return null;
+  }
+  try {
+    const dim = FORMAT_DIMENSIONS[format];
+    const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_IMAGE_MODEL}`;
+
+    const res = await fetch(url, {
+      method:  "POST",
+      headers: {
+        "Authorization": `Bearer ${CF_API_TOKEN}`,
+        "Content-Type":  "application/json",
+      },
+      body:   JSON.stringify({ prompt, width: Math.min(dim.width, 1024), height: Math.min(dim.height, 1024) }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      log.warn("image-generation", "Cloudflare erro", { status: res.status, preview: err.slice(0, 100) });
+      return null;
+    }
+
+    // Cloudflare retorna a imagem como binário direto (image/png)
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("image")) {
+      const txt = await res.text().catch(() => "");
+      log.warn("image-generation", "Cloudflare retornou não-imagem", { contentType, preview: txt.slice(0, 80) });
+      return null;
+    }
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length < 1000) { log.warn("image-generation", "Cloudflare imagem muito pequena", { bytes: buffer.length }); return null; }
+
+    // Upload para Cloudinary → URL estável para o Meta Ads
+    const cloudUrl = await uploadImageBufferToCloudinary(buffer, `cf_flux_${format}_${Date.now()}.png`);
+    if (cloudUrl) {
+      log.info("image-generation", "Cloudflare → Cloudinary OK", { format, bytes: buffer.length, url: cloudUrl.slice(0, 60) });
+      return cloudUrl;
+    }
+    return null;
+  } catch (e: any) {
+    log.warn("image-generation", "Cloudflare exception", { error: e.message?.slice(0, 80) });
+    return null;
+  }
+}
+
 async function generateWithHeyGen(creative: any, objective: string, format: CreativeImageFormat): Promise<string | null> {
   const apiKey = (process.env.HEYGEN_API_KEY || "").trim();
   if (!apiKey) {
@@ -625,8 +676,12 @@ export async function generateAdImage(
 
   const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
     if (providerToTry === "huggingface") {
-      // HF hf-inference não suporta geração de imagem (todos modelos 400/404/410)
-      // FAL-AI via HF router também rejeita — pulando direto para Pollinations
+      // Tenta Cloudflare Workers AI primeiro (FLUX gratuito, 10k neurons/dia)
+      if (CF_ACCOUNT_ID && CF_API_TOKEN) {
+        const cfUrl = await generateWithCloudflare(inferPrompt(creative, segment, objective, format), format);
+        if (cfUrl) return cfUrl;
+      }
+      // HF hf-inference desabilitado — todos os modelos mortos
       return null;
     }
 
