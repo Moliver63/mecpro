@@ -4252,7 +4252,7 @@ const adminRouter = router({
         u.email,
         u.name,
         u.plan,
-        u."isSuspended",
+        false AS "isSuspended",  -- coluna não existe, default false
         COALESCE(mb.balance, 0)          AS balance,
         COALESCE(mb."totalDeposited", 0) AS "totalDeposited",
         COALESCE(mb."totalFees", 0)      AS "totalFees",
@@ -4266,7 +4266,7 @@ const adminRouter = router({
       email:          r.email,
       name:           r.name,
       plan:           r.plan,
-      isSuspended:    r.isSuspended,
+      isSuspended:    false,
       balance:        Number(r.balance) / 100,
       totalDeposited: Number(r.totalDeposited) / 100,
       totalFees:      Number(r.totalFees) / 100,

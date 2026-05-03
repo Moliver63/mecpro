@@ -139,7 +139,8 @@ export default function Billing() {
 
   // Lê configuração de Pix do admin
   const { data: settings } = trpc.admin.getSettings.useQuery();
-  const pixEnabled = (settings as any)?.pix_enabled !== "false";
+  const pixEnabled     = (settings as any)?.pix_enabled !== "false";
+  const activeGateway  = (settings as any)?.payment_gateway || "stripe";
 
   const createCheckout = trpc.subscriptions.createCheckout.useMutation({
     onSuccess: (data) => { if (data.url) window.location.href = data.url; },
@@ -216,8 +217,14 @@ export default function Billing() {
                 <button
                   className={`btn btn-md btn-full ${p.highlight ? "btn-green" : "btn-outline"}`}
                   disabled={isCurrent}
-                  onClick={() => createCheckout.mutate({ planSlug: p.slug as any, billing })}>
-                  {isCurrent ? "✓ Plano atual" : "💳 Pagar com Cartão"}
+                  onClick={() => {
+                    if (activeGateway === "asaas") {
+                      window.location.href = `/checkout/asaas?plan=${p.slug}&billing=${billing}`;
+                    } else {
+                      createCheckout.mutate({ planSlug: p.slug as any, billing });
+                    }
+                  }}>
+                  {isCurrent ? "✓ Plano atual" : activeGateway === "asaas" ? "⚡ Pagar com Pix" : "💳 Pagar com Cartão"}
                 </button>
 
                 {/* Pix — só exibe se pixEnabled e não for plano atual */}

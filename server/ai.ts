@@ -6069,10 +6069,17 @@ Gere JSON com:
       const features = buildMLFeatures(context as any, winnerParams as any, score);
 
       // Upsert em campaign_scores
-      if (!userId || !projectId) {
-        log.warn("intelligence", "Score automático pulado — userId ou projectId nulo", { campaignId, userId, projectId });
+      // Se userId não veio do projeto, busca diretamente pelo projectId
+      let effectiveUserId = userId;
+      if (!effectiveUserId && projectId && pool) {
+        const pRow = await pool.query(`SELECT "userId" FROM projects WHERE id = $1 LIMIT 1`, [projectId]).catch(() => null);
+        effectiveUserId = pRow?.rows?.[0]?.userId || null;
+      }
+      if (!effectiveUserId || !projectId) {
+        log.warn("intelligence", "Score automático pulado — userId ou projectId nulo", { campaignId, userId: effectiveUserId, projectId });
         return;
       }
+      // effectiveUserId disponível para uso no INSERT abaixo
       await pool.query(`DELETE FROM campaign_scores WHERE campaign_id = $1`, [campaignId]).catch(() => {});
       await pool.query(`
         INSERT INTO campaign_scores (
@@ -6088,7 +6095,7 @@ Gere JSON com:
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
 ON CONFLICT DO NOTHING`,
         [
-          campaignId, userId, projectId, score.total,
+          campaignId, effectiveUserId, projectId, score.total,
           score.ctr ?? 0, score.cpc ?? 0, score.cpm ?? 0, score.roas ?? 0,
           score.creative ?? 0, score.consistency ?? 0, score.scalability ?? 0,
           context.platform, context.objective, niche,
