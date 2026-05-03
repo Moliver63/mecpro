@@ -4,7 +4,7 @@
 > Contém o estado atual, bugs conhecidos, decisões de arquitetura e padrões estabelecidos.
 > Atualizar após cada sessão significativa.
 >
-> **Última atualização:** 2026-05-02 (sessão 5)
+> **Última atualização:** 2026-05-03 (sessão 6)
 
 ---
 
@@ -20,26 +20,36 @@
 | Deploy | Render.com | `render.yaml` — build: `npm run build`, start: `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
+| Último commit | `b2d755d` | god-mode: 3 fixes sistêmicos |
 
 ---
 
-## ⚡ Estado Atual do Sistema (2026-05-01)
+## ⚡ Estado Atual do Sistema (2026-05-03)
 
 ### Integrações
 | Serviço | Status | Motivo | Ação Necessária |
 |---|---|---|---|
 | Meta Ads Library API | ❌ `code=10` | App sem permissão Ads Library | Solicitar em developers.facebook.com → App → Ads Library API |
-| Meta Token | ⚠️ `code=190` | Token expirado/sessão inválida | Reconectar em Configurações → Meta Ads |
+| Meta Token | ✅ Válido | Expira 2026-05-25 | Reconectar antes de expirar |
 | Gemini API | ✅ Operacional | Reset às 00:00 UTC diário | 5 chaves com rotação, esgotam ~21h de uso intenso |
 | Groq API | ✅ Fallback ativo | llama-3.3-70b-versatile | OK |
-| Google Ads API | ✅ Funcionando | gRPC configurado | OK |
-| Asaas (Pix) | ✅ Configurado | `ASAAS_API_KEY` set | OK |
-| HuggingFace Proxy | ⚠️ Timeout frequente | /scrape-ads-library demora >10s | Circuit breaker após 3 falhas |
+| Google Ads API | ✅ Funcionando | URL corrigida v19_1→v19 | OK |
+| Asaas (Pix) | ✅ Configurado | `ASAAS_API_KEY` set | Fluxo Pix corrigido (getCheckoutPix) |
+| HuggingFace Proxy | ⚠️ Inacessível | scrape-website retorna "fetch failed" | Timeout reduzido 8s, pipeline continua sem bloquear |
+| Cache DB (ai_cache) | ✅ Ativo | TTL: campaign=7d, market=3d, seo=2d | Isolado por userId+projectId |
 
 ### Circuit Breakers Ativos
 ```
 Meta CB: OPEN após code=10 — reset em 30min
-         Aciona: fetchViaWebsiteScraping como prioridade 1
+         Aciona: fetchViaWebsiteScraping → fetchViaSEOAnalysis como fallbacks
+```
+
+### Estado do ML
+```
+Camada 1 — Score ponderado:     ✅ Ativo
+Camada 2 — Aprendizado (learning_base): ✅ 174+ entradas
+Camada 3 — Dataset ML (ml_dataset):    ⚠️ 0 amostras (patternsExtracted ainda corrigindo)
+winner_patterns:                        ⚠️ Sendo populado (DELETE+INSERT implementado)
 ```
 
 ---
@@ -59,183 +69,173 @@ Meta CB: OPEN após code=10 — reset em 30min
 - **Causa:** `(trpc as any).x?.y?.useMutation?.()` é hook condicional mesmo antes do return
 - **Sintoma:** Crash em runtime — React conta hooks diferentes entre renders
 - **Solução:** Usar `trpc.namespace.procedure.useMutation()` tipado direto
-- **Ocorreu em:** Layout, AdminCampaignIntelligence (11 hooks), competitorForms (2 hooks)
+- **Ocorreu em:** Layout, AdminCampaignIntelligence, competitorForms, CompetitorAnalysis
 - **Regra:** NUNCA usar `?.useMutation?.()` ou `?.useQuery?.()` — sempre hook real incondicional
 
 #### BUG-003: `const websiteUrl` não atualizava após descoberta
-- **Causa:** `const websiteUrl = competitor.websiteUrl` é imutável; descoberta salvava em `competitor.websiteUrl` mas não na variável
-- **Sintoma:** Web scraping nunca executava mesmo após descobrir o site
-- **Solução:** Alterado para `let websiteUrl`; atualiza a variável E persiste no banco
+- **Causa:** `const websiteUrl = competitor.websiteUrl` é imutável
+- **Solução:** Alterado para `let websiteUrl`
 - **Arquivo:** `server/ai.ts` — `_analyzeCompetitorImpl()`
 
 #### BUG-004: Procedures duplicados no router
-- **Causa:** `discoverCompetitors` e `saveUIConfig` foram adicionados fora do router correto
-- **Sintoma:** `No procedure found on path` + TS1117 (multiple properties)
-- **Solução:** Verificar SEMPRE que o `adminRouter` fecha na L4299 antes de adicionar procedures
-- **Regra:** Usar script Python para verificar: `content.find('adminRouter') + depth counting`
+- **Causa:** Procedures adicionados fora do router correto
+- **Regra:** Verificar SEMPRE que o `adminRouter` fecha na L4299
 
-#### BUG-005: `t is not defined` em adminIntelligenceRouter
-- **Causa:** `getRecommendation: t.procedure.use(...)` — `t` é instância local que pode não estar resolvida no ESM
-- **Solução:** Substituído por `adminProcedure` que é derivado de `t` mas avaliado corretamente
-- **Arquivo:** `server/_core/adminIntelligenceRouter.ts:689`
+#### BUG-005 a BUG-013: [Corrigidos em sessões anteriores — ver commits]
 
-#### BUG-006: Google Ads TOO_LONG em headlines
-- **Causa:** Emojis multi-byte (`⏰` = length 2) → `slice(0, 30)` não remove emoji → headline passa de 30 chars no Google
-- **Solução:** `stripEmojis()` antes do `slice(0, 30)` em `normalizeAssetTexts`
-- **Arquivo:** `server/_core/router.ts` — `normalizeAssetTexts()`
-
-#### BUG-007: competitorForms.tsx corrompido (conteúdo duplicado)
-- **Causa:** Substituição de string Python inseriu novo código sem remover o antigo → `export function` apareceu dentro de outra função
-- **Sintoma:** Vite build falhou com `Unexpected "export" at line 62`
-- **Solução:** Restaurar do git (`git show HASH:path > /tmp/file`) e reaplicar apenas a mudança necessária
-- **Lição:** Para correções em arquivos grandes, SEMPRE restaurar do git antes de reaplicar
-
-
-#### BUG-009: M2 — hooks condicionais em 6 arquivos do Módulo 2
-- **Causa:** `?.useMutation?.()` + `?? { mutate: () => {} }` em CompetitorAnalysis, AdInputAnalyzer, competitorVerifiers, useCompetitorData, ClientAdsCollector
-- **Sintoma:** Crash intermitente ao renderizar qualquer componente do Módulo 2
-- **Solução:** Substituídos por `trpc.namespace.procedure.useMutation()` tipados direto; removidos todos ?? fallbacks
-- **Regra reforçada:** Buscar `?.useMutation?.` + `?? { mutate:` antes de qualquer deploy do M2
-- **Commit:** b6c6358
-
-#### BUG-010: TikTok button usando instagramUrl em vez de tiktokUrl
-- **Causa:** `const handle = (c.instagramUrl || "")` no botão de coleta TikTok
-- **Sintoma:** Busca TikTok com handle de Instagram → falha ou dados errados
-- **Solução:** `c.tiktokUrl || c.instagramUrl` — prioriza campo correto com fallback
-- **Arquivo:** `client/src/pages/CompetitorAnalysis.tsx L1431`
-- **Commit:** b6c6358
-
-
-
-
-#### BUG-014: winner_patterns INSERT — coluna inexistente "pattern_score"
-- **Causa:** INSERT usava `pattern_score` mas tabela tem coluna `score`
-- **Sintoma:** `patternsExtracted: 0` em todas as execuções de runFullAnalysis
-- **Solução:** `pattern_score` → `score`; ON CONFLICT também corrigido
-- **Arquivo:** `server/_core/adminIntelligenceRouter.ts`
+#### BUG-014: winner_patterns — coluna `pattern_score` inexistente
+- **Solução:** `pattern_score` → `score`
 - **Commit:** b8a3ffa
 
-#### BUG-015: syncMetaCampaignMetrics — coluna "userId" não existe em campaigns
-- **Causa:** `campaigns` não tem `userId` direto — usa `projectId` que referencia `projects.userId`
-- **Sintoma:** `column "userId" does not exist` ao clicar Sincronizar Métricas
-- **Solução:** `JOIN projects p ON p.id = c."projectId" WHERE p."userId" = $1`
-- **Arquivo:** `server/_core/router.ts` — `syncMetaCampaignMetrics`
+#### BUG-015: syncMetaCampaignMetrics — `userId` não existe em campaigns
+- **Solução:** JOIN com projects
 - **Commit:** b8a3ffa
 
-#### BUG-016: patternsExtracted=0 mesmo com score>=60
-- **Causa:** `detectFalseWinner` marca `isFalse=true` para campanhas sem métricas (impressions=0)
-- **Solução:** extrai padrão de copy se `hasCopyData && !hasRealMetrics` (qualifiedByCopy)
+#### BUG-016: patternsExtracted=0 — detectFalseWinner bloqueava tudo
+- **Solução:** `qualifiedByCopy` — extrai padrão mesmo sem métricas reais
 - **Commit:** 4e8984b
 
-#### BUG-012: Gemini 5 tentativas inúteis quando todas as chaves esgotadas
-- **Causa:** Cascata de modelos continuava tentando modelos com chaves já marcadas como esgotadas
-- **Sintoma:** 5 tentativas × N chamadas = dezenas de requests, ~3s perdidos, esgota Groq 429 também
-- **Solução:** Após marcar chave como quota, verifica se todas esgotadas → fallback Groq inline imediato
-- **Commit:** 61e841d
+#### BUG-017: winner_patterns — `multiple assignments to same column "score"`
+- **Causa:** ON CONFLICT DO UPDATE tinha `score` duplicado
+- **Solução:** Removida duplicata; adicionado statistical_conf e volume_weight
+- **Commit:** fbb2952
 
-#### BUG-013: Groq 413 com prompts grandes (70b model)
-- **Causa:** maxChars=40000 para 70b ainda excedia 1MB de request body da API Groq
-- **Sintoma:** `Groq 413 (prompt muito grande) no modelo llama-3.1-8b-instant — truncando mais`
-- **Solução:** maxChars 70b: 40000 → 25000 (fica abaixo do limite com margem)
-- **Arquivo:** `server/ai.ts` — `callGroqAPI()`
-- **Commit:** 61e841d
+#### BUG-018: winner_patterns — `no unique constraint matching ON CONFLICT`
+- **Causa:** Constraint `uniq_winner_patterns_campaign` não existia no banco live
+- **Solução:** `ON CONFLICT DO NOTHING` + migration `ADD CONSTRAINT IF NOT EXISTS`
+- **Commit:** 1abd41f
 
-#### BUG-011: M2 — mensagem técnica de erro exposta ao usuário
-- **Causa:** Banner de falha mostrava `code=10`, URL `facebook.com/ads/library/api`, detalhes OAuth
-- **Sintoma:** Usuário via texto técnico incompreensível quando todas as camadas falhavam
-- **Solução:** Mensagem genérica amigável; dicas de melhoria específicas por camada via qualityMap
-- **Arquivo:** `CompetitorAnalysis.tsx` + `competitorCards.tsx`
-- **Commit:** 00bf14a
+#### BUG-019: campaign_scores — `column "updated_at" does not exist`
+- **Causa:** Coluna não existia na tabela criada antes da migration
+- **Solução:** Removida do UPDATE; migration `ADD COLUMN IF NOT EXISTS updated_at`
+- **Commit:** 1abd41f
 
-#### BUG-008: `Unable to transform response` na análise de concorrentes
-- **Causa:** Pipeline de 7 camadas pode levar 60-90s; Render corta conexão em 30s
-- **Solução:** Timeout 25s no procedure → `{ timedOut: true }` → frontend faz polling via `/api/competitors/status`
-- **Arquivo:** `server/_core/router.ts` — `competitors.analyze`
+#### BUG-020: patternsExtracted=0 — ON CONFLICT DO NOTHING ignorava silenciosamente
+- **Causa:** campaign_id já existia → DO NOTHING não atualizava nem contava
+- **Solução:** DELETE + INSERT (upsert real) — garante dados atualizados em cada execução
+- **Commit:** b2d755d
+
+#### BUG-021: Google Ads Keyword Planner — HTTP 404 em 100%
+- **Causa:** URL usava `/v19_1/` que não existe — versão correta é `/v19/`
+- **Sintoma:** Keywords nunca coletadas para nenhum concorrente
+- **Solução:** `v19_1` → `v19` em `kpUrl`
+- **Arquivo:** `server/ai.ts` — `fetchKeywordsViaKeywordPlanner()`
+- **Commit:** b2d755d
+
+#### BUG-022: scrape-website — bloqueava pipeline por 15s sem resultado
+- **Causa:** HF Space inacessível do Render; timeout máximo de 15s bloqueava todo o pipeline
+- **Solução:** Timeout reduzido para 8s; try/catch explícito; falha rápida e silenciosa
+- **Commit:** b2d755d
+
+#### BUG-023: Checkout Asaas — página 404
+- **Causa:** Rota `/checkout/asaas` nunca foi registrada no `App.tsx`
+- **Solução:** Rota adicionada; `getCheckoutPix` procedure criado; `onSuccess` deprecated → `useEffect`
+- **Commit:** 4200251
+
+#### BUG-024: CheckoutAsaas — variáveis duplicadas no build
+- **Causa:** Edições encadeadas inseriram `subId` e `subStatus` duas vezes
+- **Solução:** Restaurado do git e reaplicado cirurgicamente
+- **Lição:** Verificar estado atual do arquivo ANTES de qualquer edição
+- **Commit:** 5b2df76
+
+#### BUG-025: Botão editar concorrente (M2) — não abria modal
+- **Causa 1:** Modal estava dentro do `.map()` filtrado — se concorrente fora do filtro, `editComp=null`
+- **Causa 2:** Botão fazia toggle — fechava imediatamente se já estava ativo
+- **Causa 3:** z-index insuficiente; modal no nível errado da árvore
+- **Solução:** Modal movido para raiz da página (z-index 2000); botão sempre abre; busca em `competitors` (não filtrado)
+- **Commit:** 17841c1
+
+#### BUG-026: TabLearning/TabML/TabRanking — crash sem ErrorBoundary
+- **Causa:** query.isError não tratado; dados com formato inesperado do banco
+- **Solução:** ErrorBoundary em todas as 4 abas; EmptyState quando isError; guards de tipo
+- **Commits:** 43a0528, fbb2952, 4505766
 
 ---
 
 ## 🏛️ Decisões de Arquitetura
 
 ### DA-001: Layout sem hook tRPC
-- **Decisão:** `Layout.tsx` NÃO faz nenhuma chamada tRPC direta
-- **Motivo:** É o componente mais crítico — wrappa todas as páginas; qualquer crash derruba tudo
-- **Implementação:** `UIConfigLoader` em `App.tsx` carrega config → `sessionStorage` → Layout lê sessão
+- Layout.tsx NÃO faz chamadas tRPC; usa `sessionStorage` para ui_visibility
 
 ### DA-002: Pipeline de análise de concorrentes (7 camadas)
 ```
-Camada 1: Meta Ads API Oficial (token OAuth)
-Camada 2: HF Proxy → Ads Library
-Camada 3: Ads Library Direta (Render)
-Camada 4: Instagram / Busca por Nome
-Camada 5: Web Scraping do Site ← PRIORIDADE quando CB aberto
-Camada 6: Análise SEO/IA (Gemini)
-Camada 7: Mock por Nicho
+Camada 1: Meta Ads API Oficial (token OAuth)      ← BLOQUEADA (code=10)
+Camada 2: HF Proxy → Ads Library                 ← BLOQUEADA (code=10)
+Camada 3: Ads Library Direta (Render)             ← BLOQUEADA (code=10)
+Camada 4: Instagram / Busca por Nome              ← Funciona parcialmente
+Camada 5: Web Scraping do Site                    ← HF Space down, scraping direto funciona
+Camada 6: Análise SEO/IA (Gemini)                 ← ✅ PRINCIPAL FALLBACK ATIVO
+Camada 7: Mock por Nicho                          ← Último recurso
 ```
-- **Quando Meta CB aberto:** Prioridade 1 = web scraping, Prioridade 2 = /posts com pageId
-- **Quando token=190 (expirado):** Verifica token em 3s antes de entrar no pipeline → pula direto para scraping
 
 ### DA-003: Website discovery automático
-- **Fluxo:** Se `websiteUrl = null` → `geminiWithGrounding` busca site → salva no banco → usa para scraping
-- **`enrichWithWebsite()`:** 3 estratégias: (1) Instagram bio scraping, (2) Facebook page scraping, (3) Gemini grounding
+- `enrichWithWebsite()`: Instagram bio → Facebook page → Gemini grounding
 
 ### DA-004: Payment Gateway abstrato
-- **Interface:** `PaymentProvider` com `StripeProvider` e `AsaasProvider`
-- **Gateway ativo:** Lido do banco (`app_settings.payment_gateway`) com cache 60s
-- **Trocar gateway:** Admin → Configurações → Forma de Pagamento → invalida cache automaticamente
+- `PaymentProvider` com `StripeProvider` e `AsaasProvider`
+- Gateway ativo lido do banco (`app_settings.payment_gateway`) com cache 60s
 
 ### DA-005: ML Pipeline
-- **Tabelas:** `campaign_scores`, `winner_patterns`, `learning_base`, `ml_dataset`, `intelligence_log`
-- **Fluxo:** `runFullAnalysis` → scores → winner_patterns (score≥60) → learning_base → ml_dataset
-- **Integração:** `buildCampaignFromAds` consulta `learning_base` antes de usar benchmarks hardcoded
+```
+Tabelas: campaign_scores, winner_patterns, learning_base, ml_dataset
+Fluxo:   Sincronizar Métricas Meta → runFullAnalysis → winner_patterns → learning_base
+INSERT:  DELETE + INSERT (não ON CONFLICT) — garante upsert real
+```
 
 ### DA-006: Visibilidade do menu (AdminUIConfig)
-- **Config salva em:** `app_settings.ui_visibility` (JSON)
-- **Como funciona:** `UIConfigLoader` lê e salva em `sessionStorage` → `Layout` filtra `NAV_USER`
-- **Admins:** Sempre veem menu completo independente da config
-- **Páginas fixas:** Dashboard, Projetos, Configurações (sempre visíveis)
+- Config em `app_settings.ui_visibility` → `sessionStorage` → Layout
 
+### DA-007: Indicadores de qualidade M2
+```
+Camadas 1-3 → badge "Real"
+Camadas 4-5 → badge "Parcial"
+Camada 6    → badge "Estimado IA"
+Camada 7    → badge "Estimado"
+```
 
+### DA-008: Sync de métricas reais Meta → ML
+```
+publishToMeta → salva metaCampaignId/metaAdSetId/metaAdId
+syncMetaCampaignMetrics → GET /v21.0/{metaCampaignId}/insights
+                        → salva em campaign_scores.metric_*
+runFullAnalysis → detectFalseWinner usa métricas reais
+```
+- Sequência: "📊 Sincronizar Métricas Meta" → "🧠 Analisar Histórico Completo" (3-4x)
 
-### DA-008: Sync de métricas reais Meta → ML (sessão 5)
+### DA-009: Localização e escopo geográfico
 ```
-Fluxo completo:
-1. publishToMeta → salva metaCampaignId, metaAdSetId, metaAdId no banco
-2. syncMetaCampaignMetrics → busca insights reais via metaCampaignId
-   GET /v21.0/{metaCampaignId}/insights → impressions/clicks/ctr/cpc/cpm/spend
-   → salva em campaign_scores.metric_*
-3. runFullAnalysis → detectFalseWinner usa métricas reais → isFalse=false
-4. winner_patterns populado com padrões reais
-5. learning_base com benchmarks reais por nicho/plataforma
+clientProfile: businessScope (local/regional/national/global), city, state, country, averageTicket
+discoverCompetitors: prioriza concorrentes da região
+buildCampaignFromAds: copy menciona cidade, targeting por escopo
 ```
-- Botão: /admin/intelligence → "📊 Sincronizar Métricas Meta"
-- Sequência: Sincronizar → Analisar Histórico (clicar 3-4x até processar tudo)
 
-### DA-009: Localização e escopo geográfico (sessão 5)
+### DA-010: Cache persistente de respostas IA (ai_cache)
 ```
-clientProfile novos campos:
-  businessScope: "local" | "regional" | "national" | "global"
-  city: "Balneário Camboriú"
-  state: "SC"
-  country: "Brasil"
-  averageTicket: 500
+Tabela: ai_cache (cache_key SHA-256, response, fn_name, niche, project_id, user_id, expires_at)
+TTLs: campaign=7d, market=3d, seo=2d, competitor=1d, scraping=4h
+Isolamento: cache_key inclui userId+projectId — evita vazar copy entre clientes
+Cleanup: cleanExpiredCache() no boot do servidor
+Integração: gemini() verifica DB antes de chamar API; salva após resposta
+```
 
-Impacto no pipeline:
-  discoverCompetitors → prioriza concorrentes da região
-  buildCampaignFromAds → copy menciona cidade, targeting por escopo
-  scopeLabel, scopeGeoTargeting, scopeCopyHint injetados no prompt
+### DA-011: Planos MecProAI (rebalanceados sessão 6)
 ```
-- Campos no Módulo 1 → Perfil do Cliente
-- Bug corrigido: city/state não chegavam a discoverCompetitors (tipo sem os campos)
-### DA-007: Indicadores de qualidade do M2
+Free:    maxProjects=1,  maxCompetitors=3,  maxCampaigns=0    (exploração)
+Basic:   maxProjects=3,  maxCompetitors=8,  maxCampaigns=8    R$97/mês
+Premium: maxProjects=10, maxCompetitors=15, maxCampaigns=null R$197/mês (Google+TikTok)
+VIP:     maxProjects=∞,  maxCompetitors=∞,  maxCampaigns=∞   R$397/mês
 ```
-Camadas 1-3 → badge "Real"    (dados verificáveis)
-Camadas 4-5 → badge "Parcial" (dados baseados em fontes secundárias)
-Camada 6    → badge "Estimado IA" (gerado por IA)
-Camada 7    → badge "Estimado"   (referência do nicho)
+- TikTok Ads: Premium+ apenas
+- Google Ads: Premium+ apenas
+- Custo de IA por usuário Basic: R$0,05/mês (irrelevante operacionalmente)
+
+### DA-012: Botão editar concorrente — modal drawer
 ```
-- Hover no badge mostra: "Camada X: [nome técnico]"
-- Dica de melhoria: só aparece se qualityMap.tip != "" (específica por camada)
-- Mensagens de erro: NUNCA expor code=10, URLs técnicas ou detalhes OAuth ao usuário
+Modal: position=fixed, inset=0, z-index=2000, align=flex-end (bottom sheet)
+Posição: nível raiz da página — FORA do .map() dos competidores
+Busca: competitors (lista completa) — não filteredCompetitors
+Abertura: setEditing(c.id) sempre — sem toggle
+```
 
 ---
 
@@ -243,52 +243,58 @@ Camada 7    → badge "Estimado"   (referência do nicho)
 
 ### Hooks React
 ```tsx
-// ❌ NUNCA — hook condicional (quebra Rules of Hooks)
-(trpc as any).namespace?.procedure?.useQuery?.()
-(trpc as any).namespace?.procedure?.useMutation?.() ?? fallback
+// ❌ NUNCA
+(trpc as any).x?.y?.useMutation?.() ?? fallback
+hook?.isPending / (hook as any).mutate()
 
-// ✅ SEMPRE — hook tipado incondicional
-trpc.namespace.procedure.useQuery(input, { retry: false })
-trpc.namespace.procedure.useMutation({ onSuccess, onError })
+// ✅ SEMPRE
+trpc.x.y.useMutation({ onSuccess, onError })
+hook.mutate() / hook.isPending
 
-// ✅ SEMPRE — hooks ANTES de qualquer return condicional
-function Layout() {
-  const hook1 = useState(...)   // ← antes
-  const hook2 = useQuery(...)   // ← antes
-  if (isPublic) return <Simple />  // ← early return depois dos hooks
-  return <Full />
-}
+// ✅ onSuccess deprecated no React Query v5 — usar useEffect
+const { data } = trpc.x.y.useQuery(input)
+useEffect(() => { if (data?.field) doSomething(data) }, [data])
 ```
 
-### Procedures tRPC — verificar posição no router
-```python
-# Script Python para verificar se procedure está DENTRO do router
-with open('router.ts') as f: content = f.read()
-start = content.find('const adminRouter = router({')
-depth = 0
-for i, c in enumerate(content[start:], start):
-    if c == '{': depth += 1
-    elif c == '}':
-        depth -= 1
-        if depth == 0: end = i; break
-print(f"adminRouter closes at L{content[:end].count(chr(10))+1}")
-```
-
-### Correção de arquivos TypeScript
+### Arquivo corrompido — protocolo de recuperação
 ```bash
-# SEMPRE restaurar do git antes de editar arquivos grandes
-git show COMMIT:path/to/file.tsx > /tmp/clean_version.tsx
-# Verificar que está limpo
-wc -l /tmp/clean_version.tsx
-# Aplicar APENAS a mudança necessária
-# Verificar TypeScript
-npx tsc --noEmit 2>&1 | grep "filename" | grep "error TS"
+# SEMPRE restaurar do git antes de reaplicar edições
+git show COMMIT:client/src/pages/File.tsx > /tmp/clean.tsx
+# Verificar linhas
+wc -l /tmp/clean.tsx
+# Aplicar APENAS a mudança necessária via Python replace
+# Verificar TS
+npx tsc --noEmit 2>&1 | grep "FileName" | grep "error TS"
+```
+
+### Edição de arquivos — verificar estado atual ANTES
+```python
+# Antes de qualquer replace, verificar o que existe
+with open('file.tsx', 'r') as f: content = f.read()
+print(content.count('variavel_a_verificar'))  # deve ser 1, não 0 ou 2
 ```
 
 ### Timeouts e Render.com
-- **Limite HTTP:** 30s no Render Free/Starter
-- **Padrão:** Timeout 25s no procedure → retorna `{ timedOut: true }` → frontend faz polling
-- **Polling endpoint:** `GET /api/competitors/status?competitorId=X&after=TIMESTAMP`
+- Limite HTTP: 30s no Render Free/Starter
+- Padrão: Timeout 25s → `{ timedOut: true }` → frontend faz polling
+- Polling: `GET /api/competitors/status?competitorId=X&after=TIMESTAMP`
+
+### Modais em mobile (bottom sheet)
+```tsx
+// Padrão para modais que devem funcionar em iPhone
+<div style={{ position:"fixed", inset:0, zIndex:2000,
+  display:"flex", alignItems:"flex-end",
+  background:"rgba(0,0,0,0.5)" }}>
+  <div style={{ width:"100%", borderRadius:"20px 20px 0 0",
+    maxHeight:"92vh", overflowY:"auto",
+    animation:"slideUp 0.22s ease" }}>
+    {/* handle bar */}
+    <div style={{ width:40, height:4, background:"#e2e8f0",
+      borderRadius:99, margin:"12px auto 20px" }} />
+    {/* conteúdo */}
+  </div>
+</div>
+```
 
 ---
 
@@ -297,107 +303,75 @@ npx tsc --noEmit 2>&1 | grep "filename" | grep "error TS"
 ```
 server/
 ├── _core/
-│   ├── router.ts               ← ~10k linhas; adminRouter fecha L4299; competitorsRouter L1800+
-│   ├── adminIntelligenceRouter.ts  ← ML procedures; NÃO usar t.procedure direto
-│   ├── migrations.ts           ← ML tables: campaign_scores, winner_patterns, learning_base
-│   └── index.ts                ← Polling endpoints: /api/campaigns/latest, /api/competitors/status
-├── ai.ts                       ← ~6k linhas; pipeline M2 em _analyzeCompetitorImpl()
-├── paymentService.ts           ← PaymentProvider interface + Stripe/Asaas providers
-├── campaignIntelligenceEngine.ts ← ML scoring (DEFAULT_WEIGHTS, calculateScore)
-└── db.ts                       ← getCompetitorById, updateCompetitor, getClientProfile
+│   ├── router.ts                   ← ~10k linhas; adminRouter fecha ~L4300
+│   │                                 syncMetaCampaignMetrics; getCheckoutPix
+│   │                                 subscriptionsRouter inclui getCheckoutPix
+│   ├── adminIntelligenceRouter.ts  ← ML procedures; INSERT usa DELETE+INSERT (não ON CONFLICT)
+│   ├── migrations.ts               ← Inclui: ai_cache, client_profiles (scope/city/state),
+│   │                                 winner_patterns constraint, campaign_scores updated_at
+│   └── index.ts                    ← cleanExpiredCache() no boot; polling endpoints
+├── ai.ts                           ← ~6k linhas; kpUrl usa /v19/ (não v19_1)
+│                                     scrape-website timeout 8s; cache DB integrado
+├── aiCache.ts                      ← Cache persistente; buildCacheKey(prompt, fn, projectId, userId)
+├── paymentService.ts               ← AsaasProvider.createSubscription retorna { url, invoiceId }
+├── campaignIntelligenceEngine.ts   ← ML scoring
+└── db.ts                           ← PLAN_LIMITS; checkPlanLimit inclui "tiktok"
 
 client/src/
 ├── components/
-│   ├── layout/Layout.tsx       ← SEM hooks tRPC; usa sessionStorage para ui_visibility
+│   ├── layout/Layout.tsx           ← SEM hooks tRPC
 │   └── competitors/
-│       ├── competitorForms.tsx ← AddCompetitorForm + EditCompetitorForm (467 linhas)
-│       ├── competitorCards.tsx ← CascadeStatus, AdCard, AdDetailModal
-│       ├── competitorHelpers.ts← Funções puras: extractPageId, buildAdsLibraryUrl, sourceBadge
-│       ├── competitorComparison.tsx ← CompetitiveBanner, CompetitivePanel
-│       └── competitorVerifiers.tsx  ← TikTokVerifier, GoogleVerifier, InstagramVerifier
+│       ├── competitorForms.tsx     ← EditCompetitorForm — hooks tipados, sem (as any)
+│       └── competitorCards.tsx     ← qualityMap: Real/Parcial/Estimado IA/Estimado
 ├── pages/
-│   ├── CompetitorAnalysis.tsx  ← Módulo 2; ~1450 linhas; RaioX + AdInputAnalyzer no arquivo
-│   ├── AdminCampaignIntelligence.tsx ← Painel ML; todos hooks devem ser tipados diretos
-│   ├── AdminUIConfig.tsx       ← Visibilidade do menu; usa trpc.admin.saveUIConfig
-│   └── CheckoutAsaas.tsx       ← Checkout Pix
-└── App.tsx                     ← UIConfigLoader componente; rotas /checkout/asaas, /admin/ui-config
+│   ├── CompetitorAnalysis.tsx      ← Modal editar: nível raiz, z-index 2000, busca em competitors[]
+│   ├── AdminCampaignIntelligence.tsx ← ErrorBoundary em 4 abas; TabLearning/TabML/TabRanking
+│   ├── CheckoutAsaas.tsx           ← subId param; subStatus query; useEffect para Pix
+│   ├── ClientProfile.tsx           ← businessScope, city, state, averageTicket
+│   └── About.tsx                   ← Planos sincronizados com PLAN_LIMITS
+├── hooks/usePlanLimit.ts           ← PLAN_LIMITS espelho; inclui hasTikTok
+└── App.tsx                         ← rota /checkout/asaas registrada
 ```
 
 ---
 
-## 🔑 Variáveis de Ambiente Necessárias
+## 🔑 Variáveis de Ambiente
 
 ```bash
-# Banco & Auth
 DATABASE_URL=postgresql://...
-JWT_SECRET=...
-SESSION_SECRET=...
-
-# IA
-GEMINI_API_KEY=...     # + GEMINI_API_KEY2..5 (rotação)
+JWT_SECRET=... / SESSION_SECRET=...
+GEMINI_API_KEY=... (+ KEY2..5)
 GROQ_API_KEY=...
 GENSPARK_API_KEY=...
-
-# Meta
-META_APP_ID=41805843...
-META_APP_SECRET=...
-
-# Google Ads
-GOOGLE_ADS_CLIENT_ID=791597639315-...
-GOOGLE_ADS_CLIENT_SECRET=...
-GOOGLE_ADS_DEVELOPER_TOKEN=saxm5SH_...
-
-# Pagamentos
-STRIPE_SECRET_KEY=...
-ASAAS_API_KEY=...
-ASAAS_WEBHOOK_TOKEN=...
-
-# Outros
+META_APP_ID=41805843... / META_APP_SECRET=...
+GOOGLE_ADS_CLIENT_ID=791597639315-... / CLIENT_SECRET=... / DEVELOPER_TOKEN=saxm5SH_...
+STRIPE_SECRET_KEY=... / ASAAS_API_KEY=... / ASAAS_WEBHOOK_TOKEN=...
 HUGGINGFACE_API_KEY=...
 CLOUDINARY_URL=...
 APP_URL=https://www.mecproai.com
+MECPRO_AI_URL=https://[hf-space-url]  ← HF Space atualmente inacessível do Render
 ```
 
 ---
 
-## 📋 Pendências Conhecidas
+## 📋 Pendências
 
 | Prioridade | Item | Status |
 |---|---|---|
-| 🔴 | Meta App — solicitar permissão Ads Library API | Aguardando aprovação Facebook |
-| 🔴 | Token Meta expirado — reconectar | Ação do usuário necessária |
-| 🟡 | Módulo 2 — web scraping quando sem site cadastrado | ✅ Implementado (geminiWithGrounding) |
-| 🟡 | Módulo 2 — auditoria de hooks condicionais | ✅ Corrigido (commit b6c6358) |
-| 🟡 | Google Ads — headlines com emoji causando TOO_LONG | ✅ Corrigido (stripEmojis) |
-| 🟡 | ML — rodar `runFullAnalysis` para popular learning_base | Ação admin necessária |
-| 🟢 | Mercado Livre API | Aguardando credenciais DevCenter |
+| 🔴 | Meta App — permissão Ads Library API | Aguardando aprovação Facebook |
+| 🔴 | Asaas — testar fluxo Pix completo após fixes | PENDENTE — verificar getCheckoutPix em produção |
+| 🟡 | ML — popular winner_patterns e ml_dataset | DELETE+INSERT implementado — testar com runFullAnalysis |
+| 🟡 | HF Space scrape-website — inacessível do Render | Investigar se URL mudou ou serviço caiu |
+| 🟡 | Meta Token — reconectar antes de 2026-05-25 | Ação do usuário |
+| 🟢 | Mercado Livre API | Aguardando credenciais |
 | 🟢 | ZAP Imóveis — feed XML | Não implementado |
-| 🟢 | Módulo 2 — extrair RaioX para arquivo próprio | Low priority (890L no main) |
 
 ---
 
-## 🔄 Como Atualizar Esta Memória
-
-Após cada sessão significativa, executar:
-
-```bash
-# 1. Abrir este arquivo
-# 2. Adicionar bugs novos em "Bugs Conhecidos & Resolvidos"
-# 3. Atualizar "Estado Atual do Sistema" se mudou
-# 4. Adicionar decisões de arquitetura novas
-# 5. Atualizar pendências
-# 6. Commitar junto com o código
-git add docs/SYSTEM_MEMORY.md
-git commit -m "docs(memory): atualiza memória técnica — [descrever o que mudou]"
-```
-
----
-
-## 💡 Prompt de Início de Sessão (usar com Claude)
+## 💡 Prompt de Início de Sessão
 
 ```
-Leia o arquivo docs/SYSTEM_MEMORY.md do repositório MecProAI antes de começar.
-Ele contém o estado atual do sistema, bugs conhecidos e decisões de arquitetura.
-Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com. Repo: github.com/Moliver63/mecpro
-Michel trabalha em Windows, PowerShell, Balneário Camboriú/SC.
+Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
+Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
+Último commit: b2d755d. Michel trabalha em Windows/PowerShell, Balneário Camboriú/SC.
 ```
