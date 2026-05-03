@@ -2120,33 +2120,33 @@ const campaignsRouter = router({
       const creative = creatives[input.creativeIndex] as CampaignCreative;
       if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
 
-      // Auto-detectar provider: HeyGen > HuggingFace > mock
-      const heygenKey = (process.env.HEYGEN_API_KEY || "").trim();
-      const hfKey     = (process.env.HUGGINGFACE_API_KEY || "").trim();
-      const explicitProvider = (process.env.IMAGE_PROVIDER || "").toLowerCase();
-      let normalizedProvider: ImageProvider = "mock";
-      let apiKey = "";
-      if (explicitProvider === "heygen" || (!explicitProvider && heygenKey)) {
-        normalizedProvider = "heygen"; apiKey = heygenKey;
-      } else if (explicitProvider === "huggingface" || (!explicitProvider && hfKey)) {
-        normalizedProvider = "huggingface"; apiKey = hfKey;
+      // Config inline — igual ao resolveImageProviderConfig() em ai.ts
+      // Garante que Pollinations é o fallback final (via generateAdImage)
+      const hfKey2     = (process.env.HUGGINGFACE_API_KEY || "").trim();
+      const gsKey2     = (process.env.GENSPARK_API_KEY    || "").trim();
+      const explicitP  = (process.env.IMAGE_PROVIDER      || "").toLowerCase();
+      let regenProvider: ImageProvider = "mock";
+      let regenKey = "";
+      if (explicitP === "genspark" || (!explicitP && gsKey2)) {
+        regenProvider = "genspark" as any; regenKey = gsKey2;
+      } else if (explicitP === "huggingface" || hfKey2) {
+        regenProvider = "huggingface"; regenKey = hfKey2;
       }
-      const diagnostics = getImageGenerationDiagnostics(normalizedProvider);
-      log.info("image-generation", "regenerateCreativeImage", { provider: normalizedProvider, hasKey: !!apiKey });
+      const config = { provider: regenProvider, apiKey: regenKey };
+      const diagnostics = getImageGenerationDiagnostics(regenProvider);
+      log.info("image-generation", "regenerateCreativeImage", { provider: config.provider, hasKey: !!config.apiKey });
 
       const imageUrl = await generateAdImage(
         creative,
         campaign.name || "segmento geral",
         campaign.objective || "traffic",
-        { provider: normalizedProvider, apiKey },
+        config,
         input.format as CreativeImageFormat,
       );
 
       if (!imageUrl) throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: normalizedProvider === "mock"
-          ? "Configure HEYGEN_API_KEY ou HUGGINGFACE_API_KEY no Render para gerar imagens reais."
-          : "Falha ao gerar imagem via " + normalizedProvider + ". Verifique os logs.",
+        message: "Falha ao gerar imagem. Tente novamente em alguns segundos.",
       });
 
       if (input.format === "stories") creatives[input.creativeIndex].storyImageUrl = imageUrl;
