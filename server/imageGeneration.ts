@@ -624,11 +624,9 @@ export async function generateAdImage(
   if (cached) return cached;
 
   const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
-    if (providerToTry === "huggingface" && apiKey) {
-      const prompt = inferPrompt(creative, segment, objective, format);
-      // generateWithHuggingFace agora retorna URL (string) diretamente após upload Cloudinary
-      const hfUrl = await generateWithHuggingFace(prompt, apiKey, format);
-      if (hfUrl) return hfUrl;
+    if (providerToTry === "huggingface") {
+      // HF hf-inference não suporta geração de imagem (todos modelos 400/404/410)
+      // FAL-AI via HF router também rejeita — pulando direto para Pollinations
       return null;
     }
 

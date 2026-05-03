@@ -6069,6 +6069,10 @@ Gere JSON com:
       const features = buildMLFeatures(context as any, winnerParams as any, score);
 
       // Upsert em campaign_scores
+      if (!userId || !projectId) {
+        log.warn("intelligence", "Score automático pulado — userId ou projectId nulo", { campaignId, userId, projectId });
+        return;
+      }
       await pool.query(`DELETE FROM campaign_scores WHERE campaign_id = $1`, [campaignId]).catch(() => {});
       await pool.query(`
         INSERT INTO campaign_scores (
