@@ -871,15 +871,14 @@ export async function generateVideoFromImage(
           pan:    "right",
           duration,
         },
-        // Faixa escura na base para legibilidade dos textos
+        // Faixa escura na base via HTML (sem depender de URL externa)
         {
-          type:   "image",
-          src:    "https://assets.json2video.com/assets/images/black.png",
-          x:      0,
-          y:      dims.h - 340,
-          width:  dims.w,
-          height: 340,
-          opacity: 0.7,
+          type:    "html",
+          html:    `<div style="width:${dims.w}px;height:340px;background:linear-gradient(to bottom,transparent,rgba(0,0,0,0.85))"></div>`,
+          x:       0,
+          y:       dims.h - 340,
+          width:   dims.w,
+          height:  340,
           duration,
         },
         // Headline
