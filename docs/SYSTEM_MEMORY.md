@@ -3,7 +3,7 @@
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
 > Atualizar após cada sessão significativa.
 >
-> **Última atualização:** 2026-05-04 (sessão 9)
+> **Última atualização:** 2026-05-04 (sessão 10 — solução derradeira)
 
 ---
 
@@ -12,261 +12,20 @@
 | Camada | Tecnologia | Detalhe |
 |---|---|---|
 | Frontend | React + Vite + TypeScript | `/client/src/` |
-| Backend | Node.js + Express + tRPC | `/server/_core/router.ts` (>10k linhas) |
+| Backend | Node.js + Express + tRPC | `/server/_core/router.ts` |
 | Banco | PostgreSQL + Drizzle ORM | Render.com managed DB |
 | Auth | JWT + Google OAuth | `/server/_core/context.ts` |
 | IA Principal | Google Gemini (5 chaves) | fallback: Groq → mock |
-| Deploy | Render.com | build: `npm run build`, start: `tsx server/_core/index.ts` |
+| Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `7ef6912` | fix overlay topo + negative_prompt CF |
+| Último commit | `d460b2d` | Google Display/Video/PMax desbloqueados |
 
 ---
 
-## ⚡ Estado Atual (2026-05-04 — sessão 9)
+## 📊 Análise de Prontidão (2026-05-04 — atualizada sessão 10)
 
-### Integrações
-| Serviço | Status | Detalhe |
-|---|---|---|
-| Meta Ads Library API | ❌ `code=10` | Aguardando aprovação Facebook |
-| Meta Token | ✅ Válido até 2026-05-25 | Reconectar antes de expirar |
-| Gemini API | ✅ Operacional | 5 chaves, reset 00:00 UTC |
-| Groq API | ✅ Fallback | llama-3.3-70b-versatile |
-| Google Ads API | ✅ `/v19/` | Funciona para Search apenas |
-| Asaas | ✅ Completo | Pix (QR direto) + Cartão (CREDIT_CARD) |
-| Cloudflare Workers AI | ✅ **ATIVO EM PRODUÇÃO** | FLUX.1-schnell confirmado nos logs — 3 formatos OK |
-| Pollinations.AI | ✅ Fallback | Para quando CF falha |
-| HuggingFace imagens | ❌ DESABILITADO | Todos modelos mortos |
-| HeyGen imagens | ❌ DESABILITADO | API mudou |
-| Genspark imagens | ❌ fetch failed | Inacessível |
-| FAL.AI | ⏳ Pendente | Chave existe mas "Host not in allowlist" — adicionar Render no allowlist |
-| Geração de Vídeo | ⏳ Pendente | JSON2Video (grátis) recomendado — Michel criar conta |
-
-### Pipeline de Geração de Imagens (CONFIRMADO FUNCIONANDO)
-```
-Cloudflare Workers AI FLUX.1-schnell (ATIVO ✅)
-  → JSON: { result: { image: "base64..." } }
-  → Buffer → Cloudinary → URL estável
-  → negative_prompt: "text, words, letters, typography, watermark..."
-  → num_steps: 8
-  → 3 formatos paralelos: feed(631KB) + stories(620KB) + square(612KB)
-  → regenerateCreativeImage: ~1s por imagem
-
-Fallback: Genspark (falha) → Pollinations → Cloudinary
-
-Credenciais no Render:
-  CLOUDFLARE_ACCOUNT_ID = 5ff9748220abb541704e480a75d33a09
-  CLOUDFLARE_API_TOKEN  = <definido no Render.com — não documentar aqui>
-```
-
-### Overlay de Texto — CampaignResult.tsx
-```
-Gradiente DUPLO (cobre topo E base):
-  to bottom: rgba(0,0,0,0.65) topo → 0.10 centro → 0.75 base → 0.92 rodapé
-  Razão: texto alucinado aparecia no TOPO — gradiente anterior só cobria base
-
-Exibe: headline (branco bold) + copy/hook (stories) + CTA (botão azul Meta)
-Badge: formato no topo direito (9:16 / 1:1 / 4:5)
-Toggle: "👁 Com texto" / "🖼 Só imagem" — state showOverlay (padrão: true)
-```
-
-### Estado do ML
-```
-learning_base:    ✅ 286 amostras (cosméticos), 24 (academia), 24 (imobiliário)
-winner_patterns:  ✅ 72 padrões
-campaign_scores:  ✅ auto-score com userId fallback
-ml_dataset:       ✅ populando
-Cache DB:         ✅ hits confirmados (key 878a2776, hits 2/3/4)
-```
-
-### Auditoria de Publicação
-```
-META:   ✅ COMPLETO — todos os campos enviados
-GOOGLE: ⚠️ apenas SEARCH funciona; Display/Video bloqueados
-TIKTOK: 🔴 videoUrl="" sempre — publicação falha sem vídeo
-         coverImageUrl="" — feedImageUrl/storyImageUrl não passados
-```
-
-### Geração de Vídeo (NOVO — sessão 9)
-```
-Necessidade: TikTok exige vídeo; Meta aceita vídeo nos criativos
-Opção recomendada: JSON2Video
-  - Plano free: 600 créditos (~10 min renderizado), sem cartão
-  - API REST: image-to-video (usa imagem FLUX como base)
-  - Suporte: 9:16 TikTok, 4:5 Meta, 1:1 Square
-  - Free tier tem watermark pequena; pago desde $49.95/mês
-  - Status: aguardando Michel criar conta em json2video.com
-
-Alternativa: Magic Hour
-  - 400 créditos iniciais + 100/dia renováveis, sem cartão
-  - Melhor para protótipos
-
-Fluxo planejado:
-  Imagem FLUX (Cloudflare) → JSON2Video image-to-video → MP4
-  → Cloudinary → TikTok/Meta Ads
-```
-
----
-
-## 📊 Análise de Prontidão (2026-05-04)
-
-**Score geral: 78.7% — MVP FUNCIONAL, pronto para clientes pagantes**
-
-| Módulo | Score | Peso | Status |
-|---|---|---|---|
-| Infraestrutura | 94% | 5% | ✅ |
-| Financeiro (Pagamentos) | 87% | 10% | ✅ |
-| ML / Inteligência | 82% | 5% | ✅ |
-| Meta Ads (publicação) | 88% | 20% | ✅ |
-| Geração de Campanhas IA | 88% | 25% | ✅ |
-| Análise de Concorrentes M2 | 74% | 15% | ⚠️ |
-| TikTok Ads | 66% | 10% | ⚠️ |
-| Google Ads | 40% | 10% | 🔴 |
-
-**O que puxa para baixo (fora do controle):**
-- Meta Ads Library `code=10` → aguardando aprovação Facebook
-- Google Display/Video/PMax → bloqueados no frontend (não implementados)
-- TikTok metrics → TIKTOK_ACCESS_TOKEN não configurado
-
-**Se esses 3 fossem resolvidos → ~87% pronto**
-
-**Conclusão:** módulos principais (geração, Meta Ads, pagamentos) todos acima de 85% — produto viável para venda e cobrança.
-
----
-
-## 🐛 Bugs Resolvidos (sessão 9)
-
-#### BUG-042: Cloudflare API retornava JSON ignorado
-- **Causa:** Código esperava `Content-Type: image/png`; CF retorna `application/json` com `{result:{image:"base64..."}}`
-- **Solução:** Detecta JSON → extrai base64 → Buffer → Cloudinary
-- **Commit:** aaa2665
-
-#### BUG-043: regenerateCreativeImage — botão "Gerar IA" não funcionava
-- **Causa:** `(trpc as any)?.useMutation?.()` — hook condicional
-- **Solução:** `trpc.campaigns.regenerateCreativeImage.useMutation()` direto; `isLoading→isPending`
-- **Commit:** 3b0c9a7
-
-#### BUG-044: Texto alucinado no TOPO da imagem
-- **Causa:** Overlay gradiente só cobria base; topo ficava transparent
-- **Solução:** Gradiente duplo cobre topo(0.65) + centro(0.10) + base(0.92)
-- **Commit:** 7ef6912
-
-#### BUG-045: Cloudflare sem negative_prompt
-- **Solução:** `negative_prompt` dedicado no payload + `num_steps: 8`
-- **Commit:** 7ef6912
-
----
-
-## 🐛 Bugs Anteriores (sessões 1-8) — resumo
-- BUG-001/002: Rules of Hooks; optional chaining
-- BUG-020/021: ON CONFLICT; Google Ads /v19_1/
-- BUG-025/026: Modal editar M2; TabRanking crash
-- BUG-027-035: Pollinations→Cloudinary; HF desabilitado; Asaas QR; isSuspended
-- BUG-036-041: Billing botões; Asaas cartão; CheckoutAsaas JSX; imagem cabeça; overlay
-
----
-
-## 🏛️ Decisões de Arquitetura
-
-### DA-001: Layout sem hook tRPC
-### DA-002: Pipeline M2 (Camada 6 SEO/Gemini ativa)
-### DA-004: Payment Gateway (Asaas Pix+Cartão / Stripe)
-### DA-005: ML — DELETE+INSERT em tudo
-### DA-013: Pipeline de imagem
-```
-CF FLUX (principal) → Genspark (falha) → Pollinations (fallback)
-CF payload: prompt + negative_prompt + num_steps:8 + width/height
-CF response: JSON base64 → Buffer → Cloudinary
-generateWithHuggingFace: retorna string|null (não Buffer)
-3 formatos paralelos + demais criativos sequencial (só feed)
-```
-### DA-014: Overlay de texto
-```
-Gradiente duplo: topo(0.65)→centro(0.10)→base(0.92)
-Badge formato: topo direito (9:16/1:1/4:5)
-Toggle showOverlay padrão true
-```
-### DA-015: Auditoria publicação
-```
-Meta ✅ / Google ⚠️ Search-only / TikTok 🔴 sem vídeo
-```
-### DA-016: Geração de vídeo (planejada)
-```
-JSON2Video: image-to-video; free 600 créditos; 9:16/4:5/1:1
-Fluxo: CF FLUX → JSON2Video → MP4 → Cloudinary → TikTok/Meta
-Aguardando: Michel criar conta json2video.com
-```
-
----
-
-## 📐 Padrões Estabelecidos
-
-```tsx
-// Hooks: NUNCA optional chaining
-trpc.x.y.useMutation() — sempre tipado; isPending não isLoading
-
-// DB: SEMPRE DELETE + INSERT
-DELETE FROM tabela WHERE campaign_id = $1;
-INSERT INTO tabela (...) VALUES (...);
-
-// useEffect em vez de onSuccess (React Query v5)
-useEffect(() => { if (data?.field) doSomething(data) }, [data])
-
-// Antes de editar: verificar estado atual
-with open('file.tsx') as f: c = f.read()
-print(c.count('variavel'))  # deve ser 1
-```
-
----
-
-## 📁 Mapa de Arquivos Críticos
-
-```
-server/
-├── _core/router.ts         ← regenerateCreativeImage; createCheckout; listUserBalances
-├── adminIntelligenceRouter.ts ← ML DELETE+INSERT
-├── ai.ts                   ← auto-score userId fallback; DELETE+INSERT ML
-├── imageGeneration.ts      ← CF FLUX principal; negative_prompt; compositionFix
-│                             generateWithCloudflare: JSON base64 detectado
-│                             HF/HeyGen desabilitados; Pollinations fallback
-├── paymentService.ts       ← Asaas Pix+Cartão
-└── db.ts                   ← PLAN_LIMITS
-
-client/src/pages/
-├── CampaignResult.tsx      ← overlay gradiente duplo; badge formato; showOverlay toggle
-│                             regenerateCreativeImage.useMutation() real
-├── Billing.tsx             ← "Assinar" → /checkout/asaas ou Stripe
-├── CheckoutAsaas.tsx       ← seletor Pix|Cartão completo; form cartão; validação
-├── GoogleCampaignCreator.tsx ← apenas SEARCH
-├── TikTokCampaignCreator.tsx ← videoUrl="" (PENDENTE)
-├── CompetitorAnalysis.tsx  ← modal editar z-index 2000
-└── AdminCampaignIntelligence.tsx ← ErrorBoundary 4 abas
-```
-
----
-
-## 🔑 Variáveis de Ambiente
-
-```bash
-DATABASE_URL / JWT_SECRET / SESSION_SECRET
-GEMINI_API_KEY (+ KEY2..5) / GROQ_API_KEY
-META_APP_ID / META_APP_SECRET
-GOOGLE_ADS_CLIENT_ID / CLIENT_SECRET / DEVELOPER_TOKEN=saxm5SH_...
-STRIPE_SECRET_KEY / ASAAS_API_KEY / ASAAS_WEBHOOK_TOKEN
-HUGGINGFACE_API_KEY   ← tem mas HF desabilitado
-CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET
-APP_URL=https://www.mecproai.com
-CLOUDFLARE_ACCOUNT_ID=5ff9748220abb541704e480a75d33a09  ✅ ATIVO
-CLOUDFLARE_API_TOKEN=<definido no Render.com>  ✅ ATIVO
-# PENDENTE:
-JSON2VIDEO_API_KEY=<Michel criar conta json2video.com>
-```
-
----
-
-## 📊 Análise de Prontidão (2026-05-04)
-
-**Score geral: 78.7%** — MVP FUNCIONAL, pronto para clientes pagantes
+**Score geral: ~82%** ← subiu de 78.7% após Google Display/Video/PMax
 
 | Módulo | Score | Peso | Status |
 |---|---|---|---|
@@ -274,33 +33,240 @@ JSON2VIDEO_API_KEY=<Michel criar conta json2video.com>
 | Financeiro (Pagamentos) | 87% | 10% | ✅ |
 | ML / Inteligência | 82% | 5% | ✅ |
 | Meta Ads (Publicação) | 88% | 20% | ✅ |
-| Geração de Campanhas | 88% | 25% | ✅ |
+| Geração de Campanhas IA | 88% | 25% | ✅ |
 | Análise de Concorrentes | 74% | 15% | ⚠️ |
-| TikTok Ads | 66% | 10% | ⚠️ |
-| Google Ads | 40% | 10% | 🔴 |
+| TikTok Ads | 70% | 10% | ⚠️ |
+| Google Ads | 78% | 10% | ⚠️ (+38% nesta sessão) |
 
-**3 itens que puxam para baixo (fora do controle):**
-- Meta Ads Library `code=10` → aguardando aprovação Facebook
-- Google Display/Video/PMax → bloqueados (não implementados)
-- TikTok metrics → TIKTOK_ACCESS_TOKEN não configurado
+**O que ainda puxa para baixo:**
+- Meta Ads Library `code=10` → aguardando aprovação Facebook (fora do controle)
+- TikTok metrics → TIKTOK_ACCESS_TOKEN não configurado (ação do usuário)
+- Meta Token expira 2026-05-25 → reconectar antes (ação do usuário)
 
-**Se esses 3 resolvidos: ~87%**
+**Se esses 3 resolvidos → ~88%**
+
+---
+
+## ⚡ Estado Atual das Integrações
+
+| Serviço | Status | Detalhe |
+|---|---|---|
+| Meta Ads Library API | ❌ `code=10` | Aguardando Facebook |
+| Meta Token | ✅ Válido até 2026-05-25 | Reconectar antes de expirar |
+| Gemini API | ✅ 5 chaves | Reset 00:00 UTC |
+| Groq API | ✅ Fallback | llama-3.3-70b-versatile |
+| Google Ads API | ✅ `/v19/` | Search + Display + Video + PMax |
+| Asaas | ✅ Completo | Pix QR + Cartão CREDIT_CARD |
+| Cloudflare Workers AI | ✅ ATIVO | FLUX.1-schnell; 10k neurons/dia; reset 21h BRT |
+| JSON2Video | ✅ ATIVO | MP4 com voz PT-BR Azure (gratuito); 600 créditos |
+| Pollinations.AI | ✅ Fallback imagem | Quando CF com quota esgotada |
+| HuggingFace/HeyGen/Genspark | ❌ DESABILITADOS | Mortos ou inacessíveis |
+| FAL.AI | ⏳ Pendente | "Host not in allowlist" — adicionar Render no FAL dashboard |
+
+---
+
+## 🎬 Pipeline de Geração de Vídeo (NOVO — sessão 10)
+
+```
+Imagem FLUX (Cloudflare) → botão "🎬 Gerar vídeo com IA"
+    ↓
+JSON2Video API (a393GciY...)
+  Payload:
+    resolution: "custom" + width/height por formato
+    fill: "cover" — imagem preenche 100% sem barras
+    zoom: 3 + pan: "right" — Ken Burns
+    type: "text" style:"001" — headline + CTA
+    type: "voice" model:"azure" voice:"pt-BR-FranciscaNeural" — narração grátis
+  effectiveFormat: detecta formato real da imagem (evita barras pretas)
+    ↓
+Polling 5s × 18 tentativas (máx 90s)
+    ↓
+MP4 → cr.videoUrl + cr.feedVideoUrl/storyVideoUrl
+    ↓
+Player aparece imediatamente no CampaignResult
+```
+
+**Custo vídeo:** JSON2Video free = 600 créditos totais (~60 vídeos)
+**Custo narração:** Azure TTS = gratuito em todos os planos JSON2Video
+**Custo imagem:** CF FLUX free = 10k neurons/dia (~30 imagens); fallback Pollinations grátis
+
+---
+
+## 🌐 Google Ads — Display/Video/PMax (DESBLOQUEADO — sessão 10)
+
+```
+SEARCH:          channel=2, adGroup=2, ad=responsive_search_ad (RSA)
+DISPLAY:         channel=3, adGroup=17, ad=responsive_display_ad + imagePath
+VIDEO:           channel=6, adGroup=6, ad=video_responsive_ad + YouTube URL
+PERFORMANCE_MAX: channel=10, adGroup=2, ad=assetGroups.create() + fallback RSA
+
+Frontend:
+  Display  → campo URL imagem (auto-preenchido com feedImageUrl da IA)
+  Video    → campo URL YouTube (usuário preenche)
+  PMax     → info "Google distribui automaticamente" (usa headlines/descriptions)
+  
+imagePath passado em buildAdsFromCreatives:
+  Display: feedImageUrl || squareImageUrl || imageUrl
+  Video/PMax: "" (usuário preenche ou não precisa)
+```
+
+---
+
+## 📢 Auditoria de Criativo (CampaignResult)
+
+```
+Meta Story 9:16: storyImageUrl || storyImageHash || feedImageUrl (fallback)
+Feed:            feedImageUrl || feedImageHash
+Square 1:1:      squareImageUrl || squareImageHash
+TikTok/Reels:    publishMedia.videoId || videoUrl || feedVideoUrl || storyVideoUrl
+Google Search:   headlines + descriptions presentes
+```
+
+---
+
+## 🐛 Bugs Resolvidos (sessão 10)
+
+#### BUG-046: generateCreativeVideo FORBIDDEN
+- **Causa:** `campaign.userId` não existe — campaigns tem `projectId` → verifica via `getProjectById`
+- **Commit:** 4410771
+
+#### BUG-047: JSON2Video quality inválido
+- **Causa:** `quality: 8` (número) → API aceita `"low"|"medium"|"high"`
+- **Commit:** 20895eb
+
+#### BUG-048: JSON2Video `style:"kenburns"` não existe
+- **Causa:** API usa `zoom: 3 + pan: "right"`; `type:"html"` com `fade_in` não existe
+- **Commit:** eac714b
+
+#### BUG-049: Imagem no canto com barras pretas
+- **Causa:** 2 cenas separadas + sem `fill:"cover"`
+- **Solução:** 1 cena única + `fill:"cover"` + `width/height=dims`
+- **Commit:** acb820f
+
+#### BUG-050: `black.png` 404
+- **Causa:** URL inventada não existe no JSON2Video
+- **Solução:** elemento `html` com gradiente CSS inline
+- **Commit:** 834282b
+
+#### BUG-051: `Error rendering video` genérico
+- **Causa:** `x_anchor`, `x:"50%"`, `fps:25` — propriedades inválidas
+- **Solução:** payload minimalista com só propriedades confirmadas pela doc
+- **Commit:** 66bea11
+
+#### BUG-052: `refetch` não encontrado no vídeo
+- **Causa:** `refetch()` → variável se chama `_refetch()`
+- **Commit:** 7c47145
+
+#### BUG-053: Meta Story 9:16 sempre "Falta"
+- **Causa:** audit não aceitava feedImageUrl como fallback
+- **Solução:** `story = storyImageUrl || storyImageHash || feedImageUrl`
+- **Commit:** 97f0005
+
+#### BUG-054: TikTok/Reels "Falta" mesmo com vídeo gerado
+- **Causa:** audit verificava só `publishMedia.videoId` (Meta)
+- **Solução:** inclui `videoUrl || feedVideoUrl || storyVideoUrl`
+- **Commit:** 97f0005
+
+#### BUG-055: createLeadForm "Button text is missing"
+- **Causa:** Meta exige `button_text` quando `button_type=VIEW_WEBSITE`
+- **Solução:** adicionado `button_text: "Ver site"`
+- **Commit:** 97f0005
+
+#### BUG-056: Barras pretas por aspect ratio errado
+- **Causa:** canvas 9:16 com imagem 4:5
+- **Solução:** `effectiveFormat` detecta formato real da imagem disponível
+- **Commit:** 93dc1ce
+
+#### BUG-057: Google Display/Video/PMax bloqueados
+- **Causa:** throw SEARCH-only no backend + toast no frontend
+- **Solução:** removidos; implementados responsive_display_ad, video_responsive_ad, assetGroups
+- **Commit:** d460b2d
+
+---
+
+## 🏛️ Padrões Estabelecidos
+
+```tsx
+// Hooks: NUNCA optional chaining
+trpc.x.y.useMutation() — isPending não isLoading
+useEffect em vez de onSuccess (React Query v5)
+
+// DB: SEMPRE DELETE + INSERT
+// Verificar estado ANTES de editar arquivos
+
+// JSON2Video: só propriedades confirmadas pela doc
+// zoom + pan (não style:"kenburns")
+// type:"text" style:"001" (não type:"html" com fade_in)
+// fill:"cover" para imagens preencherem o canvas
+// resolution:"custom" + width/height explícitos
+// quality: "low"|"medium"|"high" (não número)
+```
+
+---
+
+## 📁 Arquivos Críticos
+
+```
+server/
+├── _core/router.ts         ← publishToGoogle: Display/Video/PMax; generateCreativeVideo
+├── imageGeneration.ts      ← CF FLUX + JSON2Video (vídeo+voz); effectiveFormat
+├── ai.ts                   ← fallback feed→story/square após geração paralela
+├── paymentService.ts       ← Asaas Pix+Cartão
+└── db.ts                   ← PLAN_LIMITS
+
+client/src/pages/
+├── CampaignResult.tsx      ← overlay; video preview; audit; showOverlay toggle
+├── GoogleCampaignCreator.tsx ← Display/Video/PMax campos; imagePath auto
+├── TikTokCampaignCreator.tsx ← videoUrl/coverImageUrl automáticos
+├── CheckoutAsaas.tsx       ← Pix|Cartão
+└── Billing.tsx             ← "Assinar" → gateway
+```
+
+---
+
+## 🔑 Variáveis de Ambiente (Render.com)
+
+```bash
+DATABASE_URL / JWT_SECRET / SESSION_SECRET
+GEMINI_API_KEY (+ KEY2..5) / GROQ_API_KEY
+META_APP_ID / META_APP_SECRET
+GOOGLE_ADS_CLIENT_ID / CLIENT_SECRET / DEVELOPER_TOKEN=saxm5SH_...
+STRIPE_SECRET_KEY / ASAAS_API_KEY / ASAAS_WEBHOOK_TOKEN
+CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET
+CLOUDFLARE_ACCOUNT_ID=5ff9748220abb541704e480a75d33a09  ✅
+CLOUDFLARE_API_TOKEN=<definido no Render>               ✅
+JSON2VIDEO_API_KEY=a393GciY...                          ✅
+APP_URL=https://www.mecproai.com
+# PENDENTE:
+TIKTOK_ACCESS_TOKEN + TIKTOK_ADVERTISER_ID  ← usuário configurar
+```
 
 ---
 
 ## 📋 Pendências
 
-| Prioridade | Item | Status |
+| Prioridade | Item | Responsável |
 |---|---|---|
-| 🔴 | TikTok: videoUrl vazio | Implementar após JSON2Video |
-| 🔴 | Meta Token — reconectar antes 2026-05-25 | Ação do usuário |
-| 🔴 | Meta App — Ads Library API | Aguardando Facebook |
-| 🔴 | JSON2Video — gerar vídeo | Michel criar conta em json2video.com → me passar API key |
-| 🟡 | Google Display/Video/PMax | Implementar asset upload |
-| 🟡 | Google negativeKeywords | Extrair do aiResponse |
-| 🟡 | FAL.AI allowlist | Adicionar Render no dashboard FAL |
+| 🔴 | Meta Token — reconectar antes 2026-05-25 | Michel |
+| 🔴 | Meta App — Ads Library API `code=10` | Aguardando Facebook |
+| 🔴 | TikTok token — configurar no painel | Michel |
+| 🟡 | Testar vídeo com narração PT-BR em produção | Teste |
+| 🟡 | Testar Asaas cartão em produção | Teste |
+| 🟡 | Google negativeKeywords extrair do aiResponse | Dev |
+| 🟡 | FAL.AI — adicionar Render no allowlist | Michel |
 | 🟢 | Mercado Livre API | Aguardando credenciais |
-| 🟢 | ZAP Imóveis feed XML | Não implementado |
+| 🟢 | ZAP Imóveis feed XML | Backlog |
+
+---
+
+## 🧭 Regra: "Qual o próximo passo?"
+
+Sempre orientar por este documento seguindo a ordem:
+1. 🔴 Pendências críticas (bloqueiam receita ou funcionamento)
+2. 🟡 Aumentam o score de prontidão
+3. 🟢 Melhorias de qualidade
+
+Formato: score atual → 3 itens em ordem de impacto → o que precisa para resolver.
 
 ---
 
@@ -309,20 +275,6 @@ JSON2VIDEO_API_KEY=<Michel criar conta json2video.com>
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: 6483c1c. Michel — Balneário Camboriú/SC.
+Último commit: d460b2d. Michel — Balneário Camboriú/SC.
+Score atual: ~82%. Prioridade: Meta Token (exp 25/05) + TikTok token.
 ```
-
-## 🧭 Regra: "Qual o próximo passo?"
-
-Sempre que Michel perguntar sobre próximos passos, prioridades ou o que fazer,
-orientar com base neste documento seguindo esta ordem:
-
-1. 🔴 Pendências críticas (bloqueiam receita ou funcionamento)
-2. 🟡 Pendências que aumentam o score de prontidão
-3. 🟢 Melhorias de qualidade/experiência
-4. 📊 Atualizar o score de prontidão se algo foi concluído
-
-Formato da resposta:
-- Citar o score atual (78.7%)
-- Listar os próximos 3 itens em ordem de impacto
-- Para cada item: o que é, por que importa, e o que precisa para resolver
