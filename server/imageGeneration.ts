@@ -405,7 +405,13 @@ async function generateWithCloudflare(
         "Authorization": `Bearer ${CF_API_TOKEN}`,
         "Content-Type":  "application/json",
       },
-      body:   JSON.stringify({ prompt, width: Math.min(dim.width, 1024), height: Math.min(dim.height, 1024) }),
+      body:   JSON.stringify({
+        prompt,
+        negative_prompt: "text, words, letters, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, caption, overlay text, printed text, handwriting",
+        width:  Math.min(dim.width,  1024),
+        height: Math.min(dim.height, 1024),
+        num_steps: 8,        // mais passos = maior qualidade e melhor aderência ao prompt
+      }),
       signal: AbortSignal.timeout(30000),
     });
 

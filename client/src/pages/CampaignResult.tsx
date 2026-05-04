@@ -2248,12 +2248,16 @@ export default function CampaignResult() {
                           <div style={{ position: "relative", width: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid #e5e7eb", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }}>
                             {/* Imagem de fundo */}
                             <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                            {/* Badge de formato no topo direito */}
+                            <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", color: "white", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 8, backdropFilter: "blur(4px)" }}>
+                              {creativeFormat === "stories" ? "9:16" : creativeFormat === "square" ? "1:1" : "4:5"}
+                            </div>
                             {/* Overlay de texto — headline + CTA sobre a imagem */}
                             {showOverlay && (cr.headline || cr.cta) && (
                               <div style={{
                                 position: "absolute", inset: 0,
                                 display: "flex", flexDirection: "column", justifyContent: "flex-end",
-                                background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.15) 70%, transparent 100%)",
+                                background: "linear-gradient(to bottom, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.1) 30%, rgba(0,0,0,0.1) 55%, rgba(0,0,0,0.75) 75%, rgba(0,0,0,0.92) 100%)",
                                 padding: creativeFormat === "stories" ? "24px 14px" : "16px 12px",
                               }}>
                                 {cr.headline && (
