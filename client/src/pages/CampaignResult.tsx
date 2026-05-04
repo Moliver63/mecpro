@@ -469,8 +469,15 @@ export default function CampaignResult() {
   }) ?? { mutateAsync: null, isLoading: false };
 
   const generateVideoMutation = trpc.campaigns.generateCreativeVideo.useMutation({
-    onSuccess: () => { toast.success("🎬 Vídeo gerado com sucesso!"); refetch(); },
-    onError:   (e: any) => toast.error(e.message || "Erro ao gerar vídeo"),
+    onSuccess: (data: any, vars: any) => {
+      toast.success("🎬 Vídeo gerado com sucesso!");
+      // Mostra o vídeo imediatamente no preview sem esperar refetch
+      if (data?.videoUrl) {
+        setCreativeVideoPreviews(prev => ({ ...prev, [vars.creativeIdx]: data.videoUrl }));
+      }
+      _refetch();
+    },
+    onError: (e: any) => toast.error(e.message || "Erro ao gerar vídeo"),
   });
 
   const regenerateCreativeImageMutation = trpc.campaigns.regenerateCreativeImage.useMutation({
@@ -1075,6 +1082,21 @@ export default function CampaignResult() {
   }
 
   const { data: campaign, isLoading, refetch: _refetch } = trpc.campaigns.get.useQuery({ id }, { enabled: !!id });
+
+  // Carrega videoUrl já gerado dos criativos salvos no banco
+  useEffect(() => {
+    if (!campaign) return;
+    try {
+      const crs = JSON.parse((campaign as any).creatives || "[]") as any[];
+      const previews: Record<number, string> = {};
+      crs.forEach((cr: any, idx: number) => {
+        const url = cr.videoUrl || cr.feedVideoUrl || cr.storyVideoUrl;
+        if (url) previews[idx] = url;
+      });
+      if (Object.keys(previews).length > 0)
+        setCreativeVideoPreviews(prev => ({ ...prev, ...previews }));
+    } catch {}
+  }, [campaign]);
   refetchCampaign = _refetch;
 
   const adSets    = campaign ? parseJson((campaign as any).adSets) : null;
