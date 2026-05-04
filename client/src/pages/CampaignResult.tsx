@@ -2196,10 +2196,10 @@ export default function CampaignResult() {
               const scoreBadge = getScoreBadge(cr.finalScore);
               const mergedCreative = mergeCreativeWithProjectedLegacy(cr);
               const creativeAudit = {
-                story: !!(mergedCreative.storyImageUrl || mergedCreative.storyImageHash),
+                story: !!(mergedCreative.storyImageUrl || mergedCreative.storyImageHash || mergedCreative.feedImageUrl),
                 feed: !!(mergedCreative.feedImageUrl || mergedCreative.feedImageHash),
                 square: !!(mergedCreative.squareImageUrl || mergedCreative.squareImageHash),
-                video: !!mergedCreative.publishMedia?.videoId,
+                video: !!(mergedCreative.publishMedia?.videoId || mergedCreative.videoUrl || mergedCreative.feedVideoUrl || mergedCreative.storyVideoUrl),
               };
               return (
               <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", marginBottom: 14, background: i === 0 ? "var(--green-l)" : "white" }}>

@@ -5828,10 +5828,11 @@ const integrationsRouter = router({
         questions,
         privacy_policy:   { url: input.privacyUrl },
         thank_you_page:   {
-          title:       "Obrigado!",
-          body:        input.thankYouMessage || "Em breve nossa equipe entrará em contato.",
-          button_type: "VIEW_WEBSITE",   // obrigatório pela Meta API
-          website_url: input.privacyUrl || "https://mecproai.com",
+          title:        "Obrigado!",
+          body:         input.thankYouMessage || "Em breve nossa equipe entrará em contato.",
+          button_type:  "VIEW_WEBSITE",
+          button_text:  "Ver site",      // obrigatório quando button_type=VIEW_WEBSITE
+          website_url:  input.privacyUrl || "https://mecproai.com",
         },
         locale: "pt_BR",
       };
