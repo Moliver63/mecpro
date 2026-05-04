@@ -27,7 +27,7 @@ const DEVICES = [
 
 const STEPS = ["Campanha", "Lances & Orçamento", "Segmentação", "Criativos", "Revisão & Publicar"];
 
-interface GoogleAd { headlines: string[]; descriptions: string[]; finalUrl: string; }
+interface GoogleAd { headlines: string[]; descriptions: string[]; finalUrl: string; imagePath?: string; }
 
 interface FormState {
   campaignName: string;
@@ -74,7 +74,7 @@ function extractKeywordsFromAdSets(adSets: any[]): string[] {
 }
 
 /** Build responsive search ad from AI creatives */
-function buildAdsFromCreatives(creatives: any[], finalUrl: string): GoogleAd[] {
+function buildAdsFromCreatives(creatives: any[], finalUrl: string, campaignType: string): GoogleAd[] {
   if (!Array.isArray(creatives) || creatives.length === 0) {
     return [{ headlines: ["", "", ""], descriptions: ["", ""], finalUrl }];
   }
@@ -110,10 +110,17 @@ function buildAdsFromCreatives(creatives: any[], finalUrl: string): GoogleAd[] {
       ? hookRaw.slice(0, 90)
       : `${ctaLabel} e descubra como podemos ajudar.`.slice(0, 90);
 
+    const imgUrl = campaignType === "DISPLAY"
+      ? (cr.feedImageUrl || cr.squareImageUrl || cr.imageUrl || "")
+      : "";
+
     return {
       headlines:    [h1, h2, h3].map(h => h.slice(0, 30)).filter(Boolean),
       descriptions: [d1, d2].map(d => d.slice(0, 90)).filter(Boolean),
+      imagePath:    imgUrl || undefined,
       finalUrl,
+      // Asset visual — usado em Display/PMax
+      imagePath: cr.feedImageUrl || cr.storyImageUrl || cr.imageUrl || "",
     };
   });
 }
@@ -243,10 +250,7 @@ export default function GoogleCampaignCreator() {
     if (!form.dailyBudget || Number(form.dailyBudget) <= 0) { toast.error("Orçamento diário obrigatório"); return; }
     if (!form.startDate)  { toast.error("Data de início obrigatória"); return; }
 
-    if (form.campaignType !== "SEARCH") {
-      toast.error("No momento esta publicação do Google está validada apenas para Search. Para Display, Video e Performance Max precisamos anexar assets visuais dedicados antes do publish.");
-      return;
-    }
+    // Todos os tipos liberados: SEARCH, DISPLAY, VIDEO, PERFORMANCE_MAX
 
     // Valida ads — headline e finalUrl obrigatórios
     for (let i = 0; i < form.ads.length; i++) {
@@ -255,6 +259,9 @@ export default function GoogleCampaignCreator() {
       if (headlines.length < 1) { toast.error(`Anúncio ${i + 1}: informe ao menos 1 headline`); return; }
       if (!ad.finalUrl?.trim()) { toast.error(`Anúncio ${i + 1}: URL de destino obrigatória`); return; }
       if (!ad.finalUrl.startsWith("http")) { toast.error(`Anúncio ${i + 1}: URL deve começar com https://`); return; }
+      if (form.campaignType === "VIDEO" && !ad.imagePath?.trim()) {
+        toast.error(`Anúncio ${i + 1}: URL do vídeo YouTube obrigatória`); return;
+      }
     }
 
     // Bug 4 fix: campaignId e projectId inválidos
@@ -278,7 +285,12 @@ export default function GoogleCampaignCreator() {
       devices:             form.devices,
       keywords:            form.keywords.split("\n").map(s => s.trim()).filter(Boolean),
       negativeKeywords:    form.negativeKeywords.split("\n").map(s => s.trim()).filter(Boolean),
-      ads:                 form.ads,
+      ads:                 form.ads.map((ad: any) => ({
+        headlines:    ad.headlines,
+        descriptions: ad.descriptions,
+        finalUrl:     ad.finalUrl,
+        imagePath:    ad.imagePath || undefined,
+      })),
     });
   };
 
@@ -311,9 +323,19 @@ export default function GoogleCampaignCreator() {
           onChange={e => set("campaignType", e.target.value)}>
           {CAMPAIGN_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        {form.campaignType !== "SEARCH" && (
-          <div style={{ background: "#fff7ed", border: "1.5px solid #fdba74", borderRadius: 10, padding: 12, marginTop: 4, marginBottom: 12, fontSize: 12, lineHeight: 1.7, color: "#9a3412" }}>
-            <strong>⚠️ Ajuste de integração:</strong> o publish desta tela está homologado para <strong>Google Search</strong>. Para Display, Video e Performance Max ainda falta o fluxo dedicado de image assets (ex.: 1:1 e 1.91:1), então o envio é bloqueado para evitar publicar criativos no lugar errado.
+        {form.campaignType === "DISPLAY" && (
+          <div style={{ background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 10, padding: 12, marginTop: 4, fontSize: 12, lineHeight: 1.7, color: "#1e40af" }}>
+            🖼️ <strong>Display:</strong> Responsive Display Ad — imagens da campanha usadas automaticamente como assets visuais (1:1 e 1.91:1). Headlines e descriptions obrigatórios.
+          </div>
+        )}
+        {form.campaignType === "VIDEO" && (
+          <div style={{ background: "#fdf4ff", border: "1.5px solid #e9d5ff", borderRadius: 10, padding: 12, marginTop: 4, fontSize: 12, lineHeight: 1.7, color: "#6b21a8" }}>
+            ▶️ <strong>Video (YouTube):</strong> Cole a URL do YouTube do seu vídeo no campo "URL de destino" do anúncio. O sistema criará um Video Responsive Ad.
+          </div>
+        )}
+        {form.campaignType === "PERFORMANCE_MAX" && (
+          <div style={{ background: "#f0fdf4", border: "1.5px solid #bbf7d0", borderRadius: 10, padding: 12, marginTop: 4, fontSize: 12, lineHeight: 1.7, color: "#14532d" }}>
+            🚀 <strong>Performance Max:</strong> Asset Group com textos + imagens da campanha. O Google distribui automaticamente nos melhores canais (Search, Display, YouTube, Gmail, Maps).
           </div>
         )}
         {form.strategy && (
@@ -449,6 +471,37 @@ export default function GoogleCampaignCreator() {
             <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>URL Final *</label>
             <input style={inp} placeholder="https://seusite.com.br"
               value={ad.finalUrl} onChange={e => setAdUrl(i, e.target.value)} />
+
+            {/* Campo extra por tipo de campanha */}
+            {form.campaignType === "DISPLAY" && (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>
+                  URL da imagem (opcional — 1200×628 ou quadrada)
+                </label>
+                <input style={inp} placeholder="https://... (Cloudinary ou URL pública)"
+                  value={ad.imagePath || ""}
+                  onChange={e => set("ads", form.ads.map((a, idx) => idx === i ? { ...a, imagePath: e.target.value } : a))} />
+                <p style={{ fontSize: 10, color: "#94a3b8", margin: "2px 0 0" }}>
+                  Se vazio, Google usa só os textos (RSA de Display)
+                </p>
+              </div>
+            )}
+            {form.campaignType === "VIDEO" && (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>
+                  URL do vídeo YouTube *
+                </label>
+                <input style={inp} placeholder="https://www.youtube.com/watch?v=..."
+                  value={ad.imagePath || ""}
+                  onChange={e => set("ads", form.ads.map((a, idx) => idx === i ? { ...a, imagePath: e.target.value } : a))} />
+              </div>
+            )}
+            {form.campaignType === "PERFORMANCE_MAX" && (
+              <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: 10, fontSize: 11, color: "#166534" }}>
+                ✅ Performance Max usa os títulos e descrições acima como assets de texto.
+                O Google distribui automaticamente entre Search, Display, YouTube e Gmail.
+              </div>
+            )}
           </div>
         ))}
         <button style={btn("#f1f5f9", "#374151")} onClick={() =>

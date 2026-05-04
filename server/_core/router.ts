@@ -3743,12 +3743,8 @@ const campaignsRouter = router({
       const googleCheck = await db.checkPlanLimit(userId, "google");
       if (!googleCheck.allowed) throw new TRPCError({ code: "FORBIDDEN", message: googleCheck.reason });
 
-      if (input.campaignType !== "SEARCH") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "A publicação Google desta tela está validada apenas para campanhas Search. Para Display, Video ou Performance Max é necessário um fluxo dedicado de assets visuais (1:1 e 1.91:1) antes do publish.",
-        });
-      }
+      // Todos os tipos suportados: SEARCH, DISPLAY, VIDEO, PERFORMANCE_MAX
+      log.info("google", "publishToGoogle campaignType", { type: input.campaignType });
 
       // 1. Get Google Ads integration
       const _drz = await getDb();
@@ -3827,7 +3823,11 @@ const campaignsRouter = router({
       const buildGoogleCampaignCreate = (name: string) => ({
         name,
         status: 2, // PAUSED
-        advertising_channel_type: input.campaignType === "DISPLAY" ? 3 : 2,
+        advertising_channel_type:
+          input.campaignType === "DISPLAY"         ? 3 :   // DISPLAY
+          input.campaignType === "VIDEO"            ? 6 :   // VIDEO (YouTube)
+          input.campaignType === "PERFORMANCE_MAX"  ? 10:   // PERFORMANCE_MAX
+          2,  // SEARCH (default)
         campaign_budget: budgetResourceName,
         start_date: input.startDate,
         ...(input.endDate ? { end_date: input.endDate } : {}),
@@ -3840,12 +3840,16 @@ const campaignsRouter = router({
           ? { bidding_strategy_type: "MAXIMIZE_CONVERSIONS", maximize_conversions: {} }
           : { bidding_strategy_type: "TARGET_SPEND", target_spend: {} }
         ),
-        network_settings: {
-          target_google_search: true,
-          target_search_network: true,
-          target_content_network: input.campaignType === "DISPLAY",
-          target_partner_search_network: false,
-        },
+        ...(input.campaignType === "PERFORMANCE_MAX" ? {} : {
+          network_settings: {
+            target_google_search:         input.campaignType === "SEARCH",
+            target_search_network:        input.campaignType === "SEARCH",
+            target_content_network:       input.campaignType === "DISPLAY",
+            target_youtube_search:        input.campaignType === "VIDEO",
+            target_youtube_videos:        input.campaignType === "VIDEO",
+            target_partner_search_network: false,
+          },
+        }),
       });
 
       let effectiveCampaignName = input.campaignName;
@@ -3888,7 +3892,11 @@ const campaignsRouter = router({
         campaign: campaignResourceName,
         status:   2, // ENABLED
         // @ts-ignore
-        type:     input.campaignType === "DISPLAY" ? 17 : 2, // DISPLAY_STANDARD=17, SEARCH_STANDARD=2
+        type:
+          input.campaignType === "DISPLAY"         ? 17 :  // DISPLAY_STANDARD
+          input.campaignType === "VIDEO"            ? 6  :  // VIDEO
+          input.campaignType === "PERFORMANCE_MAX"  ? 2  :  // SEARCH_STANDARD (PMax não usa ad group type)
+          2,  // SEARCH_STANDARD
       }]);
       const adGroupResourceName = adGroupOp.results?.[0]?.resource_name ?? adGroupOp.results?.[0]?.resource_name ?? "";
       log.info("google", "adGroup created via gRPC", { adGroupResourceName });
@@ -4020,14 +4028,89 @@ const campaignsRouter = router({
         }
 
         try {
-          const adOp = await gCustomer.adGroupAds.create([{
-            ad_group: adGroupResourceName,
-            status:   3, // PAUSED
-            ad: {
-              responsive_search_ad: { headlines, descriptions },
+          // Monta o ad de acordo com o tipo de campanha
+          let adPayload: any;
+
+          if (input.campaignType === "DISPLAY") {
+            // Responsive Display Ad — usa imagens + textos
+            const imageUrl = ad.imagePath || "";
+            adPayload = {
+              ad_group: adGroupResourceName,
+              status:   3, // PAUSED
+              ad: {
+                responsive_display_ad: {
+                  headlines,
+                  descriptions,
+                  business_name: { text: (input.campaignName || "Empresa").slice(0, 25) },
+                  long_headline:  { text: (headlines[0]?.text || "Saiba mais").slice(0, 90) },
+                  ...(imageUrl ? {
+                    marketing_images: [{ asset: imageUrl }],
+                    square_marketing_images: [{ asset: imageUrl }],
+                  } : {}),
+                },
+                final_urls: [finalUrl],
+              },
+            };
+          } else if (input.campaignType === "VIDEO") {
+            // Video Ad — usa URL do YouTube
+            const youtubeUrl = ad.imagePath || finalUrl; // imagePath reutilizado para YouTube URL
+            adPayload = {
+              ad_group: adGroupResourceName,
+              status:   3, // PAUSED
+              ad: {
+                video_responsive_ad: {
+                  headlines,
+                  descriptions,
+                  long_headlines: headlines.slice(0, 5),
+                  videos: [{ asset: youtubeUrl }],
+                  call_to_actions: [{ text: "Saiba mais" }],
+                  companion_banners: [],
+                },
+                final_urls: [finalUrl],
+              },
+            };
+          } else if (input.campaignType === "PERFORMANCE_MAX") {
+            // Performance Max — asset group (diferente de ad group ad)
+            // PMax usa assetGroups, não adGroupAds
+            log.info("google", "PMax: criando asset group", { campaignResourceName });
+            const assetGroupOp = await (gCustomer as any).assetGroups?.create([{
+              name:     `AssetGroup-${input.campaignName}`.slice(0, 128),
+              campaign: campaignResourceName,
+              status:   3, // PAUSED
               final_urls: [finalUrl],
-            },
-          }]);
+              headlines,
+              descriptions,
+            }]).catch((e: any) => {
+              log.warn("google", "PMax assetGroup falhou — usando RSA como fallback", { error: e.message });
+              return null;
+            });
+            if (assetGroupOp) {
+              adResults.push(assetGroupOp.results?.[0]?.resource_name ?? "pmax-asset-group");
+              log.info("google", "PMax asset group criado", { result: JSON.stringify(assetGroupOp).slice(0, 200) });
+              continue; // PMax não cria adGroupAd
+            }
+            // Fallback: RSA se asset group falhar
+            adPayload = {
+              ad_group: adGroupResourceName,
+              status:   3,
+              ad: {
+                responsive_search_ad: { headlines, descriptions },
+                final_urls: [finalUrl],
+              },
+            };
+          } else {
+            // SEARCH — RSA padrão
+            adPayload = {
+              ad_group: adGroupResourceName,
+              status:   3, // PAUSED
+              ad: {
+                responsive_search_ad: { headlines, descriptions },
+                final_urls: [finalUrl],
+              },
+            };
+          }
+
+          const adOp = await gCustomer.adGroupAds.create([adPayload]);
           adResults.push(adOp.results?.[0]?.resource_name ?? adOp.results?.[0]?.resource_name ?? "");
           log.info("google", "ad created via gRPC", {
             index: index + 1,
