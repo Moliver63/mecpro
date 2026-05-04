@@ -3618,14 +3618,61 @@ const campaignsRouter = router({
       const adIds: string[] = [];
       for (const ad of input.ads) {
         if (!ad.videoUrl) continue;
+
+        // Detecta se é URL externa (JSON2Video/Cloudinary) ou TikTok video_id
+        let finalVideoId = ad.videoUrl;
+        const isExternalUrl = ad.videoUrl.startsWith("http");
+
+        if (isExternalUrl) {
+          // Upload da URL externa para o TikTok Files API
+          log.info("tiktok", "Fazendo upload de vídeo externo para TikTok", {
+            url: ad.videoUrl.slice(0, 60),
+          });
+          try {
+            const uploadData: any = await tikTokPost("file/video/ad/upload/", {
+              advertiser_id: advertiserId,
+              upload_type:   "PULL_FROM_URL",
+              video_url:     ad.videoUrl,
+              video_name:    `mecpro_${Date.now()}`,
+            }, token);
+            if (uploadData?.data?.video_id) {
+              finalVideoId = uploadData.data.video_id;
+              log.info("tiktok", "Upload vídeo OK", { video_id: finalVideoId });
+            } else {
+              log.warn("tiktok", "Upload vídeo falhou — usando URL direta", {
+                error: JSON.stringify(uploadData).slice(0, 200),
+              });
+            }
+          } catch (uploadErr: any) {
+            log.warn("tiktok", "Upload vídeo exception", { error: uploadErr.message });
+          }
+        }
+
+        // Upload da coverImageUrl se for URL externa
+        let finalImageId = ad.coverImageUrl || "";
+        if (finalImageId.startsWith("http")) {
+          try {
+            const imgUpload: any = await tikTokPost("file/image/ad/upload/", {
+              advertiser_id: advertiserId,
+              upload_type:   "PULL_FROM_URL",
+              image_url:     finalImageId,
+              image_name:    `mecpro_cover_${Date.now()}`,
+            }, token);
+            if (imgUpload?.data?.image_id) {
+              finalImageId = imgUpload.data.image_id;
+              log.info("tiktok", "Upload imagem capa OK", { image_id: finalImageId });
+            }
+          } catch {}
+        }
+
         const adData: any = await tikTokPost("ad/create/", {
           advertiser_id: advertiserId,
           adgroup_id:    tiktokAdGroupId,
           creatives: [{
             ad_name:          `Ad-${input.campaignName}-${Date.now()}`,
             ad_format:        "SINGLE_VIDEO",
-            video_id:         ad.videoUrl,
-            ...(ad.coverImageUrl ? { image_id: ad.coverImageUrl } : {}),
+            video_id:         finalVideoId,
+            ...(finalImageId ? { image_id: finalImageId } : {}),
             ad_text:          ad.adText,
             call_to_action:   ad.callToAction,
             landing_page_url: ad.landingPageUrl,

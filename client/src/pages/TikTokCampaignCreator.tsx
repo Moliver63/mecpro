@@ -145,9 +145,14 @@ export default function TikTokCampaignCreator() {
           const ctaKey = (cr.cta || "").toUpperCase().replace(/[^A-Z0-9_]/g, "_");
           const callToAction = tiktokCtas[ctaKey] || "LEARN_MORE";
 
+          // Usa videoUrl gerado (JSON2Video) se disponível
+          // Senão usa storyImageUrl (9:16) ou feedImageUrl como coverImageUrl
+          const videoUrl      = cr.videoUrl || cr.storyVideoUrl || cr.feedVideoUrl || "";
+          const coverImageUrl = cr.storyImageUrl || cr.feedImageUrl || cr.squareImageUrl || cr.imageUrl || "";
+
           return {
-            videoUrl:       "",
-            coverImageUrl:  "",
+            videoUrl,
+            coverImageUrl,
             adText:         adText.trim(),
             callToAction,
             landingPageUrl: websiteUrl,
@@ -356,10 +361,29 @@ export default function TikTokCampaignCreator() {
             <input style={inp} maxLength={100} value={ad.adText}
               onChange={e => setAd(i, "adText", e.target.value)} />
             <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>URL do vídeo *</label>
-            <input style={inp} placeholder="https://... ou ID do TikTok" value={ad.videoUrl}
+            {!ad.videoUrl && (
+              <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 11, color: "#9a3412" }}>
+                ⚠️ <strong>Vídeo obrigatório no TikTok.</strong>{" "}
+                {campaignId
+                  ? <span>Volte ao <a href={`/campaigns/${campaignId}/result`} style={{ color: "#1877f2", fontWeight: 700 }}>resultado da campanha</a> e clique em <strong>🎬 Gerar vídeo com IA</strong>.</span>
+                  : <span>Gere a campanha primeiro, depois use o botão <strong>🎬 Gerar vídeo com IA</strong>.</span>
+                }
+              </div>
+            )}
+            {ad.videoUrl && (
+              <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 11, color: "#166534" }}>
+                ✅ Vídeo detectado automaticamente da campanha
+              </div>
+            )}
+            <input style={inp} placeholder="https://... ou cole URL do vídeo gerado" value={ad.videoUrl}
               onChange={e => setAd(i, "videoUrl", e.target.value)} />
             <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>URL da imagem de capa</label>
-            <input style={inp} placeholder="https://..." value={ad.coverImageUrl}
+            {ad.coverImageUrl && (
+              <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 8, padding: "4px 12px", marginBottom: 6, fontSize: 11, color: "#166534" }}>
+                ✅ Imagem de capa detectada automaticamente
+              </div>
+            )}
+            <input style={inp} placeholder="https://... (imagem 9:16 recomendada)" value={ad.coverImageUrl}
               onChange={e => setAd(i, "coverImageUrl", e.target.value)} />
             <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>Call to Action</label>
             <select style={inp} value={ad.callToAction}
