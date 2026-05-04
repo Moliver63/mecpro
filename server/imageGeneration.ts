@@ -845,71 +845,78 @@ export async function generateVideoFromImage(
              : format === "square"  ? { w: 1080, h: 1080 }
              :                        { w: 1080, h: 1350 };
 
-  // Payload minimalista — só propriedades confirmadas pela documentação
-  const ctaText   = cta   ? cta.toUpperCase() : "";
+  const ctaText   = cta     ? cta.toUpperCase()      : "";
   const titleText = headline ? headline.slice(0, 55) : "";
 
+  // UMA cena única com imagem cover + textos sobrepostos
   const movie = {
     resolution: "custom",
-    width:    dims.w,
-    height:   dims.h,
-    quality:  "high",
-    scenes: [
-      {
-        comment:  "background",
-        duration,
-        elements: [
-          // Imagem de fundo com Ken Burns
-          {
-            type:     "image",
-            src:      imageUrl,
-            zoom:     3,
-            pan:      "right",
-            duration,
+    width:   dims.w,
+    height:  dims.h,
+    quality: "high",
+    scenes: [{
+      comment:  "ad",
+      duration,
+      elements: [
+        // Imagem de fundo: fill=cover garante que preenche TODO o canvas
+        {
+          type:   "image",
+          src:    imageUrl,
+          x:      0,
+          y:      0,
+          width:  dims.w,
+          height: dims.h,
+          fill:   "cover",
+          zoom:   3,
+          pan:    "right",
+          duration,
+        },
+        // Faixa escura na base para legibilidade dos textos
+        {
+          type:   "image",
+          src:    "https://assets.json2video.com/assets/images/black.png",
+          x:      0,
+          y:      dims.h - 340,
+          width:  dims.w,
+          height: 340,
+          opacity: 0.7,
+          duration,
+        },
+        // Headline
+        ...(titleText ? [{
+          type:    "text",
+          style:   "001",
+          text:    titleText,
+          settings: {
+            "font-size":   "44px",
+            "font-weight": "bold",
+            "color":       "#FFFFFF",
           },
-        ],
-      },
-      {
-        comment:  "text-overlay",
-        duration,
-        "background-color": "transparent",
-        elements: [
-          // Headline
-          ...(titleText ? [{
-            type:     "text",
-            style:    "001",
-            text:     titleText,
-            settings: {
-              "font-size":   "46px",
-              "font-weight": "bold",
-              "color":       "#FFFFFF",
-            },
-            x:        40,
-            y:        dims.h - 260,
-            width:    dims.w - 80,
-            duration,
-          }] : []),
-          // CTA
-          ...(ctaText ? [{
-            type:     "text",
-            style:    "001",
-            text:     ctaText,
-            settings: {
-              "font-size":        "32px",
-              "font-weight":      "bold",
-              "color":            "#FFFFFF",
-              "background-color": "#1877F2",
-              "padding":          "12px 30px",
-              "border-radius":    "30px",
-            },
-            x:        40,
-            y:        dims.h - 160,
-            width:    dims.w - 80,
-            duration,
-          }] : []),
-        ],
-      },
-    ],
+          x:       40,
+          y:       dims.h - 300,
+          width:   dims.w - 80,
+          duration,
+        }] : []),
+        // CTA
+        ...(ctaText ? [{
+          type:  "text",
+          style: "001",
+          text:  ctaText,
+          settings: {
+            "font-size":        "30px",
+            "font-weight":      "bold",
+            "color":            "#FFFFFF",
+            "background-color": "#1877F2",
+            "padding":          "10px 28px",
+            "border-radius":    "28px",
+          },
+          x:       40,
+          y:       dims.h - 150,
+          width:   dims.w - 80,
+          duration,
+        }] : []),
+      ],
+    }],
   }
   try {
     // 1. Envia o job de renderização
