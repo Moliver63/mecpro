@@ -42,6 +42,8 @@ console.log('[BOOT] IMAGE_PROVIDER (efetivo):', _effectiveProvider);
 console.log('[BOOT] HEYGEN_API_KEY set:', !!_heygenKey, _heygenKey ? '(' + _heygenKey.slice(0,8) + '...)' : '— nao configurada');
 console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? '(' + _hfKey.slice(0,8) + '...)' : '— nao configurada');
 console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET), '(storage para HF)');
+const _j2vKey = (process.env.JSON2VIDEO_API_KEY || '').trim();
+console.log('[BOOT] JSON2VIDEO_API_KEY set (video IA):', !!_j2vKey, _j2vKey ? '(' + _j2vKey.slice(0,8) + '...)' : '❌ nao configurado — adicionar no Render');
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude):', !!process.env.ANTHROPIC_API_KEY);
 const _elevenKey  = (process.env.ELEVENLABS_API_KEY || '').trim();
 const _gensparkKey = (process.env.GENSPARK_API_KEY   || '').trim();
