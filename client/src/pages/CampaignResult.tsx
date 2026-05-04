@@ -468,6 +468,11 @@ export default function CampaignResult() {
     },
   }) ?? { mutateAsync: null, isLoading: false };
 
+  const generateVideoMutation = trpc.campaigns.generateCreativeVideo.useMutation({
+    onSuccess: () => { toast.success("🎬 Vídeo gerado com sucesso!"); refetch(); },
+    onError:   (e: any) => toast.error(e.message || "Erro ao gerar vídeo"),
+  });
+
   const regenerateCreativeImageMutation = trpc.campaigns.regenerateCreativeImage.useMutation({
     onSuccess: (data: any) => {
       if (data?.diagnostics?.reason) {
@@ -2359,6 +2364,21 @@ export default function CampaignResult() {
                             display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                           {regenerateCreativeImageMutation.isPending ? "⏳ Gerando imagem..." : "✨ Gerar imagem com IA"}
                         </button>
+
+                        {/* Botão Gerar Vídeo */}
+                        {creativeImage && (
+                          <button
+                            onClick={() => generateVideoMutation.mutate({ campaignId: id, creativeIdx: i, format: creativeFormat as any })}
+                            disabled={generateVideoMutation.isPending}
+                            style={{ width: "100%", fontSize: 11, fontWeight: 700,
+                              background: generateVideoMutation.isPending ? "#ede9fe" : "#7c3aed",
+                              color: generateVideoMutation.isPending ? "#6d28d9" : "#fff",
+                              border: "1px solid #ede9fe", borderRadius: 8, padding: "7px 0",
+                              cursor: generateVideoMutation.isPending ? "wait" : "pointer", marginTop: 4,
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                            {generateVideoMutation.isPending ? "⏳ Gerando vídeo (~60s)..." : "🎬 Gerar vídeo com IA"}
+                          </button>
+                        )}
 
                         {/* Status de imagens por formato */}
                         <div style={{ display: "flex", gap: 4, marginTop: 6, justifyContent: "center" }}>

@@ -15,7 +15,7 @@ import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
-import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
+import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
   updateCreativeInputSchema,
   updateCreativeImageInputSchema,
@@ -2108,6 +2108,63 @@ const campaignsRouter = router({
         videoThumbnailUrl: creative[videoThumbUrlKey] || null,
         videoThumbnailHash: creative[videoThumbHashKey] || null,
       };
+    }),
+
+  generateCreativeVideo: protectedProcedure
+    .input(z.object({
+      campaignId:  z.number(),
+      creativeIdx: z.number().default(0),
+      format:      z.enum(["feed", "stories", "square"]).default("feed"),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const campaign = await db.getCampaignById(input.campaignId);
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+      if ((campaign as any).userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+
+      const creatives = JSON.parse((campaign as any).creatives || "[]") as any[];
+      const cr = creatives[input.creativeIdx];
+      if (!cr) throw new TRPCError({ code: "NOT_FOUND", message: "Criativo não encontrado" });
+
+      // Busca imageUrl do formato solicitado
+      const imageUrl = input.format === "stories"
+        ? (cr.storyImageUrl || cr.feedImageUrl || cr.imageUrl)
+        : input.format === "square"
+        ? (cr.squareImageUrl || cr.feedImageUrl || cr.imageUrl)
+        : (cr.feedImageUrl || cr.imageUrl);
+
+      if (!imageUrl) throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Gere uma imagem primeiro antes de criar o vídeo.",
+      });
+
+      log.info("video-generation", "generateCreativeVideo start", {
+        campaignId: input.campaignId, format: input.format,
+      });
+
+      const videoUrl = await generateVideoFromImage(
+        imageUrl,
+        cr.headline || "",
+        cr.cta     || "",
+        input.format,
+      );
+
+      if (!videoUrl) throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Falha ao gerar vídeo. Verifique se JSON2VIDEO_API_KEY está configurado no Render.",
+      });
+
+      // Salva videoUrl no criativo
+      if (input.format === "stories") cr.storyVideoUrl = videoUrl;
+      else cr.feedVideoUrl = videoUrl;
+      cr.videoUrl = videoUrl; // fallback genérico
+
+      await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
+
+      log.info("video-generation", "generateCreativeVideo done", {
+        campaignId: input.campaignId, videoUrl: videoUrl.slice(0, 60),
+      });
+
+      return { videoUrl };
     }),
 
   regenerateCreativeImage: protectedProcedure

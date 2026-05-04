@@ -798,3 +798,126 @@ export async function generateAdImage(
     return mockUrl;
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// JSON2Video — Geração de Vídeo a partir de Imagem
+// Free: 600 créditos (~10 min de vídeo), sem cartão
+// Docs: https://json2video.com/docs/
+// ─────────────────────────────────────────────────────────────
+const J2V_API_KEY = process.env.JSON2VIDEO_API_KEY || "";
+
+export async function generateVideoFromImage(
+  imageUrl:  string,
+  headline:  string,
+  cta:       string,
+  format:    "feed" | "stories" | "square",
+): Promise<string | null> {
+  if (!J2V_API_KEY) {
+    log.warn("video-generation", "JSON2VIDEO_API_KEY não configurado");
+    return null;
+  }
+
+  const resolution = format === "stories"
+    ? "sd-portrait"   // 9:16
+    : format === "square"
+    ? "sd-square"     // 1:1
+    : "sd-portrait";  // 4:5 → portrait é o mais próximo
+
+  const duration = 6; // 6 segundos — ideal para Meta e TikTok
+
+  // Cena: imagem com zoom Ken Burns + texto overlay + CTA
+  const movie = {
+    resolution,
+    quality: 8,
+    fps: 25,
+    scenes: [
+      {
+        comment: "Ad creative scene",
+        duration,
+        elements: [
+          // Imagem de fundo com efeito Ken Burns (zoom suave)
+          {
+            type:     "image",
+            src:      imageUrl,
+            x:        0, y: 0, width: "100%", height: "100%",
+            style:    "kenburns",
+            duration,
+          },
+          // Gradiente overlay escuro no fundo para legibilidade
+          {
+            type:    "html",
+            html:    "<div style=\"width:100%;height:100%;background:linear-gradient(to top,rgba(0,0,0,0.8) 0%,rgba(0,0,0,0.1) 50%,rgba(0,0,0,0.5) 100%)\"></div>",
+            x: 0, y: 0, width: "100%", height: "100%",
+            duration,
+          },
+          // Headline animado (fade in)
+          ...(headline ? [{
+            type:      "html",
+            html:      `<div style="font-family:Arial Black,sans-serif;font-size:32px;font-weight:900;color:#fff;text-align:center;padding:0 20px;text-shadow:0 2px 8px rgba(0,0,0,0.8);line-height:1.2">${headline.slice(0, 60)}</div>`,
+            x: 0, y: "60%", width: "100%",
+            duration,
+            fade_in: { duration: 0.5, delay: 0.3 },
+          }] : []),
+          // CTA botão
+          ...(cta ? [{
+            type:     "html",
+            html:     `<div style="background:#1877f2;color:#fff;font-family:Arial,sans-serif;font-size:20px;font-weight:800;padding:12px 32px;border-radius:30px;text-align:center;display:inline-block;text-transform:uppercase;letter-spacing:1px">${cta}</div>`,
+            x:        "50%", y: "80%", width: "auto",
+            x_anchor: "center",
+            duration,
+            fade_in:  { duration: 0.4, delay: 0.8 },
+          }] : []),
+        ],
+      },
+    ],
+  };
+
+  try {
+    // 1. Envia o job de renderização
+    const createRes = await fetch("https://api.json2video.com/v2/movies", {
+      method:  "POST",
+      headers: { "x-api-key": J2V_API_KEY, "Content-Type": "application/json" },
+      body:    JSON.stringify(movie),
+      signal:  AbortSignal.timeout(15000),
+    });
+
+    const createData: any = await createRes.json();
+    if (!createData?.project) {
+      log.warn("video-generation", "JSON2Video create falhou", { body: JSON.stringify(createData).slice(0, 200) });
+      return null;
+    }
+
+    const projectId = createData.project;
+    log.info("video-generation", "JSON2Video job criado", { projectId, format });
+
+    // 2. Polling — aguarda renderização (max 90s)
+    const maxAttempts = 18;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 5000)); // aguarda 5s entre checks
+
+      const statusRes = await fetch(`https://api.json2video.com/v2/movies?project=${projectId}`, {
+        headers: { "x-api-key": J2V_API_KEY },
+        signal:  AbortSignal.timeout(8000),
+      });
+      const statusData: any = await statusRes.json();
+      const movie = statusData?.movie;
+
+      if (movie?.status === "done" && movie?.url) {
+        log.info("video-generation", "JSON2Video pronto", { projectId, url: movie.url.slice(0, 60) });
+        return movie.url; // URL pública do MP4
+      }
+      if (movie?.status === "error") {
+        log.warn("video-generation", "JSON2Video erro", { projectId, error: movie.message });
+        return null;
+      }
+
+      log.info("video-generation", "JSON2Video aguardando", { projectId, attempt: i + 1, status: movie?.status });
+    }
+
+    log.warn("video-generation", "JSON2Video timeout após 90s", { projectId });
+    return null;
+  } catch (e: any) {
+    log.warn("video-generation", "JSON2Video exception", { error: e.message?.slice(0, 80) });
+    return null;
+  }
+}
