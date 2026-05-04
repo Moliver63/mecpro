@@ -840,54 +840,73 @@ export async function generateVideoFromImage(
   const duration = 6; // 6 segundos — ideal para Meta e TikTok
 
   // Cena: imagem com zoom Ken Burns + texto overlay + CTA
+  // Dimensões reais por formato
+  const dims = format === "stories"
+    ? { w: 1080, h: 1920 }
+    : format === "square"
+    ? { w: 1080, h: 1080 }
+    : { w: 1080, h: 1350 };
+
   const movie = {
-    resolution,
-    quality: "high",
-    fps:     25,
+    resolution: "custom",
+    width:    dims.w,
+    height:   dims.h,
+    quality:  "high",
+    fps:      25,
     scenes: [
       {
         comment:  "Ad scene",
         duration,
         elements: [
-          // Imagem com Ken Burns: zoom + pan (API correta)
+          // Imagem preenche TODO o canvas (cover) com Ken Burns
           {
             type:     "image",
             src:      imageUrl,
+            position: "center-center",
+            width:    dims.w,
+            height:   dims.h,
             zoom:     3,
             pan:      "right",
             duration,
           },
-          // Headline
+          // Headline — posicionado acima do CTA com espaçamento claro
           ...(headline ? [{
             type:     "text",
             style:    "003",
             text:     headline.slice(0, 60),
             settings: {
-              "font-size":   format === "stories" ? "52px" : "40px",
+              "font-size":   "44px",
               "font-weight": "900",
               "color":       "#ffffff",
-              "text-shadow": "2px 2px 8px rgba(0,0,0,0.9)",
+              "text-align":  "center",
+              "text-shadow": "0px 2px 12px rgba(0,0,0,0.95)",
+              "padding":     "0 40px",
             },
-            position: "bottom-center",
-            y:        -120,
+            position: "custom",
+            x:        0,
+            y:        dims.h - 280,   // 280px do fundo → acima do CTA
+            width:    dims.w,
             duration,
             start:    0.3,
           }] : []),
-          // CTA
+          // CTA — fixado no fundo com margem
           ...(cta ? [{
             type:     "text",
             style:    "003",
             text:     cta.toUpperCase(),
             settings: {
-              "font-size":        "28px",
+              "font-size":        "34px",
               "font-weight":      "800",
               "color":            "#ffffff",
               "background-color": "#1877f2",
-              "padding":          "10px 28px",
-              "border-radius":    "25px",
+              "padding":          "14px 40px",
+              "border-radius":    "40px",
+              "text-align":       "center",
             },
-            position: "bottom-center",
-            y:        -40,
+            position: "custom",
+            x:        "50%",
+            y:        dims.h - 140,   // 140px do fundo
+            x_anchor: "center",
             duration,
             start:    0.8,
           }] : []),
