@@ -829,18 +829,20 @@ export async function generateVideoFromImage(
     return null;
   }
 
+  // JSON2Video resolutions: hd-portrait=1080x1920, sd-portrait=720x1280
+  // square=1080x1080, hd-landscape=1920x1080, full-hd=1920x1080
   const resolution = format === "stories"
-    ? "sd-portrait"   // 9:16
+    ? "hd-portrait"   // 9:16 — 1080×1920 ideal para TikTok/Stories
     : format === "square"
-    ? "sd-square"     // 1:1
-    : "sd-portrait";  // 4:5 → portrait é o mais próximo
+    ? "square"        // 1:1 — 1080×1080 Instagram
+    : "hd-portrait";  // 4:5 Meta feed — portrait HD
 
   const duration = 6; // 6 segundos — ideal para Meta e TikTok
 
   // Cena: imagem com zoom Ken Burns + texto overlay + CTA
   const movie = {
     resolution,
-    quality: 8,
+    quality: "high",   // válido: "low" | "medium" | "high"
     fps: 25,
     scenes: [
       {
