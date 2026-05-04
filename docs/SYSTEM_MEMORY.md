@@ -309,6 +309,20 @@ JSON2VIDEO_API_KEY=<Michel criar conta json2video.com>
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: 7ef6912. Michel — Balneário Camboriú/SC.
-PRIORIDADE: JSON2Video para vídeo + TikTok videoUrl.
+Último commit: 6483c1c. Michel — Balneário Camboriú/SC.
 ```
+
+## 🧭 Regra: "Qual o próximo passo?"
+
+Sempre que Michel perguntar sobre próximos passos, prioridades ou o que fazer,
+orientar com base neste documento seguindo esta ordem:
+
+1. 🔴 Pendências críticas (bloqueiam receita ou funcionamento)
+2. 🟡 Pendências que aumentam o score de prontidão
+3. 🟢 Melhorias de qualidade/experiência
+4. 📊 Atualizar o score de prontidão se algo foi concluído
+
+Formato da resposta:
+- Citar o score atual (78.7%)
+- Listar os próximos 3 itens em ordem de impacto
+- Para cada item: o que é, por que importa, e o que precisa para resolver
