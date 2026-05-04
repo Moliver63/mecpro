@@ -6472,7 +6472,17 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         anyGenerated = true;
       }
     }
-    if (anyGenerated) creative.imageUpdatedAt = new Date().toISOString();
+    if (anyGenerated) {
+      creative.imageUpdatedAt = new Date().toISOString();
+      // Fallback: se stories não gerou mas feed sim, usa feed como stories
+      // (Meta aceita imagens feed em stories; melhor que deixar vazio)
+      if (!creative.storyImageUrl && creative.feedImageUrl) {
+        creative.storyImageUrl = creative.feedImageUrl;
+      }
+      if (!creative.squareImageUrl && creative.feedImageUrl) {
+        creative.squareImageUrl = creative.feedImageUrl;
+      }
+    }
 
     // Para os demais criativos, gera apenas feed (mais importante)
     for (let index = 1; index < scored.length; index++) {

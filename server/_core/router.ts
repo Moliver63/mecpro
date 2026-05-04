@@ -2154,7 +2154,9 @@ const campaignsRouter = router({
 
       if (!videoUrl) throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: "Falha ao gerar vídeo. Verifique se JSON2VIDEO_API_KEY está configurado no Render.",
+        message: process.env.JSON2VIDEO_API_KEY
+          ? "JSON2Video falhou ao renderizar. Tente novamente em alguns segundos."
+          : "Configure JSON2VIDEO_API_KEY no Render para gerar vídeos.",
       });
 
       // Salva videoUrl no criativo
