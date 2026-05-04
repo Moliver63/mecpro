@@ -823,6 +823,7 @@ export async function generateVideoFromImage(
   headline:  string,
   cta:       string,
   format:    "feed" | "stories" | "square",
+  voiceText?: string,   // texto para narração (hook + copy)
 ): Promise<string | null> {
   if (!J2V_API_KEY) {
     log.warn("video-generation", "JSON2VIDEO_API_KEY não configurado");
@@ -910,6 +911,14 @@ export async function generateVideoFromImage(
           y:       dims.h - 150,
           width:   dims.w - 80,
           duration,
+        }] : []),
+        // Narração em voz PT-BR (Azure — gratuito em todos os planos)
+        ...(voiceText ? [{
+          type:  "voice",
+          text:  voiceText.slice(0, 300),   // máx 300 chars para ~6s de fala
+          voice: "pt-BR-FranciscaNeural",   // voz feminina natural PT-BR
+          model: "azure",                   // grátis — não consome créditos
+          volume: 1,
         }] : []),
       ],
     }],

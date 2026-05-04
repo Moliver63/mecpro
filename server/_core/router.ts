@@ -2155,11 +2155,19 @@ const campaignsRouter = router({
         campaignId: input.campaignId, format: input.format,
       });
 
+      // Monta texto para narração: hook impactante + copy (máx ~280 chars para ~6s)
+      const hookText = (cr.hook || "").replace(/^["']|["']$/g, "").trim();
+      const copyText = (cr.copy || cr.description || "").trim();
+      const voiceText = hookText && copyText
+        ? `${hookText}. ${copyText}`.slice(0, 280)
+        : (hookText || copyText || cr.headline || "").slice(0, 280);
+
       const videoUrl = await generateVideoFromImage(
         imageUrl,
         cr.headline || "",
-        cr.cta     || "",
+        cr.cta      || "",
         effectiveFormat,
+        voiceText || undefined,
       );
 
       if (!videoUrl) throw new TRPCError({
