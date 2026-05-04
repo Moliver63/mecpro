@@ -842,44 +842,54 @@ export async function generateVideoFromImage(
   // Cena: imagem com zoom Ken Burns + texto overlay + CTA
   const movie = {
     resolution,
-    quality: "high",   // válido: "low" | "medium" | "high"
-    fps: 25,
+    quality: "high",
+    fps:     25,
     scenes: [
       {
-        comment: "Ad creative scene",
+        comment:  "Ad scene",
         duration,
         elements: [
-          // Imagem de fundo com efeito Ken Burns (zoom suave)
+          // Imagem com Ken Burns: zoom + pan (API correta)
           {
             type:     "image",
             src:      imageUrl,
-            x:        0, y: 0, width: "100%", height: "100%",
-            style:    "kenburns",
+            zoom:     3,
+            pan:      "right",
             duration,
           },
-          // Gradiente overlay escuro no fundo para legibilidade
-          {
-            type:    "html",
-            html:    "<div style=\"width:100%;height:100%;background:linear-gradient(to top,rgba(0,0,0,0.8) 0%,rgba(0,0,0,0.1) 50%,rgba(0,0,0,0.5) 100%)\"></div>",
-            x: 0, y: 0, width: "100%", height: "100%",
-            duration,
-          },
-          // Headline animado (fade in)
+          // Headline
           ...(headline ? [{
-            type:      "html",
-            html:      `<div style="font-family:Arial Black,sans-serif;font-size:32px;font-weight:900;color:#fff;text-align:center;padding:0 20px;text-shadow:0 2px 8px rgba(0,0,0,0.8);line-height:1.2">${headline.slice(0, 60)}</div>`,
-            x: 0, y: "60%", width: "100%",
+            type:     "text",
+            style:    "003",
+            text:     headline.slice(0, 60),
+            settings: {
+              "font-size":   format === "stories" ? "52px" : "40px",
+              "font-weight": "900",
+              "color":       "#ffffff",
+              "text-shadow": "2px 2px 8px rgba(0,0,0,0.9)",
+            },
+            position: "bottom-center",
+            y:        -120,
             duration,
-            fade_in: { duration: 0.5, delay: 0.3 },
+            start:    0.3,
           }] : []),
-          // CTA botão
+          // CTA
           ...(cta ? [{
-            type:     "html",
-            html:     `<div style="background:#1877f2;color:#fff;font-family:Arial,sans-serif;font-size:20px;font-weight:800;padding:12px 32px;border-radius:30px;text-align:center;display:inline-block;text-transform:uppercase;letter-spacing:1px">${cta}</div>`,
-            x:        "50%", y: "80%", width: "auto",
-            x_anchor: "center",
+            type:     "text",
+            style:    "003",
+            text:     cta.toUpperCase(),
+            settings: {
+              "font-size":        "28px",
+              "font-weight":      "800",
+              "color":            "#ffffff",
+              "background-color": "#1877f2",
+              "padding":          "10px 28px",
+              "border-radius":    "25px",
+            },
+            position: "bottom-center",
+            y:        -40,
             duration,
-            fade_in:  { duration: 0.4, delay: 0.8 },
+            start:    0.8,
           }] : []),
         ],
       },
