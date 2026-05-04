@@ -840,81 +840,77 @@ export async function generateVideoFromImage(
   const duration = 6; // 6 segundos — ideal para Meta e TikTok
 
   // Cena: imagem com zoom Ken Burns + texto overlay + CTA
-  // Dimensões reais por formato
-  const dims = format === "stories"
-    ? { w: 1080, h: 1920 }
-    : format === "square"
-    ? { w: 1080, h: 1080 }
-    : { w: 1080, h: 1350 };
+  // Dimensões por formato
+  const dims = format === "stories" ? { w: 1080, h: 1920 }
+             : format === "square"  ? { w: 1080, h: 1080 }
+             :                        { w: 1080, h: 1350 };
+
+  // Payload minimalista — só propriedades confirmadas pela documentação
+  const ctaText   = cta   ? cta.toUpperCase() : "";
+  const titleText = headline ? headline.slice(0, 55) : "";
 
   const movie = {
     resolution: "custom",
     width:    dims.w,
     height:   dims.h,
     quality:  "high",
-    fps:      25,
     scenes: [
       {
-        comment:  "Ad scene",
+        comment:  "background",
         duration,
         elements: [
-          // Imagem preenche TODO o canvas (cover) com Ken Burns
+          // Imagem de fundo com Ken Burns
           {
             type:     "image",
             src:      imageUrl,
-            position: "center-center",
-            width:    dims.w,
-            height:   dims.h,
             zoom:     3,
             pan:      "right",
             duration,
           },
-          // Headline — posicionado acima do CTA com espaçamento claro
-          ...(headline ? [{
+        ],
+      },
+      {
+        comment:  "text-overlay",
+        duration,
+        "background-color": "transparent",
+        elements: [
+          // Headline
+          ...(titleText ? [{
             type:     "text",
-            style:    "003",
-            text:     headline.slice(0, 60),
+            style:    "001",
+            text:     titleText,
             settings: {
-              "font-size":   "44px",
-              "font-weight": "900",
-              "color":       "#ffffff",
-              "text-align":  "center",
-              "text-shadow": "0px 2px 12px rgba(0,0,0,0.95)",
-              "padding":     "0 40px",
+              "font-size":   "46px",
+              "font-weight": "bold",
+              "color":       "#FFFFFF",
             },
-            position: "custom",
-            x:        0,
-            y:        dims.h - 280,   // 280px do fundo → acima do CTA
-            width:    dims.w,
+            x:        40,
+            y:        dims.h - 260,
+            width:    dims.w - 80,
             duration,
-            start:    0.3,
           }] : []),
-          // CTA — fixado no fundo com margem
-          ...(cta ? [{
+          // CTA
+          ...(ctaText ? [{
             type:     "text",
-            style:    "003",
-            text:     cta.toUpperCase(),
+            style:    "001",
+            text:     ctaText,
             settings: {
-              "font-size":        "34px",
-              "font-weight":      "800",
-              "color":            "#ffffff",
-              "background-color": "#1877f2",
-              "padding":          "14px 40px",
-              "border-radius":    "40px",
-              "text-align":       "center",
+              "font-size":        "32px",
+              "font-weight":      "bold",
+              "color":            "#FFFFFF",
+              "background-color": "#1877F2",
+              "padding":          "12px 30px",
+              "border-radius":    "30px",
             },
-            position: "custom",
-            x:        "50%",
-            y:        dims.h - 140,   // 140px do fundo
-            x_anchor: "center",
+            x:        40,
+            y:        dims.h - 160,
+            width:    dims.w - 80,
             duration,
-            start:    0.8,
           }] : []),
         ],
       },
     ],
-  };
-
+  }
   try {
     // 1. Envia o job de renderização
     const createRes = await fetch("https://api.json2video.com/v2/movies", {
