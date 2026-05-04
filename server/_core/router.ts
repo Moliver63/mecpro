@@ -2129,12 +2129,22 @@ const campaignsRouter = router({
       const cr = creatives[input.creativeIdx];
       if (!cr) throw new TRPCError({ code: "NOT_FOUND", message: "Criativo não encontrado" });
 
-      // Busca imageUrl do formato solicitado
-      const imageUrl = input.format === "stories"
+      // Busca imageUrl — sempre prefere a imagem do mesmo formato para evitar barras pretas
+      // Se não tem o formato exato, usa feed como fallback (4:5 é o mais neutro)
+      const rawImageUrl = input.format === "stories"
         ? (cr.storyImageUrl || cr.feedImageUrl || cr.imageUrl)
         : input.format === "square"
         ? (cr.squareImageUrl || cr.feedImageUrl || cr.imageUrl)
         : (cr.feedImageUrl || cr.imageUrl);
+      const imageUrl = rawImageUrl;
+
+      // Detecta o formato real da imagem para dimensionar o vídeo corretamente
+      // Se só tem feedImageUrl (4:5), o vídeo deve ser feed independente do input.format
+      const effectiveFormat = (
+        input.format === "stories" && !cr.storyImageUrl && cr.feedImageUrl ? "feed" :
+        input.format === "square"  && !cr.squareImageUrl && cr.feedImageUrl ? "feed" :
+        input.format
+      ) as "feed" | "stories" | "square";
 
       if (!imageUrl) throw new TRPCError({
         code: "BAD_REQUEST",
@@ -2149,7 +2159,7 @@ const campaignsRouter = router({
         imageUrl,
         cr.headline || "",
         cr.cta     || "",
-        input.format,
+        effectiveFormat,
       );
 
       if (!videoUrl) throw new TRPCError({

@@ -840,10 +840,15 @@ export async function generateVideoFromImage(
   const duration = 6; // 6 segundos — ideal para Meta e TikTok
 
   // Cena: imagem com zoom Ken Burns + texto overlay + CTA
-  // Dimensões por formato
+  // Dimensões do vídeo = dimensões da imagem gerada
+  // Isso evita barras pretas quando a imagem não tem o aspect ratio exato do canvas
+  // feed=4:5 (1080×1350), stories=9:16 (1080×1920), square=1:1 (1080×1080)
+  // IMPORTANTE: se só temos feedImageUrl (1080×1350), o vídeo deve ser 4:5 também
   const dims = format === "stories" ? { w: 1080, h: 1920 }
              : format === "square"  ? { w: 1080, h: 1080 }
              :                        { w: 1080, h: 1350 };
+  // resolution "sd-portrait" = 720×1280, "hd-portrait" = 1080×1920
+  // Para feed (4:5) usamos custom pois não há preset 4:5 no JSON2Video
 
   const ctaText   = cta     ? cta.toUpperCase()      : "";
   const titleText = headline ? headline.slice(0, 55) : "";
@@ -866,21 +871,13 @@ export async function generateVideoFromImage(
           y:      0,
           width:  dims.w,
           height: dims.h,
-          fill:   "cover",
+          fill:   "cover",   // escala a imagem para preencher TODO o canvas sem barras
+          "z-index": 0,
           zoom:   3,
           pan:    "right",
           duration,
         },
-        // Faixa escura na base via HTML (sem depender de URL externa)
-        {
-          type:    "html",
-          html:    `<div style="width:${dims.w}px;height:340px;background:linear-gradient(to bottom,transparent,rgba(0,0,0,0.85))"></div>`,
-          x:       0,
-          y:       dims.h - 340,
-          width:   dims.w,
-          height:  340,
-          duration,
-        },
+
         // Headline
         ...(titleText ? [{
           type:    "text",
