@@ -16,6 +16,12 @@ const HF_MODELS: string[] = [];
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "";
 const CF_API_TOKEN  = process.env.CLOUDFLARE_API_TOKEN  || "";
 const CF_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
+let _cfQuotaExhaustedUntil = 0; // timestamp ms — 0 = não esgotado
+function getNextMidnightUTC(): number {
+  const now = new Date();
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  return next.getTime();
+}
 
 const FORMAT_DIMENSIONS: Record<CreativeImageFormat, { width: number; height: number; ratio: string; label: string }> = {
   feed: { width: 1080, height: 1350, ratio: "4:5", label: "Meta Feed" },
@@ -418,6 +424,12 @@ async function generateWithCloudflare(
     if (!res.ok) {
       const err = await res.text().catch(() => "");
       log.warn("image-generation", "Cloudflare erro", { status: res.status, preview: err.slice(0, 100) });
+      if (res.status === 429) {
+        _cfQuotaExhaustedUntil = getNextMidnightUTC();
+        log.warn("image-generation", "Cloudflare 429 — quota diária esgotada, fallback até meia-noite UTC", {
+          resetAt: new Date(_cfQuotaExhaustedUntil).toISOString(),
+        });
+      }
       return null;
     }
 

@@ -2119,7 +2119,11 @@ const campaignsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const campaign = await db.getCampaignById(input.campaignId);
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
-      if ((campaign as any).userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN" });
+      // campaigns não tem userId diretamente — verifica via project
+      const campProject = await db.getProjectById((campaign as any).projectId);
+      if (!campProject || (campProject as any).userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
 
       const creatives = JSON.parse((campaign as any).creatives || "[]") as any[];
       const cr = creatives[input.creativeIdx];
