@@ -276,10 +276,64 @@ export default function ClientProfile() {
 
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
             <p style={{ fontSize: 14, fontWeight: 800, color: "var(--navy)", marginBottom: 18, fontFamily: "var(--font-display)" }}>🎯 Produto / Serviço</p>
+
+            {/* NOVO: Nome do produto em destaque */}
+            <div style={{ background: "#eff6ff", border: "2px solid #3b82f6", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#1d4ed8", margin: "0 0 10px" }}>
+                📦 PRODUTO ANUNCIADO — este nome aparecerá em destaque nos anúncios
+              </p>
+              <Field label="Nome do produto / serviço anunciado *"
+                placeholder="Ex: CEG Lofts, Curso Tráfego Pro, Clínica Dra. Ana..."
+                value={(form as any).productName ?? ""}
+                onChange={v => set("productName" as any, v)} />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Preço / Faixa de preço"
+                  placeholder="Ex: R$ 997, a partir de R$ 200/mês, consulte"
+                  value={(form as any).productPrice ?? ""}
+                  onChange={v => set("productPrice" as any, v)} />
+                <Field label="CTA principal preferido"
+                  placeholder="Ex: Falar no WhatsApp, Garantir vaga, Ver imóvel"
+                  value={(form as any).productCTA ?? ""}
+                  onChange={v => set("productCTA" as any, v)} />
+              </div>
+            </div>
+
             <Field label="O que você vende?" required placeholder="Descreva seu produto ou serviço principal..." textarea
               value={form.productService ?? ""} onChange={v => set("productService", v)} />
+
+            <Field label="3 diferenciais do produto" textarea
+              placeholder="1. O único com garantia de X dias&#10;2. Resultado em Y semanas&#10;3. Sem contrato de fidelidade"
+              value={(form as any).productDifferentials ?? ""}
+              onChange={v => set("productDifferentials" as any, v)} />
+
+            <Field label="Provas sociais / Resultados" textarea
+              placeholder="Ex: +500 clientes, 92% de aprovação, R$ 2M em vendas, case: cliente X atingiu Y"
+              value={(form as any).productProofPoints ?? ""}
+              onChange={v => set("productProofPoints" as any, v)} />
+
             <Field label="Proposta única de valor" placeholder="O que te diferencia dos concorrentes?" textarea
               value={form.uniqueValueProposition ?? ""} onChange={v => set("uniqueValueProposition", v)} />
+
+            {/* Estrutura narrativa preferida */}
+            <div style={{ marginTop: 8 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>
+                Estrutura de copy preferida
+              </label>
+              <select className="input"
+                value={(form as any).copyStructure ?? "mixed"}
+                onChange={e => set("copyStructure" as any, e.target.value)}
+                style={{ width: "100%" }}>
+                <option value="mixed">🔀 Mista — IA escolhe a melhor para cada criativo</option>
+                <option value="AIDA">📢 AIDA — Atenção → Interesse → Desejo → Ação</option>
+                <option value="PAS">🎯 PAS — Problema → Agitação → Solução</option>
+                <option value="STORYTELLING">📖 Storytelling — narrativa emocional</option>
+                <option value="CONTRASTE">⚡ Contraste — antes vs depois</option>
+                <option value="URGENCIA">⏰ Urgência — escassez e prazo</option>
+              </select>
+              <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
+                💡 A estrutura escolhida será usada pela IA para gerar os textos dos anúncios.
+              </p>
+            </div>
           </div>
         </div>
 

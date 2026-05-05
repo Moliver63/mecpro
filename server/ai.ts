@@ -5257,15 +5257,23 @@ PROJETO: ${(project as any)?.name || "Sem nome"}
 
 PERFIL DO CLIENTE:
 - Empresa: ${(clientProfile as any)?.companyName || "—"}
+${(clientProfile as any)?.productName ? `- PRODUTO ANUNCIADO: "${(clientProfile as any)?.productName}" ← USE ESTE NOME` : ""}
 - Nicho: ${(clientProfile as any)?.niche || "—"}
 - Produto/Serviço: ${(clientProfile as any)?.productService || "—"}
+${(clientProfile as any)?.productPrice ? `- Preço/Oferta: ${(clientProfile as any)?.productPrice}` : ""}
+${(clientProfile as any)?.productDifferentials ? `- Diferenciais do produto: ${(clientProfile as any)?.productDifferentials}` : ""}
+${(clientProfile as any)?.productProofPoints ? `- PROVAS SOCIAIS: ${(clientProfile as any)?.productProofPoints}` : ""}
+${(clientProfile as any)?.productCTA ? `- CTA preferido: "${(clientProfile as any)?.productCTA}"` : ""}
 - Público-alvo: ${(clientProfile as any)?.targetAudience || "—"}
 - Dor principal: ${(clientProfile as any)?.mainPain || "—"}
 - Proposta de valor: ${(clientProfile as any)?.uniqueValueProposition || "—"}
 - Transformação desejada: ${(clientProfile as any)?.desiredTransformation || "—"}
 - Objeções dos clientes: ${(clientProfile as any)?.mainObjections || "—"}
+${(clientProfile as any)?.city ? `- Cidade/Região: ${(clientProfile as any)?.city}` : ""}
+${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any)?.averageTicket}` : ""}
 - Objetivo da campanha: ${(clientProfile as any)?.campaignObjective || "leads"}
 - Budget mensal: R$ ${(clientProfile as any)?.monthlyBudget || "não informado"}
+${(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed" ? `- Estrutura de copy: ${(clientProfile as any)?.copyStructure}` : ""}
 
 CENÁRIO COMPETITIVO (${competitors.length} concorrentes | ${allAds.length} anúncios analisados):
 ${competitorsDetail || "Nenhum concorrente cadastrado ainda."}
@@ -6466,6 +6474,19 @@ export async function generateCampaignPart(input: {
   const audience   = clientProfile?.targetAudience  || "";
   const pain       = clientProfile?.mainPain         || "";
   const uvp        = clientProfile?.uniqueValueProposition || "";
+
+  // Campos de produto específico — aparecem em DESTAQUE no prompt
+  const productName   = (clientProfile as any)?.productName          || "";
+  const productPrice  = (clientProfile as any)?.productPrice         || "";
+  const productDiffs  = (clientProfile as any)?.productDifferentials || "";
+  const proofPoints   = (clientProfile as any)?.productProofPoints   || "";
+  const preferredCTA  = (clientProfile as any)?.productCTA           || "";
+  const copyStructure = (clientProfile as any)?.copyStructure        || "mixed";
+  const companyName   = (clientProfile as any)?.companyName          || "";
+  const city          = (clientProfile as any)?.city                 || "";
+  const mainObjections= (clientProfile as any)?.mainObjections       || "";
+  const transformation= (clientProfile as any)?.desiredTransformation|| "";
+  const averageTicket = (clientProfile as any)?.averageTicket        || "";
   const topCtas    = [...new Set(allAds.map((a: any) => a.cta).filter(Boolean))].slice(0, 3).join(", ");
   // Motor de copy por nicho — guias específicos por segmento
   const nicheCtx = getNicheContext(niche, product);
@@ -6545,11 +6566,19 @@ Gere 4 conjuntos com segmentações detalhadas e estratégicas. Responda SOMENTE
     hooks: `
 Você é um copywriter especialista em hooks para anúncios digitais de alta conversão.
 
-Nicho: ${niche}
-Produto: ${product}
-Dor principal: ${pain}
-Proposta de valor: ${uvp}
-${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
+${productName ? `PRODUTO ANUNCIADO: "${productName}" — USE ESTE NOME nos hooks quando fizer sentido
+` : ""}${companyName ? `Empresa: ${companyName}
+` : ""}Nicho: ${niche}
+Produto/Serviço: ${product}
+${productPrice ? `Preço: ${productPrice}
+` : ""}${proofPoints ? `Provas sociais: ${proofPoints}
+` : ""}${productDiffs ? `Diferenciais: ${productDiffs}
+` : ""}Dor principal: ${pain}
+${transformation ? `Transformação prometida: ${transformation}
+` : ""}Proposta de valor: ${uvp}
+${preferredCTA ? `CTA preferido pelo anunciante: "${preferredCTA}"
+` : ""}${city ? `Cidade/região: ${city}
+` : ""}${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
 ${(niche||"").toLowerCase().includes("imob") || (niche||"").toLowerCase().includes("loft") || (niche||"").toLowerCase().includes("aparta") ? `
 ESTE É UM PRODUTO IMOBILIÁRIO — use ângulos de INVESTIMENTO, não de moradia genérica:
@@ -6602,13 +6631,24 @@ Gere 6 hipóteses de teste A/B priorizadas por impacto. Responda SOMENTE em JSON
     copies: `
 Você é um copywriter especialista em anúncios de alta conversão para o mercado brasileiro.
 
-Nicho: ${niche}
-Produto: ${product}
-Público: ${audience}
-Dor: ${pain}
-Proposta de valor: ${uvp}
+${productName ? `PRODUTO ANUNCIADO: "${productName}" — MENCIONE ESTE NOME nas copies
+` : ""}${companyName ? `Empresa anunciante: ${companyName}
+` : ""}Nicho: ${niche}
+Produto/Serviço: ${product}
+${productPrice ? `Preço/Oferta: ${productPrice} — mencione quando relevante
+` : ""}${proofPoints ? `PROVAS SOCIAIS (USE ESTES NÚMEROS): ${proofPoints}
+` : ""}${productDiffs ? `DIFERENCIAIS DO PRODUTO: ${productDiffs}
+` : ""}Público-alvo: ${audience}
+Dor principal: ${pain}
+${transformation ? `Transformação desejada: ${transformation}
+` : ""}${mainObjections ? `Objeções a quebrar: ${mainObjections}
+` : ""}Proposta de valor: ${uvp}
 Objetivo da campanha: ${objective}
-${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
+${preferredCTA ? `CTA preferido: "${preferredCTA}"
+` : ""}${averageTicket ? `Ticket médio: R$ ${averageTicket}
+` : ""}${city ? `Localidade: ${city}
+` : ""}${copyStructure !== "mixed" ? `\nESTRUTURA OBRIGATÓRIA: ${copyStructure} — use esta estrutura narrativa em TODOS os criativos
+` : ""}${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
 ${(niche||"").toLowerCase().includes("imob") || (niche||"").toLowerCase().includes("loft") || (niche||"").toLowerCase().includes("aparta") ? `
 ESTRATÉGIA IMOBILIÁRIA — gere copies para 3 personas distintas:

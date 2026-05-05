@@ -76,6 +76,14 @@ export const clientProfiles = pgTable("client_profiles", {
   state:         varchar("state",         { length: 2   }),  // ex: "SC"
   country:       varchar("country",       { length: 50  }).default("Brasil"),
   averageTicket: integer("averageTicket"),                   // ticket médio em R$
+  // ── Produto específico anunciado ─────────────────────────────────────────
+  productName:         varchar("productName",         { length: 150 }),  // nome do produto/serviço anunciado
+  productPrice:        varchar("productPrice",         { length: 80  }),  // ex: "R$ 997", "a partir de R$ 200/mês"
+  productDifferentials:text("productDifferentials"),                      // 3 diferenciais do produto
+  productProofPoints:  text("productProofPoints"),                        // provas sociais: nº clientes, resultados
+  productCTA:          varchar("productCTA",           { length: 100 }),  // CTA preferido: "Falar no WhatsApp"
+  // ── Estrutura narrativa preferida ────────────────────────────────────────
+  copyStructure:       varchar("copyStructure",         { length: 30  }).default("mixed"), // AIDA|PAS|STORYTELLING|mixed
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

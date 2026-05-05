@@ -760,5 +760,16 @@ export async function runMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_ai_cache_expires ON ai_cache(expires_at);
     `).catch(() => {});
 
-        console.log('[migrations] ✅ Migrations applied successfully');
+        // Campos de produto específico e estrutura narrativa
+    await pool.query(`
+      ALTER TABLE client_profiles
+      ADD COLUMN IF NOT EXISTS "productName"          varchar(150),
+      ADD COLUMN IF NOT EXISTS "productPrice"         varchar(80),
+      ADD COLUMN IF NOT EXISTS "productDifferentials" text,
+      ADD COLUMN IF NOT EXISTS "productProofPoints"   text,
+      ADD COLUMN IF NOT EXISTS "productCTA"           varchar(100),
+      ADD COLUMN IF NOT EXISTS "copyStructure"        varchar(30) DEFAULT 'mixed'
+    `).catch(() => {});
+
+    console.log('[migrations] ✅ Migrations applied successfully');
 }
