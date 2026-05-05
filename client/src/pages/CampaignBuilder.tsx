@@ -666,6 +666,73 @@ export default function CampaignBuilder() {
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Detalhes da campanha</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>Quanto mais contexto, mais precisa será a estratégia da IA.</p>
 
+                  {/* ── BLOCO: PRODUTO ANUNCIADO ── */}
+                  <div style={{ background: (clientProfile as any)?.productName ? "#f0fdf4" : "#fffbeb", border: `2px solid ${(clientProfile as any)?.productName ? "#86efac" : "#fcd34d"}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 20 }}>📦</span>
+                        <div>
+                          <p style={{ fontSize: 13, fontWeight: 800, color: (clientProfile as any)?.productName ? "#166534" : "#92400e", margin: 0 }}>
+                            Produto anunciado
+                          </p>
+                          <p style={{ fontSize: 11, color: (clientProfile as any)?.productName ? "#16a34a" : "#b45309", margin: 0 }}>
+                            {(clientProfile as any)?.productName
+                              ? "Nome em destaque nos criativos gerados pela IA"
+                              : "⚠️ Preencha o nome do produto no perfil para copy personalizada"}
+                          </p>
+                        </div>
+                      </div>
+                      <a href={`/projects/${projectId}/profile`}
+                        style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", textDecoration: "none",
+                          background: "#eff6ff", padding: "4px 10px", borderRadius: 8, border: "1px solid #bfdbfe" }}>
+                        ✏️ Editar perfil
+                      </a>
+                    </div>
+
+                    {(clientProfile as any)?.productName ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        {[
+                          { icon: "🏷️", label: "Produto", value: (clientProfile as any)?.productName },
+                          { icon: "🏢", label: "Empresa", value: (clientProfile as any)?.companyName },
+                          { icon: "💰", label: "Preço", value: (clientProfile as any)?.productPrice || "—" },
+                          { icon: "📣", label: "CTA", value: (clientProfile as any)?.productCTA || "—" },
+                        ].map(({ icon, label, value }) => value && value !== "—" ? (
+                          <div key={label} style={{ background: "white", borderRadius: 8, padding: "8px 10px", border: "1px solid #dcfce7" }}>
+                            <p style={{ fontSize: 10, color: "#6b7280", margin: "0 0 2px" }}>{icon} {label}</p>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: "#111827", margin: 0 }}>{String(value).slice(0, 40)}</p>
+                          </div>
+                        ) : null)}
+                        {(clientProfile as any)?.productProofPoints && (
+                          <div style={{ gridColumn: "1 / -1", background: "white", borderRadius: 8, padding: "8px 10px", border: "1px solid #dcfce7" }}>
+                            <p style={{ fontSize: 10, color: "#6b7280", margin: "0 0 2px" }}>⭐ Provas sociais</p>
+                            <p style={{ fontSize: 11, color: "#111827", margin: 0 }}>{String((clientProfile as any)?.productProofPoints).slice(0, 80)}</p>
+                          </div>
+                        )}
+                        {(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed" && (
+                          <div style={{ gridColumn: "1 / -1", background: "#fef9c3", borderRadius: 8, padding: "6px 10px", border: "1px solid #fde68a" }}>
+                            <p style={{ fontSize: 11, fontWeight: 700, color: "#854d0e", margin: 0 }}>
+                              📐 Estrutura de copy: {(clientProfile as any)?.copyStructure}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        {[
+                          { icon: "🏢", label: "Empresa", value: (clientProfile as any)?.companyName },
+                          { icon: "🎯", label: "Nicho", value: (clientProfile as any)?.niche },
+                          { icon: "📦", label: "Produto", value: (clientProfile as any)?.productService?.slice(0, 50) },
+                          { icon: "💰", label: "Budget mensal", value: (clientProfile as any)?.monthlyBudget ? `R$ ${(clientProfile as any)?.monthlyBudget?.toLocaleString("pt-BR")}` : null },
+                        ].map(({ icon, label, value }) => value ? (
+                          <div key={label} style={{ background: "white", borderRadius: 8, padding: "8px 10px", border: "1px solid #fde68a" }}>
+                            <p style={{ fontSize: 10, color: "#6b7280", margin: "0 0 2px" }}>{icon} {label}</p>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: "#111827", margin: 0 }}>{String(value).slice(0, 40)}</p>
+                          </div>
+                        ) : null)}
+                      </div>
+                    )}
+                  </div>
+
                   {/* ── RECOMENDAÇÃO INTELIGENTE (nova) ── */}
                   <IntelligenceRecommendation
                     platform={form.platform}
@@ -1203,6 +1270,25 @@ export default function CampaignBuilder() {
                       </div>
                     </div>
                   )}
+                  {/* Produto anunciado em destaque */}
+                  {(clientProfile as any)?.productName && (
+                    <div style={{ background: "#f0fdf4", border: "2px solid #16a34a", borderRadius: 12, padding: "12px 16px", marginBottom: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontSize: 22 }}>📦</span>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 10, color: "#16a34a", fontWeight: 700, margin: "0 0 2px", textTransform: "uppercase" }}>Produto anunciado</p>
+                        <p style={{ fontSize: 16, fontWeight: 900, color: "#14532d", margin: 0 }}>{(clientProfile as any)?.productName}</p>
+                        {(clientProfile as any)?.productPrice && (
+                          <p style={{ fontSize: 12, color: "#166534", margin: "2px 0 0" }}>{(clientProfile as any)?.productPrice}</p>
+                        )}
+                      </div>
+                      {(clientProfile as any)?.productCTA && (
+                        <span style={{ background: "#1877f2", color: "white", fontSize: 11, fontWeight: 800, padding: "6px 12px", borderRadius: 20 }}>
+                          {(clientProfile as any)?.productCTA}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {[
                     ["Nome",       form.name || "—"],
                     ["Objetivo",   `${selectedObj?.icon} ${selectedObj?.label}`],
@@ -1210,6 +1296,9 @@ export default function CampaignBuilder() {
                     ["Orçamento",  `${selectedBudget?.label ?? `R$ ${form.budget.toLocaleString()}/mês`} (${selectedBudget?.tier ?? ""})`],
                     ["Duração",    `${form.duration} dias`],
                     ["Nicho",      currentNiche],
+                    ...(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed"
+                      ? [["Estrutura copy", (clientProfile as any)?.copyStructure]]
+                      : [],
                   ].map(([k, v]) => (
                     <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
                       <span style={{ fontSize: 13, color: "var(--muted)" }}>{k}</span>
