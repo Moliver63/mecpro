@@ -1112,6 +1112,8 @@ export default function CampaignResult() {
   const glossary     = extra?.glossary     || null;
   const suggestedName = extra?.campaignName || null;
   const hooks        = extra?.hooks        || null;
+  const shortCopies  = extra?.shortCopies  || null;
+  const primaryCTA   = extra?.primaryCTA   || null;
   const abTests      = extra?.abTests      || null;
   const tracking     = extra?.tracking     || null;
   const optimization = extra?.optimization || null;
@@ -3042,12 +3044,73 @@ export default function CampaignResult() {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
             {hooks.map((h: any, i: number) => (
-              <div key={i} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", background: "var(--off)" }}>
-                <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1, color: "var(--green-d)", display: "block", marginBottom: 6 }}>{h.type}</span>
-                <p style={{ fontSize: 13, color: "var(--black)", lineHeight: 1.6 }}>"{h.text}"</p>
+              <div key={i} style={{
+                border: `1px solid ${h.type === "curiosidade" ? "#bfdbfe" : h.type === "dor" ? "#fecaca" : h.type === "oportunidade" ? "#bbf7d0" : "var(--border)"}`,
+                borderRadius: 10, padding: "14px 16px",
+                background: h.type === "curiosidade" ? "#eff6ff" : h.type === "dor" ? "#fff1f2" : h.type === "oportunidade" ? "#f0fdf4" : "var(--off)"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 14 }}>
+                    {h.type === "curiosidade" ? "🤔" : h.type === "dor" ? "😤" : h.type === "oportunidade" ? "💡" : "🎣"}
+                  </span>
+                  <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1,
+                    color: h.type === "curiosidade" ? "#1d4ed8" : h.type === "dor" ? "#dc2626" : h.type === "oportunidade" ? "#16a34a" : "var(--green-d)"
+                  }}>{h.type}</span>
+                </div>
+                <p style={{ fontSize: 13, color: "var(--black)", lineHeight: 1.6, margin: 0 }}>"{h.text}"</p>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Copies Estruturadas + CTA Principal ── */}
+      {(shortCopies?.length || primaryCTA) && (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginTop: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: "#fdf4ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>✍️</div>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Copies Prontas para Meta Ads</p>
+              <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Situação → Desejo → Solução — linguagem natural, anti-IA</p>
+            </div>
+          </div>
+
+          {/* CTA Principal */}
+          {primaryCTA && (
+            <div style={{ background: "#1877f2", borderRadius: 10, padding: "10px 18px", marginBottom: 16, display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "white", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>CTA Principal:</span>
+              <span style={{ fontSize: 14, color: "white", fontWeight: 900 }}>{primaryCTA}</span>
+            </div>
+          )}
+
+          {/* Copies curtas */}
+          {shortCopies && Array.isArray(shortCopies) && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {shortCopies.map((sc: any, i: number) => (
+                <div key={i} style={{ border: "2px solid #e9d5ff", borderRadius: 12, padding: 16, background: "#faf5ff" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: "#7c3aed", textTransform: "uppercase", letterSpacing: 1 }}>
+                      Copy {i + 1} — {i === 0 ? "Dor/Situação" : "Prova/Diferencial"}
+                    </span>
+                    <button
+                      onClick={() => { navigator.clipboard?.writeText(`${sc.headline}
+
+${sc.body}
+
+${sc.cta}`); }}
+                      style={{ fontSize: 10, background: "#ede9fe", color: "#6d28d9", border: "none", borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontWeight: 700 }}>
+                      📋 Copiar
+                    </button>
+                  </div>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: "#1e1b4b", margin: "0 0 6px" }}>{sc.headline}</p>
+                  <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, margin: "0 0 10px" }}>{sc.body}</p>
+                  <span style={{ background: "#1877f2", color: "white", fontSize: 11, fontWeight: 800, padding: "5px 14px", borderRadius: 20 }}>
+                    {sc.cta || primaryCTA}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

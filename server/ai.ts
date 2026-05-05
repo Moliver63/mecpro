@@ -6564,44 +6564,50 @@ Gere 4 conjuntos com segmentações detalhadas e estratégicas. Responda SOMENTE
 }`,
 
     hooks: `
-Você é um copywriter especialista em hooks para anúncios digitais de alta conversão.
+Você é um especialista em copy para Meta Ads focado em conversão.
+Objetivo: gerar anúncios específicos e direcionados — NUNCA genérico.
 
-${productName ? `PRODUTO ANUNCIADO: "${productName}" — USE ESTE NOME nos hooks quando fizer sentido
-` : ""}${companyName ? `Empresa: ${companyName}
-` : ""}Nicho: ${niche}
-Produto/Serviço: ${product}
-${productPrice ? `Preço: ${productPrice}
-` : ""}${proofPoints ? `Provas sociais: ${proofPoints}
-` : ""}${productDiffs ? `Diferenciais: ${productDiffs}
-` : ""}Dor principal: ${pain}
-${transformation ? `Transformação prometida: ${transformation}
-` : ""}Proposta de valor: ${uvp}
-${preferredCTA ? `CTA preferido pelo anunciante: "${preferredCTA}"
-` : ""}${city ? `Cidade/região: ${city}
-` : ""}${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
+Inputs da campanha:
+Segmento: ${niche}
+Objetivo: ${objective}
+Situação do cliente: ${pain}
+Desejo: ${transformation || uvp}
+Oferta: ${product}${productPrice ? " — " + productPrice : ""}
+Diferencial: ${productDiffs || uvp}
+Prova: ${proofPoints || "não informada"}
+Tom: direto e persuasivo, linguagem natural
+${productName ? "Produto/Marca: \"" + productName + "\"\n" : ""}${companyName ? "Empresa: " + companyName + "\n" : ""}${city ? "Localidade: " + city + "\n" : ""}${preferredCTA ? "CTA preferido: \"" + preferredCTA + "\"\n" : ""}${input.extraContext ? "Contexto adicional: " + input.extraContext + "\n" : ""}
 
-${(niche||"").toLowerCase().includes("imob") || (niche||"").toLowerCase().includes("loft") || (niche||"").toLowerCase().includes("aparta") ? `
-ESTE É UM PRODUTO IMOBILIÁRIO — use ângulos de INVESTIMENTO, não de moradia genérica:
-- Ângulo ROI: "esse imóvel pode se pagar sozinho com locação por temporada"
-- Ângulo escassez real: "últimas unidades com ticket abaixo de R$ X"
-- Ângulo contra-intuitivo: "por que investidores estão comprando aqui (e não em Balneário)"
-- Ângulo Airbnb: "rendimento médio de R$ X/mês em alta temporada"
-- Ângulo valorização: "X% de valorização nos últimos 24 meses nessa região"
-NUNCA use hooks genéricos como "Realize o sonho da casa própria" ou "Venha morar bem".
-` : ""}
+Regras OBRIGATÓRIAS:
+- Usar situação real, desejo concreto, diferencial e prova
+- Ser específico — evitar frases vagas como "mude sua vida" ou "transforme sua rotina"
+- PROIBIDO: "não perca", "imperdível", "oportunidade única", "aproveite agora", "transforme sua vida"
+- Linguagem natural — não pode parecer escrito por IA
+- Máximo 12 palavras por hook
+- Nunca começar com o nome da empresa
 
-Regras dos hooks:
-1. Primeiros 3 segundos decidem tudo — comece com TENSÃO ou CURIOSIDADE
-2. Nunca comece com nome da empresa ou produto
-3. Use números reais, percentuais, prazos específicos quando possível
-4. Provoque emoção: medo de perder, curiosidade, choque, identificação
-5. Máximo 12 palavras por hook
+${nicheCtx.hooksGuide}
 
-Gere 8 hooks de alta conversão. Responda SOMENTE em JSON:
+Gere exatamente:
+- 3 hooks por tipo obrigatório (curiosidade, dor, oportunidade) + variações
+- 2 copies curtas estruturadas
+- 1 CTA direto (máx 5 palavras)
+
+Responda SOMENTE em JSON:
 {
   "hooks": [
-    { "type": "curiosidade|dor|choque|identificação|promessa|pergunta|contra-intuitivo|urgência|investimento|escassez", "text": "texto do hook (máx 12 palavras)" }
-  ]
+    { "type": "curiosidade",  "text": "hook específico (máx 12 palavras)" },
+    { "type": "dor",          "text": "hook de dor real do cliente (máx 12 palavras)" },
+    { "type": "oportunidade", "text": "hook de oportunidade concreta (máx 12 palavras)" },
+    { "type": "curiosidade",  "text": "variação 2 curiosidade" },
+    { "type": "dor",          "text": "variação 2 dor" },
+    { "type": "oportunidade", "text": "variação 2 oportunidade" }
+  ],
+  "shortCopies": [
+    { "headline": "headline direto", "body": "situação → desejo → solução (2 linhas máx)", "cta": "CTA direto" },
+    { "headline": "headline ângulo 2", "body": "foco diferente — prova ou diferencial", "cta": "CTA direto" }
+  ],
+  "primaryCTA": "CTA principal (máx 5 palavras)"
 }`,
 
     abTests: `
@@ -6734,7 +6740,11 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
   } else if (["hooks", "abTests", "copies"].includes(input.part)) {
     // Salva dentro do aiResponse
     const existing = JSON.parse(c.aiResponse || "{}");
-    if (input.part === "hooks")   existing.hooks   = parsed.hooks;
+    if (input.part === "hooks") {
+      existing.hooks        = parsed.hooks;
+      if (parsed.shortCopies) existing.shortCopies = parsed.shortCopies;
+      if (parsed.primaryCTA)  existing.primaryCTA  = parsed.primaryCTA;
+    }
     if (input.part === "abTests") existing.abTests = parsed.abTests;
     if (input.part === "copies")  existing.copies  = parsed.copies;
     await db.updateCampaignField(input.campaignId, "aiResponse", JSON.stringify(existing));
