@@ -198,15 +198,37 @@ export default function GoogleCampaignCreator() {
       ? String(c.suggestedBudgetDaily)
       : String(Math.round((c.suggestedBudgetMonthly || 1500) / 30));
 
+    // Extrai negativeKeywords do aiResponse (gerado pela IA da campanha)
+    const negKws: string[] = [];
+    // Tenta 1: campo negativeKeywords direto no aiResponse
+    if (extra?.negativeKeywords?.length) negKws.push(...extra.negativeKeywords);
+    // Tenta 2: campo negativeKeywords nos adSets
+    if (Array.isArray(adSets)) {
+      adSets.forEach((as: any) => {
+        if (Array.isArray(as?.negativeKeywords)) negKws.push(...as.negativeKeywords);
+      });
+    }
+    // Tenta 3: palavras genéricas por objetivo (evita tráfego irrelevante)
+    const objectiveNegatives: Record<string, string[]> = {
+      leads:       ["grátis", "gratuito", "tutorial", "como fazer", "o que é", "diy"],
+      sales:       ["grátis", "gratuito", "usado", "segunda mão", "pirata"],
+      traffic:     [],
+      branding:    ["comprar", "preço", "quanto custa", "barato"],
+      app_installs:["desktop", "computador", "como instalar pc"],
+    };
+    const objNeg = objectiveNegatives[c.objective || "leads"] || [];
+    const allNegKws = [...new Set([...negKws, ...objNeg])];
+
     setForm(f => ({
       ...f,
-      campaignName:    suggestedName,
-      campaignType:    "SEARCH",
-      biddingStrategy: objectiveToBidding(c.objective),
+      campaignName:     suggestedName,
+      campaignType:     "SEARCH",
+      biddingStrategy:  objectiveToBidding(c.objective),
       dailyBudget,
-      keywords:        kws.join("\n"),
+      keywords:         kws.join("\n"),
+      negativeKeywords: allNegKws.join("\n"),
       ads,
-      strategy:        c.strategy || "",
+      strategy:         c.strategy || "",
       competitorInsights: [
         marketAnalysis ? `🎯 Posicionamento: ${(marketAnalysis as any).suggestedPositioning || ""}` : "",
         marketAnalysis ? `⚡ Gaps: ${(marketAnalysis as any).competitiveGaps || ""}` : "",

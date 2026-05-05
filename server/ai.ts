@@ -5642,6 +5642,13 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     "leadsPerMonth": "XX leads estimados com R$ ${input.budget}/mês",
     "insight": "recomendação prática baseada nos ${allAds.length} anúncios coletados e budget de R$ ${input.budget}"
   },
+  "negativeKeywords": [
+    "palavra ou frase que traz tráfego irrelevante para este nicho/objetivo",
+    "exemplo: 'grátis' para campanha de vendas pagas",
+    "exemplo: 'emprego' para loja de produtos",
+    "exemplo: 'tutorial' para campanha de conversão imobiliária",
+    "5 a 10 keywords negativas específicas para ${niche} + objetivo ${input.objective}"
+  ],
   "glossary": [
     {"term": "CTA", "meaning": "Call To Action — chamada para ação", "example": "${topCtas[0] || 'Falar no WhatsApp'}"},
     {"term": "CPC", "meaning": "Custo por Clique", "example": "valor calculado acima para este nicho"},
@@ -5784,6 +5791,7 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     aiResponse = JSON.stringify({
       campaignName: parsed.campaignName || null,
       metrics:      parsed.metrics      || null,
+      negativeKeywords: parsed.negativeKeywords || null,
       glossary:     parsed.glossary     || null,
       hooks:        parsed.hooks        || null,
       abTests:      parsed.abTests      || null,
@@ -5859,6 +5867,7 @@ Gere JSON com:
         aiResponse = JSON.stringify({
           campaignName,
           metrics:      groqParsed.metrics      || null,
+          negativeKeywords: groqParsed.negativeKeywords || null,
           glossary:     groqParsed.glossary      || null,
           hooks:        groqParsed.hooks         || null,
           abTests:      groqParsed.abTests       || null,
