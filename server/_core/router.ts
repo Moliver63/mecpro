@@ -673,12 +673,12 @@ const clientProfileRouter = router({
       country:        z.string().optional(),
       averageTicket:  z.number().nullish(),
       // Campos de produto específico (sessão 11)
-      productName:          z.string().optional(),
-      productPrice:         z.string().optional(),
-      productDifferentials: z.string().optional(),
-      productProofPoints:   z.string().optional(),
-      productCTA:           z.string().optional(),
-      copyStructure:        z.string().optional(),
+      productName:          z.string().nullish(),
+      productPrice:         z.string().nullish(),
+      productDifferentials: z.string().nullish(),
+      productProofPoints:   z.string().nullish(),
+      productCTA:           z.string().nullish(),
+      copyStructure:        z.string().nullish(),
     }))
     .mutation(({ input }) => {
       const websiteUrl = (() => {

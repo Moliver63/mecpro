@@ -186,7 +186,17 @@ export default function ClientProfile() {
       alert("Preencha os campos obrigatórios: Empresa, Nicho e Produto/Serviço.");
       return;
     }
-    upsert.mutate({ projectId, ...form } as any);
+    // Converte null → undefined para campos string (Zod .nullish() aceita ambos)
+    const stringFields = ["productName","productPrice","productDifferentials",
+      "productProofPoints","productCTA","copyStructure",
+      "targetAudience","mainPain","desiredTransformation",
+      "uniqueValueProposition","mainObjections","websiteUrl","socialLinks",
+      "businessScope","city","state","country","companyName","niche","productService"];
+    const cleanForm: any = { ...form };
+    for (const k of stringFields) {
+      if (cleanForm[k] === null) cleanForm[k] = undefined;
+    }
+    upsert.mutate({ projectId, ...cleanForm } as any);
   }
 
   const isValidDoc = docType === "cnpj"
