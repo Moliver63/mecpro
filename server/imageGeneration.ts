@@ -745,9 +745,8 @@ export async function generateAdImage(
       return null;
     }
 
-    if (providerToTry === "genspark") {
-      return await generateWithGenspark(creative, objective, format);
-    }
+    // Genspark desabilitado — inacessível do Render.com
+    // if (providerToTry === "genspark") { ... }
 
     if (providerToTry === "heygen") {
       // HeyGen desabilitado — endpoint /v2/image.generate retorna 404
@@ -769,8 +768,8 @@ export async function generateAdImage(
     // Primeiro tenta o provider configurado.
     pushCandidate(provider, config.apiKey || "");
 
-    // Depois tenta fallbacks reais disponíveis no ambiente.
-    pushCandidate("genspark", (process.env.GENSPARK_API_KEY || "").trim());
+    // Fallbacks — Genspark desabilitado (fetch failed do Render)
+    // pushCandidate("genspark", ...); ← inacessível
     pushCandidate("huggingface", (process.env.HUGGINGFACE_API_KEY || "").trim());
     pushCandidate("heygen", (process.env.HEYGEN_API_KEY || "").trim());
 
