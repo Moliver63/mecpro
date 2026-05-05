@@ -672,6 +672,13 @@ const clientProfileRouter = router({
       state:          z.string().optional(),
       country:        z.string().optional(),
       averageTicket:  z.number().nullish(),
+      // Campos de produto específico (sessão 11)
+      productName:          z.string().optional(),
+      productPrice:         z.string().optional(),
+      productDifferentials: z.string().optional(),
+      productProofPoints:   z.string().optional(),
+      productCTA:           z.string().optional(),
+      copyStructure:        z.string().optional(),
     }))
     .mutation(({ input }) => {
       const websiteUrl = (() => {
