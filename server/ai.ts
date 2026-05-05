@@ -5058,7 +5058,7 @@ function _staticMockAds(name: string, rawNiche: string): any[] {
   const n = rawNiche.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
   const detect = (): string => {
-    if (n.includes("imov") || n.includes("imobil") || n.includes("aparta") || n.includes("real estate")) return "imoveis";
+    if (n.includes("imov") || n.includes("imobil") || n.includes("aparta") || n.includes("real estate") || n.includes("loft") || n.includes("studio") || n.includes("empreend")) return "imoveis";
     if (n.includes("educa") || n.includes("curso") || n.includes("escola") || n.includes("ensino") || n.includes("infoprod")) return "educacao";
     if (n.includes("saude") || n.includes("medic") || n.includes("clinica") || n.includes("estetica") || n.includes("beleza")) return "saude";
     if (n.includes("ecomm") || n.includes("loja") || n.includes("varejo") || n.includes("moda") || n.includes("produto")) return "ecommerce";
@@ -6228,21 +6228,34 @@ Público-alvo: ${audience}
 Budget mensal: R$ ${budget}
 ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
-Gere 4 conjuntos de anúncios com segmentações diferentes e estratégicas. Responda SOMENTE em JSON:
+${(niche||"").toLowerCase().includes("imob") || (niche||"").toLowerCase().includes("loft") || (niche||"").toLowerCase().includes("aparta") ? `
+SEGMENTAÇÃO IMOBILIÁRIA — NUNCA use apenas "mercado imobiliário".
+Crie públicos específicos com INTENÇÃO de compra/investimento:
+
+Conjunto 1 — INVESTIDOR (TOF): interesses: "investimento imobiliário", "renda passiva", "Airbnb", "fundos imobiliários FII", "independência financeira"; idade 28-55; renda presumida alta
+Conjunto 2 — COMPRADOR FINAL (TOF/MOF): interesses: "decoração de interiores", "arquitetura", "Beach lifestyle", "segunda residência"; comportamentos: "Pessoas que viajam frequentemente", "Engajados com conteúdo de imóveis"
+Conjunto 3 — REMARKETING 7 DIAS (BOF): visitantes do site + engajados com vídeos + salvaram posts; objetivo MENSAGENS para WhatsApp
+Conjunto 4 — LOOKALIKE 1-3% (SCALE): baseado em leads qualificados; budget de escala após validação
+
+IMPORTANTE: Conjunto 3 deve ter objective=MESSAGES e CTA direto para WhatsApp.
+` : ""}
+
+Gere 4 conjuntos com segmentações detalhadas e estratégicas. Responda SOMENTE em JSON:
 {
   "adSets": [
     {
       "name": "nome do conjunto",
-      "audience": "descrição detalhada do público (idade, interesses, comportamentos)",
+      "audience": "descrição DETALHADA: idade exata, interesses específicos, comportamentos, exclusões",
       "budget": "R$ X/dia (Y% do total)",
-      "objective": "objetivo específico deste conjunto",
-      "funnelStage": "TOF|MOF|BOF|SCALE"
+      "objective": "objetivo específico: AWARENESS|TRAFFIC|ENGAGEMENT|LEADS|MESSAGES|CONVERSIONS",
+      "funnelStage": "TOF|MOF|BOF|SCALE",
+      "cta": "CTA principal: Saiba Mais|Enviar Mensagem|Baixar|Cadastre-se|Ver mais"
     }
   ]
 }`,
 
     hooks: `
-Você é um copywriter especialista em hooks para anúncios digitais.
+Você é um copywriter especialista em hooks para anúncios digitais de alta conversão.
 
 Nicho: ${niche}
 Produto: ${product}
@@ -6250,10 +6263,27 @@ Dor principal: ${pain}
 Proposta de valor: ${uvp}
 ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
-Gere 8 hooks de alta conversão, variados e criativos. Responda SOMENTE em JSON:
+${(niche||"").toLowerCase().includes("imob") || (niche||"").toLowerCase().includes("loft") || (niche||"").toLowerCase().includes("aparta") ? `
+ESTE É UM PRODUTO IMOBILIÁRIO — use ângulos de INVESTIMENTO, não de moradia genérica:
+- Ângulo ROI: "esse imóvel pode se pagar sozinho com locação por temporada"
+- Ângulo escassez real: "últimas unidades com ticket abaixo de R$ X"
+- Ângulo contra-intuitivo: "por que investidores estão comprando aqui (e não em Balneário)"
+- Ângulo Airbnb: "rendimento médio de R$ X/mês em alta temporada"
+- Ângulo valorização: "X% de valorização nos últimos 24 meses nessa região"
+NUNCA use hooks genéricos como "Realize o sonho da casa própria" ou "Venha morar bem".
+` : ""}
+
+Regras dos hooks:
+1. Primeiros 3 segundos decidem tudo — comece com TENSÃO ou CURIOSIDADE
+2. Nunca comece com nome da empresa ou produto
+3. Use números reais, percentuais, prazos específicos quando possível
+4. Provoque emoção: medo de perder, curiosidade, choque, identificação
+5. Máximo 12 palavras por hook
+
+Gere 8 hooks de alta conversão. Responda SOMENTE em JSON:
 {
   "hooks": [
-    { "type": "curiosidade|dor|choque|identificação|promessa|pergunta|contra-intuitivo|urgência", "text": "texto do hook" }
+    { "type": "curiosidade|dor|choque|identificação|promessa|pergunta|contra-intuitivo|urgência|investimento|escassez", "text": "texto do hook (máx 12 palavras)" }
   ]
 }`,
 
@@ -6282,7 +6312,7 @@ Gere 6 hipóteses de teste A/B priorizadas por impacto. Responda SOMENTE em JSON
 }`,
 
     copies: `
-Você é um copywriter especialista em anúncios de alta conversão.
+Você é um copywriter especialista em anúncios de alta conversão para o mercado brasileiro.
 
 Nicho: ${niche}
 Produto: ${product}
@@ -6292,7 +6322,25 @@ Proposta de valor: ${uvp}
 Objetivo da campanha: ${objective}
 ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
-Gere copies para 3 estágios do funil. Responda SOMENTE em JSON:
+${(niche||"").toLowerCase().includes("imob") || (niche||"").toLowerCase().includes("loft") || (niche||"").toLowerCase().includes("aparta") ? `
+ESTRATÉGIA IMOBILIÁRIA — gere copies para 3 personas distintas:
+1. INVESTIDOR: foco em ROI, Airbnb, valorização, renda passiva
+2. COMPRADOR FINAL: foco em lifestyle, localização, diferencial do produto
+3. REMARKETING: urgência, escassez, prova social ("X famílias já garantiram")
+
+Regras de copy imobiliário:
+- NUNCA use "realize seu sonho", "venha morar bem" ou "qualidade de vida"
+- USE dados concretos: metragem, rendimento estimado, % valorização, número de unidades restantes
+- Mencione WhatsApp como CTA principal (mercado imobiliário converte no WhatsApp)
+- Para BOF: prova social + escassez real + facilitador de contato
+` : `
+Regras de copy:
+- Primeira linha = continuação do hook (não repita o hook, continue a história)
+- Segundo parágrafo = benefício concreto com prova
+- Terceiro parágrafo = CTA claro e sem atrito
+`}
+
+Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Responda SOMENTE em JSON:
 {
   "copies": [
     {
