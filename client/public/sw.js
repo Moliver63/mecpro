@@ -1,5 +1,5 @@
 // MecProAI Service Worker — PWA
-const CACHE_VERSION = 'mecproai-v3'; // v3: fixed Layout trpc import
+const CACHE_VERSION = 'mecproai-v4'; // v4: fix "Failed to convert value to Response" crash
 const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const API_CACHE     = `${CACHE_VERSION}-api`;
 
@@ -80,14 +80,22 @@ self.addEventListener('fetch', event => {
       return;
     }
     event.respondWith(
-      fetch(request).catch(() =>
-        // Fallback: serve a raiz que o Vite serve como index.html
-        caches.match('/') || fetch('/')
-      )
+      fetch(request).catch(async () => {
+        const cached = await caches.match('/');
+        if (cached) return cached;
+        try { return await fetch('/'); } catch { return new Response('', { status: 503 }); }
+      })
     );
     return;
   }
 
   // Tudo mais — Network First simples
-  event.respondWith(fetch(request).catch(() => caches.match(request)));
+  // Fix: caches.match pode retornar undefined → precisa de fallback Response explícita
+  event.respondWith(
+    fetch(request).catch(() =>
+      caches.match(request).then(cached =>
+        cached || new Response('', { status: 503 })
+      )
+    )
+  );
 });

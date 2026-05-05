@@ -184,8 +184,10 @@ export function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
   const tiktokFormats= [...new Set(tiktokAds.map((a: any) => a.adType||"video"))];
 
   // ── SCORES REAIS CRUZADOS ─────────────────────────────────────────────────
-  function scoreKW(text: string, kws: string[], base = 4, max = 10) {
-    const t = text.toLowerCase(); let s = base;
+  function scoreKW(text: string | any, kws: string[], base = 4, max = 10) {
+    // Guard: garante que text é string (evita "be.replace is not a function")
+    const safe = typeof text === "string" ? text : String(text ?? "");
+    const t = safe.toLowerCase(); let s = base;
     kws.forEach(k => { if(t.includes(k.toLowerCase())) s+=1; });
     return Math.min(max, s);
   }
