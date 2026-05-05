@@ -1,5 +1,6 @@
 // competitorComparison.tsx — Painel de comparação competitiva
 import { useState, useEffect } from "react";
+import { InstagramVerifier } from "@/components/competitors/competitorVerifiers";
 
 export function CompetitiveBanner({ comp, myCompany, profileLoaded, onCompare, onEditCompany }: {
   comp:           any;

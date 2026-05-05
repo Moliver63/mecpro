@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { usePlanLimit } from "@/hooks/usePlanLimit";
 import { parseAdsLibraryUrl, buildAdsLibraryUrl, extractIgHandle } from "./competitorHelpers";
+import { TikTokVerifier, GoogleVerifier, InstagramVerifier } from "@/components/competitors/competitorVerifiers";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
