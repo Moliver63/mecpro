@@ -719,9 +719,14 @@ export async function generateAdImage(
 ): Promise<string | null> {
   const provider = config?.provider || "mock";
 
-  // Retorno imediato se o provider está sem créditos — evita tentativas desnecessárias
+  // Se o provider primário está esgotado, pula direto para Pollinations
   if (isProviderExhausted(provider)) {
-    log.info("image-generation", `Provider ${provider} sem créditos — pulando geração`, { format });
+    log.info("image-generation", `Provider ${provider} sem créditos — usando Pollinations diretamente`, { format });
+    const polUrl = await tryPollinations(inferPrompt(creative, segment, objective, format), format).catch(() => null);
+    if (polUrl) {
+      log.info("image-generation", "✅ Pollinations.AI como fallback final", { format });
+      return polUrl;
+    }
     return null;
   }
 
@@ -785,8 +790,9 @@ export async function generateAdImage(
     }
 
     // Última tentativa: Pollinations.AI (gratuito, sem API key)
+    // Usa o mesmo prompt rico do inferPrompt (com nicho, copy, etc)
     const pollinationsUrl = await tryPollinations(
-      `${creative?.headline || objective} ${creative?.copy?.slice(0, 100) || ""}`,
+      inferPrompt(creative, segment, objective, format),
       format
     ).catch(() => null);
     if (pollinationsUrl) {
