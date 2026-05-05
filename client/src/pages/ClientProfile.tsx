@@ -30,18 +30,55 @@ function formatCPF(v: string) {
 }
 
 function mapCNPJToForm(data: any) {
-  const niche = data.cnae_principal?.descricao || data.cnaes?.[0]?.descricao || "";
-  const city  = data.estabelecimento?.municipio?.descricao || "";
-  const state = data.estabelecimento?.estado?.sigla || "";
-  const phone = data.estabelecimento?.ddd1 && data.estabelecimento?.telefone1
-    ? "(" + data.estabelecimento.ddd1 + ") " + data.estabelecimento.telefone1 : "";
+  // Suporte BrasilAPI (campos flat) e OpenCNPJ (campos nested)
+  const cnaeDesc = data.cnae_fiscal_descricao                         // BrasilAPI
+    || data.cnae_principal?.descricao                                 // OpenCNPJ
+    || data.cnaes?.[0]?.descricao || "";
+  const atividade = data.descricao_atividade_principal?.[0]?.text    // BrasilAPI
+    || cnaeDesc;
+  const city  = data.municipio                                        // BrasilAPI
+    || data.estabelecimento?.municipio?.descricao || "";
+  const state = data.uf                                               // BrasilAPI
+    || data.estabelecimento?.estado?.sigla || "";
+  const phone = data.ddd_telefone_1                                   // BrasilAPI
+    || (data.estabelecimento?.ddd1 ? "(" + data.estabelecimento.ddd1 + ") " + data.estabelecimento.telefone1 : "");
+  const email = data.email || "";
+
+  // Detecta nicho pelo CNAE
+  const c = cnaeDesc.toLowerCase();
+  const nicheLabel =
+    c.match(/imov|constru|incorpora/)            ? "Imóveis" :
+    c.match(/saude|medic|clinica|odont|fisio|nutri/) ? "Saúde e Bem-estar" :
+    c.match(/educa|ensino|curso|escola/)         ? "Educação" :
+    c.match(/restaur|aliment|lanche|delivery|pizz/) ? "Alimentação e Delivery" :
+    c.match(/vestuário|roupa|moda|calçado/)      ? "Moda e Varejo" :
+    c.match(/tecnol|softw|inform|dados|ti |app/) ? "Tecnologia" :
+    c.match(/beleza|estetica|cabel|cosmet/)      ? "Beleza e Estética" :
+    c.match(/advog|juridic|direito/)             ? "Jurídico" :
+    c.match(/financ|contab|credit|seguro/)       ? "Financeiro" :
+    cnaeDesc.slice(0, 60);
+
+  // Escopo pelo porte
+  const porte = (data.porte || "").toUpperCase();
+  const scope: "local"|"regional"|"national"|"global" =
+    porte.includes("MEI") || porte.includes("MICRO") ? "local" :
+    porte.includes("PEQUENA") ? "regional" : "national";
+
+  const socialLinks = JSON.stringify({
+    whatsapp: phone,
+    ...(email ? { email } : {}),
+  });
+
   return {
-    companyName:       data.razao_social || data.nome_fantasia || "",
-    niche:             niche.toLowerCase(),
-    websiteUrl:        "",
-    socialLinks:       phone ? JSON.stringify({ whatsapp: phone, city, state }) : "",
-    productService:    niche ? "Empresa atuando no segmento: " + niche : "",
-    campaignObjective: "leads",
+    companyName:    data.nome_fantasia || data.razao_social || "",
+    niche:          nicheLabel,
+    city,
+    state,
+    businessScope:  scope,
+    websiteUrl:     email || "",
+    socialLinks,
+    productService: atividade || (cnaeDesc ? "Empresa atuando no segmento: " + cnaeDesc : ""),
+    campaignObjective: "leads" as const,
   };
 }
 
@@ -126,7 +163,11 @@ export default function ClientProfile() {
     if (digits.length !== 14) { setLookupMsg("CNPJ inválido."); return; }
     setLookup("loading"); setLookupMsg("");
     try {
-      const res = await fetch("https://api.opencnpj.org/" + digits);
+      // BrasilAPI — gratuita, sem auth, funciona do Render.com
+      const res = await fetch("https://brasilapi.com.br/api/cnpj/v1/" + digits, {
+        headers: { "User-Agent": "MecProAI/1.0" },
+        signal: AbortSignal.timeout(10000),
+      });
       if (!res.ok) throw new Error();
       const data = await res.json();
       if (!data.cnpj) throw new Error();

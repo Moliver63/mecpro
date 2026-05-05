@@ -690,6 +690,78 @@ const clientProfileRouter = router({
       })();
       return db.upsertClientProfile({ ...input, websiteUrl } as any);
     }),
+  // Consulta CNPJ via BrasilAPI e retorna dados para pré-preencher o perfil
+  lookupCNPJ: protectedProcedure
+    .input(z.object({ cnpj: z.string() }))
+    .mutation(async ({ input }) => {
+      // Remove formatação
+      const cnpj = input.cnpj.replace(/\D/g, "");
+      if (cnpj.length !== 14) throw new TRPCError({ code: "BAD_REQUEST", message: "CNPJ deve ter 14 dígitos" });
+
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
+          signal: AbortSignal.timeout(10000),
+          headers: { "User-Agent": "MecProAI/1.0" },
+        });
+
+        if (!res.ok) {
+          if (res.status === 404) throw new TRPCError({ code: "NOT_FOUND", message: "CNPJ não encontrado na Receita Federal" });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao consultar CNPJ. Tente novamente." });
+        }
+
+        const d: any = await res.json();
+
+        // Mapeamento CNPJ → campos do perfil MecProAI
+        const cnaeDesc = d.cnae_fiscal_descricao || "";
+        const atividade = d.descricao_atividade_principal?.[0]?.text || cnaeDesc;
+
+        // Detecta nicho pelo CNAE
+        const nicheFromCNAE = (() => {
+          const c = cnaeDesc.toLowerCase();
+          if (c.match(/imov|constru|incorpora/)) return "Imóveis";
+          if (c.match(/saude|medic|clinica|odont|fisio|nutri/)) return "Saúde e Bem-estar";
+          if (c.match(/educa|ensino|curso|escola/)) return "Educação";
+          if (c.match(/restaur|aliment|lanche|delivery|pizz/)) return "Alimentação e Delivery";
+          if (c.match(/vestuário|roupa|moda|calçado/)) return "Moda e Varejo";
+          if (c.match(/tecnol|softw|inform|dados|ti |app/)) return "Tecnologia";
+          if (c.match(/beleza|estetica|cabel|cosmet/)) return "Beleza e Estética";
+          if (c.match(/advog|juridic|direito/)) return "Jurídico";
+          if (c.match(/financ|contab|credit|seguro/)) return "Financeiro";
+          if (c.match(/agro|rural|fazend/)) return "Agronegócio";
+          return cnaeDesc.slice(0, 50); // fallback: descrição CNAE
+        })();
+
+        // Escopo pelo porte
+        const scopeFromPorte = (() => {
+          const p = (d.porte || "").toUpperCase();
+          if (p.includes("MEI") || p.includes("MICRO")) return "local";
+          if (p.includes("PEQUENA")) return "regional";
+          if (p.includes("MEDIA") || p.includes("MÉDIA")) return "regional";
+          return "national";
+        })();
+
+        return {
+          companyName:   d.nome_fantasia || d.razao_social || "",
+          razaoSocial:   d.razao_social  || "",
+          niche:         nicheFromCNAE,
+          city:          d.municipio     || "",
+          state:         d.uf            || "",
+          cep:           d.cep           || "",
+          email:         d.email         || "",
+          phone:         d.ddd_telefone_1|| "",
+          businessScope: scopeFromPorte,
+          productService: atividade,
+          situacao:      d.descricao_situacao_cadastral || "",
+          porte:         d.porte         || "",
+          cnae:          cnaeDesc,
+          socio:         d.qsa?.[0]?.nome_socio || "",
+        };
+      } catch (e: any) {
+        if (e instanceof TRPCError) throw e;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha na consulta do CNPJ. Verifique o número e tente novamente." });
+      }
+    }),
+
   // Auto-preenche campos vazios do perfil com base em concorrentes + nicho via IA
   autoFill: protectedProcedure
     .input(z.object({ projectId: z.number() }))
