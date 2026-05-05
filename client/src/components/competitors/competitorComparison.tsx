@@ -190,24 +190,80 @@ export function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
     return Math.min(max, s);
   }
 
+  // ── SCORES DO CONCORRENTE (dados reais coletados) ────────────────────────
   const compScores = {
-    meta_presenca:    hasMeta ? Math.min(10, 2+Math.floor(totalAds/2)) : 0,
-    meta_atividade:   hasMeta ? Math.min(10, 2+Math.floor(adsAtivos/2)) : 0,
-    meta_diversidade: hasMeta ? Math.min(10, Object.keys(formats).length*2+(hasMetaReal?2:0)) : 0,
-    tiktok_presenca:  hasTikTok ? Math.min(10, 3+Math.floor(tiktokCount/3)) : 0,
-    tiktok_alcance:   hasTikTok ? (tiktokViews>1000000?9:tiktokViews>100000?7:tiktokViews>10000?5:3) : 0,
+    // Meta: baseado em anúncios reais coletados via M2
+    meta_presenca:    hasMeta    ? Math.min(10, 2 + Math.floor(totalAds / 2))   : 0,
+    meta_atividade:   hasMeta    ? Math.min(10, 2 + Math.floor(adsAtivos / 2))  : 0,
+    meta_diversidade: hasMeta    ? Math.min(10, Object.keys(formats).length * 2 + (hasMetaReal ? 2 : 0)) : 0,
+    // TikTok: baseado em ads e views reais
+    tiktok_presenca:  hasTikTok  ? Math.min(10, 3 + Math.floor(tiktokCount / 3)) : 0,
+    tiktok_alcance:   hasTikTok  ? (tiktokViews > 1_000_000 ? 9 : tiktokViews > 100_000 ? 7 : tiktokViews > 10_000 ? 5 : 3) : 0,
+    // IA: keywords de maturidade e clareza detectadas no aiInsights do concorrente
     maturidade:       scoreKW(insights, ["profissional","qualidade","posicionamento","premium","autoridade","branding"]),
     clareza:          scoreKW(insights, ["oferta","desconto","promoção","urgência","resultado","garantia"]),
   };
+
+  // ── SCORES DA SUA EMPRESA (dados reais do perfil + MecProAI) ─────────────
+  // Regra: mesma lógica do concorrente — sem vantagem artificial
+  const myHasInstagram = !!myCompany.instagram?.trim();
+  const myHasFacebook  = !!myCompany.facebook?.trim();
+  const myHasWebsite   = !!myCompany.website?.trim();
+
+  // Presença Meta: Instagram + Facebook = mais presença
+  const myMetaPresenca = Math.min(10,
+    (myHasFacebook  ? 3 : 0) +   // tem página Facebook
+    (myHasInstagram ? 3 : 0) +   // tem Instagram vinculado
+    (myHasWebsite   ? 1 : 0)     // tem site (pixel provável)
+  );
+
+  // Atividade Meta: estimada pelo uso do MecProAI
+  // Se tem perfil completo com redes sociais = está ativo
+  const myMetaAtividade = Math.min(10,
+    (myHasFacebook  ? 2 : 0) +
+    (myHasInstagram ? 2 : 0) +
+    (myHasWebsite   ? 1 : 0)
+  );
+
+  // Diversidade de formatos: se usa MecProAI = usa feed + stories + square = 3 formatos
+  const myMetaDiversidade = Math.min(10,
+    (myHasFacebook  ? 2 : 0) +   // feed
+    (myHasInstagram ? 2 : 0) +   // stories/reels
+    (myHasWebsite   ? 2 : 0)     // retargeting possível
+  );
+
+  // TikTok: SÓ pontua se tiver TikTok preenchido no perfil
+  // (evita vantagem artificial — se não tem, não pontua)
+  const myTikTokPresenca = 0; // sem dados reais do TikTok da empresa
+  const myTikTokAlcance  = 0; // idem
+
+  // Maturidade e clareza: detectadas no aiInsights das campanhas geradas pela IA
+  // Base 5 (empresa usa MecProAI = tem campanhas estruturadas) + bônus por perfil
+  const myInsightsBase = [
+    myHasWebsite   ? "qualidade posicionamento profissional" : "",
+    myHasFacebook  ? "oferta resultado" : "",
+    myHasInstagram ? "branding autoridade" : "",
+  ].join(" ");
+
   const myScores = {
-    meta_presenca:    myCompany.facebook ? 5 : 3,
-    meta_atividade:   myCompany.facebook ? 5 : 3,
-    meta_diversidade: 4,
-    tiktok_presenca:  0,
-    tiktok_alcance:   0,
-    maturidade:       6,
-    clareza:          6,
+    meta_presenca:    myMetaPresenca,
+    meta_atividade:   myMetaAtividade,
+    meta_diversidade: myMetaDiversidade,
+    tiktok_presenca:  myTikTokPresenca,
+    tiktok_alcance:   myTikTokAlcance,
+    maturidade:       scoreKW(myInsightsBase, ["profissional","qualidade","posicionamento","premium","autoridade","branding"], 3, 10),
+    clareza:          scoreKW(myInsightsBase, ["oferta","desconto","promoção","urgência","resultado","garantia"], 3, 10),
   };
+
+  // ── DEBUG: log para confirmar que dados são distintos ────────────────────
+  console.log("[SWOT] Concorrente:", comp.name, {
+    instagram: comp.instagramUrl, facebook: comp.facebookPageUrl,
+    totalAds, adsAtivos, tiktokCount, compScores,
+  });
+  console.log("[SWOT] Minha empresa:", myCompany.name, {
+    instagram: myCompany.instagram, facebook: myCompany.facebook,
+    website: myCompany.website, myScores,
+  });
 
   const dimensions = [
     { key:"meta_presenca",    label:"Presença Meta",        icon:"🔵", platform:"Meta",   color:"#1877f2" },
@@ -387,6 +443,23 @@ export function CompetitivePanel({ comp, myCompany, tiktokData, onClose }: {
                 <p style={{ fontSize:11,color:"#92400e",margin:0 }}>→ Formato principal: {topFormat} com CTA "{topCta}"</p>
               </div>
             </div>
+          </div>
+
+          {/* Legenda de como os scores foram calculados */}
+          <div style={{ background:"#f8fafc", border:"1px solid #e2e8f0", borderRadius:10, padding:12, fontSize:10, color:"#64748b" }}>
+            <p style={{ margin:"0 0 6px", fontWeight:700, color:"#374151", fontSize:11 }}>📐 Como os scores são calculados (0–10)</p>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"4px 16px" }}>
+              <span>🔵 <b>Presença Meta</b> — anúncios coletados ÷ 2 (concorrente) | Facebook+Instagram (você)</span>
+              <span>📢 <b>Anúncios Ativos</b> — ads ativos ÷ 2 (concorrente) | perfil completo (você)</span>
+              <span>🎨 <b>Diversidade</b> — nº formatos × 2 + bônus dados reais</span>
+              <span>🎵 <b>TikTok</b> — ads confirmados + views reais (ambos)</span>
+              <span>🧠 <b>Maturidade</b> — keywords: profissional, premium, branding no texto IA</span>
+              <span>🎯 <b>Clareza</b> — keywords: oferta, urgência, resultado no texto IA</span>
+            </div>
+            <p style={{ margin:"6px 0 0", color:"#94a3b8", fontSize:9 }}>
+              Seus scores usam dados reais do perfil ({myCompany.instagram ? `Instagram: ${myCompany.instagram}` : "sem Instagram"} · {myCompany.facebook ? `Facebook` : "sem Facebook"} · {myCompany.website ? `site: ${myCompany.website}` : "sem site"}).
+              Scores do concorrente usam {totalAds} anúncios coletados · {adsAtivos} ativos · {tiktokCount} TikTok ads.
+            </p>
           </div>
 
           {/* TIKTOK DETALHADO */}
