@@ -6160,6 +6160,279 @@ ON CONFLICT DO NOTHING`,
 }
 
 // ── generateCampaignPart — regenera apenas uma parte da campanha ────────────
+
+// ── Motor de Copy por Nicho — ângulos, personas e regras específicas ──────────
+function getNicheContext(niche: string, product: string): {
+  hooksGuide: string;
+  copiesGuide: string;
+  segmentGuide: string;
+} {
+  const n = (niche + " " + product).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  // IMÓVEIS
+  if (n.match(/imov|imobil|aparta|loft|studio|empreend|constru.*resid/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para imóveis (escolha os mais relevantes):
+- ROI/Airbnb: "esse loft pode se pagar sozinho com locação por temporada"
+- Escassez real: "últimas X unidades com ticket abaixo de R$ Y"
+- Contra-intuitivo: "por que investidores de BC estão comprando em Itajaí agora"
+- Valorização: "X% de valorização nos últimos 24 meses nessa região"
+NUNCA USE: "realize o sonho da casa própria" | "venha morar bem" | "qualidade de vida"
+REGRA: max 12 palavras, começa com tensão ou curiosidade, nunca com nome da empresa`,
+    copiesGuide: `3 PERSONAS OBRIGATÓRIAS:
+1. INVESTIDOR: foco em ROI, Airbnb, renda passiva, valorização — use números concretos
+2. COMPRADOR FINAL: lifestyle, localização, diferencial do produto
+3. REMARKETING: urgência + prova social ("X famílias já garantiram") + CTA WhatsApp direto
+NUNCA USE clichês de construtora. CTA de BOF = sempre WhatsApp.`,
+    segmentGuide: `4 PÚBLICOS ESPECÍFICOS:
+1. TOF Investidor: interesses "FII", "Airbnb host", "renda passiva", "independência financeira" — idade 28-55
+2. TOF Comprador: interesses "decoração", "Beach lifestyle", "segunda residência" + comportamento viagem frequente
+3. BOF Remarketing 7 dias: visitantes site + engajados vídeo + salvaram post → objective=MESSAGES→WhatsApp
+4. SCALE Lookalike 1-3%: baseado em leads qualificados após validação`
+  };
+
+  // EDUCAÇÃO / CURSOS / INFOPRODUTOS
+  if (n.match(/educa|curso|escola|ensino|infoprod|capacit|treinament|mentoria|coach/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para educação:
+- Transformação: "de X para Y em Z semanas — a história real de [persona]"
+- Mercado: "essa habilidade triplicou o salário de X pessoas em 2024"
+- Urgência: "vagas encerram em 72h — próxima turma só em 6 meses"
+- Dor: "você ainda aceita ser mal pago por não ter essa certificação?"
+- Prova social: "X alunos formados — Y% empregados em 30 dias"
+NUNCA USE: "invista no seu futuro" | "o conhecimento é o melhor investimento"`,
+    copiesGuide: `3 PERSONAS:
+1. ASPIRANTE: quer mudar de carreira — foco em possibilidade e transformação real
+2. PROFISSIONAL: quer crescer/aumentar salário — foco em ROI da educação e mercado
+3. RETARGETING: já pesquisou, precisa de nudge — use urgência + garantia + prova social
+CTA principal: "Garantir vaga" / "Começar agora" / "Teste grátis 7 dias"`,
+    segmentGuide: `4 PÚBLICOS:
+1. TOF: interesses na área do curso + cargo/profissão relacionada
+2. MOF: visitantes da página de vendas (3-7 dias) + engajados com conteúdo
+3. BOF Remarketing: abandonaram checkout (1-3 dias) → urgência máxima
+4. SCALE: Lookalike de alunos convertidos`
+  };
+
+  // SAÚDE / CLÍNICA / ESTÉTICA / BELEZA
+  if (n.match(/saude|medic|clinica|estetica|beleza|dermato|nutri|psicolog|odont|ortoped|fisio/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para saúde/estética:
+- Resultado específico: "X pacientes eliminaram [problema] sem cirurgia"
+- Dor específica: "você já tentou de tudo e [problema] continua?"
+- Credibilidade: "protocolo usado por X clínicas — agora disponível aqui"
+- Urgência sazonal: "prepare [área do corpo] para [verão/evento]"
+NUNCA USE: "cuide da sua saúde" | "você merece se sentir bem" | "qualidade de vida"`,
+    copiesGuide: `3 PERSONAS:
+1. PACIENTE COM DOR AGUDA: quer solução rápida — foco em resultado e prazo
+2. PACIENTE ESTÉTICO: vaidade/autoestima — foco em transformação visual e confiança
+3. RETARGETING: já pesquisou — use prova social (fotos reais, depoimentos) + avaliação gratuita
+CTA: "Agendar avaliação gratuita" / "WhatsApp" — nunca "Comprar"`,
+    segmentGuide: `4 PÚBLICOS:
+1. TOF: interesses em saúde/beleza + comportamentos de busca por tratamentos específicos
+2. MOF: engajados com conteúdo educativo sobre o problema
+3. BOF: visitantes (raio 5-15km da clínica) → geo-targeting obrigatório
+4. SCALE: Lookalike de pacientes + exclusão de clientes atuais`
+  };
+
+  // FITNESS / ACADEMIA / PERSONAL
+  if (n.match(/academia|fitness|treino|esporte|muscula|crossfit|personal|pilates|yoga|emagre/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para fitness:
+- Resultado específico: "X kg em Y semanas — protocolo real, sem milagre"
+- Identidade: "de sedentário total a completar minha primeira corrida de 5km"
+- Anti-clichê: "academia não resolve. descubra o que realmente funciona para [biotipo]"
+- Praticidade: "X minutos por dia — sem dieta radical, sem sofrimento"
+NUNCA USE: "transforme seu corpo" | "comece hoje" | "você consegue"`,
+    copiesGuide: `3 PERSONAS:
+1. INICIANTE: nunca treinou ou tem vergonha — foco em acolhimento + resultado possível
+2. RETORNANTE: já tentou e desistiu — foco em o que será diferente dessa vez
+3. AVANÇADO: quer resultado específico (hipertrofia/emagrecer X kg) — foco em método
+CTA: "Aula experimental grátis" / "Avaliação física gratuita"`,
+    segmentGuide: `4 PÚBLICOS:
+1. TOF: interesses saúde + comportamento sedentário + faixa 25-45 anos
+2. MOF: engajados com vídeos de treino + visitantes do site
+3. BOF: iniciaram cadastro mas não finalizaram (remarketing 2-5 dias)
+4. LOCAL: geo-targeting raio 3-8km da unidade`
+  };
+
+  // E-COMMERCE / LOJA / VAREJO / MODA
+  if (n.match(/ecomm|loja|varejo|moda|produto|roupa|acessor|joias|calcado|cosmet/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para e-commerce:
+- Escassez real: "últimas X unidades — sem previsão de reposição"
+- Prova social: "X avaliações ⭐⭐⭐⭐⭐ — veja o que estão falando"
+- Oferta temporal: "frete grátis só até meia-noite de hoje"
+- Visual: "o produto que esgotou 3 vezes esse mês — chegou de volta"
+NUNCA USE: "produtos de qualidade" | "os melhores preços" | "compre agora"`,
+    copiesGuide: `3 PERSONAS:
+1. DESCOBERTA: nunca comprou — foco em proposta única + prova social + garantia
+2. CARRINHO ABANDONADO: remarketing agressivo com desconto ou frete grátis
+3. CLIENTE RECORRENTE: upsell/cross-sell — "clientes que compraram X também adoram Y"
+CTA: "Aproveitar oferta" / "Comprar agora" / "Ver coleção completa"`,
+    segmentGuide: `4 PÚBLICOS:
+1. TOF: interesses na categoria + comportamento de compra online
+2. MOF: visitaram produto mas não compraram (1-3 dias)
+3. BOF Abandono de Carrinho: (24h) urgência máxima com oferta
+4. SCALE: Lookalike de compradores — excluir clientes dos últimos 60 dias`
+  };
+
+  // FINANCEIRO / INVESTIMENTO / FINTECH
+  if (n.match(/financ|invest|banco|credit|seguro|previdenc|consorcio|emprestim|fintech/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para finanças:
+- Medo de perder: "seu dinheiro na poupança perde para a inflação todo mês"
+- Simplicidade: "comece a investir com R$ 50 — sem precisar entender de economia"
+- Resultado concreto: "como X pessoas chegaram a R$ Y investindo R$ Z/mês"
+- Urgência regulatória: "essa janela de oportunidade fecha em [data]"
+NUNCA USE: "invista no seu futuro" | "faça seu dinheiro trabalhar" | "segurança financeira"`,
+    copiesGuide: `3 PERSONAS:
+1. DESINFORMADO: nunca investiu — foco em simplicidade + segurança + passo a passo
+2. INSATISFEITO COM BANCO: mal atendido — foco em comparação + vantagens concretas
+3. AVANÇADO: busca diversificação — foco em diferenciais técnicos + rentabilidade
+CTA: "Simular gratuitamente" / "Abrir conta em 5 min" / "Falar com consultor"`,
+    segmentGuide: `4 PÚBLICOS:
+1. TOF: interesses finanças pessoais + comportamento uso de app bancário
+2. MOF: buscou por termos financeiros específicos (retargeting pixel)
+3. BOF: acessou página de abertura de conta mas não finalizou
+4. B2B: cargo financeiro/RH para produtos corporativos`
+  };
+
+  // ALIMENTAÇÃO / RESTAURANTE / DELIVERY
+  if (n.match(/restaur|aliment|comida|food|lanche|pizza|sushi|padaria|cafe|deliver/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para alimentação:
+- Sensorial: descreva a experiência — cheiro, textura, sabor específico
+- Conveniência: "X minutos da nossa cozinha até a sua mesa"
+- Ocasião: "o jantar que vai fazer ela pedir bis"
+- Escassez por horário: "prato disponível só às sextas — reserve o seu"
+NUNCA USE: "o melhor da cidade" | "sabor incomparável" | "venha nos visitar"`,
+    copiesGuide: `3 PERSONAS:
+1. IMPULSO/FOME AGUDA: decisão rápida — copy curta, visual forte, CTA imediato
+2. PLANEJADOR: busca para evento/ocasião especial — foco em experiência e reserva
+3. FREQUENTE: fidelização — programa de pontos, vantagens exclusivas
+CTA: "Pedir agora" / "Ver cardápio" / "Reservar mesa no WhatsApp"`,
+    segmentGuide: `4 PÚBLICOS:
+1. LOCAL: geo-targeting raio 3-10km obrigatório + horários de pico (11h-13h, 18h-21h)
+2. OCASIONAL: interesses gastronomia + comportamento delivery + renda média+
+3. EVENTO: datas comemorativas — segmentação por aniversário/relacionamento
+4. RETARGETING: visitou cardápio online mas não pediu (24-48h)`
+  };
+
+  // JURÍDICO / ADVOCACIA
+  if (n.match(/advoca|juridic|direito|advogad|tributar|trabalhis|previdenciar/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para jurídico:
+- Direito desconhecido: "você sabia que tem direito a X e nunca cobrou?"
+- Urgência legal: "prazo de X anos para entrar com esse processo — verifique o seu"
+- Prova social: "X casos ganhos em [área] — veja os resultados reais"
+- Acessibilidade: "consulta gratuita — sem surpresas no honorário depois"
+NUNCA USE: "defenda seus direitos" | "justiça para todos" | "advogado de confiança"`,
+    copiesGuide: `3 PERSONAS:
+1. PESSOA FÍSICA: problema pontual e urgente — foco em solução rápida + consulta grátis
+2. EMPRESA: necessidade recorrente (trabalhista/tributário) — foco em prevenção e custo
+3. RETARGETING: pesquisou pelo problema — prova social + facilidade de contato
+CTA: "Consulta gratuita" / "WhatsApp agora" / "Analisar meu caso"`,
+    segmentGuide: `4 PÚBLICOS:
+1. PF: comportamentos de busca por termos jurídicos específicos da área
+2. B2B Empresa: cargo RH/financeiro/diretor + tamanho empresa 10-500 funcionários
+3. RETARGETING: visitou página de área específica (3-7 dias)
+4. LOOKALIKE: baseado em clientes convertidos por área do direito`
+  };
+
+  // PET / ANIMAIS
+  if (n.match(/pet|animal|cachorro|gato|veterinar|petshop|racao|banho.*tosa/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para pet:
+- Amor incondicional: "o que seu pet sente quando você sai e como resolver"
+- Saúde urgente: "X sintomas que parecem normais mas precisam de atenção veterinária"
+- Culpa/solução: "você trabalha o dia todo — ele merece isso quando você chega"
+- Produto: "por que X tutores trocaram a ração e nunca voltaram atrás"
+NUNCA USE: "seu pet merece o melhor" | "amor em cada produto"`,
+    copiesGuide: `3 PERSONAS:
+1. TUTOR NOVO: primeiro pet — foco em orientação, segurança e praticidade
+2. TUTOR EXPERIENTE: busca qualidade e saúde — foco em ingredientes, benefícios
+3. TUTOR CULPADO: ausente por trabalho — foco em compensação afetiva + comodidade
+CTA: "Agendar banho e tosa" / "Ver produtos" / "Consulta veterinária"`,
+    segmentGuide: `4 PÚBLICOS:
+1. LOCAL: donos de animais (comportamento Facebook) + geo-targeting para serviços físicos
+2. RAÇA: interesses em raças específicas para produtos segmentados
+3. PREMIUM: tutores de rações premium — renda média+ + interesses em saúde animal
+4. RETARGETING: visitou produto/serviço mas não converteu (2-5 dias)`
+  };
+
+  // TECNOLOGIA / SAAS / B2B
+  if (n.match(/tecnolog|software|saas|app|b2b|automac|sistema|plataforma|startup/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para tech/SaaS:
+- ROI direto: "X horas economizadas por semana — quanto vale o seu tempo?"
+- Dor operacional: "sua equipe ainda faz isso manualmente em 2025?"
+- Comparação: "de X planilhas para 1 dashboard — em menos de 48h"
+- Prova social B2B: "X empresas do setor Y já automatizaram esse processo"
+NUNCA USE: "solução completa" | "tecnologia de ponta" | "plataforma robusta"`,
+    copiesGuide: `3 PERSONAS:
+1. DECISOR (CEO/gestor): vê custo/ROI — foco em economia, payback e risco zero
+2. USUÁRIO FINAL (operacional): vê produtividade — foco em facilidade e tempo ganho
+3. RETARGETING pós-trial: não converteu — foco em remoção de objeções + caso de sucesso
+CTA: "Testar 14 dias grátis" / "Agendar demo" / "Ver planos e preços"`,
+    segmentGuide: `4 PÚBLICOS:
+1. B2B Decisor: cargo CEO/diretor/gerente + tamanho empresa 10-500 + setor específico
+2. B2B Usuário: cargo operacional + interesses em ferramentas de produtividade
+3. RETARGETING: trial iniciado mas não converteu (3-7 dias) → case de sucesso
+4. COMPETIDOR: usuários de ferramentas concorrentes (comportamento/interesse)`
+  };
+
+  // TURISMO / VIAGEM / HOSPEDAGEM
+  if (n.match(/turismo|viagem|hotel|pousada|travel|hospedagem|resort|pacote/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para turismo:
+- Sonho com urgência: "aquela viagem que você adiou — X% mais barata essa semana"
+- FOMO: "X pessoas já reservaram — X vagas restantes para essa data"
+- Visual/sensorial: "acorde com essa vista todo dia por X dias"
+- Ocasião: "feriado de X — o que sua família vai lembrar daqui a 10 anos"
+NUNCA USE: "realize o sonho da viagem" | "experiências inesquecíveis" | "conheça lugares incríveis"`,
+    copiesGuide: `3 PERSONAS:
+1. CASAL/LUA DE MEL: foco em romance, exclusividade e momentos únicos
+2. FAMÍLIA: foco em segurança, diversão para crianças e comodidade
+3. VIAJANTE SOLO/AVENTURA: foco em liberdade, experiência autêntica e networking
+CTA: "Reservar agora" / "Ver disponibilidade" / "Montar meu pacote"`,
+    segmentGuide: `4 PÚBLICOS:
+1. INTERESSE: viajou nos últimos 6 meses + interesses no destino específico
+2. OCASIÃO: datas comemorativas + comportamento viagem em casal/família
+3. GEO: cidades distantes do destino (viagem de longa distância)
+4. RETARGETING: visitou página de destino/pacote (1-5 dias) → urgência de datas`
+  };
+
+  // CONSTRUÇÃO / REFORMA / ARQUITETURA
+  if (n.match(/construc|reforma|arquitet|engenharia|piso|revestimento|marcenaria|decorac/)) return {
+    hooksGuide: `ÂNGULOS OBRIGATÓRIOS para construção/reforma:
+- Resultado visual: "como ficou essa cozinha depois de 15 dias de reforma"
+- Dor do processo: "quanto você perdeu por contratar a empresa errada? calcule"
+- Garantia: "X anos de garantia por escrito — o que a concorrência tem medo de assinar"
+- Investimento: "cada R$ 1 investido em reforma valoriza R$ X no imóvel"
+NUNCA USE: "qualidade e preço justo" | "atendimento personalizado" | "sua satisfação é nossa meta"`,
+    copiesGuide: `3 PERSONAS:
+1. PROPRIETÁRIO DE IMÓVEL: quer valorizar para vender/alugar — foco em ROI da reforma
+2. NOVO COMPRADOR: quer adaptar o imóvel — foco em prazo, custo e resultado final
+3. EMPRESA/CONDOMÍNIO: manutenção recorrente — foco em confiabilidade e contrato
+CTA: "Solicitar orçamento gratuito" / "Ver portfólio completo" / "WhatsApp agora"`,
+    segmentGuide: `4 PÚBLICOS:
+1. PROPRIETÁRIO: interesses decoração/reforma + comportamento novo endereço recente
+2. ALTO PADRÃO: renda presumida alta + interesses em arquitetura e design de interiores
+3. RETARGETING: visitou portfólio ou pediu orçamento mas não fechou (3-10 dias)
+4. B2B: administradores de condomínio + síndicos (cargo/grupo Facebook)`
+  };
+
+  // GENÉRICO — funciona para qualquer nicho sem personalização específica
+  return {
+    hooksGuide: `REGRAS UNIVERSAIS DE HOOK:
+- Primeiros 3 segundos decidem tudo — comece com TENSÃO ou CURIOSIDADE
+- Nunca comece com nome da empresa ou produto
+- Use números reais, percentuais, prazos específicos
+- Provoque emoção: medo de perder, curiosidade, choque, identificação
+- Máximo 12 palavras por hook
+EVITE: "conheça nossa empresa" | "somos especialistas" | "atendimento diferenciado"`,
+    copiesGuide: `3 PERSONAS UNIVERSAIS:
+1. TOF (público frio): educação + problema + solução — sem pressão de venda
+2. MOF (consideração): benefícios concretos + prova social + diferencial
+3. BOF (conversão): urgência real + garantia + CTA sem atrito
+CTA deve ser específico: diga exatamente o que acontece ao clicar`,
+    segmentGuide: `4 PÚBLICOS UNIVERSAIS:
+1. TOF Interesse: público amplo por interesse no problema/nicho
+2. MOF Engajado: interagiu com conteúdo/site
+3. BOF Retargeting: visitou página chave (1-7 dias) — urgência
+4. SCALE Lookalike 1-3%: baseado nos melhores conversores`
+  };
+}
+
 export async function generateCampaignPart(input: {
   campaignId:   number;
   projectId:    number;
@@ -6185,6 +6458,8 @@ export async function generateCampaignPart(input: {
   const pain       = clientProfile?.mainPain         || "";
   const uvp        = clientProfile?.uniqueValueProposition || "";
   const topCtas    = [...new Set(allAds.map((a: any) => a.cta).filter(Boolean))].slice(0, 3).join(", ");
+  // Motor de copy por nicho — guias específicos por segmento
+  const nicheCtx = getNicheContext(niche, product);
 
   const partPrompts: Record<string, string> = {
     creatives: `
@@ -6228,7 +6503,9 @@ Público-alvo: ${audience}
 Budget mensal: R$ ${budget}
 ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
-${(niche||"").toLowerCase().includes("imob") || (niche||"").toLowerCase().includes("loft") || (niche||"").toLowerCase().includes("aparta") ? `
+${nicheCtx.hooksGuide ? `\n\n${nicheCtx.hooksGuide}\n` : ""}
+
+${false ? `
 SEGMENTAÇÃO IMOBILIÁRIA — NUNCA use apenas "mercado imobiliário".
 Crie públicos específicos com INTENÇÃO de compra/investimento:
 
@@ -6239,6 +6516,8 @@ Conjunto 4 — LOOKALIKE 1-3% (SCALE): baseado em leads qualificados; budget de 
 
 IMPORTANTE: Conjunto 3 deve ter objective=MESSAGES e CTA direto para WhatsApp.
 ` : ""}
+
+${nicheCtx.segmentGuide}
 
 Gere 4 conjuntos com segmentações detalhadas e estratégicas. Responda SOMENTE em JSON:
 {
@@ -6339,6 +6618,8 @@ Regras de copy:
 - Segundo parágrafo = benefício concreto com prova
 - Terceiro parágrafo = CTA claro e sem atrito
 `}
+
+${nicheCtx.copiesGuide}
 
 Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Responda SOMENTE em JSON:
 {
