@@ -414,6 +414,55 @@ export default function ClientProfile() {
               value={form.mainPain ?? ""} onChange={v => set("mainPain", v)} />
             <Field label="Transformação desejada" placeholder="Como a vida do cliente muda?" textarea
               value={form.desiredTransformation ?? ""} onChange={v => set("desiredTransformation", v)} />
+
+            {/* Personas geradas automaticamente pela IA */}
+            {(() => {
+              try {
+                const raw = (form as any).personas;
+                if (!raw) return (
+                  <div style={{ marginTop: 12, padding: "10px 14px", background: "#f8fafc", borderRadius: 10, border: "1px dashed var(--border)" }}>
+                    <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                      🤖 Salve o perfil com público-alvo preenchido para a IA gerar 3 personas automaticamente.
+                    </p>
+                  </div>
+                );
+                const personas = JSON.parse(raw);
+                if (!Array.isArray(personas) || personas.length === 0) return null;
+                return (
+                  <div style={{ marginTop: 16 }}>
+                    <p style={{ fontSize: 12, fontWeight: 800, color: "var(--navy)", marginBottom: 10 }}>
+                      🎭 Personas geradas pela IA
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {personas.map((p: any, i: number) => (
+                        <div key={i} style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 10, padding: "12px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 18 }}>👤</span>
+                            <div>
+                              <p style={{ fontSize: 13, fontWeight: 800, color: "#0c4a6e", margin: 0 }}>{p.name}</p>
+                              <p style={{ fontSize: 11, color: "#0369a1", margin: 0 }}>{p.age} · {p.occupation}</p>
+                            </div>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                            {[
+                              { label: "😤 Dor", value: p.pain },
+                              { label: "✨ Desejo", value: p.desire },
+                              { label: "🛡️ Objeção", value: p.objection },
+                              { label: "⚡ Gatilho", value: p.trigger },
+                            ].map(({ label, value }) => value ? (
+                              <div key={label} style={{ background: "white", borderRadius: 8, padding: "6px 8px" }}>
+                                <p style={{ fontSize: 10, fontWeight: 700, color: "#0369a1", margin: "0 0 2px" }}>{label}</p>
+                                <p style={{ fontSize: 11, color: "#0c4a6e", margin: 0, lineHeight: 1.4 }}>{value}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              } catch { return null; }
+            })()}
           </div>
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
             <p style={{ fontSize: 14, fontWeight: 800, color: "var(--navy)", marginBottom: 18, fontFamily: "var(--font-display)" }}>🚧 Objeções & Contatos</p>
