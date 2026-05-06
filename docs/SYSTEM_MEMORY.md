@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `bd17e38` | fix Zod null campos produto |
+| Último commit | `1c80ce1` | fix 404 + ErrorBoundary CampaignBuilder |
 
 ---
 
@@ -217,6 +217,30 @@ NÃO vêm do CNPJ (usuário preenche):
 
 ---
 
+## 🐛 Bugs Resolvidos (sessão 12)
+
+#### BUG-068: CampaignBuilder 404 após timeout de geração
+- **Causa:** `/api/campaigns/latest` usava `AND "userId" = $2` mas campaigns não tem coluna userId → sempre retornava null → `pollForCampaign` nunca encontrava → redirect para `/result/undefined` → 404
+- **Fix:** JOIN via projects `INNER JOIN projects p ON p.id = c."projectId" WHERE p."userId" = $2`
+- **Commit:** 1c80ce1
+
+#### BUG-069: "Algo deu errado" ErrorBoundary no CampaignBuilder
+- **Causa:** `trpc.campaigns.matchScore.useMutation()` dentro de `try/catch` violava Rules of Hooks → React detectava ordem de hooks mudando entre renders → crash
+- **Fix:** `(trpc as any).campaigns.matchScore?.useMutation()` sem try/catch — hook sempre na mesma posição
+- **Commit:** 1c80ce1
+
+#### BUG-070: creationBlocked bloqueava por !hasMarketAnalysis
+- **Causa:** usuários sem M2 preenchido ficavam com botão bloqueado mesmo tendo perfil e plano válidos
+- **Fix:** hasMarketAnalysis vira aviso azul informativo, não bloqueia
+- **Commit:** 0e26287
+
+#### BUG-071: productName desatualizado no step 7
+- **Causa:** clientProfile não refrescava ao chegar no step 7
+- **Fix:** refetchProfile() antes de avançar para step 7
+- **Commit:** 0e26287
+
+---
+
 ## 🏛️ Arquitetura — Padrões
 
 ```tsx
@@ -258,7 +282,7 @@ client/src/pages/
 ├── ClientProfile.tsx       ← CNPJ BrasilAPI; bloco 📦 PRODUTO; AIDA/PAS select
 │                             handleSubmit: null→undefined + ALLOWED list
 ├── CampaignResult.tsx      ← shortCopies+primaryCTA; hook cards coloridos
-├── CampaignBuilder.tsx     ← Step 5+7: produto em destaque
+├── CampaignBuilder.tsx     ← Step 5+7: produto em destaque; pollForCampaign fix; Rules of Hooks fix
 ├── GoogleCampaignCreator.tsx ← Display/Video/PMax desbloqueados; imagePath
 └── TikTokCampaignCreator.tsx ← videoUrl/coverImageUrl automáticos
 
@@ -316,7 +340,7 @@ Formato: score atual (~85%) + 3 itens em ordem de impacto + o que precisa.
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: bd17e38. Michel — Balneário Camboriú/SC.
+Último commit: 1c80ce1. Michel — Balneário Camboriú/SC.
 Score atual: ~85%.
 Prioridade: Meta Token (exp 25/05) + TikTok token + testar vídeo.
 ```
