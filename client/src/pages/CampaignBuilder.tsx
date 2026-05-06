@@ -176,7 +176,7 @@ export default function CampaignBuilder() {
   const { data: campaigns, refetch } = trpc.campaigns.list.useQuery(
     { projectId }, { enabled: !!projectId }
   );
-  const { data: clientProfile } = trpc.clientProfile.get.useQuery(
+  const { data: clientProfile, refetch: refetchProfile } = trpc.clientProfile.get.useQuery(
     { projectId }, { enabled: !!projectId }
   );
   const { data: marketAnalysis } = trpc.market.get.useQuery(
@@ -205,9 +205,16 @@ export default function CampaignBuilder() {
     },
   });
 
-  const matchMutation = (trpc as any).campaigns?.matchScore?.useMutation?.({
-    onError: (e: any) => toast.error(`Erro ao calcular match: ${e.message}`),
-  }) ?? { mutateAsync: null, isLoading: false };
+  // matchScore pode não existir no router — fallback seguro
+  let matchMutation: { mutateAsync: any; isPending?: boolean } = { mutateAsync: null };
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    matchMutation = trpc.campaigns.matchScore.useMutation({
+      onError: (e: any) => toast.error(`Erro ao calcular match: ${e.message}`),
+    });
+  } catch {
+    matchMutation = { mutateAsync: null };
+  }
 
   // Verificação de plano
   const { canGenerateCampaign, canUseMeta, canUseGoogle, planName } = usePlanLimit();
@@ -221,7 +228,10 @@ export default function CampaignBuilder() {
   const googleCheck = canUseGoogle();
   const hasClientProfile = !!(clientProfile as any)?.companyName || !!(clientProfile as any)?.niche || !!(clientProfile as any)?.productService;
   const hasMarketAnalysis = !!(marketAnalysis as any)?.competitiveGaps || !!(marketAnalysis as any)?.unexploredOpportunities || !!(marketAnalysis as any)?.suggestedPositioning || !!(marketAnalysis as any)?.threats || !!(marketAnalysis as any)?.competitiveMap;
-  const creationBlocked = !campaignCheck.allowed || !hasClientProfile || !hasMarketAnalysis;
+  // hasMarketAnalysis é recomendado mas não bloqueia — apenas avisa
+  // Bloqueio real: limite de plano ou sem perfil preenchido
+  const creationBlocked = !campaignCheck.allowed || !hasClientProfile;
+  const missingMarketAnalysis = !hasMarketAnalysis; // apenas aviso, não bloqueia
 
   function isPlatformAllowed(platform: string) {
     if (platform === "meta")   return metaCheck.allowed;
@@ -1254,6 +1264,12 @@ export default function CampaignBuilder() {
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Pronto para gerar</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>Confirme os parâmetros e a IA vai criar sua estratégia completa.</p>
 
+                  {missingMarketAnalysis && campaignCheck.allowed && (
+                    <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:12, padding:"12px 16px", marginBottom:16 }}>
+                      <p style={{ fontSize:13, fontWeight:700, color:"#1d4ed8", marginBottom:4 }}>💡 Dica: adicione análise de concorrentes</p>
+                      <p style={{ fontSize:12, color:"#3b82f6" }}>O Módulo 2 enriquece os criativos com dados reais do mercado. Você pode gerar agora e adicionar depois.</p>
+                    </div>
+                  )}
                   {!campaignCheck.allowed && (
                     <div style={{ background:"#fef3c7", border:"1px solid #fcd34d", borderRadius:12, padding:"14px 16px", marginBottom:16 }}>
                       <p style={{ fontSize:13, fontWeight:700, color:"#92400e", marginBottom:4 }}>⚠️ Limite do plano {planName}</p>
@@ -1336,7 +1352,10 @@ export default function CampaignBuilder() {
                       setStep(6);
                     }}>Calcular Match →</button>
                   : step === 6
-                  ? <button className="btn btn-md btn-primary" onClick={() => matchResult ? setStep(7) : handleMatch()} disabled={matching}>
+                  ? <button className="btn btn-md btn-primary" onClick={() => {
+                      refetchProfile(); // garante dados frescos do produto no step 7
+                      matchResult ? setStep(7) : handleMatch();
+                    }} disabled={matching}>
                       {matching ? "⏳ Calculando..." : matchResult ? "Continuar →" : "Calcular Match →"}
                     </button>
                   : <button className="btn btn-md btn-green" onClick={handleGenerate} disabled={generating || !form.name.trim() || creationBlocked} style={{ minWidth: 200 }}>
