@@ -336,16 +336,24 @@ export default function CampaignResult() {
     onError: (e: any) => toast.error("Erro: " + e.message),
   }) ?? { mutate: () => {}, isLoading: false };
 
-  const regenerateMutation = (trpc as any).campaigns?.regeneratePart?.useMutation?.({
+  // Usando hook diretamente — sem optional chaining (Rules of Hooks)
+  const regenerateMutation = trpc.campaigns.regeneratePart.useMutation({
     onSuccess: (data: any) => {
-      toast.success(`◎ ${data.part === "creatives" ? "Criativos" : data.part === "adSets" ? "Públicos" : data.part === "hooks" ? "Hooks" : data.part === "abTests" ? "Testes A/B" : "Copies"} regenerados!`);
+      const label = data?.part === "creatives" ? "Criativos"
+        : data?.part === "adSets"   ? "Públicos"
+        : data?.part === "hooks"    ? "Hooks"
+        : data?.part === "abTests"  ? "Testes A/B" : "Copies";
+      toast.success(`◎ ${label} regenerados!`);
       setRegenerating(null);
       setShowRegenModal(null);
       setRegenContext("");
       refetchCampaign?.();
     },
-    onError: (e: any) => { toast.error("Erro: " + e.message); setRegenerating(null); },
-  }) ?? { mutate: () => {}, isLoading: false };
+    onError: (e: any) => {
+      toast.error("Erro ao regenerar: " + (e?.message || "tente novamente"));
+      setRegenerating(null);
+    },
+  });
 
   const { data: metaIntegration } = trpc.integrations.list.useQuery();
   const { data: clientProfile }  = (trpc as any).clientProfile?.get?.useQuery?.({ projectId }, { enabled: !!projectId }) ?? { data: null };
@@ -4394,8 +4402,9 @@ ${sc.cta}`); }}
                 Cancelar
               </button>
               <button
-                disabled={regenerateMutation.isLoading}
+                disabled={regenerateMutation.isPending}
                 onClick={() => {
+                  if (!showRegenModal) return; // guard — nunca deve ser null aqui
                   setRegenerating(showRegenModal);
                   regenerateMutation.mutate({
                     campaignId:   id,
@@ -4407,7 +4416,7 @@ ${sc.cta}`); }}
                 className="btn btn-md btn-green"
                 style={{ minWidth: 140 }}
               >
-                {regenerateMutation.isLoading ? "⏳ Gerando..." : "✨ Regenerar agora"}
+                {regenerateMutation.isPending ? "⏳ Gerando..." : "✨ Regenerar agora"}
               </button>
             </div>
           </div>

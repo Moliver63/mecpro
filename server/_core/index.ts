@@ -120,6 +120,41 @@ const app = express();
 // ── MECPro Public REST API v1 ──────────────────────────────────────────────
 app.use('/api/v1', publicApiRouter);
 
+// GET /api/campaigns/latest — verifica se campanha foi criada recentemente (polling pós-timeout)
+app.get('/api/campaigns/latest', async (req: any, res: any) => {
+  try {
+    // Auth inline — mesmo padrão do marketplaceAuthMiddleware
+    const cookieToken = req.cookies?.token;
+    const headerToken = (req.headers.authorization || "").replace("Bearer ", "").trim();
+    const token = cookieToken || headerToken;
+    if (!token) return res.json(null);
+    const { jwtVerify } = await import('jose');
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+    const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null }));
+    if (!payload?.sub) return res.json(null);
+    const userId = parseInt(String(payload.sub));
+
+    const projectId = parseInt(req.query.projectId as string);
+    const after     = parseInt(req.query.after as string) || 0;
+    if (!projectId) return res.json(null);
+    const pool = await getPool();
+    if (!pool) return res.json(null);
+    const afterDate = new Date(after);
+    // campaigns não tem userId diretamente — verifica via projects
+    const result = await pool.query(
+      `SELECT c.id, c.name, c."createdAt" FROM campaigns c
+       INNER JOIN projects p ON p.id = c."projectId"
+       WHERE c."projectId" = $1 AND p."userId" = $2 AND c."createdAt" > $3
+       ORDER BY c."createdAt" DESC LIMIT 1`,
+      [projectId, userId, afterDate]
+    );
+    res.json(result.rows[0] || null);
+  } catch { res.json(null); }
+});
+
+
+
+
 // ── REST: Campaign by ID para pré-preencher wizard de publicação ──────────────
 app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
   try {
@@ -357,38 +392,6 @@ app.get('/api/health/ai', async (req: any, res: any) => {
   }
 });
 
-
-// GET /api/campaigns/latest — verifica se campanha foi criada recentemente (polling pós-timeout)
-app.get('/api/campaigns/latest', async (req: any, res: any) => {
-  try {
-    // Auth inline — mesmo padrão do marketplaceAuthMiddleware
-    const cookieToken = req.cookies?.token;
-    const headerToken = (req.headers.authorization || "").replace("Bearer ", "").trim();
-    const token = cookieToken || headerToken;
-    if (!token) return res.json(null);
-    const { jwtVerify } = await import('jose');
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
-    const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null }));
-    if (!payload?.sub) return res.json(null);
-    const userId = parseInt(String(payload.sub));
-
-    const projectId = parseInt(req.query.projectId as string);
-    const after     = parseInt(req.query.after as string) || 0;
-    if (!projectId) return res.json(null);
-    const pool = await getPool();
-    if (!pool) return res.json(null);
-    const afterDate = new Date(after);
-    // campaigns não tem userId diretamente — verifica via projects
-    const result = await pool.query(
-      `SELECT c.id, c.name, c."createdAt" FROM campaigns c
-       INNER JOIN projects p ON p.id = c."projectId"
-       WHERE c."projectId" = $1 AND p."userId" = $2 AND c."createdAt" > $3
-       ORDER BY c."createdAt" DESC LIMIT 1`,
-      [projectId, userId, afterDate]
-    );
-    res.json(result.rows[0] || null);
-  } catch { res.json(null); }
-});
 
 
 // GET /api/competitors/status — polling pós-timeout da análise de concorrentes
