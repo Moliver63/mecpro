@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSafeMutation } from "@/hooks/useSafeMutation";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -115,18 +116,26 @@ export default function ClientProfile() {
   const projectId = Number(loc.split("/projects/")[1]?.split("/")[0] || 0);
 
   const { data: profile, refetch } = trpc.clientProfile.get.useQuery({ projectId }, { enabled: !!projectId });
-  const upsert = trpc.clientProfile.upsert.useMutation({
-    onSuccess: () => {
-      // Reset initialized so useEffect re-syncs form with fresh data após refetch
-      initialized.current = false;
-      refetch();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    },
-    onError: (e: any) => {
-      console.error("[ClientProfile] save error:", e.message);
-    },
-  });
+  // tRPC mutation raw
+  const upsertMutation = trpc.clientProfile.upsert.useMutation();
+
+  // useSafeMutation — sem redirect, com invalidação de cache e re-sync do form
+  const { execute: executeSave, loading: saving } = useSafeMutation(
+    (input: any) => upsertMutation.mutateAsync(input),
+    {
+      invalidateKeys:  [refetch],
+      successMessage:  "✓ Perfil salvo com sucesso!",
+      onSuccess: () => {
+        // Reset initialized para que useEffect re-sincronize o form com dados frescos
+        initialized.current = false;
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      },
+      onError: (e: any) => {
+        console.error("[ClientProfile] save error:", e?.message);
+      },
+    }
+  );
 
   const [saved, setSaved]         = useState(false);
   const [form, setForm]           = useState<Record<string, any>>({});
@@ -204,7 +213,7 @@ export default function ClientProfile() {
     for (const k of stringFields) {
       if (cleanForm[k] === null) cleanForm[k] = undefined;
     }
-    upsert.mutate({ projectId, ...cleanForm } as any);
+    executeSave({ projectId, ...cleanForm });
   }
 
   const isValidDoc = docType === "cnpj"
@@ -450,9 +459,9 @@ export default function ClientProfile() {
 
       <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 14 }}>
         {saved && <span style={{ fontSize: 13, color: "var(--green-d)", fontWeight: 600 }}>✓ Salvo com sucesso!</span>}
-        {upsert.isError && <span style={{ fontSize: 13, color: "#dc2626" }}>Erro ao salvar. Tente novamente.</span>}
-        <button className="btn btn-lg btn-green" onClick={handleSubmit} disabled={upsert.isPending}>
-          {upsert.isPending ? "Salvando..." : profile ? "💾 Atualizar perfil" : "💾 Salvar perfil"}
+        {upsertMutation.isError && <span style={{ fontSize: 13, color: "#dc2626" }}>Erro ao salvar. Tente novamente.</span>}
+        <button className="btn btn-lg btn-green" onClick={handleSubmit} disabled={saving || upsertMutation.isPending}>
+          {saving || upsertMutation.isPending ? "Salvando..." : profile ? "💾 Atualizar perfil" : "💾 Salvar perfil"}
         </button>
         {profile && (
           <div style={{

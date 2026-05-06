@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useSafeMutation } from "@/hooks/useSafeMutation";
 import { toast } from "sonner";
 import { useParams, useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
@@ -182,21 +183,27 @@ export default function CampaignBuilder() {
   const { data: marketAnalysis } = trpc.market.get.useQuery(
     { projectId }, { enabled: !!projectId }
   );
-  const generate = trpc.campaigns.generate.useMutation({
-    // onSuccess: redirect handled in handleGenerate after mutateAsync resolves
-    // This avoids setGenerating(false) firing on unmounted component after redirect
-    onError: (e: any) => {
-      const msg = e.message || "";
-      // Only handle NON-timeout errors here (timeout handled in handleGenerate)
-      const isTimeout = msg.includes("Failed to fetch") || msg.includes("abort")
-        || msg.includes("TIMEOUT") || msg.includes("demorou")
-        || msg.includes("transform response") || msg.includes("Unable to transform")
-        || msg.includes("network");
-      if (!isTimeout) {
-        toast.error(`Erro ao gerar campanha: ${msg}`, { duration: 6000 });
-      }
-    },
-  });
+  // tRPC mutation — só chama a API, sem lógica de UI
+  const generateMutation = trpc.campaigns.generate.useMutation();
+
+  // useSafeMutation — controla loading, redirect e unmount de forma segura
+  const { execute: executeGenerate, loading: generating } = useSafeMutation(
+    (input: any) => generateMutation.mutateAsync(input),
+    {
+      redirectTo:      (data: any) => data?.id
+        ? `/projects/${projectId}/campaign/result/${data.id}` : null,
+      invalidateKeys:  [refetch],
+      successMessage:  "◎ Campanha gerada com sucesso!",
+      onError:         (e: any) => {
+        const msg = e?.message || "";
+        const isTimeout = msg.includes("TIMEOUT") || msg.includes("demorou")
+          || msg.includes("Failed to fetch") || msg.includes("transform response");
+        if (isTimeout) {
+          toast.warning("⏱ A geração está demorando. Aguarde 10 segundos e verifique em 'Campanhas'.", { duration: 10000 });
+        }
+      },
+    }
+  );
 
   // matchScore — hook sempre chamado (Rules of Hooks)
   // Se matchScore não existir no router, o tRPC retorna um proxy que não quebra
@@ -243,7 +250,7 @@ export default function CampaignBuilder() {
   const [step, setStep] = useState(1);
   const [showBuilderAudit, setShowBuilderAudit] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const generatingRef = useRef(false); // evita duplo envio por clique rápido
+  // generatingRef substituído por useSafeMutation (isMounted + loading interno)
   const [matchResult, setMatchResult] = useState<any>(null);
   const [matching, setMatching] = useState(false);
   const [segment, setSegment]   = useState<string>("");
@@ -323,56 +330,29 @@ export default function CampaignBuilder() {
 
   async function handleGenerate() {
     if (!form.name.trim()) return;
-    if (generatingRef.current) return;
-    generatingRef.current = true;
-    setGenerating(true);
-    const startTs = Date.now();
-    let redirected = false;
-    try {
-      const data = await generate.mutateAsync({
-        projectId,
-        ...form,
-        segment,
-        extraContext: [
-          form.extraContext,
-          form.regions.length > 0 ? `Região de atuação: ${form.regions.join(', ')}` : '',
-          form.ageMin !== 18 || form.ageMax !== 65 ? `Faixa etária: ${form.ageMin}–${form.ageMax} anos` : '',
-          form.mediaFormat !== 'mixed' ? `Formato de mídia: ${form.mediaFormat}` : '',
-          form.audienceProfile !== 'geral' ? `Perfil do público: ${form.audienceProfile}` : '',
-        ].filter(Boolean).join('. '),
-      });
+    if (generating) return; // useSafeMutation já controla duplo clique
 
-      // mutateAsync resolveu com sucesso — redirecionar aqui
-      if (data?.id) {
-        toast.success("◎ Campanha gerada com sucesso!");
-        redirected = true;
-        refetch();
-        // setGenerating(false) ANTES do redirect para não executar em componente desmontado
-        setGenerating(false);
-        generatingRef.current = false;
-        setLocation(`/projects/${projectId}/campaign/result/${data.id}`);
-        return; // encerra sem executar finally
-      }
-    } catch (err: any) {
-      const msg = err?.message || "";
-      const isTimeout = msg.includes("transform response") || msg.includes("Unable to transform")
-        || msg.includes("Failed to fetch") || msg.includes("TIMEOUT") || msg.includes("demorou");
-      if (isTimeout) {
-        toast.loading("⏳ Verificando se a campanha foi criada...", { id: "poll-toast" });
-        const found = await pollForCampaign(startTs);
-        toast.dismiss("poll-toast");
-        if (found) {
-          redirected = true;
-        } else {
-          toast.warning("⚠️ Não foi possível confirmar. Verifique em 'Campanhas' — ela pode ter sido criada.", { duration: 10000 });
-        }
-      }
-      // onError da mutation trata toast de erro para erros não-timeout
-    } finally {
-      // Só executa se não houve redirect (componente ainda montado)
-      if (!redirected) {
-        setGenerating(false);
-        generatingRef.current = false;
+    const startTs = Date.now();
+    const result = await executeGenerate({
+      projectId,
+      ...form,
+      segment,
+      extraContext: [
+        form.extraContext,
+        form.regions.length > 0 ? `Região de atuação: ${form.regions.join(", ")}` : "",
+        form.ageMin !== 18 || form.ageMax !== 65 ? `Faixa etária: ${form.ageMin}–${form.ageMax} anos` : "",
+        form.mediaFormat !== "mixed" ? `Formato de mídia: ${form.mediaFormat}` : "",
+        form.audienceProfile !== "geral" ? `Perfil do público: ${form.audienceProfile}` : "",
+      ].filter(Boolean).join(". "),
+    });
+
+    // Se retornou null = erro ou timeout — tenta polling
+    if (!result) {
+      toast.loading("⏳ Verificando se a campanha foi criada...", { id: "poll-toast" });
+      const found = await pollForCampaign(startTs);
+      toast.dismiss("poll-toast");
+      if (!found) {
+        toast.warning("⚠️ Não foi possível confirmar. Verifique em 'Campanhas' — ela pode ter sido criada.", { duration: 10000 });
       }
     }
   }
@@ -1364,8 +1344,8 @@ export default function CampaignBuilder() {
                     }} disabled={matching}>
                       {matching ? "⏳ Calculando..." : matchResult ? "Continuar →" : "Calcular Match →"}
                     </button>
-                  : <button className="btn btn-md btn-green" onClick={handleGenerate} disabled={generating || !form.name.trim() || creationBlocked} style={{ minWidth: 200 }}>
-                      {generating ? "⏳ Gerando campanha..." : creationBlocked ? "⚠️ Ajuste os pré-requisitos" : "✨ Gerar com IA"}
+                  : <button className="btn btn-md btn-green" onClick={handleGenerate} disabled={generating || generateMutation.isPending || !form.name.trim() || creationBlocked} style={{ minWidth: 200 }}>
+                      {generating || generateMutation.isPending ? "⏳ Gerando campanha..." : creationBlocked ? "⚠️ Ajuste os pré-requisitos" : "✨ Gerar com IA"}
                     </button>
                 }
               </div>
