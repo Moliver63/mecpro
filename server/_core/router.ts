@@ -4435,6 +4435,22 @@ const adminRouter = router({
 
   saveSettings:   superadminProcedure.input(z.object({ key: z.string(), value: z.string() })).mutation(({ input }) => db.saveAdminSetting(input.key, input.value)),
 
+  // ── Copy Engine Toggle ────────────────────────────────────────────────────
+  getCopyEngine: adminProcedure.query(async () => {
+    const { getCopyEngine } = await import("../ai.js");
+    const setting = await db.getAdminSetting("copy_engine");
+    return { engine: (setting || "gemini") as "gemini" | "groq" | "ml_first" };
+  }),
+  setCopyEngine: superadminProcedure
+    .input(z.object({ engine: z.enum(["gemini", "groq", "ml_first"]) }))
+    .mutation(async ({ input }) => {
+      const { setCopyEngine } = await import("../ai.js");
+      setCopyEngine(input.engine);
+      await db.saveAdminSetting("copy_engine", input.engine);
+      log.info("admin", "Copy Engine atualizado", { engine: input.engine });
+      return { success: true, engine: input.engine };
+    }),
+
   // ── Payment mode settings ──────────────────────────────────────────────
   saveUIConfig: adminProcedure
     .input(z.object({ visibility: z.record(z.boolean()) }))

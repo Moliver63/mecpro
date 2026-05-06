@@ -695,6 +695,44 @@ export default function AutonomousAgentPage() {
           )}
         </div>
 
+        {/* ── Copy Engine Toggle ── */}
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: "18px 24px", marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <span style={{ fontSize: 20 }}>✍️</span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>Engine de Copy</div>
+              <div style={{ fontSize: 12, color: "#64748b" }}>Escolha qual motor gera copies, hooks e criativos na próxima campanha</div>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+            {([
+              { key: "gemini",   icon: "🟢", label: "Gemini",       sub: "Qualidade máxima",    desc: "Melhor estrutura e compliance Meta Ads", color: "#059669", bg: "#f0fdf4", brd: "#bbf7d0" },
+              { key: "groq",     icon: "🟡", label: "Groq / Llama", sub: "Direto e criativo",   desc: "Linguagem natural, sem filtros — testa se copies estão fracas", color: "#d97706", bg: "#fffbeb", brd: "#fde68a" },
+              { key: "ml_first", icon: "🔵", label: "ML-First",     sub: "Dados históricos",    desc: "Temperatura baixa, baseado em padrões de campanhas reais", color: "#1d4ed8", bg: "#eff6ff", brd: "#bfdbfe" },
+            ] as const).map(opt => {
+              const active = (copyEngineData?.engine || "gemini") === opt.key;
+              return (
+                <button key={opt.key}
+                  onClick={() => (setCopyEngineMutation as any).mutate({ engine: opt.key })}
+                  disabled={(setCopyEngineMutation as any).isPending}
+                  style={{ border: `2px solid ${active ? opt.brd : "#e2e8f0"}`, borderRadius: 12, padding: "14px 12px",
+                    cursor: "pointer", background: active ? opt.bg : "white", textAlign: "left", transition: "all .2s",
+                    boxShadow: active ? `0 2px 12px ${opt.color}22` : "none" }}>
+                  <div style={{ fontSize: 18, marginBottom: 4 }}>{opt.icon}</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: active ? opt.color : "#374151" }}>{opt.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: active ? opt.color : "#9ca3af", marginBottom: 6 }}>{opt.sub}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280", lineHeight: 1.4 }}>{opt.desc}</div>
+                  {active && <div style={{ marginTop: 8, fontSize: 10, fontWeight: 800, color: opt.color, background: opt.bg, borderRadius: 6, padding: "2px 8px", display: "inline-block" }}>✓ ATIVO</div>}
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>
+            💡 Teste <strong>Groq</strong> se copies estiverem genéricas. Use <strong>ML-First</strong> para copies mais conservadoras.
+          </p>
+        </div>
+
         <QuotaMonitor quota={quotaData?.quota} cache={quotaData?.cache} onRefresh={() => refetchQuota?.()} />
 
         {/* ── Configuração e disparo ── */}

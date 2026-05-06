@@ -906,6 +906,34 @@ export async function loadLLMModeFromDB() {
   }
 }
 
+// ── Toggle de Engine de Copy — controlado pelo painel Admin ─────────────────
+// "gemini"  = Gemini 2.5 Flash (qualidade máxima, default)
+// "groq"    = Groq/Llama 3.3 70B puro (mais criativo/direto, sem filtros Gemini)
+// "ml_first"= ML learning_base domina o prompt (mais baseado em dados históricos)
+let _copyEngine: "gemini" | "groq" | "ml_first" = "gemini";
+
+export function getCopyEngine() { return _copyEngine; }
+export function setCopyEngine(mode: "gemini" | "groq" | "ml_first") {
+  _copyEngine = mode;
+  const labels = { gemini: "🟢 Gemini (qualidade máxima)", groq: "🟡 Groq/Llama (direto e criativo)", ml_first: "🔵 ML-First (dados históricos)" };
+  log.info("ai", `✍️ Copy Engine: ${labels[mode]}`);
+}
+
+// Carrega copy_engine do banco na inicialização
+export async function loadCopyEngineFromDB() {
+  try {
+    const { getAdminSettings } = await import("./_core/../db.js");
+    const settings = await getAdminSettings();
+    const saved = settings["copy_engine"];
+    if (saved === "groq" || saved === "ml_first") {
+      _copyEngine = saved;
+      log.info("ai", `Copy Engine carregado do banco: ${saved}`);
+    }
+  } catch {
+    log.info("ai", "Copy Engine: usando padrão (gemini)");
+  }
+}
+
 // ── MECPro AI Service (Python/Groq) — motor externo gratuito ──
 const MECPRO_AI_URL = process.env.MECPRO_AI_URL?.replace(/\/$/, "");
 
@@ -6853,7 +6881,28 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
     log.info("ai", "generateCampaignPart: ecoMode — usando buildCampaignFromAds");
     return null; // caller vai usar motor híbrido
   }
-  const raw    = await gemini(prompt, { temperature: 0.7, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId } });
+  // ── Engine de copy selecionado pelo painel Admin ─────────────────────────
+  const copyEngine = getCopyEngine();
+  let raw: string;
+
+  if (copyEngine === "groq") {
+    log.info("ai", "✍️ Copy Engine: Groq/Llama 3.3 70B (admin)", { part: input.part });
+    const groqRaw = await callGroqAPI(prompt, SYSTEM_MECPRO, 0.85).catch(() => null);
+    if (groqRaw) {
+      raw = groqRaw;
+    } else {
+      log.warn("ai", "Groq copy engine falhou — fallback Gemini");
+      raw = await gemini(prompt, { temperature: 0.8, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId } });
+    }
+  } else if (copyEngine === "ml_first") {
+    log.info("ai", "✍️ Copy Engine: ML-First (admin)", { part: input.part });
+    // ML-First: temperatura mais baixa, injeta histórico de winners no system
+    raw = await gemini(prompt, { temperature: 0.5, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId } });
+  } else {
+    // Gemini padrão
+    raw = await gemini(prompt, { temperature: 0.7, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId } });
+  }
+
   const clean  = raw.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
 

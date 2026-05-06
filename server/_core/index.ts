@@ -109,7 +109,7 @@ import log from './logger.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations } from './migrations.js';
-import { loadLLMModeFromDB } from '../ai.js';
+import { loadLLMModeFromDB, loadCopyEngineFromDB } from '../ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1609,7 +1609,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 async function main() {
   try {
     await runMigrations();
-  await loadLLMModeFromDB(); // Carrega modo LLM (Gemini/Groq) salvo pelo admin
+  await loadLLMModeFromDB();      // Carrega modo LLM (Gemini/Groq) salvo pelo admin
+  await loadCopyEngineFromDB();   // Carrega copy engine (gemini/groq/ml_first) salvo pelo admin
     log.info('migrations', '✅ Migrations applied successfully');
   } catch (err: any) {
     log.warn('migrations', `⚠️  Migration warning (server still starting): ${err.message}`);
