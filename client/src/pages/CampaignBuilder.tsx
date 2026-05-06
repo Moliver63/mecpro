@@ -183,23 +183,16 @@ export default function CampaignBuilder() {
     { projectId }, { enabled: !!projectId }
   );
   const generate = trpc.campaigns.generate.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("◎ Campanha gerada com sucesso!");
-      refetch();
-      setLocation(`/projects/${projectId}/campaign/result/${data.id}`);
-    },
+    // onSuccess: redirect handled in handleGenerate after mutateAsync resolves
+    // This avoids setGenerating(false) firing on unmounted component after redirect
     onError: (e: any) => {
       const msg = e.message || "";
-      const isTimeout = msg.includes("Failed to fetch")
-        || msg.includes("abort")
-        || msg.includes("TIMEOUT")
-        || msg.includes("demorou")
-        || msg.includes("transform response")  // Render cortou a conexão
-        || msg.includes("Unable to transform")  // tRPC não conseguiu parsear
+      // Only handle NON-timeout errors here (timeout handled in handleGenerate)
+      const isTimeout = msg.includes("Failed to fetch") || msg.includes("abort")
+        || msg.includes("TIMEOUT") || msg.includes("demorou")
+        || msg.includes("transform response") || msg.includes("Unable to transform")
         || msg.includes("network");
-      if (isTimeout) {
-        toast.warning("⏱ A geração está demorando. Aguarde 10 segundos e clique em 'Campanhas' para verificar se foi criada.", { duration: 10000 });
-      } else {
+      if (!isTimeout) {
         toast.error(`Erro ao gerar campanha: ${msg}`, { duration: 6000 });
       }
     },
@@ -334,8 +327,9 @@ export default function CampaignBuilder() {
     generatingRef.current = true;
     setGenerating(true);
     const startTs = Date.now();
+    let redirected = false;
     try {
-      await generate.mutateAsync({
+      const data = await generate.mutateAsync({
         projectId,
         ...form,
         segment,
@@ -347,23 +341,39 @@ export default function CampaignBuilder() {
           form.audienceProfile !== 'geral' ? `Perfil do público: ${form.audienceProfile}` : '',
         ].filter(Boolean).join('. '),
       });
+
+      // mutateAsync resolveu com sucesso — redirecionar aqui
+      if (data?.id) {
+        toast.success("◎ Campanha gerada com sucesso!");
+        redirected = true;
+        refetch();
+        // setGenerating(false) ANTES do redirect para não executar em componente desmontado
+        setGenerating(false);
+        generatingRef.current = false;
+        setLocation(`/projects/${projectId}/campaign/result/${data.id}`);
+        return; // encerra sem executar finally
+      }
     } catch (err: any) {
       const msg = err?.message || "";
       const isTimeout = msg.includes("transform response") || msg.includes("Unable to transform")
         || msg.includes("Failed to fetch") || msg.includes("TIMEOUT") || msg.includes("demorou");
       if (isTimeout) {
-        // Pode ter gerado mas a conexão caiu — verifica em background
         toast.loading("⏳ Verificando se a campanha foi criada...", { id: "poll-toast" });
         const found = await pollForCampaign(startTs);
         toast.dismiss("poll-toast");
-        if (!found) {
+        if (found) {
+          redirected = true;
+        } else {
           toast.warning("⚠️ Não foi possível confirmar. Verifique em 'Campanhas' — ela pode ter sido criada.", { duration: 10000 });
         }
       }
-      // onError do mutation já vai tratar o toast de erro
+      // onError da mutation trata toast de erro para erros não-timeout
     } finally {
-      setGenerating(false);
-      generatingRef.current = false;
+      // Só executa se não houve redirect (componente ainda montado)
+      if (!redirected) {
+        setGenerating(false);
+        generatingRef.current = false;
+      }
     }
   }
 

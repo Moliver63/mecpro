@@ -116,7 +116,16 @@ export default function ClientProfile() {
 
   const { data: profile, refetch } = trpc.clientProfile.get.useQuery({ projectId }, { enabled: !!projectId });
   const upsert = trpc.clientProfile.upsert.useMutation({
-    onSuccess: () => { refetch(); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    onSuccess: () => {
+      // Reset initialized so useEffect re-syncs form with fresh data após refetch
+      initialized.current = false;
+      refetch();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    },
+    onError: (e: any) => {
+      console.error("[ClientProfile] save error:", e.message);
+    },
   });
 
   const [saved, setSaved]         = useState(false);
@@ -142,13 +151,12 @@ export default function ClientProfile() {
     if (profile && !initialized.current) {
       initialized.current = true;
       setForm({ ...profile });
-      // Sincroniza waPhone a partir do socialLinks do perfil
       try {
         const social = JSON.parse((profile as any).socialLinks || "{}");
         if (social.whatsapp) setWaPhone(social.whatsapp);
       } catch {}
     }
-  }, [profile]);
+  }, [profile]); // re-runs when profile changes (e.g. after refetch post-save)
 
   function set(k: string, v: any) {
     setForm(prev => ({ ...prev, [k]: v }));
