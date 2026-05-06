@@ -32,31 +32,29 @@ function formatCPF(v: string) {
 
 function mapCNPJToForm(data: any) {
   // Suporte BrasilAPI (campos flat) e OpenCNPJ (campos nested)
-  const cnaeDesc = data.cnae_fiscal_descricao                         // BrasilAPI
-    || data.cnae_principal?.descricao                                 // OpenCNPJ
+  const cnaeDesc = data.cnae_fiscal_descricao
+    || data.cnae_principal?.descricao
     || data.cnaes?.[0]?.descricao || "";
-  const atividade = data.descricao_atividade_principal?.[0]?.text    // BrasilAPI
-    || cnaeDesc;
-  const city  = data.municipio                                        // BrasilAPI
-    || data.estabelecimento?.municipio?.descricao || "";
-  const state = data.uf                                               // BrasilAPI
-    || data.estabelecimento?.estado?.sigla || "";
-  const phone = data.ddd_telefone_1                                   // BrasilAPI
+  const atividade = data.descricao_atividade_principal?.[0]?.text || cnaeDesc;
+  const city  = data.municipio  || data.estabelecimento?.municipio?.descricao || "";
+  const state = data.uf         || data.estabelecimento?.estado?.sigla        || "";
+  const phone1 = data.ddd_telefone_1
     || (data.estabelecimento?.ddd1 ? "(" + data.estabelecimento.ddd1 + ") " + data.estabelecimento.telefone1 : "");
-  const email = data.email || "";
+  const phone2 = data.ddd_telefone_2 || "";
+  const email  = data.email || "";
 
   // Detecta nicho pelo CNAE
   const c = cnaeDesc.toLowerCase();
   const nicheLabel =
-    c.match(/imov|constru|incorpora/)            ? "Imóveis" :
+    c.match(/imov|constru|incorpora/)               ? "Imóveis" :
     c.match(/saude|medic|clinica|odont|fisio|nutri/) ? "Saúde e Bem-estar" :
-    c.match(/educa|ensino|curso|escola/)         ? "Educação" :
-    c.match(/restaur|aliment|lanche|delivery|pizz/) ? "Alimentação e Delivery" :
-    c.match(/vestuário|roupa|moda|calçado/)      ? "Moda e Varejo" :
-    c.match(/tecnol|softw|inform|dados|ti |app/) ? "Tecnologia" :
-    c.match(/beleza|estetica|cabel|cosmet/)      ? "Beleza e Estética" :
-    c.match(/advog|juridic|direito/)             ? "Jurídico" :
-    c.match(/financ|contab|credit|seguro/)       ? "Financeiro" :
+    c.match(/educa|ensino|curso|escola/)             ? "Educação" :
+    c.match(/restaur|aliment|lanche|delivery|pizz/)  ? "Alimentação e Delivery" :
+    c.match(/vestuário|roupa|moda|calçado/)          ? "Moda e Varejo" :
+    c.match(/tecnol|softw|inform|dados|ti |app/)     ? "Tecnologia" :
+    c.match(/beleza|estetica|cabel|cosmet/)          ? "Beleza e Estética" :
+    c.match(/advog|juridic|direito/)                 ? "Jurídico" :
+    c.match(/financ|contab|credit|seguro/)           ? "Financeiro" :
     cnaeDesc.slice(0, 60);
 
   // Escopo pelo porte
@@ -65,21 +63,72 @@ function mapCNPJToForm(data: any) {
     porte.includes("MEI") || porte.includes("MICRO") ? "local" :
     porte.includes("PEQUENA") ? "regional" : "national";
 
-  const socialLinks = JSON.stringify({
-    whatsapp: phone,
-    ...(email ? { email } : {}),
-  });
+  // Tom de copy pela natureza jurídica
+  const natureza = (data.descricao_natureza_juridica || data.natureza_juridica || "").toLowerCase();
+  const copyTone = natureza.includes("mei") || natureza.includes("individual") ? "próximo e humano"
+    : natureza.includes("anônima") || natureza.includes("s/a") ? "corporativo e institucional"
+    : "profissional e direto";
+
+  // Anos de mercado (para prova social automática)
+  const anosDeAtividade = (() => {
+    if (!data.data_inicio_atividade) return 0;
+    const inicio = new Date(data.data_inicio_atividade);
+    return Math.floor((Date.now() - inicio.getTime()) / (1000 * 60 * 60 * 24 * 365));
+  })();
+
+  // Nome do sócio principal
+  const socioNome = data.qsa?.[0]?.nome_socio || data.qsa?.[0]?.nome_representante || "";
+
+  // Atividades secundárias (até 2)
+  const cnaesSecundarios = (data.cnaes_secundarios || [])
+    .slice(0, 2)
+    .map((cn: any) => cn.descricao || "")
+    .filter(Boolean)
+    .join("; ");
+
+  // Endereço completo
+  const bairro = data.bairro || "";
+  const logradouro = data.logradouro ? `${data.logradouro}, ${data.numero || "s/n"}` : "";
+  const cep = data.cep || "";
+
+  // Monta socialLinks com todos os contatos disponíveis
+  const socialLinksObj: Record<string, string> = {};
+  if (phone1) socialLinksObj.whatsapp = phone1;
+  if (phone2) socialLinksObj.telefone2 = phone2;
+  if (email)  socialLinksObj.email = email;
+  if (bairro) socialLinksObj.bairro = bairro;
+  if (cep)    socialLinksObj.cep = cep;
+
+  // Monta targetAudience inicial com base no CNAE + natureza
+  const targetAudienceHint = nicheLabel !== cnaeDesc.slice(0, 60)
+    ? `Clientes de ${nicheLabel.toLowerCase()} — perfil a complementar`
+    : "";
+
+  // Monta provas sociais com dados reais da Receita
+  const proofParts: string[] = [];
+  if (anosDeAtividade >= 1) proofParts.push(`${anosDeAtividade} anos de mercado`);
+  if (socioNome) proofParts.push(`Fundada por ${socioNome}`);
+
+  // productName = nome fantasia se diferente da razão social
+  const nomeFantasia = data.nome_fantasia?.trim();
+  const razaoSocial  = data.razao_social?.trim();
+  const productNameHint = nomeFantasia && nomeFantasia !== razaoSocial ? nomeFantasia : "";
 
   return {
-    companyName:    data.nome_fantasia || data.razao_social || "",
+    companyName:    nomeFantasia || razaoSocial || "",
     niche:          nicheLabel,
     city,
     state,
     businessScope:  scope,
     websiteUrl:     email || "",
-    socialLinks,
-    productService: atividade || (cnaeDesc ? "Empresa atuando no segmento: " + cnaeDesc : ""),
+    socialLinks:    JSON.stringify(socialLinksObj),
+    productService: atividade || (cnaeDesc ? "Empresa atuando em: " + cnaeDesc : ""),
     campaignObjective: "leads" as const,
+    // Novos campos populados
+    ...(productNameHint ? { productName: productNameHint } : {}),
+    ...(proofParts.length ? { productProofPoints: proofParts.join(" · ") } : {}),
+    ...(cnaesSecundarios ? { productDifferentials: "Atuação também em: " + cnaesSecundarios } : {}),
+    ...(copyTone !== "profissional e direto" ? { copyStructure: "mixed" } : {}),
   };
 }
 
@@ -143,6 +192,7 @@ export default function ClientProfile() {
   const [docType, setDocType]     = useState<"cnpj" | "cpf">("cnpj");
   const [lookupState, setLookup]  = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [lookupMsg, setLookupMsg] = useState("");
+  const [cnpjResult, setCnpjResult] = useState<any>(null);
   const [waPhone,   setWaPhone]   = useState("");
   const initialized               = useRef(false);
 
@@ -272,6 +322,33 @@ export default function ClientProfile() {
             color:      lookupState === "ok" ? "var(--green-dk)" : lookupState === "error" ? "#dc2626" : "#713f12",
             border:     "1px solid " + (lookupState === "ok" ? "var(--green-xl)" : lookupState === "error" ? "#fecaca" : "#fde047") }}>
             {lookupMsg}
+          </div>
+        )}
+        {/* Prévia dos campos preenchidos automaticamente */}
+        {lookupState === "ok" && cnpjResult && (
+          <div style={{ marginTop: 12, background: "white", border: "1px solid var(--green-xl)", borderRadius: 12, padding: "12px 14px" }}>
+            <p style={{ fontSize: 11, fontWeight: 800, color: "var(--green-dk)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              ✅ Campos preenchidos automaticamente:
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+              {[
+                { label: "🏢 Empresa",     value: cnpjResult.companyName },
+                { label: "🎯 Nicho",       value: cnpjResult.niche },
+                { label: "📍 Cidade/UF",   value: cnpjResult.city && cnpjResult.state ? `${cnpjResult.city}/${cnpjResult.state}` : "" },
+                { label: "📦 Produto",     value: cnpjResult.productName },
+                { label: "⭐ Prova social",value: cnpjResult.proofPoints },
+                { label: "📞 Telefone",    value: cnpjResult.phone },
+                { label: "📅 Mercado",     value: cnpjResult.yearsActive ? `${cnpjResult.yearsActive} anos` : "" },
+                { label: "👤 Sócio",       value: cnpjResult.socioName },
+                { label: "📊 Porte",       value: cnpjResult.porte },
+                { label: "🗺️ Bairro",      value: cnpjResult.bairro },
+              ].filter(({ value }) => value).map(({ label, value }) => (
+                <div key={label} style={{ background: "var(--green-l)", borderRadius: 8, padding: "6px 10px" }}>
+                  <p style={{ fontSize: 10, color: "var(--green-dk)", fontWeight: 700, margin: "0 0 1px" }}>{label}</p>
+                  <p style={{ fontSize: 11, color: "var(--black)", margin: 0 }}>{String(value).slice(0, 35)}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
