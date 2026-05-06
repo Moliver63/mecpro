@@ -709,7 +709,7 @@ export default function AutonomousAgentPage() {
             {([
               { key: "gemini",   icon: "🟢", label: "Gemini",       sub: "Qualidade máxima",    desc: "Melhor estrutura e compliance Meta Ads", color: "#059669", bg: "#f0fdf4", brd: "#bbf7d0" },
               { key: "groq",     icon: "🟡", label: "Groq / Llama", sub: "Direto e criativo",   desc: "Linguagem natural, sem filtros — testa se copies estão fracas", color: "#d97706", bg: "#fffbeb", brd: "#fde68a" },
-              { key: "ml_first", icon: "🔵", label: "ML-First",     sub: "Dados históricos",    desc: "Temperatura baixa, baseado em padrões de campanhas reais", color: "#1d4ed8", bg: "#eff6ff", brd: "#bfdbfe" },
+              { key: "ml_first", icon: "🔵", label: "ML-First",     sub: "Aprende com todos",   desc: "Combina winners do Gemini + Groq — evolui com cada campanha gerada", color: "#1d4ed8", bg: "#eff6ff", brd: "#bfdbfe" },
             ] as const).map(opt => {
               const active = (copyEngineData?.engine || "gemini") === opt.key;
               return (
@@ -729,7 +729,7 @@ export default function AutonomousAgentPage() {
             })}
           </div>
           <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>
-            💡 Teste <strong>Groq</strong> se copies estiverem genéricas. Use <strong>ML-First</strong> para copies mais conservadoras.
+            💡 <strong>Groq</strong> = mais direto e humano. <strong>ML-First</strong> = combina o que funcionou em Gemini + Groq — fica melhor com o tempo.
           </p>
         </div>
 
