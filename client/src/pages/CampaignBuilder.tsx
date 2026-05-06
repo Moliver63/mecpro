@@ -205,16 +205,12 @@ export default function CampaignBuilder() {
     },
   });
 
-  // matchScore pode não existir no router — fallback seguro
-  let matchMutation: { mutateAsync: any; isPending?: boolean } = { mutateAsync: null };
-  try {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    matchMutation = trpc.campaigns.matchScore.useMutation({
-      onError: (e: any) => toast.error(`Erro ao calcular match: ${e.message}`),
-    });
-  } catch {
-    matchMutation = { mutateAsync: null };
-  }
+  // matchScore — hook sempre chamado (Rules of Hooks)
+  // Se matchScore não existir no router, o tRPC retorna um proxy que não quebra
+  const matchMutationRaw = (trpc as any).campaigns.matchScore?.useMutation({
+    onError: (e: any) => toast.error(`Erro ao calcular match: ${e.message}`),
+  });
+  const matchMutation = matchMutationRaw ?? { mutateAsync: null, isPending: false };
 
   // Verificação de plano
   const { canGenerateCampaign, canUseMeta, canUseGoogle, planName } = usePlanLimit();

@@ -378,10 +378,12 @@ app.get('/api/campaigns/latest', async (req: any, res: any) => {
     const pool = await getPool();
     if (!pool) return res.json(null);
     const afterDate = new Date(after);
+    // campaigns não tem userId diretamente — verifica via projects
     const result = await pool.query(
-      `SELECT id, name, "createdAt" FROM campaigns
-       WHERE "projectId" = $1 AND "userId" = $2 AND "createdAt" > $3
-       ORDER BY "createdAt" DESC LIMIT 1`,
+      `SELECT c.id, c.name, c."createdAt" FROM campaigns c
+       INNER JOIN projects p ON p.id = c."projectId"
+       WHERE c."projectId" = $1 AND p."userId" = $2 AND c."createdAt" > $3
+       ORDER BY c."createdAt" DESC LIMIT 1`,
       [projectId, userId, afterDate]
     );
     res.json(result.rows[0] || null);
