@@ -2442,11 +2442,14 @@ const campaignsRouter = router({
         leadForm:     input.leadForm,
       } as any);
 
+      // Timeout aumentado para 55s:
+      // Gemini pode demorar 20-25s + Groq fallback 5-10s + imagens Pollinations 15-25s
+      // Render suporta requests longos em worker processes
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new TRPCError({
           code: "TIMEOUT",
-          message: "A geração demorou mais que o esperado. Aguarde 10 segundos e verifique a lista de campanhas — ela pode ter sido criada com sucesso.",
-        })), 25000)  // 25s: dentro do limite de 30s do Render
+          message: "A geração demorou mais que o esperado. Aguarde 15 segundos e verifique a lista de campanhas — ela pode ter sido criada com sucesso.",
+        })), 55000)  // 55s: cobre Gemini timeout (25s) + Groq fallback (10s) + imagens (20s)
       );
 
       return Promise.race([campaignPromise, timeoutPromise]);

@@ -306,9 +306,12 @@ export default function CampaignBuilder() {
   }
 
   // Polling: verifica se campanha foi criada após timeout
-  async function pollForCampaign(afterTs: number, retries = 6): Promise<boolean> {
+  async function pollForCampaign(afterTs: number, retries = 12): Promise<boolean> {
+    // 12 tentativas × 5s = 60s de polling
+    // Cobre: Gemini timeout (25s) + Groq fallback (10s) + imagens (20s) + margem
     for (let i = 0; i < retries; i++) {
-      await new Promise(r => setTimeout(r, 3000)); // espera 3s entre checks
+      const waitMs = i < 4 ? 3000 : 5000; // primeiras 4 rápidas (3s), depois 5s
+      await new Promise(r => setTimeout(r, waitMs));
       try {
         const res = await fetch(`/api/campaigns/latest?projectId=${projectId}&after=${afterTs}`, {
           credentials: "include",
@@ -345,13 +348,20 @@ export default function CampaignBuilder() {
       ].filter(Boolean).join(". "),
     });
 
-    // Se retornou null = erro ou timeout — tenta polling
+    // Se retornou null = timeout/erro — campanha pode estar sendo criada via Groq
     if (!result) {
-      toast.loading("⏳ Verificando se a campanha foi criada...", { id: "poll-toast" });
+      // Mostra progresso — Groq fallback pode levar até 60s
+      toast.loading("⏳ IA ainda processando... verificando automaticamente", { id: "poll-toast" });
       const found = await pollForCampaign(startTs);
       toast.dismiss("poll-toast");
-      if (!found) {
-        toast.warning("⚠️ Não foi possível confirmar. Verifique em 'Campanhas' — ela pode ter sido criada.", { duration: 10000 });
+      if (found) {
+        // redirect já foi feito dentro do pollForCampaign
+      } else {
+        toast.warning(
+          "⚠️ Não encontramos sua campanha. Clique em 'Campanhas geradas' ao lado — ela pode ter sido criada.",
+          { duration: 12000 }
+        );
+        refetch(); // atualiza a sidebar de campanhas
       }
     }
   }
