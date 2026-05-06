@@ -593,7 +593,7 @@ export default function CampaignBuilder() {
                         style={{
                           width: "100%", height: 6, appearance: "none", WebkitAppearance: "none",
                           background: `linear-gradient(to right, var(--green) 0%, var(--green) ${((form.budget - 300) / (15000 - 300)) * 100}%, #e2e8f0 ${((form.budget - 300) / (15000 - 300)) * 100}%, #e2e8f0 100%)`,
-                          borderRadius: 99, outline: "none", cursor: "pointer",
+                          borderRadius: 99, outline: "none", cursor: "pointer", touchAction: "none",
                         }}
                       />
                       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>

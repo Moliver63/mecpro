@@ -1114,6 +1114,12 @@ export default function CampaignResult() {
   const hooks        = extra?.hooks        || null;
   const shortCopies  = extra?.shortCopies  || null;
   const primaryCTA   = extra?.primaryCTA   || null;
+  const angles       = extra?.angles       || null;
+  const headlines    = extra?.headlines    || null;
+  const consciousness= extra?.audienceConsciousness || null;
+  const emotionalDesire = extra?.emotionalDesire    || null;
+  const mainObjection   = extra?.mainObjection      || null;
+  const uniqueMechanism = extra?.uniqueMechanism     || null;
   const abTests      = extra?.abTests      || null;
   const tracking     = extra?.tracking     || null;
   const optimization = extra?.optimization || null;
