@@ -3026,6 +3026,89 @@ export default function CampaignResult() {
         </div>
       )}
 
+      {/* ── Inteligência de Mercado ── */}
+      {(consciousness || emotionalDesire || mainObjection || uniqueMechanism) && (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginTop: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🧠</div>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Inteligência de Mercado</p>
+              <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>Diagnóstico do público antes de qualquer copy</p>
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {consciousness && (
+              <div style={{ background: "#fef9c3", borderRadius: 10, padding: 12, border: "1px solid #fde68a" }}>
+                <p style={{ fontSize: 10, fontWeight: 800, color: "#854d0e", margin: "0 0 4px", textTransform: "uppercase" }}>🎯 Nível de Consciência</p>
+                <p style={{ fontSize: 12, color: "#78350f", margin: 0, fontWeight: 600 }}>{String(consciousness).replace(/_/g, " ")}</p>
+              </div>
+            )}
+            {emotionalDesire && (
+              <div style={{ background: "#fdf4ff", borderRadius: 10, padding: 12, border: "1px solid #e9d5ff" }}>
+                <p style={{ fontSize: 10, fontWeight: 800, color: "#6b21a8", margin: "0 0 4px", textTransform: "uppercase" }}>❤️ Desejo Emocional</p>
+                <p style={{ fontSize: 12, color: "#581c87", margin: 0 }}>{emotionalDesire}</p>
+              </div>
+            )}
+            {mainObjection && (
+              <div style={{ background: "#fff1f2", borderRadius: 10, padding: 12, border: "1px solid #fecaca" }}>
+                <p style={{ fontSize: 10, fontWeight: 800, color: "#9f1239", margin: "0 0 4px", textTransform: "uppercase" }}>🛡️ Objeção Principal</p>
+                <p style={{ fontSize: 12, color: "#881337", margin: 0 }}>{mainObjection}</p>
+              </div>
+            )}
+            {uniqueMechanism && (
+              <div style={{ background: "#f0fdf4", borderRadius: 10, padding: 12, border: "1px solid #bbf7d0" }}>
+                <p style={{ fontSize: 10, fontWeight: 800, color: "#166534", margin: "0 0 4px", textTransform: "uppercase" }}>⚡ Mecanismo Único</p>
+                <p style={{ fontSize: 12, color: "#14532d", margin: 0 }}>{uniqueMechanism}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Ângulos de Campanha ── */}
+      {angles && Array.isArray(angles) && angles.length > 0 && (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginTop: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: "#eff6ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🎯</div>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Ângulos de Campanha</p>
+              <p style={{ fontSize: 11, color: "var(--muted)", margin: 0 }}>3 estratégias — teste uma de cada vez</p>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {angles.map((angle: any, i: number) => (
+              <div key={i} style={{ border: "1px solid #bfdbfe", borderRadius: 12, padding: "12px 16px", background: "#eff6ff" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: "#1d4ed8", background: "#dbeafe", padding: "2px 8px", borderRadius: 20, textTransform: "uppercase" }}>
+                    {String(angle.type || "").replace(/_/g, " ")}
+                  </span>
+                  {angle.title && <span style={{ fontSize: 12, fontWeight: 700, color: "#1e40af" }}>{angle.title}</span>}
+                </div>
+                <p style={{ fontSize: 13, color: "#1e3a8a", margin: 0, lineHeight: 1.6 }}>{angle.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Headlines ── */}
+      {headlines && Array.isArray(headlines) && headlines.length > 0 && (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginTop: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 9, background: "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📢</div>
+            <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", margin: 0 }}>Headlines</p>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {headlines.map((h: any, i: number) => (
+              <div key={i} style={{ background: "#f8fafc", borderRadius: 10, padding: "12px 14px", border: "1px solid var(--border)" }}>
+                <p style={{ fontSize: 15, fontWeight: 800, color: "var(--black)", margin: "0 0 4px" }}>{h.text}</p>
+                {h.angle && <span style={{ fontSize: 10, color: "var(--muted)", fontWeight: 600 }}>{h.angle}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Hooks ── */}
       {hooks && Array.isArray(hooks) && (
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 22, marginTop: 20 }}>

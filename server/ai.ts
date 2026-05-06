@@ -5490,15 +5490,23 @@ DURAÇÃO: ${input.duration} dias
 
 PERFIL DO CLIENTE:
 - Empresa: ${(clientProfile as any)?.companyName || "—"}
+${(clientProfile as any)?.productName ? `- PRODUTO ANUNCIADO: "${(clientProfile as any).productName}" ← USE ESTE NOME EXATO` : ""}
 - Nicho: ${(clientProfile as any)?.niche || "—"}
-- Produto: ${(clientProfile as any)?.productService || "—"}
+- Produto/Serviço: ${(clientProfile as any)?.productService || "—"}
+${(clientProfile as any)?.productPrice ? `- Preço: ${(clientProfile as any).productPrice}` : ""}
+${(clientProfile as any)?.productDifferentials ? `- DIFERENCIAIS (use como mecanismo único): ${(clientProfile as any).productDifferentials}` : ""}
+${(clientProfile as any)?.productProofPoints ? `- PROVAS SOCIAIS (use nos criativos): ${(clientProfile as any).productProofPoints}` : ""}
+${(clientProfile as any)?.productCTA ? `- CTA PREFERIDO: "${(clientProfile as any).productCTA}"` : ""}
 - Público-alvo: ${(clientProfile as any)?.targetAudience || "—"}
 - Dor principal: ${(clientProfile as any)?.mainPain || "—"}
 - Transformação desejada: ${(clientProfile as any)?.desiredTransformation || "—"}
 - Proposta única de valor: ${(clientProfile as any)?.uniqueValueProposition || "—"}
 - Principais objeções: ${(clientProfile as any)?.mainObjections || "—"}
+${(clientProfile as any)?.city ? `- Localização: ${(clientProfile as any).city}${(clientProfile as any)?.state ? "/" + (clientProfile as any).state : ""}` : ""}
+${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
 - Budget mensal declarado: R$ ${monthlyBudget}
 - Objetivo principal: ${campaignObjective}
+${(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed" ? `- Estrutura de copy: ${(clientProfile as any).copyStructure}` : ""}
 
 INTELIGÊNCIA COMPETITIVA (dados reais coletados):
 - Concorrentes analisados: ${competitors.map((c: any) => c.name).join(", ") || "nenhum"}
@@ -5568,10 +5576,64 @@ VALIDAÇÃO: Antes de gerar cada criativo, verifique conformidade com as regras 
 Gere campo "complianceScore": "safe"|"warning"|"danger" e "complianceNotes" em cada criativo.
 Se warning/danger, gere versão alternativa segura no campo "safeAlternative".
 
+========================
+🧠 INTELIGÊNCIA DE MERCADO (execute ANTES de gerar)
+========================
+1. NÍVEL DE CONSCIÊNCIA DO PÚBLICO:
+   - Avalie: inconsciente | problema consciente | solução consciente | produto consciente
+   - Adapte hooks e copies para o nível identificado
+
+2. DESEJO EMOCIONAL PRINCIPAL:
+   - Identifique o desejo oculto por trás da compra (status, segurança, pertencimento, prazer, alívio)
+   - Use-o como motor emocional de TODAS as copies
+
+3. MAIOR OBJEÇÃO À CONVERSÃO:
+   - Identifique e quebre a objeção principal dentro da copy
+
+4. MECANISMO ÚNICO:
+   - Defina por que ESTE produto é diferente — torne-o o herói da campanha
+
+========================
+🔥 REGRAS CRÍTICAS DE COPY
+========================
+PROIBIDO:
+- "melhor da região", "qualidade garantida", "não perca", "oportunidade única"
+- Copy vaga ou institucional
+- Ignorar contexto local (cidade, perfil do público)
+
+OBRIGATÓRIO em cada copy:
+✔ Especificidade: dados reais, números, localização
+✔ Estrutura: dor + desejo + ação
+✔ Linguagem: parecer um anúncio real que rodaria hoje
+✔ Tom: baseado no perfil do público identificado acima
+
+========================
+🚀 OUTPUT OBRIGATÓRIO — ESTRUTURA EXPANDIDA
+========================
+Além dos criativos, gere obrigatoriamente:
+- 3 ângulos de campanha (urgência | prova social | oportunidade | dor oculta)
+- 5 hooks otimizados (primeira frase que para o scroll — máx 12 palavras)
+  Tipos obrigatórios: curiosidade | dor real | contra-intuitivo | prova social | oportunidade
+- 2 copies completas estruturadas:
+  Hook → Desenvolvimento emocional → Prova/lógica → CTA direto
+- 2 headlines agressivas (máx 40 chars)
+- Ideia de criativo: cena inicial obrigatória nos primeiros 3 segundos
+- Métricas estimadas baseadas nos dados reais da conta (CTR, CPC, conversão)
+
 Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em JSON válido:
 {
   "strategy": "estratégia geral da campanha em 3-4 parágrafos baseada nos dados dos concorrentes",
   "campaignName": "nomenclatura padrão: Campanha_[Nicho]_[Objetivo]_[CTA]_[Plataforma]",
+  "audienceConsciousness": "inconsciente|problema_consciente|solucao_consciente|produto_consciente",
+  "emotionalDesire": "desejo emocional principal identificado (ex: status, segurança, alívio, pertencimento)",
+  "mainObjection": "maior objeção à conversão e como a campanha a quebra",
+  "uniqueMechanism": "o mecanismo único — por que este produto é diferente",
+  "angles": [
+    {"type": "urgencia|prova_social|oportunidade|dor_oculta|contra_intuitivo", "title": "nome do ângulo", "description": "como usar este ângulo nesta campanha específica"}
+  ],
+  "headlines": [
+    {"text": "headline curta e agressiva (máx 40 chars)", "angle": "tipo de ângulo usado"}
+  ],
   "adSets": [
     {"name": "...", "audience": "descrição detalhada do público", "budget": "R$ X/dia (Y% do total)", "objective": "...", "funnelStage": "TOF|MOF|BOF|SCALE"}
   ],
@@ -5802,6 +5864,12 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       negativeKeywords: parsed.negativeKeywords || null,
       glossary:     parsed.glossary     || null,
       hooks:        parsed.hooks        || null,
+      angles:       parsed.angles       || null,
+      headlines:    parsed.headlines    || null,
+      audienceConsciousness: parsed.audienceConsciousness || null,
+      emotionalDesire:       parsed.emotionalDesire       || null,
+      mainObjection:         parsed.mainObjection         || null,
+      uniqueMechanism:       parsed.uniqueMechanism       || null,
       abTests:      parsed.abTests      || null,
       tracking:     parsed.tracking     || null,
       optimization: parsed.optimization || null,
