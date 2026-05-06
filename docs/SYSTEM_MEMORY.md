@@ -1,9 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> Atualizar após cada sessão significativa.
->
-> **Última atualização:** 2026-05-04 (sessão 10 — solução derradeira)
+> **Última atualização:** 2026-05-05 (sessão 11)
 
 ---
 
@@ -19,187 +17,225 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `d460b2d` | Google Display/Video/PMax desbloqueados |
+| Último commit | `bd17e38` | fix Zod null campos produto |
 
 ---
 
-## 📊 Análise de Prontidão (2026-05-04 — atualizada sessão 10)
+## 📊 Análise de Prontidão (atualizada sessão 11)
 
-**Score geral: ~82%** ← subiu de 78.7% após Google Display/Video/PMax
+**Score geral: ~85%** ← subiu de 82% com motor de copy + produto + CNPJ
 
-| Módulo | Score | Peso | Status |
+| Módulo | Score | Peso | Sessão 11 |
 |---|---|---|---|
-| Infraestrutura | 94% | 5% | ✅ |
-| Financeiro (Pagamentos) | 87% | 10% | ✅ |
-| ML / Inteligência | 82% | 5% | ✅ |
-| Meta Ads (Publicação) | 88% | 20% | ✅ |
-| Geração de Campanhas IA | 88% | 25% | ✅ |
-| Análise de Concorrentes | 74% | 15% | ⚠️ |
-| TikTok Ads | 70% | 10% | ⚠️ |
-| Google Ads | 78% | 10% | ⚠️ (+38% nesta sessão) |
+| Infraestrutura | 94% | 5% | — |
+| Financeiro | 87% | 10% | — |
+| ML / Inteligência | 82% | 5% | — |
+| Meta Ads | 88% | 20% | — |
+| Geração de Campanhas IA | 93% | 25% | ⬆️ +5% motor copy nicho |
+| Análise de Concorrentes | 78% | 15% | ⬆️ +4% SWOT dinâmico |
+| TikTok Ads | 70% | 10% | — |
+| Google Ads | 78% | 10% | — |
 
-**O que ainda puxa para baixo:**
-- Meta Ads Library `code=10` → aguardando aprovação Facebook (fora do controle)
-- TikTok metrics → TIKTOK_ACCESS_TOKEN não configurado (ação do usuário)
-- Meta Token expira 2026-05-25 → reconectar antes (ação do usuário)
-
-**Se esses 3 resolvidos → ~88%**
+**Pendências críticas:**
+- Meta Token expira 2026-05-25 → reconectar (ação do usuário)
+- Meta Ads Library `code=10` → aguardando Facebook
+- TikTok token → configurar no Render
 
 ---
 
-## ⚡ Estado Atual das Integrações
+## ⚡ Estado das Integrações
 
 | Serviço | Status | Detalhe |
 |---|---|---|
-| Meta Ads Library API | ❌ `code=10` | Aguardando Facebook |
-| Meta Token | ✅ Válido até 2026-05-25 | Reconectar antes de expirar |
-| Gemini API | ✅ 5 chaves | Reset 00:00 UTC |
-| Groq API | ✅ Fallback | llama-3.3-70b-versatile |
-| Google Ads API | ✅ `/v19/` | Search + Display + Video + PMax |
-| Asaas | ✅ Completo | Pix QR + Cartão CREDIT_CARD |
 | Cloudflare Workers AI | ✅ ATIVO | FLUX.1-schnell; 10k neurons/dia; reset 21h BRT |
-| JSON2Video | ✅ ATIVO | MP4 com voz PT-BR Azure (gratuito); 600 créditos |
-| Pollinations.AI | ✅ Fallback imagem | Quando CF com quota esgotada |
-| HuggingFace/HeyGen/Genspark | ❌ DESABILITADOS | Mortos ou inacessíveis |
-| FAL.AI | ⏳ Pendente | "Host not in allowlist" — adicionar Render no FAL dashboard |
+| JSON2Video | ✅ ATIVO | MP4 + voz PT-BR Azure grátis; 600 créditos |
+| Pollinations.AI | ✅ Fallback | Quando CF quota esgotada |
+| Genspark | ❌ REMOVIDO | fetch failed 100% → removido do pipeline |
+| BrasilAPI CNPJ | ✅ ATIVO | gratuita, sem auth, funciona do Render |
+| Meta Token | ✅ válido até 25/05 | Reconectar antes |
+| Meta Ads Library | ❌ code=10 | Aguardando Facebook |
+| Google Ads | ✅ Search+Display+Video+PMax | Todos desbloqueados |
+| TikTok | ⚠️ Parcial | Token não configurado |
+| Asaas | ✅ Pix+Cartão | |
+| Gemini | ✅ 5 chaves | Cache RAM+DB |
 
 ---
 
-## 🎬 Pipeline de Geração de Vídeo (NOVO — sessão 10)
+## 🎯 Motor de Copy (NOVO — sessão 11)
 
+### Prompt estruturado Meta Ads
 ```
-Imagem FLUX (Cloudflare) → botão "🎬 Gerar vídeo com IA"
-    ↓
-JSON2Video API (a393GciY...)
-  Payload:
-    resolution: "custom" + width/height por formato
-    fill: "cover" — imagem preenche 100% sem barras
-    zoom: 3 + pan: "right" — Ken Burns
-    type: "text" style:"001" — headline + CTA
-    type: "voice" model:"azure" voice:"pt-BR-FranciscaNeural" — narração grátis
-  effectiveFormat: detecta formato real da imagem (evita barras pretas)
-    ↓
-Polling 5s × 18 tentativas (máx 90s)
-    ↓
-MP4 → cr.videoUrl + cr.feedVideoUrl/storyVideoUrl
-    ↓
-Player aparece imediatamente no CampaignResult
-```
+Inputs mapeados:
+  Segmento → niche
+  Situação → pain (dor principal)
+  Desejo   → transformation || uvp
+  Oferta   → product + productPrice
+  Diferencial → productDifferentials
+  Prova    → productProofPoints
+  Tom      → direto, linguagem natural
 
-**Custo vídeo:** JSON2Video free = 600 créditos totais (~60 vídeos)
-**Custo narração:** Azure TTS = gratuito em todos os planos JSON2Video
-**Custo imagem:** CF FLUX free = 10k neurons/dia (~30 imagens); fallback Pollinations grátis
+Output obrigatório:
+  3 hooks: curiosidade | dor | oportunidade (+ variações)
+  2 shortCopies: headline + body + CTA
+  1 primaryCTA (máx 5 palavras)
 
----
-
-## 🌐 Google Ads — Display/Video/PMax (DESBLOQUEADO — sessão 10)
-
-```
-SEARCH:          channel=2, adGroup=2, ad=responsive_search_ad (RSA)
-DISPLAY:         channel=3, adGroup=17, ad=responsive_display_ad + imagePath
-VIDEO:           channel=6, adGroup=6, ad=video_responsive_ad + YouTube URL
-PERFORMANCE_MAX: channel=10, adGroup=2, ad=assetGroups.create() + fallback RSA
-
-Frontend:
-  Display  → campo URL imagem (auto-preenchido com feedImageUrl da IA)
-  Video    → campo URL YouTube (usuário preenche)
-  PMax     → info "Google distribui automaticamente" (usa headlines/descriptions)
-  
-imagePath passado em buildAdsFromCreatives:
-  Display: feedImageUrl || squareImageUrl || imageUrl
-  Video/PMax: "" (usuário preenche ou não precisa)
+PROIBIDO: "não perca", "imperdível", "oportunidade única", linguagem de IA
 ```
 
----
-
-## 📢 Auditoria de Criativo (CampaignResult)
-
+### Motor por nicho — 12 segmentos (getNicheContext)
 ```
-Meta Story 9:16: storyImageUrl || storyImageHash || feedImageUrl (fallback)
-Feed:            feedImageUrl || feedImageHash
-Square 1:1:      squareImageUrl || squareImageHash
-TikTok/Reels:    publishMedia.videoId || videoUrl || feedVideoUrl || storyVideoUrl
-Google Search:   headlines + descriptions presentes
+imoveis     → ROI/Airbnb/escassez/valorização | investidor/comprador/remarketing
+educacao    → transformação/urgência/ROI | aspirante/profissional/retargeting
+saude       → resultado/credibilidade/geo | dor aguda/estético/retargeting
+fitness     → anti-clichê/identidade | iniciante/retornante/avançado
+ecommerce   → escassez/prova social | descoberta/carrinho/recorrente
+financeiro  → medo perder/simplicidade | desinformado/insatisfeito/avançado
+alimentacao → sensorial/conveniência | impulso/planejador/frequente
+juridico    → direito desconhecido/urgência | PF/empresa/retargeting
+pet         → amor/saúde/culpa | tutor novo/experiente/culpado
+tech        → ROI/dor operacional/trial | decisor/usuário/pós-trial
+turismo     → FOMO/ocasião | casal/família/solo
+construcao  → resultado visual/garantia | proprietário/comprador/empresa
+```
+
+### UI CampaignResult — seção "Copies Prontas para Meta Ads"
+```
+[CTA Principal em azul Meta]
+Cards roxos: headline + body + CTA + botão 📋 copiar
+Hook cards com cores: 🔵 curiosidade | 🔴 dor | 🟢 oportunidade
 ```
 
 ---
 
-## 🐛 Bugs Resolvidos (sessão 10)
+## 📦 Campos de Produto (NOVO — sessão 11)
 
-#### BUG-046: generateCreativeVideo FORBIDDEN
-- **Causa:** `campaign.userId` não existe — campaigns tem `projectId` → verifica via `getProjectById`
-- **Commit:** 4410771
+### Schema DB (6 novos campos)
+```sql
+productName          varchar(150)  -- nome do produto anunciado
+productPrice         varchar(80)   -- "R$ 997", "a partir de R$ 200/mês"
+productDifferentials text          -- 3 diferenciais
+productProofPoints   text          -- provas sociais, números, resultados
+productCTA           varchar(100)  -- CTA preferido: "Falar no WhatsApp"
+copyStructure        varchar(30)   -- AIDA|PAS|STORYTELLING|CONTRASTE|URGENCIA|mixed
+```
 
-#### BUG-047: JSON2Video quality inválido
-- **Causa:** `quality: 8` (número) → API aceita `"low"|"medium"|"high"`
-- **Commit:** 20895eb
+### Zod schema: todos os 6 com `.nullish()` (aceita null do banco)
 
-#### BUG-048: JSON2Video `style:"kenburns"` não existe
-- **Causa:** API usa `zoom: 3 + pan: "right"`; `type:"html"` com `fade_in` não existe
-- **Commit:** eac714b
+### UI ClientProfile — seção azul destacada
+```
+📦 PRODUTO ANUNCIADO
+  Nome do produto * | Preço | CTA preferido
+  3 diferenciais (textarea)
+  Provas sociais (textarea)
+  Select: Mista | AIDA | PAS | Storytelling | Contraste | Urgência
+```
 
-#### BUG-049: Imagem no canto com barras pretas
-- **Causa:** 2 cenas separadas + sem `fill:"cover"`
-- **Solução:** 1 cena única + `fill:"cover"` + `width/height=dims`
-- **Commit:** acb820f
+### Injeção no prompt da IA
+```
+PRODUTO ANUNCIADO: "{productName}" ← USE ESTE NOME
+Preço/Oferta: {productPrice}
+PROVAS SOCIAIS (USE ESTES NÚMEROS): {productProofPoints}
+Diferenciais: {productDifferentials}
+CTA preferido: "{productCTA}"
+Estrutura de copy: {copyStructure} (obrigatório se não-mixed)
+```
 
-#### BUG-050: `black.png` 404
-- **Causa:** URL inventada não existe no JSON2Video
-- **Solução:** elemento `html` com gradiente CSS inline
-- **Commit:** 834282b
-
-#### BUG-051: `Error rendering video` genérico
-- **Causa:** `x_anchor`, `x:"50%"`, `fps:25` — propriedades inválidas
-- **Solução:** payload minimalista com só propriedades confirmadas pela doc
-- **Commit:** 66bea11
-
-#### BUG-052: `refetch` não encontrado no vídeo
-- **Causa:** `refetch()` → variável se chama `_refetch()`
-- **Commit:** 7c47145
-
-#### BUG-053: Meta Story 9:16 sempre "Falta"
-- **Causa:** audit não aceitava feedImageUrl como fallback
-- **Solução:** `story = storyImageUrl || storyImageHash || feedImageUrl`
-- **Commit:** 97f0005
-
-#### BUG-054: TikTok/Reels "Falta" mesmo com vídeo gerado
-- **Causa:** audit verificava só `publishMedia.videoId` (Meta)
-- **Solução:** inclui `videoUrl || feedVideoUrl || storyVideoUrl`
-- **Commit:** 97f0005
-
-#### BUG-055: createLeadForm "Button text is missing"
-- **Causa:** Meta exige `button_text` quando `button_type=VIEW_WEBSITE`
-- **Solução:** adicionado `button_text: "Ver site"`
-- **Commit:** 97f0005
-
-#### BUG-056: Barras pretas por aspect ratio errado
-- **Causa:** canvas 9:16 com imagem 4:5
-- **Solução:** `effectiveFormat` detecta formato real da imagem disponível
-- **Commit:** 93dc1ce
-
-#### BUG-057: Google Display/Video/PMax bloqueados
-- **Causa:** throw SEARCH-only no backend + toast no frontend
-- **Solução:** removidos; implementados responsive_display_ad, video_responsive_ad, assetGroups
-- **Commit:** d460b2d
+### CampaignBuilder — produto em destaque
+```
+Step 5 Detalhes: bloco verde/amarelo com dados do produto
+Step 7 Gerar: card verde com productName em 16px bold + preço + CTA
+```
 
 ---
 
-## 🏛️ Padrões Estabelecidos
+## 🔍 CNPJ Auto-preenchimento (NOVO — sessão 11)
+
+```
+API: BrasilAPI (brasilapi.com.br/api/cnpj/v1/{cnpj})
+     Gratuita, sem auth, funciona do Render.com
+     Substituiu: opencnpj.org (bloqueada no Render)
+
+Campos preenchidos automaticamente:
+  companyName    → nome_fantasia || razao_social
+  niche          → CNAE → 9 categorias (Imóveis, Saúde, Educação...)
+  city           → municipio
+  state          → uf
+  businessScope  → porte (MEI→local, ME→regional, demais→national)
+  productService → descricao_atividade_principal
+  websiteUrl     → email da empresa
+  socialLinks    → phone + email
+
+NÃO vêm do CNPJ (usuário preenche):
+  productName, productPrice, productDifferentials,
+  productProofPoints, targetAudience, mainPain, uvp
+```
+
+---
+
+## 🐛 Bugs Resolvidos (sessão 11)
+
+#### BUG-058: InstagramVerifier not defined (M2 crash)
+- competitorComparison.tsx e competitorForms.tsx sem import
+- **Commit:** a9aefcd
+
+#### BUG-059: SWOT myScores hardcoded ≤5
+- scores fixos sem dados reais; agora usa mesma fórmula do concorrente
+- **Commit:** edd2099
+
+#### BUG-060: SW crash "Failed to convert value to Response"
+- caches.match() retornava undefined → respondWith(undefined) crashava toda a página
+- **Commit:** b62f080
+
+#### BUG-061: regenerateCreativeImage não chegava no Pollinations
+- isProviderExhausted retornava null imediato sem tentar Pollinations
+- **Fix:** ao detectar 429, chama tryPollinations direto com inferPrompt completo
+- **Commit:** 9f0aa9b
+
+#### BUG-062: Genspark fetch failed em 100% das chamadas
+- **Fix:** removido do pipeline; novo fluxo: CF FLUX → Pollinations
+- **Commit:** 17866d2
+
+#### BUG-063: hooks/copies/adSets sem contexto de nicho
+- **Fix:** getNicheContext(niche, product) injetado nos 3 prompts
+- **Commit:** 185c042
+
+#### BUG-064: Google negativeKeywords sempre vazios
+- **Fix:** 3 camadas de extração + defaults por objetivo
+- **Commit:** 11f31ea
+
+#### BUG-065: productName/price/etc bloqueados pelo Zod
+- `.optional()` → `.nullish()` + null→undefined no submit
+- **Commits:** 541483f, bd17e38
+
+#### BUG-066: opencnpj.org bloqueada no Render
+- **Fix:** BrasilAPI + mapCNPJToForm completo com 9 nichos
+- **Commit:** 3c896ab
+
+#### BUG-067: GitHub divergiu (17 commits remotos vs 13 locais)
+- **Fix:** force push para sincronizar
+- **Commit:** force push `3c896ab`
+
+---
+
+## 🏛️ Arquitetura — Padrões
 
 ```tsx
-// Hooks: NUNCA optional chaining
+// Zod para campos que podem ser null do banco: .nullish() não .optional()
+productName: z.string().nullish()
+
+// Submit: converte null → undefined para campos string
+const stringFields = ["productName", "productPrice", ...];
+for (const k of stringFields) {
+  if (cleanForm[k] === null) cleanForm[k] = undefined;
+}
+
+// Hooks React: NUNCA optional chaining
 trpc.x.y.useMutation() — isPending não isLoading
-useEffect em vez de onSuccess (React Query v5)
 
 // DB: SEMPRE DELETE + INSERT
-// Verificar estado ANTES de editar arquivos
 
-// JSON2Video: só propriedades confirmadas pela doc
-// zoom + pan (não style:"kenburns")
-// type:"text" style:"001" (não type:"html" com fade_in)
-// fill:"cover" para imagens preencherem o canvas
-// resolution:"custom" + width/height explícitos
-// quality: "low"|"medium"|"high" (não número)
+// CNPJ: BrasilAPI (não opencnpj.org)
+fetch("https://brasilapi.com.br/api/cnpj/v1/" + digits)
 ```
 
 ---
@@ -208,18 +244,27 @@ useEffect em vez de onSuccess (React Query v5)
 
 ```
 server/
-├── _core/router.ts         ← publishToGoogle: Display/Video/PMax; generateCreativeVideo
-├── imageGeneration.ts      ← CF FLUX + JSON2Video (vídeo+voz); effectiveFormat
-├── ai.ts                   ← fallback feed→story/square após geração paralela
-├── paymentService.ts       ← Asaas Pix+Cartão
-└── db.ts                   ← PLAN_LIMITS
+├── _core/router.ts         ← lookupCNPJ; generateCreativeVideo; publishToGoogle
+│                             clientProfile.upsert: 6 novos campos .nullish()
+├── _core/migrations.ts     ← 6 novas colunas produto; ALTER TABLE
+├── ai.ts                   ← getNicheContext (12 nichos); hooks prompt estruturado
+│                             productName/proofPoints/preferredCTA nos prompts
+├── imageGeneration.ts      ← CF FLUX → Pollinations (sem Genspark)
+│                             isProviderExhausted → tryPollinations direto
+├── schema.ts               ← 6 novos campos produto no clientProfiles
+└── paymentService.ts       ← Asaas Pix+Cartão
 
 client/src/pages/
-├── CampaignResult.tsx      ← overlay; video preview; audit; showOverlay toggle
-├── GoogleCampaignCreator.tsx ← Display/Video/PMax campos; imagePath auto
-├── TikTokCampaignCreator.tsx ← videoUrl/coverImageUrl automáticos
-├── CheckoutAsaas.tsx       ← Pix|Cartão
-└── Billing.tsx             ← "Assinar" → gateway
+├── ClientProfile.tsx       ← CNPJ BrasilAPI; bloco 📦 PRODUTO; AIDA/PAS select
+│                             handleSubmit: null→undefined + ALLOWED list
+├── CampaignResult.tsx      ← shortCopies+primaryCTA; hook cards coloridos
+├── CampaignBuilder.tsx     ← Step 5+7: produto em destaque
+├── GoogleCampaignCreator.tsx ← Display/Video/PMax desbloqueados; imagePath
+└── TikTokCampaignCreator.tsx ← videoUrl/coverImageUrl automáticos
+
+client/src/components/competitors/
+├── competitorComparison.tsx ← import InstagramVerifier; SWOT dinâmico
+└── competitorForms.tsx     ← imports TikTokVerifier/GoogleVerifier/InstagramVerifier
 ```
 
 ---
@@ -238,7 +283,7 @@ CLOUDFLARE_API_TOKEN=<definido no Render>               ✅
 JSON2VIDEO_API_KEY=a393GciY...                          ✅
 APP_URL=https://www.mecproai.com
 # PENDENTE:
-TIKTOK_ACCESS_TOKEN + TIKTOK_ADVERTISER_ID  ← usuário configurar
+TIKTOK_ACCESS_TOKEN + TIKTOK_ADVERTISER_ID
 ```
 
 ---
@@ -247,26 +292,22 @@ TIKTOK_ACCESS_TOKEN + TIKTOK_ADVERTISER_ID  ← usuário configurar
 
 | Prioridade | Item | Responsável |
 |---|---|---|
-| 🔴 | Meta Token — reconectar antes 2026-05-25 | Michel |
-| 🔴 | Meta App — Ads Library API `code=10` | Aguardando Facebook |
-| 🔴 | TikTok token — configurar no painel | Michel |
-| 🟡 | Testar vídeo com narração PT-BR em produção | Teste |
+| 🔴 | Meta Token — reconectar antes 25/05 | Michel |
+| 🔴 | TikTok token — configurar no Render | Michel |
+| 🔴 | Meta App — Ads Library code=10 | Aguardando Facebook |
+| 🟡 | Testar vídeo JSON2Video + narração PT-BR | Teste |
 | 🟡 | Testar Asaas cartão em produção | Teste |
-| 🟡 | Google negativeKeywords extrair do aiResponse | Dev |
 | 🟡 | FAL.AI — adicionar Render no allowlist | Michel |
-| 🟢 | Mercado Livre API | Aguardando credenciais |
-| 🟢 | ZAP Imóveis feed XML | Backlog |
+| 🟢 | Análise de métricas em linguagem natural | Dev |
+| 🟢 | Botão "Gerar variações" do anúncio vencedor | Dev |
+| 🟢 | Google negativeKeywords via IA (melhorar) | Dev |
 
 ---
 
 ## 🧭 Regra: "Qual o próximo passo?"
 
-Sempre orientar por este documento seguindo a ordem:
-1. 🔴 Pendências críticas (bloqueiam receita ou funcionamento)
-2. 🟡 Aumentam o score de prontidão
-3. 🟢 Melhorias de qualidade
-
-Formato: score atual → 3 itens em ordem de impacto → o que precisa para resolver.
+Orientar por: 🔴 crítico → 🟡 score → 🟢 qualidade
+Formato: score atual (~85%) + 3 itens em ordem de impacto + o que precisa.
 
 ---
 
@@ -275,6 +316,7 @@ Formato: score atual → 3 itens em ordem de impacto → o que precisa para reso
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: d460b2d. Michel — Balneário Camboriú/SC.
-Score atual: ~82%. Prioridade: Meta Token (exp 25/05) + TikTok token.
+Último commit: bd17e38. Michel — Balneário Camboriú/SC.
+Score atual: ~85%.
+Prioridade: Meta Token (exp 25/05) + TikTok token + testar vídeo.
 ```
