@@ -2667,26 +2667,57 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
     const { getPool } = await import("./db");
     const pool = await getPool();
     if (pool) {
-      // 1. Busca dados médios do nicho na learning_base
+      // 1. learning_base: busca por engine ativo primeiro, fallback para geral
+      const currentEngine = getCopyEngine();
+      const lbEngine = await pool.query(
+        `SELECT m.feature_copy_engine, COUNT(*) as samples,
+                AVG(m.label_ctr) as avg_ctr, AVG(m.label_cpc) as avg_cpc,
+                AVG(m.label_score) as avg_score, AVG(m.label_roas) as avg_roas,
+                MAX(m.label_score) as best_score
+         FROM ml_dataset m
+         WHERE m.feature_platform=$1 AND m.feature_objective=$2
+           AND m.feature_niche=$3 AND m.feature_copy_engine=$4
+           AND m.label_is_winner=1
+         GROUP BY m.feature_copy_engine
+         HAVING COUNT(*) >= 2`,
+        [platform, objective, niche, currentEngine]
+      );
       const lb = await pool.query(
         `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
         [platform, objective, niche]
       );
       if (lb.rows[0] && lb.rows[0].sample_count >= 3) {
         mlData = lb.rows[0];
+        // Sobrescreve métricas com dados específicos do engine se disponíveis
+        if (lbEngine.rows[0]) {
+          mlData.avg_ctr     = lbEngine.rows[0].avg_ctr     || mlData.avg_ctr;
+          mlData.avg_cpc     = lbEngine.rows[0].avg_cpc     || mlData.avg_cpc;
+          mlData.avg_score   = lbEngine.rows[0].avg_score   || mlData.avg_score;
+          mlData.engine_samples = Number(lbEngine.rows[0].samples);
+          mlData.engine_best_score = lbEngine.rows[0].best_score;
+        }
         log.info("ai", "ML: learning_base encontrada", {
           niche, objective, platform,
           samples: mlData.sample_count,
+          engine: currentEngine,
+          engineSamples: mlData.engine_samples || 0,
           avgCtr: mlData.avg_ctr, avgCpc: mlData.avg_cpc,
         });
         usingML = true;
       }
 
-      // 2. Busca melhor winner_pattern aprovado para este segmento
+      // 2. winner_patterns: prioriza padrões do engine atual
       const wp = await pool.query(
-        `SELECT * FROM winner_patterns WHERE platform=$1 AND objective=$2 AND niche=$3
-         AND status='active' ORDER BY score DESC LIMIT 1`,
-        [platform, objective, niche]
+        `SELECT wp.*, m.feature_copy_engine
+         FROM winner_patterns wp
+         LEFT JOIN ml_dataset m ON m.campaign_id = wp.campaign_id
+         WHERE wp.platform=$1 AND wp.objective=$2 AND wp.niche=$3
+           AND wp.status='active'
+         ORDER BY
+           CASE WHEN m.feature_copy_engine=$4 THEN 0 ELSE 1 END,
+           wp.score DESC
+         LIMIT 3`,
+        [platform, objective, niche, currentEngine]
       );
       if (wp.rows[0]) {
         winnerPattern = wp.rows[0];
@@ -5662,6 +5693,14 @@ DADOS DE APRENDIZADO HISTÓRICO (ML interno — campanhas reais da plataforma):
 - Formato que mais converte: ${(() => { try { const t = JSON.parse(mlLearning.top_ad_formats || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1])[0]?.[0]||"image"; } catch { return "image"; } })()}
 - CTAs que mais performam: ${(() => { try { const t = JSON.parse(mlLearning.top_cta_types || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1]).slice(0,3).map(([k])=>k).join(", "); } catch { return "—"; } })()}
 - Gatilhos mais eficazes: ${(() => { try { const t = JSON.parse(mlLearning.top_triggers || "{}"); return Object.entries(t).sort((a:any,b:any)=>b[1]-a[1]).slice(0,3).map(([k])=>k).join(", "); } catch { return "—"; } })()}
+${mlLearning.engine_data ? `
+🔬 APRENDIZADO ESPECÍFICO DO ENGINE "${getCopyEngine().toUpperCase()}" neste nicho:
+- Campanhas vencedoras com este engine: ${mlLearning.engine_data.samples}
+- Score médio: ${Number(mlLearning.engine_data.avg_score).toFixed(0)}/100
+- CTR médio: ${Number(mlLearning.engine_data.avg_ctr).toFixed(2)}%
+- Estruturas de copy que mais venceram: ${mlLearning.engine_data.copy_types || "variadas"}
+INSTRUÇÃO CRÍTICA: Este engine já gerou campanhas vencedoras aqui — REPLIQUE e SUPERE esses padrões.` : `
+📊 Engine "${getCopyEngine().toUpperCase()}" ainda sem histórico neste nicho — gere com qualidade máxima para criar os primeiros padrões de referência.`}
 INSTRUÇÃO: PRIORIZE esses dados históricos reais sobre os benchmarks gerais abaixo.
 ` : ""}
 BENCHMARKS DO NICHO "${benchmarks.label}" (referência secundária — WordStream BR 2025):
@@ -5933,7 +5972,26 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
   }
 
   try {
-    const raw = await gemini(prompt, { temperature: 0.6 });
+    // ── Engine de copy selecionado pelo painel Admin ──────────────────────
+    const copyEngine = getCopyEngine();
+    let raw: string;
+
+    if (copyEngine === "groq") {
+      log.info("ai", "✍️ Copy Engine: Groq/Llama (campanha principal)", { projectId: input.projectId });
+      const groqRaw = await callGroqAPI(prompt, SYSTEM_MECPRO, 0.85).catch(() => null);
+      if (groqRaw) {
+        raw = groqRaw;
+      } else {
+        log.warn("ai", "Groq falhou na campanha principal — fallback Gemini");
+        raw = await gemini(prompt, { temperature: 0.8 });
+      }
+    } else if (copyEngine === "ml_first") {
+      log.info("ai", "✍️ Copy Engine: ML-First (campanha principal)", { projectId: input.projectId });
+      raw = await gemini(prompt, { temperature: 0.5 });
+    } else {
+      raw = await gemini(prompt, { temperature: 0.6 });
+    }
+
     let parsed: any;
     try {
       parsed = JSON.parse(raw);
@@ -6314,9 +6372,10 @@ ON CONFLICT DO NOTHING`,
           feature_used_urgency, feature_used_social_proof,
           feature_copy_type, feature_creative_type,
           feature_statistical_conf, feature_volume_weight, feature_is_false_winner,
+          feature_copy_engine,
           label_score, label_ctr, label_cpc, label_roas,
           label_is_winner, label_success_probability, split_group
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
 ON CONFLICT DO NOTHING`,
         [
           campaignId,
@@ -6335,6 +6394,7 @@ ON CONFLICT DO NOTHING`,
           score.statisticalConf ?? 0,
           score.volumeWeight    ?? 0,
           score.isFalseWinner ? 1 : 0,
+          getCopyEngine(),    // registra qual engine gerou esta campanha
           score.total,
           metrics.ctr, metrics.cpc, metrics.roas ?? 0,
           (!score.isFalseWinner && score.total >= 70) ? 1 : 0,
@@ -6896,8 +6956,71 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
     }
   } else if (copyEngine === "ml_first") {
     log.info("ai", "✍️ Copy Engine: ML-First (admin)", { part: input.part });
-    // ML-First: temperatura mais baixa, injeta histórico de winners no system
-    raw = await gemini(prompt, { temperature: 0.5, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId } });
+    // ML-First: lê winner_patterns de AMBOS engines (Gemini + Groq) e injeta no system
+    let mlWinnerContext = "";
+    try {
+      const { getPool } = await import("./db");
+      const pool = await getPool();
+      if (pool) {
+        // Busca tops por engine — aprende separadamente o que cada um gerou de bom
+        const winners = await pool.query(`
+          SELECT d.feature_copy_engine, c.hooks, c.copies, c.strategy, d.label_score
+          FROM ml_dataset d
+          JOIN campaigns c ON c.id = d.campaign_id
+          WHERE d.label_is_winner = 1
+            AND d.feature_niche = $1
+            AND d.feature_platform = $2
+            AND d.feature_copy_engine IN ('gemini', 'groq')
+          ORDER BY d.label_score DESC
+          LIMIT 6
+        `, [(input.campaign as any)?.niche || "", (input.campaign as any)?.platform || "meta"]).catch(() => null);
+
+        if (winners?.rows?.length) {
+          const byEngine: Record<string, any[]> = { gemini: [], groq: [] };
+          for (const row of winners.rows) {
+            const eng = row.feature_copy_engine || "gemini";
+            if (byEngine[eng]) byEngine[eng].push(row);
+          }
+
+          const parts: string[] = [];
+          if (byEngine.gemini.length) {
+            const geminiLines = byEngine.gemini.slice(0,3)
+              .map((r: any, i: number) => `[${i+1}] Score ${r.label_score} — ${String(r.strategy || "").slice(0, 80)}`)
+              .join("\n");
+            parts.push("WINNERS GEMINI (estrutura e compliance):\n" + geminiLines);
+          }
+          if (byEngine.groq.length) {
+            const groqLines = byEngine.groq.slice(0,3)
+              .map((r: any, i: number) => `[${i+1}] Score ${r.label_score} — ${String(r.strategy || "").slice(0, 80)}`)
+              .join("\n");
+            parts.push("WINNERS GROQ/LLAMA (linguagem e criatividade):\n" + groqLines);
+          }
+
+          if (parts.length) {
+            mlWinnerContext = "\n\nML LEARNING — PADRÕES VENCEDORES (use como referência de qualidade):\n" +
+              parts.join("\n\n") +
+              "\nAPLIQUE: estrutura dos winners Gemini e linguagem direta dos winners Groq.";
+            log.info("ai", "ML-First: winners injetados", {
+              gemini: byEngine.gemini.length,
+              groq:   byEngine.groq.length,
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+      log.warn("ai", "ML-First: falha ao buscar winners (não crítico)", { error: e.message?.slice(0, 60) });
+    }
+
+    const mlSystem = mlWinnerContext
+      ? SYSTEM_MECPRO + mlWinnerContext
+      : SYSTEM_MECPRO;
+
+    raw = await gemini(prompt, {
+      temperature: 0.5,
+      systemInstruction: mlSystem,
+      cacheAs: "campaign",
+      cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId },
+    });
   } else {
     // Gemini padrão
     raw = await gemini(prompt, { temperature: 0.7, cacheAs: "campaign", cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId } });

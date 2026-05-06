@@ -766,6 +766,18 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "personas" text
     `).catch(() => {});
 
+    // Rastreia qual engine de copy gerou cada campanha no ML dataset
+    await pool.query(`
+      ALTER TABLE ml_dataset
+      ADD COLUMN IF NOT EXISTS feature_copy_engine varchar(20) DEFAULT 'gemini'
+    `).catch(() => {});
+
+    // Engine de copy usado na geração (Gemini/Groq/ML-First) — para treinar ML por engine
+    await pool.query(`
+      ALTER TABLE ml_dataset
+      ADD COLUMN IF NOT EXISTS "feature_copy_engine" varchar(20) DEFAULT 'gemini'
+    `).catch(() => {});
+
     // Campos de produto específico e estrutura narrativa
     await pool.query(`
       ALTER TABLE client_profiles
