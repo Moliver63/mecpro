@@ -249,8 +249,7 @@ export default function CampaignBuilder() {
 
   const [step, setStep] = useState(1);
   const [showBuilderAudit, setShowBuilderAudit] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  // generatingRef substituído por useSafeMutation (isMounted + loading interno)
+  // generating e generatingRef substituídos por useSafeMutation
   const [matchResult, setMatchResult] = useState<any>(null);
   const [matching, setMatching] = useState(false);
   const [segment, setSegment]   = useState<string>("");
