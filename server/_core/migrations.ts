@@ -772,6 +772,25 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS feature_copy_engine varchar(20) DEFAULT 'gemini'
     `).catch(() => {});
 
+    // Loop de aprendizado: estratégia, hooks, ângulos, métricas reais pós-publicação
+    await pool.query(`
+      ALTER TABLE ml_dataset
+      ADD COLUMN IF NOT EXISTS feature_strategy_type   varchar(50),
+      ADD COLUMN IF NOT EXISTS feature_hook_type       varchar(50),
+      ADD COLUMN IF NOT EXISTS feature_angle           varchar(50),
+      ADD COLUMN IF NOT EXISTS feature_copy_structure  varchar(30),
+      ADD COLUMN IF NOT EXISTS feature_has_personas    smallint DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS feature_has_market_data smallint DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS real_ctr    numeric(8,4),
+      ADD COLUMN IF NOT EXISTS real_cpc    numeric(10,2),
+      ADD COLUMN IF NOT EXISTS real_cpl    numeric(10,2),
+      ADD COLUMN IF NOT EXISTS real_roas   numeric(8,4),
+      ADD COLUMN IF NOT EXISTS real_spend  numeric(10,2),
+      ADD COLUMN IF NOT EXISTS real_leads  integer,
+      ADD COLUMN IF NOT EXISTS feedback_applied_at timestamp,
+      ADD COLUMN IF NOT EXISTS feedback_source    varchar(20) DEFAULT 'meta_api'
+    `).catch(() => {});
+
     // Engine de copy usado na geração (Gemini/Groq/ML-First) — para treinar ML por engine
     await pool.query(`
       ALTER TABLE ml_dataset

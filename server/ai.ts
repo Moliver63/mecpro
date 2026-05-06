@@ -6362,6 +6362,31 @@ ON CONFLICT DO NOTHING`,
         ]
       );
 
+      // Extrai estratégia/hook/ângulo do aiResponse para treinar o ML
+      let featureStrategyType  = "geral";
+      let featureHookType      = "generico";
+      let featureAngle         = "neutro";
+      let featureCopyStructure = "mixed";
+      let featureHasPersonas   = 0;
+      let featureHasMarketData = 0;
+      try {
+        const aiR = JSON.parse((campaign as any).aiResponse || "{}");
+        // Estratégia: primeira palavra da audienceConsciousness
+        if (aiR.audienceConsciousness) featureStrategyType = String(aiR.audienceConsciousness).split("_")[0];
+        // Hook: tipo do primeiro hook gerado
+        const firstHook = JSON.parse((campaign as any).hooks || "[]")?.[0];
+        if (firstHook?.type) featureHookType = String(firstHook.type).slice(0, 30);
+        // Ângulo: tipo do primeiro angle
+        const firstAngle = aiR.angles?.[0];
+        if (firstAngle?.type) featureAngle = String(firstAngle.type).slice(0, 30);
+        // Estrutura de copy
+        if (aiR.copyStructure) featureCopyStructure = String(aiR.copyStructure).slice(0, 20);
+        // Personas e dados de mercado
+        const profile = await db.getClientProfile(context.projectId).catch(() => null);
+        featureHasPersonas   = (profile as any)?.personas ? 1 : 0;
+        featureHasMarketData = aiR.audienceConsciousness ? 1 : 0;
+      } catch { /* não crítico */ }
+
       // Upsert em ml_dataset — colunas individuais (schema real da tabela)
       await pool.query(`DELETE FROM ml_dataset WHERE campaign_id = $1`, [campaignId]).catch(() => {});
       await pool.query(`
@@ -6373,9 +6398,11 @@ ON CONFLICT DO NOTHING`,
           feature_copy_type, feature_creative_type,
           feature_statistical_conf, feature_volume_weight, feature_is_false_winner,
           feature_copy_engine,
+          feature_strategy_type, feature_hook_type, feature_angle,
+          feature_copy_structure, feature_has_personas, feature_has_market_data,
           label_score, label_ctr, label_cpc, label_roas,
           label_is_winner, label_success_probability, split_group
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
 ON CONFLICT DO NOTHING`,
         [
           campaignId,
@@ -6394,7 +6421,9 @@ ON CONFLICT DO NOTHING`,
           score.statisticalConf ?? 0,
           score.volumeWeight    ?? 0,
           score.isFalseWinner ? 1 : 0,
-          getCopyEngine(),    // registra qual engine gerou esta campanha
+          getCopyEngine(),
+          featureStrategyType, featureHookType, featureAngle,
+          featureCopyStructure, featureHasPersonas, featureHasMarketData,
           score.total,
           metrics.ctr, metrics.cpc, metrics.roas ?? 0,
           (!score.isFalseWinner && score.total >= 70) ? 1 : 0,
@@ -6964,15 +6993,28 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
       if (pool) {
         // Busca tops por engine — aprende separadamente o que cada um gerou de bom
         const winners = await pool.query(`
-          SELECT d.feature_copy_engine, c.hooks, c.copies, c.strategy, d.label_score
+          SELECT
+            d.feature_copy_engine,
+            d.feature_strategy_type,
+            d.feature_hook_type,
+            d.feature_angle,
+            d.feature_copy_structure,
+            d.real_ctr,
+            d.real_cpl,
+            d.label_score,
+            c.hooks,
+            c.strategy
           FROM ml_dataset d
           JOIN campaigns c ON c.id = d.campaign_id
           WHERE d.label_is_winner = 1
             AND d.feature_niche = $1
             AND d.feature_platform = $2
             AND d.feature_copy_engine IN ('gemini', 'groq')
-          ORDER BY d.label_score DESC
-          LIMIT 6
+          ORDER BY
+            CASE WHEN d.real_ctr IS NOT NULL THEN 0 ELSE 1 END, -- dados reais primeiro
+            d.real_ctr DESC NULLS LAST,
+            d.label_score DESC
+          LIMIT 8
         `, [(input.campaign as any)?.niche || "", (input.campaign as any)?.platform || "meta"]).catch(() => null);
 
         if (winners?.rows?.length) {

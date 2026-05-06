@@ -2581,6 +2581,41 @@ const campaignsRouter = router({
             impressions, clicks, spend: spend.toFixed(2), ctr: ctr.toFixed(2),
           });
 
+          // ── Fecha o loop de aprendizado: atualiza ml_dataset com métricas reais ──
+          // O ML agora sabe: estratégia X com ângulo Y gerou CTR real Z
+          try {
+            const cpl  = leads > 0 && spend > 0 ? spend / Number(leads) : 0;
+            const roas = purchases > 0 && spend > 0 ? (purchases * 50) / spend : 0; // estimativa R$50/conversão
+            const isRealWinner = ctr >= 1.5 && (cpl === 0 || cpl <= 15) && spend >= 10;
+
+            await pool.query(`
+              UPDATE ml_dataset SET
+                real_ctr             = $2,
+                real_cpc             = $3,
+                real_cpl             = $4,
+                real_roas            = $5,
+                real_spend           = $6,
+                real_leads           = $7,
+                label_ctr            = $2,
+                label_cpc            = $3,
+                label_roas           = $5,
+                label_is_winner      = CASE WHEN $8 THEN 1 ELSE label_is_winner END,
+                feedback_applied_at  = NOW(),
+                feedback_source      = 'meta_api'
+              WHERE campaign_id = $1
+            `, [camp.id, ctr, cpc, cpl, roas, spend, Number(leads), isRealWinner]);
+
+            if (isRealWinner) {
+              log.info("ml", "Loop fechado: campanha marcada winner com dados reais", {
+                campaignId: camp.id, ctr: ctr.toFixed(2), cpl: cpl.toFixed(2), engine: "meta_sync",
+              });
+            }
+          } catch (mlErr: any) {
+            log.warn("ml", "Falha ao atualizar ml_dataset com metricas reais (nao critico)", {
+              error: mlErr.message?.slice(0, 60),
+            });
+          }
+
         } catch (e: any) {
           errors++;
           log.warn("sync", "Erro ao sincronizar campanha", { campaignId: camp.id, error: e.message?.slice(0, 60) });
