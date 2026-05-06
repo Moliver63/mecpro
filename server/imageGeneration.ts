@@ -597,20 +597,27 @@ async function generateWithHeyGen(creative: any, objective: string, format: Crea
 
 // ── Pollinations.AI — geração gratuita sem API key ───────────────────────────
 // Funciona via URL direta: https://image.pollinations.ai/prompt/{encoded}
-const tryPollinations = async (prompt: string, format: CreativeImageFormat): Promise<string | null> => {
+const tryPollinations = async (prompt: string, format: CreativeImageFormat, attempt = 1): Promise<string | null> => {
   try {
     const dim = FORMAT_DIMENSIONS[format];
     const encoded = encodeURIComponent(prompt.slice(0, 500));
-    // notext=true: instrui o modelo a não gerar texto na imagem
-    // enhance=true: melhora composição e qualidade geral
-    // 'flux' com negative prompt forte via prompt engineering
-    // notext=true: parâmetro nativo do Pollinations para suprimir texto
     const negativeEncoded = encodeURIComponent("text, words, letters, typography, writing, watermark, logo, sign, label, caption, title, heading, font");
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&notext=true&enhance=true&model=flux&negative=${negativeEncoded}&seed=${Date.now()}`;
+    const seed = Date.now() + (attempt * 1000); // seed diferente por tentativa
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${dim.width}&height=${dim.height}&nologo=true&notext=true&enhance=true&model=flux&negative=${negativeEncoded}&seed=${seed}`;
 
-    // Faz download da imagem (necessário — Meta não aceita URLs dinâmicas do Pollinations)
-    const getRes = await fetch(url, { signal: AbortSignal.timeout(30000) }).catch(() => null);
-    if (!getRes?.ok) return null;
+    log.info("image-generation", `Pollinations.AI tentativa ${attempt}`, { format, seed });
+
+    // Timeout 35s — Pollinations pode demorar 15-30s para gerar FLUX
+    const getRes = await fetch(url, { signal: AbortSignal.timeout(35000) }).catch((e: any) => {
+      log.warn("image-generation", `Pollinations timeout/erro tentativa ${attempt}`, { error: e.message?.slice(0, 60) });
+      return null;
+    });
+    if (!getRes?.ok) {
+      log.warn("image-generation", `Pollinations HTTP ${getRes?.status} tentativa ${attempt}`, { format });
+      // Retry automático na tentativa 1
+      if (attempt < 2) return tryPollinations(prompt, format, 2);
+      return null;
+    }
 
     const contentType = getRes.headers.get("content-type") || "";
     if (!contentType.includes("image")) {
@@ -721,12 +728,16 @@ export async function generateAdImage(
 
   // Se o provider primário está esgotado, pula direto para Pollinations
   if (isProviderExhausted(provider)) {
-    log.info("image-generation", `Provider ${provider} sem créditos — usando Pollinations diretamente`, { format });
-    const polUrl = await tryPollinations(inferPrompt(creative, segment, objective, format), format).catch(() => null);
+    log.info("image-generation", `Provider ${provider} esgotado — Pollinations direto`, { format });
+    const polUrl = await tryPollinations(inferPrompt(creative, segment, objective, format), format).catch((e: any) => {
+      log.warn("image-generation", "Pollinations falhou no fallback direto", { error: e.message?.slice(0, 60) });
+      return null;
+    });
     if (polUrl) {
-      log.info("image-generation", "✅ Pollinations.AI como fallback final", { format });
+      log.info("image-generation", "✅ Pollinations.AI fallback direto OK", { format });
       return polUrl;
     }
+    log.warn("image-generation", "Pollinations falhou — sem imagem gerada", { format });
     return null;
   }
 
@@ -790,10 +801,14 @@ export async function generateAdImage(
 
     // Última tentativa: Pollinations.AI (gratuito, sem API key)
     // Usa o mesmo prompt rico do inferPrompt (com nicho, copy, etc)
+    log.info("image-generation", "Tentando Pollinations.AI (fallback principal)", { format });
     const pollinationsUrl = await tryPollinations(
       inferPrompt(creative, segment, objective, format),
       format
-    ).catch(() => null);
+    ).catch((e: any) => {
+      log.warn("image-generation", "Pollinations falhou no pipeline principal", { error: e.message?.slice(0, 60) });
+      return null;
+    });
     if (pollinationsUrl) {
       IMAGE_CACHE.set(cacheKey, pollinationsUrl);
       log.info("image-generation", "✅ Pollinations.AI como fallback final", { format });
