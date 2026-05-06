@@ -679,8 +679,10 @@ const clientProfileRouter = router({
       productProofPoints:   z.string().nullish(),
       productCTA:           z.string().nullish(),
       copyStructure:        z.string().nullish(),
+      // Personas automáticas geradas pela IA
+      personas:             z.string().nullish(),
     }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const websiteUrl = (() => {
         const raw = String(input.websiteUrl || "").trim();
         if (!raw) return undefined;
@@ -688,7 +690,26 @@ const clientProfileRouter = router({
         if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return `https://${raw}`;
         return raw;
       })();
-      return db.upsertClientProfile({ ...input, websiteUrl } as any);
+      const saved = await db.upsertClientProfile({ ...input, websiteUrl } as any);
+
+      // Gera personas automaticamente em background (não bloqueia resposta)
+      if (input.targetAudience && input.targetAudience.length > 10 && !input.personas) {
+        (async () => {
+          try {
+            const { generatePersonasFromAudience } = await import("../ai.js");
+            const personas = await generatePersonasFromAudience(
+              input.targetAudience!,
+              input.niche || "",
+              input.companyName || "",
+            );
+            if (personas) {
+              await db.upsertClientProfile({ ...input, websiteUrl, personas } as any);
+            }
+          } catch { /* silencioso — personas são opcionais */ }
+        })();
+      }
+
+      return saved;
     }),
   // Consulta CNPJ via BrasilAPI e retorna dados para pré-preencher o perfil
   lookupCNPJ: protectedProcedure

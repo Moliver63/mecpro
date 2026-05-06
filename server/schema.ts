@@ -76,6 +76,8 @@ export const clientProfiles = pgTable("client_profiles", {
   state:         varchar("state",         { length: 2   }),  // ex: "SC"
   country:       varchar("country",       { length: 50  }).default("Brasil"),
   averageTicket: integer("averageTicket"),                   // ticket médio em R$
+  // ── Personas automáticas (JSON gerado pela IA) ───────────────────────────
+  personas:            text("personas"),              // JSON: array de 3 personas
   // ── Produto específico anunciado ─────────────────────────────────────────
   productName:         varchar("productName",         { length: 150 }),  // nome do produto/serviço anunciado
   productPrice:        varchar("productPrice",         { length: 80  }),  // ex: "R$ 997", "a partir de R$ 200/mês"

@@ -760,7 +760,13 @@ export async function runMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_ai_cache_expires ON ai_cache(expires_at);
     `).catch(() => {});
 
-        // Campos de produto específico e estrutura narrativa
+        // Persona automática gerada pela IA
+    await pool.query(`
+      ALTER TABLE client_profiles
+      ADD COLUMN IF NOT EXISTS "personas" text
+    `).catch(() => {});
+
+    // Campos de produto específico e estrutura narrativa
     await pool.query(`
       ALTER TABLE client_profiles
       ADD COLUMN IF NOT EXISTS "productName"          varchar(150),

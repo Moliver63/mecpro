@@ -5347,6 +5347,44 @@ Gere uma análise de mercado completa em JSON:
   return analysis;
 }
 
+// ── Geração automática de personas a partir do targetAudience ──────────────
+export async function generatePersonasFromAudience(
+  targetAudience: string,
+  niche: string,
+  companyName: string,
+): Promise<string | null> {
+  if (!targetAudience || targetAudience.length < 10) return null;
+  try {
+    const prompt = `Você é especialista em segmentação de público para Meta Ads.
+Dado este público-alvo: "${targetAudience}"
+Nicho: "${niche}" | Empresa: "${companyName}"
+
+Gere 3 personas detalhadas e específicas. Responda APENAS em JSON:
+{
+  "personas": [
+    {
+      "name": "Nome fictício representativo",
+      "age": "faixa etária exata",
+      "occupation": "profissão específica",
+      "income": "renda mensal aproximada",
+      "pain": "dor específica que este produto resolve PARA ELA",
+      "desire": "desejo emocional real (não genérico)",
+      "objection": "objeção principal antes de comprar",
+      "trigger": "gatilho que a faz agir agora",
+      "language": "como ela fala e se comunica (formal/informal/gírias)",
+      "whereFinds": "onde ela passa tempo online (Instagram, TikTok, Google etc)"
+    }
+  ]
+}`;
+    const raw = await gemini(prompt, { temperature: 0.4 });
+    const clean = raw.replace(/\`\`\`json|\`\`\`/g, "").trim();
+    const parsed = JSON.parse(clean);
+    return JSON.stringify(parsed.personas);
+  } catch {
+    return null;
+  }
+}
+
 // ── Módulo 4: Gerar campanha ──
 export async function generateCampaign(input: {
   projectId: number; name: string; objective: string;
@@ -5367,6 +5405,49 @@ export async function generateCampaign(input: {
   }
 
   const budgetDaily = Math.round(input.budget / 30);
+
+  // Helper: personas block para o prompt
+  function buildPersonasBlock(personasJson: string | null | undefined): string {
+    if (!personasJson) return "";
+    try {
+      const parsed = JSON.parse(personasJson);
+      if (!Array.isArray(parsed) || parsed.length === 0) return "";
+      const lines = parsed.map((p: any, i: number) =>
+        "Persona " + (i+1) + ": " + p.name + ", " + p.age + ", " + p.occupation +
+        ". Dor: " + p.pain + ". Desejo: " + p.desire +
+        ". Objeção: " + p.objection + ". Gatilho: " + p.trigger + "."
+      );
+      return "\nPERSONAS DO PÚBLICO (use como base para copies):\n" + lines.join("\n");
+    } catch { return ""; }
+  }
+
+  // Contexto temporal automático
+  const now = new Date();
+  const monthNames = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+  const weekdays = ["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"];
+  const currentMonth = now.getMonth() + 1;
+  const seasonBR = currentMonth >= 12 || currentMonth <= 2 ? "Verão (férias, praias, viagens)" :
+                   currentMonth <= 5 ? "Outono (volta às aulas, rotina)" :
+                   currentMonth <= 8 ? "Inverno (festas juninas, conforto)" : "Primavera (Dia das Crianças, festas)";
+  const seasonalEvents: Record<number, string> = {
+    1: "Pós-réveillon — público em modo resolução e planejamento",
+    2: "Carnaval — foco em entretenimento; pós-carnaval = foco em produtividade",
+    3: "Dia da Mulher (8/3) — presente, beleza, empoderamento",
+    4: "Páscoa — alimentação, família, viagens curtas",
+    5: "Dia das Mães (2º domingo) — maior data do varejo após Black Friday",
+    6: "Dia dos Namorados (12/6) — presentes, experiências, restaurantes",
+    7: "Férias escolares — turismo, cursos, entretenimento infantil",
+    8: "Dia dos Pais (2º domingo) — eletrônicos, experiências, moda masculina",
+    9: "Volta ao normal — foco em produtividade e planejamento Q4",
+    10: "Dia das Crianças (12/10) — brinquedos, passeios; início Black Friday awareness",
+    11: "Black Friday (última sexta) — maior volume de vendas do ano",
+    12: "Natal e Ano Novo — presentes, viagens, retrospectiva e metas",
+  };
+  const temporalContext = `CONTEXTO TEMPORAL:
+- Hoje: ${weekdays[now.getDay()]}, ${now.getDate()} de ${monthNames[now.getMonth()]} de ${now.getFullYear()}
+- Estação no Brasil: ${seasonBR}
+- Evento/momento próximo: ${seasonalEvents[currentMonth] || "Sem data especial — foco em demanda orgânica"}
+INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto temporal acima.`;
   const objectiveLabels: Record<string, string> = {
     leads: "captação de leads", sales: "vendas diretas", branding: "branding e alcance",
     traffic: "tráfego para site", engagement: "engajamento"
@@ -5503,6 +5584,7 @@ ${(clientProfile as any)?.productCTA ? `- CTA PREFERIDO: "${(clientProfile as an
 - Proposta única de valor: ${(clientProfile as any)?.uniqueValueProposition || "—"}
 - Principais objeções: ${(clientProfile as any)?.mainObjections || "—"}
 ${(clientProfile as any)?.city ? `- Localização: ${(clientProfile as any).city}${(clientProfile as any)?.state ? "/" + (clientProfile as any).state : ""}` : ""}
+${buildPersonasBlock((clientProfile as any)?.personas)}
 ${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
 - Budget mensal declarado: R$ ${monthlyBudget}
 - Objetivo principal: ${campaignObjective}
@@ -5523,7 +5605,9 @@ ${marketAnalysis ? `
 - Ameaças: ${(marketAnalysis as any).threats || "—"}
 ` : ""}
 ${input.extraContext ? `CONTEXTO ADICIONAL DO CLIENTE:
-${input.extraContext}` : ""}
+${input.extraContext}
+` : ""}
+${temporalContext}
 
 DADOS REAIS DE PERFORMANCE — META ADS INSIGHTS API (últimos 30 dias da conta):
 ${metaInsights! ? `
