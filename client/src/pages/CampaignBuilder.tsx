@@ -378,31 +378,38 @@ export default function CampaignBuilder() {
           <p style={{ color: "var(--muted)", fontSize: 14 }}>Acesse a partir de um projeto.</p>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(280px,34%,360px)", gap: 20 }}>
+        <div className="campaign-builder-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(280px,30%,340px)", gap: 20 }}>
 
           {/* Builder */}
           <div>
             {/* Steps */}
-            <div style={{ display: "flex", gap: 4, marginBottom: 24 }}>
+            {/* Stepper — mobile: só números; desktop: números + labels */}
+            <div style={{ display: "flex", gap: 2, marginBottom: 20, alignItems: "center" }}>
               {STEPS.map((s, i) => {
                 const n = i + 1;
                 const done = step > n;
                 const active = step === n;
                 return (
                   <div key={s} onClick={() => n < step && setStep(n)}
-                    style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: n < step ? "pointer" : "default" }}>
+                    style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                      cursor: n < step ? "pointer" : "default", minWidth: 0 }}>
                     <div style={{
-                      width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                      width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                       background: done ? "var(--green)" : active ? "var(--navy)" : "var(--border)",
-                      color: done || active ? "white" : "var(--muted)", fontSize: 12, fontWeight: 700
+                      color:      done || active ? "white" : "var(--muted)", fontSize: 11, fontWeight: 700,
+                      flexShrink: 0,
                     }}>{done ? "✓" : n}</div>
-                    <span style={{ fontSize: 11, color: active ? "var(--navy)" : "var(--muted)", fontWeight: active ? 700 : 400 }}>{s}</span>
+                    <span className="stepper-label" style={{
+                      fontSize: 10, color: active ? "var(--navy)" : "var(--muted)",
+                      fontWeight: active ? 700 : 400, textAlign: "center",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%",
+                    }}>{s}</span>
                   </div>
                 );
               })}
             </div>
 
-            <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
+            <div className="builder-card" style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 28 }}>
 
               {(!hasClientProfile || !hasMarketAnalysis) && (
                 <div style={{ display: "grid", gap: 10, marginBottom: 20 }}>
@@ -428,7 +435,7 @@ export default function CampaignBuilder() {
                 <div>
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Qual é o segmento do negócio?</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>A IA vai configurar automaticamente objetivo, CTA, copy e estratégia para o seu segmento.</p>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="seg-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     {SEGMENTS.map(seg => (
                       <div key={seg.value}
                         onClick={() => {
@@ -685,7 +692,7 @@ export default function CampaignBuilder() {
                     </div>
 
                     {(clientProfile as any)?.productName ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         {[
                           { icon: "🏷️", label: "Produto", value: (clientProfile as any)?.productName },
                           { icon: "🏢", label: "Empresa", value: (clientProfile as any)?.companyName },
@@ -712,7 +719,7 @@ export default function CampaignBuilder() {
                         )}
                       </div>
                     ) : (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div className="prod-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         {[
                           { icon: "🏢", label: "Empresa", value: (clientProfile as any)?.companyName },
                           { icon: "🎯", label: "Nicho", value: (clientProfile as any)?.niche },
@@ -1208,7 +1215,7 @@ export default function CampaignBuilder() {
                         </div>
                         <p style={{ fontSize: 12, color: "rgba(255,255,255,.75)", lineHeight: 1.6 }}>{matchResult.reasoning}</p>
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                      <div className="match-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
                         {[
                           { icon: "💡", label: "Ângulo criativo", value: matchResult.topAngle },
                           { icon: "🎬", label: "Tipo de criativo", value: matchResult.topCreativeType },
@@ -1312,41 +1319,54 @@ export default function CampaignBuilder() {
                 </div>
               )}
 
-              {/* Navegação */}
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 28 }}>
-                {/* Botão de auditoria no step 7 */}
-              {step === 7 && (
-                <button
-                  onClick={() => setShowBuilderAudit(a => !a)}
-                  style={{ background: showBuilderAudit ? "#1e293b" : "var(--off)", color: showBuilderAudit ? "white" : "var(--black)",
-                    fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 10, border: "1px solid var(--border)",
-                    cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                  🔍 {showBuilderAudit ? "Fechar auditoria" : "Pré-auditar briefing"}
-                </button>
-              )}
-              {step > 1 ? <button className="btn btn-md btn-ghost" onClick={() => setStep(s => s - 1)}>← Voltar</button> : <div />}
-                {step === 1
-                  ? <button className="btn btn-md btn-primary" onClick={() => setStep(2)} disabled={!segment}>
-                      {segment ? "Continuar →" : "Selecione um segmento"}
-                    </button>
-                  : step < 5
-                  ? <button className="btn btn-md btn-primary" onClick={() => setStep(s => s + 1)}>Continuar →</button>
-                  : step === 5
-                  ? <button className="btn btn-md btn-primary" onClick={() => {
-                      if (!form.name.trim()) { toast.error("Informe o nome da campanha antes de continuar."); return; }
-                      setStep(6);
-                    }}>Calcular Match →</button>
-                  : step === 6
-                  ? <button className="btn btn-md btn-primary" onClick={() => {
-                      refetchProfile(); // garante dados frescos do produto no step 7
-                      matchResult ? setStep(7) : handleMatch();
-                    }} disabled={matching}>
-                      {matching ? "⏳ Calculando..." : matchResult ? "Continuar →" : "Calcular Match →"}
-                    </button>
-                  : <button className="btn btn-md btn-green" onClick={handleGenerate} disabled={generating || generateMutation.isPending || !form.name.trim() || creationBlocked} style={{ minWidth: 200 }}>
-                      {generating || generateMutation.isPending ? "⏳ Gerando campanha..." : creationBlocked ? "⚠️ Ajuste os pré-requisitos" : "✨ Gerar com IA"}
-                    </button>
-                }
+              {/* Navegação — mobile-first: botões em coluna em telas pequenas */}
+              <div style={{ marginTop: 28 }}>
+                {/* Botão de auditoria — só no step 7 */}
+                {step === 7 && (
+                  <button
+                    onClick={() => setShowBuilderAudit(a => !a)}
+                    style={{ width: "100%", marginBottom: 12, background: showBuilderAudit ? "#1e293b" : "var(--off)",
+                      color: showBuilderAudit ? "white" : "var(--black)", fontWeight: 700, fontSize: 13,
+                      padding: "10px 16px", borderRadius: 10, border: "1px solid var(--border)",
+                      cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    🔍 {showBuilderAudit ? "Fechar auditoria" : "Pré-auditar briefing"}
+                  </button>
+                )}
+                <div className="nav-buttons" style={{ display: "flex", gap: 10 }}>
+                  {step > 1
+                    ? <button className="btn btn-md btn-ghost" style={{ flex: "0 0 auto" }}
+                        onClick={() => setStep(s => s - 1)}>← Voltar</button>
+                    : <div />
+                  }
+                  <div style={{ flex: 1 }}>
+                    {step === 1
+                      ? <button className="btn btn-md btn-primary" style={{ width: "100%" }}
+                          onClick={() => setStep(2)} disabled={!segment}>
+                          {segment ? "Continuar →" : "Selecione um segmento"}
+                        </button>
+                      : step < 5
+                      ? <button className="btn btn-md btn-primary" style={{ width: "100%" }}
+                          onClick={() => setStep(s => s + 1)}>Continuar →</button>
+                      : step === 5
+                      ? <button className="btn btn-md btn-primary" style={{ width: "100%" }} onClick={() => {
+                          if (!form.name.trim()) { toast.error("Informe o nome da campanha antes de continuar."); return; }
+                          setStep(6);
+                        }}>Calcular Match →</button>
+                      : step === 6
+                      ? <button className="btn btn-md btn-primary" style={{ width: "100%" }} disabled={matching} onClick={() => {
+                          refetchProfile();
+                          matchResult ? setStep(7) : handleMatch();
+                        }}>
+                          {matching ? "⏳ Calculando..." : matchResult ? "Continuar →" : "Calcular Match →"}
+                        </button>
+                      : <button className="btn btn-md btn-green" style={{ width: "100%" }}
+                          onClick={handleGenerate}
+                          disabled={generating || generateMutation.isPending || !form.name.trim() || creationBlocked}>
+                          {generating || generateMutation.isPending ? "⏳ Gerando campanha..." : creationBlocked ? "⚠️ Ajuste os pré-requisitos" : "✨ Gerar com IA"}
+                        </button>
+                    }
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1366,8 +1386,9 @@ export default function CampaignBuilder() {
                   <div key={c.id}
                     onClick={() => setLocation(`/projects/${projectId}/campaign/result/${c.id}`)}
                     style={{ border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8, cursor: "pointer", transition: "all .15s" }}
+                    className="campaign-card"
                     onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--green)"; e.currentTarget.style.background = "var(--green-l)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "white"; }}>
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = ""; }}>
                     <p style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", marginBottom: 4 }}>{c.name}</p>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 10, background: "var(--green-xl)", color: "var(--green-dk)", fontWeight: 700, padding: "2px 8px", borderRadius: 4 }}>{c.objective}</span>
@@ -1383,24 +1404,8 @@ export default function CampaignBuilder() {
           </div>
         </div>
       )}
-      <style>{`
-        input[type=range]::-webkit-slider-thumb {
-          -webkit-appearance: none; appearance: none;
-          width: 24px; height: 24px; border-radius: 50%;
-          background: var(--green); cursor: pointer;
-          box-shadow: 0 2px 10px rgba(34,197,94,.5);
-          border: 3px solid white; transition: transform .15s;
-        }
-        input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
-        input[type=range]::-moz-range-thumb {
-          width: 24px; height: 24px; border-radius: 50%;
-          background: var(--green); cursor: pointer;
-          box-shadow: 0 2px 10px rgba(34,197,94,.5);
-          border: 3px solid white;
-        }
-        input[type=range]:focus { outline: none; }
-      `}</style>
-          {showBuilderAudit && (
+      {/* Auditoria de briefing */}
+      {showBuilderAudit && (
         <div style={{ maxWidth: 900, margin: "16px auto 40px", padding: "0 16px" }}>
           <CampaignAudit
             campaign={{ strategy: form.extraContext || "", creatives: "[]", adSets: "[]" }}
@@ -1409,6 +1414,56 @@ export default function CampaignBuilder() {
           />
         </div>
       )}
+      <style>{`
+        /* ── Sliders ── */
+        input[type=range]::-webkit-slider-thumb {
+          -webkit-appearance: none; appearance: none;
+          width: 26px; height: 26px; border-radius: 50%;
+          background: var(--green); cursor: pointer;
+          box-shadow: 0 2px 10px rgba(34,197,94,.5);
+          border: 3px solid white; transition: transform .15s;
+        }
+        input[type=range]::-webkit-slider-thumb:active { transform: scale(1.25); }
+        input[type=range]::-moz-range-thumb {
+          width: 26px; height: 26px; border-radius: 50%;
+          background: var(--green); cursor: pointer;
+          box-shadow: 0 2px 10px rgba(34,197,94,.5);
+          border: 3px solid white;
+        }
+        input[type=range]:focus { outline: none; }
+
+        /* ── Mobile responsive ── */
+        @media (max-width: 640px) {
+          .campaign-builder-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .builder-card {
+            padding: 16px !important;
+          }
+          .seg-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .prod-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .match-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .stepper-label {
+            display: none !important;
+          }
+          .nav-buttons {
+            flex-direction: column !important;
+          }
+          .nav-buttons > div { width: 100% !important; }
+          .nav-buttons .btn-ghost { width: 100% !important; }
+        }
+        @media (max-width: 480px) {
+          .campaign-card {
+            padding: 10px 12px !important;
+          }
+        }
+      `}</style>
     </Layout>
   );
 }
