@@ -26,6 +26,7 @@ const NAV_ADMIN = [
   { icon: "⊞",  label: "Usuários",          path: "/admin/users" },
   { icon: "◫",  label: "Projetos",          path: "/admin/projects" },
   { icon: "▣",  label: "Analytics",         path: "/admin/analytics" },
+  { icon: "🔭", label: "Tokens IA",          path: "/admin/tokens" },
   { icon: "⋈",  label: "Assinaturas",       path: "/admin/manage-subscriptions" },
   { icon: "◎",  label: "Planos",            path: "/admin/plans" },
   { icon: "◉",  label: "Financeiro",        path: "/admin/financeiro" },

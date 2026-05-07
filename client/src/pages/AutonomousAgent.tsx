@@ -730,6 +730,9 @@ export default function AutonomousAgentPage() {
           </div>
           <p style={{ fontSize: 11, color: "#94a3b8", margin: 0 }}>
             💡 <strong>Groq</strong> = mais direto e humano. <strong>ML-First</strong> = combina o que funcionou em Gemini + Groq — fica melhor com o tempo.
+          {" "}<a href="/admin/tokens" style={{ color: "#4285f4", fontWeight: 700, fontSize: 11 }}>
+            🔭 Ver consumo de tokens →
+          </a>
           </p>
         </div>
 
