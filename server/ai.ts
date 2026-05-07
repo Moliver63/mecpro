@@ -1830,6 +1830,21 @@ async function callGroqAPI(
         finishReason: data.choices?.[0]?.finish_reason,
       });
       trackLLMCall((data.usage?.prompt_tokens || 0) + (data.usage?.completion_tokens || 0));
+
+      // Token telemetry — fire-and-forget
+      logTokens({
+        provider:         "groq",
+        model:            String(model || "llama-3.3-70b-versatile"),
+        endpoint:         "groq_call",
+        promptTokens:     data.usage?.prompt_tokens     || 0,
+        completionTokens: data.usage?.completion_tokens || 0,
+        latencyMs:        data.usage ? Math.round(((data.usage.prompt_tokens || 0) + (data.usage.completion_tokens || 0)) * 0.5) : 0, // aprox ~0.5ms/token
+        temperature:      temperature ?? 0.7,
+        cacheHit:         false,
+        cacheType:        "none",
+        copyEngine:       getCopyEngine(),
+      });
+
       return text;
 
     } catch (e: any) {
