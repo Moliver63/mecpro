@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-05-05 (sessão 11)
+> **Última atualização:** 2026-05-07 (sessão 13)
 
 ---
 
@@ -17,29 +17,24 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `1c80ce1` | fix 404 + ErrorBoundary CampaignBuilder |
+| Último commit | `a95b560` | ML loop de aprendizado completo |
 
 ---
 
-## 📊 Análise de Prontidão (atualizada sessão 11)
+## 📊 Score de Prontidão (sessão 13)
 
-**Score geral: ~85%** ← subiu de 82% com motor de copy + produto + CNPJ
+**Score geral: ~88%** ← subiu de 85%
 
-| Módulo | Score | Peso | Sessão 11 |
-|---|---|---|---|
-| Infraestrutura | 94% | 5% | — |
-| Financeiro | 87% | 10% | — |
-| ML / Inteligência | 82% | 5% | — |
-| Meta Ads | 88% | 20% | — |
-| Geração de Campanhas IA | 93% | 25% | ⬆️ +5% motor copy nicho |
-| Análise de Concorrentes | 78% | 15% | ⬆️ +4% SWOT dinâmico |
-| TikTok Ads | 70% | 10% | — |
-| Google Ads | 78% | 10% | — |
-
-**Pendências críticas:**
-- Meta Token expira 2026-05-25 → reconectar (ação do usuário)
-- Meta Ads Library `code=10` → aguardando Facebook
-- TikTok token → configurar no Render
+| Módulo | Score | Delta |
+|---|---|---|
+| Infraestrutura | 94% | — |
+| Financeiro | 87% | — |
+| ML / Inteligência | **92%** | ⬆️ +10% loop fechado + copy engine |
+| Meta Ads | 88% | — |
+| Geração de Campanhas IA | **96%** | ⬆️ +3% inteligência de mercado + sazonalidade |
+| Análise de Concorrentes | 78% | — |
+| TikTok Ads | 70% | — |
+| Google Ads | 78% | — |
 
 ---
 
@@ -48,218 +43,233 @@
 | Serviço | Status | Detalhe |
 |---|---|---|
 | Cloudflare Workers AI | ✅ ATIVO | FLUX.1-schnell; 10k neurons/dia; reset 21h BRT |
-| JSON2Video | ✅ ATIVO | MP4 + voz PT-BR Azure grátis; 600 créditos |
-| Pollinations.AI | ✅ Fallback | Quando CF quota esgotada |
-| Genspark | ❌ REMOVIDO | fetch failed 100% → removido do pipeline |
-| BrasilAPI CNPJ | ✅ ATIVO | gratuita, sem auth, funciona do Render |
-| Meta Token | ✅ válido até 25/05 | Reconectar antes |
+| JSON2Video | ✅ ATIVO | MP4 + voz PT-BR Azure; 600 créditos |
+| Pollinations.AI | ✅ Fallback | Retry 2x, timeout 35s, logs detalhados |
+| Genspark | ❌ REMOVIDO | fetch failed 100% |
+| BrasilAPI CNPJ | ✅ ATIVO | 14 campos; gratuita; funciona no Render |
+| Meta Token | ⚠️ Expira 25/05 | **RECONECTAR EM BREVE** |
 | Meta Ads Library | ❌ code=10 | Aguardando Facebook |
-| Google Ads | ✅ Search+Display+Video+PMax | Todos desbloqueados |
+| Google Ads | ✅ Search+Display+Video+PMax | |
 | TikTok | ⚠️ Parcial | Token não configurado |
 | Asaas | ✅ Pix+Cartão | |
 | Gemini | ✅ 5 chaves | Cache RAM+DB |
+| Groq/Llama 3.3 70B | ✅ Fallback + modo direto | Toggle admin |
 
 ---
 
-## 🎯 Motor de Copy (NOVO — sessão 11)
+## 🧠 Consciência do MecProAI (sessão 13)
 
-### Prompt estruturado Meta Ads
-```
-Inputs mapeados:
-  Segmento → niche
-  Situação → pain (dor principal)
-  Desejo   → transformation || uvp
-  Oferta   → product + productPrice
-  Diferencial → productDifferentials
-  Prova    → productProofPoints
-  Tom      → direto, linguagem natural
+O sistema agora sabe, em cada geração:
 
-Output obrigatório:
-  3 hooks: curiosidade | dor | oportunidade (+ variações)
-  2 shortCopies: headline + body + CTA
-  1 primaryCTA (máx 5 palavras)
+| Dado | Fonte | Status |
+|---|---|---|
+| Perfil completo cliente (25 campos) | ClientProfile | ✅ |
+| productName/Price/Differentials/ProofPoints/CTA | ClientProfile | ✅ |
+| CNPJ → 14 campos automáticos | BrasilAPI | ✅ |
+| 3 Personas geradas automaticamente | Gemini background | ✅ |
+| Sazonalidade (data/estação/eventos) | temporalContext | ✅ |
+| Nível de consciência do público | audienceConsciousness | ✅ |
+| Desejo emocional / Objeção / Mecanismo único | Inteligência de mercado | ✅ |
+| Dados reais Meta (CPC/CPM/CTR/CPL) | Meta Insights API | ✅ |
+| Anúncios dos concorrentes | M2 | ✅ |
+| Benchmarks 12 nichos (WordStream BR) | resolveNicheBenchmarks | ✅ |
+| Winner patterns por engine (Gemini/Groq) | ml_dataset | ✅ |
+| CTR/CPL real pós-campanha | syncMetaCampaignMetrics | ✅ |
 
-PROIBIDO: "não perca", "imperdível", "oportunidade única", linguagem de IA
-```
+---
 
-### Motor por nicho — 12 segmentos (getNicheContext)
-```
-imoveis     → ROI/Airbnb/escassez/valorização | investidor/comprador/remarketing
-educacao    → transformação/urgência/ROI | aspirante/profissional/retargeting
-saude       → resultado/credibilidade/geo | dor aguda/estético/retargeting
-fitness     → anti-clichê/identidade | iniciante/retornante/avançado
-ecommerce   → escassez/prova social | descoberta/carrinho/recorrente
-financeiro  → medo perder/simplicidade | desinformado/insatisfeito/avançado
-alimentacao → sensorial/conveniência | impulso/planejador/frequente
-juridico    → direito desconhecido/urgência | PF/empresa/retargeting
-pet         → amor/saúde/culpa | tutor novo/experiente/culpado
-tech        → ROI/dor operacional/trial | decisor/usuário/pós-trial
-turismo     → FOMO/ocasião | casal/família/solo
-construcao  → resultado visual/garantia | proprietário/comprador/empresa
-```
+## ✍️ Copy Engine Toggle (NOVO — sessão 13)
 
-### UI CampaignResult — seção "Copies Prontas para Meta Ads"
+**Localização:** Agente Autônomo → seção "Engine de Copy"
+
+| Engine | Temperatura | Quando usar |
+|---|---|---|
+| 🟢 Gemini | 0.6-0.7 | Qualidade máxima, compliance Meta, default |
+| 🟡 Groq/Llama 3.3 70B | 0.85 | Copies fracas/genéricas — mais direto e humano |
+| 🔵 ML-First | 0.5 | Após acumular dados — combina winners Gemini+Groq |
+
 ```
-[CTA Principal em azul Meta]
-Cards roxos: headline + body + CTA + botão 📋 copiar
-Hook cards com cores: 🔵 curiosidade | 🔴 dor | 🟢 oportunidade
+Padrões:
+getCopyEngine() → "gemini" | "groq" | "ml_first"
+Persiste no banco via saveAdminSetting("copy_engine", ...)
+Carregado no boot via loadCopyEngineFromDB()
+Aplicado em: generateCampaign + generateCampaignPart
 ```
 
 ---
 
-## 📦 Campos de Produto (NOVO — sessão 11)
+## 🔄 Loop de Aprendizado ML (NOVO — sessão 13)
 
-### Schema DB (6 novos campos)
+### Fluxo completo
+
+```
+1. Campanha gerada → ml_dataset salva:
+   feature_strategy_type  ← audienceConsciousness
+   feature_hook_type      ← tipo do primeiro hook
+   feature_angle          ← tipo do primeiro ângulo
+   feature_copy_structure ← AIDA|PAS|Storytelling|etc
+   feature_has_personas   ← 1 se personas existem
+   feature_copy_engine    ← gemini|groq|ml_first
+
+2. Campanha publicada no Meta
+
+3. syncMetaCampaignMetrics (botão no painel):
+   → busca CTR/CPC/CPL/ROAS reais da Meta API
+   → UPDATE ml_dataset SET real_ctr, real_cpl, real_leads...
+   → marca label_is_winner=1 se CTR≥1.5% e CPL≤R$15
+
+4. ML-First lê winners por engine:
+   WINNERS GEMINI: [1] CTR real 2.8% [angulo: urgencia] [hook: dor]
+   WINNERS GROQ:   [1] CTR real 1.9% [angulo: prova_social]
+   → injeta no SYSTEM_MECPRO antes de gerar
+```
+
+### Colunas ml_dataset (completas)
 ```sql
-productName          varchar(150)  -- nome do produto anunciado
-productPrice         varchar(80)   -- "R$ 997", "a partir de R$ 200/mês"
-productDifferentials text          -- 3 diferenciais
-productProofPoints   text          -- provas sociais, números, resultados
-productCTA           varchar(100)  -- CTA preferido: "Falar no WhatsApp"
-copyStructure        varchar(30)   -- AIDA|PAS|STORYTELLING|CONTRASTE|URGENCIA|mixed
-```
-
-### Zod schema: todos os 6 com `.nullish()` (aceita null do banco)
-
-### UI ClientProfile — seção azul destacada
-```
-📦 PRODUTO ANUNCIADO
-  Nome do produto * | Preço | CTA preferido
-  3 diferenciais (textarea)
-  Provas sociais (textarea)
-  Select: Mista | AIDA | PAS | Storytelling | Contraste | Urgência
-```
-
-### Injeção no prompt da IA
-```
-PRODUTO ANUNCIADO: "{productName}" ← USE ESTE NOME
-Preço/Oferta: {productPrice}
-PROVAS SOCIAIS (USE ESTES NÚMEROS): {productProofPoints}
-Diferenciais: {productDifferentials}
-CTA preferido: "{productCTA}"
-Estrutura de copy: {copyStructure} (obrigatório se não-mixed)
-```
-
-### CampaignBuilder — produto em destaque
-```
-Step 5 Detalhes: bloco verde/amarelo com dados do produto
-Step 7 Gerar: card verde com productName em 16px bold + preço + CTA
+feature_platform, feature_objective, feature_niche
+feature_ad_format, feature_budget_range, feature_duration
+feature_has_video, feature_has_carousel
+feature_used_urgency, feature_used_social_proof
+feature_copy_type, feature_creative_type
+feature_copy_engine       ← NOVO sessão 13
+feature_strategy_type     ← NOVO sessão 13
+feature_hook_type         ← NOVO sessão 13
+feature_angle             ← NOVO sessão 13
+feature_copy_structure    ← NOVO sessão 13
+feature_has_personas      ← NOVO sessão 13
+feature_has_market_data   ← NOVO sessão 13
+real_ctr, real_cpc, real_cpl, real_roas, real_spend, real_leads ← NOVO
+feedback_applied_at, feedback_source ← NOVO
+label_score, label_ctr, label_cpc, label_roas
+label_is_winner, label_success_probability, split_group
 ```
 
 ---
 
-## 🔍 CNPJ Auto-preenchimento (NOVO — sessão 11)
+## 🎯 Inteligência de Mercado (NOVO — sessão 13)
+
+Adicionado ao SYSTEM_MECPRO como diagnóstico obrigatório pré-geração:
 
 ```
-API: BrasilAPI (brasilapi.com.br/api/cnpj/v1/{cnpj})
-     Gratuita, sem auth, funciona do Render.com
-     Substituiu: opencnpj.org (bloqueada no Render)
+1. Nível de consciência: inconsciente|problema_consciente|
+                          solucao_consciente|produto_consciente
+2. Desejo emocional principal (status/segurança/alívio/pertencimento)
+3. Objeção principal → quebrada dentro da copy
+4. Mecanismo único → herói da campanha
 
-Campos preenchidos automaticamente:
-  companyName    → nome_fantasia || razao_social
-  niche          → CNAE → 9 categorias (Imóveis, Saúde, Educação...)
-  city           → municipio
-  state          → uf
-  businessScope  → porte (MEI→local, ME→regional, demais→national)
-  productService → descricao_atividade_principal
-  websiteUrl     → email da empresa
-  socialLinks    → phone + email
+PROIBIDO: "melhor da região", "qualidade garantida", "não perca"
+OUTPUT OBRIGATÓRIO: 3 ângulos, 5 hooks, 2 copies, 2 headlines, criativo
+```
 
-NÃO vêm do CNPJ (usuário preenche):
-  productName, productPrice, productDifferentials,
-  productProofPoints, targetAudience, mainPain, uvp
+**UI CampaignResult — 3 novas seções:**
+- 🧠 Inteligência de Mercado (4 cards: consciência/desejo/objeção/mecanismo)
+- 🎯 Ângulos de Campanha (3 estratégias)
+- 📢 Headlines
+
+---
+
+## 📋 Personas Automáticas (NOVO — sessão 13)
+
+```
+Trigger: salvar ClientProfile com targetAudience preenchido
+Processo: Gemini gera 3 personas em background (não bloqueia resposta)
+Campos:   nome, idade, profissão, dor, desejo, objeção, gatilho, linguagem
+Armazena: coluna personas (text JSON) no clientProfiles
+Injeta:   buildPersonasBlock() no prompt de toda campanha
+UI:       seção "🎭 Personas geradas pela IA" no ClientProfile
 ```
 
 ---
 
-## 🐛 Bugs Resolvidos (sessão 11)
+## 🔍 CNPJ — 14 campos automáticos (sessão 13)
 
-#### BUG-058: InstagramVerifier not defined (M2 crash)
-- competitorComparison.tsx e competitorForms.tsx sem import
-- **Commit:** a9aefcd
+```
+Campos existentes (8): companyName, niche, city, state, businessScope,
+                        productService, websiteUrl, socialLinks(phone)
 
-#### BUG-059: SWOT myScores hardcoded ≤5
-- scores fixos sem dados reais; agora usa mesma fórmula do concorrente
-- **Commit:** edd2099
-
-#### BUG-060: SW crash "Failed to convert value to Response"
-- caches.match() retornava undefined → respondWith(undefined) crashava toda a página
-- **Commit:** b62f080
-
-#### BUG-061: regenerateCreativeImage não chegava no Pollinations
-- isProviderExhausted retornava null imediato sem tentar Pollinations
-- **Fix:** ao detectar 429, chama tryPollinations direto com inferPrompt completo
-- **Commit:** 9f0aa9b
-
-#### BUG-062: Genspark fetch failed em 100% das chamadas
-- **Fix:** removido do pipeline; novo fluxo: CF FLUX → Pollinations
-- **Commit:** 17866d2
-
-#### BUG-063: hooks/copies/adSets sem contexto de nicho
-- **Fix:** getNicheContext(niche, product) injetado nos 3 prompts
-- **Commit:** 185c042
-
-#### BUG-064: Google negativeKeywords sempre vazios
-- **Fix:** 3 camadas de extração + defaults por objetivo
-- **Commit:** 11f31ea
-
-#### BUG-065: productName/price/etc bloqueados pelo Zod
-- `.optional()` → `.nullish()` + null→undefined no submit
-- **Commits:** 541483f, bd17e38
-
-#### BUG-066: opencnpj.org bloqueada no Render
-- **Fix:** BrasilAPI + mapCNPJToForm completo com 9 nichos
-- **Commit:** 3c896ab
-
-#### BUG-067: GitHub divergiu (17 commits remotos vs 13 locais)
-- **Fix:** force push para sincronizar
-- **Commit:** force push `3c896ab`
+Campos novos (6):
+  productName       ← nome_fantasia (quando ≠ razão social)
+  productProofPoints← "X anos de mercado · Fundada por [sócio]"
+  productDifferentials← atividades secundárias (cnaes_secundarios)
+  bairro/logradouro/cep → socialLinks (segmentação geográfica)
+  telefone2         ← ddd_telefone_2
+  Preview card      ← mostra todos os campos importados antes de salvar
+```
 
 ---
 
 ## 🐛 Bugs Resolvidos (sessão 12)
 
-#### BUG-068: CampaignBuilder 404 após timeout de geração
-- **Causa:** `/api/campaigns/latest` usava `AND "userId" = $2` mas campaigns não tem coluna userId → sempre retornava null → `pollForCampaign` nunca encontrava → redirect para `/result/undefined` → 404
-- **Fix:** JOIN via projects `INNER JOIN projects p ON p.id = c."projectId" WHERE p."userId" = $2`
-- **Commit:** 1c80ce1
-
-#### BUG-069: "Algo deu errado" ErrorBoundary no CampaignBuilder
-- **Causa:** `trpc.campaigns.matchScore.useMutation()` dentro de `try/catch` violava Rules of Hooks → React detectava ordem de hooks mudando entre renders → crash
-- **Fix:** `(trpc as any).campaigns.matchScore?.useMutation()` sem try/catch — hook sempre na mesma posição
-- **Commit:** 1c80ce1
-
-#### BUG-070: creationBlocked bloqueava por !hasMarketAnalysis
-- **Causa:** usuários sem M2 preenchido ficavam com botão bloqueado mesmo tendo perfil e plano válidos
-- **Fix:** hasMarketAnalysis vira aviso azul informativo, não bloqueia
-- **Commit:** 0e26287
-
-#### BUG-071: productName desatualizado no step 7
-- **Causa:** clientProfile não refrescava ao chegar no step 7
-- **Fix:** refetchProfile() antes de avançar para step 7
-- **Commit:** 0e26287
+#### BUG-068 a 071 — Ver memória anterior
 
 ---
 
-## 🏛️ Arquitetura — Padrões
+## 🐛 Bugs Resolvidos (sessão 13)
+
+#### BUG-072: useSafeMutation — loading travado + redirect quebrando
+- **Fix:** hook padrão para todas mutations; isMounted + setLoading antes redirect
+- **Commit:** edaf2ee
+
+#### BUG-073: ClientProfile edição não persiste na UI
+- **Fix:** initialized.current=false no onSuccess → useEffect re-sincroniza
+- **Commit:** c41def5
+
+#### BUG-074: Geração trava na tela (generating never false)
+- **Fix:** redirect em handleGenerate, flag redirected, finally seguro
+- **Commit:** c41def5
+
+#### BUG-075: 404 após geração com Groq fallback
+- **Fix:** tRPC timeout 25s→55s; pollForCampaign 6×3s→12×(3-5s)=60s
+- **Commit:** 788b32a
+
+#### BUG-076: Pollinations falha silenciosa
+- **Fix:** retry 2x, timeout 35s, .catch com log.warn
+- **Commit:** f5534bf
+
+#### BUG-077: CampaignBuilder mobile — 10 bugs de layout
+- **Fix:** @media 640px, touchAction, grid collapse, stepper labels
+- **Commit:** d3372ec
+
+#### BUG-078: 401 no polling /api/campaigns/latest
+- **Fix:** rota específica registrada ANTES de /:id no Express
+- **Commit:** 71a0c08
+
+#### BUG-079: regenerateMutation crash (null is not object evaluating n.part)
+- **Fix:** Rules of Hooks; isLoading→isPending; guard null showRegenModal
+- **Commit:** 71a0c08
+
+---
+
+## 🏛️ Padrões Estabelecidos
 
 ```tsx
-// Zod para campos que podem ser null do banco: .nullish() não .optional()
+// useSafeMutation — padrão ÚNICO para todas as mutations
+const { execute, loading } = useSafeMutation(
+  (input) => mutation.mutateAsync(input),
+  {
+    redirectTo:     (data) => data?.id ? `/path/${data.id}` : null,
+    invalidateKeys: [refetch],
+    successMessage: "Sucesso!",
+    onError:        (e) => console.error(e),
+  }
+);
+
+// Zod: campos que podem ser null do banco
 productName: z.string().nullish()
-
-// Submit: converte null → undefined para campos string
-const stringFields = ["productName", "productPrice", ...];
-for (const k of stringFields) {
-  if (cleanForm[k] === null) cleanForm[k] = undefined;
-}
-
-// Hooks React: NUNCA optional chaining
-trpc.x.y.useMutation() — isPending não isLoading
-
-// DB: SEMPRE DELETE + INSERT
 
 // CNPJ: BrasilAPI (não opencnpj.org)
 fetch("https://brasilapi.com.br/api/cnpj/v1/" + digits)
+
+// Hooks: NUNCA optional chaining, SEMPRE isPending (não isLoading)
+trpc.x.y.useMutation()
+
+// DB: SEMPRE DELETE + INSERT
+
+// Copy Engine toggle via admin
+getCopyEngine() → "gemini" | "groq" | "ml_first"
+
+// ML dataset: registrar engine em TODA campanha
+getCopyEngine() → feature_copy_engine no INSERT
 ```
 
 ---
@@ -268,27 +278,28 @@ fetch("https://brasilapi.com.br/api/cnpj/v1/" + digits)
 
 ```
 server/
-├── _core/router.ts         ← lookupCNPJ; generateCreativeVideo; publishToGoogle
-│                             clientProfile.upsert: 6 novos campos .nullish()
-├── _core/migrations.ts     ← 6 novas colunas produto; ALTER TABLE
-├── ai.ts                   ← getNicheContext (12 nichos); hooks prompt estruturado
-│                             productName/proofPoints/preferredCTA nos prompts
-├── imageGeneration.ts      ← CF FLUX → Pollinations (sem Genspark)
-│                             isProviderExhausted → tryPollinations direto
-├── schema.ts               ← 6 novos campos produto no clientProfiles
-└── paymentService.ts       ← Asaas Pix+Cartão
+├── _core/router.ts     ← syncMetaCampaignMetrics: fecha loop ML com dados reais
+│                          getCopyEngine/setCopyEngine admin procedures
+│                          clientProfile.upsert: async, persona background
+├── _core/migrations.ts ← personas, feature_copy_engine, 8 novas colunas ML
+├── _core/index.ts      ← loadCopyEngineFromDB no boot; /api/campaigns/latest
+│                          antes de /:id
+├── ai.ts               ← getCopyEngine/setCopyEngine/loadCopyEngineFromDB
+│                          generateCampaign + generateCampaignPart: usa engine
+│                          ML-First: winners separados Gemini/Groq com CTR real
+│                          temporalContext (sazonalidade); buildPersonasBlock
+│                          inteligência de mercado obrigatória no SYSTEM_MECPRO
+│                          getNicheContext (12 nichos)
+├── imageGeneration.ts  ← tryPollinations: retry 2x, timeout 35s, logs
+└── schema.ts           ← personas + 6 campos produto
 
-client/src/pages/
-├── ClientProfile.tsx       ← CNPJ BrasilAPI; bloco 📦 PRODUTO; AIDA/PAS select
-│                             handleSubmit: null→undefined + ALLOWED list
-├── CampaignResult.tsx      ← shortCopies+primaryCTA; hook cards coloridos
-├── CampaignBuilder.tsx     ← Step 5+7: produto em destaque; pollForCampaign fix; Rules of Hooks fix
-├── GoogleCampaignCreator.tsx ← Display/Video/PMax desbloqueados; imagePath
-└── TikTokCampaignCreator.tsx ← videoUrl/coverImageUrl automáticos
-
-client/src/components/competitors/
-├── competitorComparison.tsx ← import InstagramVerifier; SWOT dinâmico
-└── competitorForms.tsx     ← imports TikTokVerifier/GoogleVerifier/InstagramVerifier
+client/src/
+├── hooks/useSafeMutation.ts   ← padrão único para mutations
+├── pages/
+│   ├── ClientProfile.tsx      ← CNPJ 14 campos; personas UI; useSafeMutation
+│   ├── CampaignBuilder.tsx    ← mobile CSS; pollForCampaign 60s; executeGenerate
+│   ├── CampaignResult.tsx     ← 3 seções novas; regenerateMutation direto
+│   └── AutonomousAgent.tsx    ← Copy Engine toggle UI (3 cards)
 ```
 
 ---
@@ -316,22 +327,22 @@ TIKTOK_ACCESS_TOKEN + TIKTOK_ADVERTISER_ID
 
 | Prioridade | Item | Responsável |
 |---|---|---|
-| 🔴 | Meta Token — reconectar antes 25/05 | Michel |
+| 🔴 | **Meta Token — reconectar antes 25/05** | Michel |
 | 🔴 | TikTok token — configurar no Render | Michel |
 | 🔴 | Meta App — Ads Library code=10 | Aguardando Facebook |
-| 🟡 | Testar vídeo JSON2Video + narração PT-BR | Teste |
-| 🟡 | Testar Asaas cartão em produção | Teste |
-| 🟡 | FAL.AI — adicionar Render no allowlist | Michel |
-| 🟢 | Análise de métricas em linguagem natural | Dev |
-| 🟢 | Botão "Gerar variações" do anúncio vencedor | Dev |
-| 🟢 | Google negativeKeywords via IA (melhorar) | Dev |
+| 🟡 | Copies 2→6 (PAS/AIDA/Storytelling/Objeção/Escassez/Lifestyle) | Dev |
+| 🟡 | Análise de resultados (cola CPL/CTR → diagnóstico IA) | Dev |
+| 🟡 | Carrossel slide-a-slide (5 slides com roteiro) | Dev |
+| 🟡 | Cronograma de otimização dia 1-15 | Dev |
+| 🟢 | UTMs automáticas | Dev |
+| 🟢 | Pergunta qualificadora por nicho no formulário | Dev |
 
 ---
 
 ## 🧭 Regra: "Qual o próximo passo?"
 
 Orientar por: 🔴 crítico → 🟡 score → 🟢 qualidade
-Formato: score atual (~85%) + 3 itens em ordem de impacto + o que precisa.
+Formato: score atual (~88%) + 3 itens em ordem de impacto + o que precisa.
 
 ---
 
@@ -340,7 +351,7 @@ Formato: score atual (~85%) + 3 itens em ordem de impacto + o que precisa.
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: 1c80ce1. Michel — Balneário Camboriú/SC.
-Score atual: ~85%.
-Prioridade: Meta Token (exp 25/05) + TikTok token + testar vídeo.
+Último commit: a95b560. Michel — Balneário Camboriú/SC.
+Score atual: ~88%. ML loop fechado. Copy Engine toggle ativo.
+Prioridade: Meta Token (exp 25/05) + copies 2→6 + análise resultados.
 ```
