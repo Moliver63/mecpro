@@ -27,12 +27,18 @@ const NAV_ADMIN = [
   { icon: "◫",  label: "Projetos",          path: "/admin/projects" },
   { icon: "▣",  label: "Analytics",         path: "/admin/analytics" },
   { icon: "🔭", label: "Tokens IA",          path: "/admin/tokens" },
+  { icon: "🧠", label: "Inteligência ML",    path: "/admin/intelligence" },
+  { icon: "🔍", label: "Auditoria",          path: "/admin/auditoria" },
+  { icon: "⚙️", label: "Configurações",      path: "/admin/settings" },
   { icon: "⋈",  label: "Assinaturas",       path: "/admin/manage-subscriptions" },
   { icon: "◎",  label: "Planos",            path: "/admin/plans" },
+  { icon: "📋", label: "Pedidos Plano",      path: "/admin/plan-requests" },
   { icon: "◉",  label: "Financeiro",        path: "/admin/financeiro" },
   { icon: "◷",  label: "Admins",            path: "/admin/manage-admins" },
+  { icon: "🔑", label: "Permissões",         path: "/admin/roles" },
   { icon: "◻",  label: "Convites",          path: "/admin/invites" },
   { icon: "⊙",  label: "Moderação",         path: "/admin/moderation" },
+  { icon: "🎨", label: "UI Config",          path: "/admin/ui-config" },
 ];
 
 // ── WhatsApp Button ────────────────────────────────────────────────────────
