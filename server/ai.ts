@@ -928,10 +928,15 @@ export async function loadCopyEngineFromDB() {
     const saved = settings["copy_engine"];
     if (saved === "groq" || saved === "ml_first") {
       _copyEngine = saved;
-      log.info("ai", `Copy Engine carregado do banco: ${saved}`);
     }
+    const labels: Record<string, string> = {
+      gemini:   "🟢 Gemini",
+      groq:     "🟡 Groq/Llama",
+      ml_first: "🔵 ML-First",
+    };
+    log.info("ai", `[BOOT] Copy Engine ativo: ${labels[_copyEngine] || _copyEngine}`);
   } catch {
-    log.info("ai", "Copy Engine: usando padrão (gemini)");
+    log.info("ai", "[BOOT] Copy Engine: padrão (gemini)");
   }
 }
 
