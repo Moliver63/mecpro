@@ -399,6 +399,10 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
                 collapsed={collapsed}
                 active={location === "/admin"}
               />
+              <NavItem
+                item={{ icon: "🔭", label: "Tokens IA", path: "/admin/tokens" }}
+                active={location.startsWith("/admin/tokens")}
+              />
             </>
           )}
         </nav>
