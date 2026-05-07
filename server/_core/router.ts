@@ -3609,12 +3609,8 @@ const campaignsRouter = router({
 
       // Injeta pixel_id quando fornecido
       if (input.pixelId) {
-        creativeBody.degrees_of_freedom_spec = {
-          creative_features_spec: {
-            standard_enhancements: { enroll_status: "OPT_OUT" },
-          },
-        };
-        // tracking_spec para o pixel
+        // Não usar degrees_of_freedom_spec — descontinuado pela Meta (erro 3858504)
+        // O default da Meta já é seguro sem este campo
         creativeBody.tracking_specs = [{
           "action.type": ["offsite_conversion"],
           "fb_pixel":    [input.pixelId],
