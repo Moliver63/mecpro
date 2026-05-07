@@ -3605,16 +3605,8 @@ const campaignsRouter = router({
         name:              creativeName,
         object_story_spec: storySpec,
         access_token:      token,
-        // Desabilita melhorias automáticas individualmente (novo formato Mai/2026)
-        // Evita error_subcode 3858504 quando app tem Standard Enhancements ativo
-        degrees_of_freedom_spec: {
-          creative_features_spec: {
-            adapt_to_placement:    { enroll_status: "OPT_OUT" },
-            text_optimizations:    { enroll_status: "OPT_OUT" },
-            image_auto_crop:       { enroll_status: "OPT_OUT" },
-            image_enhancement:     { enroll_status: "OPT_OUT" },
-          },
-        },
+        // degrees_of_freedom_spec REMOVIDO — descontinuado pela Meta (error_subcode 3858504, mai/2026)
+        // Referência: https://fburl.com/hyth50xo
       };
 
       // Injeta pixel_id quando fornecido
