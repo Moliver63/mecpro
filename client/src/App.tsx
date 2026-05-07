@@ -92,6 +92,7 @@ import AdminManageAdmins from "@/pages/AdminManageAdmins";
 import AdminManageSubscriptions from "@/pages/AdminManageSubscriptions";
 import Financeiro from "@/pages/Financeiro";
 import AdminAuditoria from "@/pages/AdminAuditoria";
+import AdminTokenAnalytics from "@/pages/AdminTokenAnalytics";
 import AdminFinanceiro from "@/pages/AdminFinanceiro";
 import AdminPlans from "@/pages/AdminPlans";
 import AdminModeration from "@/pages/AdminModeration";
@@ -267,6 +268,7 @@ export default function App() {
             <Route path="/admin/manage-admins"><ProtectedRoute role="admin"><AdminManageAdmins /></ProtectedRoute></Route>
             <Route path="/admin/manage-subscriptions"><ProtectedRoute role="admin"><AdminManageSubscriptions /></ProtectedRoute></Route>
             <Route path="/admin/auditoria"><ProtectedRoute role="admin"><AdminAuditoria /></ProtectedRoute></Route>
+            <Route path="/admin/tokens"><ProtectedRoute role="admin"><AdminTokenAnalytics /></ProtectedRoute></Route>
             <Route path="/admin/financeiro"><ProtectedRoute role="admin"><AdminFinanceiro /></ProtectedRoute></Route>
             <Route path="/admin/plans"><ProtectedRoute role="admin"><AdminPlans /></ProtectedRoute></Route>
             <Route path="/admin/moderation"><ProtectedRoute role="admin"><AdminModeration /></ProtectedRoute></Route>

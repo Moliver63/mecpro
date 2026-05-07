@@ -766,6 +766,39 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "personas" text
     `).catch(() => {});
 
+    // ── Token Observability — tabela de telemetria de IA ─────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ai_token_log (
+        id              bigserial PRIMARY KEY,
+        request_id      varchar(36)  NOT NULL DEFAULT gen_random_uuid()::text,
+        user_id         integer      REFERENCES users(id) ON DELETE SET NULL,
+        project_id      integer      REFERENCES projects(id) ON DELETE SET NULL,
+        campaign_id     integer      REFERENCES campaigns(id) ON DELETE SET NULL,
+        provider        varchar(20)  NOT NULL,  -- gemini | groq | cloudflare
+        model           varchar(60)  NOT NULL,
+        endpoint        varchar(80),            -- generateCampaign | generatePart | matchScore | etc
+        prompt_tokens   integer      DEFAULT 0,
+        completion_tokens integer    DEFAULT 0,
+        total_tokens    integer      DEFAULT 0,
+        estimated_cost_usd numeric(10,6) DEFAULT 0,
+        latency_ms      integer      DEFAULT 0,
+        temperature     numeric(4,2),
+        cache_hit       boolean      DEFAULT false,
+        cache_type      varchar(10),            -- ram | db | none
+        retry_count     integer      DEFAULT 0,
+        status          varchar(10)  DEFAULT 'ok', -- ok | error | timeout
+        error_msg       varchar(200),
+        system_prompt_tokens integer DEFAULT 0,
+        copy_engine     varchar(20),
+        created_at      timestamptz  DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_token_log_user    ON ai_token_log(user_id)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_token_log_created ON ai_token_log(created_at DESC)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_token_log_model   ON ai_token_log(model, provider)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_token_log_project ON ai_token_log(project_id)`).catch(() => {});
+
     // Rastreia qual engine de copy gerou cada campanha no ML dataset
     await pool.query(`
       ALTER TABLE ml_dataset

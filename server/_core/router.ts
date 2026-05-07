@@ -4470,6 +4470,215 @@ const adminRouter = router({
 
   saveSettings:   superadminProcedure.input(z.object({ key: z.string(), value: z.string() })).mutation(({ input }) => db.saveAdminSetting(input.key, input.value)),
 
+  // ── Token Analytics (Observabilidade de IA) ──────────────────────────────
+  getTokenStats: adminProcedure
+    .input(z.object({
+      days:    z.number().default(30),
+      model:   z.string().optional(),
+      endpoint:z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const pool = await getPool();
+      if (!pool) return null;
+      const since = new Date(Date.now() - input.days * 86400000).toISOString();
+
+      // Resumo geral
+      const summary = await pool.query(`
+        SELECT
+          COUNT(*)                                         as total_requests,
+          SUM(total_tokens)                                as total_tokens,
+          SUM(prompt_tokens)                               as total_prompt,
+          SUM(completion_tokens)                           as total_completion,
+          SUM(estimated_cost_usd)                          as total_cost_usd,
+          AVG(total_tokens)                                as avg_tokens_per_req,
+          AVG(latency_ms)                                  as avg_latency_ms,
+          SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END)       as cache_hits,
+          SUM(CASE WHEN status='error' THEN 1 ELSE 0 END)  as errors,
+          SUM(CASE WHEN status='timeout' THEN 1 ELSE 0 END) as timeouts
+        FROM ai_token_log
+        WHERE created_at >= $1
+          ${input.model   ? "AND model = '" + input.model.replace(/'/g, '') + "'" : ""}
+          ${input.endpoint ? "AND endpoint = '" + input.endpoint.replace(/'/g, '') + "'" : ""}
+      `, [since]);
+
+      // Por modelo
+      const byModel = await pool.query(`
+        SELECT
+          provider, model,
+          COUNT(*)                   as requests,
+          SUM(prompt_tokens)         as prompt_tokens,
+          SUM(completion_tokens)     as completion_tokens,
+          SUM(total_tokens)          as total_tokens,
+          ROUND(SUM(estimated_cost_usd)::numeric, 4) as cost_usd,
+          ROUND(AVG(latency_ms)::numeric, 0)         as avg_latency_ms,
+          ROUND(AVG(total_tokens)::numeric, 0)       as avg_tokens,
+          SUM(CASE WHEN cache_hit THEN 1 ELSE 0 END) as cache_hits,
+          SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) as errors
+        FROM ai_token_log
+        WHERE created_at >= $1
+        GROUP BY provider, model
+        ORDER BY cost_usd DESC
+      `, [since]);
+
+      // Por endpoint (onde mais tokens são gastos)
+      const byEndpoint = await pool.query(`
+        SELECT
+          endpoint,
+          COUNT(*)                   as requests,
+          SUM(total_tokens)          as total_tokens,
+          ROUND(SUM(estimated_cost_usd)::numeric, 4) as cost_usd,
+          ROUND(AVG(total_tokens)::numeric, 0)       as avg_tokens,
+          ROUND(AVG(latency_ms)::numeric, 0)         as avg_latency_ms
+        FROM ai_token_log
+        WHERE created_at >= $1
+        GROUP BY endpoint
+        ORDER BY total_tokens DESC
+        LIMIT 15
+      `, [since]);
+
+      // Por copy engine
+      const byCopyEngine = await pool.query(`
+        SELECT
+          COALESCE(copy_engine, 'gemini') as engine,
+          COUNT(*)                         as requests,
+          SUM(total_tokens)                as total_tokens,
+          ROUND(SUM(estimated_cost_usd)::numeric, 4) as cost_usd,
+          ROUND(AVG(completion_tokens::numeric / NULLIF(prompt_tokens,0)), 3) as completion_ratio
+        FROM ai_token_log
+        WHERE created_at >= $1
+        GROUP BY copy_engine
+        ORDER BY cost_usd DESC
+      `, [since]);
+
+      // Timeline diário
+      const timeline = await pool.query(`
+        SELECT
+          DATE(created_at)                         as day,
+          COUNT(*)                                 as requests,
+          SUM(total_tokens)                        as total_tokens,
+          ROUND(SUM(estimated_cost_usd)::numeric, 4) as cost_usd,
+          ROUND(AVG(latency_ms)::numeric, 0)       as avg_latency_ms
+        FROM ai_token_log
+        WHERE created_at >= $1
+        GROUP BY DATE(created_at)
+        ORDER BY day ASC
+      `, [since]);
+
+      // Heatmap hora×dia
+      const heatmap = await pool.query(`
+        SELECT
+          EXTRACT(DOW  FROM created_at) as dow,
+          EXTRACT(HOUR FROM created_at) as hour,
+          COUNT(*)                      as requests,
+          SUM(total_tokens)             as total_tokens
+        FROM ai_token_log
+        WHERE created_at >= $1
+        GROUP BY dow, hour
+        ORDER BY dow, hour
+      `, [since]);
+
+      // Eficiência — prompts pesados (completion/prompt > 0.8)
+      const inefficient = await pool.query(`
+        SELECT
+          endpoint, model,
+          COUNT(*) as count,
+          ROUND(AVG(total_tokens)::numeric, 0) as avg_tokens,
+          ROUND(AVG(completion_tokens::numeric / NULLIF(prompt_tokens,0))::numeric, 3) as ratio,
+          ROUND(SUM(estimated_cost_usd)::numeric, 4) as total_cost
+        FROM ai_token_log
+        WHERE created_at >= $1
+          AND prompt_tokens > 0
+          AND (completion_tokens::numeric / prompt_tokens) > 0.5
+        GROUP BY endpoint, model
+        HAVING COUNT(*) >= 3
+        ORDER BY avg_tokens DESC
+        LIMIT 10
+      `, [since]);
+
+      // Cache performance
+      const cacheStats = await pool.query(`
+        SELECT
+          cache_type,
+          COUNT(*) as count,
+          SUM(total_tokens) as tokens_saved
+        FROM ai_token_log
+        WHERE created_at >= $1 AND cache_hit = true
+        GROUP BY cache_type
+      `, [since]);
+
+      // Top projetos por custo
+      const topProjects = await pool.query(`
+        SELECT
+          t.project_id,
+          p.name as project_name,
+          COUNT(*) as requests,
+          SUM(t.total_tokens) as total_tokens,
+          ROUND(SUM(t.estimated_cost_usd)::numeric, 4) as cost_usd
+        FROM ai_token_log t
+        LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.created_at >= $1 AND t.project_id IS NOT NULL
+        GROUP BY t.project_id, p.name
+        ORDER BY cost_usd DESC
+        LIMIT 10
+      `, [since]);
+
+      return {
+        summary:      summary.rows[0],
+        byModel:      byModel.rows,
+        byEndpoint:   byEndpoint.rows,
+        byCopyEngine: byCopyEngine.rows,
+        timeline:     timeline.rows,
+        heatmap:      heatmap.rows,
+        inefficient:  inefficient.rows,
+        cacheStats:   cacheStats.rows,
+        topProjects:  topProjects.rows,
+        period:       input.days,
+        generatedAt:  new Date().toISOString(),
+      };
+    }),
+
+  getTokenLogs: adminProcedure
+    .input(z.object({
+      page:     z.number().default(1),
+      limit:    z.number().default(50),
+      model:    z.string().optional(),
+      endpoint: z.string().optional(),
+      days:     z.number().default(7),
+    }))
+    .query(async ({ input }) => {
+      const pool = await getPool();
+      if (!pool) return { rows: [], total: 0 };
+      const since = new Date(Date.now() - input.days * 86400000).toISOString();
+      const offset = (input.page - 1) * input.limit;
+
+      const rows = await pool.query(`
+        SELECT
+          l.id, l.request_id, l.user_id, l.project_id, l.campaign_id,
+          l.provider, l.model, l.endpoint,
+          l.prompt_tokens, l.completion_tokens, l.total_tokens,
+          l.estimated_cost_usd, l.latency_ms, l.temperature,
+          l.cache_hit, l.cache_type, l.retry_count,
+          l.status, l.error_msg, l.copy_engine,
+          l.created_at,
+          u.name as user_name,
+          p.name as project_name
+        FROM ai_token_log l
+        LEFT JOIN users u ON u.id = l.user_id
+        LEFT JOIN projects p ON p.id = l.project_id
+        WHERE l.created_at >= $1
+          ${input.model    ? "AND l.model = '" + input.model.replace(/'/g, '')    + "'" : ""}
+          ${input.endpoint ? "AND l.endpoint = '" + input.endpoint.replace(/'/g, '') + "'" : ""}
+        ORDER BY l.created_at DESC
+        LIMIT $2 OFFSET $3
+      `, [since, input.limit, offset]);
+
+      const count = await pool.query(`
+        SELECT COUNT(*) FROM ai_token_log WHERE created_at >= $1
+      `, [since]);
+
+      return { rows: rows.rows, total: Number(count.rows[0]?.count || 0) };
+    }),
+
   // ── Copy Engine Toggle ────────────────────────────────────────────────────
   getCopyEngine: adminProcedure.query(async () => {
     const { getCopyEngine } = await import("../ai.js");
