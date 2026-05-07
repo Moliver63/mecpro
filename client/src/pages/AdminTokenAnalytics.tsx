@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import Layout from "@/components/Layout";
+import Layout from "@/components/layout/Layout";
 
 const USD_TO_BRL = 5.10;
 
