@@ -17,17 +17,17 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `a95b560` | ML loop de aprendizado completo |
+| Último commit | `84abe84` | Token Analytics + Copy Engine boot log |
 
 ---
 
 ## 📊 Score de Prontidão (sessão 13)
 
-**Score geral: ~88%** ← subiu de 85%
+**Score geral: ~89%** ← subiu de 88% (observabilidade completa)
 
 | Módulo | Score | Delta |
 |---|---|---|
-| Infraestrutura | 94% | — |
+| Infraestrutura | **97%** | ⬆️ +3% token observability |
 | Financeiro | 87% | — |
 | ML / Inteligência | **92%** | ⬆️ +10% loop fechado + copy engine |
 | Meta Ads | 88% | — |
@@ -299,7 +299,9 @@ client/src/
 │   ├── ClientProfile.tsx      ← CNPJ 14 campos; personas UI; useSafeMutation
 │   ├── CampaignBuilder.tsx    ← mobile CSS; pollForCampaign 60s; executeGenerate
 │   ├── CampaignResult.tsx     ← 3 seções novas; regenerateMutation direto
-│   └── AutonomousAgent.tsx    ← Copy Engine toggle UI (3 cards)
+│   ├── AutonomousAgent.tsx    ← Copy Engine toggle UI (3 cards) + link Tokens IA
+│   └── AdminTokenAnalytics.tsx  ← Dashboard 5 tabs Token Analytics
+├── components/layout/Layout.tsx  ← NAV_ADMIN + atalho admin: 🔭 Tokens IA
 ```
 
 ---
@@ -319,6 +321,62 @@ JSON2VIDEO_API_KEY=a393GciY...                          ✅
 APP_URL=https://www.mecproai.com
 # PENDENTE:
 TIKTOK_ACCESS_TOKEN + TIKTOK_ADVERTISER_ID
+```
+
+---
+
+## 🔭 Token Analytics (NOVO — sessão 14)
+
+### Infraestrutura completa de observabilidade
+
+```
+server/tokenTelemetry.ts  ← módulo fire-and-forget (setImmediate)
+  logTokens()             ← INSERT assíncrono na ai_token_log
+  estimateCost()          ← preços reais: Gemini flash-lite $0.075/1M, Groq $0.059/1M
+
+Tabela: ai_token_log (20 colunas + 4 índices)
+  provider, model, endpoint, prompt_tokens, completion_tokens
+  estimated_cost_usd, latency_ms, cache_hit, cache_type
+  copy_engine, user_id, project_id, campaign_id
+  status, retry_count, system_prompt_tokens
+
+Tracking injetado em:
+  gemini()        ← usageMetadata real (promptTokenCount/candidatesTokenCount)
+  callGroqAPI()   ← usage.prompt_tokens / completion_tokens reais
+  cache RAM hit   ← cacheHit: true, latencyMs: 0
+
+Contexto passado: _userId, _projectId, _campaignId, _endpoint
+Router: getTokenStats + getTokenLogs (ambos adminProcedure)
+```
+
+### Dashboard /admin/tokens — 5 abas
+
+| Aba | Conteúdo |
+|---|---|
+| 📊 Visão Geral | KPIs (tokens/custo USD+BRL/latência/cache%), timeline, por engine, top projetos |
+| 🤖 Por Modelo | Tabela Gemini vs Groq — tokens, custo, latência, cache hits, erros |
+| ⚙️ Por Endpoint | Ranking por consumo (generateCampaign/matchScore/etc) |
+| 🔍 Eficiência | Prompts pesados (ratio > 0.5) + sugestões automáticas |
+| 📋 Logs | Tabela paginada, filtros modelo/endpoint, auto-refresh 30s |
+
+### Navegação
+```
+Menu lateral (qualquer página, para admins):
+  ── Admin ──────────
+  ⊛  Painel Admin
+  🔭 Tokens IA  ← NOVO
+
+NAV_ADMIN (em /admin/*):
+  ▣  Analytics
+  🔭 Tokens IA  ← NOVO
+  ⋈  Assinaturas
+
+AutonomousAgent: link "🔭 Ver consumo de tokens →"
+```
+
+### Boot log adicionado
+```
+[BOOT] Copy Engine ativo: 🟢 Gemini  ← confirma engine no boot
 ```
 
 ---
@@ -351,7 +409,7 @@ Formato: score atual (~88%) + 3 itens em ordem de impacto + o que precisa.
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: a95b560. Michel — Balneário Camboriú/SC.
+Último commit: 84abe84. Michel — Balneário Camboriú/SC.
 Score atual: ~88%. ML loop fechado. Copy Engine toggle ativo.
 Prioridade: Meta Token (exp 25/05) + copies 2→6 + análise resultados.
 ```
