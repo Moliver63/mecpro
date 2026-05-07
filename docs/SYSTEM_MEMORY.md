@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `84abe84` | Token Analytics + Copy Engine boot log |
+| Último commit | `e18dd9b` | NAV_ADMIN expandido (11→17 itens) + fix Meta 3858504 |
 
 ---
 
@@ -47,7 +47,7 @@
 | Pollinations.AI | ✅ Fallback | Retry 2x, timeout 35s, logs detalhados |
 | Genspark | ❌ REMOVIDO | fetch failed 100% |
 | BrasilAPI CNPJ | ✅ ATIVO | 14 campos; gratuita; funciona no Render |
-| Meta Token | ⚠️ Expira 25/05 | **RECONECTAR EM BREVE** |
+| Meta Token | ✅ Renovado 07/05 | Válido até 06/07/2026 |
 | Meta Ads Library | ❌ code=10 | Aguardando Facebook |
 | Google Ads | ✅ Search+Display+Video+PMax | |
 | TikTok | ⚠️ Parcial | Token não configurado |
@@ -378,6 +378,31 @@ AutonomousAgent: link "🔭 Ver consumo de tokens →"
 ```
 [BOOT] Copy Engine ativo: 🟢 Gemini  ← confirma engine no boot
 ```
+
+---
+
+## 🐛 Bugs Resolvidos (sessão 14)
+
+#### BUG-080: Meta API erro 3858504 — bloqueava 100% das publicações
+- **Causa:** `degrees_of_freedom_spec.creative_features_spec.standard_enhancements` descontinuado pela Meta em mai/2026
+- **Fix:** Removido completamente do `creativeBody` (havia 2 ocorrências: uma no body base, outra no bloco pixelId)
+- **Commits:** `29c6a80` + `1977c21`
+
+---
+
+## 🎛️ Painel Admin (sessão 14)
+
+### Auditoria realizada — NAV_ADMIN expandido 11 → 17 itens
+
+**Adicionados ao menu lateral:**
+- 🧠 Inteligência ML → `/admin/intelligence`
+- 🔍 Auditoria → `/admin/auditoria`
+- ⚙️ Configurações → `/admin/settings`
+- 📋 Pedidos Plano → `/admin/plan-requests`
+- 🔑 Permissões → `/admin/roles`
+- 🎨 UI Config → `/admin/ui-config`
+
+**Não adicionados (intencionalmente):** LMS (`students`/`courses`/`lessons`/`programs`), `appointments`, `cashback-requests` — não são core do MecProAI.
 
 ---
 
