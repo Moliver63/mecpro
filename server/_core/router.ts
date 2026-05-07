@@ -2446,6 +2446,7 @@ const campaignsRouter = router({
       // Timeout de 55s para evitar "Failed to fetch" no cliente
       const campaignPromise = generateCampaign({
         projectId:    input.projectId,
+        userId:       ctx.user.id,
         name:         input.name,
         objective:    input.objective,
         platform:     input.platform,

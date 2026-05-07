@@ -1380,8 +1380,13 @@ export async function gemini(
     systemInstruction?: string;
     jsonMode?: boolean;
     useCache?: boolean;
-    cacheAs?: string;    // nome da função para cache DB (ex: "campaign", "market")
-    cacheMeta?: CacheMeta; // metadados: niche, platform, objective, scope, city
+    cacheAs?: string;
+    cacheMeta?: CacheMeta;
+    // Token telemetry context (passed through to logTokens)
+    _userId?:     number;
+    _projectId?:  number;
+    _campaignId?: number;
+    _endpoint?:   string;
   } = {},
   retryCount = 0
 ): Promise<string> {
@@ -1402,6 +1407,10 @@ async function _geminiImpl(
     useCache?: boolean;
     cacheAs?: string;
     cacheMeta?: CacheMeta;
+    _userId?:     number;
+    _projectId?:  number;
+    _campaignId?: number;
+    _endpoint?:   string;
   } = {},
   retryCount = 0
 ): Promise<string> {
@@ -1495,12 +1504,15 @@ async function _geminiImpl(
       log.info("ai", "Gemini cache hit (RAM)", { promptSlice: prompt.slice(0, 50) });
       logTokens({
         provider: "gemini", model: "gemini-2.5-flash-lite",
-        endpoint: opts?.cacheAs || "cache_hit",
+        endpoint: opts?._endpoint || opts?.cacheAs || "cache_hit",
         promptTokens: estimateTokens(prompt),
         completionTokens: estimateTokens(cached),
         latencyMs: 0,
         cacheHit: true, cacheType: "ram",
         copyEngine: getCopyEngine(),
+        userId:     opts?._userId,
+        projectId:  opts?._projectId,
+        campaignId: opts?._campaignId,
       });
       return cached;
     }
@@ -1658,16 +1670,19 @@ async function _geminiImpl(
     logTokens({
       provider: "gemini",
       model: (data as any)._modelUsed || "gemini-2.5-flash-lite",
-      endpoint: opts?.cacheAs || "gemini",
+      endpoint: opts?._endpoint || opts?.cacheAs || "gemini",
       promptTokens: pTok,
       completionTokens: cTok,
-      latencyMs: Math.round(prompt.length / 4), // estimativa — timer real está no retry loop
+      latencyMs: Math.round(prompt.length / 4),
       temperature: opts?.temperature,
       cacheHit: false,
       cacheType: "none",
       retryCount,
       systemPromptTokens: Math.round((opts?.systemInstruction || "").length / 4),
       copyEngine: getCopyEngine(),
+      userId:     opts?._userId,
+      projectId:  opts?._projectId,
+      campaignId: opts?._campaignId,
     });
   }
 
@@ -5493,7 +5508,7 @@ Gere 3 personas detalhadas e específicas. Responda APENAS em JSON:
 
 // ── Módulo 4: Gerar campanha ──
 export async function generateCampaign(input: {
-  projectId: number; name: string; objective: string;
+  projectId: number; userId?: number; name: string; objective: string;
   platform: string; budget: number; duration: number; extraContext?: string;
   ageMin?: number; ageMax?: number; regions?: string[]; countries?: string[];
   locationMode?: "brasil" | "paises" | "raio"; geoCity?: string; geoRadius?: number;
@@ -6030,13 +6045,21 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         raw = groqRaw;
       } else {
         log.warn("ai", "Groq falhou na campanha principal — fallback Gemini");
-        raw = await gemini(prompt, { temperature: 0.8 });
+        raw = await gemini(prompt, { temperature: 0.8,
+          _endpoint: "generateCampaign_groq_fallback",
+          _projectId: input.projectId,
+          _userId: input.userId,
+        });
       }
     } else if (copyEngine === "ml_first") {
       log.info("ai", "✍️ Copy Engine: ML-First (campanha principal)", { projectId: input.projectId });
       raw = await gemini(prompt, { temperature: 0.5 });
     } else {
-      raw = await gemini(prompt, { temperature: 0.6 });
+      raw = await gemini(prompt, { temperature: 0.6,
+      _endpoint: "generateCampaign",
+      _projectId: input.projectId,
+      _userId: input.userId,
+    });
     }
 
     let parsed: any;
@@ -7109,6 +7132,9 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
       systemInstruction: mlSystem,
       cacheAs: "campaign",
       cacheMeta: { niche: (input.campaign as any)?.niche, platform: (input.campaign as any)?.platform, objective: (input.campaign as any)?.objective, projectId: input.projectId },
+      _endpoint:   "generateCampaignPart_ml",
+      _projectId:  input.projectId,
+      _campaignId: input.campaignId,
     });
   } else {
     // Gemini padrão
