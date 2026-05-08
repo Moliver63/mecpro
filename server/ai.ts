@@ -883,6 +883,123 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 // ── Toggle LLM Principal — controlado pelo painel Admin ──────────────────────
 // "on"  = Gemini (melhor qualidade)
 // "off" = Groq/Llama (fallback gratuito)
+// ─────────────────────────────────────────────────────────────────────────────
+// REGRAS DE COPY POR SEGMENTO — usadas no Groq e no motor híbrido
+// Garante que cada segmento recebe CTAs, copy e compliance corretos
+// ─────────────────────────────────────────────────────────────────────────────
+export const SEGMENT_COPY_RULES: Record<string, {
+  ctaLeads:    string[];
+  ctaSales:    string[];
+  copyHook:    string;   // início de hook ideal para o segmento
+  forbidden:   string[]; // palavras/conceitos proibidos neste segmento
+  compliance:  string;   // regra de compliance Meta
+  nicheKeys:   string[]; // palavras-chave do nicho para detecção automática
+}> = {
+  imoveis_venda: {
+    ctaLeads:   ["Agendar visita", "Quero saber as condições", "Falar com corretor", "Ver o imóvel", "Solicitar proposta"],
+    ctaSales:   ["Garantir minha unidade", "Ver condição especial", "Falar agora", "Quero reservar"],
+    copyHook:   "dor de não ter o imóvel ideal / sonho de ter imóvel próprio",
+    forbidden:  ["guia grátis", "ebook", "baixar", "download", "material gratuito", "curso", "aula"],
+    compliance: "Sem claims de valorização garantida. Sem 'melhor preço' sem comprovação.",
+    nicheKeys:  ["imob", "corret", "imóvel", "imovel", "apartamento", "casa", "terreno", "lote"],
+  },
+  imoveis_locacao: {
+    ctaLeads:   ["Ver disponibilidade", "Agendar visita", "Consultar valores", "Quero alugar"],
+    ctaSales:   ["Garantir meu imóvel", "Fazer proposta", "Reservar agora"],
+    copyHook:   "disponibilidade imediata / facilidade de mudança / localização ideal",
+    forbidden:  ["guia grátis", "ebook", "baixar", "download", "comprar", "financiar"],
+    compliance: "Não discriminar por raça, família, religião. Fotos reais do imóvel.",
+    nicheKeys:  ["locaç", "alugu", "aluguel", "temporada", "airbnb"],
+  },
+  ecommerce: {
+    ctaLeads:   ["Cadastrar e ganhar desconto", "Quero receber ofertas", "Entrar na lista VIP"],
+    ctaSales:   ["Comprar agora", "Ver oferta", "Garantir com desconto", "Comprar com frete grátis", "Aproveitar"],
+    copyHook:   "produto + preço + frete grátis + prazo de entrega rápido",
+    forbidden:  ["agendar visita", "falar com corretor", "avaliação gratuita", "guia"],
+    compliance: "Preço exato. Desconto real. Fotos reais do produto.",
+    nicheKeys:  ["ecommerce", "loja", "produto", "varejo", "e-commerce"],
+  },
+  servicos_locais: {
+    ctaLeads:   ["Agendar agora", "Ligar agora", "Ver horários disponíveis", "Reservar meu horário", "Quero marcar"],
+    ctaSales:   ["Contratar serviço", "Solicitar orçamento", "Falar no WhatsApp"],
+    copyHook:   "localização próxima + horário disponível + benefício da primeira visita",
+    forbidden:  ["comprar online", "frete grátis", "entrega", "baixar guia", "ebook"],
+    compliance: "Fotos reais do estabelecimento. Horários corretos. Preços reais.",
+    nicheKeys:  ["serviço", "local", "clínica", "salão", "oficina", "consultório", "studio"],
+  },
+  infoprodutos: {
+    ctaLeads:   ["Quero minha vaga gratuita", "Acessar aula grátis", "Entrar para a lista VIP", "Baixar agora", "Acessar material grátis"],
+    ctaSales:   ["Garantir minha vaga", "Quero me inscrever", "Acessar agora com desconto", "Quero o curso"],
+    copyHook:   "transformação prometida + prova social + baixo atrito para começar",
+    forbidden:  ["agendar visita", "falar com corretor", "entrega em 2 dias", "frete grátis"],
+    compliance: "Sem promessas de ganho específico. 'Resultados variam' obrigatório.",
+    nicheKeys:  ["curso", "info", "ead", "mentoria", "ebook", "digital", "online", "treinamento"],
+  },
+  saude_estetica: {
+    ctaLeads:   ["Agendar avaliação gratuita", "Quero minha avaliação", "Falar com especialista", "Marcar consulta"],
+    ctaSales:   ["Agendar procedimento", "Solicitar proposta", "Ver disponibilidade"],
+    copyHook:   "autoestima + bem-estar + resultados sem claims médicos proibidos",
+    forbidden:  ["cura", "elimina", "trata", "guia", "ebook", "baixar", "before/after", "antes/depois"],
+    compliance: "PROIBIDO: before/after, claims médicos, exposição de corpo. Use 'pode ajudar', 'favorece'.",
+    nicheKeys:  ["saúde", "saude", "estética", "estetica", "clínica", "clinica", "procedimento", "beleza"],
+  },
+  alimentacao: {
+    ctaLeads:   ["Ver cardápio", "Pedir no WhatsApp"],
+    ctaSales:   ["Pedir agora", "Fazer meu pedido", "Pedir delivery", "Pedir com desconto"],
+    copyHook:   "foto apetitosa + velocidade de entrega + preço especial do dia",
+    forbidden:  ["agendar visita", "guia grátis", "ebook", "curso", "avaliação"],
+    compliance: "Foto real do produto. Preço exato. Álcool: configurar restrição de idade.",
+    nicheKeys:  ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar"],
+  },
+  moda_varejo: {
+    ctaLeads:   ["Ver nova coleção", "Cadastrar para receber novidades"],
+    ctaSales:   ["Comprar agora", "Ver coleção", "Garantir o meu", "Aproveitar oferta", "Comprar com frete grátis"],
+    copyHook:   "estilo + ocasião + preço com frete grátis + estoque limitado",
+    forbidden:  ["agendar visita", "avaliação gratuita", "guia", "curso", "ebook"],
+    compliance: "Fotos reais. Preço exato. Sem discriminação de tamanho/corpo.",
+    nicheKeys:  ["moda", "roupa", "vestuário", "vestuario", "calçado", "calcado", "acessório"],
+  },
+  b2b: {
+    ctaLeads:   ["Solicitar demo gratuita", "Falar com especialista", "Ver case de sucesso", "Calcular meu ROI", "Agendar reunião"],
+    ctaSales:   ["Contratar agora", "Solicitar proposta", "Iniciar período de teste"],
+    copyHook:   "ROI específico + problema que resolve + credibilidade com número de clientes",
+    forbidden:  ["comprar agora", "frete grátis", "entrega rápida", "guia para iniciantes"],
+    compliance: "Sem promessas de resultado garantido. Use 'pode', 'ajuda a', 'contribui para'.",
+    nicheKeys:  ["b2b", "empresa", "saas", "software", "tecnologia", "gestão", "gestao"],
+  },
+};
+
+// Detecta segmento pelo nicho (usado quando segment não é passado explicitamente)
+export function detectSegmentFromNiche(niche: string): string {
+  if (!niche) return "outro";
+  const n = niche.toLowerCase();
+  for (const [seg, rules] of Object.entries(SEGMENT_COPY_RULES)) {
+    if (rules.nicheKeys.some(k => n.includes(k))) return seg;
+  }
+  return "outro";
+}
+
+// Gera instrução de CTA para o Groq/motor híbrido
+export function getSegmentInstruction(segment: string, niche: string, objective: string): string {
+  const seg = segment && SEGMENT_COPY_RULES[segment]
+    ? segment
+    : detectSegmentFromNiche(niche);
+  const rules = SEGMENT_COPY_RULES[seg];
+  if (!rules) return "";
+
+  const ctas = objective === "sales" ? rules.ctaSales : rules.ctaLeads;
+  const forbidden = rules.forbidden.slice(0, 4).join(", ");
+
+  return [
+    `\nREGRAS DO SEGMENTO (${seg}):`,
+    `CTAs OBRIGATÓRIOS: ${ctas.slice(0, 3).join(" | ")}`,
+    `PROIBIDO usar: ${forbidden}`,
+    `HOOK: foque em ${rules.copyHook}`,
+    `COMPLIANCE: ${rules.compliance}`,
+  ].join("\n");
+}
+
+
 let _llmMode: "on" | "off" = "on";  // padrão: Gemini ligado
 
 export function getLLMMode(): "on" | "off" { return _llmMode; }
@@ -2725,7 +2842,14 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
   const formats = ads.reduce((acc:any,a:any)=>{acc[a.adType||"image"]=(acc[a.adType||"image"]||0)+1;return acc;},{});
   let topFmt  = Object.entries(formats).sort((x:any,y:any)=>y[1]-x[1])[0]?.[0]||"image";
   const realCtas= [...new Set(ads.map((a:any)=>a.cta).filter(Boolean))].slice(0,4) as string[];
-  let topCta  = realCtas[0]||"Saiba mais";
+
+  // Usar CTAs do segmento — previne "Baixar guia" em imobiliária, etc.
+  const detectedSeg = detectSegmentFromNiche(niche);
+  const segRulesHybrid = SEGMENT_COPY_RULES[detectedSeg] || null;
+  const segCtas = segRulesHybrid
+    ? (objective === "sales" ? segRulesHybrid.ctaSales : segRulesHybrid.ctaLeads)
+    : realCtas.length > 0 ? realCtas : ["Saiba mais", "Entre em contato"];
+  let topCta  = segCtas[0] || realCtas[0] || "Saiba mais";
   const activeAds = ads.filter((a:any) => a.isActive);
   const avgActivity = ads.length > 0 ? Math.round(activeAds.length / ads.length * 100) : 50;
 
@@ -2880,7 +3004,10 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
     creatives: hybrid.ads.map((ad,i)=>({
       type:["direct_offer","emotional","social_proof","educational"][i],
       format:topFmt==="video"?"Video 15s":"Imagem Feed", orientation:"vertical_9_16",
-      headline:ad.headline, bodyText:ad.body, copy:ad.body, cta:ad.cta,
+      headline:ad.headline, bodyText:ad.body, copy:ad.body,
+      cta: ad.cta && !segRulesHybrid?.forbidden?.some((f:string) => ad.cta?.toLowerCase().includes(f.toLowerCase()))
+        ? ad.cta
+        : segCtas[i % segCtas.length] || topCta,
       hook:ad.headline, pain:"Dificuldade em encontrar solução", solution:`${company} — ${product}`,
       funnelStage:["TOF","MOF","BOF","BOF"][i], complianceScore:"safe",
       targetAudience:`25-50 anos, ${niche}`, platforms:["meta"], budget:Math.round(total/4), duration:7, tone:ad.tone, source:"hybrid",
@@ -6147,15 +6274,8 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         ? `\nDiretrizes do segmento: ${String(input.extraContext).slice(0, 300)}`
         : "";
 
-      // Regra de CTA por nicho — previne "guia grátis" em imobiliária
-      const nicheStr = (p?.niche || "").toLowerCase();
-      const ctaRule = nicheStr.includes("imob") || nicheStr.includes("corret") || nicheStr.includes("imóvel")
-        ? "\nREGRA CRÍTICA: Negócio imobiliário. CTA OBRIGATÓRIO: 'Agendar visita', 'Ver condições', 'Falar com corretor'. NUNCA use guia/ebook/download."
-        : nicheStr.includes("curso") || nicheStr.includes("info") || nicheStr.includes("ead")
-        ? "\nREGRA CRÍTICA: Infoproduto. CTA: acesso ao curso/conteúdo."
-        : nicheStr.includes("restaurante") || nicheStr.includes("aliment") || nicheStr.includes("delivery")
-        ? "\nREGRA CRÍTICA: Alimentação/delivery. CTA: 'Pedir agora', 'Ver cardápio'."
-        : "";
+      // Regras de segmento centralizadas — cobre todos os 10 segmentos
+      const ctaRule = getSegmentInstruction(input.segment || "", p?.niche || "", input.objective);
 
       return `Crie uma campanha de ${input.objective} para "${p?.companyName || input.name}" (nicho: ${p?.niche || "geral"}).
 Produto: ${p?.productService || "não informado"}. Público: ${p?.targetAudience || "não definido"}.
