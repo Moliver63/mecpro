@@ -467,7 +467,7 @@ const QUOTA_RESET_MS = 60 * 60 * 1000; // 60 min — evita tentar chave esgotada
 // ── Cache de resultados Gemini para evitar chamadas repetidas ────────────────
 // Evita que o mesmo concorrente/prompt seja analisado várias vezes em sequência
 const _geminiCache = new Map<string, { result: string; ts: number }>();
-const GEMINI_CACHE_TTL = 15 * 60 * 1000; // 15 minutos
+const GEMINI_CACHE_TTL = 60 * 60 * 1000; // 60 minutos (⬆️ de 15min para aumentar hit rate)
 
 function getCachedGemini(key: string): string | null {
   const entry = _geminiCache.get(key);
@@ -3823,7 +3823,7 @@ Responda OBRIGATORIAMENTE em JSON com TODOS estes campos:
     // Fallback para Gemini direto se o serviço HF estiver fora
     if (!p) {
       log.info("ai", "HF Space indisponível — usando Gemini direto para insights", { competitorId });
-      const raw = await gemini(prompt, { temperature: 0.3 });
+      const raw = await gemini(prompt, { temperature: 0.3, cacheAs: "competitor_insights", cacheMeta: { competitorId } });
       const clean = raw.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
       // Se gemini retornou mock (sem LLM real), usa análise local dos dados reais
@@ -5441,7 +5441,7 @@ Gere uma análise de mercado completa em JSON:
     // Fallback para Gemini direto (com controle de quota)
     if (!result) {
       if (shouldUseLLM("medium")) {
-        const raw = await gemini(prompt, { temperature: 0.3 });
+        const raw = await gemini(prompt, { temperature: 0.3, cacheAs: "market_analysis", cacheMeta: { projectId: input.projectId } });
         result = JSON.parse(raw);
       } else {
         log.info("ai", "Market analysis: modo econômico ativo — usando dados locais do banco");
@@ -5502,7 +5502,7 @@ Gere 3 personas detalhadas e específicas. Responda APENAS em JSON:
     }
   ]
 }`;
-    const raw = await gemini(prompt, { temperature: 0.4 });
+    const raw = await gemini(prompt, { temperature: 0.4, cacheAs: "personas", cacheMeta: { projectId } });
     const clean = raw.replace(/\`\`\`json|\`\`\`/g, "").trim();
     const parsed = JSON.parse(clean);
     return JSON.stringify(parsed.personas);

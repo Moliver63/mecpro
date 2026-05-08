@@ -321,7 +321,7 @@ Gere uma análise estratégica em 2-3 frases explicando:
 
 Seja direto, técnico e específico para o nicho. Máximo 120 palavras.`;
 
-      const aiReasoning = await gemini(aiPrompt, { temperature: 0.3 });
+      const aiReasoning = await gemini(aiPrompt, { temperature: 0.3, cacheAs: "match_score", cacheMeta: { projectId: opts?.projectId, objective: opts?.objective, platform: opts?.platform } });
       if (aiReasoning && aiReasoning.length > 20) {
         finalReasoning = aiReasoning.replace(/```[^`]*```/g, "").trim();
         log.info("matching", "Reasoning enriquecido com Gemini");
