@@ -694,11 +694,12 @@ export default function CampaignBuilder() {
                           </p>
                         </div>
                       </div>
-                      <a href={`/projects/${projectId}/profile`}
-                        style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", textDecoration: "none",
-                          background: "#eff6ff", padding: "4px 10px", borderRadius: 8, border: "1px solid #bfdbfe" }}>
+                      <button onClick={() => setLocation(`/projects/${projectId}/client`)}
+                        style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6",
+                          background: "#eff6ff", padding: "4px 10px", borderRadius: 8,
+                          border: "1px solid #bfdbfe", cursor: "pointer" }}>
                         ✏️ Editar perfil
-                      </a>
+                      </button>
                     </div>
 
                     {(clientProfile as any)?.productName ? (
