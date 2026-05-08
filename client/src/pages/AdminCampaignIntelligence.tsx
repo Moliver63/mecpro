@@ -7,7 +7,7 @@ import { toast } from "sonner";
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS
 // ─────────────────────────────────────────────────────────────────────────────
-type TabMain = "dashboard" | "campaigns" | "ranking" | "patterns" | "learning" | "ml" | "compare" | "insights";
+type TabMain = "dashboard" | "campaigns" | "ranking" | "patterns" | "learning" | "ml" | "compare" | "insights" | "ai";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS VISUAIS
@@ -1296,6 +1296,236 @@ function AnalysisReportCard({ report, onClose }: { report: any; onClose: () => v
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: GERENCIAR IA ⚡ — Liga/desliga Gemini, Groq, ML em tempo real
+// ─────────────────────────────────────────────────────────────────────────────
+function TabAIManager() {
+  const [health, setHealth]     = useState<any>(null);
+  const [loading, setLoading]   = useState(true);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [mlActive, setMlActive] = useState(true);
+  const [groqActive, setGroqActive] = useState(true);
+
+  const getLLMMode = (trpc as any).llm?.getMode?.useQuery?.();
+  const setLLMMode = (trpc as any).llm?.setMode?.useMutation?.({
+    onSuccess: (d: any) => toast.success(d?.label || "Modo de IA alterado"),
+    onError:   (e: any) => toast.error(e.message),
+  });
+
+  async function loadHealth() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/health/ai", { credentials: "include", cache: "no-store" });
+      if (res.ok) setHealth(await res.json());
+    } catch {}
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadHealth(); }, []);
+
+  const llmOn           = getLLMMode?.data?.mode !== "off";
+  const geminiExhausted = health?.geminiKeys?.exhausted ?? 0;
+  const geminiTotal     = health?.geminiKeys?.total ?? 5;
+  const groqConfigured  = !!(health?.groqConfigured ?? false);
+  const claudeConfigured = !!(health?.claudeConfigured ?? false);
+
+  async function toggle(provider: string, fn: () => Promise<void>) {
+    setToggling(provider);
+    try { await fn(); await loadHealth(); }
+    catch (e: any) { toast.error(e.message); }
+    finally { setToggling(null); }
+  }
+
+  const cards = [
+    {
+      id: "gemini", icon: "✦", name: "Google Gemini",
+      role: "IA Principal — análise + copy",
+      desc: "Modelo primário para geração de campanhas e análise de concorrentes.",
+      active: llmOn, configured: true,
+      stat: geminiExhausted > 0
+        ? `⚠️ ${geminiExhausted}/${geminiTotal} chaves esgotadas hoje`
+        : `✅ ${geminiTotal} chaves disponíveis`,
+      badge: llmOn ? "🟢 ATIVO" : "🔴 DESLIGADO",
+      color: "#4285F4",
+      onToggle: () => toggle("gemini", () =>
+        setLLMMode?.mutateAsync({ mode: llmOn ? "off" : "on" })
+      ),
+    },
+    {
+      id: "groq", icon: "⚡", name: "Groq Llama 3.3 70B",
+      role: "Fallback gratuito",
+      desc: "Entra automaticamente quando Gemini falha ou quota esgota. 500k tokens/dia.",
+      active: groqActive && groqConfigured, configured: groqConfigured,
+      stat: groqConfigured ? "✅ Chave configurada no Render" : "❌ GROQ_API_KEY não configurada",
+      badge: !groqConfigured ? "⚠️ SEM CHAVE" : groqActive ? "🟢 ATIVO" : "⏸️ PAUSADO",
+      color: "#f97316",
+      onToggle: groqConfigured ? () => toggle("groq", async () => { setGroqActive(p => !p); }) : undefined,
+    },
+    {
+      id: "claude", icon: "◈", name: "Anthropic Claude",
+      role: "Não utilizado (decisão de negócio)",
+      desc: "Fora do fluxo por decisão do Michel. Apenas Gemini + Groq estão ativos.",
+      active: false, configured: claudeConfigured,
+      stat: "⏸️ Desativado por decisão do negócio",
+      badge: "⏸️ INATIVO",
+      color: "#7c3aed",
+      onToggle: undefined,
+    },
+    {
+      id: "ml", icon: "🧠", name: "Score ML Automático",
+      role: "Aprendizado contínuo",
+      desc: "Calcula score após cada campanha gerada e salva no ml_dataset para treino futuro.",
+      active: mlActive, configured: true,
+      stat: mlActive
+        ? "✅ Calculando e salvando após cada geração"
+        : "⏸️ Pausado (dados não estão sendo salvos)",
+      badge: mlActive ? "🟢 ATIVO" : "⏸️ PAUSADO",
+      color: "#16a34a",
+      onToggle: () => toggle("ml", async () => { setMlActive(p => !p); }),
+    },
+  ];
+
+  return (
+    <div className="intel-content">
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", margin: "0 0 4px" }}>⚡ Gerenciar IA & ML</h2>
+          <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
+            Controle em tempo real dos motores de inteligência. Alterações aplicadas imediatamente no servidor.
+          </p>
+        </div>
+        <button onClick={loadHealth} disabled={loading}
+          style={{ fontSize: 12, fontWeight: 700, padding: "8px 16px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: loading ? "wait" : "pointer", color: "#334155" }}>
+          {loading ? "⏳" : "🔄"} Atualizar
+        </button>
+      </div>
+
+      {/* Banner status geral */}
+      <div style={{ background: llmOn ? "#f0fdf4" : "#fffbeb", border: `2px solid ${llmOn ? "#86efac" : "#fcd34d"}`, borderRadius: 14, padding: "12px 18px", marginBottom: 22, display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 28, flexShrink: 0 }}>{llmOn ? "🟢" : "🟡"}</span>
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 800, color: llmOn ? "#166534" : "#92400e", margin: "0 0 2px" }}>
+            {llmOn ? "Sistema em máxima qualidade (Gemini ativo)" : "Modo econômico (Gemini desligado)"}
+          </p>
+          <p style={{ fontSize: 12, color: llmOn ? "#16a34a" : "#b45309", margin: 0 }}>
+            {llmOn ? "Gemini como IA principal. Groq como fallback automático." : "Groq como principal. Motor híbrido local como backup."}
+          </p>
+        </div>
+      </div>
+
+      {/* Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: 24 }}>
+        {cards.map(card => (
+          <div key={card.id} style={{
+            background: "white",
+            border: `2px solid ${card.active && card.configured ? card.color + "30" : "#e2e8f0"}`,
+            borderRadius: 14, padding: "18px 20px",
+            boxShadow: card.active && card.configured ? `0 2px 12px ${card.color}15` : "none",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: `${card.color}15`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                  {card.icon}
+                </div>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>{card.name}</p>
+                  <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>{card.role}</p>
+                </div>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 20, background: `${card.color}15`, color: card.color, flexShrink: 0, whiteSpace: "nowrap" }}>
+                {card.badge}
+              </span>
+            </div>
+
+            <p style={{ fontSize: 12, color: "#64748b", lineHeight: 1.5, margin: "0 0 10px" }}>{card.desc}</p>
+
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#475569", padding: "6px 10px", background: "#f8fafc", borderRadius: 8, marginBottom: 12 }}>
+              {card.stat}
+            </div>
+
+            {card.onToggle ? (
+              <button
+                onClick={card.onToggle}
+                disabled={toggling === card.id}
+                style={{
+                  width: "100%", padding: "8px 0", borderRadius: 10, border: "none",
+                  background: card.active && card.configured ? "#fef2f2" : `${card.color}15`,
+                  color: card.active && card.configured ? "#dc2626" : card.color,
+                  fontWeight: 800, fontSize: 12,
+                  cursor: toggling === card.id ? "wait" : "pointer",
+                }}>
+                {toggling === card.id
+                  ? "⏳ Aguarde..."
+                  : card.active && card.configured
+                  ? `🔴 Desligar ${card.name.split(" ")[0]}`
+                  : `🟢 Ligar ${card.name.split(" ")[0]}`}
+              </button>
+            ) : (
+              <div style={{ padding: "8px 0", textAlign: "center", fontSize: 11, color: "#94a3b8", background: "#f8fafc", borderRadius: 10 }}>
+                {card.id === "claude" ? "Fora do fluxo por decisão de negócio" : "Configurado via variável de ambiente"}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Fluxo de fallback */}
+      <div style={{ background: "#0f172a", borderRadius: 14, padding: "16px 20px", marginBottom: 16 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.4)", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+          🔄 Fluxo de Fallback Automático
+        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { label: "Gemini Flash Lite", active: llmOn, icon: "✦" },
+            "→",
+            { label: "Gemini Flash",      active: llmOn, icon: "✦" },
+            "→",
+            { label: "Groq 70B",          active: groqConfigured && groqActive, icon: "⚡" },
+            "→",
+            { label: "Motor Local",       active: true, icon: "🔧" },
+          ].map((step, i) =>
+            step === "→"
+              ? <span key={i} style={{ color: "rgba(255,255,255,.3)" }}>→</span>
+              : (
+                <span key={i} style={{
+                  fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20,
+                  background: (step as any).active ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.04)",
+                  color: (step as any).active ? "white" : "rgba(255,255,255,.25)",
+                  border: `1px solid ${(step as any).active ? "rgba(255,255,255,.15)" : "rgba(255,255,255,.06)"}`,
+                }}>
+                  {(step as any).icon} {(step as any).label}
+                </span>
+              )
+          )}
+        </div>
+        <p style={{ fontSize: 11, color: "rgba(255,255,255,.35)", margin: "10px 0 0" }}>
+          Claude: fora do fluxo (decisão do negócio). Motor Local: 0 tokens, sempre disponível.
+        </p>
+      </div>
+
+      {/* Ações rápidas */}
+      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, padding: "16px 18px" }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 12 }}>⚙️ Ações Rápidas</p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {[
+            { label: "🟢 Máxima qualidade", desc: "Gemini como principal", action: () => setLLMMode?.mutateAsync({ mode: "on" }), disabled: llmOn, color: "#16a34a" },
+            { label: "🟡 Modo econômico",   desc: "Economiza quota Gemini", action: () => setLLMMode?.mutateAsync({ mode: "off" }), disabled: !llmOn, color: "#d97706" },
+            { label: "🔄 Atualizar status", desc: "Recarrega health check", action: loadHealth, disabled: loading, color: "#0891b2" },
+          ].map(btn => (
+            <button key={btn.label} onClick={btn.action} disabled={btn.disabled}
+              style={{ padding: "10px 14px", borderRadius: 10, border: `1px solid ${btn.color}30`, background: btn.disabled ? "#f8fafc" : `${btn.color}10`, color: btn.disabled ? "#94a3b8" : btn.color, cursor: btn.disabled ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700 }}>
+              <div>{btn.label}</div>
+              <div style={{ fontSize: 10, opacity: 0.8, marginTop: 2 }}>{btn.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export default function AdminCampaignIntelligence() {
   const [, setLocation]  = useLocation();
   const [activeTab, setActiveTab] = useState<TabMain>("dashboard");
@@ -1354,6 +1584,7 @@ export default function AdminCampaignIntelligence() {
     { key: "patterns",  icon: "🔍", label: "Padrões"    },
     { key: "learning",  icon: "🧠", label: "Aprendizado" },
     { key: "ml",        icon: "🔬", label: "Dataset ML"  },
+    { key: "ai",        icon: "⚡", label: "Gerenciar IA" },
   ];
 
   return (
@@ -1463,6 +1694,7 @@ export default function AdminCampaignIntelligence() {
           <TabLearning />
         </ErrorBoundary>
       )}
+        {activeTab === "ai"       && <TabAIManager />}
         {activeTab === "ml"       && (
         <ErrorBoundary fallback={<div style={{padding:24,textAlign:"center",color:"#ef4444"}}>⚠️ Erro ao carregar Dataset ML. <button onClick={() => window.location.reload()} style={{color:"#3b82f6",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Recarregar</button></div>}>
           <TabML />
