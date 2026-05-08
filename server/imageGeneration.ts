@@ -405,6 +405,7 @@ async function generateWithCloudflare(
     const dim = FORMAT_DIMENSIONS[format];
     const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_IMAGE_MODEL}`;
 
+    const safePrompt = prompt.slice(0, 1900); // Cloudflare FLUX limit: 2048 chars on /prompt path
     const res = await fetch(url, {
       method:  "POST",
       headers: {
@@ -412,7 +413,7 @@ async function generateWithCloudflare(
         "Content-Type":  "application/json",
       },
       body:   JSON.stringify({
-        prompt,
+        prompt: safePrompt,
         negative_prompt: "text, words, letters, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, caption, overlay text, printed text, handwriting",
         width:  Math.min(dim.width,  1024),
         height: Math.min(dim.height, 1024),

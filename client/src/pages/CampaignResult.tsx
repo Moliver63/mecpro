@@ -2616,7 +2616,7 @@ export default function CampaignResult() {
                 ],
                 kpis: [
                   { label: "CTR mínimo",   valor: "> 1,5%" },
-                  { label: "CPC máximo",   valor: `< R$ ${(metrics?.estimatedCPC?.replace("R$ ","") || "2,00")}` },
+                  { label: "CPC máximo",   valor: `< R$ ${(typeof metrics?.estimatedCPC === "string" ? metrics.estimatedCPC.replace("R$ ","") : String(metrics?.estimatedCPC || "2,00"))}` },
                   { label: "Frequência",   valor: "< 2,5x" },
                 ],
                 decisao: "Pausar criativos com CTR < 0,8% após 3 dias",
@@ -2633,7 +2633,7 @@ export default function CampaignResult() {
                   "Otimizar landing page com CRO se necessário",
                 ],
                 kpis: [
-                  { label: "CPL alvo",       valor: metrics?.estimatedCPL || "< R$ 30" },
+                  { label: "CPL alvo",       valor: String(metrics?.estimatedCPL ?? "< R$ 30") },
                   { label: "Frequência",     valor: "< 3x" },
                   { label: "ROAS mínimo",    valor: objective === "sales" ? "> 2x" : "N/A" },
                 ],
@@ -2669,7 +2669,7 @@ export default function CampaignResult() {
                   "Criar audiências personalizadas para remarketing futuro",
                 ],
                 kpis: [
-                  { label: "CPL final",     valor: metrics?.estimatedCPL || "< R$ 30" },
+                  { label: "CPL final",     valor: String(metrics?.estimatedCPL ?? "< R$ 30") },
                   { label: "ROI geral",     valor: objective === "sales" ? "> 3x" : "Engajamento" },
                   { label: "Leads totais",  valor: `${Math.round(budgetMonthly / 25)}+ leads` },
                 ],

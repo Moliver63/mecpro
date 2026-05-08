@@ -7290,20 +7290,23 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     const FORMATS: Array<"feed" | "stories" | "square"> = ["feed", "stories", "square"];
     const TIMEOUT_MS = 25000; // 25s por formato
 
-    // Gera os 3 formatos em paralelo
-    const results = await Promise.allSettled(
-      FORMATS.map(format =>
-        Promise.race([
-          generateAdImage(creative, context.segment, context.objective, config, format),
-          new Promise<null>(resolve => setTimeout(() => resolve(null), TIMEOUT_MS)),
-        ]).then(url => ({ format, url }))
-      )
-    );
+    // Gera os 3 formatos SEQUENCIALMENTE com delay para evitar Pollinations 429
+    // (paralelo causava rate limit pois 3 requests chegavam ao mesmo tempo)
+    const results: Array<{ format: string; url: string | null }> = [];
+    for (const format of FORMATS) {
+      const url = await Promise.race([
+        generateAdImage(creative, context.segment, context.objective, config, format),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), TIMEOUT_MS)),
+      ]).catch(() => null);
+      results.push({ format, url });
+      // Delay de 600ms entre formatos para evitar 429 no Pollinations
+      if (format !== "square") await new Promise(r => setTimeout(r, 600));
+    }
 
     let anyGenerated = false;
     for (const result of results) {
-      if (result.status === "fulfilled" && result.value?.url) {
-        const { format, url } = result.value;
+      if (result?.url) {
+        const { format, url } = result;
         if (format === "feed")    creative.feedImageUrl = url;
         if (format === "stories") creative.storyImageUrl = url;
         if (format === "square")  creative.squareImageUrl = url;
