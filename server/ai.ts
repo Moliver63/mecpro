@@ -6141,22 +6141,38 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         const cCtas = [...new Set(cAds.map((a: any) => a.cta).filter(Boolean))].slice(0, 3).join(", ");
         return `${(c as any).name}: ${cAds.length} ads, CTAs: ${cCtas || "n/a"}, headlines: ${cHeadlines || "n/a"}`;
       }).join("\n");
+
+      // Contexto do segmento — limita a 300 chars para não estourar Groq 8b
+      const segmentCtx = input.extraContext
+        ? `\nDiretrizes do segmento: ${String(input.extraContext).slice(0, 300)}`
+        : "";
+
+      // Regra de CTA por nicho — previne "guia grátis" em imobiliária
+      const nicheStr = (p?.niche || "").toLowerCase();
+      const ctaRule = nicheStr.includes("imob") || nicheStr.includes("corret") || nicheStr.includes("imóvel")
+        ? "\nREGRA CRÍTICA: Negócio imobiliário. CTA OBRIGATÓRIO: 'Agendar visita', 'Ver condições', 'Falar com corretor'. NUNCA use guia/ebook/download."
+        : nicheStr.includes("curso") || nicheStr.includes("info") || nicheStr.includes("ead")
+        ? "\nREGRA CRÍTICA: Infoproduto. CTA: acesso ao curso/conteúdo."
+        : nicheStr.includes("restaurante") || nicheStr.includes("aliment") || nicheStr.includes("delivery")
+        ? "\nREGRA CRÍTICA: Alimentação/delivery. CTA: 'Pedir agora', 'Ver cardápio'."
+        : "";
+
       return `Crie uma campanha de ${input.objective} para "${p?.companyName || input.name}" (nicho: ${p?.niche || "geral"}).
 Produto: ${p?.productService || "não informado"}. Público: ${p?.targetAudience || "não definido"}.
 Budget: R$${input.budget}/mês. Plataforma: ${input.platform}.
 Dor: ${p?.mainPain || "—"}. Proposta: ${p?.uniqueValueProposition || "—"}.
 Concorrentes:
 ${compSummary || "Nenhum cadastrado."}
-${metaInsights! ? `Performance real: CPC R$${(metaInsights as any)?.cpc.toFixed(2)}, CPM R$${(metaInsights as any)?.cpm.toFixed(2)}, CTR ${(metaInsights as any)?.ctr.toFixed(2)}%` : ""}
-${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}
+${(metaInsights as any)?.cpc ? `Performance real: CPC R$${(metaInsights as any).cpc.toFixed(2)}, CPM R$${(metaInsights as any).cpm.toFixed(2)}, CTR ${(metaInsights as any).ctr.toFixed(2)}%` : ""}
+${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}${segmentCtx}${ctaRule}
 
 Gere JSON com:
 - strategy: string com estratégia geral
 - campaignName: string
 - adSets: array com {name, audience, budget(%), objective, funnelStage}
-- creatives: array com {type, format, orientation, headline, copy, hook, cta, funnelStage, complianceScore, targetAudience}
+- creatives: array com EXATAMENTE 4 itens {type, format, orientation, headline, copy, hook, cta, funnelStage, complianceScore, targetAudience}
 - conversionFunnel: array com {stage, format, audience, budget, kpi}
-- executionPlan: array com 4 itens OBRIGATORIAMENTE com {week("Semana 1-7" etc), title, action, budget("R$ X/semana"), kpi("métrica específica"), decision("regra de otimização")}
+- executionPlan: array com 4 itens {week, title, action, budget, kpi, decision}
 - metrics: {estimatedCPC, estimatedCPM, estimatedCTR, estimatedLeads, estimatedROAS, estimatedCPL, insight}
 - hooks: array com 5 variações de hook
 - abTests: array com {test, variationA, variationB, metric}`;
