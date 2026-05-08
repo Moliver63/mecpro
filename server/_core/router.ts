@@ -11192,6 +11192,45 @@ const invitesRouter = router({
       await pool!.query(`UPDATE admin_invites SET used_at = NOW() WHERE id = $1`, [invite.id]);
       return { success: true, email: invite.email, role: invite.role };
     }),
+
+  // ── System Errors — monitoramento de erros críticos ───────────────────────
+  getSystemErrors: adminProcedure
+    .query(async () => {
+      const { getPool } = await import("../db.js");
+      const pool = await getPool();
+      if (!pool) return { summary: null, recent: [], topErrors: [] };
+      const { getErrorStats } = await import("../errorTelemetry.js");
+      return getErrorStats(pool);
+    }),
+
+  resolveError: adminProcedure
+    .input(z.object({ errorId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const { getPool } = await import("../db.js");
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      await pool.query(
+        `UPDATE system_errors SET resolved=true, resolved_at=NOW(), resolved_by=$1 WHERE id=$2`,
+        [(ctx as any).user?.email || "admin", input.errorId]
+      );
+      return { ok: true };
+    }),
+
+  resolveAllErrors: adminProcedure
+    .input(z.object({ area: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const { getPool } = await import("../db.js");
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const params: any[] = [(ctx as any).user?.email || "admin"];
+      const areaFilter = input.area ? `AND area=$2` : "";
+      if (input.area) params.push(input.area);
+      await pool.query(
+        `UPDATE system_errors SET resolved=true, resolved_at=NOW(), resolved_by=$1 WHERE resolved=false ${areaFilter}`,
+        params
+      );
+      return { ok: true };
+    }),
 });
 
 export const appRouter = router({

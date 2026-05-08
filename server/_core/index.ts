@@ -1270,6 +1270,22 @@ app.use(
     createContext,
     onError({ error, path }: { error: any; path: string | undefined }) {
       log.error('trpc', `[${path}] ${error.message}`);
+      // Persiste erros críticos no banco para o admin ver
+      setImmediate(async () => {
+        try {
+          if (error.code === "INTERNAL_SERVER_ERROR" || error.code === "TIMEOUT") {
+            const { errorLog } = await import("./errorTelemetry.js");
+            const area = path?.includes("publish")    ? "meta_publish" as const
+                       : path?.includes("campaign")   ? "campaign_gen" as const
+                       : path?.includes("competitor") ? "competitor"   as const
+                       : path?.includes("image") || path?.includes("video") ? "image_gen" as const
+                       : "general" as const;
+            errorLog.error(area, error.code || "TRPC_ERROR", error.message?.slice(0, 300) || "tRPC error", {
+              endpoint: path,
+            });
+          }
+        } catch {}
+      });
     },
   })
 );

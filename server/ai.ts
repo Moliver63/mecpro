@@ -1426,6 +1426,7 @@ async function _geminiImpl(
     const availableNow = allKeys.filter(k => !_exhaustedKeys.has(k));
     if (allKeys.length > 0 && availableNow.length === 0) {
       log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
+    setImmediate(async () => { try { const { errorLog } = await import("./errorTelemetry.js"); errorLog.critical("ai_quota", "QUOTA_EXHAUSTED", "Todas as chaves Gemini esgotadas"); } catch {} });
       // Tenta fallbacks em ordem: Groq → Genspark → Claude → mock
       // Comprime prompt para evitar Groq 413
       const _compressedForGroq = _compressPromptLight(prompt, 25000);  // 25k evita 413 no 70b
@@ -1795,6 +1796,7 @@ async function callGroqAPI(
         const nextKey = getAvailableGroqKey();
         if (nextKey && nextKey !== apiKey) {
           log.warn("ai", `Groq 429 na chave atual — trocando para chave alternativa`, { model });
+          setImmediate(async () => { try { const { errorLog } = await import("./errorTelemetry.js"); errorLog.warn("ai_quota", "GROQ_429", `Groq 429 no modelo ${model}`); } catch {} });
           // Retenta imediatamente com a nova chave
           const retryRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
@@ -1825,6 +1827,7 @@ async function callGroqAPI(
       }
       if (res.status === 413) {
         log.warn("ai", `Groq 413 (prompt muito grande) no modelo ${model} — truncando mais`);
+        setImmediate(async () => { try { const { errorLog } = await import("./errorTelemetry.js"); errorLog.warn("campaign_gen", "GROQ_413", `Groq 413 prompt grande no modelo ${model}`); } catch {} });
         continue; // próximo modelo com prompt ainda menor
       }
 
@@ -6125,6 +6128,8 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     });
   } catch (e: any) {
     log.warn("ai", "Campaign parse error — tentando Groq como fallback", { error: e.message });
+    // Telemetria de erro crítico
+    setImmediate(async () => { try { const { errorLog } = await import("./errorTelemetry.js"); errorLog.error("campaign_gen", "CAMPAIGN_PARSE_ERROR", e.message?.slice(0,200) || "Campaign parse error", { projectId: input.projectId, endpoint: "generateCampaign" }); } catch {} });
 
     // Tenta Groq quando Gemini retorna JSON truncado
     // Para Groq: usa prompt mínimo focado nos dados essenciais — evita 413
@@ -6259,7 +6264,8 @@ Gere JSON com:
           throw new Error("MECPro AI retornou resposta inválida");
         }
       } catch (mecErr: any) {
-        log.warn("ai", "Todos os LLMs falharam — usando motor híbrido", { error: mecErr.message });
+        setImmediate(async () => { try { const { errorLog } = await import("./errorTelemetry.js"); errorLog.warn("campaign_gen", "HYBRID_MODE_ACTIVE", "Todos os LLMs falharam — motor híbrido ativado", { projectId: input.projectId, endpoint: "generateCampaign" }); } catch {} });
+    log.warn("ai", "Todos os LLMs falharam — usando motor híbrido", { error: mecErr.message });
         try {
           const [scrapedAds, profile] = await Promise.all([
             db.getScrapedAdsByProject(input.projectId).catch(()=>[] as any[]),

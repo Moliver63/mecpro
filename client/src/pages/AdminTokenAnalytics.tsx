@@ -19,6 +19,153 @@ const ENGINE_COLORS: Record<string, string> = {
   gemini: "#059669", groq: "#d97706", ml_first: "#1d4ed8",
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TabErrors — Dashboard de erros críticos do MECPro
+// ─────────────────────────────────────────────────────────────────────────────
+const AREA_LABELS: Record<string, string> = {
+  campaign_gen:  "🎯 Geração de Campanha",
+  meta_publish:  "📘 Publicação Meta",
+  ai_quota:      "⚡ Quota de IA",
+  auth:          "🔑 Autenticação",
+  db:            "🗄️ Banco de Dados",
+  competitor:    "🔍 Concorrentes",
+  image_gen:     "🖼️ Imagens",
+  video_gen:     "🎬 Vídeo",
+  payment:       "💳 Pagamentos",
+  general:       "⚙️ Geral",
+};
+
+const SEV_COLOR: Record<string, string> = {
+  critical: "#dc2626",
+  error:    "#ea580c",
+  warn:     "#d97706",
+};
+
+function TabErrors() {
+  const { trpc } = window as any;
+  const errorsQuery = (trpc as any)?.admin?.getSystemErrors?.useQuery?.({ refetchInterval: 30000 });
+  const resolveMut  = (trpc as any)?.admin?.resolveError?.useMutation?.({
+    onSuccess: () => errorsQuery?.refetch?.(),
+  });
+  const resolveAllMut = (trpc as any)?.admin?.resolveAllErrors?.useMutation?.({
+    onSuccess: () => errorsQuery?.refetch?.(),
+  });
+
+  const data = errorsQuery?.data;
+  const summary = data?.summary;
+  const errors  = data?.recent  || [];
+  const topAreas = data?.topErrors || [];
+
+  if (errorsQuery?.isLoading) return (
+    <div style={{ textAlign: "center", padding: 60, color: "#64748b" }}>⏳ Carregando erros...</div>
+  );
+
+  return (
+    <div>
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12, marginBottom: 24 }}>
+        {[
+          { label: "Não resolvidos", value: summary?.unresolved ?? 0, color: "#dc2626", bg: "#fef2f2" },
+          { label: "Últimas 24h",   value: summary?.last_24h   ?? 0, color: "#ea580c", bg: "#fff7ed" },
+          { label: "Críticos",      value: summary?.critical   ?? 0, color: "#dc2626", bg: "#fef2f2" },
+          { label: "Warnings",      value: summary?.warnings   ?? 0, color: "#d97706", bg: "#fffbeb" },
+          { label: "Total",         value: summary?.total      ?? 0, color: "#475569", bg: "#f8fafc" },
+        ].map(k => (
+          <div key={k.label} style={{ background: k.bg, borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+            <p style={{ fontSize: 26, fontWeight: 900, color: k.color, margin: "0 0 2px" }}>{k.value}</p>
+            <p style={{ fontSize: 11, color: "#64748b", margin: 0 }}>{k.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Top áreas com problema */}
+      {topAreas.length > 0 && (
+        <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, padding: "14px 18px", marginBottom: 20 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#92400e", marginBottom: 10 }}>🔥 Áreas com mais erros (7 dias)</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {topAreas.map((a: any) => (
+              <span key={a.area} style={{ padding: "4px 12px", borderRadius: 20, background: "#fef3c7", color: "#92400e", fontSize: 12, fontWeight: 700 }}>
+                {AREA_LABELS[a.area] || a.area}: {a.count} erros
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Ações globais */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", margin: 0 }}>
+          🚨 Erros não resolvidos ({errors.length})
+        </p>
+        <button onClick={() => resolveAllMut?.mutate?.({})}
+          disabled={resolveAllMut?.isPending || errors.length === 0}
+          style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", color: "#475569" }}>
+          ✅ Marcar todos como resolvidos
+        </button>
+      </div>
+
+      {/* Lista de erros */}
+      {errors.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 48, background: "#f0fdf4", borderRadius: 14 }}>
+          <p style={{ fontSize: 32, margin: "0 0 8px" }}>✅</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: "#166534", margin: 0 }}>Nenhum erro pendente</p>
+          <p style={{ fontSize: 12, color: "#16a34a", margin: "4px 0 0" }}>Sistema operando normalmente</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {errors.map((err: any) => (
+            <div key={err.id} style={{
+              background: "white", border: `1px solid ${SEV_COLOR[err.severity] || "#e2e8f0"}20`,
+              borderLeft: `4px solid ${SEV_COLOR[err.severity] || "#e2e8f0"}`,
+              borderRadius: 12, padding: "14px 16px",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 20, background: `${SEV_COLOR[err.severity]}15`, color: SEV_COLOR[err.severity] }}>
+                      {err.severity?.toUpperCase()}
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                      {AREA_LABELS[err.area] || err.area}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "monospace" }}>
+                      {err.code}
+                    </span>
+                    {err.occurrence_count > 1 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 20, background: "#f1f5f9", color: "#64748b" }}>
+                        ×{err.occurrence_count}
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: 13, color: "#0f172a", margin: "0 0 6px", lineHeight: 1.4 }}>{err.message}</p>
+                  {err.suggestion && (
+                    <div style={{ background: "#eff6ff", borderRadius: 8, padding: "6px 10px" }}>
+                      <p style={{ fontSize: 11, color: "#1d4ed8", margin: 0 }}>
+                        💡 <strong>Sugestão:</strong> {err.suggestion}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <p style={{ fontSize: 10, color: "#94a3b8", margin: "0 0 6px" }}>
+                    {err.last_occurred ? new Date(err.last_occurred).toLocaleString("pt-BR") : "—"}
+                  </p>
+                  <button onClick={() => resolveMut?.mutate?.({ errorId: err.id })}
+                    disabled={resolveMut?.isPending}
+                    style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 8, border: "1px solid #e2e8f0", background: "#f0fdf4", color: "#16a34a", cursor: "pointer" }}>
+                    ✓ Resolver
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function AdminTokenAnalytics() {
   const [days, setDays]         = useState(7);
   const [page, setPage]         = useState(1);
@@ -103,6 +250,7 @@ export default function AdminTokenAnalytics() {
                 ["endpoints", "⚙️ Por Endpoint"],
                 ["efficiency", "🔍 Eficiência"],
                 ["logs", "📋 Logs Detalhados"],
+                ["errors", "🚨 Erros"],
               ] as const).map(([tab, label]) => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   style={{ padding: "8px 16px", fontSize: 13, fontWeight: activeTab === tab ? 700 : 500,
@@ -352,7 +500,8 @@ export default function AdminTokenAnalytics() {
             )}
 
             {/* Logs Tab */}
-            {activeTab === "logs" && (
+            {activeTab === "errors" && <TabErrors />}
+          {activeTab === "logs" && (
               <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20 }}>
                 <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
                   <input placeholder="Filtrar por modelo..." value={logModel} onChange={e => setLogModel(e.target.value)}

@@ -841,5 +841,36 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "copyStructure"        varchar(30) DEFAULT 'mixed'
     `).catch(() => {});
 
+    // ── Sistema de Monitoramento de Erros ─────────────────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS system_errors (
+        id              bigserial PRIMARY KEY,
+        error_id        varchar(36)  NOT NULL DEFAULT gen_random_uuid()::text,
+        severity        varchar(10)  NOT NULL DEFAULT 'error', -- critical | error | warn
+        area            varchar(40)  NOT NULL,  -- campaign_gen | meta_publish | ai_quota | auth | db | competitor
+        code            varchar(80),            -- código do erro (ex: TIMEOUT, META_3858504, QUOTA_EXHAUSTED)
+        message         varchar(500) NOT NULL,
+        stack           text,
+        context         jsonb        DEFAULT '{}',  -- { userId, projectId, campaignId, endpoint, model }
+        user_id         integer      REFERENCES users(id) ON DELETE SET NULL,
+        project_id      integer      REFERENCES projects(id) ON DELETE SET NULL,
+        campaign_id     integer      REFERENCES campaigns(id) ON DELETE SET NULL,
+        resolved        boolean      DEFAULT false,
+        resolved_at     timestamptz,
+        resolved_by     varchar(100),
+        occurrence_count integer     DEFAULT 1,   -- quantas vezes este erro ocorreu
+        last_occurred   timestamptz  DEFAULT NOW(),
+        fingerprint     varchar(100),             -- hash para agrupar erros iguais
+        suggestion      text,                     -- sugestão automática de fix
+        created_at      timestamptz  DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_system_errors_severity  ON system_errors(severity, resolved)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_system_errors_area      ON system_errors(area, created_at DESC)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_system_errors_finger    ON system_errors(fingerprint)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_system_errors_created   ON system_errors(created_at DESC)`).catch(() => {});
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_system_errors_fingerprint_unique ON system_errors(fingerprint)`).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }
