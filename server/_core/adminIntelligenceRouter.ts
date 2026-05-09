@@ -1216,3 +1216,130 @@ function countBy(arr: any[], key: string): Record<string, number> {
 function safeJsonParse(s: any, fallback: any) {
   try { return JSON.parse(s || "null") ?? fallback; } catch { return fallback; }
 }
+
+// ── Função interna exportável — chamada pelo cron sem autenticação ────────────
+export async function runAnalysisInternal(opts: {
+  minScore?: number; limit?: number; autoApprove?: boolean;
+} = {}): Promise<{ scored: number; patternsExtracted: number; errors: number }> {
+  const { minScore = 60, limit = 300, autoApprove = true } = opts;
+  try {
+    const { getPool } = await import("../db.js");
+    const dbMod = await import("../db.js");
+    const pool = await getPool();
+    if (!pool) return { scored: 0, patternsExtracted: 0, errors: 1 };
+
+    const {
+      calculateScore, extractWinnerParameters,
+      computeLearningUpdate,
+    } = await import("../campaignIntelligenceEngine.js");
+
+    const projects = await dbMod.db.getAllProjects().catch(() => [] as any[]);
+    let scored = 0, patternsExtracted = 0, errors = 0;
+    const deadline = Date.now() + 55_000;
+    const perProject = Math.max(5, Math.ceil(limit / Math.max(projects.length, 1)));
+
+    for (const project of projects) {
+      if (Date.now() > deadline) break;
+      try {
+        const camps = (await pool.query(
+          `SELECT c.*, p."userId" FROM campaigns c
+           JOIN projects p ON p.id = c."projectId"
+           WHERE c."projectId" = $1 ORDER BY c."createdAt" DESC LIMIT $2`,
+          [project.id, perProject]
+        )).rows;
+
+        for (const c of camps) {
+          if (Date.now() > deadline) break;
+          try {
+            let aiResp: any = {};
+            let creativesArr: any[] = [];
+            try { aiResp = JSON.parse(c.aiResponse || "{}"); } catch {}
+            try { creativesArr = JSON.parse(c.creatives || "[]"); } catch {}
+
+            const context: any = {
+              userId: c.userId, projectId: c.projectId, campaignId: c.id,
+              platform: c.platform || "meta", objective: c.objective || "traffic",
+              niche: aiResp?.niche || "geral", budget: c.budget || 0, duration: c.duration || 30,
+              creatives: creativesArr.map((cr: any) => ({
+                type: cr.type || "image", headline: cr.headline || "", hook: cr.hook || "", formats: [],
+              })),
+              targeting: aiResp?.targeting || {}, strategy: aiResp?.strategy || {},
+            };
+
+            const m = aiResp?.metrics || {};
+            const metrics: any = {
+              impressions: 0, clicks: 0, spend: 0, roas: 0, conversions: 0, leads: 0,
+              ctr: parseFloat(String(m.estimatedCTR || "").replace(/[^0-9.]/g, "") || "2.5"),
+              cpc: parseFloat(String(m.estimatedCPC || "").replace(/[^0-9.]/g, "") || "0.80"),
+              cpm: parseFloat(String(m.estimatedCPM || "").replace(/[^0-9.]/g, "") || "15"),
+            };
+
+            // Usa métricas reais se disponíveis (do sync Meta)
+            const realRow = (await pool.query(
+              `SELECT metric_ctr, metric_cpc FROM campaign_scores WHERE campaign_id = $1 LIMIT 1`,
+              [c.id]
+            )).rows[0];
+            if (realRow?.metric_ctr > 0) {
+              metrics.ctr = Number(realRow.metric_ctr);
+              metrics.cpc = Number(realRow.metric_cpc);
+            }
+
+            const score = calculateScore(context, metrics);
+            scored++;
+
+            // Winner pattern
+            if (score.total >= minScore) {
+              const params = extractWinnerParameters(context, score, metrics);
+              await pool.query(`DELETE FROM winner_patterns WHERE campaign_id = $1`, [c.id]).catch(() => {});
+              await pool.query(`
+                INSERT INTO winner_patterns (
+                  campaign_id, user_id, project_id, platform, objective, niche,
+                  ad_format, headline_pattern, copy_structure, cta_type, main_promise,
+                  trigger_types, media_types, key_factors, score,
+                  approved_by_admin, approved_at, status
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+                [
+                  c.id, c.userId, c.projectId, context.platform, context.objective, context.niche,
+                  params.adFormat, params.headlinePattern, params.copyStructure,
+                  params.ctaType, params.mainPromise,
+                  JSON.stringify(params.triggerTypes), JSON.stringify(params.mediaTypes),
+                  JSON.stringify(params.keyFactors), score.total,
+                  autoApprove ? 1 : 0, autoApprove ? new Date() : null, "active",
+                ]
+              ).catch(() => {});
+              patternsExtracted++;
+            }
+
+            // Learning base
+            const params2 = extractWinnerParameters(context, score, metrics);
+            const existing = (await pool.query(
+              `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
+              [context.platform, context.objective, context.niche]
+            )).rows[0] || null;
+            const update = computeLearningUpdate(existing, score.total, metrics, params2 as any);
+            if (existing) {
+              await pool.query(
+                `UPDATE learning_base SET sample_count=$1, avg_score=$2, best_score=$3, avg_ctr=$4, avg_cpc=$5, avg_cpm=$6
+                 WHERE platform=$7 AND objective=$8 AND niche=$9`,
+                [update.sample_count, update.avg_score, update.best_score,
+                 update.avg_ctr, update.avg_cpc, update.avg_cpm,
+                 context.platform, context.objective, context.niche]
+              ).catch(() => {});
+            } else {
+              await pool.query(
+                `INSERT INTO learning_base (platform, objective, niche, sample_count, avg_score, best_score, avg_ctr, avg_cpc, avg_cpm)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+                [context.platform, context.objective, context.niche,
+                 update.sample_count, update.avg_score, update.best_score,
+                 update.avg_ctr, update.avg_cpc, update.avg_cpm]
+              ).catch(() => {});
+            }
+          } catch { errors++; }
+        }
+      } catch { errors++; }
+    }
+    return { scored, patternsExtracted, errors };
+  } catch (e: any) {
+    return { scored: 0, patternsExtracted: 0, errors: 1 };
+  }
+}

@@ -1895,6 +1895,30 @@ async function main() {
     setInterval(autoSyncMLMetrics, 24 * 60 * 60 * 1000);
   }, 2 * 60 * 60 * 1000);
   log.info("ml-cron", "Auto-sync ML agendado: primeira execução em 2h, depois a cada 24h");
+
+  // ── Cron: Análise completa do histórico + winner_patterns automáticos ──────
+  // Roda 3h após o boot (depois do sync Meta) e a cada 48h
+  // Analisa todas as campanhas, extrai padrões vencedores e aprova automaticamente
+  async function autoRunAnalysis() {
+    try {
+      log.info("ml-cron", "Iniciando análise automática do histórico de campanhas...");
+      const { runAnalysisInternal } = await import("./_core/adminIntelligenceRouter.js");
+      const result = await runAnalysisInternal({ minScore: 60, limit: 300, autoApprove: true });
+      log.info("ml-cron", `✅ Análise automática concluída`, {
+        scored: result.scored,
+        patternsExtracted: result.patternsExtracted,
+        errors: result.errors,
+      });
+    } catch (err: any) {
+      log.warn("ml-cron", "Erro na análise automática", { error: err.message?.slice(0, 80) });
+    }
+  }
+
+  setTimeout(() => {
+    autoRunAnalysis();
+    setInterval(autoRunAnalysis, 48 * 60 * 60 * 1000); // a cada 48h
+  }, 3 * 60 * 60 * 1000); // 3h após boot
+  log.info("ml-cron", "Análise automática agendada: primeira execução em 3h, depois a cada 48h");
 }
 
 main().catch((err) => {
