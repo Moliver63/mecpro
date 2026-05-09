@@ -1123,6 +1123,11 @@ export default function CampaignResult() {
   const shortCopies  = extra?.shortCopies  || null;
   const primaryCTA   = extra?.primaryCTA   || null;
   const angles       = extra?.angles       || null;
+  // Status do motor gerador
+  const generatedBy  = extra?.generatedBy  || null;
+  const isHybridEngine = generatedBy === "hybrid_engine" || generatedBy === "hybrid_engine_eco";
+  const isEcoMode      = generatedBy === "hybrid_engine_eco";
+  const usingMLData    = extra?.usingML    || false;
   const headlines    = extra?.headlines    || null;
   const consciousness= extra?.audienceConsciousness || null;
   const emotionalDesire = extra?.emotionalDesire    || null;
@@ -3390,6 +3395,30 @@ ${sc.cta}`); }}
             <p style={{ fontSize: 13, color: "rgba(255,255,255,.7)", lineHeight: 1.5 }}>
               Publique no Meta Ads ou volte ao projeto para criar outra campanha.
             </p>
+            {/* Badge de motor gerador */}
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              {isHybridEngine ? (
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                  background: usingMLData ? "rgba(74,222,128,.2)" : "rgba(251,191,36,.2)",
+                  color: usingMLData ? "#4ade80" : "#fbbf24",
+                  border: `1px solid ${usingMLData ? "rgba(74,222,128,.3)" : "rgba(251,191,36,.3)"}` }}>
+                  {usingMLData ? "🧠 Motor ML Ativo" : "⚙️ Motor Híbrido Local"}
+                  {isEcoMode ? " · Eco Mode" : ""}
+                </span>
+              ) : (
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                  background: "rgba(74,222,128,.15)", color: "#4ade80",
+                  border: "1px solid rgba(74,222,128,.25)" }}>
+                  ✦ Gemini IA
+                </span>
+              )}
+              {usingMLData && (
+                <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 20,
+                  background: "rgba(255,255,255,.08)", color: "rgba(255,255,255,.6)" }}>
+                  Métricas e CTAs calibrados por dados reais
+                </span>
+              )}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexShrink: 0 }}>
             <button

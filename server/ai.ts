@@ -3016,7 +3016,9 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
     executionPlan,
     metrics,
     generatedBy: "hybrid_engine",
-  };
+    usingML: usingML,
+    mlSamples: mlData?.sample_count || 0,
+    mlEngine: mlData?.engine_samples ? getCopyEngine() : null,
 }
 
 // ── Geração local de insights a partir dos ads coletados (sem LLM) ────────────
