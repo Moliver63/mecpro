@@ -5,7 +5,8 @@
 import { log } from "./logger";
 
 // Preços por 1M tokens (USD) — atualizado mai/2026
-const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+interface ModelPrice { input: number; output: number; }
+const MODEL_PRICES: Record<string, ModelPrice> = {
   "gemini-2.5-flash-lite":  { input: 0.075,  output: 0.30  },
   "gemini-2.5-flash":       { input: 0.15,   output: 0.60  },
   "gemini-2.5-pro":         { input: 1.25,   output: 5.00  },

@@ -18,7 +18,8 @@ import * as db from "./db";
 const router = Router();
 
 // â”€â”€ Limites por plano â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const PLAN_LIMITS: Record<string, { daily: number; monthly: number }> = {
+interface PlanLimit { daily: number; monthly: number; }
+const PLAN_LIMITS: Record<string, PlanLimit> = {
   free:    { daily:   5, monthly:   50 },
   basic:   { daily:  20, monthly:  300 },
   premium: { daily: 100, monthly: 2000 },

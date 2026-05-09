@@ -621,15 +621,16 @@ export function validateMetaCompliance(text: string): {
 }
 
 // ── Benchmarks reais por nicho — fontes: Meta Business Insights, WordStream, Google Ads BR 2025 ──
-const MARKET_NICHE_BENCHMARKS: Record<string, {
-  cpc: [number, number];   // R$ min-max
-  cpl: [number, number];   // R$ min-max
-  cpa: [number, number];   // R$ min-max
-  cpm: [number, number];   // R$ min-max
-  ctr: [number, number];   // % min-max
-  roas: [number, number];  // min-max
+interface NicheBenchmarkEntry {
+  cpc:   [number, number];
+  cpl:   [number, number];
+  cpa:   [number, number];
+  cpm:   [number, number];
+  ctr:   [number, number];
+  roas:  [number, number];
   label: string;
-}> = {
+}
+const MARKET_NICHE_BENCHMARKS: Record<string, NicheBenchmarkEntry> = {
   // Imóveis / Real Estate
   "imoveis":        { cpc:[3.50,8.00],  cpl:[45,150],   cpa:[800,3000],  cpm:[18,40],  ctr:[0.8,2.2],  roas:[3,8],   label:"Imóveis" },
   "imobiliaria":    { cpc:[3.50,8.00],  cpl:[45,150],   cpa:[800,3000],  cpm:[18,40],  ctr:[0.8,2.2],  roas:[3,8],   label:"Imóveis" },
@@ -885,16 +886,17 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 // "off" = Groq/Llama (fallback gratuito)
 // ─────────────────────────────────────────────────────────────────────────────
 // REGRAS DE COPY POR SEGMENTO — usadas no Groq e no motor híbrido
-// Garante que cada segmento recebe CTAs, copy e compliance corretos
 // ─────────────────────────────────────────────────────────────────────────────
-export const SEGMENT_COPY_RULES: Record<string, {
-  ctaLeads:    string[];
-  ctaSales:    string[];
-  copyHook:    string;   // início de hook ideal para o segmento
-  forbidden:   string[]; // palavras/conceitos proibidos neste segmento
-  compliance:  string;   // regra de compliance Meta
-  nicheKeys:   string[]; // palavras-chave do nicho para detecção automática
-}> = {
+interface SegmentRule {
+  ctaLeads:   string[];
+  ctaSales:   string[];
+  copyHook:   string;
+  forbidden:  string[];
+  compliance: string;
+  nicheKeys:  string[];
+}
+
+export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
   imoveis_venda: {
     ctaLeads:   ["Agendar visita", "Quero saber as condições", "Falar com corretor", "Ver o imóvel", "Solicitar proposta"],
     ctaSales:   ["Garantir minha unidade", "Ver condição especial", "Falar agora", "Quero reservar"],
@@ -2692,7 +2694,8 @@ function buildBaseTemplate(
   const isServico  = /clinica|saude|beleza|estetica|restaurante/i.test(niche);
   const isTech     = /tech|software|app|saas|digital/i.test(niche);
 
-  const bases: Record<string, Record<string, { h: string; b: string; c: string }>> = {
+  type HBC = { h: string; b: string; c: string };
+  const bases: Record<string, Record<string, HBC>> = {
     urgent: {
       imoveis:  { h: `Última unidade disponível — ${vars.produto}`, b: `Oportunidade única em ${vars.empresa}. Reserve agora antes que acabe.`, c: "Reservar agora" },
       servico:  { h: `Agenda quase cheia — ${vars.produto}`, b: `Poucos horários disponíveis esta semana em ${vars.empresa}.`, c: "Garantir vaga" },
