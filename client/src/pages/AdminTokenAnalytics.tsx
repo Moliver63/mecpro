@@ -166,6 +166,230 @@ function TabErrors() {
 }
 
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TabQuota — Quota em tempo real + capacidade de campanhas
+// ─────────────────────────────────────────────────────────────────────────────
+function TabQuota() {
+  const quotaQuery    = (trpc as any).campaigns?.quotaStatus?.useQuery?.({ refetchInterval: 60000 });
+  const tokenQuery    = (trpc as any).admin?.getTokenStats?.useQuery?.({ days: 1 });
+  const campaignQuery = (trpc as any).admin?.getTokenStats?.useQuery?.({ days: 30 });
+
+  const quota   = quotaQuery?.data?.quota;
+  const cache   = quotaQuery?.data?.cache;
+  const today   = tokenQuery?.data?.summary;
+  const month   = campaignQuery?.data?.summary;
+
+  // Limites reais por IA
+  const LIMITS = [
+    {
+      id: "gemini",
+      name: "Google Gemini",
+      icon: "✦",
+      color: "#4285F4",
+      dailyTokens: 3_000_000,
+      tokensPerCampaign: 12_000,
+      description: "3M tokens/dia (3 projetos × 1M)",
+      groq: false,
+    },
+    {
+      id: "groq",
+      name: "Groq Llama 3.3 70B",
+      icon: "⚡",
+      color: "#f97316",
+      dailyTokens: 500_000,
+      tokensPerCampaign: 3_000,
+      description: "500k tokens/dia (free tier)",
+      groq: true,
+    },
+    {
+      id: "cloudflare",
+      name: "Cloudflare FLUX",
+      icon: "🖼️",
+      color: "#f59e0b",
+      dailyTokens: 10_000,
+      tokensPerCampaign: 4,
+      unit: "neurons",
+      description: "10k neurons/dia — 4 imagens/campanha",
+      groq: false,
+    },
+  ];
+
+  // Tokens usados hoje do banco
+  const tokensHoje = Number(today?.total_tokens || 0);
+  const geminiHoje = tokenQuery?.data?.byModel?.find((m: any) =>
+    m.provider === "gemini"
+  )?.total_tokens || 0;
+  const groqHoje = tokenQuery?.data?.byModel?.find((m: any) =>
+    m.provider === "groq"
+  )?.total_tokens || 0;
+
+  // Campanhas geradas hoje e no mês
+  const reqsHoje = Number(today?.total_requests || 0);
+  const reqsMes  = Number(month?.total_requests || 0);
+  const custoHoje = Number(today?.total_cost_usd || 0);
+  const custoMes  = Number(month?.total_cost_usd || 0);
+
+  // Capacidade restante estimada
+  const geminiRestante = Math.max(0, 3_000_000 - Number(geminiHoje));
+  const groqRestante   = Math.max(0, 500_000   - Number(groqHoje));
+  const campanhasGemini = Math.floor(geminiRestante / 12_000);
+  const campanhasGroq   = Math.floor(groqRestante   / 3_000);
+  const campanhasTotal  = campanhasGemini + campanhasGroq;
+
+  function ProgressBar({ used, total, color }: { used: number; total: number; color: string }) {
+    const pct = Math.min(100, Math.round(used / total * 100));
+    const bg  = pct > 90 ? "#dc2626" : pct > 70 ? "#d97706" : color;
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: "#64748b" }}>{used.toLocaleString("pt-BR")} usados</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: pct > 90 ? "#dc2626" : "#475569" }}>{pct}%</span>
+        </div>
+        <div style={{ height: 8, background: "#f1f5f9", borderRadius: 99 }}>
+          <div style={{ height: "100%", width: `${pct}%`, background: bg, borderRadius: 99, transition: "width .4s" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+          <span style={{ fontSize: 10, color: "#94a3b8" }}>Limite: {total.toLocaleString("pt-BR")}</span>
+          <span style={{ fontSize: 10, color: "#16a34a", fontWeight: 700 }}>
+            Restam: {Math.max(0, total - used).toLocaleString("pt-BR")}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* KPIs de capacidade */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
+        {[
+          { label: "Campanhas possíveis hoje", value: campanhasTotal.toLocaleString("pt-BR"), color: "#16a34a", sub: "Gemini + Groq restante" },
+          { label: "Requisições hoje",         value: reqsHoje.toLocaleString("pt-BR"),       color: "#0891b2", sub: "chamadas de IA" },
+          { label: "Requisições este mês",     value: reqsMes.toLocaleString("pt-BR"),        color: "#7c3aed", sub: "total acumulado" },
+          { label: "Custo hoje (USD)",         value: `$${custoHoje.toFixed(4)}`,             color: "#d97706", sub: `≈ R$${(custoHoje * 5.8).toFixed(2)}` },
+          { label: "Custo mês (USD)",          value: `$${custoMes.toFixed(3)}`,              color: "#d97706", sub: `≈ R$${(custoMes * 5.8).toFixed(2)}` },
+        ].map(k => (
+          <div key={k.label} style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 12, padding: "14px 16px" }}>
+            <p style={{ fontSize: 22, fontWeight: 900, color: k.color, margin: "0 0 2px" }}>{k.value}</p>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#0f172a", margin: "0 0 2px" }}>{k.label}</p>
+            <p style={{ fontSize: 10, color: "#94a3b8", margin: 0 }}>{k.sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Quota por IA */}
+      <p style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", marginBottom: 14 }}>📊 Quota por IA — Hoje</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14, marginBottom: 24 }}>
+
+        {/* Gemini */}
+        <div style={{ background: "white", border: "2px solid #4285F420", borderRadius: 14, padding: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 22 }}>✦</span>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>Google Gemini</p>
+                <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>3 projetos × 1M tokens = 3M/dia</p>
+              </div>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: "#eff6ff", color: "#1d4ed8" }}>
+              GRATUITO
+            </span>
+          </div>
+          <ProgressBar used={Number(geminiHoje)} total={3_000_000} color="#4285F4" />
+          <div style={{ marginTop: 10, padding: "8px 10px", background: "#f0fdf4", borderRadius: 8 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#166534", margin: 0 }}>
+              🎯 Campanhas restantes hoje: <strong>{campanhasGemini.toLocaleString("pt-BR")}</strong>
+            </p>
+            <p style={{ fontSize: 10, color: "#16a34a", margin: "2px 0 0" }}>
+              Baseado em ~12.000 tokens por campanha completa
+            </p>
+          </div>
+        </div>
+
+        {/* Groq */}
+        <div style={{ background: "white", border: "2px solid #f9731620", borderRadius: 14, padding: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 22 }}>⚡</span>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>Groq Llama 3.3 70B</p>
+                <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>500k tokens/dia (free tier)</p>
+              </div>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: "#fff7ed", color: "#c2410c" }}>
+              FALLBACK
+            </span>
+          </div>
+          <ProgressBar used={Number(groqHoje)} total={500_000} color="#f97316" />
+          <div style={{ marginTop: 10, padding: "8px 10px", background: "#fff7ed", borderRadius: 8 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#9a3412", margin: 0 }}>
+              🎯 Campanhas restantes hoje: <strong>{campanhasGroq.toLocaleString("pt-BR")}</strong>
+            </p>
+            <p style={{ fontSize: 10, color: "#ea580c", margin: "2px 0 0" }}>
+              Baseado em ~3.000 tokens por campanha via Groq
+            </p>
+          </div>
+        </div>
+
+        {/* Cloudflare */}
+        <div style={{ background: "white", border: "2px solid #f59e0b20", borderRadius: 14, padding: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 22 }}>🖼️</span>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>Cloudflare FLUX</p>
+                <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>10.000 neurons/dia (imagens)</p>
+              </div>
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: "#fffbeb", color: "#b45309" }}>
+              IMAGENS
+            </span>
+          </div>
+          <div style={{ marginTop: 8, padding: "10px 12px", background: "#fffbeb", borderRadius: 10 }}>
+            <p style={{ fontSize: 12, color: "#92400e", margin: "0 0 4px", fontWeight: 700 }}>
+              ⚠️ Quota rastreada nos logs do servidor
+            </p>
+            <p style={{ fontSize: 11, color: "#b45309", margin: 0 }}>
+              4 imagens por campanha = 4 neurons cada
+              Quando esgota (429) → Pollinations como fallback automático
+            </p>
+          </div>
+          <div style={{ marginTop: 8, padding: "8px 10px", background: "#f0fdf4", borderRadius: 8 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#166534", margin: 0 }}>
+              🎯 Campanhas com imagem CF: <strong>~2.500/dia</strong>
+            </p>
+            <p style={{ fontSize: 10, color: "#16a34a", margin: "2px 0 0" }}>
+              Reset: todo dia às 21h (meia-noite UTC)
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Projeção */}
+      <div style={{ background: "#0f172a", borderRadius: 14, padding: "18px 22px" }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,.5)", marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>
+          📈 Projeção de Capacidade
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+          {[
+            { label: "Campanhas/dia (atual)",  value: `~${campanhasTotal}`,          sub: "com quota disponível" },
+            { label: "Com 5 chaves Gemini",    value: `~${campanhasGemini * 2}`,     sub: "+2 projetos separados" },
+            { label: "Clientes suportados",    value: `~${Math.round(campanhasTotal * 10)}`, sub: "DAU 10% × 1 campanha/dia" },
+            { label: "Custo por campanha",     value: `$${(custoHoje / Math.max(reqsHoje, 1)).toFixed(4)}`, sub: "média hoje" },
+          ].map(p => (
+            <div key={p.label} style={{ textAlign: "center" }}>
+              <p style={{ fontSize: 22, fontWeight: 900, color: "white", margin: "0 0 4px" }}>{p.value}</p>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,.7)", margin: "0 0 2px" }}>{p.label}</p>
+              <p style={{ fontSize: 10, color: "rgba(255,255,255,.35)", margin: 0 }}>{p.sub}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export default function AdminTokenAnalytics() {
   const [days, setDays]         = useState(7);
   const [page, setPage]         = useState(1);
@@ -251,6 +475,7 @@ export default function AdminTokenAnalytics() {
                 ["efficiency", "🔍 Eficiência"],
                 ["logs", "📋 Logs Detalhados"],
                 ["errors", "🚨 Erros"],
+                ["quota",  "📊 Quota IA"],
               ] as const).map(([tab, label]) => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   style={{ padding: "8px 16px", fontSize: 13, fontWeight: activeTab === tab ? 700 : 500,
@@ -501,6 +726,7 @@ export default function AdminTokenAnalytics() {
 
             {/* Logs Tab */}
             {activeTab === "errors" && <TabErrors />}
+          {activeTab === "quota"  && <TabQuota />}
           {activeTab === "logs" && (
               <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20 }}>
                 <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
