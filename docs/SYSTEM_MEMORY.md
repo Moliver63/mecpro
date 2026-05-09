@@ -438,3 +438,158 @@ Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
 Score atual: ~88%. ML loop fechado. Copy Engine toggle ativo.
 Prioridade: Meta Token (exp 25/05) + copies 2→6 + análise resultados.
 ```
+
+---
+
+## 🐛 Bugs Resolvidos (sessão 15)
+
+#### BUG-085: botão "Editar perfil" causava 503
+- **Causa 1:** `href="/projects/ID/profile"` — rota não existe no App.tsx (correta é `/client`)
+- **Causa 2:** `<a href>` faz request HTTP ao servidor em SPA → 503
+- **Fix:** `<button onClick={() => setLocation('/projects/ID/client')}>`
+- **Commit:** c646a06
+
+#### BUG-086: TabAIManager — useEffect não importado → ErrorBoundary
+- **Causa:** `import React, { useState }` faltava `useEffect`
+- **Fix:** `import React, { useState, useEffect }`
+- **Commit:** d2a2656
+
+#### BUG-087: ve.replace is not a function (linha 2619 CampaignResult)
+- **Causa:** `metrics?.estimatedCPC?.replace("R$ ","")` — CPC vem como number do banco
+- **Fix:** `typeof val === "string" ? val.replace(...) : String(val || "")`
+- **Commit:** 1992645
+
+#### BUG-088: opts is not defined no matchScore
+- **Causa:** `cacheAs` adicionado usava `opts?.projectId` mas `opts` não existe naquele contexto
+- **Fix:** Removido `opts?.projectId` do `cacheAs` do matchScore
+- **Commit:** 1992645
+
+#### BUG-089: Cloudflare prompt > 2048 chars
+- **Causa:** Prompt para Cloudflare FLUX excede limite de 2048 caracteres
+- **Fix:** `safePrompt()` que trunca para 2000 chars antes de enviar
+- **Commit:** 1992645
+
+#### BUG-090: Pollinations 429 em múltiplos formatos simultâneos
+- **Causa:** 4 formatos gerados ao mesmo tempo → todos batem no rate limit
+- **Fix:** Delay escalonado entre requests Pollinations
+- **Commit:** 1992645
+
+#### BUG-091: Groq gerando copy errada — "guia grátis" em imobiliária
+- **Causa:** groqMinimalPrompt não incluía segmento, CTAs corretos por nicho nem palavras proibidas
+- **Fix:** `SEGMENT_COPY_RULES` + `getSegmentInstruction()` + `detectSegmentFromNiche()`
+- **Commits:** a36647a, ad7f349
+
+---
+
+## 🎯 SEGMENT_COPY_RULES (NOVO — sessão 15)
+
+Tabela central de regras de copy por segmento — aplicada em Groq e motor híbrido:
+
+```typescript
+// server/ai.ts
+SEGMENT_COPY_RULES[segment] → {
+  ctaLeads:   string[]  // CTAs corretos para leads
+  ctaSales:   string[]  // CTAs corretos para sales
+  copyHook:   string    // diretriz de hook ideal
+  forbidden:  string[]  // palavras proibidas no segmento
+  compliance: string    // regra Meta específica
+  nicheKeys:  string[]  // detecção automática por niche
+}
+
+detectSegmentFromNiche(niche) → string  // "imóveis venda" → imoveis_venda
+getSegmentInstruction(segment, niche, objective) → string // injeta no prompt
+```
+
+9 segmentos cobertos:
+- imoveis_venda   → "Agendar visita" | NUNCA guia/ebook/download
+- imoveis_locacao → "Ver disponibilidade" | "Consultar valores"
+- ecommerce       → "Comprar agora" | "Frete grátis"
+- servicos_locais → "Agendar agora" | "Reservar horário"
+- infoprodutos    → "Vaga gratuita" | "Aula grátis" ← único onde "baixar" é válido
+- saude_estetica  → "Avaliação gratuita" | NUNCA before/after/cura
+- alimentacao     → "Pedir agora" | "Ver cardápio"
+- moda_varejo     → "Comprar agora" | "Frete grátis"
+- b2b             → "Demo gratuita" | "Ver case" | "Calcular ROI"
+
+3 pontos do sistema usando as regras:
+1. groqMinimalPrompt → getSegmentInstruction() injetado
+2. buildCampaignFromAds → detectSegmentFromNiche() + filtro de CTAs proibidos
+3. Detecção automática por niche quando segment não é passado
+
+---
+
+## 🚨 Sistema de Logs de Erros (NOVO — sessão 15)
+
+```
+server/errorTelemetry.ts  ← fire-and-forget (setImmediate)
+  logError(severity, area, code, message, ctx)
+  getSuggestion()  → 12+ sugestões automáticas por código
+  getErrorStats()  → summary + recent + topErrors
+
+Tabela: system_errors
+  severity (critical|error|warn), area, code, message
+  fingerprint UNIQUE → upsert agrupa erros repetidos
+  occurrence_count → quantas vezes ocorreu
+  suggestion → sugestão automática de fix
+  resolved, resolved_at, resolved_by
+
+Interceptores ativos:
+  ai.ts: campaign parse error, hybrid mode, quota exhausted, Groq 429, Groq 413
+  index.ts: tRPC onError global (INTERNAL_SERVER_ERROR + TIMEOUT)
+  router.ts: getSystemErrors, resolveError, resolveAllErrors (adminProcedure)
+
+Dashboard: aba 🚨 Erros em /admin/tokens
+  KPIs: não resolvidos / 24h / críticos / warnings / total
+  Sugestão automática por erro
+  ×N contador de ocorrências
+  Botão "Resolver" + "Resolver todos"
+  Auto-refresh 30s
+```
+
+---
+
+## ⚙️ Admin — Estado Atual (sessão 15)
+
+### NAV_ADMIN (17 itens — completo)
+Todos os itens agora visíveis no menu lateral admin.
+
+### AdminUIConfig — "Expor no Frontend"
+3 seções: Expor no Frontend (12 toggles) + Features Ativas (5) + Manutenção (1)
+Key corrigida: meta-campaigns → showMetaCampaigns (alinhado NAV_USER)
+
+### AdminCampaignIntelligence — aba ⚡ Gerenciar IA
+4 cards: Gemini (toggle persiste banco), Groq, Claude (inativo), ML Score
+Fluxo fallback visual interativo
+Ações rápidas: máxima qualidade / modo econômico / atualizar
+
+### Meta App (novo — sessão 15)
+META_APP_ID: 903722219227781
+META_APP_SECRET: c5d2ab8cda2cf9548d97ebb87a1a4fe7
+Atualizar no Render + reconectar token em mecproai.com/meta-campaigns
+
+---
+
+## 📋 Pendências Atualizadas (sessão 15)
+
+| Prioridade | Item | Status |
+|---|---|---|
+| 🔴 | Atualizar META_APP_ID + META_APP_SECRET no Render | Michel |
+| 🔴 | Reconectar token Meta após novo app | Michel |
+| 🔴 | Habilitar produtos Facebook: Marketing API, Ads Library, Instagram, Webhooks | Michel |
+| 🔴 | TikTok token — configurar no Render | Michel |
+| 🟡 | Gemini chaves 2+3 em projetos Google separados (AIzaSyCv duplicado) | Michel |
+| 🟡 | Aprovar winner_patterns no admin → melhora qualidade ML | Michel |
+| 🟢 | Copies 2→6 (PAS/AIDA/Storytelling/Objeção/Escassez/Lifestyle) | Dev |
+| 🟢 | Análise de resultados (cola CPL/CTR → diagnóstico IA) | Dev |
+
+---
+
+## 💡 Prompt de Início de Sessão (atualizado)
+
+```
+Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
+Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
+Último commit: ad7f349. Michel — Balneário Camboriú/SC.
+Score: ~89%. SEGMENT_COPY_RULES ativo. Sistema de logs implementado.
+Prioridade: Meta novo app (ID 903722219227781) + TikTok token + Gemini chaves separadas.
+```
