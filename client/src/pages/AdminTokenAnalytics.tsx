@@ -175,66 +175,34 @@ function TabQuota() {
   const campaignQuery = (trpc as any).admin?.getTokenStats?.useQuery?.({ days: 30 });
 
   const quota   = quotaQuery?.data?.quota;
-  const cache   = quotaQuery?.data?.cache;
+  const keys    = quotaQuery?.data?.keys;   // dados REAIS das chaves configuradas
   const today   = tokenQuery?.data?.summary;
   const month   = campaignQuery?.data?.summary;
 
-  // Limites reais por IA
-  const LIMITS = [
-    {
-      id: "gemini",
-      name: "Google Gemini",
-      icon: "✦",
-      color: "#4285F4",
-      dailyTokens: 3_000_000,
-      tokensPerCampaign: 12_000,
-      description: "3M tokens/dia (3 projetos × 1M)",
-      groq: false,
-    },
-    {
-      id: "groq",
-      name: "Groq Llama 3.3 70B",
-      icon: "⚡",
-      color: "#f97316",
-      dailyTokens: 500_000,
-      tokensPerCampaign: 3_000,
-      description: "500k tokens/dia (free tier)",
-      groq: true,
-    },
-    {
-      id: "cloudflare",
-      name: "Cloudflare FLUX",
-      icon: "🖼️",
-      color: "#f59e0b",
-      dailyTokens: 10_000,
-      tokensPerCampaign: 4,
-      unit: "neurons",
-      description: "10k neurons/dia — 4 imagens/campanha",
-      groq: false,
-    },
-  ];
+  // Tokens usados hoje do banco (reais)
+  const geminiHoje = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "gemini")?.total_tokens || 0);
+  const groqHoje   = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "groq")?.total_tokens   || 0);
 
-  // Tokens usados hoje do banco
-  const tokensHoje = Number(today?.total_tokens || 0);
-  const geminiHoje = tokenQuery?.data?.byModel?.find((m: any) =>
-    m.provider === "gemini"
-  )?.total_tokens || 0;
-  const groqHoje = tokenQuery?.data?.byModel?.find((m: any) =>
-    m.provider === "groq"
-  )?.total_tokens || 0;
+  // Limites REAIS das chaves configuradas no Render
+  const geminiLimit  = keys?.gemini?.dailyLimitTokens  ?? 1_000_000;
+  const groqLimit    = keys?.groq?.dailyLimitTokens    ?? 500_000;
+  const geminiKeys   = keys?.gemini?.total             ?? 1;
+  const groqKeys     = keys?.groq?.total               ?? 1;
+  const hasDuplicates = keys?.gemini?.hasDuplicates    ?? false;
+  const uniqueProjects = keys?.gemini?.uniqueProjects  ?? 1;
 
-  // Campanhas geradas hoje e no mês
-  const reqsHoje = Number(today?.total_requests || 0);
-  const reqsMes  = Number(month?.total_requests || 0);
-  const custoHoje = Number(today?.total_cost_usd || 0);
-  const custoMes  = Number(month?.total_cost_usd || 0);
+  // Campanhas restantes (baseado em tokens reais e limites reais)
+  const geminiRestante   = Math.max(0, geminiLimit - geminiHoje);
+  const groqRestante     = Math.max(0, groqLimit   - groqHoje);
+  const campanhasGemini  = Math.floor(geminiRestante / 12_000);
+  const campanhasGroq    = Math.floor(groqRestante   / 3_000);
+  const campanhasTotal   = campanhasGemini + campanhasGroq;
 
-  // Capacidade restante estimada
-  const geminiRestante = Math.max(0, 3_000_000 - Number(geminiHoje));
-  const groqRestante   = Math.max(0, 500_000   - Number(groqHoje));
-  const campanhasGemini = Math.floor(geminiRestante / 12_000);
-  const campanhasGroq   = Math.floor(groqRestante   / 3_000);
-  const campanhasTotal  = campanhasGemini + campanhasGroq;
+  // Campanhas hoje e mês
+  const reqsHoje  = Number(today?.total_requests  || 0);
+  const reqsMes   = Number(month?.total_requests  || 0);
+  const custoHoje = Number(today?.total_cost_usd  || 0);
+  const custoMes  = Number(month?.total_cost_usd  || 0);
 
   function ProgressBar({ used, total, color }: { used: number; total: number; color: string }) {
     const pct = Math.min(100, Math.round(used / total * 100));
@@ -288,14 +256,26 @@ function TabQuota() {
               <span style={{ fontSize: 22 }}>✦</span>
               <div>
                 <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>Google Gemini</p>
-                <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>3 projetos × 1M tokens = 3M/dia</p>
+                <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>
+                  {geminiKeys} chave{geminiKeys !== 1 ? "s" : ""} · {uniqueProjects} projeto{uniqueProjects !== 1 ? "s" : ""} único{uniqueProjects !== 1 ? "s" : ""} · {(geminiLimit/1_000_000).toFixed(1)}M tokens/dia
+                </p>
               </div>
             </div>
             <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: "#eff6ff", color: "#1d4ed8" }}>
               GRATUITO
             </span>
           </div>
-          <ProgressBar used={Number(geminiHoje)} total={3_000_000} color="#4285F4" />
+          <ProgressBar used={geminiHoje} total={geminiLimit} color="#4285F4" />
+          {hasDuplicates && (
+            <div style={{ marginTop: 6, padding: "5px 10px", background: "#fff7ed", borderRadius: 8, border: "1px solid #fed7aa" }}>
+              <p style={{ fontSize: 11, color: "#92400e", margin: 0, fontWeight: 700 }}>
+                ⚠️ {geminiKeys - uniqueProjects} chave(s) duplicadas detectadas — mesma quota do projeto 1
+              </p>
+              <p style={{ fontSize: 10, color: "#b45309", margin: "2px 0 0" }}>
+                Crie as chaves em projetos Google separados para multiplicar a quota
+              </p>
+            </div>
+          )}
           <div style={{ marginTop: 10, padding: "8px 10px", background: "#f0fdf4", borderRadius: 8 }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: "#166534", margin: 0 }}>
               🎯 Campanhas restantes hoje: <strong>{campanhasGemini.toLocaleString("pt-BR")}</strong>
@@ -313,14 +293,16 @@ function TabQuota() {
               <span style={{ fontSize: 22 }}>⚡</span>
               <div>
                 <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>Groq Llama 3.3 70B</p>
-                <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>500k tokens/dia (free tier)</p>
+                <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>
+                  {groqKeys} chave{groqKeys !== 1 ? "s" : ""} × 500k = {(groqLimit/1_000).toFixed(0)}k tokens/dia
+                </p>
               </div>
             </div>
             <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 20, background: "#fff7ed", color: "#c2410c" }}>
               FALLBACK
             </span>
           </div>
-          <ProgressBar used={Number(groqHoje)} total={500_000} color="#f97316" />
+          <ProgressBar used={groqHoje} total={groqLimit} color="#f97316" />
           <div style={{ marginTop: 10, padding: "8px 10px", background: "#fff7ed", borderRadius: 8 }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: "#9a3412", margin: 0 }}>
               🎯 Campanhas restantes hoje: <strong>{campanhasGroq.toLocaleString("pt-BR")}</strong>

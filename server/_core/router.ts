@@ -1156,9 +1156,61 @@ const competitorsRouter = router({
   quotaStatus: protectedProcedure
     .query(async () => {
       const { getQuotaStatus, getCacheStats } = await import("../ai");
+
+      // Contar chaves reais configuradas no Render
+      const geminiKeys = [
+        process.env.GEMINI_API_KEY,
+        process.env.GEMINI_API_KEY_2,
+        process.env.GEMINI_API_KEY_3,
+        process.env.GEMINI_API_KEY_4,
+        process.env.GEMINI_API_KEY_5,
+      ].filter(Boolean);
+
+      const groqKeys = [
+        process.env.GROQ_API_KEY,
+        process.env.GROQ_API_KEY_01,
+        process.env.GROQ_API_KEY_02,
+        process.env.GROQ_API_KEY_03,
+      ].filter(Boolean);
+
+      // Detectar chaves duplicadas (mesmo prefixo AIzaSy = mesmo projeto Google)
+      const geminiPrefixes = geminiKeys.map(k => k!.slice(0, 12));
+      const uniquePrefixes = new Set(geminiPrefixes);
+      const hasDuplicates  = uniquePrefixes.size < geminiKeys.length;
+
+      // Limites reais por chave Gemini:
+      // Flash Lite: 1.000.000 tokens/dia por projeto
+      // Flash:       500.000 tokens/dia por projeto
+      // Projetos únicos × limite = quota real
+      const uniqueGeminiProjects = uniquePrefixes.size;
+      const geminiDailyLimit = uniqueGeminiProjects * 1_000_000;
+      const groqDailyLimit   = groqKeys.length * 500_000;
+
       return {
         quota: getQuotaStatus(),
         cache: getCacheStats(),
+        keys: {
+          gemini: {
+            total:          geminiKeys.length,
+            uniqueProjects: uniqueGeminiProjects,
+            hasDuplicates,
+            dailyLimitTokens: geminiDailyLimit,
+            tokensPerCampaign: 12_000,
+            campaignsPerDay: Math.floor(geminiDailyLimit / 12_000),
+          },
+          groq: {
+            total:          groqKeys.length,
+            dailyLimitTokens: groqDailyLimit,
+            tokensPerCampaign: 3_000,
+            campaignsPerDay: Math.floor(groqDailyLimit / 3_000),
+          },
+          cloudflare: {
+            dailyNeurons:      10_000,
+            neuronsPerCampaign: 4,
+            campaignsPerDay:   2_500,
+            resetHourBRT:      21,
+          },
+        },
       };
     }),
 
