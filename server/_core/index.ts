@@ -1810,6 +1810,91 @@ async function main() {
   // Executa imediatamente e depois a cada 6 horas
   refreshExpiringMetaTokens();
   setInterval(refreshExpiringMetaTokens, 6 * 60 * 60 * 1000);
+
+  // ── Cron: Sincroniza métricas reais do Meta → fecha loop de aprendizado ML ──
+  // Roda a cada 24h para todos os usuários com campanhas publicadas e token ativo
+  async function autoSyncMLMetrics() {
+    try {
+      const pool = await getPool();
+      if (!pool) return;
+      // Busca usuários com campanhas publicadas e token Meta ativo
+      const users = await pool.query(`
+        SELECT DISTINCT p."userId"
+        FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE c."metaCampaignId" IS NOT NULL
+          AND c."publishStatus" = 'success'
+          AND c."publishedAt" > NOW() - INTERVAL '90 days'
+      `).catch(() => ({ rows: [] }));
+
+      let totalSynced = 0;
+      for (const u of users.rows) {
+        try {
+          const metaInt = await db.getApiIntegration(u.userId, "meta").catch(() => null);
+          if (!metaInt || !(metaInt as any).accessToken) continue;
+          const token = (metaInt as any).accessToken as string;
+
+          // Campanahs publicadas deste usuário
+          const camps = await pool.query(`
+            SELECT c.id, c."metaCampaignId", c.platform, c.objective, c."projectId"
+            FROM campaigns c JOIN projects p ON p.id = c."projectId"
+            WHERE c."metaCampaignId" IS NOT NULL
+              AND c."publishStatus" = 'success'
+              AND p."userId" = $1
+            ORDER BY c."publishedAt" DESC LIMIT 50
+          `, [u.userId]);
+
+          const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          const today = new Date().toISOString().split("T")[0];
+
+          for (const camp of camps.rows) {
+            try {
+              const res = await fetch(
+                `https://graph.facebook.com/v21.0/${camp.metaCampaignId}/insights` +
+                `?fields=impressions,clicks,spend,ctr,cpm,cpc,actions` +
+                `&time_range={"since":"${since}","until":"${today}"}` +
+                `&access_token=${token}`,
+                { signal: AbortSignal.timeout(8000) }
+              );
+              const data: any = await res.json();
+              const ins = data.data?.[0];
+              if (!ins || data.error) continue;
+
+              const ctr   = Number(ins.ctr   || 0);
+              const cpc   = Number(ins.cpc   || 0);
+              const spend = Number(ins.spend  || 0);
+              const leads = Number((ins.actions || []).find((a: any) => a.action_type === "lead")?.value || 0);
+              const cpl   = leads > 0 && spend > 0 ? spend / leads : 0;
+              const isWinner = ctr >= 1.5 && spend >= 10 && (cpl === 0 || cpl <= 15);
+
+              await pool.query(`
+                UPDATE ml_dataset SET
+                  real_ctr = $2, real_cpc = $3, real_cpl = $4, real_spend = $5,
+                  label_ctr = $2, label_cpc = $3,
+                  label_is_winner = CASE WHEN $6 THEN 1 ELSE label_is_winner END,
+                  feedback_applied_at = NOW(), feedback_source = 'meta_api_cron'
+                WHERE campaign_id = $1
+              `, [camp.id, ctr, cpc, cpl, spend, isWinner]);
+
+              totalSynced++;
+            } catch { /* individual campaign error — continue */ }
+          }
+        } catch { /* user error — continue */ }
+      }
+      if (totalSynced > 0) {
+        log.info("ml-cron", `✅ Auto-sync ML: ${totalSynced} campanhas atualizadas com métricas reais`);
+      }
+    } catch (err: any) {
+      log.warn("ml-cron", "Erro no auto-sync ML", { error: err.message?.slice(0, 80) });
+    }
+  }
+
+  // Roda 2h após o boot (deixa o servidor estabilizar) e depois a cada 24h
+  setTimeout(() => {
+    autoSyncMLMetrics();
+    setInterval(autoSyncMLMetrics, 24 * 60 * 60 * 1000);
+  }, 2 * 60 * 60 * 1000);
+  log.info("ml-cron", "Auto-sync ML agendado: primeira execução em 2h, depois a cada 24h");
 }
 
 main().catch((err) => {
