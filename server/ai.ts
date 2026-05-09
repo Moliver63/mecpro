@@ -559,31 +559,30 @@ const META_SENSITIVE_WORDS: string[] = [
   "cirurgia","procedimento estético","botox","lipoaspiração",
 ];
 
-export const META_POLICY_RULES_2026 = `
-POLÍTICAS META ADS 2026 — REGRAS CRÍTICAS:
-
-1. CLAIMS PROIBIDOS: Nunca prometer resultados específicos de saúde ou financeiros garantidos.
-   Nunca usar "antes e depois" em saúde/beleza. Nunca claims comparativos não comprovados.
-
-2. SEGMENTAÇÃO: Proibido segmentar por condição de saúde, etnia, religião ou orientação sexual.
-   Crédito/Emprego/Imóveis têm restrições especiais de faixa etária e localização.
-
-3. IMAGENS: Proibido "antes e depois" de procedimentos estéticos. Texto em imagem: máx 20%.
-   Proibido imagens enganosas ou editadas para parecer conteúdo orgânico.
-
-4. COPY: Proibido CAPS LOCK excessivo. Proibido emojis excessivos (>6 por anúncio).
-   Proibido falsa urgência ("últimas 2 vagas — expira em 10min").
-   Proibido clickbait e linguagem pessoal implícita ("Sabemos que você tem diabetes").
-
-5. LANDING PAGE: Página deve corresponder ao anúncio. Sem pop-ups que impeçam saída.
-   URL exibida deve ser a URL real.
-
-6. CATEGORIAS ESPECIAIS (requerem declaração prévia na Meta):
-   Crédito, Habitação, Emprego, Saúde, Medicamentos, Produtos Financeiros, Jogos de Azar.
-
-7. OBJETIVOS: OUTCOME_LEADS requer política de privacidade clara na landing page.
-   OUTCOME_SALES: pixel de conversão obrigatório para melhor performance.
-`;
+export const META_POLICY_RULES_2026 = [
+  "POLÍTICAS META ADS 2026 — REGRAS CRÍTICAS:",
+  "",
+  "1. CLAIMS PROIBIDOS: Nunca prometer resultados específicos de dinheiro.",
+  "   Nunca usar 'antes e depois' em saúde/beleza. Nunca claims médicos.",
+  "",
+  "2. SEGMENTAÇÃO: Proibido segmentar por condição de saúde, etnia ou religião.",
+  "   Crédito/Emprego/Imóveis têm restrições especiais de faixa etária.",
+  "",
+  "3. IMAGENS: Proibido 'antes e depois' de procedimentos estéticos.",
+  "   Proibido imagens enganosas ou editadas para parecer conteúdo real.",
+  "",
+  "4. COPY: Proibido CAPS LOCK excessivo. Proibido emojis excessivos.",
+  "   Proibido falsa urgência. Proibido clickbait e linguagem pessoal implícita.",
+  "",
+  "5. LANDING PAGE: Página deve corresponder ao anúncio. Sem popups abusivos.",
+  "   URL exibida deve ser a URL real.",
+  "",
+  "6. CATEGORIAS ESPECIAIS (requerem declaração prévia na Meta):",
+  "   Crédito, Habitação, Emprego, Saúde, Medicamentos, Produtos Financeiros.",
+  "",
+  "7. OBJETIVOS: OUTCOME_LEADS requer política de privacidade clara.",
+  "   OUTCOME_SALES: pixel de conversão obrigatório para melhor performance.",
+].join("\n");
 
 // ── Validador de compliance ───────────────────────────────────────────────
 export function validateMetaCompliance(text: string): {
@@ -2607,19 +2606,21 @@ export async function extractAndSavePatterns(
 }
 
 // ── Motor principal: gera anúncios sem LLM (ou com LLM mínimo) ──────────────
-export async function hybridGenerateAds(opts: {
-  niche:         string;
-  clientName:    string;
-  product:       string;
+interface HybridGenerateAdsOpts {
+  niche:          string;
+  clientName:     string;
+  product:        string;
   targetAudience?: string;
-  tones?:        Array<"urgent" | "emotional" | "rational" | "premium">;
-  useLLMRefine?: boolean;   // false = 100% local, true = LLM só humaniza
-  count?:        number;
-}): Promise<{
+  tones?:         Array<"urgent" | "emotional" | "rational" | "premium">;
+  useLLMRefine?:  boolean;
+  count?:         number;
+}
+interface HybridGenerateAdsResult {
   ads: Array<{ headline: string; body: string; cta: string; tone: string; structure: string; source: "pattern"|"llm" }>;
   tokensUsed: number;
   source: "hybrid"|"llm_only";
-}> {
+}
+export async function hybridGenerateAds(opts: HybridGenerateAdsOpts): Promise<HybridGenerateAdsResult> {
   const { niche, clientName, product, targetAudience, tones = ["urgent","emotional","rational","premium"], useLLMRefine = false, count = 4 } = opts;
 
   const vars = { empresa: clientName, produto: product, publico: targetAudience || "seu público" };
@@ -3118,7 +3119,7 @@ const _analyzingLock = new Map<number, Promise<any>>();
 // ═══════════════════════════════════════════════════════════════════
 // AUTO-DESCOBERTA DE CONCORRENTES com base no perfil do cliente
 // ═══════════════════════════════════════════════════════════════════
-export async function discoverCompetitors(profile: {
+interface DiscoverCompetitorsProfile {
   companyName: string;
   niche: string;
   productService: string;
@@ -3129,14 +3130,16 @@ export async function discoverCompetitors(profile: {
   state?: string | null;
   country?: string | null;
   averageTicket?: number | null;
-}): Promise<Array<{
+}
+interface DiscoverCompetitorsResult {
   name: string;
   websiteUrl?: string;
   facebookPageUrl?: string;
   instagramUrl?: string;
   description?: string;
   confidence: "high" | "medium" | "low";
-}>> {
+}
+export async function discoverCompetitors(profile: DiscoverCompetitorsProfile): Promise<DiscoverCompetitorsResult[]> {
   const { companyName, niche, productService, websiteUrl, targetAudience } = profile;
   // Campos de localização — usados para buscar concorrentes na região correta
   const scope   = profile.businessScope || "local";
