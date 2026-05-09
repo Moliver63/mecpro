@@ -990,13 +990,15 @@ export function getSegmentInstruction(segment: string, niche: string, objective:
   const ctas = objective === "sales" ? rules.ctaSales : rules.ctaLeads;
   const forbidden = rules.forbidden.slice(0, 4).join(", ");
 
-  return [
-    `\nREGRAS DO SEGMENTO (${seg}):`,
-    `CTAs OBRIGATÓRIOS: ${ctas.slice(0, 3).join(" | ")}`,
-    `PROIBIDO usar: ${forbidden}`,
-    `HOOK: foque em ${rules.copyHook}`,
-    `COMPLIANCE: ${rules.compliance}`,
-  ].join("\n");
+  // Sem template literals com \n — causa Unterminated string no esbuild do Render
+  const lines = [
+    "REGRAS DO SEGMENTO (" + seg + "):",
+    "CTAs OBRIGATÓRIOS: " + ctas.slice(0, 3).join(" | "),
+    "PROIBIDO usar: " + forbidden,
+    "HOOK: foque em " + rules.copyHook,
+    "COMPLIANCE: " + rules.compliance,
+  ];
+  return "\n" + lines.join("\n");
 }
 
 
