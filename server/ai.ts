@@ -466,17 +466,17 @@ const QUOTA_RESET_MS = 60 * 60 * 1000; // 60 min — evita tentar chave esgotada
 
 // ── Cache de resultados Gemini para evitar chamadas repetidas ────────────────
 // Evita que o mesmo concorrente/prompt seja analisado várias vezes em sequência
-const _geminiCache = new Map<string, { result: string; ts: number }>();
+const _geminiCache = new Map<string, [string, number]>(); // [result, ts]
 const GEMINI_CACHE_TTL = 60 * 60 * 1000; // 60 minutos (⬆️ de 15min para aumentar hit rate)
 
 function getCachedGemini(key: string): string | null {
   const entry = _geminiCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.ts > GEMINI_CACHE_TTL) {
+  if (Date.now() - entry[1] > GEMINI_CACHE_TTL) {
     _geminiCache.delete(key);
     return null;
   }
-  return entry.result;
+  return entry[0];
 }
 
 function setCachedGemini(key: string, result: string) {
@@ -490,7 +490,7 @@ function setCachedGemini(key: string, result: string) {
     const firstKey = _geminiCache.keys().next().value;
     if (firstKey) _geminiCache.delete(firstKey);
   }
-  _geminiCache.set(key, { result, ts: Date.now() });
+  _geminiCache.set(key, [result, Date.now()]);
 }
 
 function getGeminiKey(attempt = 0): string | undefined {
@@ -1130,26 +1130,26 @@ function metaCBrecordSuccess() {
 // ── Cache de análise de concorrentes ─────────────────────────────────────────
 // Evita re-chamar Gemini + pipeline completo para o mesmo concorrente recentemente
 // analisado. TTL de 10 minutos — suficiente para evitar cliques repetidos.
-const _competitorCache = new Map<number, { ts: number; result: any }>();
+const _competitorCache = new Map<number, [number, any]>(); // [ts, result]
 const COMPETITOR_CACHE_TTL = 10 * 60 * 1000; // 10 minutos
 
 function getCompetitorCache(competitorId: number): any | null {
   const entry = _competitorCache.get(competitorId);
   if (!entry) return null;
-  if (Date.now() - entry.ts > COMPETITOR_CACHE_TTL) {
+  if (Date.now() - entry[0] > COMPETITOR_CACHE_TTL) {
     _competitorCache.delete(competitorId);
     return null;
   }
-  return entry.result;
+  return entry[1];
 }
 
 function setCompetitorCache(competitorId: number, result: any) {
   // Limita cache a 50 concorrentes para não crescer indefinidamente
   if (_competitorCache.size >= 50) {
-    const oldest = [..._competitorCache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
+    const oldest = [..._competitorCache.entries()].sort((a, b) => a[1][0] - b[1][0])[0];
     if (oldest) _competitorCache.delete(oldest[0]);
   }
-  _competitorCache.set(competitorId, { ts: Date.now(), result });
+  _competitorCache.set(competitorId, [Date.now(), result]);
 }
 
 // ── Helpers de classificação de fonte de anúncios ────────────────────────────
