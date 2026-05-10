@@ -1274,7 +1274,7 @@ app.use(
       setImmediate(async () => {
         try {
           if (error.code === "INTERNAL_SERVER_ERROR" || error.code === "TIMEOUT") {
-            const { errorLog } = await import("./errorTelemetry.js");
+            const { errorLog } = await import("../errorTelemetry.js");
             const area = path?.includes("publish")    ? "meta_publish" as const
                        : path?.includes("campaign")   ? "campaign_gen" as const
                        : path?.includes("competitor") ? "competitor"   as const

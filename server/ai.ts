@@ -3964,7 +3964,7 @@ Responda OBRIGATORIAMENTE em JSON com TODOS estes campos:
     // Fallback para Gemini direto se o serviço HF estiver fora
     if (!p) {
       log.info("ai", "HF Space indisponível — usando Gemini direto para insights", { competitorId });
-      const raw = await gemini(prompt, { temperature: 0.3, cacheAs: "competitor_insights", cacheMeta: { competitorId } });
+      const raw = await gemini(prompt, { temperature: 0.3, cacheAs: "competitor_insights", cacheMeta: undefined });
       const clean = raw.replace(/```json|```/g, "").trim();
       const parsed = JSON.parse(clean);
       // Se gemini retornou mock (sem LLM real), usa análise local dos dados reais
@@ -5582,7 +5582,7 @@ Gere uma análise de mercado completa em JSON:
     // Fallback para Gemini direto (com controle de quota)
     if (!result) {
       if (shouldUseLLM("medium")) {
-        const raw = await gemini(prompt, { temperature: 0.3, cacheAs: "market_analysis", cacheMeta: { projectId: input.projectId } });
+        const raw = await gemini(prompt, { temperature: 0.3, cacheAs: "market_analysis", cacheMeta: { projectId: projectId } });
         result = JSON.parse(raw);
       } else {
         log.info("ai", "Market analysis: modo econômico ativo — usando dados locais do banco");
@@ -5643,7 +5643,7 @@ Gere 3 personas detalhadas e específicas. Responda APENAS em JSON:
     }
   ]
 }`;
-    const raw = await gemini(prompt, { temperature: 0.4, cacheAs: "personas", cacheMeta: { projectId } });
+    const raw = await gemini(prompt, { temperature: 0.4, cacheAs: "personas" });
     const clean = raw.replace(/\`\`\`json|\`\`\`/g, "").trim();
     const parsed = JSON.parse(clean);
     return JSON.stringify(parsed.personas);
@@ -5656,6 +5656,7 @@ Gere 3 personas detalhadas e específicas. Responda APENAS em JSON:
 export async function generateCampaign(input: {
   projectId: number; userId?: number; name: string; objective: string;
   platform: string; budget: number; duration: number; extraContext?: string;
+  segment?: string;
   ageMin?: number; ageMax?: number; regions?: string[]; countries?: string[];
   locationMode?: "brasil" | "paises" | "raio"; geoCity?: string; geoRadius?: number;
   mediaFormat?: string; audienceProfile?: string; leadForm?: any;
