@@ -1837,12 +1837,21 @@ async function _geminiImpl(
 const _groqRateLimited = new Map<string, number>(); // key → timestamp
 const GROQ_RATE_RESET_MS = 62 * 1000; // 62s — free tier reseta por minuto
 
+// Índice round-robin para distribuir carga entre chaves
+let _groqKeyIndex = 0;
+
 function getAvailableGroqKey(): string | null {
   const keys = [
     process.env.GROQ_API_KEY,
     process.env.GROQ_API_KEY_01,
     process.env.GROQ_API_KEY_02,
     process.env.GROQ_API_KEY_03,
+    process.env.GROQ_API_KEY_04,
+    process.env.GROQ_API_KEY_05,
+    process.env.GROQ_API_KEY_06,
+    process.env.GROQ_API_KEY_07,
+    process.env.GROQ_API_KEY_08,
+    process.env.GROQ_API_KEY_09,
   ].filter(Boolean) as string[];
   if (!keys.length) return null;
   const now = Date.now();
@@ -1850,9 +1859,15 @@ function getAvailableGroqKey(): string | null {
   for (const [k, ts] of _groqRateLimited.entries()) {
     if (now - ts > GROQ_RATE_RESET_MS) _groqRateLimited.delete(k);
   }
-  // Retorna primeira chave disponível
+  // Round-robin entre chaves disponíveis — distribui carga uniformemente
   const available = keys.filter(k => !_groqRateLimited.has(k));
-  if (available.length > 0) return available[0];
+  if (available.length > 0) {
+    // Pega a próxima chave disponível no round-robin
+    _groqKeyIndex = _groqKeyIndex % available.length;
+    const key = available[_groqKeyIndex];
+    _groqKeyIndex = (_groqKeyIndex + 1) % available.length;
+    return key;
+  }
   // Todas em rate limit — retorna a mais antiga (provavelmente já liberada)
   const oldest = [..._groqRateLimited.entries()].sort((a,b) => a[1]-b[1])[0];
   return oldest ? oldest[0] : keys[0];
