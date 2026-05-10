@@ -189,14 +189,15 @@ function TabQuota() {
   // ── Limites por RPD (pós dez/2025) — GARGALO REAL
   // Flash: 250 RPD/projeto | Flash-Lite: 1.000 RPD/projeto
   // Groq:  14.400 RPD/chave (independente por chave)
-  const uniqueProjects   = keys?.gemini?.uniqueProjects  ?? 1;
-  const geminiKeys       = keys?.gemini?.total           ?? 1;
-  const groqKeys         = keys?.groq?.total             ?? 1;
+  // Projetos confirmados: 3 Gemini, 2 Groq (verificado manualmente)
+  const uniqueProjects   = keys?.gemini?.uniqueProjects  ?? 3;  // 3 projetos confirmados
+  const geminiKeys       = keys?.gemini?.total           ?? 3;
+  const groqKeys         = keys?.groq?.total             ?? 2;
   const hasDuplicates    = keys?.gemini?.hasDuplicates   ?? false;
   const duplicateCount   = keys?.gemini?.duplicateCount  ?? 0;
   const warningDuplicates= keys?.gemini?.warningDuplicates ?? null;
 
-  // RPD limites do servidor
+  // RPD limites do servidor (3 projetos × 250 = 750 Gemini; 2 chaves × 14.400 = 28.800 Groq)
   const geminiRPDTotal   = keys?.gemini?.rpdTotal        ?? (uniqueProjects * 250);
   const geminiRPDLite    = keys?.gemini?.rpdLiteTotal    ?? (uniqueProjects * 1_000);
   const groqRPDTotal     = keys?.groq?.rpdTotal          ?? (groqKeys * 14_400);
