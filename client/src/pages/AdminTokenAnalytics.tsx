@@ -210,7 +210,6 @@ function TabQuota() {
   const campanhasGemini  = Math.floor(geminiRPDRestante / CALLS_PER_CAMP);
   const campanhasGroq    = Math.floor(groqRPDRestante   / CALLS_PER_CAMP);
   const campanhasTotal   = campanhasGemini + campanhasGroq;
-  const CALLS_PER_CAMP   = 2; // 2 chamadas por campanha (matchScore + generate)
 
   // Campanhas hoje e mês
   const reqsHoje  = Number(today?.total_requests  || 0);
