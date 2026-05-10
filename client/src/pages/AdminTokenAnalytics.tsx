@@ -168,6 +168,7 @@ function TabErrors() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TabQuota — Quota em tempo real + capacidade de campanhas
+// Cálculo baseado em RPD (Requests Per Day) — gargalo real pós-dez/2025
 // ─────────────────────────────────────────────────────────────────────────────
 function TabQuota() {
   const quotaQuery    = (trpc as any).campaigns?.quotaStatus?.useQuery?.({ refetchInterval: 60000 });
@@ -175,28 +176,41 @@ function TabQuota() {
   const campaignQuery = (trpc as any).admin?.getTokenStats?.useQuery?.({ days: 30 });
 
   const quota   = quotaQuery?.data?.quota;
-  const keys    = quotaQuery?.data?.keys;   // dados REAIS das chaves configuradas
+  const keys    = quotaQuery?.data?.keys;
   const today   = tokenQuery?.data?.summary;
   const month   = campaignQuery?.data?.summary;
 
-  // Tokens usados hoje do banco (reais)
-  const geminiHoje = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "gemini")?.total_tokens || 0);
-  const groqHoje   = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "groq")?.total_tokens   || 0);
+  // ── Dados de uso real de hoje
+  const reqsHojeGemini = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "gemini")?.requests || 0);
+  const reqsHojeGroq   = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "groq")?.requests   || 0);
+  const geminiHojeTokens = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "gemini")?.total_tokens || 0);
+  const groqHojeTokens   = Number(tokenQuery?.data?.byModel?.find((m: any) => m.provider === "groq")?.total_tokens   || 0);
 
-  // Limites REAIS das chaves configuradas no Render
-  const geminiLimit  = keys?.gemini?.dailyLimitTokens  ?? 1_000_000;
-  const groqLimit    = keys?.groq?.dailyLimitTokens    ?? 500_000;
-  const geminiKeys   = keys?.gemini?.total             ?? 1;
-  const groqKeys     = keys?.groq?.total               ?? 1;
-  const hasDuplicates = keys?.gemini?.hasDuplicates    ?? false;
-  const uniqueProjects = keys?.gemini?.uniqueProjects  ?? 1;
+  // ── Limites por RPD (pós dez/2025) — GARGALO REAL
+  // Flash: 250 RPD/projeto | Flash-Lite: 1.000 RPD/projeto
+  // Groq:  14.400 RPD/chave (independente por chave)
+  const uniqueProjects   = keys?.gemini?.uniqueProjects  ?? 1;
+  const geminiKeys       = keys?.gemini?.total           ?? 1;
+  const groqKeys         = keys?.groq?.total             ?? 1;
+  const hasDuplicates    = keys?.gemini?.hasDuplicates   ?? false;
+  const duplicateCount   = keys?.gemini?.duplicateCount  ?? 0;
+  const warningDuplicates= keys?.gemini?.warningDuplicates ?? null;
 
-  // Campanhas restantes (baseado em tokens reais e limites reais)
-  const geminiRestante   = Math.max(0, geminiLimit - geminiHoje);
-  const groqRestante     = Math.max(0, groqLimit   - groqHoje);
-  const campanhasGemini  = Math.floor(geminiRestante / 12_000);
-  const campanhasGroq    = Math.floor(groqRestante   / 3_000);
+  // RPD limites do servidor
+  const geminiRPDTotal   = keys?.gemini?.rpdTotal        ?? (uniqueProjects * 250);
+  const geminiRPDLite    = keys?.gemini?.rpdLiteTotal    ?? (uniqueProjects * 1_000);
+  const groqRPDTotal     = keys?.groq?.rpdTotal          ?? (groqKeys * 14_400);
+
+  // Campanhas = RPD restante ÷ 2 chamadas por campanha
+  const CALLS_PER_CAMP   = 2;
+  const geminiRPDUsado   = reqsHojeGemini;
+  const groqRPDUsado     = reqsHojeGroq;
+  const geminiRPDRestante= Math.max(0, geminiRPDTotal - geminiRPDUsado);
+  const groqRPDRestante  = Math.max(0, groqRPDTotal   - groqRPDUsado);
+  const campanhasGemini  = Math.floor(geminiRPDRestante / CALLS_PER_CAMP);
+  const campanhasGroq    = Math.floor(groqRPDRestante   / CALLS_PER_CAMP);
   const campanhasTotal   = campanhasGemini + campanhasGroq;
+  const CALLS_PER_CAMP   = 2; // 2 chamadas por campanha (matchScore + generate)
 
   // Campanhas hoje e mês
   const reqsHoje  = Number(today?.total_requests  || 0);
@@ -257,7 +271,7 @@ function TabQuota() {
               <div>
                 <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>Google Gemini</p>
                 <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>
-                  {geminiKeys} chave{geminiKeys !== 1 ? "s" : ""} · {uniqueProjects} projeto{uniqueProjects !== 1 ? "s" : ""} único{uniqueProjects !== 1 ? "s" : ""} · {(geminiLimit/1_000_000).toFixed(1)}M tokens/dia
+                  {geminiKeys} chave{geminiKeys !== 1 ? "s" : ""} · {uniqueProjects} projeto{uniqueProjects !== 1 ? "s" : ""} único{uniqueProjects !== 1 ? "s" : ""} · {geminiRPDTotal} req/dia (Flash)
                 </p>
               </div>
             </div>
@@ -265,11 +279,12 @@ function TabQuota() {
               GRATUITO
             </span>
           </div>
-          <ProgressBar used={geminiHoje} total={geminiLimit} color="#4285F4" />
-          {hasDuplicates && (
+          {/* RPD progress bar — gargalo real */}
+          <ProgressBar used={geminiRPDUsado} total={geminiRPDTotal} color="#4285F4" />
+          {warningDuplicates && (
             <div style={{ marginTop: 6, padding: "5px 10px", background: "#fff7ed", borderRadius: 8, border: "1px solid #fed7aa" }}>
               <p style={{ fontSize: 11, color: "#92400e", margin: 0, fontWeight: 700 }}>
-                ⚠️ {geminiKeys - uniqueProjects} chave(s) duplicadas detectadas — mesma quota do projeto 1
+                ⚠️ {warningDuplicates}
               </p>
               <p style={{ fontSize: 10, color: "#b45309", margin: "2px 0 0" }}>
                 Crie as chaves em projetos Google separados para multiplicar a quota
@@ -281,7 +296,10 @@ function TabQuota() {
               🎯 Campanhas restantes hoje: <strong>{campanhasGemini.toLocaleString("pt-BR")}</strong>
             </p>
             <p style={{ fontSize: 10, color: "#16a34a", margin: "2px 0 0" }}>
-              Baseado em ~12.000 tokens por campanha completa
+              {geminiRPDUsado} de {geminiRPDTotal} requests usados · 2 req/campanha · Flash = 250 RPD/projeto
+            </p>
+            <p style={{ fontSize: 10, color: "#94a3b8", margin: "2px 0 0" }}>
+              Com Flash-Lite (1.000 RPD/projeto): até {Math.floor((geminiRPDLite - geminiRPDUsado) / CALLS_PER_CAMP)} campanhas
             </p>
           </div>
         </div>
@@ -294,7 +312,7 @@ function TabQuota() {
               <div>
                 <p style={{ fontSize: 13, fontWeight: 800, color: "#0f172a", margin: 0 }}>Groq Llama 3.3 70B</p>
                 <p style={{ fontSize: 10, color: "#64748b", margin: 0 }}>
-                  {groqKeys} chave{groqKeys !== 1 ? "s" : ""} × 500k = {(groqLimit/1_000).toFixed(0)}k tokens/dia
+                  {groqKeys} chave{groqKeys !== 1 ? "s" : ""} × 14.400 req/dia = {groqRPDTotal.toLocaleString("pt-BR")} req/dia total
                 </p>
               </div>
             </div>
@@ -302,13 +320,16 @@ function TabQuota() {
               FALLBACK
             </span>
           </div>
-          <ProgressBar used={groqHoje} total={groqLimit} color="#f97316" />
+          <ProgressBar used={groqRPDUsado} total={groqRPDTotal} color="#f97316" />
           <div style={{ marginTop: 10, padding: "8px 10px", background: "#fff7ed", borderRadius: 8 }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: "#9a3412", margin: 0 }}>
               🎯 Campanhas restantes hoje: <strong>{campanhasGroq.toLocaleString("pt-BR")}</strong>
             </p>
             <p style={{ fontSize: 10, color: "#ea580c", margin: "2px 0 0" }}>
-              Baseado em ~3.000 tokens por campanha via Groq
+              {groqRPDUsado} de {groqRPDTotal.toLocaleString("pt-BR")} requests usados · {groqKeys} chave{groqKeys !== 1 ? "s" : ""} × 14.400 RPD cada
+            </p>
+            <p style={{ fontSize: 10, color: "#94a3b8", margin: "2px 0 0" }}>
+              Groq escala por chave — cada chave tem limite próprio independente
             </p>
           </div>
         </div>
@@ -354,10 +375,10 @@ function TabQuota() {
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
           {[
-            { label: "Campanhas/dia (atual)",  value: `~${campanhasTotal}`,          sub: "com quota disponível" },
-            { label: "Com 5 chaves Gemini",    value: `~${campanhasGemini * 2}`,     sub: "+2 projetos separados" },
-            { label: "Clientes suportados",    value: `~${Math.round(campanhasTotal * 10)}`, sub: "DAU 10% × 1 campanha/dia" },
-            { label: "Custo por campanha",     value: `$${(custoHoje / Math.max(reqsHoje, 1)).toFixed(4)}`, sub: "média hoje" },
+            { label: "Campanhas/dia (atual)",  value: campanhasTotal.toLocaleString("pt-BR"),  sub: "Gemini Flash + Groq" },
+            { label: "Se migrar p/ Flash-Lite", value: `~${Math.floor((geminiRPDLite + groqRPDTotal) / CALLS_PER_CAMP).toLocaleString("pt-BR")}`, sub: "1.000 RPD/projeto vs 250" },
+            { label: "Clientes suportados",    value: `~${Math.round(campanhasTotal / 0.1).toLocaleString("pt-BR")}`, sub: "DAU 10% × 1 campanha/dia" },
+            { label: "Custo por campanha",     value: `$${(Number(today?.total_cost_usd||0) / Math.max(reqsHojeGemini + reqsHojeGroq, 1) * CALLS_PER_CAMP).toFixed(4)}`, sub: "média real hoje" },
           ].map(p => (
             <div key={p.label} style={{ textAlign: "center" }}>
               <p style={{ fontSize: 22, fontWeight: 900, color: "white", margin: "0 0 4px" }}>{p.value}</p>

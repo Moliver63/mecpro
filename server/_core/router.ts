@@ -1157,7 +1157,9 @@ const competitorsRouter = router({
     .query(async () => {
       const { getQuotaStatus, getCacheStats } = await import("../ai");
 
-      // Contar chaves reais configuradas no Render
+      // ── Projetos Gemini confirmados: 3 projetos distintos
+      // Groq confirmado: 2 chaves independentes
+      // (verificado manualmente pelo Michel — mai/2026)
       const geminiKeys = [
         process.env.GEMINI_API_KEY,
         process.env.GEMINI_API_KEY_2,
@@ -1169,46 +1171,86 @@ const competitorsRouter = router({
       const groqKeys = [
         process.env.GROQ_API_KEY,
         process.env.GROQ_API_KEY_01,
-        process.env.GROQ_API_KEY_02,
         process.env.GROQ_API_KEY_03,
+        process.env.GROQ_API_KEY_04,
+        process.env.GROQ_API_KEY_05,
+        process.env.GROQ_API_KEY_09,
       ].filter(Boolean);
 
-      // Detectar chaves duplicadas (mesmo prefixo AIzaSy = mesmo projeto Google)
-      const geminiPrefixes = geminiKeys.map(k => k!.slice(0, 12));
-      const uniquePrefixes = new Set(geminiPrefixes);
-      const hasDuplicates  = uniquePrefixes.size < geminiKeys.length;
+      // Projetos únicos confirmados manualmente
+      // NÃO usar prefixo de chave para detectar projeto — é impreciso
+      const GEMINI_PROJETOS_UNICOS = 3;  // confirmado pelo Michel
+      const uniqueProjects    = GEMINI_PROJETOS_UNICOS;
+      const hasDuplicates     = geminiKeys.length > GEMINI_PROJETOS_UNICOS;
+      const duplicateCount    = Math.max(0, geminiKeys.length - GEMINI_PROJETOS_UNICOS);
 
-      // Limites reais por chave Gemini:
-      // Flash Lite: 1.000.000 tokens/dia por projeto
-      // Flash:       500.000 tokens/dia por projeto
-      // Projetos únicos × limite = quota real
-      const uniqueGeminiProjects = uniquePrefixes.size;
-      const geminiDailyLimit = uniqueGeminiProjects * 1_000_000;
-      const groqDailyLimit   = groqKeys.length * 500_000;
+      // ── Limites REAIS Gemini free tier (pós dez/2025)
+      // Flash:      250 RPD × 10 RPM — gargalo é RPD, não tokens
+      // Flash-Lite: 1000 RPD × 15 RPM — gargalo é RPD
+      // Cada campanha = ~2 requests (matchScore + generateCampaign)
+      const CALLS_PER_CAMPAIGN = 2;
+      const GEMINI_RPD_FLASH      = 250;   // Gemini 2.5 Flash por projeto
+      const GEMINI_RPD_FLASH_LITE = 1_000; // Gemini 2.5 Flash-Lite por projeto
+
+      const geminiFlashRPD    = uniqueProjects * GEMINI_RPD_FLASH;
+      const geminiLiteRPD     = uniqueProjects * GEMINI_RPD_FLASH_LITE;
+      const geminiCampaigns   = Math.floor(geminiFlashRPD / CALLS_PER_CAMPAIGN);
+      const geminiLiteCampaigns = Math.floor(geminiLiteRPD / CALLS_PER_CAMPAIGN);
+
+      // ── Limites REAIS Groq free tier
+      // ~14.400 req/dia por chave (independente — cada chave = limite próprio)
+      const GROQ_RPD_PER_KEY  = 14_400;
+      const groqTotalRPD      = groqKeys.length * GROQ_RPD_PER_KEY;
+      const groqCampaigns     = Math.floor(groqTotalRPD / CALLS_PER_CAMPAIGN);
+
+      // ── Total combinado (Flash + Groq — pior caso: todos projetos separados)
+      const totalCampaigns    = geminiCampaigns + groqCampaigns;
 
       return {
         quota: getQuotaStatus(),
         cache: getCacheStats(),
         keys: {
           gemini: {
-            total:          geminiKeys.length,
-            uniqueProjects: uniqueGeminiProjects,
+            total:            geminiKeys.length,
+            uniqueProjects,
             hasDuplicates,
-            dailyLimitTokens: geminiDailyLimit,
-            tokensPerCampaign: 12_000,
-            campaignsPerDay: Math.floor(geminiDailyLimit / 12_000),
+            duplicateCount,
+            // Limites por RPD (gargalo real)
+            rpdPerProject:    GEMINI_RPD_FLASH,
+            rpdTotal:         geminiFlashRPD,
+            rpdLiteTotal:     geminiLiteRPD,
+            callsPerCampaign: CALLS_PER_CAMPAIGN,
+            campaignsPerDay:  geminiCampaigns,      // Flash (padrão atual)
+            campaignsLitePerDay: geminiLiteCampaigns, // Flash-Lite (se migrar)
+            // Aviso de projetos duplicados
+            warningDuplicates: hasDuplicates
+              ? `${duplicateCount} chave(s) no mesmo projeto — não multiplicam a quota`
+              : null,
+            // Tokens (informativo apenas — não é o gargalo)
+            tokensPerCampaign: 4_239, // média real do dashboard
           },
           groq: {
-            total:          groqKeys.length,
-            dailyLimitTokens: groqDailyLimit,
-            tokensPerCampaign: 3_000,
-            campaignsPerDay: Math.floor(groqDailyLimit / 3_000),
+            total:            groqKeys.length,
+            rpdPerKey:        GROQ_RPD_PER_KEY,
+            rpdTotal:         groqTotalRPD,
+            callsPerCampaign: CALLS_PER_CAMPAIGN,
+            campaignsPerDay:  groqCampaigns,
+            tokensPerCampaign: 2_800,
+            // Groq: limite por chave, não por projeto → escala linearmente
+            noteIndependent: true,
           },
           cloudflare: {
             dailyNeurons:      10_000,
             neuronsPerCampaign: 4,
             campaignsPerDay:   2_500,
             resetHourBRT:      21,
+          },
+          summary: {
+            totalCampaignsPerDay: totalCampaigns,
+            geminiOnly:           geminiCampaigns,
+            groqOnly:             groqCampaigns,
+            limitingFactor:       geminiFlashRPD < groqTotalRPD ? "gemini_rpd" : "groq_rpd",
+            note: "Limites pós-dez/2025: Flash=250 RPD/projeto, Groq=14.400 RPD/chave",
           },
         },
       };
