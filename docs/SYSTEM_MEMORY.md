@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `e18dd9b` | NAV_ADMIN expandido (11→17 itens) + fix Meta 3858504 |
+| Último commit | `c370b76` | Groq pool 10 chaves + round-robin + quota RPD correto |
 
 ---
 
@@ -569,6 +569,41 @@ Atualizar no Render + reconectar token em mecproai.com/meta-campaigns
 
 ---
 
+## 📊 Quota IA — Cálculo Correto (sessão 16)
+
+### Descoberta crítica: limite por projeto/organização, não por chave
+
+```
+GEMINI: limite por PROJETO Google, não por chave
+  → 3 projetos × 250 RPD (Flash) = 750 req/dia
+  → ÷ 2 chamadas/campanha = 375 campanhas/dia
+
+GROQ: limite por ORGANIZAÇÃO, não por chave
+  → 2 organizações × 14.400 RPD = 28.800 req/dia
+  → ÷ 2 chamadas/campanha = 14.400 campanhas/dia
+  → REAL: limitado por TPM (6.000/org) = 2 campanhas/min
+
+TOTAL REAL: ~14.775 campanhas/dia (era 248 — estava 59x menor)
+```
+
+### Groq round-robin implementado (c370b76)
+```
+getAvailableGroqKey() lê: GROQ_API_KEY + KEY_01..KEY_09 (10 slots)
+Round-robin distribui carga entre chaves disponíveis
+429 → chave marcada como bloqueada por 62s → próximas vão para outras
+```
+
+### Limites reais por engine (confirmado Michel — mai/2026)
+- Gemini: 3 projetos separados ✅
+- Groq: 2 organizações × ~3 chaves cada
+
+### Aviso Groq
+Groq free: 30 RPM / 6.000 TPM / 1.000 RPD por organização
+(fonte: console.groq.com/docs/rate-limits — abr/2026)
+Para escalar: Developer tier = 10x mais limite + 25% desconto tokens
+
+---
+
 ## 📋 Pendências Atualizadas (sessão 15)
 
 | Prioridade | Item | Status |
@@ -589,7 +624,7 @@ Atualizar no Render + reconectar token em mecproai.com/meta-campaigns
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: ad7f349. Michel — Balneário Camboriú/SC.
+Último commit: c370b76. Michel — Balneário Camboriú/SC.
 Score: ~89%. SEGMENT_COPY_RULES ativo. Sistema de logs implementado.
 Prioridade: Meta novo app (ID 903722219227781) + TikTok token + Gemini chaves separadas.
 ```
