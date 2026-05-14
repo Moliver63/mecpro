@@ -10,6 +10,8 @@ const PLANS = [
 
 function annualPrice(monthly: number) { return Math.floor(monthly * 0.8); }   // 20% off
 function annualTotal(monthly: number) { return annualPrice(monthly) * 12; }
+function credit60(monthly: number)    { return Math.round(annualTotal(monthly) * 0.6); } // 60% volta como crédito
+function realCost(monthly: number)    { return annualTotal(monthly) - credit60(monthly); } // custo efetivo
 function saving(monthly: number)      { return monthly * 12 - annualTotal(monthly); }
 function pctOff(monthly: number)      { return Math.round((1 - annualPrice(monthly) / monthly) * 100); }
 
@@ -134,7 +136,7 @@ export default function PromoAnual() {
       <div style={{ background:`linear-gradient(90deg,${GREEN},#15803d)`,
         textAlign:"center", padding:"10px 16px", fontSize:13, fontWeight:700, color:"#fff",
         display:"flex", alignItems:"center", justifyContent:"center", gap:10, flexWrap:"wrap" }}>
-        🎁 OFERTA ESPECIAL — Assine o plano anual e economize até {R(saving(397))} + 20% de desconto em todos os planos
+        🎁 OFERTA ESPECIAL — Assine o plano anual com 20% OFF e receba <strong>60% de crédito para campanhas</strong> — dinheiro que volta para o seu tráfego
       </div>
 
       {/* ── HERO ── */}
@@ -145,12 +147,12 @@ export default function PromoAnual() {
         </div>
         <h1 className="lfu lfu1" style={{ fontSize:"clamp(36px,5.5vw,60px)", fontWeight:800,
           lineHeight:1.1, letterSpacing:"-1.5px", marginBottom:20, color:DARK }}>
-          Assine anual e pague<br/>
-          <span style={{ color:GREEN }}>20% menos em todos os planos</span>
+          Assine o plano anual e ganhe<br/>
+          <span style={{ color:GREEN }}>60% em créditos para campanhas</span>
         </h1>
         <p className="lfu lfu2" style={{ fontSize:17, color:MUTED, maxWidth:520, margin:"0 auto 40px",
           lineHeight:1.7 }}>
-          Economize de {R(saving(97))} a {R(saving(397))} por ano. Trave seu preço agora e não pague reajuste. Cancele quando quiser.
+          Você investe no plano anual e recebe de volta <strong style={{ color:DARK }}>60% do valor pago</strong> em créditos para impulsionar suas campanhas no Meta, Google e TikTok.
         </p>
 
         {/* Countdown */}
@@ -256,10 +258,23 @@ export default function PromoAnual() {
                   <div style={{ fontSize:12, color:MUTED, marginBottom:4 }}>
                     cobrado anualmente · {R(total)}/ano
                   </div>
-                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:24 }}>
-                    <span style={{ color:GREEN, fontWeight:700, fontSize:13 }}>✓</span>
-                    <span style={{ fontSize:13, fontWeight:700, color:GREEN }}>
-                      Você economiza {R(economy)} por ano
+                  {/* Crédito 60% destaque */}
+                  <div style={{ background:GREENBG, border:"1px solid #bbf7d0", borderRadius:10,
+                    padding:"12px 14px", marginBottom:16 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:GREEN, marginBottom:4, textTransform:"uppercase", letterSpacing:.5 }}>
+                      💰 Crédito para campanhas
+                    </div>
+                    <div style={{ fontSize:20, fontWeight:800, color:GREEN }}>
+                      + {R(credit60(p.monthly))}
+                    </div>
+                    <div style={{ fontSize:11, color:MUTED, marginTop:2 }}>
+                      60% do valor anual · só para campanhas
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:16 }}>
+                    <span style={{ color:MUTED, fontWeight:700, fontSize:12 }}>→</span>
+                    <span style={{ fontSize:12, color:MUTED }}>
+                      Custo real efetivo: <strong style={{ color:DARK }}>{R(realCost(p.monthly))}/ano</strong>
                     </span>
                   </div>
 
@@ -338,33 +353,44 @@ export default function PromoAnual() {
           ))}
         </div>
 
-        {/* Cards de cálculo */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
-          {[
-            { label:"Preço mensal original", value: R(plan.monthly) + "/mês",  sub:"sem desconto", highlight:false },
-            { label:"Preço anual",           value: R(annualPrice(plan.monthly)) + "/mês", sub: R(annualTotal(plan.monthly)) + " à vista", highlight:true },
-            { label:"Você economiza",        value: R(saving(plan.monthly)) + "/ano", sub:`${pctOff(plan.monthly)}% de desconto`, highlight:false },
-          ].map((c, i) => (
-            <div key={i} style={{
-              background: c.highlight ? GREENBG : OFFBG,
-              border: `1px solid ${c.highlight ? "#bbf7d0" : BORDER}`,
-              borderRadius:14, padding:"18px 16px", textAlign:"center",
-            }}>
-              <div style={{ fontSize:11, color: c.highlight ? GREEN : MUTED, marginBottom:6, fontWeight:600 }}>
-                {c.label}
-              </div>
-              <div style={{ fontSize:22, fontWeight:800,
-                color: c.highlight ? GREEN : DARK, lineHeight:1, marginBottom:4 }}>
-                {c.value}
-              </div>
-              <div style={{ fontSize:11, color: c.highlight ? GREEN : "#9ca3af" }}>{c.sub}</div>
+        {/* Cards de cálculo — 4 etapas do dinheiro */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:12, marginBottom:12 }}>
+          <div style={{ background:OFFBG, border:`1px solid ${BORDER}`, borderRadius:14, padding:"18px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:11, color:MUTED, marginBottom:6, fontWeight:600 }}>Você paga por ano</div>
+            <div style={{ fontSize:26, fontWeight:800, color:DARK, lineHeight:1, marginBottom:4 }}>
+              {R(annualTotal(plan.monthly))}
             </div>
-          ))}
+            <div style={{ fontSize:11, color:"#9ca3af" }}>{R(annualPrice(plan.monthly))}/mês · 20% off</div>
+          </div>
+          <div style={{ background:GREENBG, border:"1px solid #bbf7d0", borderRadius:14, padding:"18px 16px", textAlign:"center" }}>
+            <div style={{ fontSize:11, color:GREEN, marginBottom:6, fontWeight:700 }}>💰 Crédito que você recebe</div>
+            <div style={{ fontSize:26, fontWeight:800, color:GREEN, lineHeight:1, marginBottom:4 }}>
+              + {R(credit60(plan.monthly))}
+            </div>
+            <div style={{ fontSize:11, color:GREEN }}>60% do valor · só para campanhas</div>
+          </div>
+        </div>
+        {/* Custo real em destaque */}
+        <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:14,
+          padding:"18px 20px", textAlign:"center", marginBottom:20 }}>
+          <div style={{ fontSize:11, color:"#2563eb", fontWeight:700, marginBottom:6 }}>
+            ✨ Custo real efetivo (investimento − crédito)
+          </div>
+          <div style={{ fontSize:32, fontWeight:800, color:"#1d4ed8", lineHeight:1, marginBottom:4 }}>
+            {R(realCost(plan.monthly))}/ano
+          </div>
+          <div style={{ fontSize:12, color:"#3b82f6" }}>
+            {R(Math.round(realCost(plan.monthly)/12))}/mês efetivo · você recupera {R(credit60(plan.monthly))} em campanhas
+          </div>
+        </div>
+        <div style={{ background:"#fffbeb", border:"1px solid #fde68a", borderRadius:10,
+          padding:"10px 14px", marginBottom:24, fontSize:12, color:"#92400e" }}>
+          ⚠️ Os créditos são creditados em até 10 dias úteis e utilizados exclusivamente para impulsionar campanhas dentro da plataforma (Meta, Google, TikTok).
         </div>
 
-        <div style={{ textAlign:"center", marginTop:32 }}>
+        <div style={{ textAlign:"center" }}>
           <button className="btn-primary" onClick={goToCheckout} style={{ display:"inline-block" }}>
-            Assinar {plan.name} anual — Economize {R(saving(plan.monthly))}
+            Ativar crédito de {R(credit60(plan.monthly))} — Plano {plan.name}
           </button>
         </div>
       </section>
@@ -431,20 +457,20 @@ export default function PromoAnual() {
               MELHOR OPÇÃO
             </div>
             <div style={{ fontSize:12, fontWeight:700, color:GREEN, marginBottom:16,
-              textTransform:"uppercase", letterSpacing:".5px" }}>Plano Anual</div>
+              textTransform:"uppercase", letterSpacing:".5px" }}>Plano Anual + Crédito</div>
             {PLANS.map(p => (
-              <div key={p.slug} style={{ display:"flex", justifyContent:"space-between",
-                padding:"8px 0", borderBottom:"1px solid #bbf7d0", fontSize:13 }}>
-                <span style={{ color:GREEN }}>{p.name}</span>
-                <div style={{ textAlign:"right" }}>
+              <div key={p.slug} style={{ padding:"10px 0", borderBottom:"1px solid #bbf7d0", fontSize:13 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:2 }}>
+                  <span style={{ color:GREEN, fontWeight:700 }}>{p.name}</span>
                   <span style={{ fontWeight:800, color:GREEN }}>{R(annualPrice(p.monthly))}/mês</span>
-                  <span style={{ fontSize:10, color:"#86efac", marginLeft:6 }}>
-                    -{pctOff(p.monthly)}%
-                  </span>
+                </div>
+                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                  <span style={{ fontSize:11, color:"#86efac" }}>+ crédito campanhas</span>
+                  <span style={{ fontSize:11, color:"#86efac", fontWeight:700 }}>+{R(credit60(p.monthly))}</span>
                 </div>
               </div>
             ))}
-            <p style={{ fontSize:11, color:GREEN, marginTop:12, fontWeight:600 }}>cobrado anualmente · trave seu preço</p>
+            <p style={{ fontSize:11, color:GREEN, marginTop:12, fontWeight:600 }}>60% volta como crédito · use em campanhas</p>
           </div>
         </div>
 
@@ -531,10 +557,10 @@ export default function PromoAnual() {
           <span className="tag-green" style={{ marginBottom:20 }}>Oferta encerra em {h}:{m}:{s}</span>
           <h2 style={{ fontSize:"clamp(26px,3.5vw,44px)", fontWeight:800, letterSpacing:"-1px",
             color:DARK, marginBottom:12, lineHeight:1.15 }}>
-            Pronto para pagar menos e fazer mais?
+            Última chance de ativar seu crédito de campanhas
           </h2>
           <p style={{ fontSize:15, color:MUTED, marginBottom:32, maxWidth:500, margin:"0 auto 32px" }}>
-            Assine qualquer plano anual e garanta 20% de desconto imediato. Sem complicação, sem pegadinha.
+            Assine o plano anual, receba 60% do valor em créditos para Meta, Google e TikTok. Quando a oferta encerrar, o crédito some.
           </p>
           <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
             <button className="btn-primary" onClick={goToCheckout}
