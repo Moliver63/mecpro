@@ -991,7 +991,28 @@ export function getSegmentInstruction(segment: string, niche: string, objective:
   const ctas = objective === "sales" ? rules.ctaSales : rules.ctaLeads;
   const forbidden = rules.forbidden.slice(0, 4).join(", ");
 
-  // Sem template literals com \n — causa Unterminated string no esbuild do Render
+  // Usa promptContext do shared/segmentConfig se disponível (mais detalhado)
+  // Fallback para regras locais caso import falhe
+  let promptCtx = "";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const shared = require("../../shared/segmentConfig");
+    const def = shared.SEGMENT_CONFIG[seg];
+    if (def?.detection?.promptContext) {
+      promptCtx = def.detection.promptContext;
+    }
+  } catch { /* usa fallback abaixo */ }
+
+  if (promptCtx) {
+    const lines = [
+      promptCtx,
+      "CTAs PARA USAR: " + ctas.slice(0, 3).join(" | "),
+      "PALAVRAS PROIBIDAS: " + forbidden,
+    ];
+    return "\n" + lines.join("\n");
+  }
+
+  // Fallback — regras locais SEGMENT_COPY_RULES
   const lines = [
     "REGRAS DO SEGMENTO (" + seg + "):",
     "CTAs OBRIGATÓRIOS: " + ctas.slice(0, 3).join(" | "),

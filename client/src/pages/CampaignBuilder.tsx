@@ -36,138 +36,14 @@ const BUDGETS = [
 const DURATIONS = [7, 14, 21, 30, 60, 90];
 
 // ── Segmentos de mercado com configurações otimizadas ──────────────────────
-const SEGMENTS = [
-  // ── IMÓVEIS ──────────────────────────────────────────────────────────────
-  { value: "imoveis_venda", label: "Imóveis — Venda", icon: "🏠", desc: "Apartamentos, casas, terrenos à venda",
-    config: { objective: "leads", platform: "meta", budget: 3000, duration: 30,
-      extraContext: `Segmento: Imóveis para venda.
-COPIES LEADS: Foque em despertar desejo pelo imóvel — localização, m², diferenciais, condições de pagamento facilitadas. Ex: "Seu apartamento em [cidade] por menos do que você imagina. Entrada de R$ 50k e parcelas que cabem no bolso."
-COPIES VENDAS: Urgência e escassez — unidades limitadas, condição especial por tempo determinado. Ex: "Últimas 5 unidades com entrada de R$ 50k. Não consigo garantir esse preço por muito tempo."
-CTA LEADS: "Quero saber as condições" | "Agendar visita" | "Falar com corretor"
-CTA VENDAS: "Garantir minha unidade" | "Ver condição especial" | "Falar agora"
-FORMATOS: Carrossel com fotos do imóvel (horizontal 16:9 para feed, vertical 9:16 para Stories/Reels).
-FUNIL: Frio → foto externa/localização. Morno → tour interno/diferenciais. Quente → condição especial/urgência.
-PÚBLICO MORADIA: 28-48 anos, estados SC/PR/SP/RS. PÚBLICO INVESTIDOR: 32-58 anos, Brasil + exterior (PT, US, EU).
-INTERNACIONALIZAÇÃO: Para compradores no exterior use inglês/português, destaque valorização, retorno de aluguel temporada, proximidade praias.
-COMPLIANCE META: Evite claims de valorização garantida. Não use "melhor preço" sem comprovação.` } },
-
-  { value: "imoveis_locacao", label: "Imóveis — Locação", icon: "🔑", desc: "Apartamentos, casas, salas para alugar",
-    config: { objective: "leads", platform: "meta", budget: 1500, duration: 30,
-      extraContext: `Segmento: Imóveis para locação.
-COPIES LEADS: Destaque disponibilidade imediata, valor do aluguel, localização e facilidades. Ex: "Apartamento disponível agora em [bairro]. [X] suítes, [Y]m², vaga inclusa. Agende visita hoje."
-CTA: "Ver disponibilidade" | "Agendar visita" | "Consultar valores"
-FORMATOS: Carrossel com fotos + vídeo tour 15-30s no Stories.
-PÚBLICO: 22-45 anos, raio de 15km da propriedade, recém-mudados, profissionais.
-INTERNACIONALIZAÇÃO: Para aluguel temporada destaque proximidade turística, retorno por diária, plataformas (Airbnb/Booking).
-COMPLIANCE META: Não discrimine por critérios protegidos (raça, família, religião).` } },
-
-  // ── E-COMMERCE ───────────────────────────────────────────────────────────
-  { value: "ecommerce", label: "E-commerce", icon: "🛒", desc: "Loja virtual, produtos físicos",
-    config: { objective: "sales", platform: "meta", budget: 3000, duration: 30,
-      extraContext: `Segmento: E-commerce — produtos físicos.
-COPIES VENDAS: Produto + preço + frete grátis + prazo de entrega + garantia. Ex: "Frete grátis hoje! [Produto] por R$ [X] com entrega em 2 dias e 30 dias para trocar."
-COPIES LEADS (lista/newsletter): "Cadastre-se e ganhe 10% de desconto na primeira compra."
-CTA VENDAS: "Comprar agora" | "Ver oferta" | "Garantir com desconto" | "Comprar com frete grátis"
-FORMATOS: Carrossel de produtos (catálogo dinâmico), vídeo de unboxing 15s, imagem de produto com preço visível.
-FUNIL: TOF → produto em uso (lifestyle). MOF → reviews/depoimentos. BOF → oferta com urgência/desconto.
-SAZONALIDADE: Ajuste copy para Black Friday, Natal, Dia das Mães, Dia dos Namorados.
-INTERNACIONALIZAÇÃO: Para venda internacional destaque moeda local, envio internacional, tempo de entrega, política de devolução.
-COMPLIANCE META: Preço deve ser exato. Evite "melhor do mundo" sem comprovação. Desconto real (preço de vs preço atual).` } },
-
-  // ── SERVIÇOS LOCAIS ───────────────────────────────────────────────────────
-  { value: "servicos_locais", label: "Serviços Locais", icon: "📍", desc: "Clínicas, salões, restaurantes, oficinas",
-    config: { objective: "leads", platform: "meta", budget: 1500, duration: 30,
-      extraContext: `Segmento: Serviços locais.
-COPIES LEADS: Destaque localização, horários, avaliações e diferencial. Ex: "A [X] minutos de você. Agende agora e ganhe [benefício] na primeira visita."
-CTA: "Agendar agora" | "Ligar agora" | "Ver horários disponíveis" | "Reservar meu horário"
-FORMATOS: Vídeo curto mostrando o ambiente (15-30s), foto do resultado/produto com localização geotag.
-SEGMENTAÇÃO: Raio de 5-15km do estabelecimento. Use "Pessoas que moram aqui" (não visitantes).
-PÚBLICO: 20-55 anos, interesse relacionado ao serviço específico.
-FUNIL: TOF → awareness local (foto/vídeo do ambiente). BOF → oferta de primeira visita com CTA direto.
-INTERNACIONALIZAÇÃO: Para serviços em destinos turísticos, crie versão em inglês/espanhol para turistas.
-COMPLIANCE META: Saúde: sem claims médicos não comprovados. Alimentação: fotos reais do produto.` } },
-
-  // ── INFOPRODUTOS ─────────────────────────────────────────────────────────
-  { value: "infoprodutos", label: "Infoprodutos / Cursos", icon: "🎓", desc: "Cursos online, mentorias, ebooks",
-    config: { objective: "leads", platform: "both", budget: 3000, duration: 30,
-      extraContext: `Segmento: Infoprodutos e cursos online.
-COPIES LEADS (lista/webinar gratuito): Transformação prometida + prova social + baixo atrito. Ex: "Descubra como [resultado desejado] em [tempo] — mesmo sem [objeção principal]. Aula gratuita com [X] mil alunos."
-COPIES VENDAS (curso pago): Urgência + escassez + garantia. Ex: "Turma fechando hoje. [X] alunos já transformaram [resultado]. 7 dias de garantia total."
-CTA LEADS: "Quero minha vaga gratuita" | "Acessar aula grátis" | "Entrar para a lista VIP"
-CTA VENDAS: "Garantir minha vaga" | "Quero me inscrever" | "Acessar agora com desconto"
-FORMATOS: VSL (vídeo de vendas 2-5 min), Stories com depoimentos, carrossel com antes/depois de resultados.
-FUNIL: TOF → conteúdo educacional gratuito. MOF → webinar/aula gratuita. BOF → oferta do produto com urgência.
-INTERNACIONALIZAÇÃO: Para mercado lusófono (PT, MZ, AO): adapte exemplos e moeda. Para mercado hispânico: versão em espanhol com exemplos locais.
-COMPLIANCE META: Evite promessas de ganho específico ("ganhe R$ X por mês"). Use "resultados variam".` } },
-
-  // ── SAÚDE & ESTÉTICA ─────────────────────────────────────────────────────
-  { value: "saude_estetica", label: "Saúde & Estética", icon: "💆", desc: "Clínicas, procedimentos, bem-estar",
-    config: { objective: "leads", platform: "meta", budget: 2000, duration: 30,
-      extraContext: `Segmento: Saúde e estética.
-COPIES LEADS: Foque em autoestima, bem-estar e resultados sem claims médicos proibidos. Ex: "Recupere sua autoestima com [procedimento]. Avaliação gratuita com especialista."
-CTA: "Agendar avaliação gratuita" | "Quero minha avaliação" | "Falar com especialista"
-FORMATOS: Vídeo do ambiente/equipe (não before/after), depoimento em vídeo de paciente satisfeito.
-PÚBLICO: Mulheres 25-55 anos principalmente; adapte por procedimento específico.
-FUNIL: TOF → educação sobre o procedimento. MOF → depoimentos/resultados. BOF → avaliação gratuita com urgência de agenda.
-COMPLIANCE META CRÍTICO: PROIBIDO before/after. PROIBIDO claims médicos ("cura", "elimina", "trata"). Use "pode ajudar", "favorece", "contribui". Sem exposição de corpo nu ou partes íntimas.
-INTERNACIONALIZAÇÃO: Turismo médico — destaque acreditações, preços competitivos vs país de origem, estrutura.` } },
-
-  // ── ALIMENTAÇÃO ───────────────────────────────────────────────────────────
-  { value: "alimentacao", label: "Alimentação & Delivery", icon: "🍔", desc: "Restaurantes, lanchonetes, delivery",
-    config: { objective: "sales", platform: "meta", budget: 1000, duration: 30,
-      extraContext: `Segmento: Alimentação e delivery.
-COPIES VENDAS: Apelo visual + velocidade + conveniência. Ex: "Entrega em 30 minutos. [Prato] por R$ [X] com taxa grátis hoje."
-CTA: "Pedir agora" | "Ver cardápio" | "Pedir no WhatsApp" | "Fazer meu pedido"
-FORMATOS: Foto/vídeo do produto em close (apetitoso), vídeo do preparo 15s, stories com promoção do dia.
-HORÁRIOS: Publicar anúncios 30-60 min antes dos horários de pico (11h30, 18h30).
-SEGMENTAÇÃO: Raio de 5-8km. Público 18-45 anos.
-FUNIL: TOF → conteúdo de bastidores/preparo. MOF → destaques do cardápio. BOF → promoção do dia/semana com CTA direto.
-INTERNACIONALIZAÇÃO: Para turistas, versão em inglês com foto do prato + preço em USD/EUR.
-COMPLIANCE META: Foto real do produto (não ilustrativa). Preço exato. Bebidas alcoólicas: configurar restrição de idade.` } },
-
-  // ── MODA & VAREJO ─────────────────────────────────────────────────────────
-  { value: "moda_varejo", label: "Moda & Varejo", icon: "👗", desc: "Roupas, calçados, acessórios",
-    config: { objective: "sales", platform: "meta", budget: 2000, duration: 30,
-      extraContext: `Segmento: Moda e varejo.
-COPIES VENDAS: Estilo + ocasião + preço + frete. Ex: "Nova coleção chegou. [Peça] por R$ [X] com frete grátis hoje. Estoque limitado."
-CTA: "Comprar agora" | "Ver coleção" | "Garantir o meu" | "Aproveitar oferta"
-FORMATOS: Carrossel lifestyle (modelo usando a peça), vídeo de desfile curto 15s, Reels com styling tips.
-FUNIL: TOF → lifestyle/inspiração. MOF → produto em detalhe + preço. BOF → oferta com urgência/frete grátis.
-SAZONALIDADE: Verão/inverno, Black Friday, Natal, Dia das Mães, Dia dos Namorados.
-INTERNACIONALIZAÇÃO: Para exportação, adapte tamanhos (BR vs US vs EU), moeda e prazo de entrega internacional.
-COMPLIANCE META: Fotos reais do produto. Preço exato. Sem discriminação de tamanho/corpo no copy.` } },
-
-  // ── B2B ───────────────────────────────────────────────────────────────────
-  { value: "b2b", label: "B2B / Empresas", icon: "🏢", desc: "Soluções para empresas, SaaS, serviços",
-    config: { objective: "leads", platform: "both", budget: 5000, duration: 30,
-      extraContext: `Segmento: B2B — soluções para empresas.
-COPIES LEADS: ROI + problema específico + credibilidade. Ex: "Reduza [X]% do tempo gasto em [processo]. +500 empresas já usam. Solicite uma demo gratuita."
-CTA: "Solicitar demo gratuita" | "Falar com especialista" | "Ver case de sucesso" | "Calcular meu ROI"
-FORMATOS: Vídeo explicativo 30-60s, carrossel com cases/resultados, imagem com dado de impacto.
-PLATAFORMAS: Google Ads (demanda ativa — palavras-chave de intenção). LinkedIn Ads (segmentação por cargo/empresa). Meta (remarketing e awareness).
-FUNIL: TOF → conteúdo educacional (artigo/webinar). MOF → case study/demo. BOF → trial gratuito/proposta.
-PÚBLICO: Decisores (CEO, Diretor, Gerente), empresas de 10-500 funcionários, segmentação por setor.
-INTERNACIONALIZAÇÃO: English copy para mercados US/EU. Adapte cases por país/região. GDPR compliance para Europa.
-COMPLIANCE: Sem promessas de resultado garantido. Use "pode", "ajuda a", "contribui para".` } },
-
-  // ── OUTRO ─────────────────────────────────────────────────────────────────
-  { value: "outro", label: "Outro segmento", icon: "✏️", desc: "Configurar manualmente",
-    config: { objective: "leads", platform: "meta", budget: 1500, duration: 30, extraContext: "" } },
-];
-
-// Mapa segmento → nicho da learning base
-const SEGMENT_TO_NICHE: Record<string, string> = {
-  imoveis_venda:   "imobiliario",
-  imoveis_locacao: "imobiliario",
-  ecommerce:       "varejo",
-  servicos_locais: "servicos",
-  infoprodutos:    "infoprodutos",
-  saude_estetica:  "saude",
-  alimentacao:     "varejo",
-  moda_varejo:     "varejo",
-  b2b:             "geral",
-  outro:           "geral",
-};
+// Importado do arquivo compartilhado — fonte única de verdade
+import {
+  SEGMENT_LIST   as SEGMENTS,
+  SEGMENT_TO_NICHE,
+  getSegmentCopy,
+  getSegment,
+  type SegmentDefinition,
+} from "../../../shared/segmentConfig";
 
 export default function CampaignBuilder() {
   const { id } = useParams<{ id: string }>();
@@ -451,13 +327,14 @@ export default function CampaignBuilder() {
                         onClick={() => {
                           setSegment(seg.value);
                           if (seg.value !== "outro") {
+                            const def = getSegment(seg.value);
                             setForm(f => ({
                               ...f,
-                              objective:    seg.config.objective,
-                              platform:     seg.config.platform,
-                              budget:       seg.config.budget,
-                              duration:     seg.config.duration,
-                              extraContext: seg.config.extraContext,
+                              objective:    def.ui.objective,
+                              platform:     def.ui.platform,
+                              budget:       def.ui.budget,
+                              duration:     def.ui.duration,
+                              extraContext: def.detection.promptContext,
                             }));
                           }
                         }}
@@ -475,13 +352,44 @@ export default function CampaignBuilder() {
                           </div>
                           {segment === seg.value && <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 16 }}>✓</span>}
                         </div>
-                        {segment === seg.value && seg.value !== "outro" && (
-                          <div style={{ marginTop: 8, padding: "6px 10px", background: "var(--green-xl)", borderRadius: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)" }}>🎯 {seg.config.objective}</span>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)" }}>📘 {seg.config.platform}</span>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)" }}>💰 R$ {seg.config.budget.toLocaleString()}/mês</span>
-                          </div>
-                        )}
+                        {segment === seg.value && seg.value !== "outro" && (() => {
+                          const def = getSegment(seg.value);
+                          const copy = getSegmentCopy(seg.value);
+                          const ctaList = def.ui.objective === "sales" ? copy.ctaSales : copy.ctaLeads;
+                          return (
+                            <div style={{ marginTop: 10 }}>
+                              {/* Config badges */}
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)", background: "var(--green-xl)", padding: "2px 8px", borderRadius: 20 }}>🎯 {def.ui.objective}</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)", background: "var(--green-xl)", padding: "2px 8px", borderRadius: 20 }}>📘 {def.ui.platform}</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green-dk)", background: "var(--green-xl)", padding: "2px 8px", borderRadius: 20 }}>💰 R$ {def.ui.budget.toLocaleString()}/mês</span>
+                              </div>
+                              {/* Preview das copies do segmento */}
+                              <div style={{ background: "#f0fdf4", borderRadius: 10, padding: "10px 12px", border: "1px solid var(--green-xl)" }}>
+                                <p style={{ fontSize: 10, fontWeight: 800, color: "var(--green-dk)", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                  ✍️ Copies geradas para este segmento:
+                                </p>
+                                {/* Headline de exemplo */}
+                                <p style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", margin: "0 0 4px" }}>
+                                  📢 "{copy.headlines[0]}"
+                                </p>
+                                {/* Copy curta de exemplo */}
+                                <p style={{ fontSize: 11, color: "#475569", margin: "0 0 8px", lineHeight: 1.4 }}>
+                                  {copy.shortCopies[0].slice(0, 120)}{copy.shortCopies[0].length > 120 ? "..." : ""}
+                                </p>
+                                {/* CTAs */}
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600 }}>CTAs:</span>
+                                  {ctaList.slice(0, 3).map((cta, i) => (
+                                    <span key={i} style={{ fontSize: 10, background: "#dbeafe", color: "#1d4ed8", padding: "2px 8px", borderRadius: 12, fontWeight: 600 }}>
+                                      {cta}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
