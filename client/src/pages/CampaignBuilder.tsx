@@ -42,8 +42,7 @@ import {
   SEGMENT_TO_NICHE,
   getSegmentCopy,
   getSegment,
-  type SegmentDefinition,
-} from "../../../shared/segmentConfig";
+} from "~shared/segmentConfig";
 
 export default function CampaignBuilder() {
   const { id } = useParams<{ id: string }>();

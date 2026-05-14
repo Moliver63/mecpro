@@ -6,10 +6,21 @@
     "strict": true,
     "jsx": "react-jsx",
     "baseUrl": ".",
-    "paths": { "@/*": ["./client/src/*"] },
+    "paths": {
+      "@/*": [
+        "./client/src/*"
+      ],
+      "~shared/*": [
+        "./shared/*"
+      ]
+    },
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["client/src", "server", "drizzle"]
+  "include": [
+    "client/src",
+    "server",
+    "drizzle"
+  ]
 }
