@@ -1,20 +1,21 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 
-// ── Planos com preços anuais (20% desconto sobre mensal) ──────────────────────
+// ── Planos ────────────────────────────────────────────────────────────────────
 const PLANS = [
-  { name: "Basic",   monthly: 97,  slug: "basic"   },
-  { name: "Premium", monthly: 197, slug: "premium" },
-  { name: "VIP",     monthly: 397, slug: "vip"     },
+  { name: "Basic",   monthly: 97,  slug: "basic",   desc: "Para quem está começando",       color: "#2563eb" },
+  { name: "Premium", monthly: 197, slug: "premium", desc: "O preferido das agências",       color: "#16a34a" },
+  { name: "VIP",     monthly: 397, slug: "vip",     desc: "Para quem escala de verdade",    color: "#7c3aed" },
 ];
 
-function annualTotal(monthly: number) { return Math.floor(monthly * 0.8) * 12; }
-function credit60(monthly: number)    { return Math.round(annualTotal(monthly) * 0.6); }
+function annualPrice(monthly: number) { return Math.floor(monthly * 0.8); }   // 20% off
+function annualTotal(monthly: number) { return annualPrice(monthly) * 12; }
+function saving(monthly: number)      { return monthly * 12 - annualTotal(monthly); }
+function pctOff(monthly: number)      { return Math.round((1 - annualPrice(monthly) / monthly) * 100); }
 
-// ── Utilitário ────────────────────────────────────────────────────────────────
 function R(v: number) { return `R$\u00a0${v.toLocaleString("pt-BR")}`; }
 
-// ── Contador regressivo (72h) ─────────────────────────────────────────────────
+// ── Contador ──────────────────────────────────────────────────────────────────
 function useCountdown(hours = 72) {
   const end = useRef(Date.now() + hours * 3600 * 1000);
   const [left, setLeft] = useState(end.current - Date.now());
@@ -22,470 +23,573 @@ function useCountdown(hours = 72) {
     const id = setInterval(() => setLeft(Math.max(0, end.current - Date.now())), 1000);
     return () => clearInterval(id);
   }, []);
-  const h  = Math.floor(left / 3600000);
-  const m  = Math.floor((left % 3600000) / 60000);
-  const s  = Math.floor((left % 60000)   / 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return { h: pad(h), m: pad(m), s: pad(s) };
+  const pad = (n: number) => String(Math.floor(n)).padStart(2, "0");
+  return {
+    h: pad(left / 3600000),
+    m: pad((left % 3600000) / 60000),
+    s: pad((left % 60000) / 1000),
+  };
 }
 
-// ── Barra de vagas ────────────────────────────────────────────────────────────
 const TOTAL_VAGAS = 50;
-const USADAS      = 37; // simula vagas ocupadas
+const USADAS      = 37;
 
-// ── Componente principal ──────────────────────────────────────────────────────
+// ── Cores (mesma paleta da LandingNormal) ────────────────────────────────────
+const GREEN   = "#16a34a";
+const GREENBG = "#f0fdf4";
+const DARK    = "#111827";
+const MUTED   = "#6b7280";
+const BORDER  = "#e5e7eb";
+const BG      = "#ffffff";
+const OFFBG   = "#f9fafb";
+
+const FEATURES = [
+  { icon: "01", t: "Perfil do Cliente",       d: "Mapeie dores, desejos e objeções com profundidade estratégica." },
+  { icon: "02", t: "Análise de Concorrentes", d: "Monitore anúncios ativos via Meta Ads Library em tempo real." },
+  { icon: "03", t: "Inteligência de Mercado", d: "A IA revela gaps, oportunidades e posicionamento ideal." },
+  { icon: "04", t: "Campanha Automática",     d: "Ad sets, copy, orçamento e funil prontos para publicar." },
+  { icon: "05", t: "Relatórios PDF e XLSX",   d: "Documentos profissionais para clientes ou implementação." },
+  { icon: "06", t: "Meta, Google e TikTok",   d: "Publique direto do MECProAI sem copiar e colar." },
+];
+
 export default function PromoAnual() {
   const [, setLocation] = useLocation();
-  const [planIdx, setPlanIdx] = useState(1); // Premium selecionado por padrão
+  const [planIdx, setPlanIdx] = useState(1);
   const { h, m, s } = useCountdown(72);
+  const vagas = TOTAL_VAGAS - USADAS;
+  const pct   = Math.round((USADAS / TOTAL_VAGAS) * 100);
 
-  const plan   = PLANS[planIdx];
-  const total  = annualTotal(plan.monthly);
-  const credit = credit60(plan.monthly);
-  const vagas  = TOTAL_VAGAS - USADAS;
-  const pct    = Math.round((USADAS / TOTAL_VAGAS) * 100);
-
+  const plan = PLANS[planIdx];
   const goToCheckout = () => setLocation("/pricing");
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#050505",
-      color: "#f0f0f0",
-      fontFamily: "'Geist', -apple-system, 'SF Pro Display', sans-serif",
-      overflowX: "hidden",
-    }}>
+    <div style={{ minHeight: "100vh", background: BG, color: DARK,
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      overflowX: "hidden" }}>
 
-      {/* ── ESTILOS GLOBAIS ── */}
       <style>{`
-        @keyframes pulse-green { 0%,100%{box-shadow:0 0 0 0 rgba(48,209,88,.4)} 50%{box-shadow:0 0 0 12px rgba(48,209,88,0)} }
-        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes shimmer { 0%{background-position:-400px 0} 100%{background-position:400px 0} }
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
-        .btn-promo {
-          background: linear-gradient(135deg, #30d158, #248a3d);
-          color: #fff;
-          font-weight: 800;
-          font-size: 18px;
-          padding: 18px 40px;
-          border: none;
-          border-radius: 14px;
-          cursor: pointer;
-          width: 100%;
-          max-width: 480px;
-          letter-spacing: -.3px;
-          animation: pulse-green 2.5s infinite;
-          transition: transform .15s, filter .15s;
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes pulse  { 0%,100%{box-shadow:0 0 0 0 rgba(22,163,74,.35)} 50%{box-shadow:0 0 0 10px rgba(22,163,74,0)} }
+        @keyframes blink  { 0%,100%{opacity:1} 50%{opacity:.4} }
+        @keyframes float  { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(-5px)} }
+        .lfu  { animation: fadeUp .6s ease both; }
+        .lfu1 { animation-delay:.1s } .lfu2 { animation-delay:.2s } .lfu3 { animation-delay:.32s }
+        .lhover { transition: all .18s; }
+        .lhover:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.09)!important; }
+        .btn-primary {
+          background: ${GREEN}; color: #fff; font-weight: 700; font-size: 15px;
+          padding: 14px 32px; border: none; border-radius: 10px; cursor: pointer;
+          box-shadow: 0 4px 16px rgba(22,163,74,.3); animation: pulse 2.5s infinite;
+          transition: filter .15s; width: 100%; max-width: 480px;
         }
-        .btn-promo:hover { transform: scale(1.03); filter: brightness(1.1); }
-        .btn-promo-sm {
-          background: linear-gradient(135deg, #30d158, #248a3d);
-          color: #fff;
-          font-weight: 700;
-          font-size: 15px;
-          padding: 13px 28px;
-          border: none;
-          border-radius: 10px;
-          cursor: pointer;
-          transition: transform .15s, filter .15s;
+        .btn-primary:hover { filter: brightness(.93); }
+        .btn-sec {
+          background: transparent; color: ${DARK}; border: 1px solid ${BORDER};
+          font-weight: 600; font-size: 14px; padding: 12px 28px; border-radius: 10px;
+          cursor: pointer; transition: all .15s;
         }
-        .btn-promo-sm:hover { transform: scale(1.03); filter: brightness(1.1); }
-        .card { background: #111; border: 1px solid #222; border-radius: 20px; padding: 32px; }
-        .tag-red { background: #ff3b30; color: #fff; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 99px; letter-spacing: .5px; text-transform: uppercase; }
-        .tag-green { background: rgba(48,209,88,.15); color: #30d158; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 99px; letter-spacing: .5px; text-transform: uppercase; }
-        .section { padding: 80px 24px; max-width: 720px; margin: 0 auto; }
-        .fade-up { animation: fadeUp .6s ease both; }
+        .btn-sec:hover { background: ${OFFBG}; }
+        .tag-green { display:inline-block; background:${GREENBG}; color:${GREEN}; font-size:11px; font-weight:700;
+          padding:4px 12px; border-radius:99px; border:1px solid #bbf7d0; letter-spacing:.5px; text-transform:uppercase; }
+        .tag-red { display:inline-block; background:#fef2f2; color:#dc2626; font-size:11px; font-weight:700;
+          padding:4px 12px; border-radius:99px; border:1px solid #fecaca; letter-spacing:.5px; }
         .ticker { font-variant-numeric: tabular-nums; }
-        @media(max-width:600px){
-          .btn-promo { font-size:16px; padding:16px 24px; }
-          .section { padding:60px 20px; }
-          .card { padding:24px 20px; }
+        @media(max-width:680px){
+          .lg3{ grid-template-columns:1fr!important }
+          .hero h1{ font-size:clamp(32px,9vw,52px)!important }
+          .section{ padding:64px 20px!important }
+          .plan-grid{ grid-template-columns:1fr!important }
         }
       `}</style>
 
-      {/* ══════════════════════════════════════════════
-          NAV
-      ══════════════════════════════════════════════ */}
-      <nav style={{
-        position: "sticky", top: 0, zIndex: 100,
-        background: "rgba(5,5,5,.92)", backdropFilter: "blur(20px)",
-        borderBottom: "1px solid #1a1a1a",
-        padding: "0 24px", height: 60,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-      }}>
-        <a href="/" style={{ fontFamily: "var(--font-display, inherit)", fontSize: 20, fontWeight: 800, color: "#f0f0f0", textDecoration: "none" }}>
-          MEC<span style={{ color: "#30d158" }}>PRO</span>
-        </a>
-        <button className="btn-promo-sm" onClick={goToCheckout}>
-          Ativar 60% de crédito ↗
-        </button>
+      {/* ── NAV ── */}
+      <nav style={{ position:"sticky", top:0, zIndex:100, height:64,
+        background:"rgba(255,255,255,.97)", backdropFilter:"blur(12px)",
+        borderBottom:`1px solid ${BORDER}` }}>
+        <div style={{ maxWidth:1080, margin:"0 auto", padding:"0 24px", height:"100%",
+          display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <a href="/" style={{ textDecoration:"none" }}>
+            <img src="/logo-512.png" alt="MECProAI" height={42} style={{ display:"block", borderRadius:10 }}/>
+          </a>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:6, background:"#fef2f2",
+              border:"1px solid #fecaca", borderRadius:99, padding:"5px 14px" }}>
+              <span style={{ animation:"blink 1.4s infinite", fontSize:10 }}>🔴</span>
+              <span className="ticker" style={{ fontSize:12, fontWeight:700, color:"#dc2626" }}>
+                Oferta encerra em {h}:{m}:{s}
+              </span>
+            </div>
+            <button onClick={goToCheckout} className="btn-primary"
+              style={{ width:"auto", maxWidth:"none", padding:"9px 20px", fontSize:13, animation:"none",
+                boxShadow:"0 2px 8px rgba(22,163,74,.3)" }}>
+              Assinar anual →
+            </button>
+          </div>
+        </div>
       </nav>
 
-      {/* ══════════════════════════════════════════════
-          BANNER URGÊNCIA (topo)
-      ══════════════════════════════════════════════ */}
-      <div style={{
-        background: "linear-gradient(90deg,#ff3b30,#ff6b35)",
-        textAlign: "center", padding: "10px 16px",
-        fontSize: 13, fontWeight: 700, color: "#fff",
-        display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap",
-      }}>
-        <span style={{ animation: "blink 1.4s infinite" }}>🔴</span>
-        OFERTA ENCERRA EM:
-        <span className="ticker" style={{ background: "rgba(0,0,0,.3)", padding: "3px 10px", borderRadius: 6, letterSpacing: 2, fontSize: 15 }}>
-          {h}:{m}:{s}
-        </span>
-        — Apenas <strong>{vagas} vagas</strong> restantes
+      {/* ── BANNER ── */}
+      <div style={{ background:`linear-gradient(90deg,${GREEN},#15803d)`,
+        textAlign:"center", padding:"10px 16px", fontSize:13, fontWeight:700, color:"#fff",
+        display:"flex", alignItems:"center", justifyContent:"center", gap:10, flexWrap:"wrap" }}>
+        🎁 OFERTA ESPECIAL — Assine o plano anual e economize até {R(saving(397))} + 20% de desconto em todos os planos
       </div>
 
-      {/* ══════════════════════════════════════════════
-          HERO
-      ══════════════════════════════════════════════ */}
-      <section style={{ padding: "80px 24px 64px", textAlign: "center", maxWidth: 760, margin: "0 auto" }}>
-
-        {/* Selo oferta limitada */}
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(48,209,88,.12)", border: "1px solid rgba(48,209,88,.3)", borderRadius: 99, padding: "6px 16px", marginBottom: 32 }}>
-          <span style={{ fontSize: 14 }}>🎯</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#30d158", textTransform: "uppercase", letterSpacing: 1 }}>Oferta exclusiva · Tempo limitado</span>
+      {/* ── HERO ── */}
+      <header className="section hero" style={{ padding:"80px 24px 72px", textAlign:"center",
+        maxWidth:760, margin:"0 auto" }}>
+        <div className="lfu">
+          <span className="tag-green" style={{ marginBottom:24 }}>Oferta exclusiva · Tempo limitado</span>
         </div>
-
-        {/* Headline */}
-        <h1 style={{
-          fontSize: "clamp(36px, 6vw, 68px)", fontWeight: 900,
-          lineHeight: 1.05, letterSpacing: -2, marginBottom: 24,
-          background: "linear-gradient(135deg, #fff 30%, #30d158 100%)",
-          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-        }}>
-          Assine o plano anual e ganhe{" "}
-          <span style={{
-            background: "linear-gradient(135deg,#30d158,#34d399)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-          }}>
-            60% em créditos
-          </span>{" "}
-          para suas campanhas
+        <h1 className="lfu lfu1" style={{ fontSize:"clamp(36px,5.5vw,60px)", fontWeight:800,
+          lineHeight:1.1, letterSpacing:"-1.5px", marginBottom:20, color:DARK }}>
+          Assine anual e pague<br/>
+          <span style={{ color:GREEN }}>20% menos em todos os planos</span>
         </h1>
-
-        {/* Subheadline */}
-        <p style={{ fontSize: "clamp(16px,2.5vw,20px)", color: "#888", lineHeight: 1.7, marginBottom: 40, maxWidth: 560, margin: "0 auto 40px" }}>
-          Você investe no plano anual e recebe de volta <strong style={{ color: "#f0f0f0" }}>60% do valor pago</strong> em créditos para impulsionar suas campanhas direto na plataforma. Dinheiro que volta para o seu tráfego.
+        <p className="lfu lfu2" style={{ fontSize:17, color:MUTED, maxWidth:520, margin:"0 auto 40px",
+          lineHeight:1.7 }}>
+          Economize de {R(saving(97))} a {R(saving(397))} por ano. Trave seu preço agora e não pague reajuste. Cancele quando quiser.
         </p>
 
-        {/* Calculadora de plano */}
-        <div className="card" style={{ marginBottom: 32, textAlign: "left", maxWidth: 560, margin: "0 auto 32px" }}>
-          <p style={{ fontSize: 12, fontWeight: 700, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>Calcule seu retorno</p>
-          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-            {PLANS.map((p, i) => (
-              <button key={p.slug} onClick={() => setPlanIdx(i)} style={{
-                flex: 1, padding: "10px 8px", borderRadius: 10, border: `2px solid ${planIdx === i ? "#30d158" : "#222"}`,
-                background: planIdx === i ? "rgba(48,209,88,.1)" : "transparent",
-                color: planIdx === i ? "#30d158" : "#666",
-                fontWeight: 700, fontSize: 13, cursor: "pointer", transition: "all .15s",
-              }}>
-                {p.name}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-            <div style={{ background: "#0a0a0a", borderRadius: 12, padding: 16, textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 4 }}>Você paga/ano</div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: "#f0f0f0" }}>{R(total)}</div>
+        {/* Countdown */}
+        <div className="lfu lfu2" style={{ display:"inline-flex", gap:12, marginBottom:40,
+          background:OFFBG, border:`1px solid ${BORDER}`, borderRadius:16, padding:"16px 28px" }}>
+          {[{ v:h, l:"horas" }, { v:m, l:"minutos" }, { v:s, l:"segundos" }].map((t, i) => (
+            <div key={i} style={{ textAlign:"center", minWidth:52 }}>
+              <div className="ticker" style={{ fontSize:36, fontWeight:800, color:DARK, lineHeight:1 }}>{t.v}</div>
+              <div style={{ fontSize:11, color:MUTED, marginTop:4 }}>{t.l}</div>
             </div>
-            <div style={{ background: "#0d1f12", border: "1px solid rgba(48,209,88,.3)", borderRadius: 12, padding: 16, textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "#30d158", marginBottom: 4 }}>Créditos que recebe</div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: "#30d158" }}>+ {R(credit)}</div>
-            </div>
-            <div style={{ background: "#0a0a0a", borderRadius: 12, padding: 16, textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 4 }}>Custo real</div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: "#f0f0f0" }}>{R(total - credit)}</div>
-            </div>
-          </div>
-
-          <p style={{ fontSize: 12, color: "#555", marginTop: 12, textAlign: "center" }}>
-            * Créditos creditados em até 10 dias após confirmação do pagamento
-          </p>
+          ))}
         </div>
 
-        {/* CTA principal */}
-        <button className="btn-promo" onClick={goToCheckout} style={{ display: "block", margin: "0 auto 16px" }}>
-          ⚡ Quero ativar meu crédito agora
-        </button>
-        <p style={{ fontSize: 13, color: "#555" }}>
-          Disponível por tempo limitado · Apenas {vagas} vagas com crédito restantes
-        </p>
-      </section>
-
-      {/* ══════════════════════════════════════════════
-          BARRA DE ESCASSEZ
-      ══════════════════════════════════════════════ */}
-      <section style={{ padding: "0 24px 80px", maxWidth: 720, margin: "0 auto" }}>
-        <div className="card" style={{ border: "1px solid #ff3b3033" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20 }}>🔥</span>
-              <span style={{ fontWeight: 700, fontSize: 15, color: "#f0f0f0" }}>Vagas com crédito promocional</span>
-            </div>
+        {/* Vagas */}
+        <div className="lfu lfu3" style={{ maxWidth:480, margin:"0 auto 40px",
+          background:OFFBG, border:`1px solid ${BORDER}`, borderRadius:14, padding:"14px 20px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:8 }}>
+            <span style={{ fontSize:13, fontWeight:600, color:DARK }}>🔥 Vagas com desconto</span>
             <span className="tag-red">{vagas} restantes</span>
           </div>
-          <div style={{ background: "#1a1a1a", borderRadius: 99, height: 12, overflow: "hidden" }}>
-            <div style={{
-              width: `${pct}%`, height: "100%",
-              background: "linear-gradient(90deg,#ff6b35,#ff3b30)",
-              borderRadius: 99, transition: "width 1s ease",
-            }} />
+          <div style={{ background:BORDER, borderRadius:99, height:8, overflow:"hidden" }}>
+            <div style={{ width:`${pct}%`, height:"100%", borderRadius:99,
+              background:"linear-gradient(90deg,#f97316,#dc2626)", transition:"width 1s" }}/>
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-            <span style={{ fontSize: 12, color: "#666" }}>{USADAS} vagas preenchidas</span>
-            <span style={{ fontSize: 12, color: "#ff6b35", fontWeight: 700 }}>{pct}% ocupado</span>
-          </div>
-          <p style={{ fontSize: 13, color: "#666", marginTop: 14, lineHeight: 1.6 }}>
-            Quando as vagas acabarem, o plano anual continua disponível — mas <strong style={{ color: "#f0f0f0" }}>sem o crédito de 60%</strong>. Não tem segunda chance.
+          <p style={{ fontSize:11, color:MUTED, margin:"8px 0 0" }}>{USADAS} de {TOTAL_VAGAS} vagas preenchidas</p>
+        </div>
+
+        <div className="lfu lfu3" style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
+          <button className="btn-primary" onClick={goToCheckout} style={{ display:"block" }}>
+            ⚡ Ver planos e assinar agora
+          </button>
+          <p style={{ fontSize:13, color:"#9ca3af", margin:0 }}>
+            Sem cartão de crédito para criar conta · Cancele quando quiser
           </p>
-          <div style={{ textAlign: "center", marginTop: 20 }}>
-            <button className="btn-promo-sm" onClick={goToCheckout}>Garantir minha vaga agora →</button>
-          </div>
         </div>
-      </section>
+      </header>
 
-      {/* ══════════════════════════════════════════════
-          SEÇÃO: COMO FUNCIONA
-      ══════════════════════════════════════════════ */}
-      <section className="section" style={{ borderTop: "1px solid #111" }}>
-        <div style={{ textAlign: "center", marginBottom: 48 }}>
-          <span className="tag-green" style={{ marginBottom: 16, display: "inline-block" }}>Simples assim</span>
-          <h2 style={{ fontSize: "clamp(28px,4vw,42px)", fontWeight: 800, letterSpacing: -1, color: "#f0f0f0", marginBottom: 12 }}>
-            Como funciona em 4 passos
-          </h2>
-          <p style={{ fontSize: 16, color: "#666" }}>Sem burocracia. Sem letras miúdas.</p>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {[
-            { n: "01", title: "Assina o plano anual", desc: "Escolha Basic, Premium ou VIP. O desconto de 20% já é aplicado automaticamente.", icon: "✍️" },
-            { n: "02", title: "Aguarda até 10 dias úteis", desc: "Nossa equipe confirma o pagamento e processa os créditos na sua conta.", icon: "⏳" },
-            { n: "03", title: "Recebe 60% em créditos", desc: `No plano Premium anual você paga ${R(annualTotal(197))} e recebe ${R(credit60(197))} em créditos para campanhas.`, icon: "💰" },
-            { n: "04", title: "Usa nas suas campanhas", desc: "Os créditos ficam disponíveis para impulsionar campanhas dentro do MECPro — Meta, Google e TikTok.", icon: "🚀" },
-          ].map((step, i) => (
-            <div key={i} className="card" style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: 14,
-                background: "rgba(48,209,88,.1)", border: "1px solid rgba(48,209,88,.2)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 24, flexShrink: 0,
-              }}>
-                {step.icon}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, color: "#30d158", letterSpacing: 1 }}>{step.n}</span>
-                  <span style={{ fontWeight: 700, fontSize: 16, color: "#f0f0f0" }}>{step.title}</span>
-                </div>
-                <p style={{ fontSize: 14, color: "#666", lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ textAlign: "center", marginTop: 40 }}>
-          <button className="btn-promo" onClick={goToCheckout} style={{ display: "inline-block" }}>
-            Quero começar agora →
-          </button>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════
-          SEÇÃO: BENEFÍCIOS
-      ══════════════════════════════════════════════ */}
-      <section className="section" style={{ borderTop: "1px solid #111" }}>
-        <div style={{ textAlign: "center", marginBottom: 48 }}>
-          <span className="tag-green" style={{ marginBottom: 16, display: "inline-block" }}>Por que vale a pena</span>
-          <h2 style={{ fontSize: "clamp(28px,4vw,42px)", fontWeight: 800, letterSpacing: -1, color: "#f0f0f0" }}>
-            Você sai no lucro desde o primeiro mês
-          </h2>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16 }}>
-          {[
-            { icon: "📈", title: "Mais alcance", desc: "Com créditos de campanha você aparece para mais pessoas sem tirar dinheiro do bolso." },
-            { icon: "⚡", title: "Mais campanhas", desc: "Crie e teste mais campanhas com a verba que você já pagou. Mais teste = mais resultado." },
-            { icon: "🛡️", title: "Menor risco", desc: "O dinheiro que você investiu volta em crédito. O custo real cai quase pela metade." },
-            { icon: "🎯", title: "Vantagem competitiva", desc: "Seus concorrentes pagam tráfego do próprio bolso. Você usa o crédito que a plataforma te deu." },
-            { icon: "🔒", title: "Preço travado", desc: "Assinou anual? Seu preço não sobe mesmo que os planos sejam reajustados." },
-            { icon: "🏆", title: "Suporte prioritário", desc: "Assinantes anuais têm prioridade no suporte e acesso a recursos beta antes de todo mundo." },
-          ].map((b, i) => (
-            <div key={i} className="card" style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>{b.icon}</div>
-              <div style={{ fontWeight: 700, fontSize: 15, color: "#f0f0f0", marginBottom: 8 }}>{b.title}</div>
-              <p style={{ fontSize: 13, color: "#666", lineHeight: 1.6, margin: 0 }}>{b.desc}</p>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ textAlign: "center", marginTop: 40 }}>
-          <button className="btn-promo" onClick={goToCheckout} style={{ display: "inline-block" }}>
-            Ativar meu crédito agora ⚡
-          </button>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════
-          SEÇÃO: COMPARATIVO / ANCORAGEM
-      ══════════════════════════════════════════════ */}
-      <section className="section" style={{ borderTop: "1px solid #111" }}>
-        <div style={{ textAlign: "center", marginBottom: 48 }}>
-          <span className="tag-red" style={{ marginBottom: 16, display: "inline-block" }}>Antes que acabe</span>
-          <h2 style={{ fontSize: "clamp(28px,4vw,42px)", fontWeight: 800, letterSpacing: -1, color: "#f0f0f0" }}>
-            Quem entrar agora leva vantagem.<br />
-            <span style={{ color: "#ff3b30" }}>Quem esperar paga mais caro.</span>
-          </h2>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 600, margin: "0 auto 40px" }}>
-          {/* Coluna: agora */}
-          <div style={{ background: "#0d1f12", border: "1.5px solid rgba(48,209,88,.4)", borderRadius: 20, padding: 28, textAlign: "center" }}>
-            <div className="tag-green" style={{ marginBottom: 16 }}>AGORA</div>
-            <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>Plano anual Premium</div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: "#30d158", marginBottom: 4 }}>{R(annualTotal(197))}</div>
-            <div style={{ fontSize: 12, color: "#30d158", marginBottom: 16 }}>+ {R(credit60(197))} em créditos</div>
-            <div style={{ fontSize: 13, color: "#555" }}>Custo real efetivo:</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#f0f0f0" }}>{R(annualTotal(197) - credit60(197))}</div>
+      {/* ── PLANOS COM DESCONTO ── */}
+      <section id="planos" style={{ background:OFFBG, borderTop:`1px solid ${BORDER}`,
+        borderBottom:`1px solid ${BORDER}`, padding:"80px 24px" }}>
+        <div style={{ maxWidth:1080, margin:"0 auto" }}>
+          <div style={{ textAlign:"center", marginBottom:48 }}>
+            <span className="tag-green" style={{ marginBottom:16 }}>Preços anuais</span>
+            <h2 style={{ fontSize:"clamp(26px,3.5vw,40px)", fontWeight:800, letterSpacing:"-1px",
+              color:DARK, marginBottom:10, lineHeight:1.2 }}>
+              Escolha seu plano anual
+            </h2>
+            <p style={{ fontSize:15, color:MUTED }}>
+              Todos com 20% de desconto. Economize meses inteiros comparado ao mensal.
+            </p>
           </div>
 
-          {/* Coluna: depois */}
-          <div style={{ background: "#1a0a0a", border: "1.5px solid #ff3b3033", borderRadius: 20, padding: 28, textAlign: "center" }}>
-            <div className="tag-red" style={{ marginBottom: 16 }}>DEPOIS</div>
-            <div style={{ fontSize: 13, color: "#888", marginBottom: 8 }}>Plano anual Premium</div>
-            <div style={{ fontSize: 36, fontWeight: 900, color: "#ff3b30", marginBottom: 4 }}>{R(annualTotal(197))}</div>
-            <div style={{ fontSize: 12, color: "#ff3b30", marginBottom: 16 }}>sem créditos</div>
-            <div style={{ fontSize: 13, color: "#555" }}>Custo real efetivo:</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: "#f0f0f0" }}>{R(annualTotal(197))}</div>
+          <div className="plan-grid" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+            {PLANS.map((p, i) => {
+              const annual  = annualPrice(p.monthly);
+              const total   = annualTotal(p.monthly);
+              const economy = saving(p.monthly);
+              const pct_off = pctOff(p.monthly);
+              const isPop   = p.slug === "premium";
+              return (
+                <article key={p.slug} className="lhover" style={{
+                  background:BG, border: isPop ? `2px solid ${GREEN}` : `1px solid ${BORDER}`,
+                  borderRadius:20, padding:"28px 24px", position:"relative",
+                  boxShadow: isPop ? "0 4px 24px rgba(22,163,74,.12)" : "0 1px 4px rgba(0,0,0,.04)",
+                }}>
+                  {isPop && (
+                    <div style={{ position:"absolute", top:-12, left:"50%", transform:"translateX(-50%)",
+                      background:GREEN, color:"#fff", fontSize:10, fontWeight:700,
+                      padding:"4px 14px", borderRadius:99, whiteSpace:"nowrap" }}>
+                      ⭐ Mais popular
+                    </div>
+                  )}
+
+                  {/* Header */}
+                  <div style={{ marginBottom:20 }}>
+                    <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:4 }}>
+                      <span style={{ fontSize:12, fontWeight:700, color:MUTED, textTransform:"uppercase", letterSpacing:".5px" }}>
+                        {p.name}
+                      </span>
+                      <span style={{ background: isPop ? GREENBG : OFFBG,
+                        color: isPop ? GREEN : MUTED, fontSize:11, fontWeight:800,
+                        padding:"3px 10px", borderRadius:99, border:`1px solid ${isPop ? "#bbf7d0" : BORDER}` }}>
+                        -{pct_off}% OFF
+                      </span>
+                    </div>
+                    <p style={{ fontSize:12, color:MUTED, margin:0 }}>{p.desc}</p>
+                  </div>
+
+                  {/* Preço riscado + novo */}
+                  <div style={{ marginBottom:6 }}>
+                    <span style={{ fontSize:13, color:"#9ca3af", textDecoration:"line-through" }}>
+                      {R(p.monthly)}/mês
+                    </span>
+                  </div>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:2, marginBottom:4 }}>
+                    <span style={{ fontSize:13, color:MUTED }}>R$</span>
+                    <span style={{ fontSize:48, fontWeight:800, color: isPop ? GREEN : DARK,
+                      letterSpacing:"-2px", lineHeight:1 }}>
+                      {annual}
+                    </span>
+                    <span style={{ fontSize:13, color:MUTED }}>/mês</span>
+                  </div>
+                  <div style={{ fontSize:12, color:MUTED, marginBottom:4 }}>
+                    cobrado anualmente · {R(total)}/ano
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:24 }}>
+                    <span style={{ color:GREEN, fontWeight:700, fontSize:13 }}>✓</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:GREEN }}>
+                      Você economiza {R(economy)} por ano
+                    </span>
+                  </div>
+
+                  {/* Features */}
+                  <div style={{ marginBottom:24 }}>
+                    {(p.slug === "basic" ? [
+                      "3 projetos ativos",
+                      "5 concorrentes/projeto",
+                      "10 campanhas/mês",
+                      "Academy gratuita incluída",
+                      "Suporte por e-mail",
+                    ] : p.slug === "premium" ? [
+                      "10 projetos ativos",
+                      "Concorrentes ilimitados",
+                      "Campanhas ilimitadas",
+                      "Academy completa + certificados",
+                      "Relatórios PDF e XLSX",
+                      "Suporte prioritário",
+                    ] : [
+                      "Projetos ilimitados",
+                      "Tudo do Premium",
+                      "Academy VIP + mentoria",
+                      "API access",
+                      "Manager dedicado",
+                      "Onboarding personalizado",
+                    ]).map(f => (
+                      <div key={f} style={{ display:"flex", gap:8, fontSize:13, color:DARK,
+                        marginBottom:10, alignItems:"flex-start" }}>
+                        <span style={{ color:GREEN, fontWeight:700, flexShrink:0 }}>✓</span>{f}
+                      </div>
+                    ))}
+                  </div>
+
+                  <button onClick={goToCheckout}
+                    style={{ width:"100%", background: isPop ? GREEN : "transparent",
+                      color: isPop ? "#fff" : DARK,
+                      border: isPop ? "none" : `1px solid ${BORDER}`,
+                      borderRadius:10, padding:"12px 0", fontSize:13, fontWeight:700, cursor:"pointer",
+                      boxShadow: isPop ? "0 4px 14px rgba(22,163,74,.3)" : "none",
+                      transition:"all .15s" }}>
+                    Assinar {p.name} anual
+                  </button>
+                </article>
+              );
+            })}
           </div>
-        </div>
 
-        <div className="card" style={{ border: "1px solid #ff3b3022", background: "#0f0505", maxWidth: 600, margin: "0 auto" }}>
-          <p style={{ fontSize: 15, color: "#ff6b35", fontWeight: 700, marginBottom: 8 }}>⚠️ Após encerrar a promoção:</p>
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-            {[
-              "O plano anual continua disponível — mas sem nenhum crédito",
-              "Você paga o mesmo valor e não recebe nada de volta",
-              "Quem entrou agora já estará rodando campanhas com crédito grátis",
-              "Não haverá segunda chance com essa condição",
-            ].map((t, i) => (
-              <li key={i} style={{ fontSize: 14, color: "#888", display: "flex", gap: 10 }}>
-                <span style={{ color: "#ff3b30", flexShrink: 0 }}>✕</span>{t}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div style={{ textAlign: "center", marginTop: 40 }}>
-          <button className="btn-promo" onClick={goToCheckout} style={{ display: "inline-block" }}>
-            Não quero perder essa oportunidade →
-          </button>
-          <p style={{ fontSize: 12, color: "#444", marginTop: 12 }}>
-            Cancele quando quiser · Pagamento seguro via Stripe
+          <p style={{ textAlign:"center", fontSize:13, color:MUTED, marginTop:20 }}>
+            Não tem certeza? <a href="/register" style={{ color:GREEN, fontWeight:600 }}>Comece grátis</a> sem cartão de crédito.
           </p>
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════
-          BANNERS INTERNOS
-      ══════════════════════════════════════════════ */}
-      <section style={{ padding: "0 24px 80px", maxWidth: 720, margin: "0 auto" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
-          {[
-            { text: "Ganhe 60% em crédito agora", emoji: "💰" },
-            { text: "Ative seu bônus de campanha", emoji: "🎯" },
-            { text: "Comece com vantagem no tráfego", emoji: "🚀" },
-          ].map((b, i) => (
-            <button key={i} onClick={goToCheckout} style={{
-              background: "linear-gradient(135deg,#111,#1a2a1a)",
-              border: "1px solid rgba(48,209,88,.25)",
-              borderRadius: 14, padding: "18px 20px",
-              cursor: "pointer", textAlign: "left",
-              transition: "all .2s",
-              display: "flex", alignItems: "center", gap: 12,
-            }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(48,209,88,.6)"; (e.currentTarget as HTMLElement).style.background = "linear-gradient(135deg,#141a14,#1a2a1a)"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(48,209,88,.25)"; (e.currentTarget as HTMLElement).style.background = "linear-gradient(135deg,#111,#1a2a1a)"; }}
-            >
-              <span style={{ fontSize: 28 }}>{b.emoji}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: "#30d158", lineHeight: 1.4 }}>{b.text} →</span>
+      {/* ── CALCULADORA ── */}
+      <section style={{ padding:"80px 24px", maxWidth:760, margin:"0 auto" }}>
+        <div style={{ textAlign:"center", marginBottom:40 }}>
+          <span className="tag-green" style={{ marginBottom:16 }}>Calcule sua economia</span>
+          <h2 style={{ fontSize:"clamp(26px,3.5vw,38px)", fontWeight:800, letterSpacing:"-1px",
+            color:DARK, lineHeight:1.2 }}>
+            Quanto você vai economizar?
+          </h2>
+        </div>
+
+        {/* Seletor de plano */}
+        <div style={{ display:"flex", gap:8, marginBottom:28, justifyContent:"center" }}>
+          {PLANS.map((p, i) => (
+            <button key={p.slug} onClick={() => setPlanIdx(i)} style={{
+              flex:1, maxWidth:160, padding:"10px 12px", borderRadius:10,
+              border: `2px solid ${planIdx === i ? p.color : BORDER}`,
+              background: planIdx === i ? p.color + "12" : "transparent",
+              color: planIdx === i ? p.color : MUTED,
+              fontWeight:700, fontSize:14, cursor:"pointer", transition:"all .15s",
+            }}>
+              {p.name}
             </button>
           ))}
         </div>
+
+        {/* Cards de cálculo */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:20 }}>
+          {[
+            { label:"Preço mensal original", value: R(plan.monthly) + "/mês",  sub:"sem desconto", highlight:false },
+            { label:"Preço anual",           value: R(annualPrice(plan.monthly)) + "/mês", sub: R(annualTotal(plan.monthly)) + " à vista", highlight:true },
+            { label:"Você economiza",        value: R(saving(plan.monthly)) + "/ano", sub:`${pctOff(plan.monthly)}% de desconto`, highlight:false },
+          ].map((c, i) => (
+            <div key={i} style={{
+              background: c.highlight ? GREENBG : OFFBG,
+              border: `1px solid ${c.highlight ? "#bbf7d0" : BORDER}`,
+              borderRadius:14, padding:"18px 16px", textAlign:"center",
+            }}>
+              <div style={{ fontSize:11, color: c.highlight ? GREEN : MUTED, marginBottom:6, fontWeight:600 }}>
+                {c.label}
+              </div>
+              <div style={{ fontSize:22, fontWeight:800,
+                color: c.highlight ? GREEN : DARK, lineHeight:1, marginBottom:4 }}>
+                {c.value}
+              </div>
+              <div style={{ fontSize:11, color: c.highlight ? GREEN : "#9ca3af" }}>{c.sub}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ textAlign:"center", marginTop:32 }}>
+          <button className="btn-primary" onClick={goToCheckout} style={{ display:"inline-block" }}>
+            Assinar {plan.name} anual — Economize {R(saving(plan.monthly))}
+          </button>
+        </div>
       </section>
 
-      {/* ══════════════════════════════════════════════
-          RODAPÉ
-      ══════════════════════════════════════════════ */}
-      <footer style={{
-        borderTop: "1px solid #111",
-        background: "#030303",
-        padding: "60px 24px",
-        textAlign: "center",
-      }}>
-        <div style={{ maxWidth: 600, margin: "0 auto" }}>
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            background: "rgba(255,59,48,.1)", border: "1px solid rgba(255,59,48,.3)",
-            borderRadius: 99, padding: "6px 16px", marginBottom: 24,
-          }}>
-            <span style={{ fontSize: 14, animation: "blink 1.4s infinite" }}>🔴</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#ff6b35", textTransform: "uppercase", letterSpacing: 1 }}>
-              Oferta encerra em {h}:{m}:{s}
-            </span>
+      {/* ── PLATAFORMA ── */}
+      <section style={{ background:OFFBG, borderTop:`1px solid ${BORDER}`,
+        borderBottom:`1px solid ${BORDER}`, padding:"80px 24px" }}>
+        <div style={{ maxWidth:1080, margin:"0 auto" }}>
+          <div style={{ marginBottom:48 }}>
+            <span className="tag-green" style={{ marginBottom:12 }}>Plataforma</span>
+            <h2 style={{ fontSize:"clamp(26px,3.5vw,40px)", fontWeight:800, letterSpacing:"-1px",
+              color:DARK, marginBottom:12, lineHeight:1.2 }}>
+              4 módulos. 1 campanha pronta.
+            </h2>
+            <p style={{ fontSize:15, color:MUTED, maxWidth:480, lineHeight:1.7 }}>
+              Cada módulo alimenta o próximo. A IA pensa a campanha por você.
+            </p>
+          </div>
+          <div className="lg3" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)",
+            gap:1, background:BORDER, borderRadius:16, overflow:"hidden", border:`1px solid ${BORDER}` }}>
+            {FEATURES.map(f => (
+              <article key={f.icon} className="lhover"
+                style={{ background:BG, padding:"24px 20px",
+                  borderBottom:`1px solid ${BORDER}`, borderRight:`1px solid ${BORDER}`, cursor:"default" }}>
+                <div style={{ fontSize:11, fontWeight:800, color:GREEN, marginBottom:8, letterSpacing:".5px" }}>{f.icon}</div>
+                <h3 style={{ fontSize:14, fontWeight:700, color:DARK, marginBottom:6 }}>{f.t}</h3>
+                <p style={{ fontSize:12, color:MUTED, lineHeight:1.6, margin:0 }}>{f.d}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── COMPARATIVO MENSAL VS ANUAL ── */}
+      <section style={{ padding:"80px 24px", maxWidth:760, margin:"0 auto" }}>
+        <div style={{ textAlign:"center", marginBottom:40 }}>
+          <span className="tag-red" style={{ marginBottom:16 }}>Antes que acabe</span>
+          <h2 style={{ fontSize:"clamp(24px,3.5vw,38px)", fontWeight:800, letterSpacing:"-1px",
+            color:DARK, lineHeight:1.2 }}>
+            Mensal ou anual? <span style={{ color:GREEN }}>Veja a diferença.</span>
+          </h2>
+        </div>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, maxWidth:600, margin:"0 auto 40px" }}>
+          <div style={{ background:OFFBG, border:`1px solid ${BORDER}`,
+            borderRadius:18, padding:"28px 24px", textAlign:"center" }}>
+            <div style={{ fontSize:12, fontWeight:700, color:MUTED, marginBottom:16,
+              textTransform:"uppercase", letterSpacing:".5px" }}>Plano Mensal</div>
+            {PLANS.map(p => (
+              <div key={p.slug} style={{ display:"flex", justifyContent:"space-between",
+                padding:"8px 0", borderBottom:`1px solid ${BORDER}`, fontSize:13 }}>
+                <span style={{ color:MUTED }}>{p.name}</span>
+                <span style={{ fontWeight:700, color:DARK }}>{R(p.monthly)}/mês</span>
+              </div>
+            ))}
+            <p style={{ fontSize:11, color:"#9ca3af", marginTop:12 }}>cobrado mês a mês</p>
           </div>
 
-          <h3 style={{ fontSize: "clamp(24px,4vw,36px)", fontWeight: 800, letterSpacing: -1, color: "#f0f0f0", marginBottom: 16 }}>
-            Última chance de assinar com <span style={{ color: "#30d158" }}>60% de crédito</span>
-          </h3>
-          <p style={{ fontSize: 16, color: "#666", marginBottom: 32, lineHeight: 1.7 }}>
-            Depois que essa campanha encerrar, o plano anual volta ao valor normal — sem crédito, sem bônus. Essa condição nunca mais vai se repetir.
-          </p>
+          <div style={{ background:GREENBG, border:`1.5px solid #bbf7d0`,
+            borderRadius:18, padding:"28px 24px", textAlign:"center", position:"relative" }}>
+            <div style={{ position:"absolute", top:-10, left:"50%", transform:"translateX(-50%)",
+              background:GREEN, color:"#fff", fontSize:10, fontWeight:700,
+              padding:"3px 12px", borderRadius:99, whiteSpace:"nowrap" }}>
+              MELHOR OPÇÃO
+            </div>
+            <div style={{ fontSize:12, fontWeight:700, color:GREEN, marginBottom:16,
+              textTransform:"uppercase", letterSpacing:".5px" }}>Plano Anual</div>
+            {PLANS.map(p => (
+              <div key={p.slug} style={{ display:"flex", justifyContent:"space-between",
+                padding:"8px 0", borderBottom:"1px solid #bbf7d0", fontSize:13 }}>
+                <span style={{ color:GREEN }}>{p.name}</span>
+                <div style={{ textAlign:"right" }}>
+                  <span style={{ fontWeight:800, color:GREEN }}>{R(annualPrice(p.monthly))}/mês</span>
+                  <span style={{ fontSize:10, color:"#86efac", marginLeft:6 }}>
+                    -{pctOff(p.monthly)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+            <p style={{ fontSize:11, color:GREEN, marginTop:12, fontWeight:600 }}>cobrado anualmente · trave seu preço</p>
+          </div>
+        </div>
 
-          <button className="btn-promo" onClick={goToCheckout} style={{ display: "inline-block", marginBottom: 16 }}>
-            ⚡ Ativar 60% de crédito agora
+        <div style={{ textAlign:"center" }}>
+          <button className="btn-primary" onClick={goToCheckout} style={{ display:"inline-block" }}>
+            Quero o desconto anual →
           </button>
+          <p style={{ fontSize:12, color:MUTED, marginTop:12 }}>
+            Cancele quando quiser · Pagamento seguro
+          </p>
+        </div>
+      </section>
 
-          <div style={{ display: "flex", justifyContent: "center", gap: 24, flexWrap: "wrap", marginTop: 32 }}>
-            {["Pagamento seguro", "Cancele quando quiser", "Suporte em português"].map(t => (
-              <div key={t} style={{ fontSize: 12, color: "#444", display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: "#30d158" }}>✓</span>{t}
+      {/* ── COMO FUNCIONA ── */}
+      <section style={{ background:OFFBG, borderTop:`1px solid ${BORDER}`,
+        borderBottom:`1px solid ${BORDER}`, padding:"80px 24px" }}>
+        <div style={{ maxWidth:1080, margin:"0 auto" }}>
+          <div style={{ textAlign:"center", marginBottom:48 }}>
+            <span className="tag-green" style={{ marginBottom:12 }}>Como funciona</span>
+            <h2 style={{ fontSize:"clamp(26px,3.5vw,38px)", fontWeight:800, letterSpacing:"-1px",
+              color:DARK, lineHeight:1.2 }}>
+              Simples e sem burocracia
+            </h2>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:20 }}>
+            {[
+              { n:"1", c:"#16a34a", t:"Escolha seu plano anual", d:"Basic, Premium ou VIP com 20% de desconto automático já aplicado." },
+              { n:"2", c:"#2563eb", t:"Pague e acesse na hora",  d:"Acesso imediato à plataforma completa. Sem espera, sem aprovação manual." },
+              { n:"3", c:"#7c3aed", t:"Crie campanhas com IA",  d:"Perfil do cliente, análise de concorrentes e campanha pronta em minutos." },
+            ].map(s => (
+              <div key={s.n} style={{ background:BG, borderRadius:14, padding:"28px 24px",
+                border:`1px solid ${BORDER}`, borderTop:`3px solid ${s.c}` }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:s.c + "18",
+                  display:"flex", alignItems:"center", justifyContent:"center", marginBottom:14 }}>
+                  <span style={{ fontWeight:800, fontSize:15, color:s.c }}>{s.n}</span>
+                </div>
+                <h3 style={{ fontSize:15, fontWeight:700, color:DARK, marginBottom:8 }}>{s.t}</h3>
+                <p style={{ fontSize:13, color:MUTED, lineHeight:1.65, margin:0 }}>{s.d}</p>
               </div>
             ))}
           </div>
+        </div>
+      </section>
 
-          <p style={{ fontSize: 12, color: "#333", marginTop: 32 }}>
-            © 2025 MECPro · <a href="/terms" style={{ color: "#444", textDecoration: "none" }}>Termos</a> · <a href="/privacy" style={{ color: "#444", textDecoration: "none" }}>Privacidade</a>
+      {/* ── BENEFÍCIOS ── */}
+      <section style={{ padding:"80px 24px", maxWidth:1080, margin:"0 auto" }}>
+        <div style={{ textAlign:"center", marginBottom:48 }}>
+          <span className="tag-green" style={{ marginBottom:12 }}>Por que vale a pena</span>
+          <h2 style={{ fontSize:"clamp(26px,3.5vw,38px)", fontWeight:800, letterSpacing:"-1px",
+            color:DARK, lineHeight:1.2 }}>
+            Você sai no lucro desde o dia 1
+          </h2>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:16 }}>
+          {[
+            { icon:"📈", t:"Mais testes",          d:"Campanhas ilimitadas no Premium. Teste mais variações sem custo extra." },
+            { icon:"⚡", t:"Tudo em um lugar",      d:"Meta, Google e TikTok integrados. Publique com 1 clique sem trocar de ferramenta." },
+            { icon:"🛡️", t:"Preço travado",         d:"Assinou anual? Seu preço não sobe mesmo que os planos sejam reajustados." },
+            { icon:"🎯", t:"IA com contexto local", d:"Prompts em português com benchmarks BR. Não é IA genérica — é para o seu mercado." },
+            { icon:"🎓", t:"Academy inclusa",       d:"Mini cursos em todos os planos. Do básico ao avançado, tudo dentro da plataforma." },
+            { icon:"🏆", t:"Suporte em PT",         d:"Equipe brasileira. Suporte em português sem tradução automática nem espera eterna." },
+          ].map((b, i) => (
+            <div key={i} className="lhover" style={{ background:OFFBG, border:`1px solid ${BORDER}`,
+              borderRadius:14, padding:"24px 20px", textAlign:"center",
+              boxShadow:"0 1px 4px rgba(0,0,0,.04)" }}>
+              <div style={{ fontSize:32, marginBottom:12 }}>{b.icon}</div>
+              <div style={{ fontWeight:700, fontSize:15, color:DARK, marginBottom:8 }}>{b.t}</div>
+              <p style={{ fontSize:13, color:MUTED, lineHeight:1.6, margin:0 }}>{b.d}</p>
+            </div>
+          ))}
+        </div>
+        <div style={{ textAlign:"center", marginTop:40 }}>
+          <button className="btn-primary" onClick={goToCheckout} style={{ display:"inline-block" }}>
+            Começar com desconto agora ⚡
+          </button>
+        </div>
+      </section>
+
+      {/* ── CTA FINAL ── */}
+      <section style={{ padding:"0 24px 72px" }}>
+        <div style={{ background:`linear-gradient(135deg,${GREENBG},#eff6ff)`,
+          border:`1px solid #bbf7d0`, borderRadius:20, maxWidth:1080, margin:"0 auto",
+          padding:"64px 48px", textAlign:"center" }}>
+          <span className="tag-green" style={{ marginBottom:20 }}>Oferta encerra em {h}:{m}:{s}</span>
+          <h2 style={{ fontSize:"clamp(26px,3.5vw,44px)", fontWeight:800, letterSpacing:"-1px",
+            color:DARK, marginBottom:12, lineHeight:1.15 }}>
+            Pronto para pagar menos e fazer mais?
+          </h2>
+          <p style={{ fontSize:15, color:MUTED, marginBottom:32, maxWidth:500, margin:"0 auto 32px" }}>
+            Assine qualquer plano anual e garanta 20% de desconto imediato. Sem complicação, sem pegadinha.
           </p>
+          <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap" }}>
+            <button className="btn-primary" onClick={goToCheckout}
+              style={{ display:"inline-block", animation:"none",
+                boxShadow:"0 4px 16px rgba(22,163,74,.3)" }}>
+              Ver planos com desconto
+            </button>
+            <button className="btn-sec" onClick={() => setLocation("/register")}>
+              Criar conta grátis
+            </button>
+          </div>
+          <div style={{ display:"flex", justifyContent:"center", gap:24,
+            flexWrap:"wrap", marginTop:24 }}>
+            {["Pagamento seguro", "Cancele quando quiser", "Suporte em português"].map(t => (
+              <div key={t} style={{ fontSize:12, color:MUTED, display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ color:GREEN, fontWeight:700 }}>✓</span>{t}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FOOTER ── */}
+      <footer style={{ borderTop:`1px solid ${BORDER}`, padding:"28px 24px" }}>
+        <div style={{ maxWidth:1080, margin:"0 auto",
+          display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:16 }}>
+          <a href="/" style={{ textDecoration:"none" }}>
+            <img src="/logo-512.png" alt="MECProAI" height={38} style={{ display:"block", borderRadius:8 }}/>
+          </a>
+          <nav style={{ display:"flex", gap:18, flexWrap:"wrap" }}>
+            {[
+              { l:"Plataforma", h:"/#plataforma" }, { l:"Academy",    h:"/courses" },
+              { l:"Preços",     h:"/#planos" },      { l:"Termos",     h:"/terms" },
+              { l:"Privacidade",h:"/privacy" },      { l:"Contato",    h:"/contact" },
+            ].map(x => (
+              <a key={x.l} href={x.h} style={{ fontSize:12, color:"#9ca3af", textDecoration:"none" }}>{x.l}</a>
+            ))}
+          </nav>
+          <span style={{ fontSize:12, color:"#9ca3af" }}>© 2026 MECProAI</span>
         </div>
       </footer>
 
-      {/* ══════════════════════════════════════════════
-          CTA FLUTUANTE
-      ══════════════════════════════════════════════ */}
-      <div style={{
-        position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-        zIndex: 200, animation: "float 3s ease-in-out infinite",
-        filter: "drop-shadow(0 8px 32px rgba(48,209,88,.4))",
-      }}>
+      {/* ── CTA FLUTUANTE ── */}
+      <div style={{ position:"fixed", bottom:24, left:"50%", transform:"translateX(-50%)",
+        zIndex:200, animation:"float 3s ease-in-out infinite",
+        filter:"drop-shadow(0 6px 24px rgba(22,163,74,.35))" }}>
         <button onClick={goToCheckout} style={{
-          background: "linear-gradient(135deg,#30d158,#248a3d)",
-          color: "#fff", fontWeight: 800, fontSize: 15,
-          padding: "14px 32px", borderRadius: 99, border: "none",
-          cursor: "pointer", whiteSpace: "nowrap",
-          display: "flex", alignItems: "center", gap: 10,
-          boxShadow: "0 4px 32px rgba(48,209,88,.5)",
+          background:GREEN, color:"#fff", fontWeight:700, fontSize:14,
+          padding:"12px 28px", borderRadius:99, border:"none", cursor:"pointer",
+          whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:10,
+          boxShadow:"0 4px 24px rgba(22,163,74,.4)",
         }}>
-          <span style={{ fontSize: 18 }}>⚡</span>
-          Ativar 60% de crédito
-          <span style={{
-            background: "rgba(0,0,0,.25)", borderRadius: 99,
-            fontSize: 11, fontWeight: 700, padding: "2px 8px",
-          }}>
+          ⚡ Assinar com 20% OFF
+          <span style={{ background:"rgba(255,255,255,.2)", borderRadius:99,
+            fontSize:11, fontWeight:700, padding:"2px 8px" }}>
             {vagas} vagas
           </span>
         </button>
