@@ -253,8 +253,8 @@ export default function IntelligenceRecommendation({ platform, objective, niche,
             {[
               { l: "Tipo de copy",    v: rec.recommendedCopyType },
               { l: "Audiência",       v: rec.recommendedAudience },
-              { l: "Score médio",     v: `${(rec.avgScoreContext || 0).toFixed(1)}/100` },
-              { l: "Melhor score",    v: `${(rec.bestScoreContext || 0).toFixed(0)}/100` },
+              { l: "Score médio",     v: `${Number(rec.avgScoreContext || 0).toFixed(1)}/100` },
+              { l: "Melhor score",    v: `${Number(rec.bestScoreContext || 0).toFixed(0)}/100` },
               { l: "Amostras",        v: `${rec.sampleCount} campanhas analisadas` },
               { l: "Confiança",       v: rec.confidenceLabel },
             ].map(m => (

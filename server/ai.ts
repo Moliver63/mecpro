@@ -7411,7 +7411,22 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
   }
 
   const clean  = raw.replace(/```json|```/g, "").trim();
-  const parsed = JSON.parse(clean);
+  let parsed: any;
+  try {
+    parsed = JSON.parse(clean);
+  } catch {
+    // Tenta reparar JSON truncado
+    const match = clean.match(/\{[\s\S]+\}/);
+    if (match) {
+      try { parsed = JSON.parse(match[0]); } catch {
+        log.error("ai", "generateCampaignPart: JSON inválido", { part: input.part, preview: clean.slice(0, 100) });
+        throw new Error("A IA retornou resposta inválida. Tente regenerar novamente.");
+      }
+    } else {
+      log.error("ai", "generateCampaignPart: sem JSON na resposta", { part: input.part });
+      throw new Error("A IA retornou resposta inválida. Tente regenerar novamente.");
+    }
+  }
 
   // Salva no banco o campo correspondente
   if (input.part === "creatives" && parsed.creatives) {
