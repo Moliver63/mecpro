@@ -5879,6 +5879,9 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     audienceProfile: input.audienceProfile || null,
   };
 
+  // Segmento modulo 4 -> regras de copy por niche
+  const ctaRule = getSegmentInstruction(input.segment || "", (clientProfile as any)?.niche || "", input.objective);
+
   const prompt = `
 Você é um estrategista de marketing digital sênior especializado em performance.
 Crie uma campanha completa e detalhada para o seguinte briefing:
@@ -6358,25 +6361,46 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       // Regras de segmento centralizadas — cobre todos os 10 segmentos
       const ctaRule = getSegmentInstruction(input.segment || "", p?.niche || "", input.objective);
 
+      // Ancora do produto (Modulo 1) para alinhamento das copies
+      const prodAnchor = [
+        p?.productName   ? `PRODUTO: "${p.productName}" <- use este nome exato` : "",
+        p?.productDifferentials ? `DIFERENCIAIS: ${String(p.productDifferentials).slice(0,150)}` : "",
+        p?.productProofPoints   ? `PROVAS SOCIAIS: ${String(p.productProofPoints).slice(0,100)}` : "",
+        p?.productCTA           ? `CTA PREFERIDO: "${p.productCTA}"` : "",
+        p?.mainObjections       ? `OBJECOES A QUEBRAR: ${String(p.mainObjections).slice(0,100)}` : "",
+        p?.city                 ? `CIDADE: ${p.city}` : "",
+      ].filter(Boolean).join("\n");
+
       return `Crie uma campanha de ${input.objective} para "${p?.companyName || input.name}" (nicho: ${p?.niche || "geral"}).
-Produto: ${p?.productService || "não informado"}. Público: ${p?.targetAudience || "não definido"}.
-Budget: R$${input.budget}/mês. Plataforma: ${input.platform}.
-Dor: ${p?.mainPain || "—"}. Proposta: ${p?.uniqueValueProposition || "—"}.
-Concorrentes:
+
+ANCORA OBRIGATORIA - use estes dados em TODAS as copies:
+Empresa: ${p?.companyName || input.name}
+Produto/Servico: ${p?.productService || "nao informado"}
+${prodAnchor}
+Publico-alvo: ${p?.targetAudience || "nao definido"}
+Dor principal: ${p?.mainPain || "-"}
+Proposta de valor: ${p?.uniqueValueProposition || "-"}
+
+CAMPANHA: Budget R$${input.budget}/mes. Plataforma: ${input.platform}. Objetivo: ${input.objective}.
+
+CONCORRENTES (diferenciar, nao copiar):
 ${compSummary || "Nenhum cadastrado."}
-${(metaInsights as any)?.cpc ? `Performance real: CPC R$${(metaInsights as any).cpc.toFixed(2)}, CPM R$${(metaInsights as any).cpm.toFixed(2)}, CTR ${(metaInsights as any).ctr.toFixed(2)}%` : ""}
-${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,200) || ""}` : ""}${segmentCtx}${ctaRule}
+${(metaInsights as any)?.cpc ? `Performance real: CPC R$${(metaInsights as any).cpc.toFixed(2)}, CTR ${(metaInsights as any).ctr.toFixed(2)}%` : ""}
+${marketAnalysis ? `Gap: ${(marketAnalysis as any).competitiveGaps?.slice(0,150) || ""}` : ""}
+${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,150) || ""}` : ""}${segmentCtx}${ctaRule}
+
+REGRAS: NUNCA use placeholders. Mencione o produto/empresa real. CTAs alinhados ao objetivo.
 
 Gere JSON com:
-- strategy: string com estratégia geral
+- strategy: estrategia baseada nos diferenciais do cliente
 - campaignName: string
-- adSets: array com {name, audience, budget(%), objective, funnelStage}
-- creatives: array com EXATAMENTE 4 itens {type, format, orientation, headline, copy, hook, cta, funnelStage, complianceScore, targetAudience}
-- conversionFunnel: array com {stage, format, audience, budget, kpi}
-- executionPlan: array com 4 itens {week, title, action, budget, kpi, decision}
+- adSets: array {name, audience, budget(%), objective, funnelStage}
+- creatives: EXATAMENTE 4 itens {type, format, orientation, headline, copy, hook, cta, funnelStage, complianceScore, targetAudience}
+- conversionFunnel: array {stage, format, audience, budget, kpi}
+- executionPlan: 4 itens {week, title, action, budget, kpi, decision}
 - metrics: {estimatedCPC, estimatedCPM, estimatedCTR, estimatedLeads, estimatedROAS, estimatedCPL, insight}
-- hooks: array com 5 variações de hook
-- abTests: array com {test, variationA, variationB, metric}`;
+- hooks: 5 variacoes de hook para ${p?.niche || "o niche"}
+- abTests: array {test, variationA, variationB, metric}`;
     })();
     try {
       // Sistema mínimo para Groq — evita 413 com prompt+sistema muito grande
