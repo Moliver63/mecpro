@@ -872,11 +872,10 @@ function fmtRange(range: [number, number], prefix = "R$ "): string {
 }
 // Cascata de modelos — evita previews expirados/inválidos em produção
 const GEMINI_MODELS = [
-  "gemini-2.5-flash-lite",   // 🥇 lite como primary — evita throttling constante
-  "gemini-2.5-flash",        // 🥈 flash completo como fallback
-  "gemini-2.0-flash",        // 🥉 2.0 — cota B separada da 2.5
-  "gemini-2.0-flash-lite",   // 4º  2.0 lite — cota B
-  "gemini-2.5-pro",          // 5º  2.5 pro — último recurso
+  "gemini-2.5-flash-lite",   // 🥇 primary — 1.000 RPD/projeto, mais leve
+  "gemini-2.5-flash",        // 🥈 fallback — 250 RPD/projeto, mais capaz
+  // gemini-2.0-flash removido — quota separada causa erros frequentes
+  // gemini-2.5-pro removido — pago, não usar no free tier
 ];
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -2787,7 +2786,9 @@ export async function geminiWithGrounding(prompt: string): Promise<any | null> {
   const apiKey = availableKeys[0];
   if (!apiKey) return null;
 
-  for (const model of ["gemini-2.0-flash", "gemini-2.5-flash"]) {
+  // gemini-2.0-flash removido — quota esgota frequentemente e desperdiça request
+  // gemini-2.5-flash suporta Google Search grounding corretamente
+  for (const model of ["gemini-2.5-flash"]) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const res = await fetch(url, {
@@ -5797,10 +5798,17 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
       );
       if (rows.rows[0]?.sample_count >= 3) {
         mlLearning = rows.rows[0];
+        const hasRealMLMetrics = Number(mlLearning.avg_ctr || 0) > 0;
         log.info("ai", "ML learning_base enriquecendo prompt", {
           niche, platform, objective: input.objective,
           samples: mlLearning.sample_count, avgScore: mlLearning.avg_score,
+          scoreType: hasRealMLMetrics ? "performance" : "copy_quality",
         });
+        if (Number(mlLearning.avg_score || 0) >= 95 && !hasRealMLMetrics) {
+          log.warn("ai", "ML avgScore=100 sem CTR real — score reflete qualidade de copy gerada, não performance de campanha", {
+            note: "Execute syncMetaCampaignMetrics para atualizar com dados reais",
+          });
+        }
       }
     }
   } catch { /* falha silenciosa — prompt continua sem ML */ }
