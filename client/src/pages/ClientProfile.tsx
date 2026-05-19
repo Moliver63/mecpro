@@ -204,7 +204,8 @@ export default function ClientProfile() {
 
   const { data: profile, refetch } = trpc.clientProfile.get.useQuery({ projectId }, { enabled: !!projectId });
   // tRPC mutation raw
-  const upsertMutation = trpc.clientProfile.upsert.useMutation();
+  const upsertMutation  = trpc.clientProfile.upsert.useMutation();
+  const cnpjMutation    = (trpc as any).clientProfile?.lookupCNPJ?.useMutation?.();
 
   // useSafeMutation — sem redirect, com invalidação de cache e re-sync do form
   const { execute: executeSave, loading: saving } = useSafeMutation(
@@ -268,76 +269,30 @@ export default function ClientProfile() {
     if (digits.length !== 14) { setLookupMsg("CNPJ inválido."); return; }
     setLookup("loading"); setLookupMsg("");
     try {
-      let data: any = null;
+      // Usa tRPC (server-side) — evita CORS e tem fallback automático
+      const result = await cnpjMutation?.mutateAsync({ cnpj: digits });
+      if (!result) throw new Error("sem dados");
 
-      // Fonte 1: BrasilAPI — mais completa (capital_social, qsa, cnaes_secundarios)
-      try {
-        const r1 = await fetch("https://brasilapi.com.br/api/cnpj/v1/" + digits, {
-          headers: { "User-Agent": "MecProAI/1.0" },
-          signal: AbortSignal.timeout(10000),
-        });
-        if (r1.ok) { const d = await r1.json(); if (d.cnpj) data = d; }
-      } catch { /* tenta próxima */ }
+      const { _meta, ...formFields } = result as any;
+      setForm(prev => ({ ...prev, ...formFields }));
+      setCnpjResult(_meta || {});
 
-      // Fonte 2: ReceitaWS — fallback gratuito
-      if (!data) {
-        try {
-          const r2 = await fetch("https://www.receitaws.com.br/v1/cnpj/" + digits, {
-            signal: AbortSignal.timeout(10000),
-          });
-          if (r2.ok) {
-            const d = await r2.json();
-            if (d.status !== "ERROR") {
-              data = {
-                cnpj: digits,
-                razao_social: d.nome,
-                nome_fantasia: d.fantasia,
-                cnae_fiscal_descricao: d.atividade_principal?.[0]?.text || "",
-                cnaes_secundarios: (d.atividades_secundarias || []).map((a: any) => ({ descricao: a.text })),
-                municipio: d.municipio,
-                uf: d.uf,
-                bairro: d.bairro,
-                logradouro: d.logradouro,
-                numero: d.numero,
-                cep: d.cep,
-                email: d.email,
-                ddd_telefone_1: d.telefone,
-                porte: d.porte,
-                capital_social: parseFloat((d.capital_social || "0").replace(/[^0-9.,]/g, "").replace(",", ".")),
-                data_inicio_atividade: d.abertura ? d.abertura.split("/").reverse().join("-") : "",
-                descricao_situacao_cadastral: d.situacao,
-                descricao_natureza_juridica: d.natureza_juridica,
-                qsa: (d.qsa || []).map((s: any) => ({ nome_socio: s.nome })),
-              };
-            }
-          }
-        } catch { /* sem dados */ }
-      }
-
-      if (!data) {
+      if (_meta && !_meta.isAtiva && _meta.situacao) {
         setLookup("error");
-        setLookupMsg("CNPJ não encontrado nas bases da Receita Federal. Verifique o número ou preencha manualmente.");
-        return;
-      }
-
-      const mapped = mapCNPJToForm(data);
-      const { _situacaoCadastral, _isAtiva, _socios, ...cleanMapped } = mapped as any;
-      setForm(prev => ({ ...prev, ...cleanMapped }));
-      setCnpjResult(data);
-
-      if (!_isAtiva && _situacaoCadastral) {
-        setLookup("error");
-        setLookupMsg("⚠️ CNPJ com situação: \"" + _situacaoCadastral + "\". Dados importados — verifique antes de prosseguir.");
+        setLookupMsg(`⚠️ CNPJ com situação: "${_meta.situacao}". Dados importados — verifique antes de prosseguir.`);
       } else {
         setLookup("ok");
-        const socios = (_socios || []).join(", ");
-        setLookupMsg("✓ " + cleanMapped.companyName + " importado com sucesso!" +
+        const socios = (_meta?.socios || []).join(", ");
+        setLookupMsg("✓ " + formFields.companyName + " importado com sucesso!" +
           (socios ? " Sócio: " + socios + "." : "") +
           " Revise e complemente os campos abaixo.");
       }
-    } catch {
+    } catch (err: any) {
       setLookup("error");
-      setLookupMsg("Erro ao consultar CNPJ. Verifique sua conexão ou preencha manualmente.");
+      const msg = err?.message || err?.data?.message || "";
+      setLookupMsg(msg.includes("não encontrado") || msg.includes("NOT_FOUND")
+        ? "CNPJ não encontrado nas bases da Receita Federal. Verifique o número ou preencha manualmente."
+        : "Erro ao consultar CNPJ. Tente novamente.");
     }
   }
 
@@ -424,17 +379,17 @@ export default function ClientProfile() {
               ✅ Campos preenchidos automaticamente:
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              {[
-                { label: "🏢 Empresa",     value: cnpjResult.companyName },
-                { label: "🎯 Nicho",       value: cnpjResult.niche },
-                { label: "📍 Cidade/UF",   value: cnpjResult.city && cnpjResult.state ? `${cnpjResult.city}/${cnpjResult.state}` : "" },
-                { label: "📦 Produto",     value: cnpjResult.productName },
-                { label: "⭐ Prova social",value: cnpjResult.proofPoints },
-                { label: "📞 Telefone",    value: cnpjResult.phone },
-                { label: "📅 Mercado",     value: cnpjResult.yearsActive ? `${cnpjResult.yearsActive} anos` : "" },
-                { label: "👤 Sócio",       value: cnpjResult.socioName },
-                { label: "📊 Porte",       value: cnpjResult.porte },
-                { label: "🗺️ Bairro",      value: cnpjResult.bairro },
+              [
+                { label: "🏢 Empresa",   value: cnpjResult.nomeFantasia || cnpjResult.razaoSocial },
+                { label: "📦 Nicho",     value: form.niche },
+                { label: "📍 Cidade/UF", value: form.city && form.state ? `${form.city}/${form.state}` : form.city },
+                { label: "👤 Sócio(s)",  value: (cnpjResult.socios || []).join(", ") },
+                { label: "📅 Mercado",   value: cnpjResult.anosDeAtividade >= 1 ? `${cnpjResult.anosDeAtividade} anos` : "" },
+                { label: "📞 Telefone",  value: cnpjResult.phone },
+                { label: "📧 E-mail",    value: cnpjResult.email },
+                { label: "📊 Porte",     value: cnpjResult.porte },
+                { label: "🗺️ Bairro",    value: cnpjResult.bairro },
+                { label: "📮 CEP",       value: cnpjResult.cep },
               ].filter(({ value }) => value).map(({ label, value }) => (
                 <div key={label} style={{ background: "var(--green-l)", borderRadius: 8, padding: "6px 10px" }}>
                   <p style={{ fontSize: 10, color: "var(--green-dk)", fontWeight: 700, margin: "0 0 1px" }}>{label}</p>

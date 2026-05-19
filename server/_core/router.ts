@@ -713,76 +713,178 @@ const clientProfileRouter = router({
 
       return saved;
     }),
-  // Consulta CNPJ via BrasilAPI e retorna dados para pré-preencher o perfil
+  // Consulta CNPJ — BrasilAPI (primário) + ReceitaWS (fallback)
+  // Chamada server-side evita CORS e expõe dados ricos ao frontend
   lookupCNPJ: protectedProcedure
     .input(z.object({ cnpj: z.string() }))
     .mutation(async ({ input }) => {
-      // Remove formatação
       const cnpj = input.cnpj.replace(/\D/g, "");
       if (cnpj.length !== 14) throw new TRPCError({ code: "BAD_REQUEST", message: "CNPJ deve ter 14 dígitos" });
 
+      let d: any = null;
+
+      // Fonte 1: BrasilAPI — mais completa (capital_social, qsa, cnaes_secundarios)
       try {
-        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
+        const r1 = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
           signal: AbortSignal.timeout(10000),
           headers: { "User-Agent": "MecProAI/1.0" },
         });
+        if (r1.ok) { const j = await r1.json(); if (j?.cnpj || j?.razao_social) d = j; }
+      } catch { /* tenta próxima */ }
 
-        if (!res.ok) {
-          if (res.status === 404) throw new TRPCError({ code: "NOT_FOUND", message: "CNPJ não encontrado na Receita Federal" });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Erro ao consultar CNPJ. Tente novamente." });
-        }
-
-        const d: any = await res.json();
-
-        // Mapeamento CNPJ → campos do perfil MecProAI
-        const cnaeDesc = d.cnae_fiscal_descricao || "";
-        const atividade = d.descricao_atividade_principal?.[0]?.text || cnaeDesc;
-
-        // Detecta nicho pelo CNAE
-        const nicheFromCNAE = (() => {
-          const c = cnaeDesc.toLowerCase();
-          if (c.match(/imov|constru|incorpora/)) return "Imóveis";
-          if (c.match(/saude|medic|clinica|odont|fisio|nutri/)) return "Saúde e Bem-estar";
-          if (c.match(/educa|ensino|curso|escola/)) return "Educação";
-          if (c.match(/restaur|aliment|lanche|delivery|pizz/)) return "Alimentação e Delivery";
-          if (c.match(/vestuário|roupa|moda|calçado/)) return "Moda e Varejo";
-          if (c.match(/tecnol|softw|inform|dados|ti |app/)) return "Tecnologia";
-          if (c.match(/beleza|estetica|cabel|cosmet/)) return "Beleza e Estética";
-          if (c.match(/advog|juridic|direito/)) return "Jurídico";
-          if (c.match(/financ|contab|credit|seguro/)) return "Financeiro";
-          if (c.match(/agro|rural|fazend/)) return "Agronegócio";
-          return cnaeDesc.slice(0, 50); // fallback: descrição CNAE
-        })();
-
-        // Escopo pelo porte
-        const scopeFromPorte = (() => {
-          const p = (d.porte || "").toUpperCase();
-          if (p.includes("MEI") || p.includes("MICRO")) return "local";
-          if (p.includes("PEQUENA")) return "regional";
-          if (p.includes("MEDIA") || p.includes("MÉDIA")) return "regional";
-          return "national";
-        })();
-
-        return {
-          companyName:   d.nome_fantasia || d.razao_social || "",
-          razaoSocial:   d.razao_social  || "",
-          niche:         nicheFromCNAE,
-          city:          d.municipio     || "",
-          state:         d.uf            || "",
-          cep:           d.cep           || "",
-          email:         d.email         || "",
-          phone:         d.ddd_telefone_1|| "",
-          businessScope: scopeFromPorte,
-          productService: atividade,
-          situacao:      d.descricao_situacao_cadastral || "",
-          porte:         d.porte         || "",
-          cnae:          cnaeDesc,
-          socio:         d.qsa?.[0]?.nome_socio || "",
-        };
-      } catch (e: any) {
-        if (e instanceof TRPCError) throw e;
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha na consulta do CNPJ. Verifique o número e tente novamente." });
+      // Fonte 2: ReceitaWS — fallback (funciona do Render, CORS só no browser)
+      if (!d) {
+        try {
+          const r2 = await fetch(`https://www.receitaws.com.br/v1/cnpj/${cnpj}`, {
+            signal: AbortSignal.timeout(10000),
+            headers: { "User-Agent": "MecProAI/1.0" },
+          });
+          if (r2.ok) {
+            const j = await r2.json();
+            if (j?.status !== "ERROR" && j?.nome) {
+              d = {
+                cnpj,
+                razao_social:               j.nome,
+                nome_fantasia:              j.fantasia || "",
+                cnae_fiscal_descricao:      j.atividade_principal?.[0]?.text || "",
+                cnaes_secundarios:          (j.atividades_secundarias || []).map((a: any) => ({ descricao: a.text })),
+                municipio:                  j.municipio || "",
+                uf:                         j.uf || "",
+                bairro:                     j.bairro || "",
+                logradouro:                 j.logradouro || "",
+                numero:                     j.numero || "",
+                cep:                        j.cep || "",
+                email:                      j.email || "",
+                ddd_telefone_1:             j.telefone || "",
+                porte:                      j.porte || "",
+                capital_social:             parseFloat((j.capital_social || "0").replace(/[^0-9.,]/g, "").replace(",", ".")) || 0,
+                data_inicio_atividade:      j.abertura ? j.abertura.split("/").reverse().join("-") : "",
+                descricao_situacao_cadastral: j.situacao || "",
+                descricao_natureza_juridica: j.natureza_juridica || "",
+                qsa: (j.qsa || []).map((s: any) => ({ nome_socio: s.nome, qual: s.qual })),
+              };
+            }
+          }
+        } catch { /* sem dados */ }
       }
+
+      if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "CNPJ não encontrado nas bases da Receita Federal. Verifique o número ou preencha manualmente." });
+
+      // ── Mapeamento completo dos dados ──────────────────────────────────────
+      const cnaeDesc  = d.cnae_fiscal_descricao || "";
+      const atividade = d.descricao_atividade_principal?.[0]?.text || cnaeDesc;
+      const nomeFantasia = (d.nome_fantasia || "").trim();
+      const razaoSocial  = (d.razao_social  || "").trim();
+      const situacao     = (d.descricao_situacao_cadastral || "").toUpperCase();
+      const isAtiva      = !situacao || situacao.includes("ATIVA");
+
+      // Nicho
+      const c = cnaeDesc.toLowerCase();
+      const niche =
+        c.match(/imov|constru|incorpora|loteamen/)          ? "Imóveis" :
+        c.match(/saude|medic|clinica|odont|fisio|nutri|farm/)? "Saúde e Bem-estar" :
+        c.match(/educa|ensino|curso|escola|treinamento/)     ? "Educação" :
+        c.match(/restaur|aliment|lanche|delivery|pizz|bar/)  ? "Alimentação e Delivery" :
+        c.match(/vestuário|roupa|moda|calçado|confec/)       ? "Moda e Varejo" :
+        c.match(/tecnol|softw|inform|dados|ti |app|digital/) ? "Tecnologia" :
+        c.match(/beleza|estetica|cabel|cosmet|spa/)          ? "Beleza e Estética" :
+        c.match(/advog|juridic|direito|tabelion/)            ? "Jurídico" :
+        c.match(/financ|contab|credit|seguro|invest/)        ? "Financeiro" :
+        c.match(/transpor|logist|fretes|mudança/)            ? "Transporte e Logística" :
+        c.match(/turismo|hotel|pousada|viagem/)              ? "Turismo e Hospitalidade" :
+        c.match(/pet|animal|veterin/)                        ? "Pet Shop e Veterinário" :
+        c.match(/auto|veicul|carros|oficina|mecanica/)       ? "Automotivo" :
+        c.match(/agro|agricul|pecuaria|fazenda|rural/)       ? "Agronegócio" :
+        cnaeDesc.slice(0, 60);
+
+      // Escopo
+      const porte = (d.porte || "").toUpperCase();
+      const businessScope =
+        porte.includes("MEI") || porte.includes("MICRO") ? "local" :
+        porte.includes("PEQUENA") ? "regional" : "national";
+
+      // Anos de mercado
+      const anosDeAtividade = (() => {
+        if (!d.data_inicio_atividade) return 0;
+        const inicio = new Date(d.data_inicio_atividade);
+        return Math.floor((Date.now() - inicio.getTime()) / (1000 * 60 * 60 * 24 * 365));
+      })();
+
+      // Sócios
+      const socios = (d.qsa || []).slice(0, 3)
+        .map((s: any) => s.nome_socio || s.nome_representante || "")
+        .filter(Boolean) as string[];
+
+      // Atividades secundárias
+      const cnaesSecundarios = (d.cnaes_secundarios || [])
+        .slice(0, 3).map((cn: any) => cn.descricao || "").filter(Boolean) as string[];
+
+      // Provas sociais
+      const proofParts: string[] = [];
+      if (anosDeAtividade >= 1) proofParts.push(`${anosDeAtividade} anos de mercado`);
+      if (socios[0])             proofParts.push(`Fundada por ${socios[0]}`);
+
+      // Diferenciais
+      const diffParts: string[] = [];
+      if (cnaesSecundarios.length) diffParts.push("Atuação em: " + cnaesSecundarios.join("; "));
+      if (anosDeAtividade >= 3)    diffParts.push(`${anosDeAtividade} anos de experiência`);
+
+      // Endereço
+      const bairro     = d.bairro || "";
+      const logradouro = d.logradouro ? `${d.logradouro}, ${d.numero || "s/n"}` : "";
+      const phone      = d.ddd_telefone_1 || "";
+      const email      = d.email || "";
+
+      // Natureza → copyStructure
+      const natureza = (d.descricao_natureza_juridica || "").toLowerCase();
+      const copyStructure = natureza.includes("mei") || natureza.includes("individual") ? "mixed"
+        : "mixed"; // sempre mixed — mais seguro
+
+      // Público-alvo automático
+      const targetAudience = niche !== cnaeDesc.slice(0, 60)
+        ? `Consumidores de ${niche.toLowerCase()} em ${d.municipio || "sua região"}`
+        : "";
+
+      const socialLinksObj: Record<string,string> = {};
+      if (phone)     socialLinksObj.whatsapp = phone;
+      if (email)     socialLinksObj.email    = email;
+      if (bairro)    socialLinksObj.bairro   = bairro;
+      if (logradouro)socialLinksObj.endereco = logradouro;
+      if (d.cep)     socialLinksObj.cep      = d.cep;
+
+      return {
+        // Campos do formulário — mapeados direto
+        companyName:          nomeFantasia || razaoSocial,
+        niche,
+        city:                 d.municipio  || "",
+        state:                d.uf         || "",
+        businessScope,
+        productService:       atividade,
+        copyStructure,
+        websiteUrl:           "",  // website não vem da Receita — usuário preenche
+        socialLinks:          JSON.stringify(socialLinksObj),
+        campaignObjective:    "leads" as const,
+        ...(nomeFantasia && nomeFantasia !== razaoSocial ? { productName: nomeFantasia } : {}),
+        ...(diffParts.length   ? { productDifferentials: diffParts.join(" · ") } : {}),
+        ...(proofParts.length  ? { productProofPoints:   proofParts.join(" · ") } : {}),
+        ...(targetAudience     ? { targetAudience }                                : {}),
+        // Metadados para exibição no preview
+        _meta: {
+          razaoSocial,
+          nomeFantasia,
+          situacao,
+          isAtiva,
+          socios,
+          anosDeAtividade,
+          porte:   d.porte || "",
+          cnae:    cnaeDesc,
+          cnaesSecundarios,
+          phone,
+          email,
+          bairro,
+          cep:     d.cep || "",
+        },
+      };
     }),
 
   // Auto-preenche campos vazios do perfil com base em concorrentes + nicho via IA
