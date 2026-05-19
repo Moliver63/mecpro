@@ -2882,6 +2882,24 @@ const campaignsRouter = router({
       };
     }),
 
+  // ── Resolve interesses Meta via /search?type=adinterest ──────────────────
+  resolveMetaInterests: protectedProcedure
+    .input(z.object({ terms: z.array(z.string()), token: z.string() }))
+    .mutation(async ({ input }) => {
+      const results: Array<{ term: string; id: string; name: string; audience: number }> = [];
+      for (const term of input.terms.slice(0, 10)) {
+        try {
+          const url = `https://graph.facebook.com/v19.0/search?type=adinterest&q=${encodeURIComponent(term)}&limit=3&access_token=${input.token}`;
+          const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (!res.ok) continue;
+          const d: any = await res.json();
+          const hit = d?.data?.[0];
+          if (hit?.id) results.push({ term, id: hit.id, name: hit.name, audience: hit.audience_size || 0 });
+        } catch { /* silencioso */ }
+      }
+      return results;
+    }),
+
   publishToMeta: protectedProcedure
     .input(publishToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
@@ -3387,10 +3405,55 @@ const campaignsRouter = router({
         daily_budget:      budgetDaily * 100,
         end_time:          endTime,
         ...(isWhatsAppDestination ? { destination_type: "WHATSAPP" } : {}),
+        // ── Parse do adSet para extrair idade e interesses ──────────────────
+        const adSetAudience = String(adSet?.audience || "");
+        // Extrai faixa de idade do texto do adSet (ex: "Idade: 28-55")
+        const ageMatch = adSetAudience.match(/[Ii]dade[:\s]+?(\d{2})[-–](\d{2})/);
+        const parsedAgeMin = ageMatch ? parseInt(ageMatch[1]) : (input.ageMin ?? 18);
+        const parsedAgeMax = ageMatch ? parseInt(ageMatch[2]) : (input.ageMax ?? 65);
+
+        // Extrai interesses do texto do adSet
+        // "Interesses: FII, Airbnb Host, Renda Passiva" → ["FII","Airbnb Host","Renda Passiva"]
+        const interestMatch = adSetAudience.match(/[Ii]nteresses[:\s]+([^.]+)/);
+        const interestTerms = interestMatch
+          ? interestMatch[1].split(/,|;/).map((s: string) => s.trim()).filter((s: string) => s.length > 2).slice(0, 5)
+          : [];
+
+        // Resolve IDs de interesses via Meta Search API (sem IDs válidos, Meta ignora)
+        const resolvedInterests: Array<{ id: string }> = [];
+        if (interestTerms.length > 0 && token) {
+          for (const term of interestTerms) {
+            try {
+              const searchUrl = `https://graph.facebook.com/v19.0/search?type=adinterest&q=${encodeURIComponent(term)}&limit=1&access_token=${token}`;
+              const sr = await fetch(searchUrl, { signal: AbortSignal.timeout(4000) });
+              if (sr.ok) {
+                const sd: any = await sr.json();
+                const hit = sd?.data?.[0];
+                if (hit?.id) resolvedInterests.push({ id: hit.id });
+              }
+            } catch { /* continua sem este interesse */ }
+          }
+          if (resolvedInterests.length > 0) {
+            log.info("meta", "Interesses resolvidos para targeting", {
+              terms: interestTerms,
+              resolved: resolvedInterests.length,
+            });
+          }
+        }
+
+        // Detecta públicos personalizados (Remarketing)
+        const isRemarketingAdSet = /remarketing|visitante|engajou|salvou|pixel/i.test(adSetAudience);
+        // Detecta Lookalike
+        const isLookalikeAdSet = /lookalike|semelhante/i.test(adSetAudience);
+
         targeting: {
-          age_min: input.ageMin ?? 18,
-          age_max: input.ageMax ?? 65,
+          age_min: parsedAgeMin,
+          age_max: parsedAgeMax,
           targeting_automation: { advantage_audience: 0 },
+          // Injeta interesses resolvidos se disponíveis
+          ...(resolvedInterests.length > 0 ? {
+            flexible_spec: [{ interests: resolvedInterests }],
+          } : {}),
           geo_locations: (() => {
             const mode = input.locationMode || (input.regions?.length ? "brasil" : "brasil");
             // Modo: países internacionais
