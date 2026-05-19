@@ -379,7 +379,7 @@ export default function ClientProfile() {
               ✅ Campos preenchidos automaticamente:
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              [
+              {[
                 { label: "🏢 Empresa",   value: cnpjResult.nomeFantasia || cnpjResult.razaoSocial },
                 { label: "📦 Nicho",     value: form.niche },
                 { label: "📍 Cidade/UF", value: form.city && form.state ? `${form.city}/${form.state}` : form.city },
