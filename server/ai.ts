@@ -7501,10 +7501,44 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   objective: string;
   segment: string;
 }) {
-  const scored = scoreCreativeList(Array.isArray(creatives) ? creatives : []).map((creative, index) => ({
-    ...creative,
-    creativeIndex: creative?.creativeIndex ?? index,
-  }));
+  // ── Validação de compliance e segmento nas copies geradas ──────────────────
+  const segment = (input as any).segment || (context as any)?.segment || "";
+  const segRule  = (SEGMENT_COPY_RULES as any)[segment];
+
+  function auditCopy(creative: any): { complianceIssues: string[]; forbiddenFound: string[]; hasPlaceholder: boolean } {
+    const texts = [creative.headline, creative.copy, creative.hook, creative.cta]
+      .filter(Boolean).join(" ").toLowerCase();
+    // Meta compliance
+    const metaCheck = validateMetaCompliance(texts);
+    const complianceIssues = metaCheck.issues;
+    // Segment forbidden words
+    const forbiddenFound: string[] = [];
+    if (segRule?.forbidden) {
+      for (const fw of segRule.forbidden) {
+        if (texts.includes(fw.toLowerCase())) forbiddenFound.push(fw);
+      }
+    }
+    // Placeholder check
+    const hasPlaceholder = /\[.*?\]|\{.*?\}|placeholder|EMPRESA_AQUI|PRODUTO_AQUI/i.test(texts);
+    return { complianceIssues, forbiddenFound, hasPlaceholder };
+  }
+
+  const scored = scoreCreativeList(Array.isArray(creatives) ? creatives : []).map((creative, index) => {
+    const audit = auditCopy(creative);
+    if (audit.hasPlaceholder) {
+      log.warn("ai", "Copy com placeholder", { index, headline: String(creative.headline || "").slice(0,50) });
+    }
+    if (audit.forbiddenFound.length) {
+      log.warn("ai", "Copy com palavra proibida do segmento", { segment, forbidden: audit.forbiddenFound });
+    }
+    return {
+      ...creative,
+      creativeIndex: creative?.creativeIndex ?? index,
+      complianceIssues: audit.complianceIssues,
+      forbiddenWordsFound: audit.forbiddenFound,
+      hasPlaceholder: audit.hasPlaceholder,
+    };
+  });
 
   const config = resolveImageProviderConfig();
   const diagnostics = getImageGenerationDiagnostics(config.provider);

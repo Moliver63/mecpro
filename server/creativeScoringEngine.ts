@@ -130,7 +130,17 @@ export function scoreCreative(creative: any): CreativeScoreResult {
   if (copy) clarity += 15;
   if (headline.length >= 10 && headline.length <= 55) clarity += 10;
   if (copy.length >= 25 && copy.length <= 140) clarity += 10;
-  if (/\[.*?\]/.test(combined) || /placeholder/i.test(combined)) clarity -= 30;
+  // Detecta placeholders em múltiplos formatos
+  const hasPlaceholder = (
+    /\[.*?\]/.test(combined) ||           // [marca], [produto]
+    /\{.*?\}/.test(combined) ||           // {empresa}, {nome}
+    /placeholder/i.test(combined) ||
+    /\(nome do\s/i.test(combined) ||      // (nome do produto)
+    /EMPRESA_AQUI|PRODUTO_AQUI|MARCA_AQUI/i.test(combined) ||
+    /\bXXX\b/.test(combined) ||
+    /\bNOME_DA_EMPRESA\b/i.test(combined)
+  );
+  if (hasPlaceholder) clarity -= 30;
   if (/\b(clique aqui|saiba mais apenas|solucao completa|melhor do mercado)\b/i.test(normalized)) clarity -= 12;
 
   let urgency = 20;
