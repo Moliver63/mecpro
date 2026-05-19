@@ -687,7 +687,9 @@ const clientProfileRouter = router({
         const raw = String(input.websiteUrl || "").trim();
         if (!raw) return undefined;
         if (/^https?:\/\//i.test(raw)) return raw.replace(/^http:\/\//i, "https://");
-        if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return `https://${raw}`;
+        // Aceita WWW.SITE.COM.BR, site.com, sub.domain.co — normaliza para lowercase + https
+        const lower = raw.toLowerCase().replace(/\s+/g, "");
+        if (/^[a-z0-9][a-z0-9._-]*\.[a-z]{2,}(\/.*)?$/.test(lower)) return `https://${lower}`;
         return raw;
       })();
       const saved = await db.upsertClientProfile({ ...input, websiteUrl } as any);
@@ -2827,8 +2829,13 @@ const campaignsRouter = router({
           } else if (/^[\d\s()+-]{8,}$/.test(candidate)) {
             const digits = candidate.replace(/\D/g, "");
             if (digits) candidate = `https://wa.me/${digits}`;
-          } else if (/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(candidate)) {
-            candidate = `https://${candidate}`;
+          } else {
+            // Aceita qualquer formato de domínio: WWW.SITE.COM.BR, site.com, sub.domain.co
+            // Remove espaços e converte para lowercase antes de testar
+            const lower = candidate.toLowerCase().replace(/\s+/g, "");
+            if (/^[a-z0-9][a-z0-9._-]*\.[a-z]{2,}(\/.*)?$/.test(lower)) {
+              candidate = `https://${lower}`;
+            }
           }
         }
 
