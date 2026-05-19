@@ -5703,6 +5703,28 @@ export async function generateCampaign(input: {
   const clientProfile = await db.getClientProfile(input.projectId);
   const competitors   = await db.getCompetitorsByProjectId(input.projectId);
   const marketAnalysis = await db.getMarketAnalysis(input.projectId);
+
+  // ── AUDITORIA: logar o que chegou de cada módulo ──────────────────────────
+  log.info("ai", "📋 Módulo 1 — clientProfile carregado", {
+    projectId: input.projectId,
+    found: !!clientProfile,
+    companyName:           (clientProfile as any)?.companyName          || "❌ VAZIO",
+    niche:                 (clientProfile as any)?.niche                || "❌ VAZIO",
+    productService:        (clientProfile as any)?.productService       || "❌ VAZIO",
+    productName:           (clientProfile as any)?.productName          || "⚠️ não preenchido",
+    productDifferentials:  (clientProfile as any)?.productDifferentials ? "✅ " + String((clientProfile as any).productDifferentials).slice(0, 60) : "❌ VAZIO",
+    productProofPoints:    (clientProfile as any)?.productProofPoints   ? "✅ presente" : "⚠️ não preenchido",
+    uniqueValueProposition:(clientProfile as any)?.uniqueValueProposition ? "✅ " + String((clientProfile as any).uniqueValueProposition).slice(0, 60) : "❌ VAZIO",
+    mainPain:              (clientProfile as any)?.mainPain             ? "✅ presente" : "❌ VAZIO",
+    targetAudience:        (clientProfile as any)?.targetAudience       ? "✅ presente" : "❌ VAZIO",
+    personas:              (clientProfile as any)?.personas             ? "✅ geradas" : "⚠️ não geradas",
+    city:                  (clientProfile as any)?.city                 || "—",
+  });
+  log.info("ai", "📊 Módulo 2/3 — dados competitivos", {
+    competitors:      competitors.length,
+    marketAnalysis:   !!marketAnalysis,
+    competitorNames:  competitors.map((c: any) => c.name).join(", ") || "nenhum",
+  });
   const allAds: any[] = [];
   for (const comp of competitors) {
     const ads = await db.getScrapedAdsByCompetitor((comp as any).id);
