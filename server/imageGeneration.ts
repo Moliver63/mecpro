@@ -90,7 +90,7 @@ async function searchPixabay(
     const url = `https://pixabay.com/api/?${params.toString()}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) {
-      log("image-generation", "Pixabay error", { status: res.status });
+      log.info("image-generation", "Pixabay error", { status: res.status });
       return null;
     }
     const data = await res.json() as any;
@@ -106,10 +106,10 @@ async function searchPixabay(
 
     const result = { url: imgUrl, credit };
     _pixabayCache.set(cacheKey, { ...result, ts: Date.now() });
-    log("image-generation", "Pixabay cache set", { query, format, credit });
+    log.info("image-generation", "Pixabay cache set", { query, format, credit });
     return result;
   } catch (err: any) {
-    log("image-generation", "Pixabay exception", { error: err?.message?.slice(0, 60) });
+    log.info("image-generation", "Pixabay exception", { error: err?.message?.slice(0, 60) });
     return null;
   }
 }
@@ -166,7 +166,7 @@ export async function searchPixabayVideo(
     const url = `https://pixabay.com/api/videos/?${params.toString()}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
     if (!res.ok) {
-      log("image-generation", "Pixabay video error", { status: res.status });
+      log.info("image-generation", "Pixabay video error", { status: res.status });
       return null;
     }
     const data = await res.json() as any;
@@ -187,10 +187,10 @@ export async function searchPixabayVideo(
 
     const result = { url: videoUrl, thumb, credit };
     _pixabayVideoCache.set(cacheKey, { ...result, ts: Date.now() });
-    log("image-generation", "Pixabay video cache set", { query, format, credit });
+    log.info("image-generation", "Pixabay video cache set", { query, format, credit });
     return result;
   } catch (err: any) {
-    log("image-generation", "Pixabay video exception", { error: err?.message?.slice(0, 60) });
+    log.info("image-generation", "Pixabay video exception", { error: err?.message?.slice(0, 60) });
     return null;
   }
 }
@@ -986,7 +986,7 @@ export async function generateAdImage(
     const pixabayResult = await searchPixabay(pixabayQuery, format);
     if (pixabayResult) {
       IMAGE_CACHE.set(cacheKey, pixabayResult.url);
-      log("image-generation", "✅ Pixabay foto OK", {
+      log.info("image-generation", "✅ Pixabay foto OK", {
         query: pixabayQuery, credit: pixabayResult.credit, format,
       });
       return pixabayResult.url;
@@ -996,7 +996,7 @@ export async function generateAdImage(
     const pixabayVideo = await searchPixabayVideo(pixabayVideoQuery, format);
     if (pixabayVideo?.thumb) {
       IMAGE_CACHE.set(cacheKey, pixabayVideo.thumb);
-      log("image-generation", "✅ Pixabay vídeo thumb OK", {
+      log.info("image-generation", "✅ Pixabay vídeo thumb OK", {
         query: pixabayVideoQuery, credit: pixabayVideo.credit, format,
       });
       return pixabayVideo.thumb;
