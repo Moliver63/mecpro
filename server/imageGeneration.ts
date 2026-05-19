@@ -84,6 +84,77 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
   };
   const segmentVisual = SEGMENT_VISUAL[segment] || SEGMENT_VISUAL["outro"] || "";
 
+// ── Unsplash Image Search ────────────────────────────────────────────────────
+// Licença comercial gratuita — pode usar em anúncios Meta/Google/TikTok
+// 50 requests/hora no plano free
+const _unsplashCache = new Map<string, { url: string; credit: string; ts: number }>();
+
+async function searchUnsplash(
+  query: string,
+  format: CreativeImageFormat,
+): Promise<{ url: string; credit: string } | null> {
+  const key = process.env.UNSPLASH_ACCESS_KEY;
+  if (!key) return null;
+
+  const cacheKey = `${query}|${format}`;
+  const cached = _unsplashCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 3_600_000) return cached; // cache 1h
+
+  try {
+    const orientation = format === "stories" ? "portrait" : "landscape";
+    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&orientation=${orientation}&per_page=5&order_by=relevant`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Client-ID ${key}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      log("image-generation", "Unsplash error", { status: res.status });
+      return null;
+    }
+    const data = await res.json() as any;
+    const photos = data?.results;
+    if (!photos?.length) return null;
+
+    // Pega a foto mais relevante (primeira)
+    const photo = photos[0];
+    const imgUrl  = photo?.urls?.regular || photo?.urls?.full;
+    const credit  = photo?.user?.name ? `Foto: ${photo.user.name} / Unsplash` : "Unsplash";
+
+    if (!imgUrl) return null;
+
+    const result = { url: imgUrl, credit };
+    _unsplashCache.set(cacheKey, { ...result, ts: Date.now() });
+    return result;
+  } catch (err: any) {
+    log("image-generation", "Unsplash exception", { error: err?.message?.slice(0, 60) });
+    return null;
+  }
+}
+
+// Query Unsplash por segmento — keywords otimizadas para cada nicho
+const UNSPLASH_QUERIES: Record<string, string> = {
+  imoveis_venda:   "luxury apartment interior modern living room",
+  imoveis_locacao: "apartment rental modern furnished",
+  ecommerce:       "product photography clean minimal",
+  servicos_locais: "local business professional service",
+  infoprodutos:    "online learning laptop desk minimal",
+  saude_estetica:  "modern clinic wellness spa clean",
+  alimentacao:     "restaurant food photography appetizing",
+  moda_varejo:     "fashion lifestyle clothing editorial",
+  b2b:             "modern office business professional meeting",
+  outro:           "professional business modern clean",
+};
+
+function getUnsplashQuery(segment: string, creative: any): string {
+  const base = UNSPLASH_QUERIES[segment] || UNSPLASH_QUERIES["outro"] || "professional";
+  // Enriquece com contexto do criativo se disponível
+  const niche = toText(creative?.niche || "");
+  if (niche && niche.length > 3 && niche.length < 30) {
+    return `${base} ${niche}`;
+  }
+  return base;
+}
+
   // Mapear ângulo para visual
   const angleToVisual: Record<string, string> = {
     exclusividade:   "luxury lifestyle, premium aesthetics, sophisticated atmosphere",
@@ -815,6 +886,17 @@ export async function generateAdImage(
         IMAGE_CACHE.set(cacheKey, url);
         return url;
       }
+    }
+
+    // Penúltima tentativa: Unsplash (fotos reais, licença comercial)
+    const unsplashQuery = getUnsplashQuery(segment, creative);
+    const unsplashResult = await searchUnsplash(unsplashQuery, format);
+    if (unsplashResult) {
+      IMAGE_CACHE.set(cacheKey, unsplashResult.url);
+      log("image-generation", "✅ Unsplash OK", {
+        query: unsplashQuery, credit: unsplashResult.credit, format,
+      });
+      return unsplashResult.url;
     }
 
     // Última tentativa: Pollinations.AI (gratuito, sem API key)
