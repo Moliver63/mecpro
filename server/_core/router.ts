@@ -1256,6 +1256,59 @@ const competitorsRouter = router({
     }),
 
 
+  // ── Diagnóstico de providers de imagem ────────────────────────────────────
+  testImageProviders: protectedProcedure
+    .mutation(async () => {
+      const key = process.env.PIXABAY_API_KEY || "";
+      const results: Record<string, any> = {};
+
+      // Pixabay foto
+      try {
+        const r = await fetch(
+          `https://pixabay.com/api/?key=${key}&q=apartment&image_type=photo&per_page=3`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const d: any = await r.json();
+        results.pixabay_foto = r.ok
+          ? { ok: true, hits: d.totalHits, exemplo: d.hits?.[0]?.largeImageURL?.slice(0,60) }
+          : { ok: false, status: r.status };
+      } catch (e: any) {
+        results.pixabay_foto = { ok: false, error: e.message?.slice(0,60) };
+      }
+
+      // Pixabay video
+      try {
+        const r = await fetch(
+          `https://pixabay.com/api/videos/?key=${key}&q=apartment&per_page=3`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const d: any = await r.json();
+        results.pixabay_video = r.ok
+          ? { ok: true, hits: d.totalHits }
+          : { ok: false, status: r.status };
+      } catch (e: any) {
+        results.pixabay_video = { ok: false, error: e.message?.slice(0,60) };
+      }
+
+      // Cloudflare
+      const cfOk = !!(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN);
+      results.cloudflare = { configured: cfOk, note: "10k neurons/dia, reset 21h BRT" };
+
+      // Pollinations
+      try {
+        const r = await fetch(
+          "https://image.pollinations.ai/prompt/test?width=64&height=64&nologo=true",
+          { signal: AbortSignal.timeout(8000) }
+        );
+        results.pollinations = { ok: r.ok, status: r.status };
+      } catch (e: any) {
+        results.pollinations = { ok: false, error: e.message?.slice(0,40) };
+      }
+
+      results.pixabay_key_set = !!key;
+      return results;
+    }),
+
   // ── Status de quota e cache do motor de IA ──────────────────────────────
   quotaStatus: protectedProcedure
     .query(async () => {
