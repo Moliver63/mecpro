@@ -1054,6 +1054,35 @@ async function generateWithGenspark(
 }
 
 
+// ── Re-hospeda imagem externa no Cloudinary ──────────────────────────────────
+// Necessário para Meta Ads: URLs externas (Pixabay, Pollinations) são bloqueadas
+// por robots.txt ou headers de segurança — Meta não consegue baixar
+async function reHostImageOnCloudinary(
+  sourceUrl: string,
+  format: CreativeImageFormat,
+): Promise<string | null> {
+  try {
+    // Download da imagem
+    const res = await fetch(sourceUrl, {
+      signal: AbortSignal.timeout(10000),
+      headers: { "User-Agent": "MecProAI/1.0 (ad-creative-generator)" },
+    });
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length < 5000) return null; // muito pequena = erro
+
+    const fileName = `pixabay-${format}-${Date.now()}.jpg`;
+    const cloudUrl = await uploadImageBufferToCloudinary(buffer, fileName);
+    if (cloudUrl) {
+      log.info("image-generation", "Imagem re-hospedada no Cloudinary", { format, bytes: buffer.length, cloudUrl: cloudUrl.slice(0, 60) });
+    }
+    return cloudUrl;
+  } catch (err: any) {
+    log.warn("image-generation", "Falha ao re-hospedar imagem", { error: err?.message?.slice(0, 60) });
+    return null;
+  }
+}
+
 export async function generateAdImage(
   creative: any,
   segment: string,
@@ -1143,21 +1172,29 @@ export async function generateAdImage(
     // Tenta foto primeiro
     const pixabayResult = await searchPixabay(pixabayQuery, format, creativeIdx);
     if (pixabayResult) {
-      IMAGE_CACHE.set(cacheKey, pixabayResult.url);
+      // Meta não consegue acessar URLs do Pixabay (robots.txt bloqueia crawlers)
+      // Solução: baixar e re-hospedar no Cloudinary antes de enviar para Meta
+      const rehostedUrl = await reHostImageOnCloudinary(pixabayResult.url, format);
+      const finalPixUrl = rehostedUrl || pixabayResult.url;
+      IMAGE_CACHE.set(cacheKey, finalPixUrl);
       log.info("image-generation", "✅ Pixabay foto OK", {
         query: pixabayQuery, credit: pixabayResult.credit, format,
+        rehosted: !!rehostedUrl,
       });
-      return pixabayResult.url;
+      return finalPixUrl;
     }
     // Se não achou foto, tenta vídeo (retorna thumbnail do vídeo como imagem)
     const pixabayVideoQuery = getPixabayVideoQuery(segment, creative);
     const pixabayVideo = await searchPixabayVideo(pixabayVideoQuery, format);
     if (pixabayVideo?.thumb) {
-      IMAGE_CACHE.set(cacheKey, pixabayVideo.thumb);
+      const rehostedThumb = await reHostImageOnCloudinary(pixabayVideo.thumb, format);
+      const finalThumbUrl = rehostedThumb || pixabayVideo.thumb;
+      IMAGE_CACHE.set(cacheKey, finalThumbUrl);
       log.info("image-generation", "✅ Pixabay vídeo thumb OK", {
         query: pixabayVideoQuery, credit: pixabayVideo.credit, format,
+        rehosted: !!rehostedThumb,
       });
-      return pixabayVideo.thumb;
+      return finalThumbUrl;
     }
 
     // Última tentativa: Pollinations.AI (gratuito, sem API key)

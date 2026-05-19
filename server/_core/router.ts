@@ -3302,24 +3302,22 @@ const campaignsRouter = router({
       const adSetBudgetRaw = String(adSet?.budget ?? "");
       let budgetDaily: number;
 
-      if (adSetBudgetRaw.includes("%")) {
-        // Ex: "33% do total" ou "33%"
-        const pctMatch = adSetBudgetRaw.match(/(\d+(?:\.\d+)?)/);
-        const pct      = pctMatch ? parseFloat(pctMatch[1]) / 100 : (1 / 4); // fallback 25%
-        budgetDaily    = Math.max(1, Math.round(totalDaily * pct));
-      } else if (adSetBudgetRaw.match(/^[\d.]+$/)) {
-        // Número puro (já é o valor diário)
-        budgetDaily = Math.max(1, Math.round(parseFloat(adSetBudgetRaw) / 30));
+      // Prioridade: % sempre ganha sobre R$ quando ambos presentes
+      // Ex: "R$ 100 (33% do total)" → usa 33% do totalDaily
+      const pctInRaw = adSetBudgetRaw.match(/(\d+(?:\.\d+)?)\s*%/);
+      if (pctInRaw) {
+        const pct   = parseFloat(pctInRaw[1]) / 100;
+        budgetDaily = Math.max(1, Math.round(totalDaily * pct));
       } else if (adSetBudgetRaw.match(/R\$[\s]?([\d.,]+)/)) {
-        // Ex: "R$ 100" — valor mensal
+        // Só R$ sem %: "R$ 100" → valor mensal deste adSet
         const valMatch = adSetBudgetRaw.match(/R\$[\s]?([\d.,]+)/);
-        const monthly  = parseFloat((valMatch![1] || "100").replace(",","."));
+        const monthly  = parseFloat((valMatch![1] || "100").replace(/\./g,"").replace(",","."));
         budgetDaily    = Math.max(1, Math.round(monthly / 30));
+      } else if (adSetBudgetRaw.match(/^[\d.]+$/)) {
+        budgetDaily = Math.max(1, Math.round(parseFloat(adSetBudgetRaw) / 30));
       } else {
-        // Fallback: divide budget total igualmente entre adSets
-        const totalAdSets = Array.isArray(JSON.parse(c.adSets || "[]"))
-          ? JSON.parse(c.adSets || "[]").length : 4;
-        budgetDaily = Math.max(1, Math.round(totalDaily / Math.max(totalAdSets, 1)));
+        const totalAdSets = (() => { try { return JSON.parse(c.adSets || "[]").length || 4; } catch { return 4; } })();
+        budgetDaily = Math.max(1, Math.round(totalDaily / totalAdSets));
       }
 
       log.info("meta", "Budget adSet calculado", {
