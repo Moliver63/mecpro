@@ -5883,29 +5883,24 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
 Você é um estrategista de marketing digital sênior especializado em performance.
 Crie uma campanha completa e detalhada para o seguinte briefing:
 
-⚡ INSTRUÇÃO CRÍTICA DE PRIORIDADE:
-Leia PRIMEIRO o PERFIL DO CLIENTE abaixo. Toda copy, headline, CTA e ângulo
-DEVE refletir a identidade, produto e diferenciais DESTA empresa específica.
-Os dados de concorrentes e mercado servem para DIFERENCIAR, não para copiar.
+⚡ INSTRUÇÃO CRÍTICA: Use os dados do PRODUTO abaixo como âncora de todas as copies.
 
-PERFIL DO CLIENTE (ÂNCORA PRINCIPAL — use como base de tudo):
-- Empresa: ${(clientProfile as any)?.companyName || "—"}
-${(clientProfile as any)?.productName ? `- PRODUTO ANUNCIADO: "${(clientProfile as any).productName}" ← USE ESTE NOME EXATO NAS COPIES` : ""}
-- Nicho: ${(clientProfile as any)?.niche || "—"}
-- Produto/Serviço: ${(clientProfile as any)?.productService || "—"}
-${(clientProfile as any)?.productPrice ? `- Preço: ${(clientProfile as any).productPrice}` : ""}
-${(clientProfile as any)?.productDifferentials ? `- ⭐ DIFERENCIAIS ÚNICOS (use como mecanismo central das copies): ${(clientProfile as any).productDifferentials}` : ""}
-${(clientProfile as any)?.productProofPoints ? `- 🏆 PROVAS SOCIAIS (use nos criativos como gatilho de confiança): ${(clientProfile as any).productProofPoints}` : ""}
-${(clientProfile as any)?.productCTA ? `- 🎯 CTA PREFERIDO PELO CLIENTE: "${(clientProfile as any).productCTA}" ← priorize este` : ""}
-- Público-alvo: ${(clientProfile as any)?.targetAudience || "—"}
-- Dor principal: ${(clientProfile as any)?.mainPain || "—"}
-- Transformação desejada: ${(clientProfile as any)?.desiredTransformation || "—"}
-- Proposta única de valor: ${(clientProfile as any)?.uniqueValueProposition || "—"}
-- Principais objeções: ${(clientProfile as any)?.mainObjections || "—"}
-${(clientProfile as any)?.city ? `- Localização: ${(clientProfile as any).city}${(clientProfile as any)?.state ? "/" + (clientProfile as any).state : ""}` : ""}
+PERFIL DO CLIENTE (ÂNCORA PRINCIPAL):
+- Empresa: ${String((clientProfile as any)?.companyName || "—").slice(0, 60)}
+${(clientProfile as any)?.productName ? `- PRODUTO: "${String((clientProfile as any).productName).slice(0, 80)}" ← USE ESTE NOME` : ""}
+- Nicho: ${String((clientProfile as any)?.niche || "—").slice(0, 40)}
+- Produto/Serviço: ${String((clientProfile as any)?.productService || "—").slice(0, 80)}
+${(clientProfile as any)?.productPrice ? `- Preço: ${String((clientProfile as any).productPrice).slice(0, 40)}` : ""}
+${(clientProfile as any)?.productDifferentials ? `- ⭐ DIFERENCIAIS: ${String((clientProfile as any).productDifferentials).slice(0, 200)}` : ""}
+${(clientProfile as any)?.productProofPoints ? `- 🏆 PROVAS SOCIAIS: ${String((clientProfile as any).productProofPoints).slice(0, 150)}` : ""}
+${(clientProfile as any)?.productCTA ? `- 🎯 CTA PREFERIDO: "${String((clientProfile as any).productCTA).slice(0, 50)}"` : ""}
+- Público: ${String((clientProfile as any)?.targetAudience || "—").slice(0, 120)}
+- Dor: ${String((clientProfile as any)?.mainPain || "—").slice(0, 120)}
+- Proposta de valor: ${String((clientProfile as any)?.uniqueValueProposition || "—").slice(0, 150)}
+- Objeções: ${String((clientProfile as any)?.mainObjections || "—").slice(0, 100)}
+${(clientProfile as any)?.city ? `- Cidade: ${(clientProfile as any).city}` : ""}
 ${buildPersonasBlock((clientProfile as any)?.personas)}
 ${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
-${(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed" ? `- Estrutura de copy preferida: ${(clientProfile as any).copyStructure}` : ""}
 
 CAMPANHA: ${input.name}
 OBJETIVO: ${objectiveLabels[input.objective] || input.objective}
