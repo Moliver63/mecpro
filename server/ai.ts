@@ -5861,6 +5861,30 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
 Você é um estrategista de marketing digital sênior especializado em performance.
 Crie uma campanha completa e detalhada para o seguinte briefing:
 
+⚡ INSTRUÇÃO CRÍTICA DE PRIORIDADE:
+Leia PRIMEIRO o PERFIL DO CLIENTE abaixo. Toda copy, headline, CTA e ângulo
+DEVE refletir a identidade, produto e diferenciais DESTA empresa específica.
+Os dados de concorrentes e mercado servem para DIFERENCIAR, não para copiar.
+
+PERFIL DO CLIENTE (ÂNCORA PRINCIPAL — use como base de tudo):
+- Empresa: ${(clientProfile as any)?.companyName || "—"}
+${(clientProfile as any)?.productName ? `- PRODUTO ANUNCIADO: "${(clientProfile as any).productName}" ← USE ESTE NOME EXATO NAS COPIES` : ""}
+- Nicho: ${(clientProfile as any)?.niche || "—"}
+- Produto/Serviço: ${(clientProfile as any)?.productService || "—"}
+${(clientProfile as any)?.productPrice ? `- Preço: ${(clientProfile as any).productPrice}` : ""}
+${(clientProfile as any)?.productDifferentials ? `- ⭐ DIFERENCIAIS ÚNICOS (use como mecanismo central das copies): ${(clientProfile as any).productDifferentials}` : ""}
+${(clientProfile as any)?.productProofPoints ? `- 🏆 PROVAS SOCIAIS (use nos criativos como gatilho de confiança): ${(clientProfile as any).productProofPoints}` : ""}
+${(clientProfile as any)?.productCTA ? `- 🎯 CTA PREFERIDO PELO CLIENTE: "${(clientProfile as any).productCTA}" ← priorize este` : ""}
+- Público-alvo: ${(clientProfile as any)?.targetAudience || "—"}
+- Dor principal: ${(clientProfile as any)?.mainPain || "—"}
+- Transformação desejada: ${(clientProfile as any)?.desiredTransformation || "—"}
+- Proposta única de valor: ${(clientProfile as any)?.uniqueValueProposition || "—"}
+- Principais objeções: ${(clientProfile as any)?.mainObjections || "—"}
+${(clientProfile as any)?.city ? `- Localização: ${(clientProfile as any).city}${(clientProfile as any)?.state ? "/" + (clientProfile as any).state : ""}` : ""}
+${buildPersonasBlock((clientProfile as any)?.personas)}
+${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
+${(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed" ? `- Estrutura de copy preferida: ${(clientProfile as any).copyStructure}` : ""}
+
 CAMPANHA: ${input.name}
 OBJETIVO: ${objectiveLabels[input.objective] || input.objective}
 PLATAFORMA: ${
@@ -5881,28 +5905,12 @@ DIRETRIZES TIKTOK:
 ORÇAMENTO: R$ ${input.budget}/mês (R$ ${budgetDaily}/dia)
 DURAÇÃO: ${input.duration} dias
 
-PERFIL DO CLIENTE:
-- Empresa: ${(clientProfile as any)?.companyName || "—"}
-${(clientProfile as any)?.productName ? `- PRODUTO ANUNCIADO: "${(clientProfile as any).productName}" ← USE ESTE NOME EXATO` : ""}
-- Nicho: ${(clientProfile as any)?.niche || "—"}
-- Produto/Serviço: ${(clientProfile as any)?.productService || "—"}
-${(clientProfile as any)?.productPrice ? `- Preço: ${(clientProfile as any).productPrice}` : ""}
-${(clientProfile as any)?.productDifferentials ? `- DIFERENCIAIS (use como mecanismo único): ${(clientProfile as any).productDifferentials}` : ""}
-${(clientProfile as any)?.productProofPoints ? `- PROVAS SOCIAIS (use nos criativos): ${(clientProfile as any).productProofPoints}` : ""}
-${(clientProfile as any)?.productCTA ? `- CTA PREFERIDO: "${(clientProfile as any).productCTA}"` : ""}
-- Público-alvo: ${(clientProfile as any)?.targetAudience || "—"}
-- Dor principal: ${(clientProfile as any)?.mainPain || "—"}
-- Transformação desejada: ${(clientProfile as any)?.desiredTransformation || "—"}
-- Proposta única de valor: ${(clientProfile as any)?.uniqueValueProposition || "—"}
-- Principais objeções: ${(clientProfile as any)?.mainObjections || "—"}
-${(clientProfile as any)?.city ? `- Localização: ${(clientProfile as any).city}${(clientProfile as any)?.state ? "/" + (clientProfile as any).state : ""}` : ""}
-${buildPersonasBlock((clientProfile as any)?.personas)}
-${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
-- Budget mensal declarado: R$ ${monthlyBudget}
+- Budget mensal: R$ ${monthlyBudget}
 - Objetivo principal: ${campaignObjective}
-${(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed" ? `- Estrutura de copy: ${(clientProfile as any).copyStructure}` : ""}
 
-INTELIGÊNCIA COMPETITIVA (dados reais coletados):
+INTELIGÊNCIA COMPETITIVA (use para DIFERENCIAR, não para copiar):
+⚠️ Os dados abaixo mostram o que os concorrentes fazem. Sua missão é criar
+algo que se DESTAQUE deles, usando os diferenciais do cliente acima como vantagem.
 - Concorrentes analisados: ${competitors.map((c: any) => c.name).join(", ") || "nenhum"}
 - Total de anúncios coletados: ${allAds.length}
 - Anúncios ativos agora: ${activeAds.length}
