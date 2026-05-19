@@ -7067,16 +7067,26 @@ export async function generateCampaignPart(input: {
     creatives: `
 Você é um especialista em criativos de alta performance para ${platform === "both" ? "Meta Ads + Google Ads" : platform === "meta" ? "Meta Ads" : "Google Ads"}.
 
+⚡ PRODUTO/EMPRESA - ANCORA PRINCIPAL (use em todos os criativos):
+- Empresa: ${companyName || "—"}
+- Produto: ${productName || product}${productName ? " <- USE ESTE NOME EXATO" : ""}
+${productPrice ? "- Preço: " + productPrice + " <- mencione" : ""}
+${productDiffs ? "- DIFERENCIAIS: " + productDiffs : ""}
+${proofPoints ? "- PROVAS SOCIAIS: " + proofPoints : ""}
+${preferredCTA ? "- CTA PREFERIDO: \"" + preferredCTA + "\"" : ""}
+${city ? "- Cidade: " + city : ""}
+${transformation ? "- Transformação: " + transformation : ""}
+${mainObjections ? "- Objeções: " + mainObjections : ""}
+
 Campanha: ${c.name}
 Objetivo: ${objective}
 Nicho: ${niche}
-Produto: ${product}
 Público: ${audience}
 Dor principal: ${pain}
 Proposta de valor: ${uvp}
-CTAs mais usados pelos concorrentes: ${topCtas || "Saiba Mais, Falar no WhatsApp"}
-Anúncios coletados dos concorrentes: ${allAds.length}
-${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
+CTAs dos concorrentes: ${topCtas || "Saiba Mais, Falar no WhatsApp"}
+Anúncios coletados: ${allAds.length}
+${input.extraContext ? `\\nContexto adicional: ${input.extraContext}` : ""}
 
 Gere 5 criativos NOVOS e DIFERENTES dos anteriores. Responda SOMENTE em JSON:
 {
@@ -7097,6 +7107,13 @@ Gere 5 criativos NOVOS e DIFERENTES dos anteriores. Responda SOMENTE em JSON:
 
     adSets: `
 Você é um especialista em segmentação de públicos para ${platform === "both" ? "Meta Ads + Google Ads" : platform === "meta" ? "Meta Ads" : "Google Ads"}.
+
+PRODUTO/EMPRESA:
+- Empresa: ${companyName || "—"}
+- Produto: ${productName || product}
+${productDiffs ? "- Diferenciais: " + productDiffs : ""}
+${city ? "- Localização: " + city : ""}
+${averageTicket ? "- Ticket médio: R$ " + averageTicket : ""}
 
 Campanha: ${c.name}
 Objetivo: ${objective}
