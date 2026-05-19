@@ -66,16 +66,19 @@ const _pixabayCache = new Map<string, { url: string; credit: string; ts: number 
 async function searchPixabay(
   query: string,
   format: CreativeImageFormat,
+  creativeIndex: number = 0,
 ): Promise<{ url: string; credit: string } | null> {
   const key = process.env.PIXABAY_API_KEY;
   if (!key) return null;
 
-  const cacheKey = `${query}|${format}`;
+  // Cache diferente por criativo — evita mesma imagem em todos
+  const cacheKey = `${query}|${format}|${creativeIndex}`;
   const cached = _pixabayCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < 86_400_000) return cached; // cache 24h
 
   try {
     const orientation = format === "stories" ? "vertical" : "horizontal";
+    // Per_page=10 para ter variedade; pega foto na posição do criativo
     const params = new URLSearchParams({
       key,
       q:           query,
@@ -83,9 +86,9 @@ async function searchPixabay(
       orientation,
       safesearch:  "true",
       order:       "popular",
-      per_page:    "5",
+      per_page:    "10",
       min_width:   "800",
-      lang:        "pt",
+      lang:        "en",
     });
     const url = `https://pixabay.com/api/?${params.toString()}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
@@ -97,16 +100,17 @@ async function searchPixabay(
     const hits = data?.hits;
     if (!hits?.length) return null;
 
-    // Usa largeImageURL (1280px) ou webformatURL (640px)
-    const photo   = hits[0];
-    const imgUrl  = photo?.largeImageURL || photo?.webformatURL?.replace("_640", "_1280");
-    const credit  = photo?.user ? `Foto: ${photo.user} / Pixabay` : "Pixabay";
+    // Pega foto na posição do criativo (0,1,2,3...) para variar entre criativos
+    const idx    = creativeIndex % hits.length;
+    const photo  = hits[idx];
+    const imgUrl = photo?.largeImageURL || photo?.webformatURL?.replace("_640", "_1280");
+    const credit = photo?.user ? `Foto: ${photo.user} / Pixabay` : "Pixabay";
 
     if (!imgUrl) return null;
 
     const result = { url: imgUrl, credit };
     _pixabayCache.set(cacheKey, { ...result, ts: Date.now() });
-    log.info("image-generation", "Pixabay cache set", { query, format, credit });
+    log.info("image-generation", "Pixabay cache set", { query, format, idx, credit });
     return result;
   } catch (err: any) {
     log.info("image-generation", "Pixabay exception", { error: err?.message?.slice(0, 60) });
@@ -128,13 +132,36 @@ const PIXABAY_QUERIES: Record<string, string> = {
   outro:           "business professional modern clean",
 };
 
-function getPixabayQuery(segment: string, creative: any): string {
+function getPixabayQuery(segment: string, creative: any, creativeIndex: number = 0): string {
   const base = PIXABAY_QUERIES[segment] || PIXABAY_QUERIES["outro"] || "professional";
-  const niche = toText(creative?.niche || "");
-  if (niche && niche.length > 3 && niche.length < 25) {
-    return `${base} ${niche}`;
-  }
-  return base;
+
+  // Variações por tipo de criativo — cada formato busca ângulo diferente
+  const typeVariations: Record<string, string[]> = {
+    imoveis_venda:   ["luxury apartment interior", "modern living room", "apartment building exterior", "real estate kitchen", "bedroom modern"],
+    imoveis_locacao: ["apartment rental furnished", "modern apartment tour", "furnished living room", "apartment keys handover", "cozy bedroom"],
+    ecommerce:       ["product photography studio", "e-commerce flat lay", "product showcase white", "shopping online lifestyle", "unboxing product"],
+    servicos_locais: ["professional service business", "local store interior", "team professional smiling", "service desk reception", "modern office"],
+    infoprodutos:    ["online course laptop", "student learning digital", "education desk minimal", "digital content creator", "webinar online"],
+    saude_estetica:  ["clinic modern white", "wellness spa interior", "beauty treatment professional", "health lifestyle woman", "medical consultation"],
+    alimentacao:     ["restaurant food photography", "delicious meal closeup", "chef cooking restaurant", "food delivery packaging", "cafe interior cozy"],
+    moda_varejo:     ["fashion photography model", "clothing lifestyle editorial", "retail store display", "outfit style modern", "accessories flat lay"],
+    b2b:             ["business meeting office", "corporate team professional", "SaaS dashboard laptop", "handshake deal business", "modern coworking space"],
+    outro:           ["professional business modern", "team working office", "service professional clean", "business lifestyle", "modern workspace"],
+  };
+
+  const variations = typeVariations[segment] || typeVariations["outro"] || [base];
+  // Rotaciona variação por índice do criativo
+  const varied = variations[creativeIndex % variations.length];
+
+  // Enriquece com ângulo do criativo se disponível
+  const angle = toText(creative?.angle || "");
+  const type  = toText(creative?.type  || "");
+  if (type === "testimonial") return `${varied} testimonial person`;
+  if (type === "social_proof") return `${varied} happy customer`;
+  if (type === "authority")    return `${varied} expert professional`;
+  if (angle.includes("antes") || angle.includes("before")) return `${varied} before after transformation`;
+
+  return varied;
 }
 
 // ── Pixabay VIDEO Search ──────────────────────────────────────────────────────
@@ -981,9 +1008,11 @@ export async function generateAdImage(
     }
 
     // Penúltima tentativa: Pixabay foto + vídeo (CC0 — licença comercial, automação permitida)
-    const pixabayQuery = getPixabayQuery(segment, creative);
+    // creativeIndex varia por criativo para garantir imagens diferentes
+    const creativeIdx = typeof creative?.creativeIndex === "number" ? creative.creativeIndex : (creative?.index ?? 0);
+    const pixabayQuery = getPixabayQuery(segment, creative, creativeIdx);
     // Tenta foto primeiro
-    const pixabayResult = await searchPixabay(pixabayQuery, format);
+    const pixabayResult = await searchPixabay(pixabayQuery, format, creativeIdx);
     if (pixabayResult) {
       IMAGE_CACHE.set(cacheKey, pixabayResult.url);
       log.info("image-generation", "✅ Pixabay foto OK", {
