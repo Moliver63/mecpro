@@ -3293,7 +3293,43 @@ const campaignsRouter = router({
         headline: selectedHeadline.slice(0, 40),
         creativeScore: creativeScore?.finalScore || null,
       });
-      const budgetDaily = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
+      // ── Budget por adSet — usa percentual do adSet sobre o total da campanha ──
+      // adSet.budget pode ser: "33% do total", 33, "R$ 100", etc.
+      const totalMonthly  = c.suggestedBudgetMonthly ?? 1000;
+      const totalDaily    = c.suggestedBudgetDaily   ?? Math.round(totalMonthly / 30);
+
+      // Tenta extrair percentual ou valor fixo do campo budget do adSet
+      const adSetBudgetRaw = String(adSet?.budget ?? "");
+      let budgetDaily: number;
+
+      if (adSetBudgetRaw.includes("%")) {
+        // Ex: "33% do total" ou "33%"
+        const pctMatch = adSetBudgetRaw.match(/(\d+(?:\.\d+)?)/);
+        const pct      = pctMatch ? parseFloat(pctMatch[1]) / 100 : (1 / 4); // fallback 25%
+        budgetDaily    = Math.max(1, Math.round(totalDaily * pct));
+      } else if (adSetBudgetRaw.match(/^[\d.]+$/)) {
+        // Número puro (já é o valor diário)
+        budgetDaily = Math.max(1, Math.round(parseFloat(adSetBudgetRaw) / 30));
+      } else if (adSetBudgetRaw.match(/R\$[\s]?([\d.,]+)/)) {
+        // Ex: "R$ 100" — valor mensal
+        const valMatch = adSetBudgetRaw.match(/R\$[\s]?([\d.,]+)/);
+        const monthly  = parseFloat((valMatch![1] || "100").replace(",","."));
+        budgetDaily    = Math.max(1, Math.round(monthly / 30));
+      } else {
+        // Fallback: divide budget total igualmente entre adSets
+        const totalAdSets = Array.isArray(JSON.parse(c.adSets || "[]"))
+          ? JSON.parse(c.adSets || "[]").length : 4;
+        budgetDaily = Math.max(1, Math.round(totalDaily / Math.max(totalAdSets, 1)));
+      }
+
+      log.info("meta", "Budget adSet calculado", {
+        adSetName: adSet?.name,
+        rawBudget: adSetBudgetRaw,
+        totalMonthly,
+        totalDaily,
+        budgetDaily,
+        dailyInCentavos: budgetDaily * 100,
+      });
       const endTime = new Date(Date.now() + (c.durationDays ?? 30) * 24 * 60 * 60 * 1000).toISOString();
       const dest = input.destination;
       const preferredCtaText = placementKey === "stories" || placementKey === "reels"
@@ -3396,6 +3432,37 @@ const campaignsRouter = router({
         .replace(/\s+/g, " ")
         .trim();
 
+      // ── Parse do adSet para extrair idade e interesses ────────────────────
+      const adSetAudience = String(adSet?.audience || "");
+      const ageMatch = adSetAudience.match(/[Ii]dade[:\s]+?(\d{2})[-–](\d{2})/);
+      const parsedAgeMin = ageMatch ? parseInt(ageMatch[1]) : (input.ageMin ?? 18);
+      const parsedAgeMax = ageMatch ? parseInt(ageMatch[2]) : (input.ageMax ?? 65);
+
+      const interestMatch = adSetAudience.match(/[Ii]nteresses[:\s]+([^.]+)/);
+      const interestTerms = interestMatch
+        ? interestMatch[1].split(/,|;/).map((s: string) => s.trim()).filter((s: string) => s.length > 2).slice(0, 5)
+        : [];
+
+      const resolvedInterests: Array<{ id: string }> = [];
+      if (interestTerms.length > 0 && token) {
+        for (const term of interestTerms) {
+          try {
+            const searchUrl = `https://graph.facebook.com/v19.0/search?type=adinterest&q=${encodeURIComponent(term)}&limit=1&access_token=${token}`;
+            const sr = await fetch(searchUrl, { signal: AbortSignal.timeout(4000) });
+            if (sr.ok) {
+              const sd: any = await sr.json();
+              const hit = sd?.data?.[0];
+              if (hit?.id) resolvedInterests.push({ id: hit.id });
+            }
+          } catch { /* continua sem este interesse */ }
+        }
+        if (resolvedInterests.length > 0) {
+          log.info("meta", "Interesses resolvidos para targeting", {
+            terms: interestTerms, resolved: resolvedInterests.length,
+          });
+        }
+      }
+
       const adSetData = await metaPost<any>(`${accountId}/adsets`, {
         name:              adSetName,
         campaign_id:       metaCampaignId,
@@ -3405,52 +3472,10 @@ const campaignsRouter = router({
         daily_budget:      budgetDaily * 100,
         end_time:          endTime,
         ...(isWhatsAppDestination ? { destination_type: "WHATSAPP" } : {}),
-        // ── Parse do adSet para extrair idade e interesses ──────────────────
-        const adSetAudience = String(adSet?.audience || "");
-        // Extrai faixa de idade do texto do adSet (ex: "Idade: 28-55")
-        const ageMatch = adSetAudience.match(/[Ii]dade[:\s]+?(\d{2})[-–](\d{2})/);
-        const parsedAgeMin = ageMatch ? parseInt(ageMatch[1]) : (input.ageMin ?? 18);
-        const parsedAgeMax = ageMatch ? parseInt(ageMatch[2]) : (input.ageMax ?? 65);
-
-        // Extrai interesses do texto do adSet
-        // "Interesses: FII, Airbnb Host, Renda Passiva" → ["FII","Airbnb Host","Renda Passiva"]
-        const interestMatch = adSetAudience.match(/[Ii]nteresses[:\s]+([^.]+)/);
-        const interestTerms = interestMatch
-          ? interestMatch[1].split(/,|;/).map((s: string) => s.trim()).filter((s: string) => s.length > 2).slice(0, 5)
-          : [];
-
-        // Resolve IDs de interesses via Meta Search API (sem IDs válidos, Meta ignora)
-        const resolvedInterests: Array<{ id: string }> = [];
-        if (interestTerms.length > 0 && token) {
-          for (const term of interestTerms) {
-            try {
-              const searchUrl = `https://graph.facebook.com/v19.0/search?type=adinterest&q=${encodeURIComponent(term)}&limit=1&access_token=${token}`;
-              const sr = await fetch(searchUrl, { signal: AbortSignal.timeout(4000) });
-              if (sr.ok) {
-                const sd: any = await sr.json();
-                const hit = sd?.data?.[0];
-                if (hit?.id) resolvedInterests.push({ id: hit.id });
-              }
-            } catch { /* continua sem este interesse */ }
-          }
-          if (resolvedInterests.length > 0) {
-            log.info("meta", "Interesses resolvidos para targeting", {
-              terms: interestTerms,
-              resolved: resolvedInterests.length,
-            });
-          }
-        }
-
-        // Detecta públicos personalizados (Remarketing)
-        const isRemarketingAdSet = /remarketing|visitante|engajou|salvou|pixel/i.test(adSetAudience);
-        // Detecta Lookalike
-        const isLookalikeAdSet = /lookalike|semelhante/i.test(adSetAudience);
-
         targeting: {
           age_min: parsedAgeMin,
           age_max: parsedAgeMax,
           targeting_automation: { advantage_audience: 0 },
-          // Injeta interesses resolvidos se disponíveis
           ...(resolvedInterests.length > 0 ? {
             flexible_spec: [{ interests: resolvedInterests }],
           } : {}),
