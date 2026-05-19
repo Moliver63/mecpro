@@ -132,36 +132,165 @@ const PIXABAY_QUERIES: Record<string, string> = {
   outro:           "business professional modern clean",
 };
 
+// Mapas de palavras-chave: copyContext → termo visual em inglês
+const COPY_TO_VISUAL: Array<[RegExp, string]> = [
+  // Imóveis
+  [/frente.?mar|mar|praia|beach|oceano|ocean/i,          "ocean view apartment luxury beachfront"],
+  [/balneário|camboriu|floripa|florianópolis/i,           "luxury apartment Brazil beach city"],
+  [/aparto|apto|apartamento/i,                           "modern apartment interior living room"],
+  [/casa|home|residência/i,                              "modern house interior living room"],
+  [/locação|alugar|aluguel|morar|morada/i,               "apartment rental keys handover furnished"],
+  [/comprar|venda|vender|financi/i,                      "luxury real estate apartment sale"],
+  [/lançamento|empreendimento|condomínio/i,              "luxury condominium building modern"],
+  // Alimentação
+  [/pizza|pizz/i,                                        "delicious pizza restaurant closeup"],
+  [/hamburguer|burger|lanche/i,                          "gourmet burger food photography"],
+  [/sushi|japones/i,                                     "sushi japanese food restaurant"],
+  [/delivery|entreg/i,                                   "food delivery packaging modern"],
+  [/restaurante|cardápio/i,                              "restaurant interior warm lighting"],
+  // Saúde/Estética
+  [/estética|estetica|beleza|beauty/i,                   "beauty salon aesthetic treatment professional"],
+  [/clinica|clínica|médico|saúde/i,                      "modern clinic interior professional"],
+  [/personal|academia|fitness|treino/i,                  "fitness gym workout personal trainer"],
+  // Moda
+  [/roupa|moda|fashion|vestuário/i,                      "fashion clothing lifestyle editorial"],
+  [/calçado|sapato|tenis/i,                              "shoes fashion lifestyle modern"],
+  // Tecnologia/B2B
+  [/software|sistema|app|aplicativo/i,                   "SaaS software dashboard laptop business"],
+  [/marketing|campanha|anuncio/i,                        "digital marketing professional laptop"],
+  // Educação
+  [/curso|treinamento|ensino|aprender/i,                 "online course education laptop learning"],
+  [/mentoria|coach/i,                                    "coaching mentoring professional meeting"],
+];
+
+// Ângulos da copy → modificadores visuais
+const ANGLE_VISUAL: Record<string, string> = {
+  exclusividade:  "luxury exclusive premium sophisticated",
+  urgencia:       "urgent limited time bold dynamic",
+  prova_social:   "happy satisfied customer testimonial",
+  transformacao:  "before after transformation success",
+  autoridade:     "expert professional credible authority",
+  oferta:         "special offer sale discount bold",
+  dor:            "problem solution empathy relatable",
+  educacao:       "informative clean professional knowledge",
+};
+
+// Tipos de criativo → modificadores visuais
+const TYPE_VISUAL: Record<string, string> = {
+  testimonial:    "happy customer testimonial smiling portrait",
+  social_proof:   "group satisfied customers community success",
+  authority:      "expert professional confident portrait",
+  storytelling:   "narrative lifestyle real moment authentic",
+  lead_magnet:    "free offer gift attractive compelling",
+  direct_offer:   "product showcase offer pricing bold",
+};
+
 function getPixabayQuery(segment: string, creative: any, creativeIndex: number = 0): string {
+  // 1. Base do segmento
   const base = PIXABAY_QUERIES[segment] || PIXABAY_QUERIES["outro"] || "professional";
 
-  // Variações por tipo de criativo — cada formato busca ângulo diferente
-  const typeVariations: Record<string, string[]> = {
-    imoveis_venda:   ["luxury apartment interior", "modern living room", "apartment building exterior", "real estate kitchen", "bedroom modern"],
-    imoveis_locacao: ["apartment rental furnished", "modern apartment tour", "furnished living room", "apartment keys handover", "cozy bedroom"],
-    ecommerce:       ["product photography studio", "e-commerce flat lay", "product showcase white", "shopping online lifestyle", "unboxing product"],
-    servicos_locais: ["professional service business", "local store interior", "team professional smiling", "service desk reception", "modern office"],
-    infoprodutos:    ["online course laptop", "student learning digital", "education desk minimal", "digital content creator", "webinar online"],
-    saude_estetica:  ["clinic modern white", "wellness spa interior", "beauty treatment professional", "health lifestyle woman", "medical consultation"],
-    alimentacao:     ["restaurant food photography", "delicious meal closeup", "chef cooking restaurant", "food delivery packaging", "cafe interior cozy"],
-    moda_varejo:     ["fashion photography model", "clothing lifestyle editorial", "retail store display", "outfit style modern", "accessories flat lay"],
-    b2b:             ["business meeting office", "corporate team professional", "SaaS dashboard laptop", "handshake deal business", "modern coworking space"],
-    outro:           ["professional business modern", "team working office", "service professional clean", "business lifestyle", "modern workspace"],
+  // 2. Extrai texto da copy para encontrar palavras-chave visuais
+  const copyText = [
+    toText(creative?.headline || ""),
+    toText(creative?.hook     || ""),
+    toText(creative?.copy     || ""),
+    toText(creative?.angle    || ""),
+  ].join(" ").toLowerCase();
+
+  // 3. Procura correspondência no copy para query visual específica
+  for (const [pattern, visualQuery] of COPY_TO_VISUAL) {
+    if (pattern.test(copyText)) {
+      // Usa query específica do produto + modificador do tipo/ângulo
+      const type  = toText(creative?.type  || "");
+      const angle = toText(creative?.angle || "");
+      const typeMod  = TYPE_VISUAL[type]   || "";
+      const angleMod = ANGLE_VISUAL[angle] || "";
+      // Varia levemente por índice (página diferente, não só hit diferente)
+      const suffix = creativeIndex > 0 ? ` ${["modern", "professional", "authentic", "vibrant"][creativeIndex % 4]}` : "";
+      return `${visualQuery}${suffix}`.trim();
+    }
+  }
+
+  // 4. Fallback: variações por segmento + funil/ângulo
+  const funnelVariations: Record<string, string[]> = {
+    imoveis_venda:   [
+      "luxury apartment interior natural light",
+      "modern real estate living room design",
+      "apartment building exterior contemporary",
+      "real estate home kitchen modern",
+    ],
+    imoveis_locacao: [
+      "apartment rental keys door modern",
+      "furnished living room cozy rental",
+      "modern bedroom apartment rental",
+      "apartment building entrance welcoming",
+    ],
+    ecommerce:       [
+      "product photography studio white clean",
+      "e-commerce packaging unboxing lifestyle",
+      "online shopping purchase lifestyle",
+      "product flat lay creative composition",
+    ],
+    servicos_locais: [
+      "professional team service smiling",
+      "local business storefront clean modern",
+      "customer service reception desk",
+      "service professional working happy",
+    ],
+    infoprodutos:    [
+      "laptop online course education desk",
+      "student learning success digital",
+      "webinar video call professional",
+      "digital content creator workspace",
+    ],
+    saude_estetica:  [
+      "wellness spa interior clean white",
+      "beauty treatment professional modern",
+      "health lifestyle woman confident",
+      "medical consultation professional",
+    ],
+    alimentacao:     [
+      "delicious food photography restaurant",
+      "chef cooking professional kitchen",
+      "food delivery packaging modern",
+      "cafe restaurant interior cozy",
+    ],
+    moda_varejo:     [
+      "fashion model clothing lifestyle",
+      "retail store display trendy",
+      "outfit flat lay accessories modern",
+      "fashion editorial photography vibrant",
+    ],
+    b2b:             [
+      "business meeting office professional",
+      "team collaboration modern office",
+      "laptop dashboard analytics business",
+      "handshake deal partnership professional",
+    ],
+    outro:           [
+      "professional business clean modern",
+      "team working office success",
+      "service lifestyle authentic",
+      "modern workspace productive",
+    ],
   };
 
-  const variations = typeVariations[segment] || typeVariations["outro"] || [base];
-  // Rotaciona variação por índice do criativo
-  const varied = variations[creativeIndex % variations.length];
-
-  // Enriquece com ângulo do criativo se disponível
+  const variations = funnelVariations[segment] || funnelVariations["outro"]!;
   const angle = toText(creative?.angle || "");
   const type  = toText(creative?.type  || "");
-  if (type === "testimonial") return `${varied} testimonial person`;
-  if (type === "social_proof") return `${varied} happy customer`;
-  if (type === "authority")    return `${varied} expert professional`;
-  if (angle.includes("antes") || angle.includes("before")) return `${varied} before after transformation`;
 
-  return varied;
+  // Varia por índice
+  let query = variations[creativeIndex % variations.length];
+
+  // Adiciona modificador de tipo se disponível
+  const typeMod = TYPE_VISUAL[type];
+  if (typeMod && creativeIndex % 2 === 1) query = typeMod;
+
+  // Adiciona modificador de ângulo
+  const angleMod = ANGLE_VISUAL[angle];
+  if (angleMod) query = `${query} ${angleMod.split(" ")[0]}`;
+
+  return query;
 }
 
 // ── Pixabay VIDEO Search ──────────────────────────────────────────────────────
