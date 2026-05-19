@@ -56,33 +56,6 @@ function getCacheKey(
   });
 }
 
-function inferPrompt(creative: any, segment: string, objective: string, format: CreativeImageFormat): string {
-  const dim       = FORMAT_DIMENSIONS[format];
-  const headline  = toText(creative?.headline);
-  const hook      = toText(creative?.hook);
-  const copy      = toText(creative?.copy);
-  const pain      = toText(creative?.pain);
-  const solution  = toText(creative?.solution);
-  const angle     = toText(creative?.angle || "");
-  const niche     = toText(segment || "");
-  const crType    = toText(creative?.type || creative?.format || "");
-
-  // ── Mapear segmento para contexto visual descritivo ──────────────────────
-  // CRÍTICO: modelos de imagem não entendem "imoveis_locacao"
-  // Precisam de descrição visual em inglês
-  const SEGMENT_VISUAL: Record<string, string> = {
-    imoveis_venda:   "luxury Brazilian apartment interior, modern living room, keys to new home, real estate photography, warm natural lighting",
-    imoveis_locacao: "apartment keys handover scene, rental property tour, welcoming furnished living room, friendly landlord tenant interaction",
-    ecommerce:       "professional product photography, clean white background, e-commerce flat lay, purchase intent composition, studio lighting",
-    servicos_locais: "local Brazilian business storefront, professional service environment, smiling staff in uniform, clean modern interior",
-    infoprodutos:    "online course setup, laptop with digital content, motivated student at clean desk, bright productive workspace",
-    saude_estetica:  "modern Brazilian clinic interior, wellness spa atmosphere, professional healthcare setting, clean white medical environment",
-    alimentacao:     "appetizing Brazilian food photography, restaurant warm ambiance, delivery packaging with steam, close-up food detail",
-    moda_varejo:     "Brazilian fashion lifestyle photography, stylish clothing on model, retail store display, vibrant colors, editorial style",
-    b2b:             "modern corporate office meeting room, professional Brazilian business environment, SaaS dashboard on laptop, handshake deal",
-    outro:           "modern Brazilian professional environment, business context, clean contemporary setting",
-  };
-  const segmentVisual = SEGMENT_VISUAL[segment] || SEGMENT_VISUAL["outro"] || "";
 
 // ── Pixabay Image Search ─────────────────────────────────────────────────────
 // Licença CC0 / domínio público — uso comercial 100% livre, automação permitida
@@ -244,6 +217,35 @@ export function getPixabayVideoQuery(segment: string, creative: any): string {
   }
   return base;
 }
+
+
+function inferPrompt(creative: any, segment: string, objective: string, format: CreativeImageFormat): string {
+  const dim       = FORMAT_DIMENSIONS[format];
+  const headline  = toText(creative?.headline);
+  const hook      = toText(creative?.hook);
+  const copy      = toText(creative?.copy);
+  const pain      = toText(creative?.pain);
+  const solution  = toText(creative?.solution);
+  const angle     = toText(creative?.angle || "");
+  const niche     = toText(segment || "");
+  const crType    = toText(creative?.type || creative?.format || "");
+
+  // ── Mapear segmento para contexto visual descritivo ──────────────────────
+  // CRÍTICO: modelos de imagem não entendem "imoveis_locacao"
+  // Precisam de descrição visual em inglês
+  const SEGMENT_VISUAL: Record<string, string> = {
+    imoveis_venda:   "luxury Brazilian apartment interior, modern living room, keys to new home, real estate photography, warm natural lighting",
+    imoveis_locacao: "apartment keys handover scene, rental property tour, welcoming furnished living room, friendly landlord tenant interaction",
+    ecommerce:       "professional product photography, clean white background, e-commerce flat lay, purchase intent composition, studio lighting",
+    servicos_locais: "local Brazilian business storefront, professional service environment, smiling staff in uniform, clean modern interior",
+    infoprodutos:    "online course setup, laptop with digital content, motivated student at clean desk, bright productive workspace",
+    saude_estetica:  "modern Brazilian clinic interior, wellness spa atmosphere, professional healthcare setting, clean white medical environment",
+    alimentacao:     "appetizing Brazilian food photography, restaurant warm ambiance, delivery packaging with steam, close-up food detail",
+    moda_varejo:     "Brazilian fashion lifestyle photography, stylish clothing on model, retail store display, vibrant colors, editorial style",
+    b2b:             "modern corporate office meeting room, professional Brazilian business environment, SaaS dashboard on laptop, handshake deal",
+    outro:           "modern Brazilian professional environment, business context, clean contemporary setting",
+  };
+  const segmentVisual = SEGMENT_VISUAL[segment] || SEGMENT_VISUAL["outro"] || "";
 
   // Mapear ângulo para visual
   const angleToVisual: Record<string, string> = {
