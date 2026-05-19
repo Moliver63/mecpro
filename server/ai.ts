@@ -7563,7 +7563,23 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     const results: Array<{ format: string; url: string | null }> = [];
     for (const format of FORMATS) {
       const url = await Promise.race([
-        generateAdImage(creative, context.segment, context.objective, config, format),
+        (async () => {
+          const img = await generateAdImage(creative, context.segment, context.objective, config, format);
+          // Se criativo é do tipo vídeo, busca também o vídeo do Pixabay
+          if ((creative.format === "video" || creative.type === "video") && img) {
+            try {
+              const { searchPixabayVideo, getPixabayVideoQuery } = await import("../imageGeneration");
+              const vq = getPixabayVideoQuery(context.segment || "", creative);
+              const vid = await searchPixabayVideo(vq, format);
+              if (vid?.url) {
+                creative._pixabayVideoUrl   = vid.url;
+                creative._pixabayVideoThumb = vid.thumb;
+                creative._pixabayCredit     = vid.credit;
+              }
+            } catch { /* silencioso */ }
+          }
+          return img;
+        })(),
         new Promise<null>(resolve => setTimeout(() => resolve(null), TIMEOUT_MS)),
       ]).catch(() => null);
       results.push({ format, url });

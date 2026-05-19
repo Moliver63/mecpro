@@ -164,6 +164,87 @@ function getPixabayQuery(segment: string, creative: any): string {
   return base;
 }
 
+// ── Pixabay VIDEO Search ──────────────────────────────────────────────────────
+// Mesma licença CC0 — vídeos também são domínio público
+// Endpoint: pixabay.com/api/videos/
+const _pixabayVideoCache = new Map<string, { url: string; thumb: string; credit: string; ts: number }>();
+
+export async function searchPixabayVideo(
+  query: string,
+  format: CreativeImageFormat,
+): Promise<{ url: string; thumb: string; credit: string } | null> {
+  const key = process.env.PIXABAY_API_KEY;
+  if (!key) return null;
+
+  const cacheKey = `video|${query}|${format}`;
+  const cached = _pixabayVideoCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 86_400_000) return cached; // cache 24h
+
+  try {
+    const params = new URLSearchParams({
+      key,
+      q:          query,
+      video_type: "film",
+      safesearch: "true",
+      order:      "popular",
+      per_page:   "5",
+      min_width:  "1280",
+    });
+    const url = `https://pixabay.com/api/videos/?${params.toString()}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) {
+      log("image-generation", "Pixabay video error", { status: res.status });
+      return null;
+    }
+    const data = await res.json() as any;
+    const hits = data?.hits;
+    if (!hits?.length) return null;
+
+    const video = hits[0];
+    // Prefere medium (1920x1080) ou small (1280x720) conforme formato
+    const stream = format === "stories"
+      ? (video?.videos?.medium || video?.videos?.small)
+      : (video?.videos?.large || video?.videos?.medium);
+
+    const videoUrl = stream?.url;
+    const thumb    = stream?.thumbnail || video?.videos?.medium?.thumbnail || "";
+    const credit   = video?.user ? `Vídeo: ${video.user} / Pixabay` : "Pixabay";
+
+    if (!videoUrl) return null;
+
+    const result = { url: videoUrl, thumb, credit };
+    _pixabayVideoCache.set(cacheKey, { ...result, ts: Date.now() });
+    log("image-generation", "Pixabay video cache set", { query, format, credit });
+    return result;
+  } catch (err: any) {
+    log("image-generation", "Pixabay video exception", { error: err?.message?.slice(0, 60) });
+    return null;
+  }
+}
+
+// Queries de vídeo por segmento
+const PIXABAY_VIDEO_QUERIES: Record<string, string> = {
+  imoveis_venda:   "luxury apartment interior tour",
+  imoveis_locacao: "apartment modern interior walkthrough",
+  ecommerce:       "product showcase commercial",
+  servicos_locais: "professional service business",
+  infoprodutos:    "online education learning digital",
+  saude_estetica:  "wellness clinic beauty spa",
+  alimentacao:     "restaurant food cooking delicious",
+  moda_varejo:     "fashion style clothing lifestyle",
+  b2b:             "business office meeting corporate",
+  outro:           "business professional modern",
+};
+
+export function getPixabayVideoQuery(segment: string, creative: any): string {
+  const base = PIXABAY_VIDEO_QUERIES[segment] || PIXABAY_VIDEO_QUERIES["outro"] || "professional";
+  const niche = toText(creative?.niche || "");
+  if (niche && niche.length > 3 && niche.length < 25) {
+    return `${base} ${niche}`;
+  }
+  return base;
+}
+
   // Mapear ângulo para visual
   const angleToVisual: Record<string, string> = {
     exclusividade:   "luxury lifestyle, premium aesthetics, sophisticated atmosphere",
@@ -897,15 +978,26 @@ export async function generateAdImage(
       }
     }
 
-    // Penúltima tentativa: Pixabay (CC0 — licença comercial, automação permitida)
+    // Penúltima tentativa: Pixabay foto + vídeo (CC0 — licença comercial, automação permitida)
     const pixabayQuery = getPixabayQuery(segment, creative);
+    // Tenta foto primeiro
     const pixabayResult = await searchPixabay(pixabayQuery, format);
     if (pixabayResult) {
       IMAGE_CACHE.set(cacheKey, pixabayResult.url);
-      log("image-generation", "✅ Pixabay OK", {
+      log("image-generation", "✅ Pixabay foto OK", {
         query: pixabayQuery, credit: pixabayResult.credit, format,
       });
       return pixabayResult.url;
+    }
+    // Se não achou foto, tenta vídeo (retorna thumbnail do vídeo como imagem)
+    const pixabayVideoQuery = getPixabayVideoQuery(segment, creative);
+    const pixabayVideo = await searchPixabayVideo(pixabayVideoQuery, format);
+    if (pixabayVideo?.thumb) {
+      IMAGE_CACHE.set(cacheKey, pixabayVideo.thumb);
+      log("image-generation", "✅ Pixabay vídeo thumb OK", {
+        query: pixabayVideoQuery, credit: pixabayVideo.credit, format,
+      });
+      return pixabayVideo.thumb;
     }
 
     // Última tentativa: Pollinations.AI (gratuito, sem API key)
