@@ -129,6 +129,7 @@ const PIXABAY_QUERIES: Record<string, string> = {
   alimentacao:     "restaurant food delicious meal",
   moda_varejo:     "fashion clothing lifestyle style",
   b2b:             "office business meeting professional",
+  automotivo:      "car mechanic garage automotive professional",
   outro:           "business professional modern clean",
 };
 
@@ -142,6 +143,10 @@ const COPY_TO_VISUAL: Array<[RegExp, string]> = [
   [/locação|alugar|aluguel|morar|morada/i,               "apartment rental keys handover furnished"],
   [/comprar|venda|vender|financi/i,                      "luxury real estate apartment sale"],
   [/lançamento|empreendimento|condomínio/i,              "luxury condominium building modern"],
+  // Automotivo
+  [/auto.el[eé]trica|eletrica.*auto|el[eé]trico.*veic|auto.*el[eé]tric/i, "car electric mechanic garage professional"],
+  [/oficina|mecanica|mec[aâ]nico|automotiv|veicul|carro/i, "car mechanic garage automotive professional"],
+  [/motor|motor.?veicul|injet[ao]/i,                     "car engine mechanic workshop"],
   // Alimentação
   [/pizza|pizz/i,                                        "delicious pizza restaurant closeup"],
   [/hamburguer|burger|lanche/i,                          "gourmet burger food photography"],
@@ -266,6 +271,12 @@ function getPixabayQuery(segment: string, creative: any, creativeIndex: number =
       "team collaboration modern office",
       "laptop dashboard analytics business",
       "handshake deal partnership professional",
+    ],
+    automotivo:      [
+      "car mechanic garage professional",
+      "automotive repair workshop tools",
+      "car engine electrical diagnostic",
+      "mechanic customer car service",
     ],
     outro:           [
       "professional business clean modern",

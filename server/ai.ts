@@ -5705,6 +5705,21 @@ export async function generateCampaign(input: {
   const marketAnalysis = await db.getMarketAnalysis(input.projectId);
 
   // ── AUDITORIA: logar o que chegou de cada módulo ──────────────────────────
+  // Sanitiza productService — remove endereço/horário que contamina a copy
+  const sanitizeService = (raw: string | undefined | null): string => {
+    if (!raw) return "";
+    return String(raw)
+      .replace(/endere[cç]o[^\n]*/gi, "")
+      .replace(/hor[aá]rio[^\n]*/gi, "")
+      .replace(/segunda[^\n]*/gi, "")
+      .replace(/cep[^\n]*/gi, "")
+      .replace(/rodovia[^\n]*/gi, "")
+      .replace(/br-?\d+[^\n]*/gi, "")
+      .replace(/\n{2,}/g, "\n")
+      .trim()
+      .slice(0, 120);
+  };
+
   log.info("ai", "📋 Módulo 1 — clientProfile carregado", {
     projectId: input.projectId,
     found: !!clientProfile,
@@ -6389,13 +6404,23 @@ ${(metaInsights as any)?.cpc ? `Performance real: CPC R$${(metaInsights as any).
 ${marketAnalysis ? `Gap: ${(marketAnalysis as any).competitiveGaps?.slice(0,150) || ""}` : ""}
 ${marketAnalysis ? `Oportunidade: ${(marketAnalysis as any).unexploredOpportunities?.slice(0,150) || ""}` : ""}${segmentCtx}${ctaRule}
 
-REGRAS: NUNCA use placeholders. Mencione o produto/empresa real. CTAs alinhados ao objetivo.
+REGRAS CRÍTICAS:
+- NUNCA use o mesmo texto de copy em dois criativos
+- NUNCA inclua endereço, CEP ou horário de funcionamento nas copies
+- Cada criativo DEVE ter ângulo, hook e CTA completamente diferentes
+- Criativo 1 (TOF): ângulo DESCOBERTA — problema/dor do cliente, sem mencionar a empresa logo
+- Criativo 2 (MOF): ângulo DIFERENCIAL — por que escolher esta empresa vs concorrentes
+- Criativo 3 (BOF): ângulo URGÊNCIA — oferta/escassez/call to action direto
+- Criativo 4 (SCALE): ângulo PROVA SOCIAL — resultado/transformação/testemunho
 
 Gere JSON com:
 - strategy: estrategia baseada nos diferenciais do cliente
 - campaignName: string
 - adSets: array {name, audience, budget(%), objective, funnelStage}
-- creatives: EXATAMENTE 4 itens {type, format, orientation, headline, copy, hook, cta, funnelStage, complianceScore, targetAudience}
+- creatives: EXATAMENTE 4 itens com copies COMPLETAMENTE DIFERENTES entre si
+  {type, format, orientation, headline(max 40 chars), copy(max 200 chars), hook, cta, funnelStage, complianceScore, targetAudience, angle}
+  OBRIGATÓRIO: headline de cada criativo deve ser única e diferente das outras
+  PROIBIDO: repetir frases, horários de funcionamento, endereços nas copies
 - conversionFunnel: array {stage, format, audience, budget, kpi}
 - executionPlan: 4 itens {week, title, action, budget, kpi, decision}
 - metrics: {estimatedCPC, estimatedCPM, estimatedCTR, estimatedLeads, estimatedROAS, estimatedCPL, insight}
