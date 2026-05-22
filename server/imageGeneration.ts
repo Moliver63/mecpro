@@ -442,8 +442,8 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
     : "upper body portrait or full scene, face and head always fully visible, no body cropping";
 
   // Fix texto: instrução máxima — colocada no INÍCIO e FIM do prompt para ter prioridade
-  const noTextFix = "NO TEXT NO WORDS NO LETTERS NO TYPOGRAPHY NO WRITING NO SIGNS NO LOGOS. Pure clean photography, text-free image.";
-  const noTextPrefix = "text-free photography, no words, no letters, no typography —";
+  const noTextFix = "ABSOLUTELY NO TEXT. NO WORDS. NO LETTERS. NO NUMBERS. NO TYPOGRAPHY. NO WRITING. NO SIGNS. NO LOGOS. NO CAPTIONS. NO OVERLAYS. NO WATERMARKS. Pure clean photography only.";
+  const noTextPrefix = "NO TEXT NO WORDS NO LETTERS — pure photography only —";
 
   const parts = [
     noTextPrefix, // NO INÍCIO — maior peso no modelo
@@ -451,10 +451,9 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
     segmentVisual ? `Scene context: ${segmentVisual}.` : (niche ? `Brazilian market context: ${niche}.` : ""),
-    hook     ? `Visual concept: ${hook.slice(0, 80)}.` : "",
-    headline ? `Scene theme: ${headline.slice(0, 60)}.` : "",
-    pain     ? `Relatable situation: ${pain.slice(0, 60)}.` : "",
-    solution ? `Visual resolution: ${solution.slice(0, 60)}.` : "",
+    // hook/headline removidos — causam alucinação de texto no modelo de imagem
+    pain     ? `Emotional context: ${pain.slice(0, 40)}.` : "",
+    solution ? `Visual concept: ${solution.slice(0, 40)}.` : "",
     compositionFix,
     "Photorealistic, high-end production quality, cinematic lighting, sharp focus on subjects.",
     noTextFix,
@@ -761,7 +760,7 @@ async function generateWithCloudflare(
       },
       body:   JSON.stringify({
         prompt: safePrompt,
-        negative_prompt: "text, words, letters, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, caption, overlay text, printed text, handwriting",
+        negative_prompt: "text, words, letters, numbers, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, overlay text, printed text, handwriting, speech bubble, banner, poster text, advertising text, any readable text",
         width:  Math.min(dim.width,  1024),
         height: Math.min(dim.height, 1024),
         num_steps: 8,        // mais passos = maior qualidade e melhor aderência ao prompt
