@@ -1064,6 +1064,64 @@ async function generateWithGenspark(
 }
 
 
+// ── Google Custom Search — imagens CC0/domínio público ───────────────────────
+// 100 queries/dia grátis | só retorna imagens com licença livre
+// Credenciais: GOOGLE_API_KEY + GOOGLE_CSE_ID (já no Render)
+const _googleImageCache = new Map<string, { url: string; ts: number }>();
+
+async function searchGoogleImages(
+  query: string,
+  format: CreativeImageFormat,
+  creativeIndex: number = 0,
+): Promise<string | null> {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  const cseId  = process.env.GOOGLE_CSE_ID;
+  if (!apiKey || !cseId) return null;
+
+  const cacheKey = `google|${query}|${format}|${creativeIndex}`;
+  const cached = _googleImageCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 86_400_000) return cached.url;
+
+  try {
+    const params = new URLSearchParams({
+      key:        apiKey,
+      cx:         cseId,
+      q:          query,
+      searchType: "image",
+      rights:     "cc_publicdomain,cc_attribute,cc_sharealike", // só imagens livres
+      imgType:    "photo",
+      imgSize:    "large",
+      safe:       "active",
+      num:        "5",
+      start:      String((creativeIndex % 3) * 3 + 1), // varia posição por criativo
+    });
+
+    const url = `https://www.googleapis.com/customsearch/v1?${params.toString()}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+
+    if (!res.ok) {
+      log.warn("image-generation", "Google Images error", { status: res.status });
+      return null;
+    }
+
+    const data: any = await res.json();
+    const items = data?.items;
+    if (!items?.length) return null;
+
+    const imgUrl = items[0]?.link;
+    if (!imgUrl) return null;
+
+    _googleImageCache.set(cacheKey, { url: imgUrl, ts: Date.now() });
+    log.info("image-generation", "Google Images OK", {
+      query, format, url: imgUrl.slice(0, 60),
+    });
+    return imgUrl;
+  } catch (err: any) {
+    log.warn("image-generation", "Google Images exception", { error: err?.message?.slice(0, 60) });
+    return null;
+  }
+}
+
 // ── Re-hospeda imagem externa no Cloudinary ──────────────────────────────────
 // Necessário para Meta Ads: URLs externas (Pixabay, Pollinations) são bloqueadas
 // por robots.txt ou headers de segurança — Meta não consegue baixar
@@ -1205,6 +1263,16 @@ export async function generateAdImage(
         rehosted: !!rehostedThumb,
       });
       return finalThumbUrl;
+    }
+
+    // Tentativa Google Images (CC0, 100 req/dia — complemento do Pixabay)
+    const googleUrl = await searchGoogleImages(pixabayQuery, format, creativeIdx);
+    if (googleUrl) {
+      const rehostedGoogle = await reHostImageOnCloudinary(googleUrl, format);
+      const finalGoogleUrl = rehostedGoogle || googleUrl;
+      IMAGE_CACHE.set(cacheKey, finalGoogleUrl);
+      log.info("image-generation", "✅ Google Images OK", { query: pixabayQuery, format });
+      return finalGoogleUrl;
     }
 
     // Última tentativa: Pollinations.AI (gratuito, sem API key)
