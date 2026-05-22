@@ -1551,12 +1551,13 @@ export default function CampaignResult() {
       const H = format === "stories" ? 711 : format === "square" ? 400 : 500;
 
       // Escape XML seguro — sem chars não-ASCII no btoa
+      // SVG suporta UTF-8 nativamente — não converter chars acentuados
+      // Converter ã→&#227; causava texto corrompido no preview
       const x = (s: string) => s
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/[^\u0000-\u007f]/g, c => "&#" + c.charCodeAt(0) + ";");
+        .replace(/"/g, "&quot;");
 
       // Quebrar headline em linhas
       const hlWords = headline.split(" ");
