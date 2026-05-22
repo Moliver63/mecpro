@@ -193,16 +193,28 @@ const TYPE_VISUAL: Record<string, string> = {
   direct_offer:   "product showcase offer pricing bold",
 };
 
-function getPixabayQuery(segment: string, creative: any, creativeIndex: number = 0): string {
+function getPixabayQuery(
+  segment: string,
+  creative: any,
+  creativeIndex: number = 0,
+  productContext?: { productName?: string; productService?: string; niche?: string; city?: string },
+): string {
   // 1. Base do segmento
   const base = PIXABAY_QUERIES[segment] || PIXABAY_QUERIES["outro"] || "professional";
 
-  // 2. Extrai texto da copy para encontrar palavras-chave visuais
+  // 2. Extrai texto da copy + dados do produto para palavras-chave visuais
+  const productText = [
+    toText(productContext?.productName    || ""),
+    toText(productContext?.productService || ""),
+    toText(productContext?.niche          || ""),
+  ].join(" ").toLowerCase();
+
   const copyText = [
     toText(creative?.headline || ""),
     toText(creative?.hook     || ""),
     toText(creative?.copy     || ""),
     toText(creative?.angle    || ""),
+    productText,
   ].join(" ").toLowerCase();
 
   // 3. Procura correspondência no copy para query visual específica
@@ -1160,6 +1172,12 @@ export async function generateAdImage(
   objective: string,
   config: { provider: ImageProvider; apiKey: string },
   format: CreativeImageFormat,
+  productContext?: {
+    productName?: string;
+    productService?: string;
+    niche?: string;
+    city?: string;
+  },
 ): Promise<string | null> {
   const provider = config?.provider || "mock";
 
@@ -1240,7 +1258,7 @@ export async function generateAdImage(
     // Penúltima tentativa: Pixabay foto + vídeo (CC0 — licença comercial, automação permitida)
     // creativeIndex varia por criativo para garantir imagens diferentes
     const creativeIdx = typeof creative?.creativeIndex === "number" ? creative.creativeIndex : (creative?.index ?? 0);
-    const pixabayQuery = getPixabayQuery(segment, creative, creativeIdx);
+    const pixabayQuery = getPixabayQuery(segment, creative, creativeIdx, productContext);
     // Tenta foto primeiro
     const pixabayResult = await searchPixabay(pixabayQuery, format, creativeIdx);
     if (pixabayResult) {
@@ -1270,7 +1288,11 @@ export async function generateAdImage(
     }
 
     // Tentativa Google Images (CC0, 100 req/dia — complemento do Pixabay)
-    const googleUrl = await searchGoogleImages(pixabayQuery, format, creativeIdx);
+    // Google: tenta query específica do produto se disponível
+    const googleQuery = productContext?.productName
+      ? `${productContext.productName} ${(PIXABAY_QUERIES[segment] || "professional")}`.slice(0, 80)
+      : pixabayQuery;
+    const googleUrl = await searchGoogleImages(googleQuery, format, creativeIdx);
     if (googleUrl) {
       const rehostedGoogle = await reHostImageOnCloudinary(googleUrl, format);
       const finalGoogleUrl = rehostedGoogle || googleUrl;

@@ -6643,12 +6643,18 @@ Gere JSON com:
         platform:   input.platform   || "meta",
         objective:  input.objective  || "traffic",
         niche,
+        segment:    input.segment    || "",           // ← segmento módulo 4
+        productName:    (clientProfile as any)?.productName    || "",
+        productService: sanitizeService((clientProfile as any)?.productService) || "",
+        city:           (clientProfile as any)?.city           || "",
         budget:     input.budget     || 0,
         duration:   input.duration   || 30,
         creatives:  creativesArr.map((cr: any) => ({
           type:     cr.type || cr.format || "image",
           headline: cr.headline || "",
           hook:     cr.hook     || "",
+          copy:     cr.copy     || "",
+          angle:    cr.angle    || "",
           formats:  cr.formats  || [],
         })),
         targeting: aiResp?.targeting || {},
@@ -7628,7 +7634,12 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     for (const format of FORMATS) {
       const url = await Promise.race([
         (async () => {
-          const img = await generateAdImage(creative, context.segment, context.objective, config, format);
+          const img = await generateAdImage(creative, context.segment, context.objective, config, format, {
+                  productName:    context.productName,
+                  productService: context.productService,
+                  niche:          context.niche,
+                  city:           context.city,
+                });
           // Se criativo é do tipo vídeo, busca também o vídeo do Pixabay
           if ((creative.format === "video" || creative.type === "video") && img) {
             try {
@@ -7677,7 +7688,12 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     for (let index = 1; index < scored.length; index++) {
       const c = scored[index];
       const url = await Promise.race([
-        generateAdImage(c, context.segment, context.objective, config, "feed"),
+        generateAdImage(c, context.segment, context.objective, config, "feed", {
+            productName:    context.productName,
+            productService: context.productService,
+            niche:          context.niche,
+            city:           context.city,
+          }),
         new Promise<null>(resolve => setTimeout(() => resolve(null), 20000)),
       ]);
       if (url) { c.feedImageUrl = url; c.imageUpdatedAt = new Date().toISOString(); }
