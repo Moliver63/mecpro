@@ -125,7 +125,8 @@ const PIXABAY_QUERIES: Record<string, string> = {
   ecommerce:       "product photography studio white",
   servicos_locais: "professional service business local",
   infoprodutos:    "online learning laptop education",
-  saude_estetica:  "clinic wellness spa modern clean",
+  saude_estetica:  "fitness gym workout healthy lifestyle",
+  academia:        "gym fitness training modern people",
   alimentacao:     "restaurant food delicious meal",
   moda_varejo:     "fashion clothing lifestyle style",
   b2b:             "office business meeting professional",
@@ -153,10 +154,12 @@ const COPY_TO_VISUAL: Array<[RegExp, string]> = [
   [/sushi|japones/i,                                     "sushi japanese food restaurant"],
   [/delivery|entreg/i,                                   "food delivery packaging modern"],
   [/restaurante|cardápio/i,                              "restaurant interior warm lighting"],
-  // Saúde/Estética
+  // Saúde/Estética/Fitness
+  [/academia|fitness|gym|musculação|treino|personal/i,   "fitness gym workout training modern"],
+  [/plano.anual|plano.mensal|assinatura|mensalidade/i,   "gym membership fitness people happy"],
+  [/bem.estar|wellness|saúde.*corpo/i,                   "wellness healthy lifestyle active"],
   [/estética|estetica|beleza|beauty/i,                   "beauty salon aesthetic treatment professional"],
   [/clinica|clínica|médico|saúde/i,                      "modern clinic interior professional"],
-  [/personal|academia|fitness|treino/i,                  "fitness gym workout personal trainer"],
   // Moda
   [/roupa|moda|fashion|vestuário/i,                      "fashion clothing lifestyle editorial"],
   [/calçado|sapato|tenis/i,                              "shoes fashion lifestyle modern"],
@@ -249,10 +252,10 @@ function getPixabayQuery(segment: string, creative: any, creativeIndex: number =
       "digital content creator workspace",
     ],
     saude_estetica:  [
-      "wellness spa interior clean white",
-      "beauty treatment professional modern",
-      "health lifestyle woman confident",
-      "medical consultation professional",
+      "fitness gym workout training modern",
+      "healthy lifestyle active woman smiling",
+      "gym equipment training professional",
+      "wellness body transformation success",
     ],
     alimentacao:     [
       "delicious food photography restaurant",
@@ -1181,11 +1184,12 @@ export async function generateAdImage(
 
   const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
     if (providerToTry === "huggingface") {
-      // Tenta Cloudflare Workers AI primeiro (FLUX gratuito, 10k neurons/dia)
-      if (CF_ACCOUNT_ID && CF_API_TOKEN) {
-        const cfUrl = await generateWithCloudflare(inferPrompt(creative, segment, objective, format), format);
-        if (cfUrl) return cfUrl;
-      }
+      // Cloudflare FLUX desabilitado — modelo gera texto alucinado mesmo com negative_prompt
+      // Pixabay/Google Images retornam fotos reais sem esse problema
+      // Re-habilitar quando FLUX suportar cfg_guidance ou negative_prompt confiável
+      // if (CF_ACCOUNT_ID && CF_API_TOKEN) {
+      //   const cfUrl = await generateWithCloudflare(...);
+      // }
       // HF hf-inference desabilitado — todos os modelos mortos
       return null;
     }
