@@ -1256,6 +1256,30 @@ const competitorsRouter = router({
     }),
 
 
+  // ── RAG Stats — estatísticas de validação de imagens ────────────────────
+  imageRAGStats: adminProcedure
+    .query(async () => {
+      const pool2 = new (require("pg").Pool)({ connectionString: process.env.DATABASE_URL, max: 1 });
+      try {
+        const [totals, bySegment, recent] = await Promise.all([
+          pool2.query(`
+            SELECT validation_status, COUNT(*) as n, AVG(overall_score) as avg_score
+            FROM image_rag_logs GROUP BY validation_status`),
+          pool2.query(`
+            SELECT segment, validation_status, COUNT(*) as n
+            FROM image_rag_logs GROUP BY segment, validation_status ORDER BY segment`),
+          pool2.query(`
+            SELECT image_id, segment, format, validation_status, overall_score, has_text, created_at
+            FROM image_rag_logs ORDER BY created_at DESC LIMIT 20`),
+        ]);
+        const library = await pool2.query(
+          `SELECT segment, format, COUNT(*) as n, AVG(usage_count) as avg_usage
+           FROM approved_images GROUP BY segment, format ORDER BY segment`
+        );
+        return { totals: totals.rows, bySegment: bySegment.rows, recent: recent.rows, library: library.rows };
+      } finally { pool2.end().catch(() => {}); }
+    }),
+
   // ── Diagnóstico de providers de imagem ────────────────────────────────────
   testImageProviders: protectedProcedure
     .mutation(async () => {

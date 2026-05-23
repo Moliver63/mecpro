@@ -890,5 +890,24 @@ export async function runMigrations(): Promise<void> {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_approved_images_seg_fmt ON approved_images(segment, format)`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_approved_images_usage ON approved_images(usage_count DESC)`).catch(() => {});
 
+    // image_rag_logs — auditoria completa das decisões do RAG
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS image_rag_logs (
+        id                SERIAL PRIMARY KEY,
+        image_id          VARCHAR(60) UNIQUE,
+        cloud_url         TEXT,
+        segment           VARCHAR(50),
+        format            VARCHAR(20),
+        validation_status VARCHAR(30), -- approved | pending_validation | rejected
+        overall_score     NUMERIC(4,2),
+        has_text          BOOLEAN DEFAULT false,
+        labels            JSONB   DEFAULT '[]',
+        project_id        INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+        created_at        TIMESTAMP DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_rag_logs_segment ON image_rag_logs(segment, validation_status)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_rag_logs_project ON image_rag_logs(project_id, created_at DESC)`).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }
