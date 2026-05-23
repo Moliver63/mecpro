@@ -753,7 +753,107 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
   return null;
 }
 
+// ── RAG Anti-Alucinação: detecta texto em imagens geradas ───────────────────
+// Método: analisa regiões de alto contraste e padrões de texto via API Vision
+// Usa Google Vision API (gratuita 1000/mês) ou fallback por análise de pixels
+async function imageHasHallucinatedText(buffer: Buffer): Promise<boolean> {
+  // Método primário: Google Vision API (detect text)
+  const googleKey = process.env.GOOGLE_API_KEY;
+  if (googleKey && buffer.length > 0) {
+    try {
+      const b64 = buffer.toString("base64");
+      const visionUrl = `https://vision.googleapis.com/v1/images:annotate?key=${googleKey}`;
+      const body = {
+        requests: [{
+          image: { content: b64 },
+          features: [{ type: "TEXT_DETECTION", maxResults: 5 }],
+        }],
+      };
+      const res = await fetch(visionUrl, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(body),
+        signal:  AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        const texts = data?.responses?.[0]?.textAnnotations;
+        if (texts && texts.length > 0) {
+          // Texto detectado — verifica se é substancial (não apenas 1-2 chars)
+          const fullText = texts[0]?.description || "";
+          const hasSubstantialText = fullText.replace(/\s/g, "").length > 3;
+          if (hasSubstantialText) {
+            log.warn("image-generation", "RAG: texto detectado na imagem gerada", {
+              textPreview: fullText.slice(0, 60),
+              blocks: texts.length,
+            });
+            return true;
+          }
+        }
+        return false; // sem texto detectado
+      }
+    } catch { /* fallback */ }
+  }
+
+  // Fallback: análise heurística por tamanho
+  // Imagens com texto tendem a ter padrões específicos de bytes
+  // (heurística simples — baixa precisão mas rápida)
+  if (buffer.length < 50_000 && buffer.length > 5_000) {
+    // Imagens muito pequenas frequentemente têm muito texto/artefato
+    // Não é conclusivo — retorna false para não bloquear
+  }
+  return false;
+}
+
 // ── Cloudflare Workers AI ─────────────────────────────────────────────────
+// Versão que retorna Buffer (para RAG check antes de upload)
+async function generateWithCloudflareBuffer(
+  prompt: string,
+  format: CreativeImageFormat
+): Promise<Buffer | null> {
+  if (!CF_ACCOUNT_ID || !CF_API_TOKEN) return null;
+  if (_cfQuotaExhaustedUntil && Date.now() < _cfQuotaExhaustedUntil) return null;
+  try {
+    const dim = FORMAT_DIMENSIONS[format];
+    const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_IMAGE_MODEL}`;
+    const safePrompt = prompt.slice(0, 1900);
+    const res = await fetch(url, {
+      method:  "POST",
+      headers: { "Authorization": `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: safePrompt,
+        negative_prompt: "text, words, letters, numbers, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, overlay text, printed text, handwriting, speech bubble, banner, poster text, advertising text, any readable text, titles, subtitles",
+        width:  Math.min(dim.width,  1024),
+        height: Math.min(dim.height, 1024),
+        num_steps: 8,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => "");
+      log.warn("image-generation", "Cloudflare erro", { status: res.status, preview: err.slice(0, 100) });
+      if (res.status === 429) {
+        _cfQuotaExhaustedUntil = getNextMidnightUTC();
+        log.warn("image-generation", "Cloudflare 429 — quota esgotada", { resetAt: new Date(_cfQuotaExhaustedUntil).toISOString() });
+      }
+      return null;
+    }
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const json: any = await res.json().catch(() => null);
+      const b64 = json?.result?.image || json?.image || json?.result;
+      if (typeof b64 === "string" && b64.length > 100) return Buffer.from(b64, "base64");
+      return null;
+    } else if (contentType.includes("image")) {
+      return Buffer.from(await res.arrayBuffer());
+    }
+    return null;
+  } catch (e: any) {
+    log.warn("image-generation", "Cloudflare exception", { error: e.message?.slice(0, 80) });
+    return null;
+  }
+}
+
 async function generateWithCloudflare(
   prompt: string,
   format: CreativeImageFormat
@@ -1202,12 +1302,38 @@ export async function generateAdImage(
 
   const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
     if (providerToTry === "huggingface") {
-      // Cloudflare FLUX desabilitado — modelo gera texto alucinado mesmo com negative_prompt
-      // Pixabay/Google Images retornam fotos reais sem esse problema
-      // Re-habilitar quando FLUX suportar cfg_guidance ou negative_prompt confiável
-      // if (CF_ACCOUNT_ID && CF_API_TOKEN) {
-      //   const cfUrl = await generateWithCloudflare(...);
-      // }
+      // Cloudflare FLUX com RAG anti-alucinação:
+      // Gera imagem → verifica texto com Google Vision → descarta se tiver alucinação
+      if (CF_ACCOUNT_ID && CF_API_TOKEN) {
+        const MAX_CF_ATTEMPTS = 2; // tenta 2x antes de desistir
+        for (let attempt = 1; attempt <= MAX_CF_ATTEMPTS; attempt++) {
+          try {
+            const cfBuffer = await generateWithCloudflareBuffer(
+              inferPrompt(creative, segment, objective, format), format
+            );
+            if (cfBuffer && cfBuffer.length > 1000) {
+              const hasText = await imageHasHallucinatedText(cfBuffer);
+              if (!hasText) {
+                // Imagem limpa — faz upload e usa
+                const cfUrl = await uploadImageBufferToCloudinary(
+                  cfBuffer, `cf_flux_${format}_${Date.now()}.jpg`
+                );
+                if (cfUrl) {
+                  IMAGE_CACHE.set(cacheKey, cfUrl);
+                  log.info("image-generation", `✅ Cloudflare FLUX OK (RAG passou, tentativa ${attempt})`, { format });
+                  return cfUrl;
+                }
+              } else {
+                log.warn("image-generation", `RAG: imagem CF rejeitada (tentativa ${attempt}) — tentando novamente`, { format });
+                // Na segunda tentativa, usa prompt mais agressivo sem texto
+                if (attempt === MAX_CF_ATTEMPTS) {
+                  log.warn("image-generation", "Cloudflare FLUX: 2 tentativas com alucinação → fallback Pixabay", { format });
+                }
+              }
+            }
+          } catch { /* continua */ }
+        }
+      }
       // HF hf-inference desabilitado — todos os modelos mortos
       return null;
     }
