@@ -6567,8 +6567,12 @@ Gere JSON com:
     const parsedCreatives = JSON.parse(creatives || "[]");
     if (Array.isArray(parsedCreatives) && parsedCreatives.length > 0) {
       const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsedCreatives, {
-        objective: input.objective,
-        segment: input.extraContext || (clientProfile as any)?.niche || input.name,
+        objective:      input.objective,
+        segment:        input.segment || input.extraContext || (clientProfile as any)?.niche || input.name,
+        productName:    (clientProfile as any)?.productName    || "",
+        productService: (clientProfile as any)?.productService || "",
+        niche:          (clientProfile as any)?.niche          || "",
+        city:           (clientProfile as any)?.city           || "",
       });
       const creativesWithV2 = enrichedCreatives.map((rawCreative: any) => {
         let creative = rawCreative as CampaignCreative;
@@ -7565,9 +7569,13 @@ function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string
 async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   objective: string;
   segment: string;
+  productName?: string;
+  productService?: string;
+  niche?: string;
+  city?: string;
 }) {
   // ── Validação de compliance e segmento nas copies geradas ──────────────────
-  const segment = (input as any).segment || (context as any)?.segment || "";
+  const segment = context?.segment || "";
   const segRule  = (SEGMENT_COPY_RULES as any)[segment];
 
   function auditCopy(creative: any): { complianceIssues: string[]; forbiddenFound: string[]; hasPlaceholder: boolean } {
