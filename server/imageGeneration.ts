@@ -753,6 +753,65 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
   return null;
 }
 
+// ── Banco de imagens aprovadas pelo RAG ──────────────────────────────────────
+// Salva imagens validadas e reutiliza antes de gerar novas
+import { Pool } from "pg";
+const _imageDbPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+
+async function saveApprovedImage(opts: {
+  cloudUrl: string; segment: string; format: string;
+  query: string; provider: string; bytes: number;
+}): Promise<void> {
+  try {
+    await _imageDbPool.query(
+      `INSERT INTO approved_images (cloud_url, segment, format, query, provider, bytes)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT DO NOTHING`,
+      [opts.cloudUrl, opts.segment, opts.format, opts.query, opts.provider, opts.bytes]
+    );
+    log.info("image-generation", "💾 Imagem aprovada salva no banco", {
+      segment: opts.segment, format: opts.format, provider: opts.provider,
+    });
+  } catch { /* silencioso */ }
+}
+
+async function getApprovedImage(
+  segment: string, format: string, excludeUrl?: string
+): Promise<string | null> {
+  try {
+    const res = await _imageDbPool.query(
+      `SELECT id, cloud_url FROM approved_images
+       WHERE segment = $1 AND format = $2
+       ${excludeUrl ? "AND cloud_url != $3" : ""}
+       ORDER BY usage_count ASC, RANDOM()
+       LIMIT 5`,
+      excludeUrl ? [segment, format, excludeUrl] : [segment, format]
+    );
+    if (!res.rows.length) return null;
+    // Escolhe aleatoriamente entre as 5 menos usadas (diversidade)
+    const row = res.rows[Math.floor(Math.random() * res.rows.length)];
+    // Incrementa contador de uso
+    await _imageDbPool.query(
+      `UPDATE approved_images SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = $1`,
+      [row.id]
+    ).catch(() => {});
+    log.info("image-generation", "♻️ Imagem reutilizada do banco", {
+      segment, format, url: row.cloud_url.slice(0, 60),
+    });
+    return row.cloud_url;
+  } catch { return null; }
+}
+
+async function countApprovedImages(segment: string, format: string): Promise<number> {
+  try {
+    const res = await _imageDbPool.query(
+      "SELECT COUNT(*) as n FROM approved_images WHERE segment = $1 AND format = $2",
+      [segment, format]
+    );
+    return parseInt(res.rows[0]?.n || "0");
+  } catch { return 0; }
+}
+
 // ── RAG Anti-Alucinação: detecta texto em imagens geradas ───────────────────
 // Método: analisa regiões de alto contraste e padrões de texto via API Vision
 // Usa Google Vision API (gratuita 1000/mês) ou fallback por análise de pixels
@@ -1321,6 +1380,12 @@ export async function generateAdImage(
                 if (cfUrl) {
                   IMAGE_CACHE.set(cacheKey, cfUrl);
                   log.info("image-generation", `✅ Cloudflare FLUX OK (RAG passou, tentativa ${attempt})`, { format });
+                  // Salva no banco para reutilização futura
+                  await saveApprovedImage({
+                    cloudUrl: cfUrl, segment: segment || "outro", format,
+                    query: getPixabayQuery(segment, creative, creativeIdx, productContext),
+                    provider: "cloudflare", bytes: cfBuffer.length,
+                  });
                   return cfUrl;
                 }
               } else {
@@ -1384,6 +1449,18 @@ export async function generateAdImage(
     // Penúltima tentativa: Pixabay foto + vídeo (CC0 — licença comercial, automação permitida)
     // creativeIndex varia por criativo para garantir imagens diferentes
     const creativeIdx = typeof creative?.creativeIndex === "number" ? creative.creativeIndex : (creative?.index ?? 0);
+
+    // ── Tenta reutilizar imagem aprovada do banco (evita regerar) ─────────────
+    // Só reutiliza se tiver pelo menos 3 imagens no banco (garante diversidade)
+    const dbCount = await countApprovedImages(segment || "outro", format);
+    if (dbCount >= 3) {
+      const cachedUrl = await getApprovedImage(segment || "outro", format, IMAGE_CACHE.get(cacheKey) || undefined);
+      if (cachedUrl) {
+        IMAGE_CACHE.set(cacheKey, cachedUrl);
+        return cachedUrl;
+      }
+    }
+
     const pixabayQuery = getPixabayQuery(segment, creative, creativeIdx, productContext);
     // Tenta foto primeiro
     const pixabayResult = await searchPixabay(pixabayQuery, format, creativeIdx);
@@ -1396,6 +1473,12 @@ export async function generateAdImage(
       log.info("image-generation", "✅ Pixabay foto OK", {
         query: pixabayQuery, credit: pixabayResult.credit, format,
         rehosted: !!rehostedUrl,
+      });
+      // Salva no banco — Pixabay CC0 também são imagens aprovadas
+      await saveApprovedImage({
+        cloudUrl: finalPixUrl, segment: segment || "outro", format,
+        query: pixabayQuery, provider: "pixabay",
+        bytes: 0,
       });
       return finalPixUrl;
     }

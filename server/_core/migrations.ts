@@ -872,5 +872,23 @@ export async function runMigrations(): Promise<void> {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_system_errors_created   ON system_errors(created_at DESC)`).catch(() => {});
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_system_errors_fingerprint_unique ON system_errors(fingerprint)`).catch(() => {});
 
+    // approved_images — biblioteca RAG de imagens validadas
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS approved_images (
+        id           SERIAL PRIMARY KEY,
+        cloud_url    TEXT NOT NULL,
+        segment      VARCHAR(50),
+        format       VARCHAR(20),
+        query        TEXT,
+        provider     VARCHAR(30) DEFAULT 'cloudflare',
+        bytes        INTEGER,
+        usage_count  INTEGER DEFAULT 0,
+        created_at   TIMESTAMP DEFAULT NOW(),
+        last_used_at TIMESTAMP
+      )
+    `).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_approved_images_seg_fmt ON approved_images(segment, format)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_approved_images_usage ON approved_images(usage_count DESC)`).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

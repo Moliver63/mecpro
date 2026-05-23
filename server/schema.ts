@@ -444,3 +444,21 @@ export const userBudgetDist = pgTable("user_budget_dist", {
 });
 
 export type AppSetting = typeof appSettings.$inferSelect;
+
+// ── Biblioteca de imagens aprovadas pelo RAG ──────────────────────────────
+// Imagens geradas que passaram no TEXT_DETECTION do Google Vision
+// São reutilizadas em campanhas futuras do mesmo segmento/formato
+export const approvedImages = pgTable("approved_images", {
+  id:           serial("id").primaryKey(),
+  cloudUrl:     text("cloud_url").notNull(),
+  segment:      varchar("segment", { length: 50 }),
+  format:       varchar("format",  { length: 20 }),
+  query:        text("query"),
+  provider:     varchar("provider",{ length: 30 }).default("cloudflare"),
+  bytes:        integer("bytes"),
+  usageCount:   integer("usage_count").default(0),
+  createdAt:    timestamp("created_at").defaultNow(),
+  lastUsedAt:   timestamp("last_used_at"),
+});
+
+export type ApprovedImage = typeof approvedImages.$inferSelect;
