@@ -159,6 +159,8 @@ export default function CampaignResult() {
   const [showOverlay,  setShowOverlay]  = useState(true); // toggle overlay de texto nas imagens
   const [linkUrl,      setLinkUrl]      = useState("");
   const [adSetIndex,   setAdSetIndex]   = useState(0);
+  const [selectedAdSets, setSelectedAdSets] = useState<number[]>([0]); // checkboxes
+  const [publishAllMode,  setPublishAllMode]  = useState(false); // "publicar todos"
 
   const [pages,        setPages]        = useState<{id:string; name:string}[]>([]);
   const [loadingPages, setLoadingPages] = useState(false);
@@ -885,11 +887,38 @@ export default function CampaignResult() {
         geoRadius: locationMode === "raio" ? geoRadius : undefined,
       };
 
+      // Determina quais adSets publicar
+      const adSetsToPublish = publishAllMode
+        ? (Array.isArray(adSets) ? adSets.map((_: any, i: number) => i) : [0])
+        : selectedAdSets.length > 0 ? selectedAdSets : [adSetIndex];
+
       // Multi-página: publica em todas as páginas selecionadas
       if (multiPageMode && selectedPageIds.length > 1) {
         await handlePublishMultiPage(selectedPageIds);
+      } else if (adSetsToPublish.length > 1) {
+        // Publicar múltiplos adSets em sequência
+        let successCount = 0;
+        for (const idx of adSetsToPublish) {
+          try {
+            await publishMutation.mutateAsync({
+              ...publishPayload,
+              adSetIndex: idx,
+            } as any);
+            successCount++;
+            toast.success(`✓ Conjunto ${idx + 1}/${adSetsToPublish.length} publicado`);
+          } catch (err: any) {
+            const adSetName = Array.isArray(adSets) ? (adSets[idx]?.name || `Conjunto ${idx + 1}`) : `Conjunto ${idx + 1}`;
+            toast.error(`✗ Erro no conjunto "${adSetName}": ${err?.message?.slice(0, 80) || "Erro desconhecido"}`);
+          }
+        }
+        if (successCount > 0) {
+          toast.success(`🎉 ${successCount} de ${adSetsToPublish.length} conjuntos publicados com sucesso!`);
+        }
       } else {
-        await publishMutation.mutateAsync(publishPayload as any);
+        await publishMutation.mutateAsync({
+          ...publishPayload,
+          adSetIndex: adSetsToPublish[0] ?? adSetIndex,
+        } as any);
       }
     } finally { setPublishing(false); }
   }
@@ -3597,13 +3626,93 @@ ${sc.cta}`); }}
                   </div>
                 </div>
 
-                {/* Seleção de ad set */}
-                {Array.isArray(adSets) && adSets.length > 1 && (
+                {/* Seleção de conjuntos de anúncio — checkboxes + publicar todos */}
+                {Array.isArray(adSets) && adSets.length > 0 && (
                   <div style={{ marginBottom: 16 }}>
-                    <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Conjunto de anúncios</label>
-                    <select className="input" style={{ width: "100%" }} value={adSetIndex} onChange={e => setAdSetIndex(Number(e.target.value))}>
-                      {adSets.map((s: any, i: number) => <option key={i} value={i}>{s.name || `Conjunto ${i + 1}`}</option>)}
-                    </select>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)" }}>
+                        📦 Conjuntos de anúncios
+                      </label>
+                      <button
+                        onClick={() => {
+                          const all = !publishAllMode;
+                          setPublishAllMode(all);
+                          setSelectedAdSets(all ? adSets.map((_: any, i: number) => i) : [adSetIndex]);
+                        }}
+                        style={{
+                          fontSize: 11, fontWeight: 700, cursor: "pointer",
+                          background: publishAllMode ? "#16a34a" : "var(--off)",
+                          color: publishAllMode ? "white" : "var(--muted)",
+                          border: `1px solid ${publishAllMode ? "#16a34a" : "var(--border)"}`,
+                          borderRadius: 20, padding: "3px 12px", transition: "all .15s",
+                        }}>
+                        {publishAllMode ? "✓ Publicar todos" : "Publicar todos"}
+                      </button>
+                    </div>
+                    <div style={{
+                      border: "1px solid var(--border)", borderRadius: 10,
+                      overflow: "hidden", background: "var(--off)",
+                    }}>
+                      {adSets.map((s: any, i: number) => {
+                        const checked = publishAllMode || selectedAdSets.includes(i);
+                        return (
+                          <label key={i} style={{
+                            display: "flex", alignItems: "center", gap: 10,
+                            padding: "10px 14px", cursor: "pointer",
+                            borderBottom: i < adSets.length - 1 ? "1px solid var(--border)" : "none",
+                            background: checked ? "rgba(22,163,74,.06)" : "transparent",
+                            transition: "background .1s",
+                          }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                if (publishAllMode) {
+                                  // sair do modo "todos" e desmarcar este
+                                  setPublishAllMode(false);
+                                  setSelectedAdSets(adSets.map((_: any, j: number) => j).filter((j: number) => j !== i));
+                                } else {
+                                  setSelectedAdSets(prev =>
+                                    prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]
+                                  );
+                                  setAdSetIndex(i); // atualiza o índice principal
+                                }
+                              }}
+                              style={{ accentColor: "#16a34a", width: 16, height: 16, flexShrink: 0 }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: checked ? 700 : 500,
+                                color: checked ? "var(--black)" : "var(--muted)",
+                                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {s.name || `Conjunto ${i + 1}`}
+                              </div>
+                              {s.audience && (
+                                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2,
+                                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  {String(s.audience).slice(0, 60)}
+                                </div>
+                              )}
+                            </div>
+                            {s.budget && (
+                              <div style={{ fontSize: 11, fontWeight: 700,
+                                color: checked ? "#16a34a" : "var(--muted)", flexShrink: 0 }}>
+                                {s.budget}
+                              </div>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {!publishAllMode && selectedAdSets.length === 0 && (
+                      <p style={{ fontSize: 11, color: "#dc2626", marginTop: 6 }}>
+                        ⚠️ Selecione ao menos um conjunto para publicar.
+                      </p>
+                    )}
+                    {(publishAllMode || selectedAdSets.length > 1) && (
+                      <p style={{ fontSize: 11, color: "#16a34a", marginTop: 6, fontWeight: 600 }}>
+                        ✓ {publishAllMode ? adSets.length : selectedAdSets.length} conjuntos serão publicados em sequência.
+                      </p>
+                    )}
                   </div>
                 )}
 
