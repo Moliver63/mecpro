@@ -15,6 +15,7 @@ import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
+import { auditCreative, assertCreativeValid } from "../adAudit";
 import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
   updateCreativeInputSchema,
@@ -3323,12 +3324,48 @@ const campaignsRouter = router({
       const selectedDescription = placementKey === "stories" || placementKey === "reels"
         ? (((adCopy as any).stories?.script || [])[2] || adCopy.feed.copy || "")
         : adCopy.feed.copy;
+      // ── Auditoria automática de copy antes de enviar ao Meta ────────────────
+      const creativeAudit = auditCreative({
+        headline:    selectedHeadline,
+        primaryText: selectedMessage,
+        description: selectedDescription || "",
+        cta:         adCopy.feed?.cta || "Saiba mais",
+        imageUrl:    input.imageUrl || undefined,
+        format:      placementKey === "stories" ? "stories" : "feed",
+        objective,
+      });
+
+      // Usa copy corrigida em vez da original
+      const auditedMessage     = creativeAudit.correctedPayload.message;
+      const auditedHeadline    = creativeAudit.correctedPayload.headline;
+      const auditedDescription = creativeAudit.correctedPayload.description;
+
+      if (creativeAudit.totalIssues > 0) {
+        log.info("meta", `Ad Audit: ${creativeAudit.summary}`, {
+          issues: creativeAudit.totalIssues,
+          critical: creativeAudit.criticalCount,
+          warnings: creativeAudit.warningCount,
+        });
+      }
+
+      // Bloqueia publicação se houver erros críticos
+      if (creativeAudit.blockPublish) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: creativeAudit.summary + " — " +
+            creativeAudit.copyAudit.issues
+              .filter(i => i.severity === "critical")
+              .map(i => i.message).join("; "),
+        });
+      }
+
       log.info("meta", "adCopy gerado", {
         hasRealCopy: adCopy.hasRealCopy,
         placementKey,
-        messagePreview: selectedMessage.slice(0, 60),
-        headline: selectedHeadline.slice(0, 40),
+        messagePreview: auditedMessage.slice(0, 60),
+        headline: auditedHeadline.slice(0, 40),
         creativeScore: creativeScore?.finalScore || null,
+        auditIssues: creativeAudit.totalIssues,
       });
       // ── Budget por adSet — usa percentual do adSet sobre o total da campanha ──
       // adSet.budget pode ser: "33% do total", 33, "R$ 100", etc.
@@ -3853,7 +3890,7 @@ const campaignsRouter = router({
             page_id: input.pageId,
             link_data: {
               link:               finalLink,
-              message:            selectedMessage,
+              message:            auditedMessage,
               child_attachments,
               // multi_share_end_card: false — remove card final de perfil automático
               multi_share_end_card: false,
@@ -3957,7 +3994,7 @@ const campaignsRouter = router({
 
             const videoDataPayload: Record<string, any> = {
               video_id:       effectiveVideoId,
-              message:        selectedMessage,
+              message:        auditedMessage,
               title:          selectedHeadline,
               call_to_action: isWhatsAppDestination
                 // WHATSAPP_MESSAGE em video_data: apenas type, sem value (API rejeita link)
@@ -3985,8 +4022,8 @@ const campaignsRouter = router({
             storySpec = {
               page_id: input.pageId,
               link_data: {
-                message:        selectedMessage,
-                name:           selectedHeadline,
+                message:        auditedMessage,
+                name:           auditedHeadline,
                 link:           linkForCreative,
                 call_to_action: isWhatsAppDestination
                   ? { type: "WHATSAPP_MESSAGE" }
