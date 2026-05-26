@@ -3974,14 +3974,21 @@ const campaignsRouter = router({
             };
             log.info("meta", "Criativo vídeo via video_data", { videoId: effectiveVideoId, pageId: input.pageId, hasThumb: !!(videoThumbHash || videoThumbUrl) });
           } else {
+            // CRÍTICO: Meta rejeita wa.me como link em link_data com OUTCOME_TRAFFIC
+            // Quando destino é WhatsApp: link deve ser URL da página Facebook ou website
+            // A ação WhatsApp é configurada via call_to_action WHATSAPP_MESSAGE
+            const linkForCreative = isWhatsAppDestination
+              ? (normalizeDestinationUrl(clientProfile?.websiteUrl) ||
+                 `https://www.facebook.com/${input.pageId}`)
+              : finalLink;
+
             storySpec = {
               page_id: input.pageId,
               link_data: {
                 message:        selectedMessage,
                 name:           selectedHeadline,
-                link:           finalLink,
+                link:           linkForCreative,
                 call_to_action: isWhatsAppDestination
-                  // WHATSAPP_MESSAGE em link_data: apenas type, sem value com link
                   ? { type: "WHATSAPP_MESSAGE" }
                   : {
                     type: noLinkRequired && !effectiveLink ? "LEARN_MORE" : ctaType,
@@ -3994,6 +4001,11 @@ const campaignsRouter = router({
                     : {}),
               },
             };
+            if (isWhatsAppDestination) {
+              log.info("meta", "WhatsApp creative: link substituído por página/website", {
+                original: finalLink?.slice(0,40), used: linkForCreative?.slice(0,40),
+              });
+            }
           }
         }
       }
