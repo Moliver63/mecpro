@@ -896,23 +896,32 @@ export default function CampaignResult() {
       if (multiPageMode && selectedPageIds.length > 1) {
         await handlePublishMultiPage(selectedPageIds);
       } else if (adSetsToPublish.length > 1) {
-        // Publicar múltiplos adSets em sequência
+        // Publicar múltiplos adSets em sequência — todos dentro da MESMA campanha Meta
         let successCount = 0;
-        for (const idx of adSetsToPublish) {
+        let sharedMetaCampaignId: string | undefined = undefined; // reutilizado após 1ª publicação
+
+        for (let pos = 0; pos < adSetsToPublish.length; pos++) {
+          const idx = adSetsToPublish[pos];
+          const adSetName = Array.isArray(adSets) ? (adSets[idx]?.name || `Conjunto ${idx + 1}`) : `Conjunto ${idx + 1}`;
           try {
-            await publishMutation.mutateAsync({
+            const result = await publishMutation.mutateAsync({
               ...publishPayload,
               adSetIndex: idx,
+              // A partir do 2º adSet, reutiliza a campanha criada no 1º
+              ...(sharedMetaCampaignId ? { existingMetaCampaignId: sharedMetaCampaignId } : {}),
             } as any);
+            // Captura o metaCampaignId do 1º para reutilizar nos seguintes
+            if (pos === 0 && (result as any)?.campaignId) {
+              sharedMetaCampaignId = (result as any).campaignId;
+            }
             successCount++;
-            toast.success(`✓ Conjunto ${idx + 1}/${adSetsToPublish.length} publicado`);
+            toast.success(`✓ Conjunto ${pos + 1}/${adSetsToPublish.length}: "${adSetName}" publicado`);
           } catch (err: any) {
-            const adSetName = Array.isArray(adSets) ? (adSets[idx]?.name || `Conjunto ${idx + 1}`) : `Conjunto ${idx + 1}`;
             toast.error(`✗ Erro no conjunto "${adSetName}": ${err?.message?.slice(0, 80) || "Erro desconhecido"}`);
           }
         }
         if (successCount > 0) {
-          toast.success(`🎉 ${successCount} de ${adSetsToPublish.length} conjuntos publicados com sucesso!`);
+          toast.success(`🎉 ${successCount} de ${adSetsToPublish.length} conjuntos publicados na mesma campanha!`);
         }
       } else {
         await publishMutation.mutateAsync({

@@ -3443,7 +3443,7 @@ const campaignsRouter = router({
         ? await resolveBrazilRegionKeys(token, input.regions || [])
         : [];
 
-      // 1. Campaign
+      // 1. Campaign — reutiliza se existingMetaCampaignId fornecido (publicação de múltiplos adSets)
       const campaignObjective = resolvedCampaignObj;
       const campaignName = (extra?.campaignName || c.name)
         .slice(0, 100)
@@ -3452,22 +3452,30 @@ const campaignsRouter = router({
         .replace(/\s+/g, " ")
         .trim();
 
-      log.info("meta", "Campaign payload debug", {
-        accountId,
-        objective: campaignObjective,
-        name: campaignName,
-        tokenPrefix: token.slice(0, 20)
-      });
+      let metaCampaignId: string;
 
-      const campData = await metaPost<any>(`${accountId}/campaigns`, {
-        name:                  campaignName,
-        objective:             campaignObjective,
-        status:                "PAUSED",
-        special_ad_categories: [],
-        is_adset_budget_sharing_enabled: false,
-        access_token:          token,
-      }, "Campaign");
-      const metaCampaignId = campData.id;
+      if ((input as any).existingMetaCampaignId) {
+        // Reutiliza campanha já criada — não cria nova
+        metaCampaignId = (input as any).existingMetaCampaignId;
+        log.info("meta", "♻️ Reutilizando campanha existente", {
+          metaCampaignId, adSetIndex: input.adSetIndex,
+        });
+      } else {
+        // Cria nova campanha
+        log.info("meta", "Campaign payload debug", {
+          accountId, objective: campaignObjective,
+          name: campaignName, tokenPrefix: token.slice(0, 20),
+        });
+        const campData = await metaPost<any>(`${accountId}/campaigns`, {
+          name:                  campaignName,
+          objective:             campaignObjective,
+          status:                "PAUSED",
+          special_ad_categories: [],
+          is_adset_budget_sharing_enabled: false,
+          access_token:          token,
+        }, "Campaign");
+        metaCampaignId = campData.id;
+      }
 
       // 2. Ad Set
       const adSetName = (adSet?.name || `${c.name} — Conjunto 1`)

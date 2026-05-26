@@ -357,6 +357,7 @@ export const publishToMetaInputSchema = z.object({
   videoThumbnailHash: optionalString,
   pixelId: optionalString,
   adSetIndex: z.number().int().min(0).default(0),
+  existingMetaCampaignId: z.string().optional(), // reutiliza campanha existente
   creativeIndex: z.number().int().min(0).optional().nullable(),
   placementMode: placementModeSchema.optional().nullable(),
   placements: z.array(z.string()).optional().nullable(),
