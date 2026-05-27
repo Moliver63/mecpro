@@ -3610,28 +3610,21 @@ const campaignsRouter = router({
               // - audience_network rewarded_video: exige vídeo
               // - threads_feed: exige conta Threads conectada
               // Solução: usar publisher_platforms explícito sem os posicionamentos problemáticos
-              const hasVideo   = !!effectiveVideoId;
-              const isCarousel = (imageHashes?.length || 0) > 1 || (input as any).isCarousel;
-
-              // Posicionamentos seguros para imagem estática
-              const safeFbPositions = ["feed", "story", "marketplace", "search"];
-              const safeIgPositions = ["stream", "story", "explore", "reels"];
-
-              // WhatsApp Status: aceita single image mas NÃO carrossel
-              const fbMessengerPos = isCarousel ? [] : ["fb_messenger_inbox"];
-
+              // Posicionamentos seguros — excluídos os incompatíveis:
+              // - audience_network: qualidade baixa para imagem estática
+              // - threads_feed: requer conta Threads conectada
+              // - whatsapp_status: carrossel não suportado
+              // - messenger_stories: requer imagem 9:16
               log.info("meta", "Posicionamento Advantage+ (automático)", {
                 mode: "advantage_plus",
-                hasVideo, isCarousel,
                 note: "Posicionamentos incompatíveis excluídos automaticamente",
               });
 
               return {
                 device_platforms:    ["mobile", "desktop"],
                 publisher_platforms: ["facebook", "instagram"],
-                facebook_positions:  safeFbPositions,
-                instagram_positions: safeIgPositions,
-                // audience_network, threads, whatsapp_status, messenger_stories: EXCLUÍDOS
+                facebook_positions:  ["feed", "story", "marketplace", "search"],
+                instagram_positions: ["stream", "story", "explore", "reels"],
               };
             }
             // Manual: mapeia IDs internos → publisher_platforms + positions Meta API
