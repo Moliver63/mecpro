@@ -178,7 +178,7 @@ export default function LandingNormal() {
         <div style={{background:OFFBG,borderTop:"1px solid "+BORDER,borderBottom:"1px solid "+BORDER,padding:"14px 24px"}}>
           <div style={{maxWidth:1080,margin:"0 auto",display:"flex",alignItems:"center",gap:20,flexWrap:"wrap",justifyContent:"center"}}>
             <span style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:1}}>Confiado por</span>
-            {["500+ Agencias","E-commerce","SaaS","Consultorias","Freelancers"].map(l=>(
+            {["Agencias","E-commerce","SaaS","Consultorias","Freelancers"].map(l=>(
               <span key={l} style={{fontSize:13,fontWeight:600,color:MUTED}}>{l}</span>
             ))}
             <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:4}}>
@@ -192,10 +192,10 @@ export default function LandingNormal() {
         <section style={{background:DARK,padding:"48px 24px"}}>
           <div className="lstats" style={{maxWidth:1080,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:32,textAlign:"center"}}>
             {[
-              {v:"500+",    l:"Agencias ativas"},
-              {v:"10.000+", l:"Campanhas geradas"},
+              {v:"Multi",   l:"Segmentos atendidos"},
+              {v:"Meta+Google+TikTok", l:"Plataformas integradas"},
               {v:"7 camadas",l:"Pipeline de IA"},
-              {v:"99,9%",   l:"Uptime garantido"},
+              {v:"24/7",    l:"Plataforma em nuvem"},
             ].map(s=>(
               <div key={s.v}>
                 <div style={{fontSize:32,fontWeight:800,color:"#4ade80",letterSpacing:"-1px",marginBottom:6}}>{s.v}</div>

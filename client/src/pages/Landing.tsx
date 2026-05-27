@@ -328,7 +328,7 @@ export default function Landing() {
           <div style={{maxWidth:1080,margin:"0 auto",display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
             <span style={{fontSize:11,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:.8,whiteSpace:"nowrap"}}>Confiado por</span>
             <div style={{width:1,height:18,background:"#e5e7eb"}}/>
-            {["500+ Agências","E-commerces","Consultorias","Freelancers","SaaS"].map(l=>(
+            {["Agências","E-commerces","Consultorias","Freelancers","SaaS"].map(l=>(
               <span key={l} style={{fontSize:14,fontWeight:600,color:"#6b7280"}}>{l}</span>
             ))}
             <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
@@ -341,7 +341,7 @@ export default function Landing() {
         {/* ══ STATS ══════════════════════════════════════════════════════════ */}
         <section style={{background:"#111",padding:"52px 24px"}}>
           <div style={{maxWidth:1080,margin:"0 auto",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:24,textAlign:"center"}} className="grid-4">
-            {[{v:"500+",l:"Agências ativas"},{v:"10.000+",l:"Campanhas geradas"},{v:"7 camadas",l:"Pipeline de IA"},{v:fmt(maxCredit),l:"Crédito máximo/ano"}].map(s=>(
+            {[{v:"4",l:"Módulos de IA"},{v:"Meta+Google+TikTok",l:"Plataformas integradas"},{v:"7 camadas",l:"Pipeline de IA"},{v:fmt(maxCredit),l:"Crédito máximo/ano"}].map(s=>(
               <div key={s.v}>
                 <div style={{fontSize:30,fontWeight:900,color:"#4ade80",letterSpacing:-1}}>{s.v}</div>
                 <div style={{fontSize:12,color:"#6b7280",marginTop:6}}>{s.l}</div>
