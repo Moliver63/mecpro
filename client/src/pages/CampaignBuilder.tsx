@@ -10,11 +10,11 @@ import IntelligenceRecommendation from "@/components/IntelligenceRecommendation"
 import CreativeDistributionPanel from "@/components/CreativeDistributionPanel";
 
 const OBJECTIVES = [
-  { value: "leads",       label: "Captação de leads",    icon: "🎯", desc: "Formulários, landing pages" },
-  { value: "sales",       label: "Vendas diretas",        icon: "◈", desc: "E-commerce, checkout" },
-  { value: "branding",    label: "Branding / alcance",    icon: "📢", desc: "Reconhecimento de marca" },
-  { value: "traffic",     label: "Tráfego para site",     icon: "🌐", desc: "Blog, conteúdo, SEO" },
-  { value: "engagement",  label: "Engajamento",           icon: "❤️", desc: "Curtidas, comentários, shares" },
+  { value: "leads",       label: "Captação de leads",    icon: "🎯", desc: "WhatsApp, formulários, landing pages — gera contatos qualificados" },
+  { value: "sales",       label: "Vendas diretas",        icon: "🛒", desc: "E-commerce, checkout, venda online direta" },
+  { value: "branding",    label: "Branding / Alcance",    icon: "📢", desc: "Reconhecimento de marca, alcançar mais pessoas" },
+  { value: "traffic",     label: "Tráfego para site",     icon: "🌐", desc: "Levar visitantes ao site, blog ou landing page" },
+  { value: "engagement",  label: "Engajamento",           icon: "❤️", desc: "Curtidas, comentários, mensagens e compartilhamentos" },
 ];
 
 const PLATFORMS = [

@@ -67,10 +67,14 @@ export interface SegmentDefinition {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const SEGMENT_FALLBACK: SegmentCopy = {
-  headlines:       ["Conheça nossa solução", "Fale com um especialista"],
-  shortCopies:     ["Descubra como podemos ajudar seu negócio a crescer."],
-  ctaLeads:        ["Quero saber mais", "Falar com especialista"],
-  ctaSales:        ["Comprar agora", "Ver oferta"],
+  headlines:       [
+    "Conheça a solução ideal para você",
+    "Fale agora com um especialista",
+    "Resultados reais para o seu negócio",
+  ],
+  shortCopies:     ["Descubra como podemos ajudar seu negócio a crescer com mais eficiência."],
+  ctaLeads:        ["Quero saber mais", "Falar com especialista", "Solicitar informações"],
+  ctaSales:        ["Comprar agora", "Ver oferta", "Garantir meu acesso"],
   hookDirective:   "dor do cliente + solução clara + CTA direto",
   forbidden:       [],
   compliance:      "Sem promessas de resultado garantido.",
@@ -133,11 +137,12 @@ COMPLIANCE: Sem valorização garantida. Sem "melhor preço" sem comprovação.`
     desc:  "Apartamentos, casas, salas para alugar",
     copy: {
       headlines: [
-        "Apartamento disponível em [bairro]",
-        "Alugar ficou mais fácil",
-        "Imóvel pronto para morar",
-        "Sem fiador, entrada facilitada",
-        "Disponibilidade imediata",
+        "Apartamento em [bairro] disponível agora",
+        "Alugar ficou mais fácil em [cidade]",
+        "Imóvel pronto para morar, sem burocracia",
+        "Sem fiador: entrada facilitada em [bairro]",
+        "Disponibilidade imediata — agende sua visita",
+        "Seu próximo lar em [cidade] te espera",
       ],
       shortCopies: [
         "Apartamento disponível agora em [bairro]. [X] suítes, [Y]m², vaga inclusa. Sem burocracia. Agende sua visita hoje.",
@@ -391,7 +396,7 @@ COMPLIANCE: Foto real do produto. Álcool: restrição de idade.`,
     desc:  "Roupas, calçados, acessórios",
     copy: {
       headlines: [
-        "Nova coleção chegou",
+        "Nova coleção chegou — confira já",
         "Frete grátis em toda a loja",
         "[Peça] com [X]% off hoje",
         "Estoque limitado — garanta já",
@@ -434,7 +439,7 @@ COMPLIANCE: Fotos reais. Sem discriminação de tamanho/corpo.`,
     copy: {
       headlines: [
         "Reduza [X]% de [processo] hoje",
-        "+500 empresas já usam",
+        "Empresas líderes já usam esta solução",
         "Demo gratuita disponível",
         "ROI comprovado em [setor]",
         "Case: como [empresa] cresceu [X]%",

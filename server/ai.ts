@@ -6418,8 +6418,12 @@ Gere JSON com:
 - campaignName: string
 - adSets: array {name, audience, budget(%), objective, funnelStage}
 - creatives: EXATAMENTE 4 itens com copies COMPLETAMENTE DIFERENTES entre si
-  {type, format, orientation, headline(max 40 chars), copy(max 200 chars), hook, cta, funnelStage, complianceScore, targetAudience, angle}
-  OBRIGATÓRIO: headline de cada criativo deve ser única e diferente das outras
+  {type, format, orientation, headline, copy(max 200 chars), hook, cta, funnelStage, complianceScore, targetAudience, angle}
+  HEADLINE OBRIGATÓRIO: entre 25 e 40 caracteres, impactante e específica para o produto
+  EXEMPLOS RUINS (muito curtas/genéricas): "Saiba mais", "Clique aqui", "Nova coleção"
+  EXEMPLOS BONS: "Notting Hill: Vista Mar com Entrada Acessível", "Academia Prime: Planos a partir de R$89"
+  OBRIGATÓRIO: headline de cada criativo deve ser única, diferente e ter entre 25-40 chars
+PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Clique aqui"
   PROIBIDO: repetir frases, horários de funcionamento, endereços nas copies
 - conversionFunnel: array {stage, format, audience, budget, kpi}
 - executionPlan: 4 itens {week, title, action, budget, kpi, decision}
