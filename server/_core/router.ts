@@ -3100,16 +3100,16 @@ const campaignsRouter = router({
         const buildLink = (phone?: string, text?: string | null) => {
           const params = new URLSearchParams();
           if (phone) params.set("phone", phone);
-          if (text)  params.set("text",  encodeURIComponent(text).replace(/%20/g, "+"));
+          if (text)  params.set("text", text);
           else {
-            // Gera mensagem automática baseada no segmento/produto
+            // Gera mensagem automática — usa só dados disponíveis neste escopo
             const autoMsg = buildWhatsAppMessage({
               segment:        input.segment || "",
               niche:          (clientProfile as any)?.niche || "",
               productName:    (clientProfile as any)?.productName || "",
               productService: (clientProfile as any)?.productService || "",
-              objective:      objective,
-              cta:            (adCopy as any)?.feed?.cta || "",
+              objective:      c?.objective || input.objective || "traffic",
+              cta:            "",
             });
             params.set("text", autoMsg);
           }
