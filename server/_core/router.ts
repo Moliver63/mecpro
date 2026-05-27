@@ -118,10 +118,10 @@ function buildAdCopy(campaign: any, opts: {
     .slice(0, 150);
 
   const objectiveLabels: Record<string, string> = {
-    leads: "Cadastre-se",
-    sales: "Comprar agora",
-    traffic: "Saiba mais",
-    branding: "Ver mais",
+    leads:      "Saiba mais",   // neutro — CTA real vem do segmento
+    sales:      "Comprar agora",
+    traffic:    "Saiba mais",
+    branding:   "Ver mais",
     engagement: "Fale no WhatsApp",
   };
 
@@ -147,22 +147,65 @@ function buildAdCopy(campaign: any, opts: {
     "assinar": "SUBSCRIBE",
   };
 
-  const normalizeMetaCta = (raw: string, currentObjective: string) => {
-    const clean = String(raw || objectiveLabels[currentObjective] || "Saiba mais")
-      .trim()
-      .toLowerCase();
-    const direct = META_CTA_MAP[clean];
-    if (direct) return direct;
-    if (/whats/.test(clean)) return "WHATSAPP_MESSAGE";
-    if (/compr|oferta|desconto/.test(clean)) return currentObjective === "sales" ? "BUY_NOW" : "LEARN_MORE";
-    if (/cadast|guia|ebook|material|inscri/.test(clean)) return "SIGN_UP";
-    if (/orcamento|quote/.test(clean)) return "GET_QUOTE";
-    if (/agend/.test(clean)) return "BOOK_NOW";
-    if (/mensagem/.test(clean)) return "MESSAGE_PAGE";
-    if (/contato/.test(clean)) return "CONTACT_US";
+  // CTA padrão por segmento — quando o criativo não define um CTA específico
+  const SEGMENT_DEFAULT_CTA: Record<string, string> = {
+    imoveis_venda:    "WHATSAPP_MESSAGE",  // Agendar visita / falar c/ corretor
+    imoveis_locacao:  "WHATSAPP_MESSAGE",  // Agendar visita / saber sobre locação
+    saude_estetica:   "BOOK_NOW",          // Agendar consulta
+    alimentacao:      "MESSAGE_PAGE",      // Pedir / reservar mesa
+    infoprodutos:     "SIGN_UP",           // Quero acessar / cadastrar
+    ecommerce:        "SHOP_NOW",          // Ver produtos / comprar
+    moda_varejo:      "SHOP_NOW",          // Ver coleção
+    academia:         "WHATSAPP_MESSAGE",  // Conhecer planos
+    automotivo:       "BOOK_NOW",          // Agendar serviço
+    b2b:              "GET_QUOTE",         // Solicitar proposta / demo
+    servicos_locais:  "BOOK_NOW",          // Agendar atendimento
+    advocacia:        "BOOK_NOW",          // Agendar consulta
+  };
+
+  // Labels de exibição por segmento (o que aparece no botão)
+  const SEGMENT_CTA_LABEL: Record<string, string> = {
+    imoveis_venda:    "Agendar visita",
+    imoveis_locacao:  "Agendar visita",
+    saude_estetica:   "Agendar consulta",
+    alimentacao:      "Fazer pedido",
+    infoprodutos:     "Quero acessar",
+    ecommerce:        "Comprar agora",
+    moda_varejo:      "Ver coleção",
+    academia:         "Conhecer planos",
+    automotivo:       "Agendar serviço",
+    b2b:              "Solicitar proposta",
+    servicos_locais:  "Agendar atendimento",
+    advocacia:        "Agendar consulta",
+  };
+
+  const normalizeMetaCta = (raw: string, currentObjective: string, segment?: string) => {
+    const seg = (segment || "").toLowerCase();
+
+    // CTA explícito da copy tem prioridade
+    const clean = String(raw || "").trim().toLowerCase();
+    if (clean) {
+      const direct = META_CTA_MAP[clean];
+      if (direct) return direct;
+      if (/whats/.test(clean)) return "WHATSAPP_MESSAGE";
+      if (/visit|agendar visit/.test(clean)) return "WHATSAPP_MESSAGE";
+      if (/agend/.test(clean)) return "BOOK_NOW";
+      if (/compr|oferta|desconto/.test(clean)) return /locat|alugu|locaç/.test(seg) ? "LEARN_MORE" : (currentObjective === "sales" ? "BUY_NOW" : "LEARN_MORE");
+      if (/cadast|guia|ebook|material|inscri/.test(clean)) return "SIGN_UP";
+      if (/orcamento|orçamento|proposta|quote/.test(clean)) return "GET_QUOTE";
+      if (/mensagem/.test(clean)) return "MESSAGE_PAGE";
+      if (/contato/.test(clean)) return "CONTACT_US";
+      if (/plano|conhecer plan/.test(clean)) return "WHATSAPP_MESSAGE";
+    }
+
+    // Sem CTA explícito → usa padrão do segmento
+    const segKey = Object.keys(SEGMENT_DEFAULT_CTA).find(k => seg.includes(k) || seg.includes(k.replace("_", " ")));
+    if (segKey) return SEGMENT_DEFAULT_CTA[segKey];
+
+    // Fallback por objetivo
     if (currentObjective === "engagement") return "WHATSAPP_MESSAGE";
-    if (currentObjective === "leads") return "SIGN_UP";
-    if (currentObjective === "sales") return "BUY_NOW";
+    if (currentObjective === "leads")      return "SIGN_UP";
+    if (currentObjective === "sales")      return "BUY_NOW";
     return "LEARN_MORE";
   };
 
@@ -187,7 +230,7 @@ function buildAdCopy(campaign: any, opts: {
     .filter(Boolean)
     .join("\n\n")
     .slice(0, maxMessage) || String(campaign.name || "").slice(0, maxMessage);
-  const feedCta = normalizeMetaCta(selectedCreative?.cta, objective);
+  const feedCta = normalizeMetaCta(selectedCreative?.cta, objective, campaign?.segment || campaign?.niche || "");
   const feedAngle = buildAngle(selectedCreative);
 
   const storiesBase = storiesCreative || selectedCreative || feedCreative;
@@ -205,7 +248,7 @@ function buildAdCopy(campaign: any, opts: {
   };
 
   const storiesScript = [0, 1, 2].map((index) => fitStoryLine(storyTexts[index] || storyTexts[storyTexts.length - 1] || hook || feedHeadline));
-  const storiesCta = normalizeMetaCta(storiesBase?.cta, objective);
+  const storiesCta = normalizeMetaCta(storiesBase?.cta, objective, campaign?.segment || campaign?.niche || "");
   const storiesHook = String(storiesBase?.hook || hook || feedHeadline).slice(0, 120);
   const storiesAngle = buildAngle(storiesBase);
 
@@ -245,7 +288,7 @@ function buildAdCopy(campaign: any, opts: {
     reels: {
       creative: reelsCreative || storiesCreative || feedCreative,
       hook: String(reelsCreative?.hook || storiesHook || hook).slice(0, 120),
-      cta: normalizeMetaCta(reelsCreative?.cta || storiesBase?.cta, objective),
+      cta: normalizeMetaCta(reelsCreative?.cta || storiesBase?.cta, objective, campaign?.segment || campaign?.niche || ""),
       angle: buildAngle(reelsCreative || storiesBase),
     },
     googleHeadlines,
