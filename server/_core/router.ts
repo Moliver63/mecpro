@@ -3045,13 +3045,74 @@ const campaignsRouter = router({
           return undefined;
         }
       }
+      // ── Gera mensagem pré-configurada para WhatsApp por segmento/produto ────
+      function buildWhatsAppMessage(opts: {
+        segment?: string;
+        niche?: string;
+        productName?: string;
+        productService?: string;
+        objective?: string;
+        cta?: string;
+      }): string {
+        const { segment = "", niche = "", productName = "", productService = "", objective = "", cta = "" } = opts;
+        const ctx = `${segment} ${niche} ${productService}`.toLowerCase();
+        const prod = (productName || productService || "").split("\n")[0].slice(0, 60);
+
+        // CTA do criativo → mensagem personalizada
+        const ctaLower = cta.toLowerCase();
+        if (/especialista|falar.*especialista|consultor/i.test(ctaLower))
+          return prod ? `Olá! Vi o anúncio do ${prod} e gostaria de falar com um especialista.` : "Olá! Gostaria de falar com um especialista.";
+        if (/visita|agendar|visitar/i.test(ctaLower))
+          return prod ? `Olá! Vi o anúncio do ${prod} e gostaria de agendar uma visita.` : "Olá! Gostaria de agendar uma visita.";
+        if (/proposta|orçamento|valor|preço/i.test(ctaLower))
+          return prod ? `Olá! Vi o anúncio do ${prod} e gostaria de receber uma proposta.` : "Olá! Gostaria de receber um orçamento.";
+        if (/informação|informacoes|saber mais|mais info/i.test(ctaLower))
+          return prod ? `Olá! Vi o anúncio do ${prod} e gostaria de mais informações.` : "Olá! Gostaria de mais informações.";
+
+        // Segmento → mensagem padrão
+        if (/imov|apart|casa|loft|residenc|locaç|compra|venda|incorpora/i.test(ctx))
+          return prod ? `Olá! Vi o anúncio do ${prod} e tenho interesse. Poderia me enviar mais informações?` : "Olá! Tenho interesse no imóvel anunciado. Poderia me enviar mais detalhes?";
+        if (/academia|fitness|gym|treino|personal|emagrecimento/i.test(ctx))
+          return prod ? `Olá! Vi o anúncio de ${prod} e gostaria de conhecer os planos disponíveis.` : "Olá! Gostaria de conhecer os planos e valores.";
+        if (/clinica|saude|estetica|beleza|derma|odont|medic/i.test(ctx))
+          return prod ? `Olá! Vi o anúncio de ${prod} e gostaria de agendar uma consulta.` : "Olá! Gostaria de agendar uma consulta.";
+        if (/restaurante|delivery|lanche|pizza|food|comida/i.test(ctx))
+          return "Olá! Vi o anúncio e gostaria de fazer um pedido ou saber mais sobre o cardápio.";
+        if (/curso|educaçao|treinamento|mentoria|coach|infoproduto/i.test(ctx))
+          return prod ? `Olá! Vi o anúncio de ${prod} e gostaria de mais informações sobre o conteúdo e valores.` : "Olá! Gostaria de mais informações sobre o curso.";
+        if (/auto|carro|veicul|oficina|mecanica/i.test(ctx))
+          return "Olá! Vi o anúncio e gostaria de agendar um serviço.";
+        if (/advocac|juridic|direito|advogado/i.test(ctx))
+          return "Olá! Vi o anúncio e gostaria de agendar uma consulta jurídica.";
+        if (/software|saas|sistema|app|tecnolog/i.test(ctx))
+          return prod ? `Olá! Vi o anúncio de ${prod} e gostaria de fazer uma demonstração.` : "Olá! Gostaria de agendar uma demonstração.";
+
+        // Objetivo → fallback
+        if (objective === "leads") return prod ? `Olá! Vi o anúncio de ${prod} e gostaria de receber mais informações.` : "Olá! Gostaria de receber mais informações.";
+        if (objective === "sales") return prod ? `Olá! Vi o anúncio de ${prod} e gostaria de realizar uma compra.` : "Olá! Gostaria de saber mais sobre o produto.";
+
+        return prod ? `Olá! Vi o anúncio de ${prod} e gostaria de mais informações.` : "Olá! Vi o anúncio e gostaria de mais informações.";
+      }
+
       function extractWhatsAppDetails(raw?: string | null): { phone?: string; link?: string } {
         const normalized = normalizeDestinationUrl(raw);
         const fallbackDigits = String(raw || "").replace(/\D/g, "");
         const buildLink = (phone?: string, text?: string | null) => {
           const params = new URLSearchParams();
           if (phone) params.set("phone", phone);
-          if (text) params.set("text", text);
+          if (text)  params.set("text",  encodeURIComponent(text).replace(/%20/g, "+"));
+          else {
+            // Gera mensagem automática baseada no segmento/produto
+            const autoMsg = buildWhatsAppMessage({
+              segment:        input.segment || "",
+              niche:          (clientProfile as any)?.niche || "",
+              productName:    (clientProfile as any)?.productName || "",
+              productService: (clientProfile as any)?.productService || "",
+              objective:      objective,
+              cta:            (adCopy as any)?.feed?.cta || "",
+            });
+            params.set("text", autoMsg);
+          }
           const query = params.toString();
           return `https://api.whatsapp.com/send${query ? `?${query}` : ""}`;
         };
@@ -3450,6 +3511,7 @@ const campaignsRouter = router({
             (whatsappDestination as any).link = null;
           } else if (!connectedPhone) {
             log.warn("meta", "Página sem WhatsApp vinculado — fallback para website", { pageId: input.pageId });
+            publishWarnings.push("⚠️ A Página do Facebook não tem WhatsApp vinculado. Para o botão funcionar corretamente, acesse Configurações de Negócio → Contas WhatsApp e vincule o número à sua Página.");
             isWhatsAppDestination = false;
             (whatsappDestination as any).link = null;
           }

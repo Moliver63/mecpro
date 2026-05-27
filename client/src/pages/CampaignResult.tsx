@@ -4008,6 +4008,55 @@ ${sc.cta}`); }}
                                   fontSize: 13,
                                 }}
                               />
+                              {/* WhatsApp: aviso + mensagem pré-configurada */}
+                              {linkUrl && (linkUrl.includes("wa.me") || linkUrl.includes("whatsapp")) && (() => {
+                                const camp = campaign as any;
+                                const seg  = camp?.segment || camp?.adSets?.[0]?.audience || "";
+                                const prod = (camp?.clientProfile?.productName || camp?.clientProfile?.productService || "").split("\n")[0].slice(0, 50);
+                                const WA_MSGS: Record<string, string> = {
+                                  imoveis_venda:   prod ? `Olá! Vi o anúncio de ${prod} e tenho interesse. Poderia me enviar mais informações?` : "Olá! Vi o anúncio e gostaria de mais informações sobre o imóvel.",
+                                  imoveis_locacao: prod ? `Olá! Vi o anúncio de ${prod} e gostaria de saber mais sobre a locação.` : "Olá! Gostaria de saber mais sobre a locação.",
+                                  saude_estetica:  "Olá! Vi o anúncio e gostaria de agendar uma consulta.",
+                                  alimentacao:     "Olá! Vi o anúncio e gostaria de fazer um pedido ou saber mais sobre o cardápio.",
+                                  infoprodutos:    prod ? `Olá! Vi o anúncio de ${prod} e gostaria de mais informações sobre o conteúdo e valores.` : "Olá! Gostaria de mais informações sobre o curso.",
+                                  moda_varejo:     "Olá! Vi o anúncio e gostaria de saber mais sobre os produtos disponíveis.",
+                                  automotivo:      "Olá! Vi o anúncio e gostaria de agendar um serviço.",
+                                  b2b:             prod ? `Olá! Vi o anúncio de ${prod} e gostaria de agendar uma demonstração.` : "Olá! Gostaria de agendar uma demonstração.",
+                                  servicos_locais: "Olá! Vi o anúncio e gostaria de agendar um atendimento.",
+                                };
+                                const defaultMsg = prod
+                                  ? `Olá! Vi o anúncio de ${prod} e gostaria de mais informações.`
+                                  : "Olá! Vi o anúncio e gostaria de mais informações.";
+                                const waMsg = WA_MSGS[seg] || defaultMsg;
+                                return (
+                                  <div style={{ marginTop: 10 }}>
+                                    <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0",
+                                      borderRadius: 10, padding: "12px 14px" }}>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: "#15803d", marginBottom: 6 }}>
+                                        💬 Mensagem pré-configurada ao clicar no botão
+                                      </div>
+                                      <div style={{ fontSize: 12, color: "#14532d", padding: "8px 10px",
+                                        background: "white", borderRadius: 8, border: "1px solid #bbf7d0",
+                                        lineHeight: 1.6, fontStyle: "italic" }}>
+                                        "{waMsg}"
+                                      </div>
+                                      <div style={{ fontSize: 11, color: "#16a34a", marginTop: 6 }}>
+                                        ✓ Gerada automaticamente pelo segmento · o usuário pode editar antes de enviar
+                                      </div>
+                                    </div>
+                                    <div style={{ background: "#fffbeb", border: "1px solid #fde68a",
+                                      borderRadius: 10, padding: "10px 14px", marginTop: 8 }}>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", marginBottom: 4 }}>
+                                        ⚠️ Para o botão funcionar corretamente
+                                      </div>
+                                      <div style={{ fontSize: 11, color: "#78350f", lineHeight: 1.6 }}>
+                                        Vincule o número WhatsApp à sua Página do Facebook em:<br/>
+                                        <strong>Configurações de Negócio → Contas WhatsApp → Vincular à Página</strong>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                               {/* Preview do link */}
                               {linkUrl.includes("wa.me") && (
                                 <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
