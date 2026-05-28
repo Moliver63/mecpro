@@ -2980,16 +2980,34 @@ const campaignsRouter = router({
       }
       // Segmentos que sempre devem usar ENGAGEMENT (WhatsApp/mensagem como destino)
       const ENGAGEMENT_SEGMENTS = ["imoveis_locacao","imoveis_venda","saude_estetica","servicos_locais","automotivo","academia"];
+      // Alimentação: delivery=SALES, restaurante presencial=LEADS
+      const SALES_SEGMENTS       = ["ecommerce","moda_varejo","alimentacao"];
+      // B2B e infoprodutos: leads qualificados
+      // const LEADS_SEGMENTS já declarado
       const LEADS_SEGMENTS      = ["infoprodutos","b2b","ecommerce"];
 
       function toOutcomeObjective(obj: string, segment?: string) {
         const seg = (segment || "").toLowerCase();
-        // Segmento sobrepõe objetivo quando destino é WhatsApp
-        if (ENGAGEMENT_SEGMENTS.some(s => seg.includes(s))) {
-          // Se usuário escolheu explicitamente leads/sales, respeita
-          if (obj === "sales") return "OUTCOME_SALES";
-          return "OUTCOME_LEADS"; // leads é melhor que traffic para WhatsApp
+
+        // E-commerce / moda / delivery → sempre SALES
+        if (SALES_SEGMENTS.some(s => seg.includes(s))) {
+          if (obj === "leads") return "OUTCOME_LEADS"; // respeita se usuário escolheu leads
+          return "OUTCOME_SALES";
         }
+
+        // Segmentos de serviço/imóvel → LEADS (WhatsApp/formulário) melhor que TRAFFIC
+        if (ENGAGEMENT_SEGMENTS.some(s => seg.includes(s))) {
+          if (obj === "sales") return "OUTCOME_SALES"; // respeita escolha explícita
+          return "OUTCOME_LEADS";
+        }
+
+        // B2B e infoprodutos → LEADS
+        if (/b2b|infoproduto|curso|saas|software/.test(seg)) {
+          if (obj === "sales") return "OUTCOME_SALES";
+          return "OUTCOME_LEADS";
+        }
+
+        // Fallback: respeita o objetivo escolhido pelo usuário
         switch ((obj || "").toLowerCase()) {
           case "leads":      return "OUTCOME_LEADS";
           case "sales":      return "OUTCOME_SALES";
