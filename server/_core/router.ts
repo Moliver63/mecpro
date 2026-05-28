@@ -2978,7 +2978,18 @@ const campaignsRouter = router({
       function normalizeAccountId(id: string) {
         return id.startsWith("act_") ? id : `act_${id}`;
       }
-      function toOutcomeObjective(obj: string) {
+      // Segmentos que sempre devem usar ENGAGEMENT (WhatsApp/mensagem como destino)
+      const ENGAGEMENT_SEGMENTS = ["imoveis_locacao","imoveis_venda","saude_estetica","servicos_locais","automotivo","academia"];
+      const LEADS_SEGMENTS      = ["infoprodutos","b2b","ecommerce"];
+
+      function toOutcomeObjective(obj: string, segment?: string) {
+        const seg = (segment || "").toLowerCase();
+        // Segmento sobrepõe objetivo quando destino é WhatsApp
+        if (ENGAGEMENT_SEGMENTS.some(s => seg.includes(s))) {
+          // Se usuário escolheu explicitamente leads/sales, respeita
+          if (obj === "sales") return "OUTCOME_SALES";
+          return "OUTCOME_LEADS"; // leads é melhor que traffic para WhatsApp
+        }
         switch ((obj || "").toLowerCase()) {
           case "leads":      return "OUTCOME_LEADS";
           case "sales":      return "OUTCOME_SALES";
@@ -3555,6 +3566,9 @@ const campaignsRouter = router({
           } else if (!connectedPhone) {
             log.warn("meta", "Página sem WhatsApp vinculado — fallback para website", { pageId: input.pageId });
             publishWarnings.push("⚠️ A Página do Facebook não tem WhatsApp vinculado. Para o botão funcionar corretamente, acesse Configurações de Negócio → Contas WhatsApp e vincule o número à sua Página.");
+            if (!(clientProfile as any)?.websiteUrl) {
+              publishWarnings.push("⚠️ Sem website cadastrado no perfil do cliente. Adicione um website no Módulo 1 para garantir que o link do anúncio funcione.");
+            }
             isWhatsAppDestination = false;
             (whatsappDestination as any).link = null;
           }

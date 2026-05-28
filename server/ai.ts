@@ -6378,12 +6378,16 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
 
       // Ancora do produto (Modulo 1) para alinhamento das copies
       const prodAnchor = [
-        p?.productName   ? `PRODUTO: "${p.productName}" <- use este nome exato` : "",
-        p?.productDifferentials ? `DIFERENCIAIS: ${String(p.productDifferentials).slice(0,150)}` : "",
-        p?.productProofPoints   ? `PROVAS SOCIAIS: ${String(p.productProofPoints).slice(0,100)}` : "",
-        p?.productCTA           ? `CTA PREFERIDO: "${p.productCTA}"` : "",
-        p?.mainObjections       ? `OBJECOES A QUEBRAR: ${String(p.mainObjections).slice(0,100)}` : "",
+        p?.productName   ? `PRODUTO: "${p.productName}" <- use este nome exato nas copies` : "",
+        p?.productDifferentials ? `DIFERENCIAIS REAIS: ${String(p.productDifferentials).slice(0,200)}` : "",
+        p?.productProofPoints   ? `PROVAS SOCIAIS (use nas copies): ${String(p.productProofPoints).slice(0,200)}` : "",
+        p?.productCTA           ? `CTA PREFERIDO DO CLIENTE: "${p.productCTA}"` : "",
+        p?.mainObjections       ? `OBJEÇÕES A QUEBRAR: ${String(p.mainObjections).slice(0,150)}` : "",
+        p?.targetAudience       ? `PÚBLICO-ALVO: ${String(p.targetAudience).slice(0,100)}` : "",
         p?.city                 ? `CIDADE: ${p.city}` : "",
+        // Avisa IA quando campos críticos estão vazios
+        !p?.productDifferentials || String(p.productDifferentials).includes("VAZIO") ? "ATENÇÃO: diferenciais não preenchidos — crie copies baseadas no nome e nicho do produto" : "",
+        !p?.productProofPoints   || String(p.productProofPoints).includes("não preenchido") ? "" : "",
       ].filter(Boolean).join("\n");
 
       return `Crie uma campanha de ${input.objective} para "${p?.companyName || input.name}" (nicho: ${p?.niche || "geral"}).
