@@ -3599,8 +3599,38 @@ const campaignsRouter = router({
       const finalLink = isWhatsAppDestination
         ? whatsappDestination.link!
         : (effectiveLink || `https://www.facebook.com/${input.pageId}`);
+      // Corrige objetivo baseado no segmento antes de resolver
+      // "traffic" nunca deveria ser o objetivo final para segmentos de serviço/imóvel
+      const segmentForObjective = (input.segment || (clientProfile as any)?.niche || "").toLowerCase();
+      const correctedObjective = (() => {
+        if (objective !== "traffic") return objective; // respeita escolha explícita
+
+        // Segmentos de serviço/imóvel com WhatsApp → engagement (CONVERSATIONS)
+        const engagementSegs = ["imoveis","saude","servico","automotivo","academia","clinica","consultori"];
+        if (engagementSegs.some(s => segmentForObjective.includes(s)) && isWhatsAppDestination)
+          return "engagement";
+
+        // Segmentos de e-commerce → sales
+        const salesSegs = ["ecommerce","moda","varejo","loja","alimentacao","delivery"];
+        if (salesSegs.some(s => segmentForObjective.includes(s)))
+          return "sales";
+
+        // B2B / infoprodutos → leads
+        const leadsSegs = ["b2b","infoproduto","curso","saas","software","consultoria"];
+        if (leadsSegs.some(s => segmentForObjective.includes(s)))
+          return "leads";
+
+        return objective; // mantém traffic para outros casos
+      })();
+
+      if (correctedObjective !== objective) {
+        log.info("meta", "Objetivo corrigido pelo segmento", {
+          original: objective, corrected: correctedObjective, segment: segmentForObjective,
+        });
+      }
+
       const { campaignObj: resolvedCampaignObj, optimizationGoal: adSetOptimizationGoal } = resolveObjectiveAndGoal(
-        objective,
+        correctedObjective,
         input.pixelId ?? undefined,
         { isWhatsAppDestination, hasLink: !!finalLink },
       );
