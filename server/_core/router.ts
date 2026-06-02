@@ -3612,19 +3612,18 @@ const campaignsRouter = router({
         if (objective !== "traffic") return objective; // respeita escolha explícita
 
         // Segmentos de serviço/imóvel com WhatsApp → leads (OUTCOME_LEADS+CONVERSATIONS)
-        const leadsSegs = ["imoveis","saude","servico","automotivo","academia","clinica","consultori","fitness"];
-        if (leadsSegs.some(s => segmentForObjective.includes(s)))
+        // Todos os segmentos de serviço, imóvel e B2B → leads
+        const allLeadsSegs = [
+          "imoveis","saude","servico","automotivo","academia","clinica","consultori","fitness",
+          "b2b","infoproduto","curso","saas","software","consultoria",
+        ];
+        if (allLeadsSegs.some(s => segmentForObjective.includes(s)))
           return "leads";
 
         // Segmentos de e-commerce → sales
         const salesSegs = ["ecommerce","moda","varejo","loja","alimentacao","delivery"];
         if (salesSegs.some(s => segmentForObjective.includes(s)))
           return "sales";
-
-        // B2B / infoprodutos → leads
-        const leadsSegs = ["b2b","infoproduto","curso","saas","software","consultoria"];
-        if (leadsSegs.some(s => segmentForObjective.includes(s)))
-          return "leads";
 
         return objective; // mantém traffic para outros casos
       })();
