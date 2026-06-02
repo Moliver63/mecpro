@@ -3047,19 +3047,25 @@ const campaignsRouter = router({
           };
         }
 
-        // leads + WhatsApp SEM pixel → ENGAGEMENT + CONVERSATIONS
-        // (OUTCOME_LEADS sem pixel causa erro 1487888 — exige pixel ou lead form)
-        if (o === "leads" && isWhatsAppDestination && !pixelId) {
-          return { campaignObj: "OUTCOME_ENGAGEMENT", optimizationGoal: "CONVERSATIONS" };
+        // leads + WhatsApp → OUTCOME_LEADS + CONVERSATIONS (Click-to-WhatsApp oficial)
+        // Meta API v19+: OUTCOME_LEADS + CONVERSATIONS + WHATSAPP não exige pixel
+        // Melhor qualidade de lead que OUTCOME_ENGAGEMENT (otimiza por intenção de compra)
+        if (o === "leads" && isWhatsAppDestination) {
+          return { campaignObj: "OUTCOME_LEADS", optimizationGoal: "CONVERSATIONS" };
         }
 
         // leads + link/site SEM pixel → TRAFFIC + LANDING_PAGE_VIEWS
-        // (evita erro 1487888 quando não há pixel configurado)
+        // (OUTCOME_LEADS com LEAD_GENERATION sem pixel causa erro 1487888)
         if (o === "leads" && !pixelId && !isWhatsAppDestination) {
           return {
             campaignObj: "OUTCOME_TRAFFIC",
             optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
           };
+        }
+
+        // leads + link/site COM pixel → OUTCOME_LEADS + OFFSITE_CONVERSIONS
+        if (o === "leads" && pixelId && !isWhatsAppDestination) {
+          return { campaignObj: "OUTCOME_LEADS", optimizationGoal: "OFFSITE_CONVERSIONS" };
         }
 
         if (o === "engagement") {
