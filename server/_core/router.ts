@@ -3611,10 +3611,10 @@ const campaignsRouter = router({
       const correctedObjective = (() => {
         if (objective !== "traffic") return objective; // respeita escolha explícita
 
-        // Segmentos de serviço/imóvel com WhatsApp → engagement (CONVERSATIONS)
-        const engagementSegs = ["imoveis","saude","servico","automotivo","academia","clinica","consultori"];
-        if (engagementSegs.some(s => segmentForObjective.includes(s)) && isWhatsAppDestination)
-          return "engagement";
+        // Segmentos de serviço/imóvel com WhatsApp → leads (OUTCOME_LEADS+CONVERSATIONS)
+        const leadsSegs = ["imoveis","saude","servico","automotivo","academia","clinica","consultori","fitness"];
+        if (leadsSegs.some(s => segmentForObjective.includes(s)))
+          return "leads";
 
         // Segmentos de e-commerce → sales
         const salesSegs = ["ecommerce","moda","varejo","loja","alimentacao","delivery"];
