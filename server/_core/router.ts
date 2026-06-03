@@ -3054,12 +3054,13 @@ const campaignsRouter = router({
           return { campaignObj: "OUTCOME_LEADS", optimizationGoal: "CONVERSATIONS" };
         }
 
-        // leads + link/site SEM pixel → TRAFFIC + LANDING_PAGE_VIEWS
-        // (OUTCOME_LEADS com LEAD_GENERATION sem pixel causa erro 1487888)
+        // leads + link/site SEM pixel → OUTCOME_LEADS + LINK_CLICKS
+        // OUTCOME_LEADS + LINK_CLICKS não exige pixel — otimiza por intenção de clique qualificado
+        // Melhor que OUTCOME_TRAFFIC que não considera intenção de lead
         if (o === "leads" && !pixelId && !isWhatsAppDestination) {
           return {
-            campaignObj: "OUTCOME_TRAFFIC",
-            optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
+            campaignObj: "OUTCOME_LEADS",
+            optimizationGoal: hasLink ? "LINK_CLICKS" : "LINK_CLICKS",
           };
         }
 
