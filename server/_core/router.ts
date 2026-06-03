@@ -3604,9 +3604,26 @@ const campaignsRouter = router({
         }
       }
 
+      // finalLink: wa.me nunca pode ser link em link_data (Meta rejeita com 2061015)
+      // Se WhatsApp não vinculado → usa website ou página Facebook
+      const safeLink = (() => {
+        const raw = effectiveLink || "";
+        const isWaMe = raw.includes("wa.me") || raw.includes("whatsapp.com/send");
+        if (isWaMe && !isWhatsAppDestination) {
+          // WhatsApp não vinculado — usa website ou página Facebook
+          const ws = normalizeDestinationUrl((clientProfile as any)?.websiteUrl);
+          const fb = `https://www.facebook.com/${input.pageId}`;
+          log.info("meta", "wa.me substituído por link seguro", {
+            original: raw.slice(0,40), used: (ws || fb).slice(0,40),
+          });
+          return ws || fb;
+        }
+        return raw || `https://www.facebook.com/${input.pageId}`;
+      })();
+
       const finalLink = isWhatsAppDestination
         ? whatsappDestination.link!
-        : (effectiveLink || `https://www.facebook.com/${input.pageId}`);
+        : safeLink;
       // Corrige objetivo baseado no segmento antes de resolver
       // "traffic" nunca deveria ser o objetivo final para segmentos de serviço/imóvel
       const segmentForObjective = ((input as any).segment || input.segment || c?.segment || (clientProfile as any)?.niche || "").toLowerCase();
