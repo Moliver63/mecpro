@@ -335,7 +335,7 @@ async function fetchTikTokProfile(username: string, accessToken: string): Promis
   try {
     const profileRes = await fetch(
       "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name,bio_description,profile_deep_link,is_verified,follower_count,following_count,likes_count,video_count",
-      { headers, signal: AbortSignal.timeout(10000) }
+      { headers, signal: AbortSignal.timeout(6000) }
     );
     const profileData: any = await profileRes.json();
     if (!profileData.error?.code || profileData.error.code === "ok") {
@@ -352,7 +352,7 @@ async function fetchTikTokProfile(username: string, accessToken: string): Promis
         method: "POST",
         headers,
         body: JSON.stringify({ max_count: 20 }),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(6000),
       }
     );
     const videoData: any = await videoRes.json();
@@ -770,7 +770,7 @@ const clientProfileRouter = router({
       // Fonte 1: BrasilAPI — mais completa (capital_social, qsa, cnaes_secundarios)
       try {
         const r1 = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`, {
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(6000),
           headers: { "User-Agent": "MecProAI/1.0" },
         });
         if (r1.ok) { const j = await r1.json(); if (j?.cnpj || j?.razao_social) d = j; }
@@ -780,7 +780,7 @@ const clientProfileRouter = router({
       if (!d) {
         try {
           const r2 = await fetch(`https://www.receitaws.com.br/v1/cnpj/${cnpj}`, {
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
             headers: { "User-Agent": "MecProAI/1.0" },
           });
           if (r2.ok) {
@@ -1334,7 +1334,7 @@ const competitorsRouter = router({
       try {
         const r = await fetch(
           `https://pixabay.com/api/?key=${key}&q=apartment&image_type=photo&per_page=3`,
-          { signal: AbortSignal.timeout(8000) }
+          { signal: AbortSignal.timeout(5000) }
         );
         const d: any = await r.json();
         results.pixabay_foto = r.ok
@@ -1348,7 +1348,7 @@ const competitorsRouter = router({
       try {
         const r = await fetch(
           `https://pixabay.com/api/videos/?key=${key}&q=apartment&per_page=3`,
-          { signal: AbortSignal.timeout(8000) }
+          { signal: AbortSignal.timeout(5000) }
         );
         const d: any = await r.json();
         results.pixabay_video = r.ok
@@ -1366,7 +1366,7 @@ const competitorsRouter = router({
       try {
         const r = await fetch(
           "https://image.pollinations.ai/prompt/test?width=64&height=64&nologo=true",
-          { signal: AbortSignal.timeout(8000) }
+          { signal: AbortSignal.timeout(5000) }
         );
         results.pollinations = { ok: r.ok, status: r.status };
       } catch (e: any) {
@@ -1494,7 +1494,7 @@ const competitorsRouter = router({
       const token = (integration as any).accessToken as string;
       try {
         const res = await fetch(
-          `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,website,name&access_token=${token}`,
+          `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,name,website&access_token=${token}`,
           { signal: AbortSignal.timeout(6000) }
         );
         const data: any = await res.json();
@@ -1800,7 +1800,7 @@ const competitorsRouter = router({
           "&search_page_ids=" + input.pageId +
           "&ad_reached_countries=BR&ad_active_status=ACTIVE" +
           "&fields=id,ad_creative_bodies,ad_creative_link_titles,page_name,page_id,impressions,spend&limit=50";
-        const adsRes = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        const adsRes = await fetch(url, { signal: AbortSignal.timeout(6000) });
         const adsData: any = await adsRes.json();
         if (!adsData.error && adsData.data?.length > 0) {
           results.push(...adsData.data.map((ad: any) => ({
@@ -1840,7 +1840,7 @@ const competitorsRouter = router({
                 "Referer": "https://www.facebook.com/ads/library/",
                 "X-Requested-With": "XMLHttpRequest",
               },
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(6000),
             });
             if (!libRes.ok) continue;
             const text = await libRes.text();
@@ -1898,7 +1898,7 @@ const competitorsRouter = router({
           const url = "https://graph.facebook.com/v20.0/" + input.pageId + "/posts?" +
             "fields=message,story,created_time,permalink_url,attachments{title,description}&limit=20" +
             "&access_token=" + token;
-          const postsRes = await fetch(url, { signal: AbortSignal.timeout(10000) });
+          const postsRes = await fetch(url, { signal: AbortSignal.timeout(6000) });
           const postsData: any = await postsRes.json();
           if (!postsData.error && postsData.data?.length > 0) {
             results.push(...postsData.data.map((p: any) => ({
@@ -1918,7 +1918,7 @@ const competitorsRouter = router({
       try {
         const url = "https://graph.facebook.com/v20.0/" + input.pageId +
           "?fields=name,about,description,fan_count,website,category&access_token=" + token;
-        const pageRes = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const pageRes = await fetch(url, { signal: AbortSignal.timeout(5000) });
         const pageData: any = await pageRes.json();
         if (!pageData.error) pageInfo = pageData;
       } catch {}
@@ -1998,7 +1998,7 @@ const competitorsRouter = router({
           tried.push(`graph_handle_${handle}`);
           try {
             const url  = `https://graph.facebook.com/v20.0/${encodeURIComponent(handle)}?fields=id,name,username&access_token=${token}`;
-            const res  = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            const res  = await fetch(url, { signal: AbortSignal.timeout(5000) });
             const data: any = await res.json();
             if (!data.error && data.id && /^\d+$/.test(data.id)) {
               results.push({ method: "graph_direct_handle", pageId: data.id, pageName: data.name || handle, confidence: "high" });
@@ -2022,7 +2022,7 @@ const competitorsRouter = router({
           const oembedUrl = `https://www.instagram.com/oembed?url=https://www.instagram.com/${raw}/&format=json`;
           const oembedRes = await fetch(oembedUrl, {
             headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)" },
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(5000),
           });
           if (!oembedRes.ok) {
             log.info("ai", "discoverPageId Estratégia 2 HTTP falhou", { status: oembedRes.status });
@@ -2030,7 +2030,7 @@ const competitorsRouter = router({
             const oembedData: any = await oembedRes.json();
             if (!oembedData.error && oembedData.author_name && token) {
               const fbUrl  = `https://graph.facebook.com/v20.0/${encodeURIComponent(oembedData.author_name)}?fields=id,name&access_token=${token}`;
-              const fbRes  = await fetch(fbUrl, { signal: AbortSignal.timeout(8000) });
+              const fbRes  = await fetch(fbUrl, { signal: AbortSignal.timeout(5000) });
               const fbData: any = await fbRes.json();
               if (!fbData.error && fbData.id && /^\d+$/.test(fbData.id)) {
                 results.push({ method: "ig_oembed_fb_page", pageId: fbData.id, pageName: fbData.name || oembedData.author_name, confidence: "high" });
@@ -2053,7 +2053,7 @@ const competitorsRouter = router({
           if (results.length > 0) break;
           try {
             const adsUrl = `https://graph.facebook.com/v20.0/ads_archive?access_token=${token}&search_terms=${encodeURIComponent(term)}&ad_reached_countries=BR&ad_type=ALL&fields=page_id,page_name&limit=5`;
-            const adsRes = await fetch(adsUrl, { signal: AbortSignal.timeout(8000) });
+            const adsRes = await fetch(adsUrl, { signal: AbortSignal.timeout(5000) });
             const adsData: any = await adsRes.json();
             if (!adsData.error && Array.isArray(adsData.data) && adsData.data.length > 0) {
               // Pega o page_id mais relevante — prioriza match exato no nome
@@ -2080,7 +2080,7 @@ const competitorsRouter = router({
         tried.push("my_pages");
         try {
           const pagesUrl = `https://graph.facebook.com/v20.0/me/accounts?limit=50&access_token=${token}`;
-          const pagesRes = await fetch(pagesUrl, { signal: AbortSignal.timeout(8000) });
+          const pagesRes = await fetch(pagesUrl, { signal: AbortSignal.timeout(5000) });
           const pagesData: any = await pagesRes.json();
           if (!pagesData.error && Array.isArray(pagesData.data)) {
             const pages = pagesData.data;
@@ -2120,7 +2120,7 @@ const competitorsRouter = router({
           if (results.length > 0) break;
           try {
             const url = `https://graph.facebook.com/v20.0/pages/search?q=${encodeURIComponent(term)}&fields=id,name,username&access_token=${token}`;
-            const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+            const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
             const d: any = await res.json();
             if (!d.error && Array.isArray(d.data) && d.data.length > 0) {
               // Prioriza match mais próximo pelo nome
@@ -2211,7 +2211,7 @@ const competitorsRouter = router({
           try {
             const res = await fetch(siteUrl, {
               headers: { "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1)" },
-              signal: AbortSignal.timeout(8000),
+              signal: AbortSignal.timeout(5000),
               redirect: "follow",
             });
             if (!res.ok) continue;
@@ -2846,7 +2846,7 @@ const campaignsRouter = router({
             `&time_range={"since":"${since}","until":"${today}"}` +
             `&access_token=${token}`;
 
-          const res = await fetch(insightsUrl, { signal: AbortSignal.timeout(10000) });
+          const res = await fetch(insightsUrl, { signal: AbortSignal.timeout(6000) });
           const data: any = await res.json();
 
           if (data.error) {
@@ -3242,7 +3242,7 @@ const campaignsRouter = router({
           params.set("countries", '["BR"]');
 
           const res = await fetch(`https://graph.facebook.com/v19.0/search?${params.toString()}`, {
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
           });
           const data: any = await res.json().catch(() => ({}));
           if (!res.ok || data?.error) {
@@ -4134,7 +4134,7 @@ const campaignsRouter = router({
               for (let attempt = 0; attempt < 5; attempt++) {
                 const statusRes = await fetch(
                   "https://graph.facebook.com/v19.0/" + effectiveVideoId + "?fields=status&access_token=" + token,
-                  { signal: AbortSignal.timeout(8000) }
+                  { signal: AbortSignal.timeout(5000) }
                 );
                 if (statusRes.ok) {
                   const statusData = await statusRes.json() as any;
@@ -4163,7 +4163,7 @@ const campaignsRouter = router({
               try {
                 const thumbRes = await fetch(
                   "https://graph.facebook.com/v19.0/" + effectiveVideoId + "/thumbnails?access_token=" + token,
-                  { signal: AbortSignal.timeout(8000) }
+                  { signal: AbortSignal.timeout(5000) }
                 );
                 if (thumbRes.ok) {
                   const thumbData = await thumbRes.json() as any;
@@ -5890,14 +5890,14 @@ const integrationsRouter = router({
       // 3. Buscar dados do usuário (nome, páginas, contas de anúncio)
       const meRes = await fetch(
         `https://graph.facebook.com/v20.0/me?fields=id,name,picture&access_token=${longToken}`,
-        { signal: AbortSignal.timeout(10000) }
+        { signal: AbortSignal.timeout(6000) }
       );
       const meData: any = await meRes.json();
 
       // 4. Buscar contas de anúncios vinculadas
       const adAccountsRes = await fetch(
         `https://graph.facebook.com/v20.0/me/adaccounts?fields=id,name,account_status,currency&access_token=${longToken}&limit=50`,
-        { signal: AbortSignal.timeout(10000) }
+        { signal: AbortSignal.timeout(6000) }
       );
       const adAccountsData: any = await adAccountsRes.json();
       const adAccounts = adAccountsData.data || [];
@@ -5905,7 +5905,7 @@ const integrationsRouter = router({
       // 5. Buscar páginas do Facebook
       const pagesRes = await fetch(
         `https://graph.facebook.com/v20.0/me/accounts?fields=id,name,access_token,picture&access_token=${longToken}&limit=50`,
-        { signal: AbortSignal.timeout(10000) }
+        { signal: AbortSignal.timeout(6000) }
       );
       const pagesData: any = await pagesRes.json();
       const pages = pagesData.data || [];
@@ -5964,7 +5964,7 @@ const integrationsRouter = router({
         try {
           const res = await fetch(
             `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,name&access_token=${token}`,
-            { signal: AbortSignal.timeout(8000) }
+            { signal: AbortSignal.timeout(5000) }
           );
           const pageData: any = await res.json();
           const connectedPhone = pageData?.whatsapp_connected_id
@@ -6183,7 +6183,7 @@ const integrationsRouter = router({
               "Authorization":   `Bearer ${tokenData.access_token}`,
               "developer-token": devToken,
             },
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
           });
           const listData: any = await listRes.json();
           if (listData.resource_names) {
@@ -6337,7 +6337,7 @@ const integrationsRouter = router({
               "Content-Type":       "application/json",
             },
             body: JSON.stringify({ query: "SELECT customer.id, customer.descriptive_name FROM customer LIMIT 1" }),
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
           }
         );
         const text = await resp.text();
@@ -6659,8 +6659,8 @@ const integrationsRouter = router({
 
       // Tenta múltiplos campos que podem conter o número WhatsApp
       const res = await fetch(
-        `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,phone_number,phone&access_token=${token}`,
-        { signal: AbortSignal.timeout(8000) }
+        `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,name&access_token=${token}`,
+        { signal: AbortSignal.timeout(5000) }
       );
       const data: any = await res.json();
       if (data.error) return { found: false, phone: null, waUrl: null };
@@ -6703,7 +6703,7 @@ const integrationsRouter = router({
       try {
         const accountsRes  = await fetch(
           `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&limit=100&access_token=${userToken}`,
-          { signal: AbortSignal.timeout(10000) }
+          { signal: AbortSignal.timeout(6000) }
         );
         const accountsData: any = await accountsRes.json();
         if (!accountsData.error && accountsData.data?.length > 0) {
@@ -6927,7 +6927,7 @@ const integrationsRouter = router({
       try {
         const accountsRes = await fetch(
           `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&limit=100&access_token=${token}`,
-          { signal: AbortSignal.timeout(10000) }
+          { signal: AbortSignal.timeout(6000) }
         );
         const accountsData: any = await accountsRes.json().catch(() => ({}));
         const page = (accountsData?.data || []).find((item: any) => String(item?.id) === String(input.pageId));
@@ -7100,7 +7100,7 @@ const integrationsRouter = router({
       try {
         const accountsRes = await fetch(
           `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token&limit=100&access_token=${token}`,
-          { signal: AbortSignal.timeout(10000) }
+          { signal: AbortSignal.timeout(6000) }
         );
         const accountsData: any = await accountsRes.json().catch(() => ({}));
         const page = (accountsData?.data || []).find((item: any) => String(item?.id) === String(input.pageId));
@@ -7241,7 +7241,7 @@ const subscriptionsRouter = router({
         // Busca cobrança da assinatura — tenta PENDING e RECEIVED
         const paymentsRes = await fetch(
           `https://api.asaas.com/v3/payments?subscription=${input.subId}&limit=5`,
-          { headers: { "access_token": key }, signal: AbortSignal.timeout(8000) }
+          { headers: { "access_token": key }, signal: AbortSignal.timeout(5000) }
         );
         const paymentsData: any = await paymentsRes.json();
         log.info("asaas", "getCheckoutPix payments", { subId: input.subId, total: paymentsData?.totalCount, data: paymentsData?.data?.map((p: any) => ({ id: p.id, status: p.status })) });
@@ -7256,7 +7256,7 @@ const subscriptionsRouter = router({
         // Busca QR code Pix
         const pixRes = await fetch(
           `https://api.asaas.com/v3/payments/${payment.id}/pixQrCode`,
-          { headers: { "access_token": key }, signal: AbortSignal.timeout(8000) }
+          { headers: { "access_token": key }, signal: AbortSignal.timeout(5000) }
         );
         const pixData: any = await pixRes.json();
         log.info("asaas", "getCheckoutPix pixQrCode", { paymentId: payment.id, hasPayload: !!pixData?.payload, error: pixData?.errors });
@@ -7345,7 +7345,7 @@ const subscriptionsRouter = router({
       try {
         const searchRes  = await fetch(
           `https://api.asaas.com/v3/customers?email=${encodeURIComponent(userRes.email)}&limit=1`,
-          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(6000) }
         );
         const searchData: any = await searchRes.json();
         if (searchData.data?.[0]?.id) {
@@ -7354,7 +7354,7 @@ const subscriptionsRouter = router({
             method: "PUT",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
             body: JSON.stringify({ cpfCnpj: cleanCpf }),
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(5000),
           });
         } else {
           const createRes  = await fetch("https://api.asaas.com/v3/customers", {
@@ -7367,7 +7367,7 @@ const subscriptionsRouter = router({
               externalReference: String(ctx.user.id),
               notificationDisabled: true,
             }),
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
           });
           const createData: any = await createRes.json();
           if (!createData.id) throw new Error(createData.errors?.[0]?.description || "Erro ao criar cliente no Asaas");
@@ -7393,7 +7393,7 @@ const subscriptionsRouter = router({
             description:      `MECPro — Plano ${NAMES[input.planSlug]} Anual | Inclui crédito promocional de R$ ${(creditNet/100).toFixed(2).replace(".",",")} para campanhas`,
             externalReference: `mecpro_annual_uid_${ctx.user.id}_${input.planSlug}`,
           }),
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(6000),
         });
         asaasPayment = await payRes.json();
         if (!asaasPayment.id) throw new Error(asaasPayment.errors?.[0]?.description || "Erro ao criar cobrança");
@@ -7407,7 +7407,7 @@ const subscriptionsRouter = router({
       try {
         const qrRes  = await fetch(
           `https://api.asaas.com/v3/payments/${asaasPayment.id}/pixQrCode`,
-          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(6000) }
         );
         const qrData: any = await qrRes.json();
         pixQrCode  = qrData.encodedImage || "";
@@ -7623,7 +7623,7 @@ const metaCampaignsRouter = router({
           const params = new URLSearchParams({ type: "adgeolocation", q: stateName, access_token: userToken });
           params.set("location_types", '["region"]');
           params.set("countries", '["BR"]');
-          const res = await fetch(`https://graph.facebook.com/v19.0/search?${params.toString()}`, { signal: AbortSignal.timeout(10000) });
+          const res = await fetch(`https://graph.facebook.com/v19.0/search?${params.toString()}`, { signal: AbortSignal.timeout(6000) });
           const data: any = await res.json().catch(() => ({}));
           if (!res.ok || data?.error) return null;
           const exact = (data?.data || []).find((item: any) => {
@@ -8605,7 +8605,7 @@ const unifiedRouter = router({
           const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
           const res = await fetch(
             `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,min_daily_budget&access_token=${token}`,
-            { signal: AbortSignal.timeout(8000) }
+            { signal: AbortSignal.timeout(5000) }
           );
           const d: any = await res.json();
           if (!d.error) {
@@ -8622,7 +8622,7 @@ const unifiedRouter = router({
             try {
               const txRes = await fetch(
                 `https://graph.facebook.com/v20.0/${act}/transactions?fields=amount,balance_after,type,time&limit=20&access_token=${token}`,
-                { signal: AbortSignal.timeout(8000) }
+                { signal: AbortSignal.timeout(5000) }
               );
               const txData: any = await txRes.json();
               if (!txData.error && txData.data?.length) {
@@ -8710,7 +8710,7 @@ const unifiedRouter = router({
         if (ttToken && ttAdvId) {
           const res = await fetch(
             `https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?advertiser_ids=["${ttAdvId}"]&fields=["balance","currency","status","name"]`,
-            { headers: { "Access-Token": ttToken }, signal: AbortSignal.timeout(8000) }
+            { headers: { "Access-Token": ttToken }, signal: AbortSignal.timeout(5000) }
           );
           const d: any = await res.json();
           const info = d?.data?.list?.[0];
@@ -8913,7 +8913,7 @@ const mediaBudgetRouter = router({
         // Tenta buscar cliente existente por email
         const searchRes = await fetch(
           `https://api.asaas.com/v3/customers?email=${encodeURIComponent(userRes.email)}&limit=1`,
-          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(6000) }
         );
         const searchData: any = await searchRes.json();
         const cleanCpf = input.cpfCnpj?.replace(/\D/g, "") || "";
@@ -8928,7 +8928,7 @@ const mediaBudgetRouter = router({
             method: "PUT",
             headers: { "Content-Type": "application/json", access_token: asaasKey },
             body: JSON.stringify({ cpfCnpj: cleanCpf }),
-            signal: AbortSignal.timeout(8000),
+            signal: AbortSignal.timeout(5000),
           });
         } else {
           // Cria novo cliente no Asaas
@@ -8942,7 +8942,7 @@ const mediaBudgetRouter = router({
               externalReference: String(ctx.user.id),
               notificationDisabled: true,
             }),
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
           });
           const createData: any = await createRes.json();
           if (!createData.id) throw new Error(createData.errors?.[0]?.description || "Erro ao criar cliente no Asaas");
@@ -8970,7 +8970,7 @@ const mediaBudgetRouter = router({
             description:      `MECPro — Recarga de verba de mídia${input.notes ? ": " + input.notes : ""}`,
             externalReference: `mecpro_uid_${ctx.user.id}`,
           }),
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(6000),
         });
         asaasPayment = await payRes.json();
         if (!asaasPayment.id) throw new Error(asaasPayment.errors?.[0]?.description || "Erro ao criar cobrança");
@@ -8985,7 +8985,7 @@ const mediaBudgetRouter = router({
       try {
         const qrRes = await fetch(
           `https://api.asaas.com/v3/payments/${asaasPayment.id}/pixQrCode`,
-          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+          { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(6000) }
         );
         const qrData: any = await qrRes.json();
         pixQrCode  = qrData.encodedImage || "";  // base64 da imagem
@@ -9058,7 +9058,7 @@ const mediaBudgetRouter = router({
 
       const searchRes = await fetch(
         `https://api.asaas.com/v3/customers?email=${encodeURIComponent(userRes.email)}&limit=1`,
-        { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(10000) }
+        { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(6000) }
       );
       const searchData: any = await searchRes.json();
 
@@ -9068,7 +9068,7 @@ const mediaBudgetRouter = router({
           method: "PUT",
           headers: { "Content-Type": "application/json", access_token: asaasKey },
           body: JSON.stringify({ cpfCnpj: cleanCpf }),
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(5000),
         });
       } else {
         const createRes = await fetch("https://api.asaas.com/v3/customers", {
@@ -9080,7 +9080,7 @@ const mediaBudgetRouter = router({
             cpfCnpj:           cleanCpf,
             externalReference: String(ctx.user.id),
           }),
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(6000),
         });
         const createData: any = await createRes.json();
         if (!createData.id) {
@@ -9172,7 +9172,7 @@ const mediaBudgetRouter = router({
       try {
         const balRes2 = await fetch("https://api.asaas.com/v3/finance/getCurrentBalance", {
           headers: { access_token: asaasKey },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(5000),
         });
         const balData: any = await balRes2.json();
         asaasBalance = Number(balData.balance || balData.totalBalance || 0);
@@ -9641,7 +9641,7 @@ const mediaBudgetRouter = router({
           // 1. Dados principais da conta — inclui adspaymentcycle para saldo devedor
           const res = await fetch(
             `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details&access_token=${token}`,
-            { signal: AbortSignal.timeout(8000) }
+            { signal: AbortSignal.timeout(5000) }
           );
           const d: any = await res.json();
 
@@ -9658,7 +9658,7 @@ const mediaBudgetRouter = router({
             try {
               const txRes = await fetch(
                 `https://graph.facebook.com/v20.0/${act}/transactions?fields=amount,balance_after,type,time&limit=20&access_token=${token}`,
-                { signal: AbortSignal.timeout(8000) }
+                { signal: AbortSignal.timeout(5000) }
               );
               const txData: any = await txRes.json();
               if (!txData.error && txData.data?.length) {
@@ -9717,7 +9717,7 @@ const mediaBudgetRouter = router({
             const spendRes = await fetch(buildGoogleAdsUrl(customerId, "googleAds:search"), {
               method: "POST", headers: gHeaders,
               body: JSON.stringify({ query: spendQuery }),
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(6000),
             });
             const spendData: any = await spendRes.json();
             const rows = Array.isArray(spendData) ? spendData : (spendData.results || []);
@@ -9746,7 +9746,7 @@ const mediaBudgetRouter = router({
         if (ttCfg.configured) {
           const res = await fetch(
             `https://business-api.tiktok.com/open_api/v1.3/advertiser/info/?advertiser_ids=["${ttCfg.accountId}"]&fields=["balance","currency","status","name"]`,
-            { headers: { "Access-Token": ttCfg.accessToken! }, signal: AbortSignal.timeout(8000) }
+            { headers: { "Access-Token": ttCfg.accessToken! }, signal: AbortSignal.timeout(5000) }
           );
           const d: any = await res.json();
           const info = d.data?.list?.[0];
@@ -9947,7 +9947,7 @@ const mediaBudgetRouter = router({
             // Verifica saldo atual na conta Meta
             const res = await fetch(
               `https://graph.facebook.com/v20.0/${act}?fields=balance,funding_source_details&access_token=${token}`,
-              { signal: AbortSignal.timeout(8000) }
+              { signal: AbortSignal.timeout(5000) }
             );
             const data: any = await res.json();
             const metaBalance = Number(data.balance || 0) / 100;
@@ -10122,7 +10122,7 @@ const mediaBudgetRouter = router({
         try {
           const resp = await fetch(
             `https://api.asaas.com/v3/payments/${asaasId}`,
-            { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(8000) }
+            { headers: { access_token: asaasKey }, signal: AbortSignal.timeout(5000) }
           );
           const payData: any = await resp.json();
 
@@ -10303,7 +10303,7 @@ const mediaBudgetRouter = router({
 
             if (locationUrl) {
               const fullUrl = locationUrl.startsWith("http") ? locationUrl : "https://" + locationUrl;
-              const locRes  = await fetch(fullUrl, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+              const locRes  = await fetch(fullUrl, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(5000) });
               const locText = await locRes.text();
 
               if (locRes.ok && locText.trim()) {
@@ -10565,7 +10565,7 @@ const mediaBudgetRouter = router({
                 // Resolve a URL de cobrança para obter a chave Pix real
                 const locRes  = await fetch(fullUrl, {
                   headers: { Accept: "application/json" },
-                  signal:  AbortSignal.timeout(10000),
+                  signal:  AbortSignal.timeout(6000),
                 });
                 const locText = await locRes.text();
                 log.info("payExternalCode", "Location URL resposta", { status: locRes.status, preview: locText.slice(0, 300) });
@@ -11172,7 +11172,7 @@ const mediaBudgetRouter = router({
             // Busca adsets da campanha e atualiza orçamento no primeiro ativo
             const adsetsRes = await fetch(
               `https://graph.facebook.com/v19.0/${act}/adsets?filtering=[{"field":"campaign.id","operator":"EQUAL","value":"${item.campaignId}"}]&fields=id,name,status,daily_budget&access_token=${token}`,
-              { signal: AbortSignal.timeout(10000) }
+              { signal: AbortSignal.timeout(6000) }
             );
             const adsetsData: any = await adsetsRes.json();
             const activeAdsets = (adsetsData.data || []).filter((a: any) => a.status === "ACTIVE");
@@ -11183,7 +11183,7 @@ const mediaBudgetRouter = router({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ daily_budget: dailyBudgetCents, access_token: token }),
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(6000),
             });
             const updateData: any = await updateRes.json();
             if (updateData.error) throw new Error(updateData.error.message);
@@ -11261,7 +11261,7 @@ const mediaBudgetRouter = router({
               method: "POST",
               headers: { "Content-Type": "application/json", "Access-Token": ttCfg.accessToken! },
               body: JSON.stringify({ advertiser_id: ttCfg.accountId, campaign_id: item.campaignId, budget: item.amount }),
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(6000),
             });
             const ttData: any = await ttUpd.json();
             if (ttData.code !== 0) throw new Error(ttData.message || "Erro TikTok");
@@ -11597,7 +11597,7 @@ const mediaBudgetRouter = router({
           const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
           const res = await fetch(
             `https://graph.facebook.com/v20.0/${act}/campaigns?fields=id,name,status,daily_budget,lifetime_budget,objective&filtering=[{"field":"effective_status","operator":"IN","value":["ACTIVE","PAUSED"]}]&limit=50&access_token=${token}`,
-            { signal: AbortSignal.timeout(10000) }
+            { signal: AbortSignal.timeout(6000) }
           );
           const data: any = await res.json();
           results.meta = (data.data || []).map((c: any) => ({
@@ -11662,7 +11662,7 @@ const mediaBudgetRouter = router({
             `https://business-api.tiktok.com/open_api/v1.3/campaign/get/?advertiser_id=${ttCfg.accountId}&fields=["campaign_id","campaign_name","status","budget"]&page_size=50`,
             {
               headers: { "Content-Type": "application/json", "Access-Token": ttCfg.accessToken! },
-              signal: AbortSignal.timeout(10000),
+              signal: AbortSignal.timeout(6000),
             }
           );
           const data: any = await res.json();
@@ -11700,7 +11700,7 @@ const mediaBudgetRouter = router({
         // Busca adsets da campanha para ver budget atualizado
         const res = await fetch(
           `https://graph.facebook.com/v20.0/${act}/adsets?filtering=[{"field":"campaign.id","operator":"EQUAL","value":"${input.campaignId}"}]&fields=id,name,status,daily_budget,effective_status&access_token=${token}`,
-          { signal: AbortSignal.timeout(10000) }
+          { signal: AbortSignal.timeout(6000) }
         );
         const data: any = await res.json();
         const adsets = (data.data || []).map((a: any) => ({
