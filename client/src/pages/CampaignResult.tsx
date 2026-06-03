@@ -305,7 +305,7 @@ export default function CampaignResult() {
   const [creativeVideoPreviews, setCreativeVideoPreviews] = useState<Record<number, string>>({});
   // ── Estados formulário de leads (usados no modal) ──
   const [leadDestination, setLeadDestination] = useState<"website" | "lead_form">("website");
-  const userChoseDestinationRef = React.useRef(false); // true após clique explícito do usuário
+  const userChoseDestinationRef = useRef(false); // true após clique explícito do usuário
   const [leadFormId,      setLeadFormId]      = useState<string>("");
   const [leadForms,       setLeadForms]       = useState<{id:string;name:string;status:string;leads_count:number}[]>([]);
   const [loadingForms,    setLoadingForms]    = useState(false);
