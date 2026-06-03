@@ -373,7 +373,7 @@ export default function CampaignResult() {
 
       // Busca páginas + campos de WhatsApp vinculado automaticamente
       const res = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,phone,whatsapp_connected_id,connected_instagram_account&access_token=${token}`
+        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,whatsapp_connected_id,connected_instagram_account&access_token=${token}`
       );
       const data = await res.json();
       if (data.error) { toast.error(`Erro ao buscar páginas: ${data.error.message}`); return; }
@@ -398,19 +398,19 @@ export default function CampaignResult() {
       let digits = "";
 
       // 1. Direto na listagem (me/accounts já trouxe o campo)
-      if (page.whatsapp_connected_id || page.phone) {
-        const phone = page.whatsapp_connected_id || page.phone;
+      if (page.whatsapp_connected_id) {
+        const phone = page.whatsapp_connected_id;
         digits = String(phone).replace(/\D/g, "");
       }
 
       // 2. Busca extra via Graph API se não veio na listagem
       if (!digits || digits.length < 8) {
         const waRes = await fetch(
-          `https://graph.facebook.com/v19.0/${page.id}?fields=whatsapp_connected_id,phone_number&access_token=${token}`
+          `https://graph.facebook.com/v19.0/${page.id}?fields=whatsapp_connected_id,name&access_token=${token}`
         );
         const waData = await waRes.json();
         if (!waData.error) {
-          const phone = waData.whatsapp_connected_id || waData.phone_number;
+          const phone = waData.whatsapp_connected_id;
           if (phone) digits = String(phone).replace(/\D/g, "");
         }
       }
