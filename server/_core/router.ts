@@ -75,7 +75,7 @@ function buildAdCopy(campaign: any, opts: {
     maxHeadline    = 255,
     maxDescription = 125,
     placement      = "feed",
-    objective      = campaign?.objective || "traffic",
+    objective      = campaign?.objective || "leads",
   } = opts;
 
   let creatives: any[] = [];
@@ -2639,7 +2639,7 @@ const campaignsRouter = router({
       const imageUrl = await generateAdImage(
         creative,
         campaign.name || "segmento geral",
-        campaign.objective || "traffic",
+        campaign.objective || "leads",
         config,
         input.format as CreativeImageFormat,
       );
@@ -3186,7 +3186,7 @@ const campaignsRouter = router({
               niche:          (clientProfile as any)?.niche || "",
               productName:    (clientProfile as any)?.productName || "",
               productService: (clientProfile as any)?.productService || "",
-              objective:      c?.objective || input.objective || "traffic",
+              objective:      c?.objective || input.objective || "leads",
               cta:            "",
             });
             params.set("text", autoMsg);
@@ -3401,7 +3401,7 @@ const campaignsRouter = router({
       const placementKey: "feed" | "stories" | "reels" = storyLikePlacements.length > 0 && storyLikePlacements.length === manualPlacements.length
         ? (storyLikePlacements.some((placement: string) => /reels/i.test(placement)) ? "reels" : "stories")
         : "feed";
-      const objective = c.objective || "traffic";
+      const objective = c.objective || "leads";
       const adCopy = buildAdCopy(c, { placement: placementKey, objective });
       const creative = placementKey === "stories"
         ? (adCopy as any).stories?.creative || creativeList[0]
