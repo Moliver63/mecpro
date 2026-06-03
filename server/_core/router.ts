@@ -3608,25 +3608,33 @@ const campaignsRouter = router({
       // Corrige objetivo baseado no segmento antes de resolver
       // "traffic" nunca deveria ser o objetivo final para segmentos de serviço/imóvel
       const segmentForObjective = (input.segment || (clientProfile as any)?.niche || "").toLowerCase();
+      // Corrige objetivo por segmento — independente de WhatsApp estar vinculado ou não
       const correctedObjective = (() => {
         if (objective !== "traffic") return objective; // respeita escolha explícita
 
-        // Segmentos de serviço/imóvel com WhatsApp → leads (OUTCOME_LEADS+CONVERSATIONS)
-        // Todos os segmentos de serviço, imóvel e B2B → leads
+        // Todos os segmentos de serviço → leads (melhor qualidade de otimização)
         const allLeadsSegs = [
           "imoveis","saude","servico","automotivo","academia","clinica","consultori","fitness",
-          "b2b","infoproduto","curso","saas","software","consultoria",
+          "b2b","infoproduto","curso","saas","software","consultoria","corretagem","imobili",
         ];
-        if (allLeadsSegs.some(s => segmentForObjective.includes(s)))
-          return "leads";
+        if (allLeadsSegs.some(s => segmentForObjective.includes(s))) return "leads";
 
-        // Segmentos de e-commerce → sales
+        // E-commerce / varejo / delivery → sales
         const salesSegs = ["ecommerce","moda","varejo","loja","alimentacao","delivery"];
-        if (salesSegs.some(s => segmentForObjective.includes(s)))
-          return "sales";
+        if (salesSegs.some(s => segmentForObjective.includes(s))) return "sales";
 
-        return objective; // mantém traffic para outros casos
+        // Sem segmento definido → leads como padrão global
+        if (!segmentForObjective) return "leads";
+
+        return objective;
       })();
+
+      log.info("meta", "Objetivo final para Meta", {
+        inputObjective: objective,
+        segment: segmentForObjective,
+        correctedObjective,
+        isWhatsApp: isWhatsAppDestination,
+      });
 
       if (correctedObjective !== objective) {
         log.info("meta", "Objetivo corrigido pelo segmento", {
