@@ -1356,22 +1356,37 @@ export default function CampaignResult() {
           ? "lead_form"   // padrão para leads: formulário Meta
           : "website";
     // Só aplica se não houver preferência explícita do usuário nesta sessão
+    // Só define destino inicial na primeira vez que a campanha é carregada
     setLeadDestination(prev => {
-      if (prev !== "lead_form" && prev !== "website") return preferredDestination;
-      // Se publishPreferences definiu explicitamente, usa
-      if (publishPreferences?.destination) return publishPreferences.destination as "lead_form" | "website";
-      // Mantém a escolha atual do usuário
-      return prev;
+      // Se publishPreferences definiu explicitamente, respeita sempre
+      if (publishPreferences?.destination === "website") return "website";
+      if (publishPreferences?.destination === "lead_form") return "lead_form";
+      // Na primeira carga (hydratedCampaignId mudou): aplica preferência
+      return preferredDestination;
     });
     setHydratedCampaignId(campaignKey);
   }, [campaign, hydratedCampaignId, publishPreferences?.destination, targetingConfig]);
 
   useEffect(() => {
+    // Não forçar mais lead_form automaticamente — o usuário deve escolher
+    // Antes: objective="leads" → sempre lead_form; isso impedia o botão Site funcionar
+    // Agora: só aplica na PRIMEIRA abertura do modal (quando leadDestination é o default)
+    // e somente se o usuário nunca interagiu com os botões
     const objective = String((campaign as any)?.objective || "").toLowerCase();
     if (showModal && objective === "leads" && !leadFormId) {
-      setLeadDestination("lead_form");
+      // Só reseta se ainda estiver no estado inicial "website" (default do useState)
+      // Se o usuário clicou em "Formulário Meta", mantém
+      // Se o usuário clicou em "Site / landing page", mantém
+      setLeadDestination(prev => {
+        // Se há publishPreferences salvo, respeita
+        if (publishPreferences?.destination === "website") return "website";
+        if (publishPreferences?.destination === "lead_form") return "lead_form";
+        // Sem preferência salva: leads → sugerir lead_form apenas se vier do default
+        // Mas NÃO sobrescrever se usuário já escolheu
+        return prev; // mantém a escolha atual sempre
+      });
     }
-  }, [showModal, campaign, leadFormId]);
+  }, [showModal, campaign, leadFormId, publishPreferences?.destination]);
 
   useEffect(() => {
     if (leadDestination !== "lead_form") {
