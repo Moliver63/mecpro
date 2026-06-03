@@ -1346,8 +1346,23 @@ export default function CampaignResult() {
     setGeoRadius(Number(targetingConfig?.geoRadius ?? 15));
 
     const objective = String((campaign as any)?.objective || "").toLowerCase();
-    const preferredDestination = publishPreferences?.destination === "website" ? "website" : objective === "leads" ? "lead_form" : "website";
-    setLeadDestination(preferredDestination);
+    // Só define destino se ainda não foi escolhido pelo usuário
+    // Não reseta para lead_form quando usuário já clicou em "Site / landing page"
+    const preferredDestination = publishPreferences?.destination === "website"
+      ? "website"
+      : publishPreferences?.destination === "lead_form"
+        ? "lead_form"
+        : objective === "leads"
+          ? "lead_form"   // padrão para leads: formulário Meta
+          : "website";
+    // Só aplica se não houver preferência explícita do usuário nesta sessão
+    setLeadDestination(prev => {
+      if (prev !== "lead_form" && prev !== "website") return preferredDestination;
+      // Se publishPreferences definiu explicitamente, usa
+      if (publishPreferences?.destination) return publishPreferences.destination as "lead_form" | "website";
+      // Mantém a escolha atual do usuário
+      return prev;
+    });
     setHydratedCampaignId(campaignKey);
   }, [campaign, hydratedCampaignId, publishPreferences?.destination, targetingConfig]);
 
