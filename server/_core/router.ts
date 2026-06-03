@@ -3377,7 +3377,7 @@ const campaignsRouter = router({
       // ── Valida budget mínimo antes de publicar ──────────────────────────────
       const adSetsForValidation = (() => { try { return JSON.parse(c.adSets || "[]"); } catch { return []; } })();
       const totalDailyForValidation = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
-      const META_MIN_DAILY = 5; // R$ 5/dia mínimo real Meta
+      const META_MIN_DAILY = 6; // R$ 6/dia mínimo com margem acima do R$5,11 da Meta
       const minRequired    = META_MIN_DAILY * Math.max(adSetsForValidation.length, 1);
       if (totalDailyForValidation < minRequired) {
         const minMonthly = minRequired * 30;
@@ -3537,7 +3537,7 @@ const campaignsRouter = router({
 
       // Meta mínimo: R$ 5,11/dia por adSet (verificado mai/2026)
       // Se o cálculo ficar abaixo, eleva para o mínimo
-      const META_MIN_DAILY_BRL = 5; // R$ 5/dia mínimo real Meta (mai/2026: R$ 5,11)
+      const META_MIN_DAILY_BRL = 6; // R$ 6/dia — acima do mínimo Meta R$5,11 com margem
       if (budgetDaily < META_MIN_DAILY_BRL) {
         log.warn("meta", "Budget abaixo do mínimo Meta — elevando", {
           original: budgetDaily, minimum: META_MIN_DAILY_BRL,
@@ -3608,17 +3608,27 @@ const campaignsRouter = router({
       // Se WhatsApp não vinculado → usa website ou página Facebook
       const safeLink = (() => {
         const raw = effectiveLink || "";
+        const fb  = `https://www.facebook.com/${input.pageId}`;
+        const ws  = normalizeDestinationUrl((clientProfile as any)?.websiteUrl);
+
+        // wa.me nunca pode ir como link em link_data — Meta rejeita 2061015
         const isWaMe = raw.includes("wa.me") || raw.includes("whatsapp.com/send");
         if (isWaMe && !isWhatsAppDestination) {
-          // WhatsApp não vinculado — usa website ou página Facebook
-          const ws = normalizeDestinationUrl((clientProfile as any)?.websiteUrl);
-          const fb = `https://www.facebook.com/${input.pageId}`;
+          const safe = ws || fb;
           log.info("meta", "wa.me substituído por link seguro", {
-            original: raw.slice(0,40), used: (ws || fb).slice(0,40),
+            original: raw.slice(0,40), used: safe.slice(0,40),
           });
-          return ws || fb;
+          return safe;
         }
-        return raw || `https://www.facebook.com/${input.pageId}`;
+
+        // Sem link nenhum — usa website ou página Facebook como fallback obrigatório
+        if (!raw) {
+          const safe = ws || fb;
+          log.info("meta", "linkUrl vazio — usando fallback obrigatório", { used: safe.slice(0,40) });
+          return safe;
+        }
+
+        return raw;
       })();
 
       const finalLink = isWhatsAppDestination
