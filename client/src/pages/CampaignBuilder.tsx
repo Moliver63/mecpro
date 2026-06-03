@@ -9,12 +9,50 @@ import { usePlanLimit } from "@/hooks/usePlanLimit";
 import IntelligenceRecommendation from "@/components/IntelligenceRecommendation";
 import CreativeDistributionPanel from "@/components/CreativeDistributionPanel";
 
+// Objetivos alinhados com o Gerenciador de Anúncios da Meta
+// Padrão: "leads" — melhor para geração de contatos e WhatsApp
 const OBJECTIVES = [
-  { value: "leads",       label: "Captação de leads",    icon: "🎯", desc: "WhatsApp, formulários, landing pages — gera contatos qualificados" },
-  { value: "sales",       label: "Vendas diretas",        icon: "🛒", desc: "E-commerce, checkout, venda online direta" },
-  { value: "branding",    label: "Branding / Alcance",    icon: "📢", desc: "Reconhecimento de marca, alcançar mais pessoas" },
-  { value: "traffic",     label: "Tráfego para site",     icon: "🌐", desc: "Levar visitantes ao site, blog ou landing page" },
-  { value: "engagement",  label: "Engajamento",           icon: "❤️", desc: "Curtidas, comentários, mensagens e compartilhamentos" },
+  {
+    value: "leads",
+    label: "Leads",
+    icon: "🎯",
+    meta: "OUTCOME_LEADS",
+    desc: "Captar contatos via WhatsApp, formulários e landing pages",
+    detail: "Bom para: Messenger, Instagram e WhatsApp · Formulários instantâneos",
+    recommended: true,
+  },
+  {
+    value: "sales",
+    label: "Vendas",
+    icon: "🛒",
+    meta: "OUTCOME_SALES",
+    desc: "Conversões diretas — e-commerce, checkout e vendas online",
+    detail: "Bom para: lojas virtuais, produtos físicos e digitais",
+  },
+  {
+    value: "traffic",
+    label: "Tráfego",
+    icon: "🖱️",
+    meta: "OUTCOME_TRAFFIC",
+    desc: "Levar visitantes ao site, blog ou landing page",
+    detail: "Bom para: conteúdo, SEO, blog e páginas informativas",
+  },
+  {
+    value: "engagement",
+    label: "Engajamento",
+    icon: "❤️",
+    meta: "OUTCOME_ENGAGEMENT",
+    desc: "Aumentar curtidas, comentários, mensagens e compartilhamentos",
+    detail: "Bom para: crescimento de página, comunidade e marca",
+  },
+  {
+    value: "branding",
+    label: "Reconhecimento",
+    icon: "📢",
+    meta: "OUTCOME_AWARENESS",
+    desc: "Ampliar o alcance e reconhecimento da marca",
+    detail: "Bom para: lançamentos, branding e campanhas institucionais",
+  },
 ];
 
 const PLATFORMS = [
@@ -400,6 +438,12 @@ export default function CampaignBuilder() {
                 <div>
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Qual é o objetivo da campanha?</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>A IA vai adaptar toda a estratégia para este objetivo.</p>
+                  {/* Leads como padrão recomendado */}
+                  <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+                    <p style={{ fontSize: 12, color: "#15803d", margin: 0 }}>
+                      💡 <strong>Recomendado para a maioria dos negócios:</strong> "Leads" — o Meta otimiza para pessoas com intenção real de contato via WhatsApp ou formulário.
+                    </p>
+                  </div>
                   <div style={{ display: "grid", gap: 10 }}>
                     {OBJECTIVES.map(obj => (
                       <div key={obj.value}
@@ -408,14 +452,32 @@ export default function CampaignBuilder() {
                           border: `2px solid ${form.objective === obj.value ? "var(--green)" : "var(--border)"}`,
                           borderRadius: 12, padding: "14px 18px", cursor: "pointer",
                           background: form.objective === obj.value ? "var(--green-l)" : "white",
-                          display: "flex", alignItems: "center", gap: 14, transition: "all .15s"
+                          display: "flex", alignItems: "center", gap: 14, transition: "all .15s",
+                          position: "relative",
                         }}>
                         <span style={{ fontSize: 24 }}>{obj.icon}</span>
-                        <div>
-                          <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", marginBottom: 2 }}>{obj.label}</p>
-                          <p style={{ fontSize: 12, color: "var(--muted)" }}>{obj.desc}</p>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                            <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", margin: 0 }}>{obj.label}</p>
+                            {(obj as any).recommended && (
+                              <span style={{ fontSize: 10, fontWeight: 700, background: "#16a34a", color: "white",
+                                padding: "2px 7px", borderRadius: 20 }}>RECOMENDADO</span>
+                            )}
+                            <span style={{ fontSize: 10, color: "var(--muted)", marginLeft: "auto",
+                              background: "var(--off)", padding: "2px 6px", borderRadius: 6 }}>
+                              {(obj as any).meta}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>{obj.desc}</p>
+                          {form.objective === obj.value && (obj as any).detail && (
+                            <p style={{ fontSize: 11, color: "#16a34a", margin: "4px 0 0", fontWeight: 500 }}>
+                              ✓ {(obj as any).detail}
+                            </p>
+                          )}
                         </div>
-                        {form.objective === obj.value && <span style={{ marginLeft: "auto", color: "var(--green)", fontWeight: 700 }}>✓</span>}
+                        {form.objective === obj.value && (
+                          <span style={{ color: "var(--green)", fontWeight: 800, fontSize: 18 }}>✓</span>
+                        )}
                       </div>
                     ))}
                   </div>
