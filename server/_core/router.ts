@@ -3401,7 +3401,8 @@ const campaignsRouter = router({
       const placementKey: "feed" | "stories" | "reels" = storyLikePlacements.length > 0 && storyLikePlacements.length === manualPlacements.length
         ? (storyLikePlacements.some((placement: string) => /reels/i.test(placement)) ? "reels" : "stories")
         : "feed";
-      const objective = c.objective || "leads";
+      // Prioriza objetivo do input (passado pelo frontend) sobre o salvo no banco
+      const objective = (input as any).objective || c.objective || "leads";
       const adCopy = buildAdCopy(c, { placement: placementKey, objective });
       const creative = placementKey === "stories"
         ? (adCopy as any).stories?.creative || creativeList[0]
@@ -3607,7 +3608,7 @@ const campaignsRouter = router({
         : (effectiveLink || `https://www.facebook.com/${input.pageId}`);
       // Corrige objetivo baseado no segmento antes de resolver
       // "traffic" nunca deveria ser o objetivo final para segmentos de serviço/imóvel
-      const segmentForObjective = (input.segment || (clientProfile as any)?.niche || "").toLowerCase();
+      const segmentForObjective = ((input as any).segment || input.segment || c?.segment || (clientProfile as any)?.niche || "").toLowerCase();
       // Corrige objetivo por segmento — independente de WhatsApp estar vinculado ou não
       const correctedObjective = (() => {
         if (objective !== "traffic") return objective; // respeita escolha explícita

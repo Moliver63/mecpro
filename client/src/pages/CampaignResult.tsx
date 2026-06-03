@@ -885,6 +885,9 @@ export default function CampaignResult() {
         countries: locationMode === "paises" ? countries : undefined,
         geoCity: locationMode === "raio" ? geoCity.trim() : undefined,
         geoRadius: locationMode === "raio" ? geoRadius : undefined,
+        // Passa objetivo e segmento explicitamente — sobrepõe valor salvo no banco
+        objective: ((campaign as any)?.objective || "leads") as any,
+        segment:   ((campaign as any)?.segment   || "") as any,
       };
 
       // Determina quais adSets publicar
