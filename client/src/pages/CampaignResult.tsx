@@ -305,6 +305,7 @@ export default function CampaignResult() {
   const [creativeVideoPreviews, setCreativeVideoPreviews] = useState<Record<number, string>>({});
   // ── Estados formulário de leads (usados no modal) ──
   const [leadDestination, setLeadDestination] = useState<"website" | "lead_form">("website");
+  const userChoseDestinationRef = React.useRef(false); // true após clique explícito do usuário
   const [leadFormId,      setLeadFormId]      = useState<string>("");
   const [leadForms,       setLeadForms]       = useState<{id:string;name:string;status:string;leads_count:number}[]>([]);
   const [loadingForms,    setLoadingForms]    = useState(false);
@@ -440,7 +441,7 @@ export default function CampaignResult() {
   const publishMutation = trpc.campaigns.publishToMeta.useMutation({
     onSuccess: (data: any) => {
       setPublishResult(data);
-      setShowModal(false);
+      setShowModal(false); userChoseDestinationRef.current = false;
       setPublishing(false);
       if (Array.isArray(data?.warnings) && data.warnings.length > 0) {
         toast.warning(`⚠️ ${data.warnings[0]}`);
@@ -1368,25 +1369,21 @@ export default function CampaignResult() {
   }, [campaign, hydratedCampaignId, publishPreferences?.destination, targetingConfig]);
 
   useEffect(() => {
-    // Não forçar mais lead_form automaticamente — o usuário deve escolher
-    // Antes: objective="leads" → sempre lead_form; isso impedia o botão Site funcionar
-    // Agora: só aplica na PRIMEIRA abertura do modal (quando leadDestination é o default)
-    // e somente se o usuário nunca interagiu com os botões
+    // Só sugere lead_form se o usuário NUNCA clicou nos botões
+    if (userChoseDestinationRef.current) return;
+
     const objective = String((campaign as any)?.objective || "").toLowerCase();
-    if (showModal && objective === "leads" && !leadFormId) {
-      // Só reseta se ainda estiver no estado inicial "website" (default do useState)
-      // Se o usuário clicou em "Formulário Meta", mantém
-      // Se o usuário clicou em "Site / landing page", mantém
-      setLeadDestination(prev => {
-        // Se há publishPreferences salvo, respeita
-        if (publishPreferences?.destination === "website") return "website";
-        if (publishPreferences?.destination === "lead_form") return "lead_form";
-        // Sem preferência salva: leads → sugerir lead_form apenas se vier do default
-        // Mas NÃO sobrescrever se usuário já escolheu
-        return prev; // mantém a escolha atual sempre
-      });
+    if (showModal && objective === "leads") {
+      if (publishPreferences?.destination === "website") {
+        setLeadDestination("website");
+      } else if (publishPreferences?.destination === "lead_form") {
+        setLeadDestination("lead_form");
+      } else {
+        // Padrão para leads sem preferência salva
+        setLeadDestination("lead_form");
+      }
     }
-  }, [showModal, campaign, leadFormId, publishPreferences?.destination]);
+  }, [showModal]); // só na abertura do modal
 
   useEffect(() => {
     if (leadDestination !== "lead_form") {
@@ -3912,7 +3909,7 @@ ${sc.cta}`); }}
                                   { key: "website", label: "🔗 Site / landing page" },
                                 ].map(option => (
                                   <button key={option.key}
-                                    onClick={() => setLeadDestination(option.key as "website" | "lead_form")}
+                                    onClick={() => { userChoseDestinationRef.current = true; setLeadDestination(option.key as "website" | "lead_form"); }}
                                     style={{
                                       flex: 1,
                                       padding: "8px 10px",
