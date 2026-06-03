@@ -755,8 +755,7 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
 
 // ── Banco de imagens aprovadas pelo RAG ──────────────────────────────────────
 // Salva imagens validadas e reutiliza antes de gerar novas
-import { Pool } from "pg";
-const _imageDbPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+const _imageDbPool = new (require("pg").Pool)({ connectionString: process.env.DATABASE_URL, max: 2 });
 
 async function saveApprovedImage(opts: {
   cloudUrl: string; segment: string; format: string;
