@@ -1391,14 +1391,14 @@ export async function generateAdImage(
                   try {
                     const { runImageRAG: _rag } = await import("./imageRAG");
                     const ragResult = await _rag(cfUrl, cfBuffer.length, {
-                      segment: segment || "outro", format,
+                      segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
                       productName:    productContext?.productName,
                       productService: productContext?.productService,
                       niche:          productContext?.niche,
                     });
                     if (ragResult.validation_status === "approved") {
                       await saveApprovedImage({
-                        cloudUrl: cfUrl, segment: segment || "outro", format,
+                        cloudUrl: cfUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
                         query: ragResult.generated_tags.slice(0,3).join(","),
                         provider: "cloudflare", bytes: cfBuffer.length,
                       });
@@ -1413,7 +1413,7 @@ export async function generateAdImage(
                   } catch (ragErr: any) {
                     // RAG falhou silenciosamente — salva mesmo assim
                     await saveApprovedImage({
-                      cloudUrl: cfUrl, segment: segment || "outro", format,
+                      cloudUrl: cfUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
                       query: "cf_flux", provider: "cloudflare", bytes: cfBuffer.length,
                     });
                   }
@@ -1509,20 +1509,20 @@ export async function generateAdImage(
       try {
         const { runImageRAG: _rag } = await import("./imageRAG");
         const pixRag = await _rag(finalPixUrl, 50_000, {
-          segment: segment || "outro", format,
+          segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
           productName:    productContext?.productName,
           productService: productContext?.productService,
           niche:          productContext?.niche,
         });
         if (pixRag.validation_status !== "rejected") {
           await saveApprovedImage({
-            cloudUrl: finalPixUrl, segment: segment || "outro", format,
+            cloudUrl: finalPixUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
             query: pixabayQuery, provider: "pixabay", bytes: 0,
           });
         }
       } catch {
         await saveApprovedImage({
-          cloudUrl: finalPixUrl, segment: segment || "outro", format,
+          cloudUrl: finalPixUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
           query: pixabayQuery, provider: "pixabay", bytes: 0,
         });
       }

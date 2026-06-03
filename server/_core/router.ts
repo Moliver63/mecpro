@@ -3377,13 +3377,13 @@ const campaignsRouter = router({
       // ── Valida budget mínimo antes de publicar ──────────────────────────────
       const adSetsForValidation = (() => { try { return JSON.parse(c.adSets || "[]"); } catch { return []; } })();
       const totalDailyForValidation = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
-      const META_MIN_DAILY = 6; // R$ 6/dia mínimo por adSet
+      const META_MIN_DAILY = 5; // R$ 5/dia mínimo real Meta
       const minRequired    = META_MIN_DAILY * Math.max(adSetsForValidation.length, 1);
       if (totalDailyForValidation < minRequired) {
         const minMonthly = minRequired * 30;
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Orçamento insuficiente. Com ${adSetsForValidation.length} conjuntos de anúncios, o mínimo é R$ ${minRequired}/dia (R$ ${minMonthly}/mês). Seu orçamento atual é R$ ${totalDailyForValidation}/dia. Aumente o orçamento da campanha ou reduza o número de conjuntos de anúncios.`,
+          message: `Orçamento insuficiente. Com ${adSetsForValidation.length} conjunto(s), o mínimo é R$ ${minRequired}/dia (R$ ${minMonthly}/mês). Orçamento atual: R$ ${totalDailyForValidation}/dia. Dica: aumente o orçamento no Módulo 4 ou selecione menos conjuntos para publicar.`,
         });
       }
 
@@ -3537,7 +3537,7 @@ const campaignsRouter = router({
 
       // Meta mínimo: R$ 5,11/dia por adSet (verificado mai/2026)
       // Se o cálculo ficar abaixo, eleva para o mínimo
-      const META_MIN_DAILY_BRL = 6; // R$ 6/dia com margem de segurança
+      const META_MIN_DAILY_BRL = 5; // R$ 5/dia mínimo real Meta (mai/2026: R$ 5,11)
       if (budgetDaily < META_MIN_DAILY_BRL) {
         log.warn("meta", "Budget abaixo do mínimo Meta — elevando", {
           original: budgetDaily, minimum: META_MIN_DAILY_BRL,

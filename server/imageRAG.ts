@@ -57,11 +57,11 @@ export interface RAGContext {
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
 const THRESHOLDS = {
-  confidence:       0.75,  // reduzido de 0.85 — sem embeddings vetoriais reais
-  product_match:    0.70,
-  campaign_match:   0.70,
-  branding:         0.65,
-  min_bytes:        20_000, // imagens < 20KB são placeholder/erro
+  confidence:       0.50,  // Pixabay/Google são CC0 de qualidade — threshold pragmático
+  product_match:    0.40,  // sem embeddings vetoriais reais, matching por keyword é limitado
+  campaign_match:   0.40,  // histórico cresce com o tempo
+  branding:         0.50,  // sem texto + seguro = aprovado
+  min_bytes:        10_000, // imagens < 10KB são placeholder/erro
 };
 
 // ── ETAPA 1: Análise Visual via Google Vision ────────────────────────────────
@@ -387,8 +387,11 @@ export async function runImageRAG(
     projectId: ctx.projectId,
   });
 
+  // Extract just the segment key from potentially long segment text
+  const segmentKey = (ctx.segment || "").split("
+")[0].slice(0, 50);
   log.info("image-rag", `RAG ${decision.status}`, {
-    image_id, segment: ctx.segment, format: ctx.format,
+    image_id, segment: segmentKey, format: ctx.format,
     overall: scores.overall_score, has_text: visionFallback.has_text,
     status: decision.status,
   });
