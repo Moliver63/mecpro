@@ -3462,9 +3462,13 @@ const campaignsRouter = router({
       const selectedHeadline = placementKey === "stories" || placementKey === "reels"
         ? ((adCopy as any).stories?.hook || adCopy.feed.headline || c.name)
         : adCopy.feed.headline;
-      const selectedDescription = placementKey === "stories" || placementKey === "reels"
-        ? (((adCopy as any).stories?.script || [])[2] || adCopy.feed.copy || "")
-        : adCopy.feed.copy;
+      // Descrição curta (max 30 chars para Meta) — campo separado do texto principal
+      // Extrai primeira frase impactante da copy ou usa proposta de valor
+      const rawDesc = adCopy.feed?.description
+        || adCopy.feed?.hook?.slice(0, 30)
+        || adCopy.feed?.copy?.split("\n")?.[0]?.slice(0, 30)
+        || "";
+      const selectedDescription = String(rawDesc).trim().slice(0, 30);
       // ── Auditoria automática de copy antes de enviar ao Meta ────────────────
       const creativeAudit = auditCreative({
         headline:    selectedHeadline,
@@ -4244,12 +4248,20 @@ const campaignsRouter = router({
                  `https://www.facebook.com/${input.pageId}`)
               : finalLink;
 
+            // Gera descrição curta automática se não existir
+            const shortDescription = auditedDescription?.trim()
+              || selectedDescription?.trim()
+              || adCopy.feed?.hook?.slice(0, 30)?.trim()
+              || "";
+
             storySpec = {
               page_id: input.pageId,
               link_data: {
                 message:        auditedMessage,
                 name:           auditedHeadline,
                 link:           linkForCreative,
+                // description: campo exibido abaixo do título no Gerenciador
+                ...(shortDescription ? { description: shortDescription } : {}),
                 call_to_action: isWhatsAppDestination
                   ? { type: "WHATSAPP_MESSAGE" }
                   : {
@@ -4263,6 +4275,9 @@ const campaignsRouter = router({
                     : {}),
               },
             };
+            if (shortDescription) {
+              log.info("meta", "Descrição enviada ao Meta", { description: shortDescription });
+            }
             if (isWhatsAppDestination) {
               log.info("meta", "WhatsApp creative: link substituído por página/website", {
                 original: finalLink?.slice(0,40), used: linkForCreative?.slice(0,40),

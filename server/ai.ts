@@ -6422,8 +6422,9 @@ Gere JSON com:
 - campaignName: string
 - adSets: array {name, audience, budget(%), objective, funnelStage}
 - creatives: EXATAMENTE 4 itens com copies COMPLETAMENTE DIFERENTES entre si
-  {type, format, orientation, headline, copy(max 200 chars), hook, cta, funnelStage, complianceScore, targetAudience, angle}
+  {type, format, orientation, headline, description, copy(max 200 chars), hook, cta, funnelStage, complianceScore, targetAudience, angle}
   HEADLINE OBRIGATÓRIO: entre 25 e 40 caracteres, impactante e específica para o produto
+  DESCRIPTION OBRIGATÓRIO: máx 30 chars — frase ultra-curta impactante (ex: "Vista Mar • Locação Anual", "Frente Mar • 3 dorms", "R$15k/mês + condomínio")
   EXEMPLOS RUINS (muito curtas/genéricas): "Saiba mais", "Clique aqui", "Nova coleção"
   EXEMPLOS BONS: "Notting Hill: Vista Mar com Entrada Acessível", "Academia Prime: Planos a partir de R$89"
   OBRIGATÓRIO: headline de cada criativo deve ser única, diferente e ter entre 25-40 chars
