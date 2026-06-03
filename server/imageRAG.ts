@@ -6,10 +6,18 @@
  *   → Validação Multi-Score → Associação/Rejeição → Auto-Learning
  */
 
-import { Pool }   from "pg";
 import { log }    from "./logger";
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+// Lazy pool — evita crash no startup se DATABASE_URL não estiver disponível
+let _ragPool: any = null;
+function getRagPool() {
+  if (!_ragPool) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Pool } = require("pg");
+    _ragPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+  }
+  return _ragPool;
+}
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -158,7 +166,7 @@ async function retrieveRAGContext(ctx: RAGContext): Promise<RetrievedContext> {
 
   try {
     // Imagens aprovadas do mesmo segmento
-    const imgRows = await pool.query(
+    const imgRows = await getRagPool().query(
       `SELECT cloud_url, segment, usage_count FROM approved_images
        WHERE segment = $1 ORDER BY usage_count DESC LIMIT 5`,
       [ctx.segment]
@@ -167,7 +175,7 @@ async function retrieveRAGContext(ctx: RAGContext): Promise<RetrievedContext> {
 
     // Padrões de campanhas bem-sucedidas do mesmo nicho
     if (ctx.projectId) {
-      const campRows = await pool.query(
+      const campRows = await getRagPool().query(
         `SELECT m.feature_niche as niche, m.label_score as score, m.feature_platform as platform
          FROM ml_dataset m
          WHERE m.project_id = $1 AND m.label_is_winner = 1
@@ -413,7 +421,7 @@ async function saveRAGLog(data: {
   labels: string[]; projectId?: number;
 }): Promise<void> {
   try {
-    await pool.query(
+    await getRagPool().query(
       `INSERT INTO image_rag_logs
          (image_id, cloud_url, segment, format, validation_status,
           overall_score, has_text, labels, project_id, created_at)
@@ -437,7 +445,7 @@ export async function promoteImageToLibrary(
   if (ragResult.validation_status !== "approved") return;
 
   try {
-    await pool.query(
+    await getRagPool().query(
       `INSERT INTO approved_images (cloud_url, segment, format, query, provider, bytes)
        VALUES ($1, $2, $3, $4, 'rag_validated', 0)
        ON CONFLICT DO NOTHING`,

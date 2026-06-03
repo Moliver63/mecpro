@@ -755,14 +755,22 @@ async function generateWithHuggingFace(prompt: string, apiKey: string, format: C
 
 // ── Banco de imagens aprovadas pelo RAG ──────────────────────────────────────
 // Salva imagens validadas e reutiliza antes de gerar novas
-const _imageDbPool = new (require("pg").Pool)({ connectionString: process.env.DATABASE_URL, max: 2 });
+let _imageDbPool: any = null;
+function getImageDbPool() {
+  if (!_imageDbPool) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Pool } = require("pg");
+    _imageDbPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+  }
+  return _imageDbPool;
+}
 
 async function saveApprovedImage(opts: {
   cloudUrl: string; segment: string; format: string;
   query: string; provider: string; bytes: number;
 }): Promise<void> {
   try {
-    await _imageDbPool.query(
+    await getImageDbPool().query(
       `INSERT INTO approved_images (cloud_url, segment, format, query, provider, bytes)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT DO NOTHING`,
@@ -778,7 +786,7 @@ async function getApprovedImage(
   segment: string, format: string, excludeUrl?: string
 ): Promise<string | null> {
   try {
-    const res = await _imageDbPool.query(
+    const res = await getImageDbPool().query(
       `SELECT id, cloud_url FROM approved_images
        WHERE segment = $1 AND format = $2
        ${excludeUrl ? "AND cloud_url != $3" : ""}
@@ -790,7 +798,7 @@ async function getApprovedImage(
     // Escolhe aleatoriamente entre as 5 menos usadas (diversidade)
     const row = res.rows[Math.floor(Math.random() * res.rows.length)];
     // Incrementa contador de uso
-    await _imageDbPool.query(
+    await getImageDbPool().query(
       `UPDATE approved_images SET usage_count = usage_count + 1, last_used_at = NOW() WHERE id = $1`,
       [row.id]
     ).catch(() => {});
@@ -803,7 +811,7 @@ async function getApprovedImage(
 
 async function countApprovedImages(segment: string, format: string): Promise<number> {
   try {
-    const res = await _imageDbPool.query(
+    const res = await getImageDbPool().query(
       "SELECT COUNT(*) as n FROM approved_images WHERE segment = $1 AND format = $2",
       [segment, format]
     );
