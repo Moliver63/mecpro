@@ -3471,11 +3471,15 @@ const campaignsRouter = router({
         : adCopy.feed.headline;
       // Descrição curta (max 30 chars para Meta) — campo separado do texto principal
       // Extrai primeira frase impactante da copy ou usa proposta de valor
+      // Descrição curta (max 30 chars) — tenta múltiplas fontes
       const rawDesc = adCopy.feed?.description
+        || adCopy.feed?.shortDescription
         || adCopy.feed?.hook?.slice(0, 30)
         || adCopy.feed?.copy?.split("\n")?.[0]?.slice(0, 30)
+        || (adCopy.feed?.headline ? adCopy.feed.headline.slice(0, 30) : "")
         || "";
       const selectedDescription = String(rawDesc).trim().slice(0, 30);
+      log.info("meta", "Description gerada", { rawDesc: rawDesc.slice(0, 30), selectedDescription });
       // ── Auditoria automática de copy antes de enviar ao Meta ────────────────
       const creativeAudit = auditCreative({
         headline:    selectedHeadline,
@@ -4238,10 +4242,17 @@ const campaignsRouter = router({
               log.warn("meta", "Vídeo sem thumbnail — Meta irá gerar automaticamente", { effectiveVideoId });
             }
 
+            // description para vídeo — mesmo campo do link_data
+            const shortDescVideo = auditedDescription?.trim()
+              || selectedDescription?.trim()
+              || adCopy.feed?.hook?.slice(0, 30)?.trim()
+              || "";
+
             const videoDataPayload: Record<string, any> = {
               video_id:       effectiveVideoId,
               message:        auditedMessage,
               title:          selectedHeadline,
+              ...(shortDescVideo ? { link_description: shortDescVideo } : {}),
               call_to_action: isWhatsAppDestination
                 // WHATSAPP_MESSAGE em video_data: apenas type, sem value (API rejeita link)
                 ? { type: "WHATSAPP_MESSAGE" }
