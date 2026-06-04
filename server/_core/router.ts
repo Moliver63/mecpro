@@ -4088,6 +4088,15 @@ const campaignsRouter = router({
           });
         }
 
+        // OUTCOME_LEADS sem link e sem WhatsApp — a Meta exige link válido em link_data
+        // Solução: bloquear com mensagem clara pedindo para usar Formulário Meta ou inserir URL
+        if (campaignObjective === "OUTCOME_LEADS" && !effectiveLink && dest !== "lead_form") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Campanha de Leads sem destino configurado. Escolha uma opção: (1) Formulário Meta — selecione ou crie um formulário no painel de publicação; (2) Site / landing page — informe o endereço do site no campo de URL; (3) WhatsApp — informe o número no perfil do cliente.",
+          });
+        }
+
         if (effectiveLink) {
           let resolvedHost: string | undefined;
           try { resolvedHost = new URL(effectiveLink).hostname; } catch {}
