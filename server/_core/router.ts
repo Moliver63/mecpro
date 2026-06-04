@@ -3586,6 +3586,7 @@ const campaignsRouter = router({
             : null;
           const requestedPhone = whatsappDestination.phone.replace(/\D/g, "");
 
+          if (connectedPhone) (whatsappDestination as any)._connectedPhone = connectedPhone;
           if (connectedPhone && !requestedPhone.endsWith(connectedPhone) && !connectedPhone.endsWith(requestedPhone)) {
             log.warn("meta", "WhatsApp não vinculado — fallback para website", {
               requested: requestedPhone, connected: connectedPhone, pageId: input.pageId,
@@ -3594,13 +3595,13 @@ const campaignsRouter = router({
             isWhatsAppDestination = false;
             (whatsappDestination as any).link = null;
           } else if (!connectedPhone) {
-            log.warn("meta", "Página sem WhatsApp vinculado — fallback para website", { pageId: input.pageId });
-            publishWarnings.push("⚠️ A Página do Facebook não tem WhatsApp vinculado. Para o botão funcionar corretamente, acesse Configurações de Negócio → Contas WhatsApp e vincule o número à sua Página.");
-            if (!(clientProfile as any)?.websiteUrl) {
-              publishWarnings.push("⚠️ Sem website cadastrado no perfil do cliente. Adicione um website no Módulo 1 para garantir que o link do anúncio funcione.");
-            }
-            isWhatsAppDestination = false;
-            (whatsappDestination as any).link = null;
+            // Página sem WA vinculado — mas mantemos isWhatsAppDestination=true
+            // O wa.me URL funciona como destino externo mesmo sem vínculo na página
+            // Meta abre o WhatsApp via URL externa quando destination_type não é definido
+            log.info("meta", "Página sem WhatsApp vinculado — usando wa.me como URL externa", { pageId: input.pageId });
+            publishWarnings.push("💡 WhatsApp não vinculado à Página — anúncio usará link direto wa.me. Para melhor desempenho, vincule em: Configurações de Negócio → Contas WhatsApp.");
+            // NÃO desabilita — mantém isWhatsAppDestination=true com o link wa.me
+            // isWhatsAppDestination permanece true
           }
         } catch {
           // Se verificação falhar, tenta publicar mesmo assim
@@ -4240,12 +4241,15 @@ const campaignsRouter = router({
             };
             log.info("meta", "Criativo vídeo via video_data", { videoId: effectiveVideoId, pageId: input.pageId, hasThumb: !!(videoThumbHash || videoThumbUrl) });
           } else {
-            // CRÍTICO: Meta rejeita wa.me como link em link_data com OUTCOME_TRAFFIC
-            // Quando destino é WhatsApp: link deve ser URL da página Facebook ou website
-            // A ação WhatsApp é configurada via call_to_action WHATSAPP_MESSAGE
+            // Link para o criativo:
+            // - Se WA vinculado na página: usa website ou FB (CTA abre WA via página)
+            // - Se WA NÃO vinculado: usa o wa.me diretamente como URL de destino
+            const hasConnectedWA = !!(whatsappDestination as any)._connectedPhone;
+            const waDirectUrl = whatsappDestination.link || null;
             const linkForCreative = isWhatsAppDestination
-              ? (normalizeDestinationUrl(clientProfile?.websiteUrl) ||
-                 `https://www.facebook.com/${input.pageId}`)
+              ? (hasConnectedWA
+                  ? (normalizeDestinationUrl((clientProfile as any)?.websiteUrl) || `https://www.facebook.com/${input.pageId}`)
+                  : (waDirectUrl || normalizeDestinationUrl((clientProfile as any)?.websiteUrl) || `https://www.facebook.com/${input.pageId}`))
               : finalLink;
 
             // Gera descrição curta automática se não existir
