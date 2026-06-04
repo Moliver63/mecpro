@@ -3747,11 +3747,27 @@ ${sc.cta}`); }}
                         ⚠️ Selecione ao menos um conjunto para publicar.
                       </p>
                     )}
-                    {(publishAllMode || selectedAdSets.length > 1) && (
-                      <p style={{ fontSize: 11, color: "#16a34a", marginTop: 6, fontWeight: 600 }}>
-                        ✓ {publishAllMode ? adSets.length : selectedAdSets.length} conjuntos serão publicados em sequência.
-                      </p>
-                    )}
+                    {(publishAllMode || selectedAdSets.length > 1) && (() => {
+                      const count = publishAllMode ? adSets.length : selectedAdSets.length;
+                      const dailyBudget = Math.round((campaign as any)?.budget?.totalMonthly / 30) || 0;
+                      const minRequired = Math.ceil(5.11 * count);
+                      const perAdSet = dailyBudget > 0 ? (dailyBudget / count).toFixed(2) : null;
+                      const budgetOk = dailyBudget === 0 || dailyBudget >= minRequired;
+                      return (
+                        <div style={{ marginTop: 6 }}>
+                          <p style={{ fontSize: 11, color: budgetOk ? "#16a34a" : "#dc2626", fontWeight: 600, margin: 0 }}>
+                            {budgetOk
+                              ? `✓ ${count} conjuntos serão publicados em sequência.`
+                              : `⚠️ Orçamento insuficiente para ${count} conjuntos. Mínimo: R$${minRequired}/dia. Atual: R$${dailyBudget}/dia.`}
+                          </p>
+                          {!budgetOk && (
+                            <p style={{ fontSize: 11, color: "#78350f", margin: "4px 0 0" }}>
+                              💡 Selecione {Math.floor(dailyBudget / 5.11)} ou menos conjuntos, ou aumente o orçamento no Módulo 4.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
