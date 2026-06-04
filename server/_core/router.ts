@@ -3381,13 +3381,16 @@ const campaignsRouter = router({
       // ── Valida budget mínimo antes de publicar ──────────────────────────────
       const adSetsForValidation = (() => { try { return JSON.parse(c.adSets || "[]"); } catch { return []; } })();
       const totalDailyForValidation = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
-      const META_MIN_DAILY = 6; // R$ 6/dia mínimo com margem acima do R$5,11 da Meta
-      const minRequired    = META_MIN_DAILY * Math.max(adSetsForValidation.length, 1);
+      // Meta mínimo real: R$5,11/adSet/dia
+      // Validamos com margem de 5% para cobrir arredondamentos
+      const META_MIN_DAILY_PER_ADSET = 5.11;
+      const adSetCount = Math.max(adSetsForValidation.length, 1);
+      const minRequired = Math.ceil(META_MIN_DAILY_PER_ADSET * adSetCount);
       if (totalDailyForValidation < minRequired) {
         const minMonthly = minRequired * 30;
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Orçamento insuficiente. Com ${adSetsForValidation.length} conjunto(s), o mínimo é R$ ${minRequired}/dia (R$ ${minMonthly}/mês). Orçamento atual: R$ ${totalDailyForValidation}/dia. Dica: aumente o orçamento no Módulo 4 ou selecione menos conjuntos para publicar.`,
+          message: `Orçamento insuficiente. Com ${adSetCount} conjunto(s), o mínimo é R$ ${minRequired}/dia (R$ ${minMonthly}/mês). Orçamento atual: R$ ${totalDailyForValidation}/dia. Dica: aumente o orçamento ou selecione menos conjuntos.`,
         });
       }
 
@@ -3545,7 +3548,7 @@ const campaignsRouter = router({
 
       // Meta mínimo: R$ 5,11/dia por adSet (verificado mai/2026)
       // Se o cálculo ficar abaixo, eleva para o mínimo
-      const META_MIN_DAILY_BRL = 6; // R$ 6/dia — acima do mínimo Meta R$5,11 com margem
+      const META_MIN_DAILY_BRL = 6; // R$ 6/dia por adSet quando budget elevado automaticamente
       if (budgetDaily < META_MIN_DAILY_BRL) {
         log.warn("meta", "Budget abaixo do mínimo Meta — elevando", {
           original: budgetDaily, minimum: META_MIN_DAILY_BRL,
