@@ -3775,7 +3775,8 @@ const campaignsRouter = router({
         bid_strategy:      "LOWEST_COST_WITHOUT_CAP",
         daily_budget:      budgetDaily * 100,
         end_time:          endTime,
-        ...(isWhatsAppDestination ? { destination_type: "WHATSAPP" } : {}),
+        // destination_type: WHATSAPP só quando número vinculado — sem vínculo causa erro 1487246
+        ...((isWhatsAppDestination && (whatsappDestination as any)._connectedPhone) ? { destination_type: "WHATSAPP" } : {}),
         targeting: {
           age_min: parsedAgeMin,
           age_max: parsedAgeMax,
@@ -3921,7 +3922,11 @@ const campaignsRouter = router({
           promoted_object: isWhatsAppDestination
             ? {
                 page_id: input.pageId,
-                ...(whatsappDestination.phone ? { whatsapp_phone_number: whatsappDestination.phone } : {}),
+                // whatsapp_phone_number só quando número está vinculado no Meta Business
+                // sem vínculo: erro 1487246 — neste caso usa só page_id + wa.me como link
+                ...((whatsappDestination as any)._connectedPhone
+                  ? { whatsapp_phone_number: whatsappDestination.phone }
+                  : {}),
               }
             : resolvedCampaignObj === "OUTCOME_SALES" && input.pixelId
               ? { page_id: input.pageId, pixel_id: input.pixelId, custom_event_type: "PURCHASE" }
