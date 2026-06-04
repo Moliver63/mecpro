@@ -901,6 +901,19 @@ export default function CampaignResult() {
         await handlePublishMultiPage(selectedPageIds);
       } else if (adSetsToPublish.length > 1) {
         // Publicar múltiplos adSets em sequência — todos dentro da MESMA campanha Meta
+        // Pre-flight: valida budget antes de iniciar o loop (evita N chamadas com erro)
+        const totalBudget = Math.round(((campaign as any)?.budget?.totalMonthly || 0) / 30);
+        const minBudget   = Math.ceil(5.11 * adSetsToPublish.length);
+        if (totalBudget > 0 && totalBudget < minBudget) {
+          const maxAdSets = Math.floor(totalBudget / 5.11);
+          toast.error(
+            `⚠️ Orçamento insuficiente. Com ${adSetsToPublish.length} conjuntos, o mínimo é R$${minBudget}/dia. ` +
+            `Orçamento atual: R$${totalBudget}/dia. ` +
+            (maxAdSets > 0 ? `Selecione até ${maxAdSets} conjunto(s) ou aumente o orçamento.` : `Aumente o orçamento no Módulo 4.`)
+          );
+          return; // Para aqui, não inicia o loop
+        }
+
         let successCount = 0;
         let sharedMetaCampaignId: string | undefined = undefined; // reutilizado após 1ª publicação
 
