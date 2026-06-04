@@ -3047,11 +3047,15 @@ const campaignsRouter = router({
           };
         }
 
-        // leads + WhatsApp → OUTCOME_LEADS + CONVERSATIONS (Click-to-WhatsApp oficial)
-        // Meta API v19+: OUTCOME_LEADS + CONVERSATIONS + WHATSAPP não exige pixel
-        // Melhor qualidade de lead que OUTCOME_ENGAGEMENT (otimiza por intenção de compra)
+        // leads + WhatsApp VINCULADO → OUTCOME_LEADS + CONVERSATIONS (Click-to-WhatsApp nativo)
+        // leads + WhatsApp NÃO vinculado → OUTCOME_LEADS + LINK_CLICKS (abre wa.me via link)
+        // CONVERSATIONS exige número vinculado no Meta Business — erro sem vínculo
         if (o === "leads" && isWhatsAppDestination) {
-          return { campaignObj: "OUTCOME_LEADS", optimizationGoal: "CONVERSATIONS" };
+          const hasLinkedWA = !!(opts as any)?.hasLinkedWA;
+          return {
+            campaignObj:      "OUTCOME_LEADS",
+            optimizationGoal: hasLinkedWA ? "CONVERSATIONS" : "LINK_CLICKS",
+          };
         }
 
         // leads + link/site SEM pixel → OUTCOME_LEADS + LINK_CLICKS
@@ -3679,7 +3683,11 @@ const campaignsRouter = router({
       const { campaignObj: resolvedCampaignObj, optimizationGoal: adSetOptimizationGoal } = resolveObjectiveAndGoal(
         correctedObjective,
         input.pixelId ?? undefined,
-        { isWhatsAppDestination, hasLink: !!finalLink },
+        {
+          isWhatsAppDestination,
+          hasLink:     !!finalLink,
+          hasLinkedWA: !!(whatsappDestination as any)._connectedPhone,
+        },
       );
       if (String(objective || "").toLowerCase() === "engagement" && !isWhatsAppDestination) {
         log.warn("meta", "Engagement sem WhatsApp válido — fallback técnico aplicado", {
