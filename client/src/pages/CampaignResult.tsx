@@ -836,20 +836,35 @@ export default function CampaignResult() {
     }
 
     // ── Pre-flight budget check — ANTES de qualquer upload ──────────────────
-    const adSetsCountForCheck = publishAllMode
-      ? (Array.isArray(adSets) ? adSets.length : 1)
-      : selectedAdSets.length > 0 ? selectedAdSets.length : 1;
+    const adSetsForBudgetCheck = publishAllMode
+      ? (Array.isArray(adSets) ? adSets : [])
+      : selectedAdSets.map(i => Array.isArray(adSets) ? adSets[i] : null).filter(Boolean);
+    const adSetsCountForCheck = adSetsForBudgetCheck.length || 1;
+
     if (adSetsCountForCheck > 1) {
+      // Calcula budget real somando os adSets selecionados
+      const totalDailyFromAdSets = adSetsForBudgetCheck.reduce((sum: number, s: any) => {
+        if (!s) return sum;
+        const raw = String(s?.budget || s?.rawBudget || "0");
+        // Extrai valor numérico: "R$ 13/dia" → 13, "R$ 35/dia" → 35
+        const m = raw.match(/R\$?\s*([\d,\.]+)/);
+        return sum + (m ? parseFloat(m[1].replace(",", ".")) : 0);
+      }, 0);
+
+      // Fallback para suggestedBudgetDaily da campanha
       const campCheck = campaign as any;
-      const dailyCheck = campCheck?.suggestedBudgetDaily
-        || Math.round((campCheck?.suggestedBudgetMonthly || 0) / 30)
-        || 0;
+      const dailyCheck = totalDailyFromAdSets > 0
+        ? totalDailyFromAdSets
+        : (campCheck?.suggestedBudgetDaily
+            || Math.round((campCheck?.suggestedBudgetMonthly || 0) / 30)
+            || 0);
+
       const minCheck = Math.ceil(5.11 * adSetsCountForCheck);
       if (dailyCheck > 0 && dailyCheck < minCheck) {
         const maxOk = Math.floor(dailyCheck / 5.11);
         toast.error(
           `⚠️ Orçamento insuficiente para ${adSetsCountForCheck} conjuntos. ` +
-          `Mínimo: R$${minCheck}/dia. Atual: R$${dailyCheck}/dia. ` +
+          `Mínimo: R$${minCheck}/dia. Atual: R$${Math.round(dailyCheck)}/dia. ` +
           (maxOk > 0 ? `Selecione até ${maxOk} conjunto(s).` : `Aumente o orçamento no Módulo 4.`)
         );
         return; // Para ANTES do upload
