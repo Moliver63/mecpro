@@ -835,6 +835,27 @@ export default function CampaignResult() {
       return;
     }
 
+    // ── Pre-flight budget check — ANTES de qualquer upload ──────────────────
+    const adSetsCountForCheck = publishAllMode
+      ? (Array.isArray(adSets) ? adSets.length : 1)
+      : selectedAdSets.length > 0 ? selectedAdSets.length : 1;
+    if (adSetsCountForCheck > 1) {
+      const campCheck = campaign as any;
+      const dailyCheck = campCheck?.suggestedBudgetDaily
+        || Math.round((campCheck?.suggestedBudgetMonthly || 0) / 30)
+        || 0;
+      const minCheck = Math.ceil(5.11 * adSetsCountForCheck);
+      if (dailyCheck > 0 && dailyCheck < minCheck) {
+        const maxOk = Math.floor(dailyCheck / 5.11);
+        toast.error(
+          `⚠️ Orçamento insuficiente para ${adSetsCountForCheck} conjuntos. ` +
+          `Mínimo: R$${minCheck}/dia. Atual: R$${dailyCheck}/dia. ` +
+          (maxOk > 0 ? `Selecione até ${maxOk} conjunto(s).` : `Aumente o orçamento no Módulo 4.`)
+        );
+        return; // Para ANTES do upload
+      }
+    }
+
     setPublishing(true);
     try {
       const resolvedLeadFormId = leadDestination === "lead_form"
