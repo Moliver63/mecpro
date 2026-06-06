@@ -3379,18 +3379,23 @@ const campaignsRouter = router({
       const c = campaign as any;
 
       // ── Valida budget mínimo antes de publicar ──────────────────────────────
-      const adSetsForValidation = (() => { try { return JSON.parse(c.adSets || "[]"); } catch { return []; } })();
+      const allAdSets = (() => { try { return JSON.parse(c.adSets || "[]"); } catch { return []; } })();
       const totalDailyForValidation = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
-      // Meta mínimo real: R$5,11/adSet/dia
-      // Validamos com margem de 5% para cobrir arredondamentos
+
+      // Valida apenas o adSet atual sendo publicado (não todos os adSets da campanha)
+      // O frontend faz chamadas individuais por adSet — cada uma deve ter budget >= R$5,11
+      const currentAdSet = allAdSets[input.adSetIndex ?? 0];
+      const currentAdSetBudgetRaw: string = currentAdSet?.budget || currentAdSet?.rawBudget || "";
+      const currentBudgetMatch = currentAdSetBudgetRaw.match(/R\$?\s*([\d,\.]+)/);
+      const currentAdSetBudget = currentBudgetMatch
+        ? parseFloat(currentBudgetMatch[1].replace(",", "."))
+        : (totalDailyForValidation / Math.max(allAdSets.length, 1));
+
       const META_MIN_DAILY_PER_ADSET = 5.11;
-      const adSetCount = Math.max(adSetsForValidation.length, 1);
-      const minRequired = Math.ceil(META_MIN_DAILY_PER_ADSET * adSetCount);
-      if (totalDailyForValidation < minRequired) {
-        const minMonthly = minRequired * 30;
+      if (currentAdSetBudget > 0 && currentAdSetBudget < META_MIN_DAILY_PER_ADSET) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Orçamento insuficiente. Com ${adSetCount} conjunto(s), o mínimo é R$ ${minRequired}/dia (R$ ${minMonthly}/mês). Orçamento atual: R$ ${totalDailyForValidation}/dia. Dica: aumente o orçamento ou selecione menos conjuntos.`,
+          message: `Orçamento do conjunto "${currentAdSet?.name || `Conjunto ${(input.adSetIndex ?? 0) + 1}`}" insuficiente: R$${currentAdSetBudget.toFixed(2)}/dia. Mínimo: R$${META_MIN_DAILY_PER_ADSET}/adSet/dia. Aumente o orçamento no Módulo 4.`,
         });
       }
 
