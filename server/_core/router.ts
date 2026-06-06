@@ -3494,7 +3494,14 @@ const campaignsRouter = router({
       // Usa copy corrigida em vez da original
       const auditedMessage     = creativeAudit.correctedPayload.message;
       const auditedHeadline    = creativeAudit.correctedPayload.headline;
-      const auditedDescription = creativeAudit.correctedPayload.description;
+      // auditedDescription: usa o campo gerado pela IA ou deriva do headline (max 30 chars)
+      const auditedDescription = (() => {
+        const raw = creativeAudit.correctedPayload.description?.trim() || selectedDescription?.trim() || "";
+        if (raw && raw.length <= 30) return raw;
+        if (raw && raw.length > 30) return raw.slice(0, 30);
+        // Fallback: headline truncada é melhor que texto principal como descrição
+        return auditedHeadline?.slice(0, 30) || "";
+      })();
 
       if (creativeAudit.totalIssues > 0) {
         log.info("meta", `Ad Audit: ${creativeAudit.summary}`, {
@@ -4252,10 +4259,16 @@ const campaignsRouter = router({
             }
 
             // description para vídeo — mesmo campo do link_data
-            const shortDescVideo = auditedDescription?.trim()
-              || selectedDescription?.trim()
-              || adCopy.feed?.hook?.slice(0, 30)?.trim()
-              || "";
+            const shortDescVideo = (() => {
+              const candidates = [auditedDescription, selectedDescription,
+                adCopy.feed?.description, adCopy.feed?.shortDescription].filter(Boolean);
+              for (const c of candidates) {
+                const s = String(c).trim();
+                if (s && s.length <= 30) return s;
+                if (s) return s.slice(0, 30);
+              }
+              return "";
+            })();
 
             const videoDataPayload: Record<string, any> = {
               video_id:       effectiveVideoId,
@@ -4288,11 +4301,25 @@ const campaignsRouter = router({
                   : (waDirectUrl || normalizeDestinationUrl((clientProfile as any)?.websiteUrl) || `https://www.facebook.com/${input.pageId}`))
               : finalLink;
 
-            // Gera descrição curta automática se não existir
-            const shortDescription = auditedDescription?.trim()
-              || selectedDescription?.trim()
-              || adCopy.feed?.hook?.slice(0, 30)?.trim()
-              || "";
+            // Descrição curta para Meta (max 30 chars) — NUNCA o texto principal completo
+            const buildShortDesc = () => {
+              const candidates = [
+                auditedDescription,
+                selectedDescription,
+                adCopy.feed?.description,
+                adCopy.feed?.shortDescription,
+              ].filter(Boolean).map(s => String(s).trim());
+
+              for (const c of candidates) {
+                if (c && c.length <= 30) return c;
+                if (c && c.length > 0) return c.slice(0, 30);
+              }
+              // Último recurso: primeira palavra do hook (sem risco de pegar texto longo)
+              const hookWord = adCopy.feed?.hook?.split(' ').slice(0, 4).join(' ') || "";
+              return hookWord.slice(0, 30);
+            };
+            const shortDescription = buildShortDesc();
+            log.info("meta", "shortDescription final", { shortDescription, len: shortDescription.length });
 
             storySpec = {
               page_id: input.pageId,
