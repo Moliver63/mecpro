@@ -1904,7 +1904,7 @@ async function main() {
   async function autoRunAnalysis() {
     try {
       log.info("ml-cron", "Iniciando análise automática do histórico de campanhas...");
-      const { runAnalysisInternal } = await import("./_core/adminIntelligenceRouter.js");
+      const { runAnalysisInternal } = await import("./adminIntelligenceRouter.js");
       const result = await runAnalysisInternal({ minScore: 60, limit: 300, autoApprove: true });
       log.info("ml-cron", `✅ Análise automática concluída`, {
         scored: result.scored,

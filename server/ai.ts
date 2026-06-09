@@ -5829,15 +5829,33 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     if (pool) {
       const niche    = (clientProfile as any)?.niche || "geral";
       const platform = input.platform === "both" || input.platform === "all" ? "meta" : input.platform;
-      const rows = await pool.query(
+      // Normaliza niche para matching — usa primeira palavra significativa
+      const nicheKey = niche.toLowerCase()
+        .replace(/corretagem.*imóveis?|corretagem.*imoveis?/i, "imoveis")
+        .replace(/compra.*venda.*imóveis?|compra.*venda.*imoveis?/i, "imoveis")
+        .split(/[,
+]/)[0].trim().slice(0, 50);
+
+      // Tenta match exato primeiro, depois match parcial
+      let lbRows = await pool.query(
         `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
-        [platform, input.objective, niche]
+        [platform, input.objective, nicheKey]
       );
+      if (!lbRows.rows[0]) {
+        // Fallback: match parcial com ILIKE
+        lbRows = await pool.query(
+          `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2
+           AND (niche ILIKE $3 OR $3 ILIKE '%' || niche || '%') LIMIT 1`,
+          [platform, input.objective, `%${nicheKey.split(" ")[0]}%`]
+        );
+      }
+      const rows = lbRows;
+
       if (rows.rows[0]?.sample_count >= 3) {
         mlLearning = rows.rows[0];
         const hasRealMLMetrics = Number(mlLearning.avg_ctr || 0) > 0;
         log.info("ai", "ML learning_base enriquecendo prompt", {
-          niche, platform, objective: input.objective,
+          niche: nicheKey, platform, objective: input.objective,
           samples: mlLearning.sample_count, avgScore: mlLearning.avg_score,
           scoreType: hasRealMLMetrics ? "performance" : "copy_quality",
         });
