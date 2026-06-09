@@ -51,6 +51,27 @@ const URGENCY_TERMS = [
   "oferta",
   "bonus",
   "bônus",
+  // Imóveis
+  "última unidade",
+  "ultima unidade",
+  "disponível agora",
+  "disponivel agora",
+  "agende agora",
+  "agende já",
+  "visita agora",
+  "última oportunidade",
+  "ultima oportunidade",
+  "condição especial",
+  "condicao especial",
+  "oportunidade única",
+  "oportunidade unica",
+  // Serviços
+  "fale agora",
+  "consulta gratuita",
+  "avaliação gratuita",
+  "avaliacao gratuita",
+  "sem compromisso",
+  "resposta imediata",
 ];
 
 const SPECIFICITY_PATTERNS = [
@@ -143,17 +164,24 @@ export function scoreCreative(creative: any): CreativeScoreResult {
   if (hasPlaceholder) clarity -= 30;
   if (/\b(clique aqui|saiba mais apenas|solucao completa|melhor do mercado)\b/i.test(normalized)) clarity -= 12;
 
-  let urgency = 20;
+  let urgency = 25; // base 25: copy sem urgência explícita ainda é funcional
   const urgencyHits = URGENCY_TERMS.filter((term) => normalized.includes(normalize(term))).length;
-  urgency += urgencyHits * 12;
-  if (/\bhoje\b.*\bdesconto\b/i.test(normalized)) urgency += 8;
-  if (urgencyHits === 0) urgency += 5;
+  urgency += urgencyHits * 15; // cada termo de urgência vale mais
+  if (/\bhoje\b.*\bdesconto\b/i.test(normalized)) urgency += 10;
+  if (/\bagend[ea]\b|\bcontat[eo]\b|\bwhatsapp\b/i.test(normalized)) urgency += 8; // CTA de ação direta
+  if (urgencyHits === 0) urgency += 0; // sem bônus para copy sem urgência
 
   let specificity = 20;
   specificity += SPECIFICITY_PATTERNS.filter((pattern) => pattern.test(combined)).length * 18;
   if ((creative?.pain || "").trim()) specificity += 8;
   if ((creative?.solution || "").trim()) specificity += 10;
   if (/\b(para|em|com)\b/i.test(copy) && copy.split(/\s+/).length >= 10) specificity += 10;
+  // Localização específica = credibilidade real
+  if (/balne[aá]rio|cambori[uú]|florian[oó]polis|s[aã]o paulo|brasil/i.test(normalized)) specificity += 10;
+  // Anos de mercado, número de clientes
+  if (/\d+\s*anos\s*(de\s*)?(mercado|experi[eê]ncia|atuac)/i.test(normalized)) specificity += 8;
+  // Nome de personas reais (Carlos, Ana, Ricardo)
+  if (/\b[A-Z][a-z]+\s[A-Z][a-z]+\b/.test(combined)) specificity += 6;
 
   let complianceRisk: ComplianceRisk = "Baixo";
   let compliancePenalty = 0;
