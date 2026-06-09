@@ -6407,9 +6407,11 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         !p?.productProofPoints   || String(p.productProofPoints).includes("não preenchido") ? "" : "",
       ].filter(Boolean).join("\n");
 
+      const productSlug = (p?.companyName || input.name || "produto").split(" ")[0].replace(/[^a-zA-Z]/g,"");
+
       return `Crie uma campanha de ${input.objective} para "${p?.companyName || input.name}" (nicho: ${p?.niche || "geral"}).
 
-ANCORA OBRIGATORIA - use estes dados em TODAS as copies:
+ANCORA OBRIGATORIA - use estes dados em TODAS as copies E nomes de adSets:
 Empresa: ${p?.companyName || input.name}
 Produto/Servico: ${p?.productService || "nao informado"}
 ${prodAnchor}
@@ -6438,6 +6440,8 @@ Gere JSON com:
 - strategy: estrategia baseada nos diferenciais do cliente
 - campaignName: string
 - adSets: array {name, audience, budget(%), objective, funnelStage}
+  REGRA adSets: name deve refletir o produto "${p?.companyName}" — ex: "TOF_${productSlug}_Interesse", "MOF_Remarketing_${productSlug}"
+  PROIBIDO: nomes genéricos como "TOF_InteressesFin", "AppBancario" que não relacionam ao produto
 - creatives: EXATAMENTE 4 itens com copies COMPLETAMENTE DIFERENTES entre si
   {type, format, orientation, headline, description, copy(max 200 chars), hook, cta, funnelStage, complianceScore, targetAudience, angle}
   HEADLINE OBRIGATÓRIO: entre 25 e 40 caracteres, impactante e específica para o produto
