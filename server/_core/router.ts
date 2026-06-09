@@ -5116,7 +5116,7 @@ const adminRouter = router({
   projects:       adminProcedure.query(() => db.getAllProjects()),
 
   projectsAudit:  adminProcedure.query(async () => {
-    const pool = db.getPool ? db.getPool() : null;
+    const pool = await getPool();
     if (!pool) return [];
     const { rows } = await pool.query(`
       SELECT
@@ -5141,14 +5141,14 @@ const adminRouter = router({
         COUNT(DISTINCT CASE WHEN c."publishStatus"='error' THEN c.id END)   AS "errorCampaigns",
         MAX(c."publishedAt")                           AS "lastPublishedAt",
         -- Integração Meta
-        COUNT(DISTINCT CASE WHEN i.platform='meta' AND i."isActive"=true THEN i.id END) AS "metaConnected",
+        COUNT(DISTINCT CASE WHEN i.provider='meta' AND i."accessToken" IS NOT NULL THEN i.id END) AS "metaConnected",
         -- Budget
         COALESCE(SUM(c."suggestedBudgetMonthly") / NULLIF(COUNT(c.id),0), 0) AS "avgBudget"
       FROM projects p
       LEFT JOIN users u ON u.id = p."userId"
       LEFT JOIN client_profiles cp ON cp."projectId" = p.id
       LEFT JOIN campaigns c ON c."projectId" = p.id
-      LEFT JOIN integrations i ON i."userId" = p."userId"
+      LEFT JOIN api_integrations i ON i."userId" = p."userId"
       GROUP BY p.id, p.name, p.status, p."createdAt", p."userId",
                u.email, u.name, cp.id, cp."companyName", cp.niche,
                cp."websiteUrl", cp."productName", cp."productDifferentials", cp."productProofPoints"
