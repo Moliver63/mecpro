@@ -23,6 +23,15 @@ export default function AdminDashboard() {
     onError: (e) => toast.error(e.message),
   });
 
+  const [syncingML, setSyncingML] = useState(false);
+  const syncML = (trpc as any).admin?.syncMLMetrics?.useMutation?.({
+    onSuccess: (r: any) => {
+      toast.success(`✅ ML sincronizado: ${r.totalSynced} campanhas atualizadas com métricas reais`);
+      setSyncingML(false);
+    },
+    onError: (e: any) => { toast.error(e.message); setSyncingML(false); },
+  });
+
   const st = stats as any;
   // Guards defensivos — nunca acessa .slice() sem garantir que é array
   const topUsers:  any[] = Array.isArray(overview?.topUsers)  ? overview.topUsers  : [];
@@ -74,6 +83,15 @@ export default function AdminDashboard() {
               {a.icon} {a.label}
             </button>
           ))}
+          <button
+            disabled={syncingML}
+            onClick={() => { setSyncingML(true); syncML?.mutate({}); }}
+            style={{ background: syncingML ? "#f0fdf4" : "#16a34a", border: "none",
+              borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 700,
+              cursor: syncingML ? "not-allowed" : "pointer", color: "white",
+              display: "flex", alignItems: "center", gap: 6, opacity: syncingML ? 0.7 : 1 }}>
+            {syncingML ? "⏳ Sincronizando..." : "🧠 Sync ML Agora"}
+          </button>
         </div>
       </div>
 

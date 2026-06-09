@@ -5149,6 +5149,67 @@ const adminRouter = router({
       });
     }),
 
+  syncMLMetrics: adminProcedure.mutation(async () => {
+    // Força o sync de métricas ML para todas as campanhas publicadas de todos os usuários
+    const pool = await getPool();
+    if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+
+    const { rows: integrations } = await pool.query(`
+      SELECT DISTINCT i."userId", i."accessToken"
+      FROM api_integrations i
+      WHERE i.provider = 'meta' AND i."accessToken" IS NOT NULL
+    `);
+
+    let totalSynced = 0;
+    let totalErrors = 0;
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const today = new Date().toISOString().split("T")[0];
+
+    for (const integration of integrations) {
+      const { rows: campaigns } = await pool.query(`
+        SELECT c.id, c.name, c."metaCampaignId", c.objective, c.platform, c."projectId"
+        FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE c."metaCampaignId" IS NOT NULL
+          AND c."publishStatus" = 'success'
+          AND p."userId" = $1
+        LIMIT 100
+      `, [integration.userId]);
+
+      for (const camp of campaigns) {
+        try {
+          const url = `https://graph.facebook.com/v21.0/${camp.metaCampaignId}/insights` +
+            `?fields=impressions,clicks,spend,ctr,cpm,cpc,actions,reach` +
+            `&time_range={"since":"${since}","until":"${today}"}` +
+            `&access_token=${integration.accessToken}`;
+          const res  = await fetch(url, { signal: AbortSignal.timeout(6000) });
+          const data: any = await res.json();
+          if (data.error || !data.data?.[0]) continue;
+          const ins     = data.data[0];
+          const ctr     = Number(ins.ctr   || 0);
+          const cpc     = Number(ins.cpc   || 0);
+          const spend   = Number(ins.spend || 0);
+          const leads   = Number((ins.actions||[]).find((a:any)=>a.action_type==="lead")?.value||0);
+          const cpl     = leads > 0 && spend > 0 ? spend / leads : 0;
+          const isWinner = ctr >= 1.5 && spend >= 10 && (cpl === 0 || cpl <= 15);
+
+          await pool.query(`
+            UPDATE ml_dataset SET
+              real_ctr = $2, real_cpc = $3, real_cpl = $4, real_spend = $5,
+              label_ctr = $2, label_cpc = $3,
+              label_is_winner = CASE WHEN $6 THEN 1 ELSE label_is_winner END,
+              feedback_applied_at = NOW(), feedback_source = 'admin_manual'
+            WHERE campaign_id = $1
+          `, [camp.id, ctr, cpc, cpl, spend, isWinner]);
+          totalSynced++;
+        } catch { totalErrors++; }
+      }
+    }
+
+    log.info("admin-ml", "Sync ML manual concluído", { totalSynced, totalErrors, users: integrations.length });
+    return { totalSynced, totalErrors, users: integrations.length };
+  }),
+
   projectsAudit:  adminProcedure.query(async () => {
     const pool = await getPool();
     if (!pool) return [];

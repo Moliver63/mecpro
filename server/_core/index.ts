@@ -1891,12 +1891,12 @@ async function main() {
     }
   }
 
-  // Roda 2h após o boot (deixa o servidor estabilizar) e depois a cada 24h
+  // Primeira execução 5min após boot (antes era 2h — nunca acumulava dados)
   setTimeout(() => {
     autoSyncMLMetrics();
     setInterval(autoSyncMLMetrics, 24 * 60 * 60 * 1000);
-  }, 2 * 60 * 60 * 1000);
-  log.info("ml-cron", "Auto-sync ML agendado: primeira execução em 2h, depois a cada 24h");
+  }, 5 * 60 * 1000);
+  log.info("ml-cron", "Auto-sync ML agendado: primeira execução em 5min, depois a cada 24h");
 
   // ── Cron: Análise completa do histórico + winner_patterns automáticos ──────
   // Roda 3h após o boot (depois do sync Meta) e a cada 48h
@@ -1919,8 +1919,8 @@ async function main() {
   setTimeout(() => {
     autoRunAnalysis();
     setInterval(autoRunAnalysis, 48 * 60 * 60 * 1000); // a cada 48h
-  }, 3 * 60 * 60 * 1000); // 3h após boot
-  log.info("ml-cron", "Análise automática agendada: primeira execução em 3h, depois a cada 48h");
+  }, 10 * 60 * 1000); // 10min após boot (sync Meta roda em 5min, análise logo depois)
+  log.info("ml-cron", "Análise automática agendada: primeira execução em 10min, depois a cada 48h");
 }
 
 main().catch((err) => {
