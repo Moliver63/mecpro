@@ -5115,6 +5115,40 @@ const adminRouter = router({
   // Projetos
   projects:       adminProcedure.query(() => db.getAllProjects()),
 
+  campaignDetail: adminProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ input }) => {
+      const pool = await getPool();
+      if (!pool) return [];
+      const { rows } = await pool.query(`
+        SELECT
+          c.id, c.name, c.objective, c.platform,
+          c."publishStatus", c."publishedAt", c."publishError",
+          c."metaCampaignId", c."metaAdSetId", c."metaAdId", c."metaCreativeId",
+          c."suggestedBudgetDaily", c."suggestedBudgetMonthly",
+          c.creatives, c."adSets", c.strategy,
+          c."generatedAt", c."updatedAt"
+        FROM campaigns c
+        WHERE c."projectId" = $1
+        ORDER BY c."generatedAt" DESC
+        LIMIT 50
+      `, [input.projectId]);
+
+      return rows.map((r: any) => {
+        let creatives: any[] = [];
+        let adSets: any[] = [];
+        try { creatives = JSON.parse(r.creatives || "[]"); } catch {}
+        try { adSets    = JSON.parse(r.adSets    || "[]"); } catch {}
+        return {
+          ...r,
+          creatives,
+          adSets,
+          hasError: r.publishStatus === "error",
+          isPublished: r.publishStatus === "success",
+        };
+      });
+    }),
+
   projectsAudit:  adminProcedure.query(async () => {
     const pool = await getPool();
     if (!pool) return [];
