@@ -5114,6 +5114,75 @@ const adminRouter = router({
     }),
   // Projetos
   projects:       adminProcedure.query(() => db.getAllProjects()),
+
+  projectsAudit:  adminProcedure.query(async () => {
+    const pool = db.getPool ? db.getPool() : null;
+    if (!pool) return [];
+    const { rows } = await pool.query(`
+      SELECT
+        p.id,
+        p.name,
+        p.status,
+        p."createdAt",
+        p."userId",
+        u.email                                        AS "userEmail",
+        u.name                                         AS "userName",
+        -- Perfil do cliente preenchido?
+        cp.id                                          AS "hasProfile",
+        cp."companyName",
+        cp.niche,
+        cp."websiteUrl",
+        cp."productName",
+        cp."productDifferentials",
+        cp."productProofPoints",
+        -- Campanhas publicadas
+        COUNT(DISTINCT c.id)                           AS "totalCampaigns",
+        COUNT(DISTINCT CASE WHEN c."publishStatus"='success' THEN c.id END) AS "publishedCampaigns",
+        COUNT(DISTINCT CASE WHEN c."publishStatus"='error' THEN c.id END)   AS "errorCampaigns",
+        MAX(c."publishedAt")                           AS "lastPublishedAt",
+        -- Integração Meta
+        COUNT(DISTINCT CASE WHEN i.platform='meta' AND i."isActive"=true THEN i.id END) AS "metaConnected",
+        -- Budget
+        COALESCE(SUM(c."suggestedBudgetMonthly") / NULLIF(COUNT(c.id),0), 0) AS "avgBudget"
+      FROM projects p
+      LEFT JOIN users u ON u.id = p."userId"
+      LEFT JOIN client_profiles cp ON cp."projectId" = p.id
+      LEFT JOIN campaigns c ON c."projectId" = p.id
+      LEFT JOIN integrations i ON i."userId" = p."userId"
+      GROUP BY p.id, p.name, p.status, p."createdAt", p."userId",
+               u.email, u.name, cp.id, cp."companyName", cp.niche,
+               cp."websiteUrl", cp."productName", cp."productDifferentials", cp."productProofPoints"
+      ORDER BY p."createdAt" DESC
+    `);
+
+    return rows.map((r: any) => {
+      // Calcular score de conformidade
+      const checks = {
+        hasProfile:       !!r.hasProfile,
+        hasWebsite:       !!r.websiteUrl,
+        hasProduct:       !!r.productName,
+        hasDifferentials: !!r.productDifferentials,
+        hasProofPoints:   !!r.productProofPoints,
+        hasCampaign:      Number(r.totalCampaigns) > 0,
+        hasPublished:     Number(r.publishedCampaigns) > 0,
+        metaConnected:    Number(r.metaConnected) > 0,
+      };
+      const score = Math.round(Object.values(checks).filter(Boolean).length / Object.keys(checks).length * 100);
+      const status = score === 100 ? "ok" : score >= 60 ? "partial" : "error";
+
+      return {
+        ...r,
+        totalCampaigns:    Number(r.totalCampaigns),
+        publishedCampaigns: Number(r.publishedCampaigns),
+        errorCampaigns:    Number(r.errorCampaigns),
+        metaConnected:     Number(r.metaConnected) > 0,
+        avgBudget:         Number(r.avgBudget),
+        conformityScore:   score,
+        conformityStatus:  status,
+        checks,
+      };
+    });
+  }),
   // Admins
   admins:         adminProcedure.query(() => db.listAllAdmins()),
   promoteToAdmin: adminProcedure.input(z.object({ userId: z.number() })).mutation(({ input, ctx }) => db.promoteToAdmin(input.userId, ctx.user.id)),
