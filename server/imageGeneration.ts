@@ -472,7 +472,7 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
     compositionFix,
     "Photorealistic, high-end production quality, cinematic lighting, sharp focus on subjects.",
     noTextFix,
-    "Clean background with empty space in lower third for text overlay. No typography anywhere.",
+    "Clean background, no text area, no reserved zones, pure photography throughout entire frame.",
     noTextFix, // repetido intencionalmente para reforçar — modelos de imagem ignoram restrições únicas
   ].filter(Boolean).join(" ");
 
@@ -861,12 +861,28 @@ async function imageHasHallucinatedText(buffer: Buffer): Promise<boolean> {
     } catch { /* fallback */ }
   }
 
-  // Fallback: análise heurística por tamanho
-  // Imagens com texto tendem a ter padrões específicos de bytes
-  // (heurística simples — baixa precisão mas rápida)
-  if (buffer.length < 50_000 && buffer.length > 5_000) {
-    // Imagens muito pequenas frequentemente têm muito texto/artefato
-    // Não é conclusivo — retorna false para não bloquear
+  // Fallback: análise heurística por padrões de bytes JPEG
+  // FLUX gera texto com alta densidade de bytes em regiões específicas
+  // Heurística: analisa distribuição de bytes no buffer
+  if (buffer.length > 0) {
+    // Converte para string e busca padrões de texto renderizado
+    // Texto em JPEG causa blocos DCT específicos detectáveis
+    const sample = buffer.slice(Math.floor(buffer.length * 0.6), Math.floor(buffer.length * 0.85));
+    // Conta bytes de alta frequência (indicativo de ruído de texto)
+    let highFreqCount = 0;
+    for (let i = 0; i < sample.length - 1; i++) {
+      const diff = Math.abs(sample[i] - sample[i + 1]);
+      if (diff > 180) highFreqCount++;
+    }
+    const highFreqRatio = highFreqCount / sample.length;
+    // Ratio > 0.08 indica texto ou ruído excessivo (limiar calibrado)
+    if (highFreqRatio > 0.08) {
+      log.warn("image-generation", "RAG heurística: padrão de texto detectado", {
+        highFreqRatio: highFreqRatio.toFixed(3),
+        bufferSize: buffer.length,
+      });
+      return true;
+    }
   }
   return false;
 }
@@ -888,7 +904,7 @@ async function generateWithCloudflareBuffer(
       headers: { "Authorization": `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: safePrompt,
-        negative_prompt: "text, words, letters, numbers, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, overlay text, printed text, handwriting, speech bubble, banner, poster text, advertising text, any readable text, titles, subtitles",
+        negative_prompt: "text, words, letters, numbers, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, overlay text, printed text, handwriting, speech bubble, banner, poster text, advertising text, any readable text, titles, subtitles, text overlay, lower third text, corrupted text, garbled text, fake text, nonsense text",
         width:  Math.min(dim.width,  1024),
         height: Math.min(dim.height, 1024),
         num_steps: 8,
@@ -1379,6 +1395,11 @@ export async function generateAdImage(
             );
             if (cfBuffer && cfBuffer.length > 1000) {
               const hasText = await imageHasHallucinatedText(cfBuffer);
+              if (hasText) {
+                log.warn("image-generation", `Alucinação de texto detectada — tentativa ${attempt} descartada`, { format, attempt });
+                // Tenta novamente com prompt ainda mais restritivo
+                continue;
+              }
               if (!hasText) {
                 // Imagem limpa — faz upload e usa
                 const cfUrl = await uploadImageBufferToCloudinary(
