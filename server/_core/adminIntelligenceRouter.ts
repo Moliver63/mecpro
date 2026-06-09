@@ -83,7 +83,7 @@ async function loadCampaignContext(campaignId: number): Promise<{
     niche = rawN.toLowerCase()
       .replace(/corretagem.*(imóveis?|imoveis?)/i, "imoveis")
       .replace(/compra.*venda.*(imóveis?|imoveis?)/i, "imoveis")
-      .split(/[,\n]/)[0].trim().slice(0, 50);
+      .split(",")[0].split("\n")[0].trim().slice(0, 50);
   } catch {}
 
   const context: CampaignContext = {
@@ -158,7 +158,7 @@ export const adminIntelligenceRouter = router({
               niche:       (profile?.niche || "geral").toLowerCase()
                              .replace(/corretagem.*(imóveis?|imoveis?)/i, "imoveis")
                              .replace(/compra.*venda.*(imóveis?|imoveis?)/i, "imoveis")
-                             .split(/[,\n]/)[0].trim().slice(0, 50),
+                             .split(",")[0].split("\n")[0].trim().slice(0, 50),
               companyName: profile?.companyName || project.name,
               // Campos de score se existirem
               scoreTotal:  c.scoreTotal  || 0,

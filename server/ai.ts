@@ -5831,10 +5831,9 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
       const platform = input.platform === "both" || input.platform === "all" ? "meta" : input.platform;
       // Normaliza niche para matching — usa primeira palavra significativa
       const nicheKey = niche.toLowerCase()
-        .replace(/corretagem.*imóveis?|corretagem.*imoveis?/i, "imoveis")
-        .replace(/compra.*venda.*imóveis?|compra.*venda.*imoveis?/i, "imoveis")
-        .split(/[,
-]/)[0].trim().slice(0, 50);
+        .replace(/corretagem.*(im.veis?|imoveis?)/i, "imoveis")
+        .replace(/compra.*venda.*(im.veis?|imoveis?)/i, "imoveis")
+        .split(",")[0].split("\n")[0].trim().slice(0, 50)
 
       // Tenta match exato primeiro, depois match parcial
       let lbRows = await pool.query(
