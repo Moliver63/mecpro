@@ -279,17 +279,34 @@ function buildAdCopy(campaign: any, opts: {
 
   const hasRealCopy = !!selectedCreative;
 
-  // Descrição curta dedicada — NÃO é a copy completa
+  // Descrição curta dedicada — campo exibido abaixo do título no Gerenciador Meta
+  // REGRA: deve ser diferente do headline e do texto principal
+  // LIMITE META: 30 chars exibidos (aceita mais mas trunca na exibição)
   const feedDescription = (() => {
-    // 1. Campo description gerado pela IA
+    // 1. Campo description gerado explicitamente pela IA (Gemini instrui isso)
     const aiDesc = String(selectedCreative?.description || "").trim();
-    if (aiDesc && aiDesc.length <= 30) return aiDesc;
-    if (aiDesc && aiDesc.length > 0)   return aiDesc.slice(0, 30);
-    // 2. shortDescription se existir
-    const shortDesc = String(selectedCreative?.shortDescription || "").trim();
-    if (shortDesc) return shortDesc.slice(0, 30);
-    // 3. Headline truncada — nunca o texto principal
-    return feedHeadline.slice(0, 30);
+    if (aiDesc && aiDesc !== feedHeadline && aiDesc.length >= 5) {
+      return aiDesc.slice(0, 30);
+    }
+    // 2. CTA do segmento como descrição — curto e direto
+    const ctaLabel = String(selectedCreative?.cta || "").trim();
+    if (ctaLabel && ctaLabel.length <= 30 && ctaLabel.length >= 5) {
+      return ctaLabel.slice(0, 30);
+    }
+    // 3. Primeira parte do hook — impactante e diferente do headline
+    const hookFirst = String(selectedCreative?.hook || hook || "")
+      .replace(/^["']|["']$/g, "").trim();
+    if (hookFirst && hookFirst !== feedHeadline && hookFirst.length >= 5) {
+      // Pega só a primeira frase do hook
+      const firstSentence = hookFirst.split(/[.!?]/)[0].trim();
+      if (firstSentence.length >= 5) return firstSentence.slice(0, 30);
+    }
+    // 4. Ângulo do criativo + produto — específico
+    const angle = String(selectedCreative?.angle || "").trim();
+    if (angle && angle.length >= 5) return angle.slice(0, 30);
+    // 5. Último fallback: deixa VAZIO (Meta aceita sem descrição)
+    // Melhor vazio do que repetir o headline
+    return "";
   })();
 
   return {
@@ -3527,13 +3544,19 @@ const campaignsRouter = router({
       // Usa copy corrigida em vez da original
       const auditedMessage     = creativeAudit.correctedPayload.message;
       const auditedHeadline    = creativeAudit.correctedPayload.headline;
-      // auditedDescription: usa o campo gerado pela IA ou deriva do headline (max 30 chars)
+      // auditedDescription — NUNCA igual ao headline, NUNCA o texto principal
       const auditedDescription = (() => {
         const raw = creativeAudit.correctedPayload.description?.trim() || selectedDescription?.trim() || "";
-        if (raw && raw.length <= 30) return raw;
-        if (raw && raw.length > 30) return raw.slice(0, 30);
-        // Fallback: headline truncada é melhor que texto principal como descrição
-        return auditedHeadline?.slice(0, 30) || "";
+        // Rejeita se for igual ao headline (redundante) ou muito curto
+        if (raw && raw !== auditedHeadline && raw.length >= 5) {
+          return raw.slice(0, 30);
+        }
+        // Usa o campo description do feed (já calculado acima com lógica correta)
+        if (adCopy.feed?.description && adCopy.feed.description !== auditedHeadline) {
+          return String(adCopy.feed.description).slice(0, 30);
+        }
+        // Preferível deixar vazio a repetir headline
+        return "";
       })();
 
       if (creativeAudit.totalIssues > 0) {
