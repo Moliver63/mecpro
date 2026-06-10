@@ -73,7 +73,7 @@ function buildAdCopy(campaign: any, opts: {
   const {
     maxMessage     = 2000,
     maxHeadline    = 255,
-    maxDescription = 125,
+    maxDescription = 500,  // feedCopy usado como texto de suporte, não como description do Meta
     placement      = "feed",
     objective      = campaign?.objective || "leads",
   } = opts;
@@ -226,10 +226,24 @@ function buildAdCopy(campaign: any, opts: {
     ? String(copies_[0]?.primaryText || copies_[0]?.headline || "")
     : "";
   const feedCopy = (feedCopyRaw || fallbackCopy).slice(0, maxDescription);
-  const feedMessage = [hook, feedCopyRaw || fallbackCopy]
+  // Valida copy — detecta geração truncada (ex: "O MecProp\nSaiba mais")
+  const isTruncatedCopy = (text: string) => {
+    if (!text || text.length < 20) return true;
+    // Termina sem pontuação com menos de 50 chars = provavelmente cortado
+    const lastLine = text.split("\n").filter(Boolean).pop() || "";
+    const seemsIncomplete = lastLine.length < 15 && !/[.!?]$/.test(lastLine);
+    return seemsIncomplete;
+  };
+
+  const rawMessage = [hook, feedCopyRaw || fallbackCopy]
     .filter(Boolean)
-    .join("\n\n")
-    .slice(0, maxMessage) || String(campaign.name || "").slice(0, maxMessage);
+    .join("\n\n");
+
+  // Se copy parece truncada, usa hook + headline como fallback
+  const feedMessage = (rawMessage && !isTruncatedCopy(rawMessage))
+    ? rawMessage.slice(0, maxMessage)
+    : [hook, feedHeadline, fallbackCopy].filter(Boolean).join("\n\n").slice(0, maxMessage)
+      || String(campaign.name || "").slice(0, maxMessage);
   const feedCta = normalizeMetaCta(selectedCreative?.cta, objective, campaign?.segment || campaign?.niche || "");
   const feedAngle = buildAngle(selectedCreative);
 
@@ -265,16 +279,30 @@ function buildAdCopy(campaign: any, opts: {
 
   const hasRealCopy = !!selectedCreative;
 
+  // Descrição curta dedicada — NÃO é a copy completa
+  const feedDescription = (() => {
+    // 1. Campo description gerado pela IA
+    const aiDesc = String(selectedCreative?.description || "").trim();
+    if (aiDesc && aiDesc.length <= 30) return aiDesc;
+    if (aiDesc && aiDesc.length > 0)   return aiDesc.slice(0, 30);
+    // 2. shortDescription se existir
+    const shortDesc = String(selectedCreative?.shortDescription || "").trim();
+    if (shortDesc) return shortDesc.slice(0, 30);
+    // 3. Headline truncada — nunca o texto principal
+    return feedHeadline.slice(0, 30);
+  })();
+
   return {
     feed: {
-      creative: feedCreative,
-      message: feedMessage,
-      headline: feedHeadline,
-      copy: feedCopy,
+      creative:    feedCreative,
+      message:     feedMessage,
+      headline:    feedHeadline,
+      copy:        feedCopy,
+      description: feedDescription,  // ← campo dedicado, sempre ≤30 chars
       hook,
-      cta: feedCta,
+      cta:         feedCta,
       hasRealCopy,
-      angle: feedAngle,
+      angle:       feedAngle,
       ctrEstimate,
     },
     stories: {
