@@ -6107,7 +6107,7 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       "format": "Vídeo 15s|Vídeo 30s|Carrossel|Imagem estática|Stories 9:16|Reels 9:16",
       "orientation": "vertical_9_16|quadrado_1_1|feed_4_5|horizontal_16_9",
       "headline": "headline REAL max 40 chars — específica para o nicho, NUNCA use [placeholder]",
-      "copy": "copy REAL max 125 chars — texto do anúncio completo e persuasivo",
+      "copy": "copy REAL 150-400 chars — texto persuasivo com QUEBRA DE LINHA entre parágrafos. ESTRUTURA: (1) Hook/dor do cliente. (2) Solução/diferencial. (3) Prova social ou especificidade. (4) CTA urgente. EXEMPLO BONS: Você passa horas criando anúncios que não convertem?\\n\\nO MecProAI usa IA para criar e publicar campanhas em minutos — com copies testadas, imagens geradas e publicação direta no Meta e Google.\\n\\nMais de 500 campanhas publicadas. Assine agora e receba 60% em créditos. | Cansado de pagar agência e não ver resultado?\\n\\nCrie campanhas profissionais sozinho com IA. Anúncios, copies e imagens em minutos.\\n\\nPrimeiro mês com 60% de cashback em créditos. Garanta agora.",
       "bodyText": "MESMO valor de copy — campo obrigatório para compatibilidade",
       "cta": "para LEADS: Quero meu guia grátis|Cadastrar grátis. Para SALES: Comprar agora|Garantir desconto. NUNCA apenas Saiba mais",
       "hook": "gancho real dos primeiros 3 segundos que para o scroll",
@@ -6443,7 +6443,11 @@ Gere JSON com:
   REGRA adSets: name deve refletir o produto "${p?.companyName}" — ex: "TOF_${productSlug}_Interesse", "MOF_Remarketing_${productSlug}"
   PROIBIDO: nomes genéricos como "TOF_InteressesFin", "AppBancario" que não relacionam ao produto
 - creatives: EXATAMENTE 4 itens com copies COMPLETAMENTE DIFERENTES entre si
-  {type, format, orientation, headline, description, copy(max 200 chars), hook, cta, funnelStage, complianceScore, targetAudience, angle}
+  {type, format, orientation, headline, description, copy, hook, cta, funnelStage, complianceScore, targetAudience, angle}
+  COPY OBRIGATÓRIO: 150-400 chars com quebras de linha (\n\n entre parágrafos)
+  ESTRUTURA DA COPY: (1) dor/problema do cliente (2) solução/diferencial da empresa (3) CTA direto com urgência
+  EXEMPLO COPY BOA (adapte para o produto): "Você ainda perde horas criando anúncios manualmente?\n\nCom MecProAI, gere campanhas completas em minutos — copies, imagens e publicação automática.\n\nAssine agora e receba 60% em créditos."
+  COPY RUIM (PROIBIDO): "Transforme seus anúncios com IA" — muito curto, sem dor, sem prova, sem urgência
   HEADLINE OBRIGATÓRIO: entre 25 e 40 caracteres, impactante e específica para o produto
   DESCRIPTION OBRIGATÓRIO: máx 30 chars — frase ultra-curta impactante (ex: "Vista Mar • Locação Anual", "Frente Mar • 3 dorms", "R$15k/mês + condomínio")
   EXEMPLOS RUINS (muito curtas/genéricas): "Saiba mais", "Clique aqui", "Nova coleção"
@@ -7180,7 +7184,7 @@ Gere 5 criativos NOVOS e DIFERENTES dos anteriores. Responda SOMENTE em JSON:
       "type": "testimonial|storytelling|authority|lead_magnet|social_proof|direct_offer",
       "format": "image|video|carousel|stories",
       "headline": "título persuasivo (máx 40 chars)",
-      "copy": "texto principal (máx 125 chars)",
+      "copy": "texto principal 150-400 chars com quebras de linha — hook + diferencial + CTA",
       "cta": "botão de ação",
       "hook": "frase de gancho para os primeiros 3 segundos",
       "pain": "dor que este criativo endereça",

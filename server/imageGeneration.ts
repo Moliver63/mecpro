@@ -156,7 +156,8 @@ const COPY_TO_VISUAL: Array<[RegExp, string]> = [
   [/restaurante|cardápio/i,                              "restaurant interior warm lighting"],
   // Saúde/Estética/Fitness
   [/academia|fitness|gym|musculação|treino|personal/i,   "fitness gym workout training modern"],
-  [/plano.anual|plano.mensal|assinatura|mensalidade/i,   "gym membership fitness people happy"],
+  // IMPORTANTE: plano anual/assinatura pode ser de QUALQUER produto — não assume fitness
+  // Removido: [/plano.anual|plano.mensal|assinatura|mensalidade/i, "gym membership..."] — causava imagens erradas para SaaS/tech
   [/bem.estar|wellness|saúde.*corpo/i,                   "wellness healthy lifestyle active"],
   [/estética|estetica|beleza|beauty/i,                   "beauty salon aesthetic treatment professional"],
   [/clinica|clínica|médico|saúde/i,                      "modern clinic interior professional"],
@@ -199,6 +200,26 @@ function getPixabayQuery(
   creativeIndex: number = 0,
   productContext?: { productName?: string; productService?: string; niche?: string; city?: string },
 ): string {
+  // 0. PRIORIDADE: nicho do produto define a imagem — evita query errada por match na copy
+  const nicheRaw = (productContext?.niche || "").toLowerCase();
+  const isTechNiche = /marketing.digital|tecnologia|software|saas|anuncio|trafego|digital|plataforma|inteligencia.artificial|ia/i.test(nicheRaw);
+  const isImovelNiche = /imóvel|imovel|imobili|corretag|aluguel|locação|locacao/i.test(nicheRaw);
+  const isAcademiaNiche = /academia|fitness|gym|personal|treino/i.test(nicheRaw);
+
+  // Se nicho é claramente tech/digital: força query visual correta
+  if (isTechNiche && !isImovelNiche) {
+    const techVariations = [
+      "digital marketing SaaS dashboard laptop professional",
+      "business professional team laptop modern office",
+      "technology entrepreneur laptop workspace success",
+      "marketing analytics business growth chart",
+      "professional team meeting technology modern",
+      "entrepreneur laptop digital success business",
+    ];
+    const base = techVariations[creativeIndex % techVariations.length];
+    return base;
+  }
+
   // 1. Base do segmento
   const base = PIXABAY_QUERIES[segment] || PIXABAY_QUERIES["outro"] || "professional";
 
