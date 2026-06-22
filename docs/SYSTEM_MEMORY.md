@@ -232,34 +232,73 @@ Pool: lazy init getImageDbPool()/getRagPool()
 
 ## 💡 Prompt de Início de Sessão
 
+> Cole isso no início de cada nova sessão com Claude para garantir contexto completo.
+
 ```
-Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
-Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: 5b13463. Score: ~96%.
+Antes de qualquer coisa, leia o arquivo docs/SYSTEM_MEMORY.md do repositório
+MecProAI (github.com/Moliver63/mecpro.git) — ele contém o estado técnico
+completo do sistema, bugs resolvidos, regras críticas e pendências.
 
-CRÍTICO — Budget por adSet:
-- Backend valida adSet individual (input.adSetIndex), não total da campanha
-- Frontend soma rawBudget dos adSets selecionados antes de qualquer upload
-- R$5,11/adSet mínimo Meta
-- Geração garante MIN_VIABLE_MONTHLY ≈ R$675 (5,11 × 4 adSets × 30 × 1,1)
+Stack: React 19 + Vite + TypeScript / Node.js + Express + tRPC / PostgreSQL + Drizzle / Render.com
+Repo local: /home/claude/mecpro (se já clonado na sessão)
+Último commit: 9b327ea | Score: ~96% | Sessão: 20 (22/06/2026)
 
-CRÍTICO — Carrossel:
-- getCardCopy(idx) mapeia cada card ao creative[idx%length]
-- Headline max 40, description max 30 (limites Meta)
-- Cards extras (mais fotos que criativos) recebem variação de ângulo
+ARQUIVOS CRÍTICOS (verificar antes de editar):
+- server/schema.ts          ← fonte da verdade do banco (SEMPRE consultar antes de query SQL)
+- server/_core/router.ts    ← backend tRPC completo
+- server/_core/index.ts     ← boot, crons ML, webhooks
+- server/ai.ts              ← geração de campanhas (Gemini → Groq)
+- server/imageGeneration.ts ← FLUX → Pixabay → Google
+- client/src/pages/CampaignResult.tsx ← publicação Meta
 
-CRÍTICO — Detecção de texto em imagem:
-- Threshold heurístico 0.18 (NÃO baixar — 0.08 causava falso positivo em fotos reais)
+REGRAS CRÍTICAS — NÃO VIOLAR:
 
-CRÍTICO — WhatsApp:
-- WA vinculado → CONVERSATIONS + whatsapp_phone_number
-- WA não vinculado → LINK_CLICKS + wa.me como link (sem phone_number)
+1. BUDGET:
+   - Backend valida adSet ATUAL (input.adSetIndex), nunca todos
+   - Frontend pre-flight soma rawBudget dos adSets selecionados
+   - Mínimo Meta: R$5,11/adSet/dia
+   - Geração garante MIN_VIABLE_MONTHLY ≈ R$675 (4 adSets × R$5,11 × 30 × 1,1)
 
-CRÍTICO — Description:
-- buildShortDesc() → máx 30 chars, nunca texto principal
-- Fallback seguro: headline.slice(0,30)
+2. CARROSSEL:
+   - getCardCopy(idx) → creativeList[idx % nCreatives]
+   - Headline max 40 chars, description max 30 (limites Meta)
+   - Cards extras (idx ≥ nCreatives) recebem variação de ângulo, nunca répetidos
 
-PENDÊNCIAS:
-1. Vincular WA 47999465824 à Página 1086894187837842
-2. Website no perfil projeto 41
+3. DETECÇÃO DE TEXTO EM IMAGEM:
+   - Threshold heurístico: 0.18 (NÃO reduzir — 0.08 causava falso positivo em fotos reais de praia/prédios)
+   - diff > 200 (NÃO reduzir para 180)
+
+4. WHATSAPP:
+   - WA vinculado → OUTCOME_LEADS + CONVERSATIONS + whatsapp_phone_number
+   - WA não vinculado → OUTCOME_LEADS + LINK_CLICKS + wa.me (sem phone_number)
+
+5. DESCRIPTION:
+   - Prioridade: ai.description ≠ headline | CTA label | 1ª frase hook | ângulo | VAZIO
+   - NUNCA repetir headline como description
+   - NUNCA usar texto principal (copy) como description
+   - Max 30 chars
+
+6. REGEX — esbuild:
+   - NUNCA usar newline literal em regex: /[,\n\r]/
+   - CORRETO: .split(",")[0].split("\n")[0]
+
+7. ANTI-ALUCINAÇÃO:
+   - Verificar schema.ts ANTES de qualquer query SQL
+   - Tabela: api_integrations (NÃO integrations)
+   - Campo: provider (NÃO platform), accessToken IS NOT NULL (NÃO isActive)
+   - Import: getPool() direto (NÃO db.getPool())
+   - Path adminIntelligenceRouter: "./adminIntelligenceRouter" (NÃO "./_core/...")
+
+PENDÊNCIAS ABERTAS:
+🔴 Vincular WhatsApp 47999465824 à Página 1086894187837842 no Meta Business
+🔴 Adicionar website no perfil projeto 41 (Villa Serena) — websiteUrl = null
+🟡 TikTok token no Render
+🟡 Gemini chaves 2+3 em projetos Google separados
+🟡 syncMetaCampaignMetrics para avgScore real (atualmente 100 sem CTR)
+🟡 Campanhas geradas antes de 5b13463 com budget antigo → regerar ou ajustar Módulo 4
+
+CUSTOS REAIS (logs produção):
+- Gemini+Groq: US$0,0021/campanha
+- Imagens: R$0 (Pixabay/Google fallback gratuito)
+- Margem: >99% em qualquer escala até 1M clientes
 ```
