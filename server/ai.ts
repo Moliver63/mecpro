@@ -6449,7 +6449,9 @@ Gere JSON com:
   EXEMPLO COPY BOA (adapte para o produto): "Você ainda perde horas criando anúncios manualmente?\n\nCom MecProAI, gere campanhas completas em minutos — copies, imagens e publicação automática.\n\nAssine agora e receba 60% em créditos."
   COPY RUIM (PROIBIDO): "Transforme seus anúncios com IA" — muito curto, sem dor, sem prova, sem urgência
   HEADLINE OBRIGATÓRIO: entre 25 e 40 caracteres, impactante e específica para o produto
-  DESCRIPTION OBRIGATÓRIO: máx 30 chars — frase ultra-curta impactante (ex: "Vista Mar • Locação Anual", "Frente Mar • 3 dorms", "R$15k/mês + condomínio")
+  DESCRIPTION OBRIGATÓRIO: máx 30 chars — frase ultra-curta impactante e DIFERENTE entre criativos
+  (ex: card1="Vista Mar • Locação Anual", card2="2.500m² de Lazer", card3="Acesso à Praia", card4="R$15k+taxas")
+  HEADLINE OBRIGATÓRIO: cada criativo com headline ÚNICO e diferente dos outros 3 — é o título de cada card do carrossel
   EXEMPLOS RUINS (muito curtas/genéricas): "Saiba mais", "Clique aqui", "Nova coleção"
   EXEMPLOS BONS: "Notting Hill: Vista Mar com Entrada Acessível", "Academia Prime: Planos a partir de R$89"
   OBRIGATÓRIO: headline de cada criativo deve ser única, diferente e ter entre 25-40 chars

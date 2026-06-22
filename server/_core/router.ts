@@ -4194,19 +4194,47 @@ const campaignsRouter = router({
 
         if (isCarousel) {
           // -- Formato Carrossel (2-10 fotos) -----------------------------
-          // Regras Meta: cada card tem link, imagem, título e CTA próprios
+          // Cada card usa um criativo diferente: headline + descrição próprios
+          // Mapeamento: card idx → creative idx (rotativo se mais cards que criativos)
           const items = carouselHashes || carouselUrls || [];
-          const child_attachments = items.map((item: string, idx: number) => ({
-            link:           isWhatsAppDestination ? "https://wa.me/" : finalLink,
-            name:           `${selectedHeadline} ${idx > 0 ? `(${idx + 1})` : ""}`.trim(),
-            description:    idx === 0 ? selectedDescription : "",
-            call_to_action: isWhatsAppDestination
-              ? { type: "WHATSAPP_MESSAGE" }
-              : { type: ctaType, value: ctaValue },
-            ...(carouselHashes
-              ? { image_hash: item }
-              : { picture:    item }),
-          }));
+
+          // Mapeia cada card para o copy do criativo correspondente
+          const getCardCopy = (idx: number) => {
+            const creative = creativeList[idx % Math.max(creativeList.length, 1)];
+            if (!creative) return { name: selectedHeadline, description: "" };
+
+            const cardHeadline = String(
+              creative.headline || creative.title || selectedHeadline
+            ).trim().slice(0, 40);  // Meta: max 40 chars por card
+
+            // Descrição do card: CTA específico ou hook curto
+            const cardDesc = String(
+              creative.description || creative.cta || creative.hook || ""
+            ).trim().slice(0, 30);
+
+            return { name: cardHeadline, description: cardDesc };
+          };
+
+          const child_attachments = items.map((item: string, idx: number) => {
+            const { name: cardName, description: cardDesc } = getCardCopy(idx);
+            return {
+              link:           isWhatsAppDestination ? "https://wa.me/" : finalLink,
+              name:           cardName || `${selectedHeadline}`.slice(0, 40),
+              description:    cardDesc,
+              call_to_action: isWhatsAppDestination
+                ? { type: "WHATSAPP_MESSAGE" }
+                : { type: ctaType, value: ctaValue },
+              ...(carouselHashes
+                ? { image_hash: item }
+                : { picture:    item }),
+            };
+          });
+
+          log.info("meta", "Carrossel cards mapeados com copies individuais", {
+            cards: child_attachments.length,
+            criativos: creativeList.length,
+            sample: child_attachments[0]?.name,
+          });
 
           storySpec = {
             page_id: input.pageId,
