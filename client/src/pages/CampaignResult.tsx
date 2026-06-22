@@ -4570,7 +4570,18 @@ ${sc.cta}`); }}
                                 return;
                               }
 
-                              const toAdd = files.filter(file => isImageFile(file)).slice(0, MAX_META_CAROUSEL_ITEMS);
+                              const imgFiles = files.filter(file => isImageFile(file));
+                              if (imgFiles.length > MAX_META_CAROUSEL_ITEMS) {
+                                toast(`Meta permite até ${MAX_META_CAROUSEL_ITEMS} fotos no carrossel. Usando as primeiras ${MAX_META_CAROUSEL_ITEMS}.`, { icon: "ℹ️" });
+                              }
+                              const toAdd = imgFiles.slice(0, MAX_META_CAROUSEL_ITEMS);
+                              // Feedback: informa que cards extras recebem variações de copy
+                              const nCreatives = (campaign as any)?.creatives
+                                ? (() => { try { return JSON.parse((campaign as any).creatives).length; } catch { return 4; } })()
+                                : 4;
+                              if (toAdd.length > nCreatives) {
+                                toast(`${toAdd.length} fotos · ${nCreatives} copies geradas. Os cards extras recebem variações automáticas de título.`, { icon: "🎴", duration: 4000 });
+                              }
                               setMediaType("image");
                               setMediaFiles(toAdd);
                               setMediaPreviews(toAdd.map(() => ""));

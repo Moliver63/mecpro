@@ -4198,19 +4198,48 @@ const campaignsRouter = router({
           // Mapeamento: card idx → creative idx (rotativo se mais cards que criativos)
           const items = carouselHashes || carouselUrls || [];
 
-          // Mapeia cada card para o copy do criativo correspondente
+          // Mapeia cada card para o copy do criativo correspondente.
+          // Quando há MAIS fotos que criativos (ex: 10 fotos, 4 criativos),
+          // gera variações de ângulo para os cards extras em vez de repetir igual.
+          const nCreatives = Math.max(creativeList.length, 1);
+
+          // Variações de sufixo para diferenciar cards quando faltam criativos
+          const cardAngleVariations = [
+            "", "Saiba mais", "Confira", "Veja detalhes",
+            "Oportunidade", "Não perca", "Disponível", "Agende visita",
+            "Fale conosco", "Últimas unidades",
+          ];
+
           const getCardCopy = (idx: number) => {
-            const creative = creativeList[idx % Math.max(creativeList.length, 1)];
-            if (!creative) return { name: selectedHeadline, description: "" };
+            const creative = creativeList[idx % nCreatives];
+            if (!creative) return { name: selectedHeadline.slice(0, 40), description: "" };
 
-            const cardHeadline = String(
+            // Headline base do criativo
+            let cardHeadline = String(
               creative.headline || creative.title || selectedHeadline
-            ).trim().slice(0, 40);  // Meta: max 40 chars por card
+            ).trim();
 
-            // Descrição do card: CTA específico ou hook curto
-            const cardDesc = String(
+            // Se este card está REPETINDO um criativo já usado (idx >= nCreatives),
+            // diferencia o headline com uma variação de ângulo
+            if (idx >= nCreatives) {
+              const variation = cardAngleVariations[idx % cardAngleVariations.length];
+              if (variation && !cardHeadline.toLowerCase().includes(variation.toLowerCase())) {
+                // Mantém base mas adiciona diferenciação dentro do limite de 40 chars
+                const base = cardHeadline.slice(0, 40 - variation.length - 3);
+                cardHeadline = `${base} • ${variation}`;
+              }
+            }
+            cardHeadline = cardHeadline.slice(0, 40);  // Meta: max 40 chars
+
+            // Descrição: prioriza description dedicada, depois CTA, depois hook
+            let cardDesc = String(
               creative.description || creative.cta || creative.hook || ""
-            ).trim().slice(0, 30);
+            ).trim();
+            // Cards repetidos recebem variação de descrição também
+            if (idx >= nCreatives && (!cardDesc || cardDesc.length < 5)) {
+              cardDesc = cardAngleVariations[(idx + 1) % cardAngleVariations.length] || "";
+            }
+            cardDesc = cardDesc.slice(0, 30);  // Meta: max 30 chars
 
             return { name: cardHeadline, description: cardDesc };
           };
