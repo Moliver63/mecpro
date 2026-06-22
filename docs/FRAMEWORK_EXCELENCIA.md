@@ -304,6 +304,54 @@ export async function getPool(): Promise<Pool | null> {
 
 ## ERROS META ADS — SOLUÇÕES CONFIRMADAS
 
+### Carousel — copy por card (sessão 20)
+
+```
+Cada card do carrossel usa um criativo diferente:
+  card[idx] -> creativeList[idx % nCreatives]
+  headline proprio (max 40 chars Meta)
+  description propria (max 30 chars Meta)
+
+Quando ha MAIS fotos que criativos (ex: 10 fotos, 4 copies):
+  cards extras recebem variacao de angulo
+  (Saiba mais, Confira, Oportunidade, Agende visita...)
+  NUNCA repetir headline identico entre cards
+```
+
+### Deteccao de texto alucinado em imagem — CUIDADO COM FALSO POSITIVO (sessão 20)
+
+```
+LICAO APRENDIDA: heuristica agressiva demais causa mais dano que beneficio.
+
+Threshold 0.08 -> rejeitava fotos REAIS detalhadas (praia, predios)
+do Pixabay como se fossem texto alucinado -> retries infinitos -> timeout.
+
+Threshold correto: 0.18
+  - Fotos reais ficam em 0.08-0.12 (passam)
+  - Texto alucinado real do FLUX passa de 0.20 (rejeitado)
+
+REGRA: sem Google Vision configurado, melhor deixar passar uma
+imagem duvidosa do que rejeitar uma foto legitima.
+```
+
+### Budget minimo viavel — garantir na geracao (sessão 20)
+
+```
+Meta exige R$5,11/dia por adSet.
+Campanha padrao = 4 adSets (TOF/MOF/BOF/SCALE) com 25% cada.
+
+MIN_VIABLE_MONTHLY = 5,11 x 4 x 30 x 1,1 = R$675
+
+Na geracao (ai.ts generateCampaign):
+  se input.budget < MIN_VIABLE_MONTHLY -> eleva automaticamente
+  suggestedBudgetMonthly salva o effectiveBudget corrigido
+
+Assim cada adSet nasce com budget publicavel (R$5,62/dia).
+Campanhas geradas antes do fix precisam regerar ou ajustar Modulo 4.
+```
+
+## ERROS META ADS — SOLUÇÕES CONFIRMADAS
+
 | Código | Mensagem | Causa | Fix |
 |---|---|---|---|
 | 2061015 | "campo link obrigatório" | wa.me em link_data ou linkUrl null | safeLink() com fallback |
@@ -339,4 +387,4 @@ Meta token:      válido até 06/07/2026
 
 ---
 
-*Atualizado: 2026-06-10 | Score: ~96% | Último commit: 51efca7*
+*Atualizado: 2026-06-22 (sessão 20) | Score: ~96% | Último commit: 5b13463*

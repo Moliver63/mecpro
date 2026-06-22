@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-06-06 (sessão 19)
+> **Última atualização:** 2026-06-22 (sessão 20)
 
 ---
 
@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `c741211` | budget por adSet individual |
+| Último commit | `5b13463` | budget mínimo viável na geração |
 
 ---
 
@@ -180,6 +180,42 @@ Pool: lazy init getImageDbPool()/getRagPool()
 
 ---
 
+## 🐛 Bugs Resolvidos (sessão 20 — 22/06)
+
+| Bug | Causa raiz | Fix | Commit |
+|---|---|---|---|
+| Cards do carrossel com "Insira a descrição" vazio | `child_attachments` usava `description=""` para todos exceto card 1 | `getCardCopy(idx)` mapeia cada card ao `creative[idx%length]` com headline+desc próprios | `dc3a05b` |
+| Carrossel com headline repetido em todos os cards | `name` era `selectedHeadline+(idx)` igual para todos | Cada card recebe headline único do criativo correspondente | `dc3a05b` |
+| Upload 10 fotos mas só 4 copies → cards 5-10 repetidos | Rotação `idx%4` repetia copies idênticas | Cards extras recebem variação de ângulo (Saiba mais, Confira, Oportunidade...) | `eb87b66` |
+| **Falso positivo de texto descartava fotos REAIS** | Heurística `highFreqRatio>0.08` marcava fotos detalhadas (praia/prédio) do Pixabay/FLUX como alucinação → retries infinitos → timeout | Threshold `0.08→0.18`, diff `180→200`: só texto MUITO denso dispara | `31e8ab5` |
+| Mensagem de budget pouco clara | Só dizia mínimo por adSet | Calcula e informa orçamento mensal mínimo exato (`META_MIN × nAdSets × 30 × 1.1`) | `31e8ab5` |
+| **adSets gerados abaixo do mínimo Meta** | Orçamento dividido em 4 adSets (25% cada) sem garantir R$5,11/dia/adSet → R$4,25/dia | Na geração: `MIN_VIABLE_MONTHLY = R$5,11×4×30×1,1 ≈ R$675`; eleva budget automaticamente se abaixo | `5b13463` |
+
+### Detalhes técnicos — sessão 20
+
+**Carrossel (commit `dc3a05b`, `eb87b66`):**
+- `getCardCopy(idx)` em `router.ts`: mapeia card → `creativeList[idx % nCreatives]`
+- Headline max 40 chars, description max 30 chars (limites Meta)
+- Cards repetidos (idx ≥ nCreatives) recebem sufixo de variação para não duplicar
+- Prompt IA atualizado: HEADLINE e DESCRIPTION únicos entre os 4 criativos
+- `MAX_META_CAROUSEL_ITEMS = 10` no frontend (já existia)
+
+**Detecção de texto em imagem (commit `31e8ab5`):**
+- `imageHasHallucinatedText()` em `imageGeneration.ts`
+- Primário: Google Vision API (se `GOOGLE_API_KEY` configurado)
+- Fallback heurístico: analisa terço inferior (65%-90% do buffer), conta transições de byte > 200
+- Threshold 0.18 — fotos reais ficam em 0.08-0.12, texto alucinado real passa de 0.20
+- LIÇÃO: heurística agressiva demais causa mais dano (descarta foto boa) que benefício
+
+**Budget mínimo viável (commit `5b13463`):**
+- `generateCampaign()` em `ai.ts`
+- `MIN_VIABLE_MONTHLY = Math.ceil(5.11 × 4 × 30 × 1.1)` ≈ R$675
+- Se `input.budget < MIN_VIABLE_MONTHLY` → eleva para o mínimo + loga warning
+- `suggestedBudgetMonthly` salva `effectiveBudget` (corrigido), não o input bruto
+- Campanhas geradas ANTES deste fix mantêm budget antigo — precisam regerar ou ajustar Módulo 4
+
+---
+
 ## 📋 Pendências
 
 | Prioridade | Item | Responsável |
@@ -189,6 +225,8 @@ Pool: lazy init getImageDbPool()/getRagPool()
 | 🟡 | TikTok token no Render | Michel |
 | 🟡 | Gemini chaves 2+3 em projetos separados | Michel |
 | 🟡 | syncMetaCampaignMetrics (avgScore=100 sem CTR real) | Dev |
+| 🟢 | Campanhas geradas antes de `5b13463` têm budget antigo — regerar ou ajustar Módulo 4 | Michel |
+| 🟢 | (RESOLVIDO) Budget mínimo viável agora garantido na geração `5b13463` | — |
 
 ---
 
@@ -197,12 +235,21 @@ Pool: lazy init getImageDbPool()/getRagPool()
 ```
 Leia docs/SYSTEM_MEMORY.md do MecProAI antes de começar.
 Stack: React+Vite+tRPC+PostgreSQL. Deploy: Render.com.
-Último commit: c741211. Score: ~96%.
+Último commit: 5b13463. Score: ~96%.
 
 CRÍTICO — Budget por adSet:
 - Backend valida adSet individual (input.adSetIndex), não total da campanha
 - Frontend soma rawBudget dos adSets selecionados antes de qualquer upload
 - R$5,11/adSet mínimo Meta
+- Geração garante MIN_VIABLE_MONTHLY ≈ R$675 (5,11 × 4 adSets × 30 × 1,1)
+
+CRÍTICO — Carrossel:
+- getCardCopy(idx) mapeia cada card ao creative[idx%length]
+- Headline max 40, description max 30 (limites Meta)
+- Cards extras (mais fotos que criativos) recebem variação de ângulo
+
+CRÍTICO — Detecção de texto em imagem:
+- Threshold heurístico 0.18 (NÃO baixar — 0.08 causava falso positivo em fotos reais)
 
 CRÍTICO — WhatsApp:
 - WA vinculado → CONVERSATIONS + whatsapp_phone_number
