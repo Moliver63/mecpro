@@ -5746,7 +5746,23 @@ export async function generateCampaign(input: {
     allAds.push(...ads.map((a: any) => ({ ...a, competitorName: (comp as any).name })));
   }
 
-  const budgetDaily = Math.round(input.budget / 30);
+  // Garante orçamento mínimo viável para Meta: R$5,11/dia por adSet.
+  // Padrão de 4 adSets (TOF/MOF/BOF/SCALE) → mínimo R$5,11×4×30×1,1 ≈ R$675/mês.
+  const META_MIN_DAILY_PER_ADSET = 5.11;
+  const EXPECTED_ADSETS = 4; // padrão do funil gerado
+  const MIN_VIABLE_MONTHLY = Math.ceil(META_MIN_DAILY_PER_ADSET * EXPECTED_ADSETS * 30 * 1.1);
+
+  let effectiveBudget = input.budget;
+  if (effectiveBudget < MIN_VIABLE_MONTHLY) {
+    log.warn("ai", "Orçamento abaixo do mínimo viável Meta — ajustado automaticamente", {
+      informado: input.budget,
+      ajustado: MIN_VIABLE_MONTHLY,
+      adSets: EXPECTED_ADSETS,
+    });
+    effectiveBudget = MIN_VIABLE_MONTHLY;
+  }
+
+  const budgetDaily = Math.round(effectiveBudget / 30);
 
   // Helper: personas block para o prompt
   function buildPersonasBlock(personasJson: string | null | undefined): string {
@@ -6267,7 +6283,7 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
         objective: input.objective as any,
         platform:  input.platform,
         suggestedBudgetDaily:   budgetDaily,
-        suggestedBudgetMonthly: input.budget,
+        suggestedBudgetMonthly: effectiveBudget,
         durationDays:    input.duration,
         strategy,
         adSets,
@@ -6645,7 +6661,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     objective: input.objective as any,
     platform: input.platform,
     suggestedBudgetDaily: budgetDaily,
-    suggestedBudgetMonthly: input.budget,
+    suggestedBudgetMonthly: effectiveBudget,
     durationDays: input.duration,
     strategy,
     adSets,
