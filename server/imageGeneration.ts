@@ -882,23 +882,23 @@ async function imageHasHallucinatedText(buffer: Buffer): Promise<boolean> {
     } catch { /* fallback */ }
   }
 
-  // Fallback: análise heurística por padrões de bytes JPEG
-  // FLUX gera texto com alta densidade de bytes em regiões específicas
-  // Heurística: analisa distribuição de bytes no buffer
+  // Fallback: análise heurística — SÓ dispara em texto MUITO óbvio.
+  // IMPORTANTE: fotos reais detalhadas (praia, prédios) têm alta variação natural
+  // de bytes. Threshold conservador evita falso positivo que descartava fotos boas.
+  // Sem Google Vision, é melhor deixar passar do que rejeitar foto legítima.
   if (buffer.length > 0) {
-    // Converte para string e busca padrões de texto renderizado
-    // Texto em JPEG causa blocos DCT específicos detectáveis
-    const sample = buffer.slice(Math.floor(buffer.length * 0.6), Math.floor(buffer.length * 0.85));
-    // Conta bytes de alta frequência (indicativo de ruído de texto)
+    // Analisa o terço inferior (onde FLUX costuma colocar texto alucinado)
+    const sample = buffer.slice(Math.floor(buffer.length * 0.65), Math.floor(buffer.length * 0.90));
     let highFreqCount = 0;
     for (let i = 0; i < sample.length - 1; i++) {
       const diff = Math.abs(sample[i] - sample[i + 1]);
-      if (diff > 180) highFreqCount++;
+      if (diff > 200) highFreqCount++; // 180→200: só transições muito bruscas
     }
-    const highFreqRatio = highFreqCount / sample.length;
-    // Ratio > 0.08 indica texto ou ruído excessivo (limiar calibrado)
-    if (highFreqRatio > 0.08) {
-      log.warn("image-generation", "RAG heurística: padrão de texto detectado", {
+    const highFreqRatio = highFreqCount / Math.max(sample.length, 1);
+    // 0.08→0.18: só texto MUITO denso dispara. Fotos reais ficam em 0.08-0.12.
+    // Texto alucinado real do FLUX passa de 0.20.
+    if (highFreqRatio > 0.18) {
+      log.warn("image-generation", "RAG heurística: padrão de texto provável", {
         highFreqRatio: highFreqRatio.toFixed(3),
         bufferSize: buffer.length,
       });

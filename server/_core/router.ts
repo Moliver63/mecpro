@@ -3437,10 +3437,13 @@ const campaignsRouter = router({
         : (totalDailyForValidation / Math.max(allAdSets.length, 1));
 
       const META_MIN_DAILY_PER_ADSET = 5.11;
+      // Calcula orçamento mensal mínimo necessário para TODOS os adSets respeitarem o mínimo
+      const nAdSets = Math.max(allAdSets.length, 1);
+      const minMonthlyNeeded = Math.ceil(META_MIN_DAILY_PER_ADSET * nAdSets * 30 * 1.1); // +10% margem
       if (currentAdSetBudget > 0 && currentAdSetBudget < META_MIN_DAILY_PER_ADSET) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Orçamento do conjunto "${currentAdSet?.name || `Conjunto ${(input.adSetIndex ?? 0) + 1}`}" insuficiente: R$${currentAdSetBudget.toFixed(2)}/dia. Mínimo: R$${META_MIN_DAILY_PER_ADSET}/adSet/dia. Aumente o orçamento no Módulo 4.`,
+          message: `Orçamento do conjunto "${currentAdSet?.name || `Conjunto ${(input.adSetIndex ?? 0) + 1}`}" insuficiente: R$${currentAdSetBudget.toFixed(2)}/dia (mínimo Meta: R$${META_MIN_DAILY_PER_ADSET}/adSet/dia). Com ${nAdSets} conjunto(s) nesta campanha, configure orçamento mensal de pelo menos R$${minMonthlyNeeded} no Módulo 4 — ou reduza o número de conjuntos.`,
         });
       }
 
