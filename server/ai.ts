@@ -14,7 +14,7 @@ type MetaFetchResult = {
 import * as db from "./db";
 import type { CampaignCreative } from "../shared/campaignCreative.schema";
 import { syncCreativeTextToV2, syncCreativeImageToV2 } from "../shared/campaignCreative.sync";
-import { scoreCreativeList } from "./creativeScoringEngine";
+import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
@@ -7648,7 +7648,57 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     return { complianceIssues, forbiddenFound, hasPlaceholder };
   }
 
-  const scored = scoreCreativeList(Array.isArray(creatives) ? creatives : []).map((creative, index) => {
+  // ── Gate de qualidade: score < 75 → tenta melhorar via LLM (máx 2 tentativas) ──
+  // Usa as recommendations do scoring engine como brief de melhoria.
+  // Falha na melhoria não bloqueia: mantém o original e marca needsReview.
+  const SCORE_THRESHOLD = 75;
+  const MAX_IMPROVE_ATTEMPTS = 2;
+
+  async function improveCreativeIfWeak(creative: any, index: number): Promise<any> {
+    let current = creative;
+    for (let attempt = 1; attempt <= MAX_IMPROVE_ATTEMPTS; attempt++) {
+      const score = scoreCreative(current);
+      if (score.finalScore >= SCORE_THRESHOLD) {
+        return { ...current, ...score, needsReview: false };
+      }
+      const recs = (score.recommendations || []).join("; ") || "aumente especificidade, urgência e clareza";
+      log.info("ai", `Score ${score.finalScore} < ${SCORE_THRESHOLD} — melhorando criativo (tentativa ${attempt}/${MAX_IMPROVE_ATTEMPTS})`, {
+        index, headline: String(current.headline || "").slice(0, 40),
+      });
+      try {
+        const raw = await gemini(
+          `Melhore este criativo de anúncio Meta Ads seguindo EXATAMENTE as recomendações.\n` +
+          `RECOMENDAÇÕES: ${recs}\n\n` +
+          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description })}\n\n` +
+          `REGRAS ABSOLUTAS:\n` +
+          `- headline: máx 40 caracteres, específica, sem CTA embutido\n` +
+          `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
+          `- copy: máx 500 caracteres, sem frases repetidas\n` +
+          `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
+          `Retorne APENAS o JSON com os mesmos campos, sem markdown.`,
+          { temperature: 0.8, jsonMode: true, maxOutputTokens: 800, _endpoint: "improve_creative" },
+        );
+        const improved = JSON.parse(String(raw).replace(/```json|```/g, "").trim());
+        if (improved?.headline) {
+          current = { ...current, ...improved };
+        }
+      } catch (e) {
+        log.warn("ai", "Falha ao melhorar criativo — mantendo original", { index, attempt });
+        break;
+      }
+    }
+    const finalScoreResult = scoreCreative(current);
+    const stillWeak = finalScoreResult.finalScore < SCORE_THRESHOLD;
+    if (stillWeak) {
+      log.warn("ai", `Criativo permanece com score ${finalScoreResult.finalScore} após ${MAX_IMPROVE_ATTEMPTS} tentativas — marcado para revisão`, { index });
+    }
+    return { ...current, ...finalScoreResult, needsReview: stillWeak };
+  }
+
+  const rawList = Array.isArray(creatives) ? creatives : [];
+  const improvedList = await Promise.all(rawList.map((cr, i) => improveCreativeIfWeak(cr, i)));
+
+  const scored = improvedList.map((creative, index) => {
     const audit = auditCopy(creative);
     if (audit.hasPlaceholder) {
       log.warn("ai", "Copy com placeholder", { index, headline: String(creative.headline || "").slice(0,50) });

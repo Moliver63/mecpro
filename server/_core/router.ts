@@ -3533,17 +3533,52 @@ const campaignsRouter = router({
       const selectedHeadline = placementKey === "stories" || placementKey === "reels"
         ? ((adCopy as any).stories?.hook || adCopy.feed.headline || c.name)
         : adCopy.feed.headline;
-      // Descrição curta (max 30 chars para Meta) — campo separado do texto principal
-      // Extrai primeira frase impactante da copy ou usa proposta de valor
-      // Descrição curta (max 30 chars) — tenta múltiplas fontes
-      const rawDesc = adCopy.feed?.description
-        || adCopy.feed?.shortDescription
-        || adCopy.feed?.hook?.slice(0, 30)
-        || adCopy.feed?.copy?.split("\n")?.[0]?.slice(0, 30)
-        || (adCopy.feed?.headline ? adCopy.feed.headline.slice(0, 30) : "")
-        || "";
-      const selectedDescription = String(rawDesc).trim().slice(0, 30);
-      log.info("meta", "Description gerada", { rawDesc: rawDesc.slice(0, 30), selectedDescription });
+      // Descrição curta (max 30 chars) — GERAÇÃO REAL, não eco do input.
+      // Regra: description deve COMPLEMENTAR a headline, nunca repeti-la.
+      // Fontes em ordem: description explícita ≠ headline → benefício extraído
+      // da copy ≠ headline → CTA suave contextual.
+      function buildDescription(): string {
+        const headlineNorm = String(selectedHeadline || "").toLowerCase().trim();
+        const candidates: string[] = [];
+
+        // 1. Description explícita da IA (se diferente da headline)
+        const explicit = String(adCopy.feed?.description || adCopy.feed?.shortDescription || "").trim();
+        if (explicit && explicit.toLowerCase() !== headlineNorm) candidates.push(explicit);
+
+        // 2. Frases da copy que não repetem a headline (benefícios reais)
+        const copyText = String(adCopy.feed?.copy || adCopy.feed?.message || "");
+        const sentences = copyText.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length >= 10 && s.length <= 60);
+        for (const s of sentences) {
+          const sNorm = s.toLowerCase();
+          const overlapsHeadline = headlineNorm && (sNorm.includes(headlineNorm.slice(0, 15)) || headlineNorm.includes(sNorm.slice(0, 15)));
+          if (!overlapsHeadline && !/não perca|clique|saiba mais|fale conosco/i.test(s)) {
+            candidates.push(s);
+            break;
+          }
+        }
+
+        // 3. Hook (se diferente da headline)
+        const hook = String(adCopy.feed?.hook || "").trim();
+        if (hook && hook.toLowerCase() !== headlineNorm) candidates.push(hook);
+
+        // 4. Fallback contextual por objetivo (nunca vazio, nunca eco)
+        const objFallbacks: Record<string, string> = {
+          sales:      "Condições especiais hoje",
+          leads:      "Atendimento personalizado",
+          engagement: "Converse com a gente",
+          traffic:    "Veja todos os detalhes",
+          branding:   "Conheça nossa história",
+        };
+        candidates.push(objFallbacks[String(objective || "").toLowerCase()] || "Veja mais detalhes");
+
+        const chosen = candidates.find(d => d && d.length > 0) || "";
+        return chosen.slice(0, 30).trim();
+      }
+      const selectedDescription = buildDescription();
+      log.info("meta", "Description gerada", {
+        selectedDescription,
+        distinctFromHeadline: selectedDescription.toLowerCase() !== String(selectedHeadline || "").toLowerCase().slice(0, 30),
+      });
       // ── Auditoria automática de copy antes de enviar ao Meta ────────────────
       // Dedup de frases redundantes (ex: "Não perca..." repetido) e
       // variação de headline conforme a persona do adSet (Investidor vs Lifestyle)
