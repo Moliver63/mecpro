@@ -15,7 +15,7 @@ import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
-import { auditCreative, assertCreativeValid } from "../adAudit";
+import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet } from "../adAudit";
 import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
   updateCreativeInputSchema,
@@ -3084,8 +3084,19 @@ const campaignsRouter = router({
         const isWhatsAppDestination = !!opts?.isWhatsAppDestination;
         const hasLink = !!opts?.hasLink;
 
+        // sales + WhatsApp → conversa é a conversão; nunca otimizar para page view
+        // Com número vinculado: OUTCOME_ENGAGEMENT + CONVERSATIONS (Click-to-WhatsApp nativo)
+        // Sem vínculo: OUTCOME_TRAFFIC + LINK_CLICKS (abre wa.me via link)
+        if (o === "sales" && isWhatsAppDestination) {
+          const hasLinkedWA = !!(opts as any)?.hasLinkedWA;
+          if (hasLinkedWA) {
+            return { campaignObj: "OUTCOME_ENGAGEMENT", optimizationGoal: "CONVERSATIONS" };
+          }
+          return { campaignObj: "OUTCOME_TRAFFIC", optimizationGoal: "LINK_CLICKS" };
+        }
+
         if (o === "sales" && !pixelId) {
-          // Sem pixel: usa TRAFFIC com LPV (ou LINK_CLICKS se não houver URL)
+          // Sem pixel e destino site: usa TRAFFIC com LPV (ou LINK_CLICKS se não houver URL)
           return {
             campaignObj: "OUTCOME_TRAFFIC",
             optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
@@ -3534,9 +3545,24 @@ const campaignsRouter = router({
       const selectedDescription = String(rawDesc).trim().slice(0, 30);
       log.info("meta", "Description gerada", { rawDesc: rawDesc.slice(0, 30), selectedDescription });
       // ── Auditoria automática de copy antes de enviar ao Meta ────────────────
+      // Dedup de frases redundantes (ex: "Não perca..." repetido) e
+      // variação de headline conforme a persona do adSet (Investidor vs Lifestyle)
+      const dedupedMessage = dedupeSentences(selectedMessage);
+      const personaHeadline = personalizeHeadlineForAdSet(selectedHeadline, adSet?.name);
+      if (dedupedMessage !== selectedMessage) {
+        log.info("ad-audit", "Frases redundantes removidas da mensagem", {
+          before: selectedMessage.slice(0, 60), after: dedupedMessage.slice(0, 60),
+        });
+      }
+      if (personaHeadline !== selectedHeadline) {
+        log.info("ad-audit", "Headline adaptada à persona do adSet", {
+          adSet: adSet?.name?.slice(0, 50), before: selectedHeadline, after: personaHeadline,
+        });
+      }
+
       const creativeAudit = auditCreative({
-        headline:    selectedHeadline,
-        primaryText: selectedMessage,
+        headline:    personaHeadline,
+        primaryText: dedupedMessage,
         description: selectedDescription || "",
         cta:         adCopy.feed?.cta || "Saiba mais",
         imageUrl:    input.imageUrl || undefined,

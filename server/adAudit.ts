@@ -421,3 +421,69 @@ export function assertCreativeValid(audit: CreativeAuditResult): void {
     );
   }
 }
+
+// ── Deduplicação de frases redundantes ───────────────────────────────────────
+// Detecta e remove sentenças consecutivas com >60% de overlap de palavras
+// (ex: "Não perca essa oportunidade\n\nVocê não quer perder a oportunidade...")
+export function dedupeSentences(text: string): string {
+  if (!text) return text;
+  const parts = text.split(/\n+/).map(p => p.trim()).filter(Boolean);
+  if (parts.length < 2) return text;
+
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").split(/\s+/).filter(w => w.length > 3);
+
+  const result: string[] = [];
+  for (const part of parts) {
+    const words = new Set(normalize(part));
+    const isDupe = result.some(prev => {
+      const prevWords = new Set(normalize(prev));
+      if (words.size === 0 || prevWords.size === 0) return false;
+      let overlap = 0;
+      words.forEach(w => { if (prevWords.has(w)) overlap++; });
+      const ratio = overlap / Math.min(words.size, prevWords.size);
+      return ratio > 0.6;
+    });
+    if (!isDupe) result.push(part);
+  }
+  return result.join("\n\n");
+}
+
+// ── Variação de headline por persona do adSet ────────────────────────────────
+// Deriva a persona do nome do adSet (ex: TOF_Investidor_FII_...) e adapta
+// a headline para o vocabulário do público — evita copy idêntica entre
+// adSets de personas opostas.
+const PERSONA_HEADLINE_PATTERNS: Array<{ match: RegExp; prefix?: string; rewrite?: (h: string) => string }> = [
+  {
+    match: /investidor|fii|renda.?passiva|airbnb|invest/i,
+    rewrite: (h) => {
+      if (/invest|renda|valoriza|rentabil/i.test(h)) return h; // já tem vocabulário certo
+      return `Invista: ${h}`.slice(0, 40);
+    },
+  },
+  {
+    match: /lifestyle|decoracao|decoração|beach|viagem|familia|família|conforto/i,
+    rewrite: (h) => {
+      if (/viva|desfrute|sinta|seu novo|momento/i.test(h)) return h;
+      return `Viva isso: ${h}`.slice(0, 40);
+    },
+  },
+  {
+    match: /luxo|premium|alto.?padrao|alto.?padrão/i,
+    rewrite: (h) => {
+      if (/exclusiv|premium|luxo|sofistica/i.test(h)) return h;
+      return `Exclusivo: ${h}`.slice(0, 40);
+    },
+  },
+];
+
+export function personalizeHeadlineForAdSet(headline: string, adSetName?: string | null): string {
+  if (!headline || !adSetName) return headline;
+  for (const p of PERSONA_HEADLINE_PATTERNS) {
+    if (p.match.test(adSetName)) {
+      const varied = p.rewrite ? p.rewrite(headline) : headline;
+      return varied.length <= 40 ? varied : headline;
+    }
+  }
+  return headline;
+}
