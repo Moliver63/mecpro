@@ -6937,8 +6937,19 @@ const integrationsRouter = router({
           if (vision.dominant_colors?.length) parts.push(`cores: ${vision.dominant_colors.slice(0, 3).join(", ")}`);
           if (vision.has_text && vision.text_found) parts.push(`texto na imagem: "${vision.text_found.slice(0, 60)}"`);
           if (typeof vision.quality_score === "number") parts.push(`qualidade ${vision.quality_score}/100`);
-          summary = parts.join("; ").slice(0, 300);
-          log.info("campaign-images", "Imagem analisada", { url: url.slice(-40), score, summaryLen: summary.length });
+
+          // Adequação por canal — heurística determinística sobre os dados da Vision
+          // (Entrega 2 do Conselho: análise rica sem custo/latência extra de LLM)
+          const textHeavy = vision.has_text && (vision.text_found || "").length > 40;
+          const lowQuality = typeof vision.quality_score === "number" && vision.quality_score < 40;
+          const fit: string[] = [];
+          fit.push(textHeavy ? "Meta: atenção — muito texto na imagem reduz entrega" : "Meta: adequada");
+          fit.push(lowQuality ? "Google: qualidade baixa pode ser reprovada" : "Google: adequada");
+          fit.push(lowQuality || textHeavy ? "TikTok: prefira fotos limpas e nítidas" : "TikTok: adequada");
+          parts.push(`adequação → ${fit.join(" | ")}`);
+
+          summary = parts.join("; ").slice(0, 420);
+          log.info("campaign-images", "Imagem analisada", { url: url.slice(-40), score, textHeavy, lowQuality, summaryLen: summary.length });
         }
       } catch (e) {
         log.warn("campaign-images", "Análise de imagem falhou — upload mantido", {

@@ -98,7 +98,7 @@ export default function CampaignBuilder() {
   );
   // tRPC mutation — só chama a API, sem lógica de UI
   const generateMutation = trpc.campaigns.generate.useMutation();
-  const uploadImageMutation = trpc.uploadCampaignImage.useMutation();
+  const uploadImageMutation = trpc.integrations.uploadCampaignImage.useMutation();
 
   // useSafeMutation — controla loading, redirect e unmount de forma segura
   const { execute: executeGenerate, loading: generating } = useSafeMutation(
@@ -187,7 +187,9 @@ export default function CampaignBuilder() {
     geoRadius:    15,               // raio em km
     // Formulário de leads (Step 5)
     leadForm:     null as any,      // dados do formulário de leads
-    // Step 6 — Upload de imagens do produto (opcional, máx 8)
+    // Step 6 — Fotos do produto (opcional, máx 8)
+    creativeMode: "auto" as "auto" | "upload",  // "auto" = IA cria criativos (fluxo atual) | "upload" = fotos reais
+    imageRightsConfirmed: false,                 // usuário confirma direito de uso das fotos
     uploadedImages: [] as string[],           // URLs das imagens enviadas
     imageInsights:  [] as Array<{ url: string; summary: string; score: number | null; status: "analyzing" | "done" | "error" }>,
   });
@@ -197,7 +199,7 @@ export default function CampaignBuilder() {
     || SEGMENT_TO_NICHE[segment]
     || "geral";
 
-  const STEPS = ["Segmento", "Objetivo", "Plataforma", "Orçamento", "Detalhes", "Imagens", "Match IA", "Gerar"];
+  const STEPS = ["Segmento", "Objetivo", "Plataforma", "Orçamento", "Detalhes", "Fotos", "Match IA", "Gerar"];
 
   async function handleMatch() {
     setMatching(true);
@@ -1174,11 +1176,34 @@ export default function CampaignBuilder() {
               {/* Step 6: Match IA */}
               {step === 6 && (
                 <div>
-                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>📸 Imagens do produto (opcional)</h2>
+                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>📸 Fotos do anúncio</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
-                    Envie até 8 fotos do imóvel ou produto. A IA analisa cada imagem e usa o contexto visual para gerar copies mais precisas. Você pode pular esta etapa.
+                    Escolha como os criativos da campanha serão feitos.
                   </p>
 
+                  {/* Dois modos — escolha explícita (veredito do Conselho) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+                    <button
+                      onClick={() => setForm(f => ({ ...f, creativeMode: "upload" }))}
+                      style={{ padding: "18px 14px", borderRadius: 14, textAlign: "left", cursor: "pointer",
+                        border: form.creativeMode === "upload" ? "2px solid var(--green, #16a34a)" : "2px solid var(--border, #e2e8f0)",
+                        background: form.creativeMode === "upload" ? "var(--green-l, #f0fdf4)" : "#fff" }}>
+                      <div style={{ fontSize: 22, marginBottom: 6 }}>📸</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--black)" }}>Usar minhas fotos</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>A IA analisa suas fotos reais e escreve as copies para elas.</div>
+                    </button>
+                    <button
+                      onClick={() => setForm(f => ({ ...f, creativeMode: "auto" }))}
+                      style={{ padding: "18px 14px", borderRadius: 14, textAlign: "left", cursor: "pointer",
+                        border: form.creativeMode === "auto" ? "2px solid var(--green, #16a34a)" : "2px solid var(--border, #e2e8f0)",
+                        background: form.creativeMode === "auto" ? "var(--green-l, #f0fdf4)" : "#fff" }}>
+                      <div style={{ fontSize: 22, marginBottom: 6 }}>✨</div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: "var(--black)" }}>Deixar a IA criar</div>
+                      <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 4 }}>Imagens e copies geradas automaticamente, como hoje.</div>
+                    </button>
+                  </div>
+
+                  {form.creativeMode === "upload" && (<>
                   <input
                     id="campaign-image-input"
                     type="file"
@@ -1259,6 +1284,17 @@ export default function CampaignBuilder() {
                       ))}
                     </div>
                   )}
+
+                  {/* Direitos de uso — obrigatório para publicar com fotos próprias */}
+                  {form.uploadedImages.length > 0 && (
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 14, fontSize: 12, color: "var(--dark)", cursor: "pointer" }}>
+                      <input type="checkbox" checked={form.imageRightsConfirmed}
+                        onChange={(e) => setForm(f => ({ ...f, imageRightsConfirmed: e.target.checked }))}
+                        style={{ marginTop: 2 }} />
+                      <span>Confirmo que tenho direito de uso destas imagens para publicidade (fotos próprias ou com autorização do fotógrafo/proprietário).</span>
+                    </label>
+                  )}
+                  </>)}
                 </div>
               )}
 
@@ -1434,8 +1470,20 @@ export default function CampaignBuilder() {
                         }}>Continuar →</button>
                       : step === 6
                       ? <button className="btn btn-md btn-primary" style={{ width: "100%" }}
-                          onClick={() => setStep(7)}>
-                          {form.uploadedImages.length > 0 ? `Continuar com ${form.uploadedImages.length} imagem(ns) →` : "Pular esta etapa →"}
+                          onClick={() => {
+                            if (form.creativeMode === "upload" && form.uploadedImages.length > 0 && !form.imageRightsConfirmed) {
+                              toast.error("Confirme o direito de uso das imagens para continuar."); return;
+                            }
+                            if (form.creativeMode === "upload" && form.imageInsights.some(i => i.status === "analyzing")) {
+                              toast.warning("Aguarde a análise das fotos terminar."); return;
+                            }
+                            setStep(7);
+                          }}>
+                          {form.creativeMode === "auto"
+                            ? "Continuar →"
+                            : form.uploadedImages.length > 0
+                              ? `Continuar com ${form.uploadedImages.length} foto(s) →`
+                              : "Continuar sem fotos →"}
                         </button>
                       : step === 7
                       ? <button className="btn btn-md btn-primary" style={{ width: "100%" }} disabled={matching} onClick={() => {
