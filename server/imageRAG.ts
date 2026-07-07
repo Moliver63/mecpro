@@ -388,8 +388,7 @@ export async function runImageRAG(
   });
 
   // Extract just the segment key from potentially long segment text
-  const segmentKey = (ctx.segment || "").split("
-")[0].slice(0, 50);
+  const segmentKey = (ctx.segment || "").split("\n")[0].slice(0, 50);
   log.info("image-rag", `RAG ${decision.status}`, {
     image_id, segment: segmentKey, format: ctx.format,
     overall: scores.overall_score, has_text: visionFallback.has_text,

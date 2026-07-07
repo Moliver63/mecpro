@@ -6907,6 +6907,48 @@ const integrationsRouter = router({
     }),
 
   // -- Upload de imagem → retorna image_hash real para uso em criativos ------
+  // ── Step 6 do Campaign Builder: upload de imagem do produto + análise ─────
+  // Sobe para o Cloudinary e analisa com Vision em uma chamada.
+  // Falha na análise NÃO falha o upload — retorna insight null e o fluxo segue.
+  uploadCampaignImage: protectedProcedure
+    .input(z.object({
+      projectId:  z.number(),
+      base64Data: z.string().min(100),        // data URI ou base64 puro
+      fileName:   z.string().default("campaign-image"),
+    }))
+    .mutation(async ({ input }) => {
+      const { uploadBase64ImageToCloudinary } = await import("../imageGeneration");
+      const url = await uploadBase64ImageToCloudinary(input.base64Data, `project-${input.projectId}-${input.fileName}`);
+      if (!url) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Falha no upload da imagem. Verifique a configuração do Cloudinary." });
+      }
+
+      // Análise em background dentro da mesma chamada (Vision é rápido, ~2s)
+      let summary: string | null = null;
+      let score: number | null = null;
+      try {
+        const { analyzeImageWithVision } = await import("../imageRAG");
+        const vision = await analyzeImageWithVision(url);
+        if (vision) {
+          score = vision.quality_score ?? null;
+          const parts: string[] = [];
+          if (vision.labels?.length)  parts.push(`mostra: ${vision.labels.slice(0, 5).join(", ")}`);
+          if (vision.objects?.length) parts.push(`objetos: ${vision.objects.slice(0, 4).join(", ")}`);
+          if (vision.dominant_colors?.length) parts.push(`cores: ${vision.dominant_colors.slice(0, 3).join(", ")}`);
+          if (vision.has_text && vision.text_found) parts.push(`texto na imagem: "${vision.text_found.slice(0, 60)}"`);
+          if (typeof vision.quality_score === "number") parts.push(`qualidade ${vision.quality_score}/100`);
+          summary = parts.join("; ").slice(0, 300);
+          log.info("campaign-images", "Imagem analisada", { url: url.slice(-40), score, summaryLen: summary.length });
+        }
+      } catch (e) {
+        log.warn("campaign-images", "Análise de imagem falhou — upload mantido", {
+          error: e instanceof Error ? e.message.slice(0, 100) : "unknown",
+        });
+      }
+
+      return { url, summary, score };
+    }),
+
   uploadImageToMeta: protectedProcedure
     .input(uploadImageToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {

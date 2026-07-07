@@ -98,6 +98,7 @@ export default function CampaignBuilder() {
   );
   // tRPC mutation — só chama a API, sem lógica de UI
   const generateMutation = trpc.campaigns.generate.useMutation();
+  const uploadImageMutation = trpc.uploadCampaignImage.useMutation();
 
   // useSafeMutation — controla loading, redirect e unmount de forma segura
   const { execute: executeGenerate, loading: generating } = useSafeMutation(
@@ -186,6 +187,9 @@ export default function CampaignBuilder() {
     geoRadius:    15,               // raio em km
     // Formulário de leads (Step 5)
     leadForm:     null as any,      // dados do formulário de leads
+    // Step 6 — Upload de imagens do produto (opcional, máx 8)
+    uploadedImages: [] as string[],           // URLs das imagens enviadas
+    imageInsights:  [] as Array<{ url: string; summary: string; score: number | null; status: "analyzing" | "done" | "error" }>,
   });
 
   // Nicho atual para recomendação de inteligência
@@ -193,7 +197,7 @@ export default function CampaignBuilder() {
     || SEGMENT_TO_NICHE[segment]
     || "geral";
 
-  const STEPS = ["Segmento", "Objetivo", "Plataforma", "Orçamento", "Detalhes", "Match IA", "Gerar"];
+  const STEPS = ["Segmento", "Objetivo", "Plataforma", "Orçamento", "Detalhes", "Imagens", "Match IA", "Gerar"];
 
   async function handleMatch() {
     setMatching(true);
@@ -210,9 +214,9 @@ export default function CampaignBuilder() {
           setForm(f => ({ ...f, platform: result.recommended.platform }));
         }
       }
-      setStep(7);
+      setStep(8);
     } catch {
-      setStep(7);
+      setStep(8);
     } finally {
       setMatching(false);
     }
@@ -254,6 +258,12 @@ export default function CampaignBuilder() {
       segment,
       extraContext: [
         form.extraContext,
+        // Contexto visual das imagens analisadas (Step 6) — resumos da Vision API
+        form.imageInsights.filter(i => i.status === "done" && i.summary).length > 0
+          ? `CONTEXTO VISUAL (${form.imageInsights.filter(i => i.status === "done").length} imagens do produto analisadas): ` +
+            form.imageInsights.filter(i => i.status === "done" && i.summary)
+              .map((i, n) => `Imagem ${n + 1}: ${i.summary}`).join(" | ")
+          : form.uploadedImages.length > 0 ? `${form.uploadedImages.length} imagem(ns) do produto enviadas pelo cliente` : "",
         form.regions.length > 0 ? `Região de atuação: ${form.regions.join(", ")}` : "",
         form.ageMin !== 18 || form.ageMax !== 65 ? `Faixa etária: ${form.ageMin}–${form.ageMax} anos` : "",
         form.mediaFormat !== "mixed" ? `Formato de mídia: ${form.mediaFormat}` : "",
@@ -1164,6 +1174,96 @@ export default function CampaignBuilder() {
               {/* Step 6: Match IA */}
               {step === 6 && (
                 <div>
+                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>📸 Imagens do produto (opcional)</h2>
+                  <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
+                    Envie até 8 fotos do imóvel ou produto. A IA analisa cada imagem e usa o contexto visual para gerar copies mais precisas. Você pode pular esta etapa.
+                  </p>
+
+                  <input
+                    id="campaign-image-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/heic"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files || []);
+                      e.target.value = ""; // permite re-selecionar o mesmo arquivo
+                      const remaining = 8 - form.uploadedImages.length;
+                      if (files.length > remaining) {
+                        toast.warning(`Limite de 8 imagens — apenas as primeiras ${remaining} serão enviadas.`);
+                      }
+                      for (const file of files.slice(0, remaining)) {
+                        if (file.size > 8 * 1024 * 1024) { toast.error(`${file.name}: máximo 8MB.`); continue; }
+                        const localUrl = URL.createObjectURL(file);
+                        // Placeholder otimista com status "analyzing"
+                        setForm(f => ({ ...f, imageInsights: [...f.imageInsights, { url: localUrl, summary: "", score: null, status: "analyzing" as const }] }));
+                        try {
+                          const base64 = await new Promise<string>((res, rej) => {
+                            const r = new FileReader();
+                            r.onload = () => res(String(r.result));
+                            r.onerror = rej;
+                            r.readAsDataURL(file);
+                          });
+                          const result = await uploadImageMutation.mutateAsync({
+                            projectId, base64Data: base64, fileName: file.name.replace(/\.[^.]+$/, "").slice(0, 40),
+                          });
+                          setForm(f => ({
+                            ...f,
+                            uploadedImages: [...f.uploadedImages, result.url],
+                            imageInsights: f.imageInsights.map(ins => ins.url === localUrl
+                              ? { url: result.url, summary: result.summary || "", score: result.score, status: "done" as const }
+                              : ins),
+                          }));
+                        } catch (err: any) {
+                          setForm(f => ({ ...f, imageInsights: f.imageInsights.filter(ins => ins.url !== localUrl) }));
+                          toast.error(err?.message || `Falha ao enviar ${file.name}`);
+                        }
+                      }
+                    }}
+                  />
+
+                  <button
+                    onClick={() => document.getElementById("campaign-image-input")?.click()}
+                    disabled={form.uploadedImages.length >= 8}
+                    style={{ width: "100%", padding: "28px 16px", borderRadius: 14, border: "2px dashed var(--border, #cbd5e1)",
+                      background: "var(--off, #f8fafc)", cursor: form.uploadedImages.length >= 8 ? "not-allowed" : "pointer",
+                      fontSize: 14, color: "var(--muted)", fontWeight: 600, marginBottom: 16 }}>
+                    {form.uploadedImages.length >= 8
+                      ? "Limite de 8 imagens atingido"
+                      : "📤 Toque para escolher fotos da galeria"}
+                    <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4 }}>JPG, PNG, WEBP ou HEIC · máx 8MB cada</div>
+                  </button>
+
+                  {form.imageInsights.length > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+                      {form.imageInsights.map((ins, idx) => (
+                        <div key={`${ins.url}-${idx}`} style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border, #e2e8f0)", background: "#fff" }}>
+                          <img src={ins.url} alt={`Imagem ${idx + 1}`} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block", opacity: ins.status === "analyzing" ? 0.6 : 1 }} />
+                          <button
+                            onClick={() => setForm(f => ({
+                              ...f,
+                              uploadedImages: f.uploadedImages.filter(u => u !== ins.url),
+                              imageInsights: f.imageInsights.filter(i2 => i2.url !== ins.url),
+                            }))}
+                            style={{ position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%", border: "none",
+                              background: "rgba(0,0,0,0.65)", color: "white", fontSize: 12, cursor: "pointer", lineHeight: 1 }}>✕</button>
+                          <div style={{ padding: "6px 8px", fontSize: 11 }}>
+                            {ins.status === "analyzing" && <span style={{ color: "var(--muted)" }}>⏳ Analisando...</span>}
+                            {ins.status === "done" && (
+                              <span style={{ color: ins.score !== null && ins.score >= 70 ? "#16a34a" : ins.score !== null && ins.score >= 40 ? "#d97706" : "var(--muted)", fontWeight: 700 }}>
+                                {ins.score !== null ? `✓ Qualidade ${ins.score}/100` : "✓ Enviada"}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === 7 && (
+                <div>
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>🧠 Intelligent Matching Engine</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>A IA analisa seu perfil, nicho e objetivo para recomendar a configuração com maior chance de sucesso.</p>
                   {!matchResult && (
@@ -1231,7 +1331,7 @@ export default function CampaignBuilder() {
               )}
 
               {/* Step 7: Confirmação */}
-              {step === 7 && (
+              {step === 8 && (
                 <div>
                   <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Pronto para gerar</h2>
                   <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>Confirme os parâmetros e a IA vai criar sua estratégia completa.</p>
@@ -1302,7 +1402,7 @@ export default function CampaignBuilder() {
               {/* Navegação — mobile-first: botões em coluna em telas pequenas */}
               <div style={{ marginTop: 28 }}>
                 {/* Botão de auditoria — só no step 7 */}
-                {step === 7 && (
+                {step === 8 && (
                   <button
                     onClick={() => setShowBuilderAudit(a => !a)}
                     style={{ width: "100%", marginBottom: 12, background: showBuilderAudit ? "#1e293b" : "var(--off)",
@@ -1331,11 +1431,16 @@ export default function CampaignBuilder() {
                       ? <button className="btn btn-md btn-primary" style={{ width: "100%" }} onClick={() => {
                           if (!form.name.trim()) { toast.error("Informe o nome da campanha antes de continuar."); return; }
                           setStep(6);
-                        }}>Calcular Match →</button>
+                        }}>Continuar →</button>
                       : step === 6
+                      ? <button className="btn btn-md btn-primary" style={{ width: "100%" }}
+                          onClick={() => setStep(7)}>
+                          {form.uploadedImages.length > 0 ? `Continuar com ${form.uploadedImages.length} imagem(ns) →` : "Pular esta etapa →"}
+                        </button>
+                      : step === 7
                       ? <button className="btn btn-md btn-primary" style={{ width: "100%" }} disabled={matching} onClick={() => {
                           refetchProfile();
-                          matchResult ? setStep(7) : handleMatch();
+                          matchResult ? setStep(8) : handleMatch();
                         }}>
                           {matching ? "⏳ Calculando..." : matchResult ? "Continuar →" : "Calcular Match →"}
                         </button>
