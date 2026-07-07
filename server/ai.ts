@@ -5697,8 +5697,13 @@ export async function generateCampaign(input: {
   ageMin?: number; ageMax?: number; regions?: string[]; countries?: string[];
   locationMode?: "brasil" | "paises" | "raio"; geoCity?: string; geoRadius?: number;
   mediaFormat?: string; audienceProfile?: string; leadForm?: any;
+  realImages?: string[];  // fotos reais do cliente (modo upload)
+  realImageInsights?: Array<{ url: string; summary: string; score: number | null; status: string }>;
 }) {
-  log.info("ai", "generateCampaign start", { projectId: input.projectId, objective: input.objective });
+  log.info("ai", "generateCampaign start", {
+    projectId: input.projectId, objective: input.objective,
+    realImages: input.realImages?.length || 0,
+  });
 
   const clientProfile = await db.getClientProfile(input.projectId);
   const competitors   = await db.getCompetitorsByProjectId(input.projectId);
@@ -6625,6 +6630,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
         productService: (clientProfile as any)?.productService || "",
         niche:          (clientProfile as any)?.niche          || "",
         city:           (clientProfile as any)?.city           || "",
+        realImages:     input.realImages,          // fotos reais do cliente (modo upload)
       });
       const creativesWithV2 = enrichedCreatives.map((rawCreative: any) => {
         let creative = rawCreative as CampaignCreative;
@@ -7625,6 +7631,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   productService?: string;
   niche?: string;
   city?: string;
+  realImages?: string[];  // fotos reais do cliente — quando presentes, substituem FLUX
 }) {
   // ── Validação de compliance e segmento nas copies geradas ──────────────────
   const segment = context?.segment || "";
@@ -7714,6 +7721,28 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       hasPlaceholder: audit.hasPlaceholder,
     };
   });
+
+  // ── MODO FOTOS REAIS: cliente forneceu imagens → usa como criativos, pula FLUX ──
+  // Veredito do Conselho: foto real vira o criativo publicado; regra "cards = min(fotos, criativos)",
+  // nunca mistura real com gerado no mesmo anúncio.
+  const realImages = Array.isArray(context.realImages) ? context.realImages.filter(Boolean) : [];
+  if (realImages.length > 0) {
+    log.info("ai", "Modo fotos reais ativo — usando imagens do cliente como criativos", {
+      fotos: realImages.length, criativos: scored.length,
+    });
+    for (let index = 0; index < scored.length; index++) {
+      // Cada criativo recebe uma foto real (ciclando se houver menos fotos que criativos)
+      const img = realImages[index % realImages.length];
+      scored[index].feedImageUrl   = img;
+      scored[index].storyImageUrl  = img;
+      scored[index].squareImageUrl = img;
+      scored[index].imageUpdatedAt = new Date().toISOString();
+      scored[index].imageProviderUsed = "client_upload";
+      scored[index].imageGenerationMode = "real_photo";
+      scored[index].usesRealPhoto = true;
+    }
+    return scored; // ← pula toda a geração FLUX
+  }
 
   const config = resolveImageProviderConfig();
   const diagnostics = getImageGenerationDiagnostics(config.provider);

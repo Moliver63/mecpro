@@ -2779,6 +2779,15 @@ const campaignsRouter = router({
       audienceProfile: z.string().optional(),
       leadForm:        z.any().optional(),
       segment:         z.string().optional(),
+      // Step 6 — Fotos reais do cliente (modo "upload")
+      creativeMode:    z.enum(["auto", "upload"]).optional(),
+      uploadedImages:  z.array(z.string()).optional(),
+      imageInsights:   z.array(z.object({
+        url:     z.string(),
+        summary: z.string(),
+        score:   z.number().nullable(),
+        status:  z.string(),
+      })).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const check = await db.checkPlanLimit(ctx.user.id, "campaigns", { projectId: input.projectId });
@@ -2826,6 +2835,13 @@ const campaignsRouter = router({
         geoRadius:    input.geoRadius,
         mediaFormat:  input.mediaFormat,
         leadForm:     input.leadForm,
+        // Fotos reais do cliente — só repassa quando modo "upload" com imagens válidas
+        realImages:   (input.creativeMode === "upload" && Array.isArray(input.uploadedImages) && input.uploadedImages.length > 0)
+                        ? input.uploadedImages
+                        : undefined,
+        realImageInsights: (input.creativeMode === "upload" && Array.isArray(input.imageInsights))
+                        ? input.imageInsights.filter((i: any) => i.status === "done")
+                        : undefined,
       } as any);
 
       // Timeout aumentado para 55s:

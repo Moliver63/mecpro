@@ -261,11 +261,11 @@ export default function CampaignBuilder() {
       extraContext: [
         form.extraContext,
         // Contexto visual das imagens analisadas (Step 6) — resumos da Vision API
-        form.imageInsights.filter(i => i.status === "done" && i.summary).length > 0
-          ? `CONTEXTO VISUAL (${form.imageInsights.filter(i => i.status === "done").length} imagens do produto analisadas): ` +
+        (form.creativeMode === "upload" && form.imageInsights.filter(i => i.status === "done" && i.summary).length > 0)
+          ? `CONTEXTO VISUAL (${form.imageInsights.filter(i => i.status === "done").length} fotos reais do cliente serão usadas como criativos): ` +
             form.imageInsights.filter(i => i.status === "done" && i.summary)
-              .map((i, n) => `Imagem ${n + 1}: ${i.summary}`).join(" | ")
-          : form.uploadedImages.length > 0 ? `${form.uploadedImages.length} imagem(ns) do produto enviadas pelo cliente` : "",
+              .map((i, n) => `Foto ${n + 1}: ${i.summary}`).join(" | ")
+          : "",
         form.regions.length > 0 ? `Região de atuação: ${form.regions.join(", ")}` : "",
         form.ageMin !== 18 || form.ageMax !== 65 ? `Faixa etária: ${form.ageMin}–${form.ageMax} anos` : "",
         form.mediaFormat !== "mixed" ? `Formato de mídia: ${form.mediaFormat}` : "",
