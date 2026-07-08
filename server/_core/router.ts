@@ -4126,9 +4126,32 @@ const campaignsRouter = router({
       const effectiveImageHashes = input.imageHashes?.length && input.imageHashes.length >= 2
         ? input.imageHashes
         : fallbackPublishMedia?.imageHashes ?? null;
-      const effectiveImageUrls = input.imageUrls?.length && input.imageUrls.length >= 2
-        ? input.imageUrls
+
+      // ── FOTOS REAIS DO CLIENTE → carrossel ───────────────────────────────
+      // Quando o usuário fez upload de fotos próprias (modo upload), os criativos
+      // têm feedImageUrl individual por criativo. Para o carrossel, precisamos
+      // coletar TODAS as URLs únicas dos criativos e usá-las como imageUrls[].
+      // Se input.imageUrls já veio preenchido (override manual), usa ele.
+      const realPhotoUrls: string[] = creativeList
+        .filter((cr: any) => cr.usesRealPhoto && (cr.feedImageUrl || cr.imageUrl))
+        .map((cr: any) => String(cr.feedImageUrl || cr.imageUrl))
+        .filter((url: string, idx: number, arr: string[]) => url && arr.indexOf(url) === idx) // dedup
+        .slice(0, 10); // Meta: máx 10 cards
+
+      const effectiveImageUrls: string[] | null =
+        // 1. Override explícito do frontend (máxima prioridade)
+        (input.imageUrls?.length && input.imageUrls.length >= 2) ? input.imageUrls
+        // 2. Fotos reais do cliente (modo upload) → carrossel
+        : realPhotoUrls.length >= 1 ? realPhotoUrls
+        // 3. Fallback do banco (fluxo automático normal)
         : fallbackPublishMedia?.imageUrls ?? null;
+
+      if (realPhotoUrls.length > 0) {
+        log.info("meta", "Carrossel com fotos reais do cliente", {
+          fotos: realPhotoUrls.length,
+          urls: realPhotoUrls.map((u: string) => u.slice(-30)),
+        });
+      }
       const hasExplicitUploadedMedia = !!input.videoId || !!input.imageHash || !!input.imageUrl || !!(input.imageHashes?.length) || !!(input.imageUrls?.length);
       const hasDedicatedStoryMedia = !!selectedCreative?.storyImageHash || !!selectedCreative?.storyImageUrl;
       const effectiveImageHash = input.imageHash ?? (!effectiveImageHashes && !effectiveVideoId
