@@ -52,6 +52,26 @@ export interface SegmentDetection {
   promptContext:   string;
 }
 
+/**
+ * Subsegmento — tipo de oferta dentro de um segmento.
+ * Escalável: para adicionar um novo tipo, basta acrescentar uma entrada.
+ * Os "signals" alimentam a inferência determinística de tipo de oferta.
+ */
+export interface Subsegment {
+  /** Chave única (ex: "locacao", "harmonizacao") */
+  key:            string;
+  /** Rótulo exibível (ex: "Locação", "Harmonização facial") */
+  label:          string;
+  /** Padrões regex de alto sinal que indicam este subsegmento */
+  signals:        string[];
+  /** true = sinal forte (sozinho já dá confiança alta) */
+  strong?:        boolean;
+  /** Override do hook para este subsegmento (opcional) */
+  hookOverride?:  string;
+  /** CTAs preferenciais para este subsegmento (opcional) */
+  ctaOverride?:   string[];
+}
+
 export interface SegmentDefinition {
   value:           string;
   label:           string;
@@ -60,6 +80,8 @@ export interface SegmentDefinition {
   copy:            SegmentCopy;
   ui:              SegmentUIConfig;
   detection:       SegmentDetection;
+  /** Subsegmentos (tipos de oferta) — opcional, dado escalável */
+  subsegments?:    Subsegment[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
