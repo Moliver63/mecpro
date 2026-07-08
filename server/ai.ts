@@ -2648,7 +2648,16 @@ function detectTone(headline: string, body: string): "urgent" | "emotional" | "r
 
 // ── Substitui placeholders do template com dados reais do cliente ────────────
 function fillTemplate(tpl: string, vars: Record<string, string>): string {
-  return tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] || "");
+  let out = tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] || "");
+  // Limpa resíduos de placeholders vazios: espaços duplos, preposições órfãs,
+  // pontuação solta — evita "Seu imóvel em  por " quando a var não existe.
+  out = out
+    .replace(/\s{2,}/g, " ")                                   // espaços duplos
+    .replace(/\s+(em|por|de|com|para|na|no)\s+([,.!?]|$)/gi, "$2") // preposição órfã antes de pontuação/fim
+    .replace(/\s+([,.!?])/g, "$1")                             // espaço antes de pontuação
+    .replace(/([,;])\s*([,;.])/g, "$2")                        // pontuação duplicada
+    .trim();
+  return out;
 }
 
 // ── Gera variações de tom sem LLM ────────────────────────────────────────────
@@ -2656,17 +2665,19 @@ function applyToneVariation(
   headline: string, body: string, cta: string,
   targetTone: "urgent" | "emotional" | "rational" | "premium"
 ): { headline: string; body: string; cta: string } {
+  // NOTA: prefixos NÃO fazem afirmações factuais (comprovado/garantido/dados reais)
+  // para evitar alucinação de claims — apenas ajustam o tom emocional.
   const prefixes: Record<string, string[]> = {
-    urgent:    ["⚡ Últimas vagas:", "🔥 Só hoje:", "⏰ Oferta limitada:"],
-    emotional: ["✨ Realize o sonho:", "💚 Para quem merece:", "🌟 Transforme sua vida:"],
-    rational:  ["📊 Resultado comprovado:", "✅ Dados reais:", "🎯 Eficiência garantida:"],
-    premium:   ["👑 Exclusivo:", "💎 Alto padrão:", "🏆 Para quem exige o melhor:"],
+    urgent:    ["Últimas unidades:", "Por tempo limitado:", "Não perca:"],
+    emotional: ["Realize seu sonho:", "Você merece:", "Um novo começo:"],
+    rational:  ["Vale a pena conferir:", "Pensado para você:", "A escolha certa:"],
+    premium:   ["Exclusivo:", "Alto padrão:", "Para quem exige mais:"],
   };
   const ctaSuffix: Record<string, string> = {
-    urgent:    " — Garanta agora",
-    emotional: " e realize seu sonho",
-    rational:  " e veja os resultados",
-    premium:   " — Acesso exclusivo",
+    urgent:    " — Fale agora",
+    emotional: " — Saiba como",
+    rational:  " — Conheça",
+    premium:   " — Consulte",
   };
   const prefix = prefixes[targetTone][Math.floor(Math.random() * prefixes[targetTone].length)];
   return {
@@ -7737,9 +7748,33 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         if (texts.includes(fw.toLowerCase())) forbiddenFound.push(fw);
       }
     }
-    // Placeholder check
-    const hasPlaceholder = /\[.*?\]|\{.*?\}|placeholder|EMPRESA_AQUI|PRODUTO_AQUI/i.test(texts);
+    // Placeholder check — detecta [cidade], {preço}, EMPRESA_AQUI, etc.
+    const placeholderRe = /\[[^\]]*?\]|\{[^}]*?\}|placeholder|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i;
+    const hasPlaceholder = placeholderRe.test(texts);
     return { complianceIssues, forbiddenFound, hasPlaceholder };
+  }
+
+  // Remove placeholders residuais de um texto (sanitização anti-alucinação).
+  // Um [cidade] ou {preço} não substituído JAMAIS pode ir para o Meta.
+  function stripPlaceholders(text: string): string {
+    if (!text) return text;
+    let out = String(text)
+      .replace(/\[[^\]]*?\]/g, "")                    // [qualquer coisa]
+      .replace(/\{[^}]*?\}/g, "")                       // {qualquer coisa}
+      .replace(/\b(EMPRESA_AQUI|PRODUTO_AQUI|XXX+)\b/gi, "");
+    // Limpa fragmentos gramaticais deixados pelo placeholder removido:
+    const prep = "em|por|de|do|da|com|para|na|no|a partir de|até|entre";
+    out = out
+      .replace(new RegExp(`\\s+(${prep})\\s+(?=[,.!?]|$)`, "gi"), "")   // prep. antes de pontuação/fim
+      .replace(new RegExp(`^(${prep})\\s+`, "gi"), "")                     // prep. no início
+      .replace(new RegExp(`\\s+(${prep})\\s+(?=(${prep})\\s)`, "gi"), " ") // prep. duplicada
+      .replace(/\s+(m²|m2|metros|x)\s+(de|por)\s+/gi, " ")             // "m² de" órfão
+      .replace(/\s{2,}/g, " ")
+      .replace(/\s+([,.!?;:])/g, "$1")
+      .replace(/([,;:])\s*([,.!?;:])/g, "$2")
+      .replace(/^[\s,;:.!?-]+|[\s,;:-]+$/g, "")        // pontuação solta nas pontas
+      .trim();
+    return out;
   }
 
   // ── Gate de qualidade: score < 75 → tenta melhorar via LLM (máx 2 tentativas) ──
@@ -7748,14 +7783,25 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   const SCORE_THRESHOLD = 75;
   const MAX_IMPROVE_ATTEMPTS = 2;
 
+  function hasResidualPlaceholder(cr: any): boolean {
+    const t = [cr.headline, cr.copy, cr.hook, cr.description, cr.cta].filter(Boolean).join(" ");
+    return /\[[^\]]*?\]|\{[^}]*?\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i.test(t);
+  }
+
   async function improveCreativeIfWeak(creative: any, index: number): Promise<any> {
     let current = creative;
     for (let attempt = 1; attempt <= MAX_IMPROVE_ATTEMPTS; attempt++) {
       const score = scoreCreative(current);
-      if (score.finalScore >= SCORE_THRESHOLD) {
+      const placeholder = hasResidualPlaceholder(current);
+      // Placeholder é bloqueante: mesmo com score alto, precisa regenerar
+      // (um [cidade] não substituído é alucinação que não pode publicar)
+      if (score.finalScore >= SCORE_THRESHOLD && !placeholder) {
         return { ...current, ...score, needsReview: false };
       }
-      const recs = (score.recommendations || []).join("; ") || "aumente especificidade, urgência e clareza";
+      const recs = [
+        placeholder ? "REMOVA todos os placeholders como [cidade], {preço}, EMPRESA_AQUI — use texto real ou omita o trecho" : "",
+        (score.recommendations || []).join("; "),
+      ].filter(Boolean).join("; ") || "aumente especificidade, urgência e clareza";
       log.info("ai", `Score ${score.finalScore} < ${SCORE_THRESHOLD} — melhorando criativo (tentativa ${attempt}/${MAX_IMPROVE_ATTEMPTS})`, {
         index, headline: String(current.headline || "").slice(0, 40),
       });
@@ -7781,21 +7827,37 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         break;
       }
     }
+    // Último recurso: se AINDA há placeholder após os retries, remove por sanitização
+    // (regenerar falhou — melhor uma frase enxuta que um [cidade] visível no anúncio)
+    if (hasResidualPlaceholder(current)) {
+      log.warn("ai", "Placeholder persistiu após retries — sanitizando como último recurso", { index });
+      current = {
+        ...current,
+        headline:    stripPlaceholders(current.headline),
+        copy:        stripPlaceholders(current.copy),
+        hook:        stripPlaceholders(current.hook),
+        description: stripPlaceholders(current.description),
+        cta:         stripPlaceholders(current.cta),
+      };
+    }
     const finalScoreResult = scoreCreative(current);
+    const finalPlaceholder = hasResidualPlaceholder(current);
     const stillWeak = finalScoreResult.finalScore < SCORE_THRESHOLD;
     if (stillWeak) {
       log.warn("ai", `Criativo permanece com score ${finalScoreResult.finalScore} após ${MAX_IMPROVE_ATTEMPTS} tentativas — marcado para revisão`, { index });
     }
-    return { ...current, ...finalScoreResult, needsReview: stillWeak };
+    return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder };
   }
 
   const rawList = Array.isArray(creatives) ? creatives : [];
   const improvedList = await Promise.all(rawList.map((cr, i) => improveCreativeIfWeak(cr, i)));
 
   const scored = improvedList.map((creative, index) => {
+    // Placeholders já foram tratados no gate (regeneração + strip como último recurso).
+    // Aqui apenas auditamos compliance/forbidden e reportamos o estado final.
     const audit = auditCopy(creative);
     if (audit.hasPlaceholder) {
-      log.warn("ai", "Copy com placeholder", { index, headline: String(creative.headline || "").slice(0,50) });
+      log.warn("ai", "Placeholder ainda presente após gate — marcado para revisão", { index, headline: String(creative.headline || "").slice(0,50) });
     }
     if (audit.forbiddenFound.length) {
       log.warn("ai", "Copy com palavra proibida do segmento", { segment, forbidden: audit.forbiddenFound });
@@ -7806,6 +7868,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       complianceIssues: audit.complianceIssues,
       forbiddenWordsFound: audit.forbiddenFound,
       hasPlaceholder: audit.hasPlaceholder,
+      needsReview: creative.needsReview || audit.hasPlaceholder,
     };
   });
 
