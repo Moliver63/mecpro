@@ -3457,11 +3457,18 @@ const campaignsRouter = router({
       // Valida apenas o adSet atual sendo publicado (não todos os adSets da campanha)
       // O frontend faz chamadas individuais por adSet — cada uma deve ter budget >= R$5,11
       const currentAdSet = allAdSets[input.adSetIndex ?? 0];
-      const currentAdSetBudgetRaw: string = currentAdSet?.budget || currentAdSet?.rawBudget || "";
-      const currentBudgetMatch = currentAdSetBudgetRaw.match(/R\$?\s*([\d,\.]+)/);
-      const currentAdSetBudget = currentBudgetMatch
-        ? parseFloat(currentBudgetMatch[1].replace(",", "."))
-        : (totalDailyForValidation / Math.max(allAdSets.length, 1));
+      // budget pode vir como número (ex: 25) OU string (ex: "R$ 25/dia") — normaliza ambos
+      const rawBudgetValue = currentAdSet?.budget ?? currentAdSet?.rawBudget ?? "";
+      let currentAdSetBudget: number;
+      if (typeof rawBudgetValue === "number" && Number.isFinite(rawBudgetValue)) {
+        currentAdSetBudget = rawBudgetValue;
+      } else {
+        const budgetStr = String(rawBudgetValue);
+        const currentBudgetMatch = budgetStr.match(/R\$?\s*([\d.,]+)/);
+        currentAdSetBudget = currentBudgetMatch
+          ? parseFloat(currentBudgetMatch[1].replace(/\./g, "").replace(",", "."))
+          : (totalDailyForValidation / Math.max(allAdSets.length, 1));
+      }
 
       const META_MIN_DAILY_PER_ADSET = 5.11;
       // Calcula orçamento mensal mínimo necessário para TODOS os adSets respeitarem o mínimo
