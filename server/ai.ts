@@ -979,6 +979,93 @@ export function detectSegmentFromNiche(niche: string): string {
   return "outro";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// INFERÊNCIA DE TIPO DE OFERTA — determinística (regex de alto sinal)
+// A variável de maior impacto na segmentação: dela decorrem CTA, vocabulário
+// proibido e hook. Resolve a mistura mais cara (venda↔aluguel) vista em produção.
+// NÃO plugado no fluxo ainda — função isolada, validada por casos-teste abaixo.
+// ─────────────────────────────────────────────────────────────────────────────
+export type OfferType =
+  | "locacao" | "venda" | "lancamento" | "temporada" | "leilao"
+  | "servico" | "produto" | "consulta" | "delivery" | "curso"
+  | "desconhecido";
+
+export interface OfferInference {
+  offerType:  OfferType;
+  confidence: "alta" | "media" | "baixa";
+  matched:    string[];   // sinais que dispararam (rastreabilidade)
+}
+
+// Regras por prioridade — a primeira com sinal forte vence.
+// Cada regra: [tipo, regex, peso]. Peso "alto" → confiança alta se sozinho.
+const OFFER_SIGNALS: Array<{ type: OfferType; re: RegExp; strong: boolean; label: string }> = [
+  // ── Imobiliário ──
+  { type: "locacao",    re: /\bR\$\s?[\d.,]+\s?\/\s?m[êe]s\b/i,           strong: true,  label: "preço/mês" },
+  { type: "locacao",    re: /\b(aluguel|aluga(r|-se)?|loca[çc][ãa]o|locar)\b/i, strong: true,  label: "aluguel/locação" },
+  { type: "temporada",  re: /\b(temporada|di[áa]ria|airbnb|por noite|fim de semana)\b/i, strong: true, label: "temporada" },
+  { type: "lancamento", re: /\b(lan[çc]amento|na planta|pr[ée]-lan[çc]amento|breve lan[çc]amento|stand de vendas)\b/i, strong: true, label: "lançamento" },
+  { type: "leilao",     re: /\b(leil[ãa]o|arremat|hasta p[úu]blica)\b/i,       strong: true,  label: "leilão" },
+  { type: "venda",      re: /\b(entrada facilitada|financiamento|financi(ar|ado)|à vista|parcelamento|minha casa minha vida|mcmv|escritura|à venda|vende-se|comprar? (seu|sua|o|a) (im[óo]vel|casa|apartamento))\b/i, strong: true, label: "venda/financiamento" },
+  // ── Serviços / saúde ──
+  { type: "consulta",   re: /\b(agende sua (consulta|avalia[çc][ãa]o)|marcar consulta|primeira consulta|avalia[çc][ãa]o gratuita)\b/i, strong: true, label: "consulta/avaliação" },
+  { type: "servico",    re: /\b(agende|agendar|or[çc]amento|marcar hor[áa]rio|atendimento|contrat(e|ar) (o|nosso)? servi[çc]o)\b/i, strong: false, label: "agendamento/serviço" },
+  // ── Alimentação ──
+  { type: "delivery",   re: /\b(delivery|pe[çc]a (agora|j[áa]|no whats)|entrega r[áa]pida|card[áa]pio|ifood)\b/i, strong: true, label: "delivery" },
+  // ── Educação ──
+  { type: "curso",      re: /\b(curso|matr[íi]cul|inscri[çc][ãa]o|aula gratuita|mentoria|workshop|p[óo]s-gradua[çc][ãa]o|ead|turma)\b/i, strong: true, label: "curso/educação" },
+  // ── E-commerce / produto ──
+  { type: "produto",    re: /\b(comprar? agora|frete gr[áa]tis|adicione ao carrinho|em at[ée] \d+x|cupom|promo[çc][ãa]o|liquida[çc][ãa]o|estoque limitado)\b/i, strong: false, label: "produto/e-commerce" },
+];
+
+export function inferOfferType(text: string, segment?: string): OfferInference {
+  const t = (text || "").toLowerCase();
+  if (!t.trim()) return { offerType: "desconhecido", confidence: "baixa", matched: [] };
+
+  const hits: Array<{ type: OfferType; strong: boolean; label: string }> = [];
+  for (const sig of OFFER_SIGNALS) {
+    if (sig.re.test(t)) hits.push({ type: sig.type, strong: sig.strong, label: sig.label });
+  }
+
+  if (hits.length === 0) {
+    return { offerType: "desconhecido", confidence: "baixa", matched: [] };
+  }
+
+  // Conta por tipo, priorizando sinais fortes
+  const byType = new Map<OfferType, { score: number; labels: string[] }>();
+  for (const h of hits) {
+    const entry = byType.get(h.type) || { score: 0, labels: [] };
+    entry.score += h.strong ? 2 : 1;
+    entry.labels.push(h.label);
+    byType.set(h.type, entry);
+  }
+
+  // Escolhe o tipo de maior score
+  let best: OfferType = "desconhecido";
+  let bestScore = 0;
+  let bestLabels: string[] = [];
+  for (const [type, { score, labels }] of byType.entries()) {
+    if (score > bestScore) { best = type; bestScore = score; bestLabels = labels; }
+  }
+
+  // Confiança: alta se sinal forte único ou score dominante; média se há competição
+  const distinctTypes = byType.size;
+  const hasStrong = hits.some(h => h.type === best && h.strong);
+  let confidence: OfferInference["confidence"];
+  if (hasStrong && distinctTypes === 1) confidence = "alta";
+  else if (hasStrong && bestScore >= 4) confidence = "alta";
+  else if (hasStrong || bestScore >= 2) confidence = "media";
+  else confidence = "baixa";
+
+  // Conflito venda↔locação no mesmo texto → rebaixa confiança (ambíguo)
+  const mentionsBuy = /\b(compra|comprar|adquirir)\b/i.test(t);
+  const mentionsRent = byType.has("locacao") || byType.has("temporada");
+  if ((byType.has("venda") || mentionsBuy) && mentionsRent) {
+    confidence = "baixa";
+  }
+
+  return { offerType: best, confidence, matched: [...new Set(bestLabels)] };
+}
+
 // Gera instrução de CTA para o Groq/motor híbrido
 export function getSegmentInstruction(segment: string, niche: string, objective: string): string {
   const seg = segment && SEGMENT_COPY_RULES[segment]
