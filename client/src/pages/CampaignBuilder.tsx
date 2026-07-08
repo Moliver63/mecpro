@@ -167,6 +167,21 @@ export default function CampaignBuilder() {
   const [matchResult, setMatchResult] = useState<any>(null);
   const [matching, setMatching] = useState(false);
   const [segment, setSegment]   = useState<string>("");
+  const [dragIndex, setDragIndex] = useState<number | null>(null);   // reordenação por arrastar (Step 6)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  // Reordena as imagens (drag-to-reorder) — mantém insights e URLs sincronizados
+  function reorderImages(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return;
+    setForm(f => {
+      const insights = [...f.imageInsights];
+      const [moved] = insights.splice(from, 1);
+      insights.splice(to, 0, moved);
+      // uploadedImages precisa refletir a mesma ordem — reconstrói a partir dos insights "done"
+      const urlOrder = insights.filter(i => i.status === "done").map(i => i.url);
+      return { ...f, imageInsights: insights, uploadedImages: urlOrder };
+    });
+  }
+
   const [form, setForm] = useState({
     name: "",
     objective: "leads",
@@ -1213,9 +1228,9 @@ export default function CampaignBuilder() {
                     onChange={async (e) => {
                       const files = Array.from(e.target.files || []);
                       e.target.value = ""; // permite re-selecionar o mesmo arquivo
-                      const remaining = 8 - form.uploadedImages.length;
+                      const remaining = 10 - form.uploadedImages.length;
                       if (files.length > remaining) {
-                        toast.warning(`Limite de 8 imagens — apenas as primeiras ${remaining} serão enviadas.`);
+                        toast.warning(`Limite de 10 imagens — apenas as primeiras ${remaining} serão enviadas.`);
                       }
                       for (const file of files.slice(0, remaining)) {
                         if (file.size > 8 * 1024 * 1024) { toast.error(`${file.name}: máximo 8MB.`); continue; }
@@ -1249,21 +1264,46 @@ export default function CampaignBuilder() {
 
                   <button
                     onClick={() => document.getElementById("campaign-image-input")?.click()}
-                    disabled={form.uploadedImages.length >= 8}
+                    disabled={form.uploadedImages.length >= 10}
                     style={{ width: "100%", padding: "28px 16px", borderRadius: 14, border: "2px dashed var(--border, #cbd5e1)",
-                      background: "var(--off, #f8fafc)", cursor: form.uploadedImages.length >= 8 ? "not-allowed" : "pointer",
+                      background: "var(--off, #f8fafc)", cursor: form.uploadedImages.length >= 10 ? "not-allowed" : "pointer",
                       fontSize: 14, color: "var(--muted)", fontWeight: 600, marginBottom: 16 }}>
-                    {form.uploadedImages.length >= 8
-                      ? "Limite de 8 imagens atingido"
+                    {form.uploadedImages.length >= 10
+                      ? "Limite de 10 imagens atingido"
                       : "📤 Toque para escolher fotos da galeria"}
                     <div style={{ fontSize: 11, fontWeight: 400, marginTop: 4 }}>JPG, PNG, WEBP ou HEIC · máx 8MB cada</div>
                   </button>
 
-                  {form.imageInsights.length > 0 && (
+                  {form.imageInsights.length > 0 && (<>
+                    <p style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>
+                      💡 Arraste para reordenar. A <b>1ª imagem</b> é o card principal do anúncio.
+                    </p>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
                       {form.imageInsights.map((ins, idx) => (
-                        <div key={`${ins.url}-${idx}`} style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border, #e2e8f0)", background: "#fff" }}>
-                          <img src={ins.url} alt={`Imagem ${idx + 1}`} style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block", opacity: ins.status === "analyzing" ? 0.6 : 1 }} />
+                        <div key={`${ins.url}-${idx}`}
+                          draggable={ins.status === "done"}
+                          onDragStart={() => setDragIndex(idx)}
+                          onDragOver={(e) => { e.preventDefault(); setDragOverIndex(idx); }}
+                          onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            if (dragIndex !== null) reorderImages(dragIndex, idx);
+                            setDragIndex(null); setDragOverIndex(null);
+                          }}
+                          style={{ position: "relative", borderRadius: 12, overflow: "hidden",
+                            border: dragOverIndex === idx && dragIndex !== idx ? "2px solid var(--green, #16a34a)" : "1px solid var(--border, #e2e8f0)",
+                            background: "#fff", cursor: ins.status === "done" ? "grab" : "default",
+                            opacity: dragIndex === idx ? 0.4 : 1, transition: "opacity .15s, border .15s" }}>
+                          <img src={ins.url} alt={`Imagem ${idx + 1}`} draggable={false}
+                            style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block", opacity: ins.status === "analyzing" ? 0.6 : 1 }} />
+
+                          {/* Badge de posição — destaca o card principal */}
+                          <div style={{ position: "absolute", top: 6, left: 6, minWidth: 20, height: 20, padding: "0 6px",
+                            borderRadius: 10, background: idx === 0 ? "var(--green, #16a34a)" : "rgba(0,0,0,0.6)",
+                            color: "white", fontSize: 10, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            {idx === 0 ? "★ 1º" : idx + 1}
+                          </div>
+
                           <button
                             onClick={() => setForm(f => ({
                               ...f,
@@ -1272,18 +1312,30 @@ export default function CampaignBuilder() {
                             }))}
                             style={{ position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: "50%", border: "none",
                               background: "rgba(0,0,0,0.65)", color: "white", fontSize: 12, cursor: "pointer", lineHeight: 1 }}>✕</button>
-                          <div style={{ padding: "6px 8px", fontSize: 11 }}>
+
+                          <div style={{ padding: "6px 8px", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                             {ins.status === "analyzing" && <span style={{ color: "var(--muted)" }}>⏳ Analisando...</span>}
-                            {ins.status === "done" && (
+                            {ins.status === "done" && (<>
                               <span style={{ color: ins.score !== null && ins.score >= 70 ? "#16a34a" : ins.score !== null && ins.score >= 40 ? "#d97706" : "var(--muted)", fontWeight: 700 }}>
-                                {ins.score !== null ? `✓ Qualidade ${ins.score}/100` : "✓ Enviada"}
+                                {ins.score !== null ? `✓ ${ins.score}/100` : "✓ Enviada"}
                               </span>
-                            )}
+                              {/* Fallback mobile: setas para reordenar (touch não suporta drag HTML5) */}
+                              <span style={{ display: "flex", gap: 2 }}>
+                                <button disabled={idx === 0}
+                                  onClick={() => reorderImages(idx, idx - 1)}
+                                  style={{ border: "none", background: "transparent", cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.25 : 1, fontSize: 13, padding: 0, lineHeight: 1 }}
+                                  title="Mover para trás">◀</button>
+                                <button disabled={idx === form.imageInsights.length - 1}
+                                  onClick={() => reorderImages(idx, idx + 1)}
+                                  style={{ border: "none", background: "transparent", cursor: idx === form.imageInsights.length - 1 ? "default" : "pointer", opacity: idx === form.imageInsights.length - 1 ? 0.25 : 1, fontSize: 13, padding: 0, lineHeight: 1 }}
+                                  title="Mover para frente">▶</button>
+                              </span>
+                            </>)}
                           </div>
                         </div>
                       ))}
                     </div>
-                  )}
+                  </>)}
 
                   {/* Direitos de uso — obrigatório para publicar com fotos próprias */}
                   {form.uploadedImages.length > 0 && (
