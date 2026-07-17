@@ -3440,6 +3440,29 @@ const campaignsRouter = router({
           const errorCode = data?.error?.code;
           let friendlyMsg = msg;
 
+          // ── Erros prioritários com mensagem acionável ──────────────────────
+          if (errorCode === 190 || (errorCode === 102 && msg.includes("Session has expired"))) {
+            // Token expirado (code 190 = OAuthException, subcode 463/467 = session expired)
+            throw new TRPCError({
+              code: "UNAUTHORIZED",
+              message:
+                "🔑 Token Meta expirado. Para reconectar: acesse Configurações → Meta Ads → " +
+                "clique em 'Reconectar com Facebook' para gerar um novo token (valido por 60 dias). " +
+                "Após reconectar, publique novamente.",
+            });
+          }
+          if (errorCode === 200 && (msg.includes("ads_management") || msg.includes("ads_read"))) {
+            // Conta de anúncios sem grant de permissão ao App
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message:
+                "⚠️ Permissão negada nesta conta de anúncios. O dono da conta precisa conceder " +
+                "acesso ao app MecProAI em: Meta Business Manager → Configurações → Apps → " +
+                "selecionar MecProAI → conceder acesso à conta de anúncios. " +
+                "Se for conta de cliente, peça ao dono para adicioná-lo como parceiro.",
+            });
+          }
+
           if (subcode === 1487246) {
             friendlyMsg = "O número de WhatsApp informado não está vinculado à sua conta Meta Business. Acesse business.facebook.com → Configurações → Contas do WhatsApp e vincule o número antes de publicar.";
           } else if (subcode === 1443050 || msg.includes("video_id") || msg.includes("link_data")) {
@@ -8032,10 +8055,44 @@ const metaCampaignsRouter = router({
       if (!rawAccountId) throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios não configurado." });
       const act = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
 
+      // ── Alerta antecipado de expiração (7 dias antes) ────────────────────
+      const expiresAt = (integration as any).tokenExpiresAt;
+      let tokenWarning: string | null = null;
+      if (expiresAt) {
+        const msLeft = new Date(expiresAt).getTime() - Date.now();
+        const daysLeft = Math.floor(msLeft / 86400000);
+        if (daysLeft <= 0) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message:
+              "🔑 Token Meta expirado. Para reconectar: Configurações → Meta Ads → " +
+              "'Reconectar com Facebook'. Após reconectar, tente novamente.",
+          });
+        }
+        if (daysLeft <= 7) {
+          tokenWarning = `⚠️ Seu token Meta expira em ${daysLeft} dia(s). Acesse Configurações → Meta Ads → "Reconectar com Facebook" para renovar antes de perder acesso.`;
+        }
+      }
+
       const fields = "id,name,objective,status,created_time,updated_time,daily_budget,lifetime_budget,insights{impressions,clicks,spend,cpc,cpm,ctr}";
       const res = await fetch(`https://graph.facebook.com/v19.0/${act}/campaigns?fields=${fields}&limit=100&access_token=${token}`);
       const data = await res.json() as any;
-      if (data.error) throw new TRPCError({ code: "BAD_REQUEST", message: `Meta: ${data.error.message}` });
+      if (data.error) {
+        const ec = data.error.code;
+        if (ec === 190 || (ec === 102 && data.error.message?.includes("expired"))) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "🔑 Token Meta expirado. Acesse Configurações → Meta Ads → 'Reconectar com Facebook'.",
+          });
+        }
+        if (ec === 200) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "⚠️ Permissão negada. O dono da conta de anúncios precisa conceder acesso ao app MecProAI em Meta Business Manager.",
+          });
+        }
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Meta: ${data.error.message}` });
+      }
 
       const mecproIds = new Set<string>();
       try {
@@ -8064,6 +8121,7 @@ const metaCampaignsRouter = router({
         total: campaigns.length,
         mecproCount: campaigns.filter((c: any) => c.source === "mecpro").length,
         facebookCount: campaigns.filter((c: any) => c.source === "facebook").length,
+        tokenWarning,   // null | string — frontend deve exibir como banner amarelo
       };
     }),
   // -- Deletar campanha na Meta --
