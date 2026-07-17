@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-06-22 (sessão 20)
+> **Última atualização:** 2026-07-08 (sessão 21)
 
 ---
 
@@ -17,21 +17,21 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `5b13463` | budget mínimo viável na geração |
+| Último commit | `36a898d` | fotos reais do cliente viram carrossel no Meta |
 
 ---
 
-## 📊 Score de Prontidão (sessão 19)
+## 📊 Score de Prontidão (sessão 19 — NÃO reavaliado na sessão 21)
 
-**Score geral: ~96%** ← subiu de 95%
+**Score geral: ~96%** (última medição — sessão 21 não rodou o Conselho de reavaliação de score; recomenda-se reavaliar Imagens e Copies dado o volume de mudanças abaixo)
 
 | Módulo | Score | Delta |
 |---|---|---|
 | Infraestrutura | 98% | — |
-| Meta Ads | **98%** | ⬆️ description, budget/adSet, WA fixes |
+| Meta Ads | 98% | — |
 | Geração de Campanhas IA | 96% | — |
-| Imagens | 94% | — |
-| Copies | **97%** | ⬆️ description campo correto |
+| Imagens | 94% | ⚠️ pendente reavaliação (fotos reais + drag-reorder) |
+| Copies | 97% | ⚠️ pendente reavaliação (anti-alucinação + quality-gate) |
 | Financeiro | 87% | — |
 | ML / Inteligência | 92% | — |
 | Google Ads | 78% | — |
@@ -41,198 +41,100 @@
 
 ## ⚡ Estado das Integrações
 
-| Serviço | Status | Detalhe |
-|---|---|---|
-| Cloudflare Workers AI | ✅ ATIVO + RAG | FLUX.1-schnell; 10k neurons/dia; reset 00:00 UTC |
-| Pixabay | ✅ ATIVO | CC0; re-hospeda Cloudinary antes Meta |
-| Google Images | ✅ ATIVO | CC0 |
-| Meta Token | ✅ Ativo | Válido até 06/07/2026 |
-| Google Ads | ✅ Search+Display+Video+PMax | |
-| TikTok | ⚠️ Parcial | Token não configurado no Render |
-| Asaas | ✅ Pix+Cartão | |
-| Gemini | ✅ 5 chaves | fallback: Groq |
-| Groq/Llama 3.3 70B | ✅ Fallback | |
+*(sem mudanças na sessão 21 — ver sessão 20 para última tabela completa)*
 
 ---
 
-## 🎯 Meta Ads — Estado Atual (sessão 19)
+## 🖼️ Fotos Reais do Cliente (upload mode) — NOVO sessão 21
 
-### Fluxo WhatsApp
-
-```
-WA vinculado no Meta Business (_connectedPhone preenchido):
-  → OUTCOME_LEADS + CONVERSATIONS
-  → whatsapp_phone_number + destination_type: WHATSAPP
-
-WA NÃO vinculado (mais comum):
-  → OUTCOME_LEADS + LINK_CLICKS
-  → link_data.link = wa.me diretamente
-  → SEM whatsapp_phone_number (erro 1487246)
-  → SEM destination_type: WHATSAPP (erro 2490408)
-
-DETECÇÃO: _connectedPhone via Graph API whatsapp_connected_id
-```
-
-### Erros Meta resolvidos (sessões 18+19)
-
-| Erro | Causa | Fix |
-|---|---|---|
-| 2061015 | wa.me em link_data.link | safeLink() usa website/FB |
-| 2061015 | linkUrl=null | fallback obrigatório |
-| 2061015 | OUTCOME_LEADS + FB page link | mensagem clara: use formulário/WA/site |
-| 1487246 | whatsapp_phone_number sem vínculo | só envia quando _connectedPhone |
-| 2490408 | CONVERSATIONS sem WA vinculado | LINK_CLICKS quando hasLinkedWA=false |
-| 1885272 | budget < R$5.10 | mínimo R$6 quando elevado automaticamente |
-| Graph 400 | phone_number campo inválido | removido frontend+backend |
-
-### Campo description (IMPLEMENTADO)
+Cadeia completa implementada: upload → análise Vision → geração → publicação Meta.
 
 ```
-link_data.description = shortDescription (max 30 chars)
-video_data.link_description = shortDescVideo (max 30 chars)
+Step 6 "Fotos" no Campaign Builder (STEPS: Segmento, Objetivo, Plataforma,
+Orçamento, Detalhes, Fotos, Match IA, Gerar — fluxo 1→8):
 
-buildShortDesc() — prioridade:
-  1. adCopy.feed.description (campo IA dedicado)
-  2. selectedDescription
-  3. auditedHeadline.slice(0, 30) ← fallback seguro (nunca texto longo)
+1. Modo explícito (form.creativeMode: 'auto' | 'upload', default 'auto')
+   - "📸 Usar minhas fotos" → uploader aparece
+   - "✨ Deixar a IA criar" → comportamento padrão (FLUX), uploader oculto
 
-NUNCA usa: copy completa, hook, ou primaryText como descrição
-```
+2. Upload: input file nativo, JPG/PNG/WEBP/HEIC, máx 8MB/arquivo, limite 10
+   fotos (alinhado ao máximo real do carrossel Meta)
+   - Drag-to-reorder (HTML5 nativo) + fallback de setas ◀▶ no mobile
+   - 1ª imagem = card principal / capa do carrossel (badge ★ 1º)
+   - imageRightsConfirmed: checkbox obrigatório de direito de uso (risco jurídico)
 
-### Objetivo da campanha
+3. Análise em background: endpoint tRPC integrations.uploadCampaignImage
+   (Cloudinary + analyzeImageWithVision na mesma chamada; falha na análise
+   NÃO falha o upload) — badge ✓ Qualidade N/100 + adequação por canal
+   (Meta: alerta texto >40 chars; Google: alerta quality_score<40; TikTok:
+   recomenda foto limpa)
 
-```
-correctedObjective — independe de WhatsApp vinculado:
-  imoveis/saude/servicos/academia → "leads"
-  ecommerce/moda/alimentacao → "sales"
-  b2b/infoprodutos → "leads"
-  sem segmento → "leads" (padrão global)
+4. Geração (server/ai.ts): quando modo=upload com imagens válidas,
+   enrichCreativesWithScoresAndImages atribui cada foto real a
+   feedImageUrl/storyImageUrl/squareImageUrl (ciclando se menos fotos que
+   criativos) e RETORNA ANTES do bloco FLUX — pula 100% da geração sintética
 
-resolveObjectiveAndGoal:
-  leads + WA vinculado   → OUTCOME_LEADS + CONVERSATIONS
-  leads + WA não vinc.   → OUTCOME_LEADS + LINK_CLICKS
-  leads + site + pixel   → OUTCOME_LEADS + OFFSITE_CONVERSIONS
-  leads + site sem pixel → OUTCOME_LEADS + LINK_CLICKS
-  sales + pixel          → OUTCOME_SALES + OFFSITE_CONVERSIONS
-  sales sem pixel        → OUTCOME_TRAFFIC + LANDING_PAGE_VIEWS
-```
+5. Publicação (server/_core/router.ts): effectiveImageUrls agora coleta
+   TODAS as feedImageUrl únicas dos criativos com usesRealPhoto=true
+   (dedup, limite 10). Prioridade: input.imageUrls explícito → realPhotoUrls
+   do modo upload → fallbackPublishMedia.imageUrls (fluxo automático)
+   - ≥2 fotos → carrossel (child_attachments, copy por card)
+   - 1 foto → anúncio de imagem simples
 
-### Budget validation (CORRIGIDO sessão 19)
-
-```
-BACKEND: valida budget do adSet ATUAL (input.adSetIndex), não todos
-  currentAdSet = allAdSets[input.adSetIndex]
-  currentBudget extraído do rawBudget: "R$ 13/dia (100%)" → 13
-  se currentBudget < R$5,11 → erro específico do conjunto
-
-FRONTEND pre-flight (antes do upload):
-  soma rawBudget dos adSets selecionados
-  se total < 5.11 × count → toast + return (sem upload)
-
-ERRO ANTERIOR: contava c.adSets.length (todos da campanha = 4)
-  mesmo ao publicar 1 adSet bloqueava "Com 4 conjunto(s)"
-```
-
-### Placements
-
-```
-facebook_positions: [feed, story, marketplace, search]
-instagram_positions: [stream, story, explore, reels]
-Excluídos: audience_network, threads, whatsapp_status, messenger_stories
-```
-
-### Botão Site/landing page
-
-```
-userChoseDestinationRef = true no onClick
-useEffect só aplica padrão quando ref=false (primeira abertura do modal)
-Ref reseta quando modal fecha
+BUG RAIZ CORRIGIDO (commit 36a898d): cada criativo tinha sua feedImageUrl
+individual, mas o carrossel exige um array imageUrls[] com TODAS as fotos
+no mesmo ad — effectiveImageUrls vinha vazio no modo upload e publicava
+sem criativo visual. Log de confirmação: "Carrossel com fotos reais do
+cliente: N fotos" (antes aparecia "Cloudflare FLUX OK" mesmo com upload).
 ```
 
 ---
 
-## 🖼️ Imagens — Estado Atual
+## 🐛 Bugs Resolvidos / Features (sessão 21 — 06 a 08/07)
 
-```
-1. Cloudflare FLUX → RAG → aprovado → Cloudinary
-   (quota: 10k neurons/dia; reset 00:00 UTC = 21h BRT)
-2. Pixabay CC0 → Cloudinary rehost → RAG
-3. Google Images CC0
-4. Pollinations / Mock
-
-RAG thresholds: confidence=0.50, product_match=0.40
-Pool: lazy init getImageDbPool()/getRagPool()
-```
-
----
-
-## 🐛 Bugs Resolvidos (sessão 19)
-
-| Bug | Fix | Commit |
-|---|---|---|
-| Budget "Com 4 conjunto(s)" ao publicar 1 | valida adSet atual não todos | `c741211` |
-| Pre-flight não bloqueava antes upload | suggestedBudgetDaily=null; agora soma rawBudget dos adSets | `7bd1709` |
-| 8 chamadas simultâneas budget error | return antes do loop | `78a4542` |
-| Campo Descrição com texto completo | buildShortDesc() garante ≤30 chars | `d5d2513` |
-| Descrição vazia em anúncio com vídeo | link_description no video_data | `344b7a3` |
-| 2061015 OUTCOME_LEADS sem destino | mensagem clara 3 opções | `4b3b5c6` |
-| Botão WA abria Facebook | wa.me como link quando não vinculado | `319678b` |
-
----
-
-## 🐛 Bugs Resolvidos (sessão 20 — 22/06)
-
-| Bug | Causa raiz | Fix | Commit |
+| Item | Causa raiz / Descrição | Fix | Commit |
 |---|---|---|---|
-| Cards do carrossel com "Insira a descrição" vazio | `child_attachments` usava `description=""` para todos exceto card 1 | `getCardCopy(idx)` mapeia cada card ao `creative[idx%length]` com headline+desc próprios | `dc3a05b` |
-| Carrossel com headline repetido em todos os cards | `name` era `selectedHeadline+(idx)` igual para todos | Cada card recebe headline único do criativo correspondente | `dc3a05b` |
-| Upload 10 fotos mas só 4 copies → cards 5-10 repetidos | Rotação `idx%4` repetia copies idênticas | Cards extras recebem variação de ângulo (Saiba mais, Confira, Oportunidade...) | `eb87b66` |
-| **Falso positivo de texto descartava fotos REAIS** | Heurística `highFreqRatio>0.08` marcava fotos detalhadas (praia/prédio) do Pixabay/FLUX como alucinação → retries infinitos → timeout | Threshold `0.08→0.18`, diff `180→200`: só texto MUITO denso dispara | `31e8ab5` |
-| Mensagem de budget pouco clara | Só dizia mínimo por adSet | Calcula e informa orçamento mensal mínimo exato (`META_MIN × nAdSets × 30 × 1.1`) | `31e8ab5` |
-| **adSets gerados abaixo do mínimo Meta** | Orçamento dividido em 4 adSets (25% cada) sem garantir R$5,11/dia/adSet → R$4,25/dia | Na geração: `MIN_VIABLE_MONTHLY = R$5,11×4×30×1,1 ≈ R$675`; eleva budget automaticamente se abaixo | `5b13463` |
+| Mismatch de objetivo WhatsApp (queimava budget) | `sales + WhatsApp` caía no branch "sales sem pixel" → `OUTCOME_TRAFFIC + LANDING_PAGE_VIEWS` (otimizava page view numa campanha de conversa) | Branch novo antes do check de pixel: `sales+WA vinculado→OUTCOME_ENGAGEMENT+CONVERSATIONS`; `sales+WA sem vínculo→OUTCOME_TRAFFIC+LINK_CLICKS` | `ea9cdaf` |
+| Frases redundantes na copy | "Não perca essa oportunidade / Você não quer perder a oportunidade" | `dedupeSentences()`: remove sentenças consecutivas com >60% overlap de palavras | `ea9cdaf` |
+| Headline idêntica entre personas do mesmo segmento | "Aproveite o melhor valor" igual para TOF_Investidor e TOF_Lifestyle anulava a segmentação | `personalizeHeadlineForAdSet()` deriva persona do nome do adSet e adapta vocabulário (≤40 chars) | `ea9cdaf` |
+| Score baixo publicava com só um warning decorativo | `finalScore<75` não bloqueava nem melhorava | Gate: score<75 → LLM reescreve usando `recommendations` do scoring engine (máx 2 tentativas); persiste baixo → `needsReview=true` (nunca trava a geração) | `f8b70c2` |
+| Description ecoava a headline | `rawDesc === selectedDescription === adCopy.feed.description` sempre | `buildDescription()` com cascata: description explícita da IA (se ≠ headline) → frase 10-60 chars da copy → hook → fallback contextual por objetivo | `f8b70c2` |
+| `imageRAG.ts` não compilava em build estrito | linha 391: `split("<newline>")` literal em vez de `split("\n")` escapado — análise de visão inteira inacessível | Corrigido split; desbloqueou Step 6 | `395c4df` |
+| Endpoint de upload 404 em produção | `uploadCampaignImage` foi inserido dentro do `integrationsRouter`, path real é `integrations.uploadCampaignImage` | Frontend corrigido: `trpc.uploadCampaignImage` → `trpc.integrations.uploadCampaignImage` | `05abda1` |
+| **Fotos reais nunca chegavam à geração** | Modo upload só passava descrição textual das fotos — backend sempre gerava FLUX sintético, mesmo com upload confirmado | Cadeia completa upload→geração→Meta (ver seção acima) | `62d1735` |
+| **Carrossel publicava sem imagem no modo upload** | `effectiveImageUrls` vinha vazio (só usava `input.imageUrls` ou fallback, nenhum dos dois populado no modo upload) | Coleta `feedImageUrl` de todos os criativos com `usesRealPhoto=true`, dedup, limite 10 | `36a898d` |
+| **Budget numérico quebrava 100% da publicação** | `currentAdSet.budget` tipado `string` mas podia vir `number` em runtime (adSet gerado com budget numérico) → `.match()` num number lançava erro; `any` mascarava do TS | Normaliza número vs string antes de processar; brinde: parser agora trata `.` como milhar e `,` como decimal (`R$ 1.250,50` → `1250.5`, antes virava `1.25`) | `1a37c2d` |
+| **Placeholders vazando para o Meta** ([cidade], {preço}, EMPRESA_AQUI) | `auditCopy` só detectava e logava warning — publicava com placeholder visível | Placeholder vira bloqueante no quality gate → força regeneração LLM → se persistir, `stripPlaceholders()` sanitiza como último recurso → se ainda sobrar, `needsReview=true` | `278ebd0` |
+| Claims fabricados na copy | Prefixos tipo "📊 Resultado comprovado:", "✅ Dados reais:" colados sem base factual (risco de compliance Meta) | Substituídos por variações de tom sem afirmação factual ("Vale a pena conferir:", "A escolha certa:") | `278ebd0` |
+| Frases quebradas por template vazio | `{cidade}` sem valor virava "Seu imóvel em  por " (buraco + preposição órfã) | Limpa espaços duplos, preposições órfãs e pontuação solta após substituição | `278ebd0` |
 
-### Detalhes técnicos — sessão 20
+### Isolado / não plugado ainda (risco zero, aguardando próxima etapa do Conselho)
 
-**Carrossel (commit `dc3a05b`, `eb87b66`):**
-- `getCardCopy(idx)` em `router.ts`: mapeia card → `creativeList[idx % nCreatives]`
-- Headline max 40 chars, description max 30 chars (limites Meta)
-- Cards repetidos (idx ≥ nCreatives) recebem sufixo de variação para não duplicar
-- Prompt IA atualizado: HEADLINE e DESCRIPTION únicos entre os 4 criativos
-- `MAX_META_CAROUSEL_ITEMS = 10` no frontend (já existia)
+| Item | Descrição | Status | Commit |
+|---|---|---|---|
+| `inferOfferType()` | Inferência determinística de tipo de oferta (10 tipos: locação, venda, lançamento, temporada, leilão, serviço, consulta, delivery, curso, produto) via regex de alto sinal. 12/12 casos-teste corretos | Função existe em `server/ai.ts`, **NÃO conectada** a nenhum fluxo | `b4c48c4` |
+| `SUBSEGMENTS` | Config escalável de subsegmentos para os 9 segmentos existentes (`shared/subsegments.ts`), com `signals`, `hookOverride`, `ctaOverride` por subsegmento. 15/15 casos-teste corretos | Dado/config novo, **NÃO plugado** no fluxo de geração | `0d40136` |
 
-**Detecção de texto em imagem (commit `31e8ab5`):**
-- `imageHasHallucinatedText()` em `imageGeneration.ts`
-- Primário: Google Vision API (se `GOOGLE_API_KEY` configurado)
-- Fallback heurístico: analisa terço inferior (65%-90% do buffer), conta transições de byte > 200
-- Threshold 0.18 — fotos reais ficam em 0.08-0.12, texto alucinado real passa de 0.20
-- LIÇÃO: heurística agressiva demais causa mais dano (descarta foto boa) que benefício
-
-**Budget mínimo viável (commit `5b13463`):**
-- `generateCampaign()` em `ai.ts`
-- `MIN_VIABLE_MONTHLY = Math.ceil(5.11 × 4 × 30 × 1.1)` ≈ R$675
-- Se `input.budget < MIN_VIABLE_MONTHLY` → eleva para o mínimo + loga warning
-- `suggestedBudgetMonthly` salva `effectiveBudget` (corrigido), não o input bruto
-- Campanhas geradas ANTES deste fix mantêm budget antigo — precisam regerar ou ajustar Módulo 4
+**Próximo passo natural:** ligar `inferOfferType` + `SUBSEGMENTS` ao `resolveCampaignProfile` — é a semente do "Perfil da Campanha" (Entrega 1 do veredito do Conselho ainda pendente).
 
 ---
 
-## 📋 Pendências
+## 📋 Pendências (atualizado sessão 21)
 
 | Prioridade | Item | Responsável |
 |---|---|---|
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 | Michel |
 | 🔴 | Adicionar website no perfil projeto 41 (Villa Serena) | Michel |
+| 🟡 | Conectar `inferOfferType` + `SUBSEGMENTS` ao fluxo real (`resolveCampaignProfile`) | Dev |
+| 🟡 | Reavaliar score de Imagens e Copies após mudanças da sessão 21 | Dev |
 | 🟡 | TikTok token no Render | Michel |
 | 🟡 | Gemini chaves 2+3 em projetos separados | Michel |
 | 🟡 | syncMetaCampaignMetrics (avgScore=100 sem CTR real) | Dev |
 | 🟢 | Campanhas geradas antes de `5b13463` têm budget antigo — regerar ou ajustar Módulo 4 | Michel |
-| 🟢 | (RESOLVIDO) Budget mínimo viável agora garantido na geração `5b13463` | — |
 
 ---
 
-## 💡 Prompt de Início de Sessão
-
-> Cole isso no início de cada nova sessão com Claude para garantir contexto completo.
+## 💡 Prompt de Início de Sessão (atualizado)
 
 ```
 Antes de qualquer coisa, leia o arquivo docs/SYSTEM_MEMORY.md do repositório
@@ -241,64 +143,81 @@ completo do sistema, bugs resolvidos, regras críticas e pendências.
 
 Stack: React 19 + Vite + TypeScript / Node.js + Express + tRPC / PostgreSQL + Drizzle / Render.com
 Repo local: /home/claude/mecpro (se já clonado na sessão)
-Último commit: 9b327ea | Score: ~96% | Sessão: 20 (22/06/2026)
+Último commit: 36a898d | Score: ~96% (não reavaliado sessão 21) | Sessão: 21 (08/07/2026)
 
 ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/schema.ts          ← fonte da verdade do banco (SEMPRE consultar antes de query SQL)
-- server/_core/router.ts    ← backend tRPC completo
+- server/_core/router.ts    ← backend tRPC completo (publicação Meta, effectiveImageUrls)
 - server/_core/index.ts     ← boot, crons ML, webhooks
-- server/ai.ts              ← geração de campanhas (Gemini → Groq)
+- server/ai.ts              ← geração de campanhas (Gemini → Groq), inferOfferType (isolado)
 - server/imageGeneration.ts ← FLUX → Pixabay → Google
+- server/imageRAG.ts        ← análise Vision (corrigido sessão 21, cuidado com split("\n"))
+- shared/subsegments.ts     ← SUBSEGMENTS (isolado, não plugado)
 - client/src/pages/CampaignResult.tsx ← publicação Meta
 
 REGRAS CRÍTICAS — NÃO VIOLAR:
 
 1. BUDGET:
    - Backend valida adSet ATUAL (input.adSetIndex), nunca todos
-   - Frontend pre-flight soma rawBudget dos adSets selecionados
+   - currentAdSet.budget pode vir NUMBER ou STRING em runtime — sempre normalizar
+     antes de .match() (bug 1a37c2d quebrava 100% da publicação)
+   - Parser trata "." como milhar e "," como decimal (R$ 1.250,50 → 1250.5)
    - Mínimo Meta: R$5,11/adSet/dia
    - Geração garante MIN_VIABLE_MONTHLY ≈ R$675 (4 adSets × R$5,11 × 30 × 1,1)
 
 2. CARROSSEL:
    - getCardCopy(idx) → creativeList[idx % nCreatives]
    - Headline max 40 chars, description max 30 (limites Meta)
-   - Cards extras (idx ≥ nCreatives) recebem variação de ângulo, nunca répetidos
+   - effectiveImageUrls precisa de TODAS as feedImageUrl (usesRealPhoto=true),
+     dedup, limite 10 — não usar só a foto individual do criativo
 
-3. DETECÇÃO DE TEXTO EM IMAGEM:
-   - Threshold heurístico: 0.18 (NÃO reduzir — 0.08 causava falso positivo em fotos reais de praia/prédios)
+3. FOTOS REAIS DO CLIENTE (creativeMode='upload'):
+   - Pula 100% da geração FLUX quando há imagens válidas (status done)
+   - imageRightsConfirmed obrigatório antes de continuar (risco jurídico)
+   - Limite 10 fotos (máximo real do carrossel Meta)
+   - 1ª foto do preview = card principal / capa
+
+4. DETECÇÃO DE TEXTO EM IMAGEM:
+   - Threshold heurístico: 0.18 (NÃO reduzir — 0.08 causava falso positivo)
    - diff > 200 (NÃO reduzir para 180)
 
-4. WHATSAPP:
+5. WHATSAPP:
    - WA vinculado → OUTCOME_LEADS + CONVERSATIONS + whatsapp_phone_number
    - WA não vinculado → OUTCOME_LEADS + LINK_CLICKS + wa.me (sem phone_number)
+   - sales + WA vinculado → OUTCOME_ENGAGEMENT + CONVERSATIONS (novo, sessão 21)
+   - sales + WA sem vínculo → OUTCOME_TRAFFIC + LINK_CLICKS (novo, sessão 21)
 
-5. DESCRIPTION:
+6. DESCRIPTION:
    - Prioridade: ai.description ≠ headline | CTA label | 1ª frase hook | ângulo | VAZIO
-   - NUNCA repetir headline como description
-   - NUNCA usar texto principal (copy) como description
-   - Max 30 chars
+   - NUNCA repetir headline como description | NUNCA usar copy completa | Max 30 chars
 
-6. REGEX — esbuild:
-   - NUNCA usar newline literal em regex: /[,\n\r]/
+7. REGEX — esbuild:
+   - NUNCA usar newline literal em regex ou split: /[,\n\r]/ ou split("<newline>")
    - CORRETO: .split(",")[0].split("\n")[0]
 
-7. ANTI-ALUCINAÇÃO:
-   - Verificar schema.ts ANTES de qualquer query SQL
-   - Tabela: api_integrations (NÃO integrations)
-   - Campo: provider (NÃO platform), accessToken IS NOT NULL (NÃO isActive)
-   - Import: getPool() direto (NÃO db.getPool())
-   - Path adminIntelligenceRouter: "./adminIntelligenceRouter" (NÃO "./_core/...")
+8. ANTI-ALUCINAÇÃO DE COPY:
+   - Placeholder não substituído ([cidade], {preço}) é BLOQUEANTE no quality gate
+   - Nunca publicar copy com placeholder visível, mesmo com score alto
+   - Claims fabricados ("resultado comprovado", "dados reais") proibidos sem base factual
+   - Verificar schema.ts ANTES de qualquer query SQL — tabela api_integrations
+     (NÃO integrations), campo provider (NÃO platform)
+
+9. SEGMENTAÇÃO (NOVO, NÃO PLUGADO):
+   - inferOfferType() e SUBSEGMENTS existem e passam nos testes, mas NÃO estão
+     conectados a nenhum fluxo real ainda — não assumir que já influenciam campanhas
 
 PENDÊNCIAS ABERTAS:
 🔴 Vincular WhatsApp 47999465824 à Página 1086894187837842 no Meta Business
 🔴 Adicionar website no perfil projeto 41 (Villa Serena) — websiteUrl = null
+🟡 Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile
+🟡 Reavaliar score de Imagens e Copies pós sessão 21
 🟡 TikTok token no Render
 🟡 Gemini chaves 2+3 em projetos Google separados
 🟡 syncMetaCampaignMetrics para avgScore real (atualmente 100 sem CTR)
-🟡 Campanhas geradas antes de 5b13463 com budget antigo → regerar ou ajustar Módulo 4
+🟢 Campanhas geradas antes de 5b13463 com budget antigo → regerar ou ajustar Módulo 4
 
-CUSTOS REAIS (logs produção):
+CUSTOS REAIS (logs produção, sessão 20 — não remedido sessão 21):
 - Gemini+Groq: US$0,0021/campanha
-- Imagens: R$0 (Pixabay/Google fallback gratuito)
+- Imagens: R$0 (Pixabay/Google fallback gratuito) — reavaliar com fotos reais (Cloudinary)
 - Margem: >99% em qualquer escala até 1M clientes
 ```
