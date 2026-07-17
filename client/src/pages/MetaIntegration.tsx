@@ -40,12 +40,6 @@ interface DiagResult {
   };
 }
 
-interface TestResult {
-  name: string;
-  adAccountId: string;
-  ok: boolean;
-}
-
 // ── Componente de campo de formulário ──────────────────────────────────────
 function Field({
   label, hint, hintLink, hintLinkText, placeholder, value, onChange, type = "text", optional = false,
@@ -125,9 +119,13 @@ export default function MetaIntegration() {
     },
     onError: (e: any) => { toast.error("✕ " + e.message); setOauthLoading(false); },
   });
+
   const exchangeToken = trpc.integrations.exchangeToken.useMutation({
     onSuccess: (d: any) => {
-      toast.success(`◎ Token longo gerado! Válido por ${d.expiresInDays} dias (até ${new Date(d.expiresAt).toLocaleDateString("pt-BR")})`);
+      // BUG FIX 1: o backend retorna tokenExpiresAt (não expiresAt)
+      const expiry = d.tokenExpiresAt ?? d.expiresAt;
+      const dateStr = expiry ? new Date(expiry).toLocaleDateString("pt-BR") : "—";
+      toast.success(`◎ Token longo gerado! Válido por ${d.expiresInDays} dias (até ${dateStr})`);
       refetch();
     },
     onError: (e) => toast.error(`✕ ${e.message}`),
@@ -183,7 +181,6 @@ export default function MetaIntegration() {
       });
       setAccessToken(""); setAdAccountId(""); setAppId(""); setAppSecret("");
     } catch (err: any) {
-      // erro já tratado pelo onError do mutation, mas loga para debug
       console.error("[MetaIntegration] save error:", err?.message);
     } finally {
       setSaving(false);
@@ -206,6 +203,10 @@ export default function MetaIntegration() {
   // Token expira em breve? (menos de 7 dias)
   const tokenExpiringSoon = existing?.tokenExpiresAt
     ? new Date(existing.tokenExpiresAt).getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000
+    : false;
+
+  const tokenExpired = existing?.tokenExpiresAt
+    ? new Date(existing.tokenExpiresAt).getTime() < Date.now()
     : false;
 
   return (
@@ -233,121 +234,144 @@ export default function MetaIntegration() {
           </div>
         </div>
 
+        {/* BUG FIX 2 — Banner de token expirado (antes não existia, só havia o aviso de "expira em breve") */}
+        {tokenExpired && (
+          <div style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 12, padding: "14px 18px", marginBottom: 16 }}>
+            <p style={{ fontSize: 13, fontWeight: 800, color: "#dc2626", marginBottom: 4 }}>
+              🔑 Token Meta expirado
+            </p>
+            <p style={{ fontSize: 12, color: "#991b1b" }}>
+              Clique em <strong>"Reconectar com Facebook"</strong> abaixo para gerar um novo token (válido por 60 dias).
+              Após reconectar, suas campanhas voltarão a publicar normalmente.
+            </p>
+          </div>
+        )}
+
         {/* Status atual */}
         {isLoading ? (
           <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 14, padding: 16, marginBottom: 20, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
             Verificando integração...
           </div>
         ) : existing ? (
-          <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 14, padding: 18, marginBottom: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          {/* BUG FIX 3 — estrutura JSX corrigida: WhatsApp e diagResult estavam DENTRO do div de botões
+              (dentro do flex de justifyContent: space-between) em vez de fora dele.
+              Isso causava layout quebrado — WhatsApp ficava colado nos botões, sem largura. */}
+          <div style={{ background: tokenExpired ? "#fff7ed" : "#f0fdf4", border: `1px solid ${tokenExpired ? "#fed7aa" : "#bbf7d0"}`, borderRadius: 14, padding: 18, marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
               <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: "#15803d", marginBottom: 6 }}>◎ Meta Ads conectado</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: tokenExpired ? "#c2410c" : "#15803d", marginBottom: 6 }}>
+                  {tokenExpired ? "⚠️ Meta Ads conectado (token expirado)" : "◎ Meta Ads conectado"}
+                </p>
                 <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 2 }}>
                   Conta: <strong>{existing.adAccountId || "—"}</strong>
                 </p>
                 {existing.tokenExpiresAt && (
-                  <p style={{ fontSize: 12, color: tokenExpiringSoon ? "#dc2626" : "var(--muted)" }}>
-                    {tokenExpiringSoon ? "⚠️ Token expira em breve — atualize" : `Token válido até ${new Date(existing.tokenExpiresAt).toLocaleDateString("pt-BR")}`}
+                  <p style={{ fontSize: 12, color: tokenExpired ? "#dc2626" : tokenExpiringSoon ? "#d97706" : "var(--muted)" }}>
+                    {tokenExpired
+                      ? "🔑 Token expirado — reconecte abaixo"
+                      : tokenExpiringSoon
+                        ? `⚠️ Token expira em breve — ${new Date(existing.tokenExpiresAt).toLocaleDateString("pt-BR")}`
+                        : `Token válido até ${new Date(existing.tokenExpiresAt).toLocaleDateString("pt-BR")}`}
                   </p>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={handleTest} disabled={testing}
                   style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "1px solid var(--border)", background: "white", cursor: testing ? "not-allowed" : "pointer", opacity: testing ? 0.7 : 1 }}>
                   {testing ? "⏳ Testando..." : "🔗 Testar conexão"}
                 </button>
-                <button onClick={() => exchangeToken.mutate()} disabled={exchangeToken.isPending}
-                  style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", cursor: exchangeToken.isPending ? "not-allowed" : "pointer", opacity: exchangeToken.isPending ? 0.7 : 1 }}>
-                  {exchangeToken.isPending ? "⏳ Gerando..." : "🔄 Token longo (60 dias)"}
+                <button onClick={() => exchangeToken.mutate()} disabled={exchangeToken.isPending || tokenExpired}
+                  title={tokenExpired ? "Token expirado — reconecte primeiro" : "Gera token válido por 60 dias usando o token atual"}
+                  style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "1px solid #bbf7d0", background: "#f0fdf4", color: "#15803d", cursor: (exchangeToken.isPending || tokenExpired) ? "not-allowed" : "pointer", opacity: (exchangeToken.isPending || tokenExpired) ? 0.5 : 1 }}>
+                  {exchangeToken.isPending ? "⏳ Gerando..." : "🔄 Renovar token (60 dias)"}
                 </button>
                 <button onClick={handleRemove}
                   style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", color: "#dc2626", cursor: "pointer" }}>
                   Remover
                 </button>
               </div>
+            </div>
 
-              {/* WhatsApp vinculado */}
-              <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #dcfce7" }}>
-                <WhatsAppField
-                  label="WhatsApp para Anúncios"
-                  value={waPhone}
-                  onChange={setWaPhone}
-                  onSaved={(phone) => setWaPhone(phone)}
-                  compact
-                />
-              </div>
+            {/* WhatsApp vinculado — fora do flex de botões */}
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${tokenExpired ? "#fed7aa" : "#dcfce7"}` }}>
+              <WhatsAppField
+                label="WhatsApp para Anúncios"
+                value={waPhone}
+                onChange={setWaPhone}
+                onSaved={(phone) => setWaPhone(phone)}
+                compact
+              />
+            </div>
 
-              {/* Painel de diagnóstico — aparece após testar */}
-              {diagResult && (
-                <div style={{ marginTop: 14, background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
-                  <p style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 800, color: "var(--black)" }}>🔍 Diagnóstico da integração</p>
+            {/* Painel de diagnóstico — aparece após testar */}
+            {diagResult && (
+              <div style={{ marginTop: 14, background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
+                <p style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 800, color: "var(--black)" }}>🔍 Diagnóstico da integração</p>
 
-                  {/* Identidade */}
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: "#dcfce7", color: "#166534" }}>
-                      ◎ Conta: {diagResult.name}
+                {/* Identidade */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: "#dcfce7", color: "#166534" }}>
+                    ◎ Conta: {diagResult.name}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: diagResult.tokenExpired ? "#fee2e2" : "#dcfce7", color: diagResult.tokenExpired ? "#dc2626" : "#166534" }}>
+                    {diagResult.tokenExpired ? "✕" : "◎"} Token válido até {diagResult.tokenExpiry}
+                  </span>
+                </div>
+
+                {/* Permissões */}
+                <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>Permissões</p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                  {[
+                    { label: "ads_read",    ok: diagResult.permissions.ads_read,    required: true },
+                    { label: "ads_library", ok: diagResult.permissions.ads_library, required: false },
+                    { label: "pages_read",  ok: diagResult.permissions.pages_read,  required: false },
+                  ].map(p => (
+                    <span key={p.label} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: p.ok ? "#dcfce7" : p.required ? "#fee2e2" : "#fef9c3", color: p.ok ? "#166534" : p.required ? "#dc2626" : "#92400e" }}>
+                      {p.ok ? "◎" : "✕"} {p.label}{p.required && !p.ok ? " (obrigatório!)" : ""}
                     </span>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: diagResult.tokenExpired ? "#fee2e2" : "#dcfce7", color: diagResult.tokenExpired ? "#dc2626" : "#166534" }}>
-                      {diagResult.tokenExpired ? "✕" : "◎"} Token válido até {diagResult.tokenExpiry}
-                    </span>
-                  </div>
+                  ))}
+                </div>
 
-                  {/* Permissões */}
-                  <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>Permissões</p>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-                    {[
-                      { label: "ads_read",    ok: diagResult.permissions.ads_read,    required: true },
-                      { label: "ads_library", ok: diagResult.permissions.ads_library, required: false },
-                      { label: "pages_read",  ok: diagResult.permissions.pages_read,  required: false },
-                    ].map(p => (
-                      <span key={p.label} style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: p.ok ? "#dcfce7" : p.required ? "#fee2e2" : "#fef9c3", color: p.ok ? "#166534" : p.required ? "#dc2626" : "#92400e" }}>
-                        {p.ok ? "◎" : "✕"} {p.label}{p.required && !p.ok ? " (obrigatório!)" : ""}
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Teste Ads Library */}
-                  <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>Teste Ads Library API</p>
-                  <div style={{ background: diagResult.adsLibraryTest.ok ? "#f0fdf4" : "#fef2f2", border: `1px solid ${diagResult.adsLibraryTest.ok ? "#86efac" : "#fca5a5"}`, borderRadius: 10, padding: "10px 14px" }}>
-                    {diagResult.adsLibraryTest.ok ? (
-                      <p style={{ margin: 0, fontSize: 12, color: "#166534" }}>
-                        ◎ Ads Library API funcionando — {diagResult.adsLibraryTest.found} anúncio(s) encontrado(s) para Page ID {diagResult.adsLibraryTest.pageId}
-                        {diagResult.adsLibraryTest.found === 0 && " (página sem anúncios ativos ou visibilidade restrita)"}
-                      </p>
-                    ) : (
-                      <div>
-                        <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "#dc2626" }}>✕ Ads Library API não funcionando</p>
-                        <p style={{ margin: 0, fontSize: 11, color: "#991b1b" }}>{diagResult.adsLibraryTest.error}</p>
-                        {diagResult.adsLibraryTest.error?.includes("10") && (
-                          <p style={{ margin: "6px 0 0", fontSize: 11, color: "#92400e", background: "#fef9c3", padding: "6px 10px", borderRadius: 6 }}>
-                            ⚠️ Código 10: Seu app Meta não tem acesso à Ads Library API.
-                            Solicite em <strong>developers.facebook.com → seu App → Ads Library API</strong>.
-                          </p>
-                        )}
-                        {diagResult.adsLibraryTest.error?.includes("190") && (
-                          <p style={{ margin: "6px 0 0", fontSize: 11, color: "#92400e", background: "#fef9c3", padding: "6px 10px", borderRadius: 6 }}>
-                            ⚠️ Código 190: Token expirado. Gere um novo token em <strong>developers.facebook.com/tools/explorer</strong>.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Aviso se falta permissão crítica */}
-                  {!diagResult.permissions.ads_read && (
-                    <div style={{ marginTop: 10, background: "#fef9c3", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px" }}>
-                      <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#92400e" }}>
-                        ⚠️ Permissão <code>ads_read</code> ausente — sem ela a Ads Library API não funciona.
-                      </p>
-                      <p style={{ margin: "4px 0 0", fontSize: 11, color: "#a16207" }}>
-                        Gere um novo token em <strong>developers.facebook.com/tools/explorer</strong> e marque o escopo <code>ads_read</code>.
-                      </p>
+                {/* Teste Ads Library */}
+                <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase" }}>Teste Ads Library API</p>
+                <div style={{ background: diagResult.adsLibraryTest.ok ? "#f0fdf4" : "#fef2f2", border: `1px solid ${diagResult.adsLibraryTest.ok ? "#86efac" : "#fca5a5"}`, borderRadius: 10, padding: "10px 14px" }}>
+                  {diagResult.adsLibraryTest.ok ? (
+                    <p style={{ margin: 0, fontSize: 12, color: "#166534" }}>
+                      ◎ Ads Library API funcionando — {diagResult.adsLibraryTest.found} anúncio(s) encontrado(s) para Page ID {diagResult.adsLibraryTest.pageId}
+                      {diagResult.adsLibraryTest.found === 0 && " (página sem anúncios ativos ou visibilidade restrita)"}
+                    </p>
+                  ) : (
+                    <div>
+                      <p style={{ margin: "0 0 6px", fontSize: 12, fontWeight: 700, color: "#dc2626" }}>✕ Ads Library API não funcionando</p>
+                      <p style={{ margin: 0, fontSize: 11, color: "#991b1b" }}>{diagResult.adsLibraryTest.error}</p>
+                      {diagResult.adsLibraryTest.error?.includes("10") && (
+                        <p style={{ margin: "6px 0 0", fontSize: 11, color: "#92400e", background: "#fef9c3", padding: "6px 10px", borderRadius: 6 }}>
+                          ⚠️ Código 10: Seu app Meta não tem acesso à Ads Library API.
+                          Solicite em <strong>developers.facebook.com → seu App → Ads Library API</strong>.
+                        </p>
+                      )}
+                      {diagResult.adsLibraryTest.error?.includes("190") && (
+                        <p style={{ margin: "6px 0 0", fontSize: 11, color: "#92400e", background: "#fef9c3", padding: "6px 10px", borderRadius: 6 }}>
+                          ⚠️ Código 190: Token expirado. Reconecte com Facebook acima.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+
+                {/* Aviso se falta permissão crítica */}
+                {!diagResult.permissions.ads_read && (
+                  <div style={{ marginTop: 10, background: "#fef9c3", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px" }}>
+                    <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#92400e" }}>
+                      ⚠️ Permissão <code>ads_read</code> ausente — sem ela a Ads Library API não funciona.
+                    </p>
+                    <p style={{ margin: "4px 0 0", fontSize: 11, color: "#a16207" }}>
+                      Reconecte com Facebook acima e autorize o escopo <code>ads_read</code>.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 14, padding: 14, marginBottom: 20 }}>
@@ -360,7 +384,7 @@ export default function MetaIntegration() {
         {/* Formulário */}
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 24 }}>
           <p style={{ fontSize: 14, fontWeight: 700, color: "var(--black)", marginBottom: 16 }}>
-            {existing ? "Atualizar credenciais" : "Conectar conta Meta Ads"}
+            {existing ? (tokenExpired ? "🔑 Reconectar conta Meta Ads" : "Atualizar credenciais") : "Conectar conta Meta Ads"}
           </p>
 
           {/* ── Botão OAuth Facebook ── */}
@@ -449,6 +473,9 @@ export default function MetaIntegration() {
             </p>
           </div>
 
+          {/* BUG FIX 4 — campo adAccountId tinha hint errado mencionando "act_" como formato aceito.
+              O backend agora salva SÓ dígitos e valida que seja numérico — o placeholder correto
+              é só o número, sem "act_" (o backend normaliza automaticamente). */}
           <Field
             label="Access Token"
             placeholder="EAAxxxxxxxx..."
@@ -461,12 +488,12 @@ export default function MetaIntegration() {
 
           <Field
             label="ID da Conta de Anúncios"
-            placeholder="553508682019484 ou act_553508682019484"
+            placeholder="553508682019484"
             value={adAccountId}
             onChange={setAdAccountId}
             hintLink="https://business.facebook.com/adsmanager"
             hintLinkText="business.facebook.com/adsmanager"
-            hint="canto superior esquerdo do Gerenciador"
+            hint="apenas os números — canto superior esquerdo do Gerenciador de Anúncios (ex: 553508682019484)"
           />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
