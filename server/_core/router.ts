@@ -15,6 +15,7 @@ import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
+import { calculateScore } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet } from "../adAudit";
 import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
@@ -2939,6 +2940,21 @@ const campaignsRouter = router({
             ? (purchaseValue > 0 ? purchaseValue / spend : (Number(purchases) * AVG_CONVERSION_VALUE) / spend)
             : 0;
 
+          // Score REAL de performance (antes: 50 hardcoded para toda campanha sincronizada)
+          // calculateScore compara CTR/CPC/CPM/ROAS contra benchmarks por plataforma+objetivo
+          // e aplica multiplicador de confiança estatística (volume baixo → score conservador)
+          const perfScore = calculateScore(
+            {
+              campaignId: camp.id,
+              userId:     ctx.user.id,
+              projectId:  camp.projectId,
+              name:       camp.name || "",
+              platform:   camp.platform || "meta",
+              objective:  camp.objective || "traffic",
+            },
+            { impressions, clicks, ctr, cpc, cpm, spend, roas, leads: Number(leads), conversions: Number(purchases), reach, frequency }
+          );
+
           // Salva métricas na tabela campaign_scores (upsert)
           await pool.query(`
             DELETE FROM campaign_scores WHERE campaign_id = $1
@@ -2955,7 +2971,7 @@ const campaignsRouter = router({
               c.id,
               p."userId",
               c."projectId",
-              50,
+              $9,
               COALESCE(c.platform, 'meta'),
               COALESCE(c.objective, 'traffic'),
               'geral',
@@ -2963,12 +2979,13 @@ const campaignsRouter = router({
             FROM campaigns c
             JOIN projects p ON p.id = c."projectId"
             WHERE c.id = $1
-          `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, roas]);
+          `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, roas, perfScore.total]);
 
           synced++;
           log.info("sync", "Métricas sincronizadas", {
             campaignId: camp.id, name: camp.name,
             impressions, clicks, spend: spend.toFixed(2), ctr: ctr.toFixed(2),
+            score: perfScore.total,
           });
 
           // ── Fecha o loop de aprendizado: atualiza ml_dataset com métricas reais ──

@@ -275,16 +275,19 @@ export function calculateScore(
   const sVolume      = calculateVolumeWeight(metrics.spend, metrics.impressions, objective);
   const statConf     = calculateStatisticalConfidence(metrics, bench);
 
+  // Sub-scores estão em 0-10 e os pesos somam ~1.0 → fator 10 leva à escala 0-100.
+  // BUG HISTÓRICO: fator 100 fazia o máximo teórico ser 1000; qualquer campanha
+  // mediana estourava o clamp Math.min(100) → TODO score saturava em 100.
   const rawScore =
-    sCtr         * weights.ctr         * 100 +
-    sCpc         * weights.cpc         * 100 +
-    sCpm         * weights.cpm         * 100 +
-    sRoas        * weights.roas        * 100 +
-    sConv        * weights.conversion  * 100 +
-    sCreative    * weights.creative    * 100 +
-    sConsistency * weights.consistency * 100 +
-    sScalability * weights.scalability * 100 +
-    sVolume      * (weights.volume || 0.03) * 100;
+    sCtr         * weights.ctr         * 10 +
+    sCpc         * weights.cpc         * 10 +
+    sCpm         * weights.cpm         * 10 +
+    sRoas        * weights.roas        * 10 +
+    sConv        * weights.conversion  * 10 +
+    sCreative    * weights.creative    * 10 +
+    sConsistency * weights.consistency * 10 +
+    sScalability * weights.scalability * 10 +
+    sVolume      * (weights.volume || 0.03) * 10;
 
   // Aplica multiplicador de confiabilidade: score * (0.5 + 0.5 * statConf)
   const confidenceMultiplier = 0.5 + (0.5 * statConf);
