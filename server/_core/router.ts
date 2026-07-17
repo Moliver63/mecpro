@@ -2863,7 +2863,7 @@ const campaignsRouter = router({
       projectId: z.number().optional(),   // se informado, só sincroniza este projeto
       days:      z.number().default(30),  // janela de tempo para buscar insights
     }))
-    .mutation(async ({ ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
 
@@ -2882,9 +2882,10 @@ const campaignsRouter = router({
         WHERE c."metaCampaignId" IS NOT NULL
           AND c."publishStatus" = 'success'
           AND p."userId" = $1
+          AND ($2::int IS NULL OR c."projectId" = $2)
         ORDER BY c."publishedAt" DESC
         LIMIT 100
-      `, [ctx.user.id]);
+      `, [ctx.user.id, input.projectId ?? null]);
 
       const campaigns = rows.rows;
       if (campaigns.length === 0) {
@@ -2893,7 +2894,8 @@ const campaignsRouter = router({
 
       log.info("sync", "Iniciando sync de métricas Meta", { userId: ctx.user.id, campaigns: campaigns.length });
 
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      const windowDays = Math.min(Math.max(input.days || 30, 1), 90); // 1-90 dias (limite Meta)
+      const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       const today = new Date().toISOString().split("T")[0];
 
       let synced = 0;
@@ -2903,7 +2905,7 @@ const campaignsRouter = router({
         try {
           // Busca insights direto pelo ID da campanha no Meta
           const insightsUrl = `https://graph.facebook.com/v21.0/${camp.metaCampaignId}/insights` +
-            `?fields=impressions,clicks,spend,ctr,cpm,cpc,actions,reach,frequency` +
+            `?fields=impressions,clicks,spend,ctr,cpm,cpc,actions,action_values,reach,frequency` +
             `&time_range={"since":"${since}","until":"${today}"}` +
             `&access_token=${token}`;
 
@@ -2929,11 +2931,18 @@ const campaignsRouter = router({
           const frequency   = Number(ins.frequency || 0);
           const leads       = (ins.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
           const purchases   = (ins.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
+          // ROAS: usa valor REAL de conversão do Meta (action_values) quando disponível;
+          // fallback: estimativa única de R$50/conversão (antes havia 2 fórmulas divergentes: R$100 e R$50)
+          const purchaseValue = Number((ins.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
+          const AVG_CONVERSION_VALUE = 50;
+          const roas = spend > 0
+            ? (purchaseValue > 0 ? purchaseValue / spend : (Number(purchases) * AVG_CONVERSION_VALUE) / spend)
+            : 0;
 
           // Salva métricas na tabela campaign_scores (upsert)
           await pool.query(`
             DELETE FROM campaign_scores WHERE campaign_id = $1
-          `);
+          `, [camp.id]);
           await pool.query(`
             INSERT INTO campaign_scores (
               campaign_id, user_id, project_id, score_total,
@@ -2954,7 +2963,7 @@ const campaignsRouter = router({
             FROM campaigns c
             JOIN projects p ON p.id = c."projectId"
             WHERE c.id = $1
-          `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, purchases > 0 && spend > 0 ? (purchases * 100 / spend) : 0]);
+          `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, roas]);
 
           synced++;
           log.info("sync", "Métricas sincronizadas", {
@@ -2966,7 +2975,6 @@ const campaignsRouter = router({
           // O ML agora sabe: estratégia X com ângulo Y gerou CTR real Z
           try {
             const cpl  = leads > 0 && spend > 0 ? spend / Number(leads) : 0;
-            const roas = purchases > 0 && spend > 0 ? (purchases * 50) / spend : 0; // estimativa R$50/conversão
             const isRealWinner = ctr >= 1.5 && (cpl === 0 || cpl <= 15) && spend >= 10;
 
             await pool.query(`
