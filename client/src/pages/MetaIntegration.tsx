@@ -253,9 +253,6 @@ export default function MetaIntegration() {
             Verificando integração...
           </div>
         ) : existing ? (
-          {/* BUG FIX 3 — estrutura JSX corrigida: WhatsApp e diagResult estavam DENTRO do div de botões
-              (dentro do flex de justifyContent: space-between) em vez de fora dele.
-              Isso causava layout quebrado — WhatsApp ficava colado nos botões, sem largura. */}
           <div style={{ background: tokenExpired ? "#fff7ed" : "#f0fdf4", border: `1px solid ${tokenExpired ? "#fed7aa" : "#bbf7d0"}`, borderRadius: 14, padding: 18, marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
               <div>
