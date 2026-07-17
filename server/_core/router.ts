@@ -48,6 +48,19 @@ function daysAgo(n: number): string {
 }
 function today(): string { return new Date().toISOString().split("T")[0]; }
 
+/**
+ * sanitizeAdAccountId — extrai só os dígitos de um adAccountId antes de
+ * montar a URL do Graph API. Previne o erro "Unknown path components" causado
+ * por textos corrompidos no banco (ex: "123 / Testar", "/09/2026 🔗 Testar").
+ * Retorna null se não houver dígitos suficientes (conta não configurada).
+ */
+function sanitizeAdAccountId(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/^act_/, "").replace(/\D/g, "");
+  if (digits.length < 5) return null; // ID Meta válido tem pelo menos 5 dígitos
+  return `act_${digits}`;
+}
+
 // -- TikTok Ads API helper ----------------------------------------------------
 async function tikTokPost<T>(path: string, body: unknown, accessToken: string): Promise<T> {
   const url = `https://business-api.tiktok.com/open_api/v1.3/${path}`;
@@ -3061,8 +3074,9 @@ const campaignsRouter = router({
       const metaCheck = await db.checkPlanLimit(ctx.user.id, "meta");
       if (!metaCheck.allowed) throw new TRPCError({ code: "FORBIDDEN", message: metaCheck.reason });
 
+      // normalizeAccountId alias local → usa o helper global sanitizeAdAccountId
       function normalizeAccountId(id: string) {
-        return id.startsWith("act_") ? id : `act_${id}`;
+        return sanitizeAdAccountId(id) ?? "act_";
       }
       // Segmentos que sempre devem usar ENGAGEMENT (WhatsApp/mensagem como destino)
       const ENGAGEMENT_SEGMENTS = ["imoveis_locacao","imoveis_venda","saude_estetica","servicos_locais","automotivo","academia"];
@@ -6897,7 +6911,10 @@ const integrationsRouter = router({
   upsertMeta: protectedProcedure
     .input(z.object({
       accessToken:  z.string().min(10),
-      adAccountId:  z.string().min(5),
+      adAccountId:  z.string().min(5).refine(
+        (v) => /^\d+$/.test(v.replace(/^act_/, "")),
+        { message: "ID da conta de anúncios inválido. Use apenas o número (ex: 123456789) ou o formato act_123456789." }
+      ),
       appId:        z.string().optional(),
       appSecret:    z.string().optional(),
     }))
@@ -6905,7 +6922,8 @@ const integrationsRouter = router({
       userId:      ctx.user.id,
       provider:    "meta",
       accessToken: input.accessToken,
-      adAccountId: input.adAccountId,
+      // Normaliza para só dígitos (sem act_) antes de salvar
+      adAccountId: input.adAccountId.replace(/^act_/, "").replace(/\D/g, ""),
       appId:       input.appId,
       appSecret:   input.appSecret,
       isActive:    1,
@@ -7065,7 +7083,7 @@ const integrationsRouter = router({
       const accountId = (integration as any).adAccountId as string;
       if (!accountId)
         throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios não configurado." });
-      const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+      const act = sanitizeAdAccountId(accountId) ?? "act_";
 
       log.info("meta", "uploadImageToMeta iniciado", {
         userId: ctx.user.id,
@@ -7144,7 +7162,7 @@ const integrationsRouter = router({
       const accountId = (integration as any).adAccountId as string;
       if (!accountId)
         throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios não configurado." });
-      const act = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+      const act = sanitizeAdAccountId(accountId) ?? "act_";
 
       // Remove qualquer prefixo data:*/*;base64, independente do tipo MIME
       const base64Clean = input.videoBase64.replace(/^data:[a-zA-Z0-9.+/-]+;base64,/, "").trim();
@@ -8052,8 +8070,8 @@ const metaCampaignsRouter = router({
       }
       const token = (integration as any).accessToken as string;
       const rawAccountId = (integration as any).adAccountId as string;
-      if (!rawAccountId) throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios não configurado." });
-      const act = rawAccountId.startsWith("act_") ? rawAccountId : `act_${rawAccountId}`;
+      const act = sanitizeAdAccountId(rawAccountId);
+      if (!act) throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios inválido ou não configurado. Acesse Configurações → Meta Ads e reconfigure o ID (apenas números, ex: 123456789)." });
 
       // ── Alerta antecipado de expiração (7 dias antes) ────────────────────
       const expiresAt = (integration as any).tokenExpiresAt;
@@ -9038,7 +9056,7 @@ const unifiedRouter = router({
       const token    = (integration as any).accessToken as string;
       const rawAccId = (integration as any).adAccountId as string;
       if (!rawAccId) throw new TRPCError({ code: "BAD_REQUEST", message: "Ad Account ID Meta não configurado" });
-      const act    = rawAccId.startsWith("act_") ? rawAccId : `act_${rawAccId}`;
+      const act    = sanitizeAdAccountId(rawAccId) ?? "act_";
       const days   = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
       const since  = daysAgo(days);
       const fields = `id,name,status,insights.time_range({"since":"${since}","until":"${today()}"}){impressions,clicks,spend,cpc,cpm,ctr,actions}`;
@@ -9207,7 +9225,7 @@ const unifiedRouter = router({
         const token   = (metaInt as any)?.accessToken;
         const rawAct  = (metaInt as any)?.adAccountId;
         if (token && rawAct) {
-          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const act = sanitizeAdAccountId(rawAct) ?? "act_";
           const res = await fetch(
             `https://graph.facebook.com/v20.0/${act}?fields=balance,amount_spent,spend_cap,currency,account_status,funding_source_details,min_daily_budget&access_token=${token}`,
             { signal: AbortSignal.timeout(5000) }
@@ -10137,7 +10155,7 @@ const mediaBudgetRouter = router({
         const token   = (metaInt as any)?.accessToken;
         const rawAct  = (metaInt as any)?.adAccountId;
         if (token && rawAct) {
-          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const act = sanitizeAdAccountId(rawAct) ?? "act_";
           const res = await fetch(
             `https://graph.facebook.com/v19.0/${act}?fields=balance&access_token=${token}`,
             { signal: AbortSignal.timeout(6000) }
@@ -10241,7 +10259,7 @@ const mediaBudgetRouter = router({
         const token   = (metaInt as any)?.accessToken;
         const rawAct  = (metaInt as any)?.adAccountId;
         if (token && rawAct) {
-          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const act = sanitizeAdAccountId(rawAct) ?? "act_";
 
           // 1. Dados principais da conta — inclui adspaymentcycle para saldo devedor
           const res = await fetch(
@@ -10548,7 +10566,7 @@ const mediaBudgetRouter = router({
           const token   = (metaInt as any)?.accessToken;
           const rawAct  = (metaInt as any)?.adAccountId;
           if (token && rawAct) {
-            const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+            const act = sanitizeAdAccountId(rawAct) ?? "act_";
             // Verifica saldo atual na conta Meta
             const res = await fetch(
               `https://graph.facebook.com/v20.0/${act}?fields=balance,funding_source_details&access_token=${token}`,
@@ -11591,8 +11609,7 @@ const mediaBudgetRouter = router({
           const metaInt = await db.getApiIntegration(userId, "meta");
           if (metaInt && (metaInt as any).accessToken && (metaInt as any).adAccountId) {
             const token = (metaInt as any).accessToken as string;
-            const act   = ((metaInt as any).adAccountId as string).startsWith("act_")
-              ? (metaInt as any).adAccountId : `act_${(metaInt as any).adAccountId}`;
+            const act   = sanitizeAdAccountId((metaInt as any).adAccountId) ?? "act_";
 
             // Busca insights apenas das campanhas MECPro
             const filterParam = encodeURIComponent(JSON.stringify([{ field: "campaign.id", operator: "IN", value: metaIds }]));
@@ -11772,8 +11789,7 @@ const mediaBudgetRouter = router({
             const metaInt = await db.getApiIntegration(userId, "meta");
             if (!metaInt || !(metaInt as any).accessToken) throw new Error("Meta não conectado");
             const token  = (metaInt as any).accessToken as string;
-            const act    = ((metaInt as any).adAccountId as string).startsWith("act_")
-              ? (metaInt as any).adAccountId : `act_${(metaInt as any).adAccountId}`;
+            const act    = sanitizeAdAccountId((metaInt as any).adAccountId) ?? "act_";
             // Busca adsets da campanha e atualiza orçamento no primeiro ativo
             const adsetsRes = await fetch(
               `https://graph.facebook.com/v19.0/${act}/adsets?filtering=[{"field":"campaign.id","operator":"EQUAL","value":"${item.campaignId}"}]&fields=id,name,status,daily_budget&access_token=${token}`,
@@ -11960,7 +11976,7 @@ const mediaBudgetRouter = router({
       const rawAct = (integration as any).adAccountId as string;
       if (!rawAct) throw new TRPCError({ code: "BAD_REQUEST", message: "Ad Account ID não configurado. Configure em Integrações → Meta Ads." });
 
-      const act   = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+      const act   = sanitizeAdAccountId(rawAct) ?? "act_";
       const days  = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
       const since = daysAgo(days);
 
@@ -12199,7 +12215,7 @@ const mediaBudgetRouter = router({
         const rawAct  = (metaInt as any)?.adAccountId;
 
         if (token && rawAct) {
-          const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+          const act = sanitizeAdAccountId(rawAct) ?? "act_";
           const res = await fetch(
             `https://graph.facebook.com/v20.0/${act}/campaigns?fields=id,name,status,daily_budget,lifetime_budget,objective&filtering=[{"field":"effective_status","operator":"IN","value":["ACTIVE","PAUSED"]}]&limit=50&access_token=${token}`,
             { signal: AbortSignal.timeout(6000) }
@@ -12300,7 +12316,7 @@ const mediaBudgetRouter = router({
         const token   = (metaInt as any)?.accessToken;
         const rawAct  = (metaInt as any)?.adAccountId;
         if (!token || !rawAct) throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado" });
-        const act = rawAct.startsWith("act_") ? rawAct : `act_${rawAct}`;
+        const act = sanitizeAdAccountId(rawAct) ?? "act_";
 
         // Busca adsets da campanha para ver budget atualizado
         const res = await fetch(
