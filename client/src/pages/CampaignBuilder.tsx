@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useSafeMutation } from "@/hooks/useSafeMutation";
 import { toast } from "sonner";
 import { useParams, useLocation } from "wouter";
@@ -99,6 +99,12 @@ export default function CampaignBuilder() {
   // tRPC mutation — só chama a API, sem lógica de UI
   const generateMutation = trpc.campaigns.generate.useMutation();
   const uploadImageMutation = trpc.integrations.uploadCampaignImage.useMutation();
+
+  // ── Diagnóstico de conta (loop fechado: informa a campanha antes de gerar) ──
+  const diagnosticsMutation = (trpc as any).metaCampaigns?.accountDiagnostics?.useMutation?.();
+  const [diagnostics, setDiagnostics] = useState<any>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagDismissed, setDiagDismissed] = useState(false);
 
   // useSafeMutation — controla loading, redirect e unmount de forma segura
   const { execute: executeGenerate, loading: generating } = useSafeMutation(
@@ -216,6 +222,19 @@ export default function CampaignBuilder() {
 
   const STEPS = ["Segmento", "Objetivo", "Plataforma", "Orçamento", "Detalhes", "Fotos", "Match IA", "Gerar"];
 
+  // Roda o diagnóstico de conta UMA vez ao abrir o builder (loop fechado).
+  // Não bloqueia o fluxo — informa em background. Só para Meta.
+  useEffect(() => {
+    if (!projectId || diagnostics || diagLoading || !diagnosticsMutation?.mutateAsync) return;
+    if (form.platform !== "meta" && form.platform !== "both" && form.platform !== "all") return;
+    setDiagLoading(true);
+    diagnosticsMutation.mutateAsync()
+      .then((r: any) => setDiagnostics(r))
+      .catch(() => setDiagnostics({ error: true }))   // falha silenciosa: não atrapalha a criação
+      .finally(() => setDiagLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, form.platform]);
+
   async function handleMatch() {
     setMatching(true);
     try {
@@ -322,6 +341,65 @@ export default function CampaignBuilder() {
           </div>
         </div>
       </div>
+
+      {/* ── Banner de Diagnóstico da Conta (loop fechado) ────────────────────
+          Roda em background ao abrir. Só aparece se houver algo ACIONÁVEL:
+          tracking com problema ou recomendações da Meta. Conta saudável não
+          polui a tela. Nunca bloqueia a criação. */}
+      {projectId && diagnostics && !diagnostics.error && !diagDismissed &&
+       (diagnostics.trackingHealth !== "ok" || (diagnostics.recommendations?.length || 0) > 0 || diagnostics.opportunityScore !== null) && (
+        <div style={{
+          background: diagnostics.trackingHealth === "missing" ? "#fef2f2" : diagnostics.trackingHealth === "warning" ? "#fffbeb" : "#f0f9ff",
+          border: `1px solid ${diagnostics.trackingHealth === "missing" ? "#fecaca" : diagnostics.trackingHealth === "warning" ? "#fde68a" : "#bae6fd"}`,
+          borderRadius: 14, padding: "16px 20px", marginBottom: 20,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>
+                🔍 Diagnóstico da conta {diagnostics.opportunityScore !== null && (
+                  <span style={{ fontWeight: 700, color: diagnostics.opportunityScore >= 70 ? "#15803d" : diagnostics.opportunityScore >= 40 ? "#d97706" : "#dc2626" }}>
+                    · Pontuação de oportunidade: {diagnostics.opportunityScore}/100
+                  </span>
+                )}
+              </p>
+
+              {/* Saúde do rastreamento */}
+              <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: diagnostics.recommendations?.length ? 8 : 0, lineHeight: 1.5 }}>
+                {diagnostics.summary?.tracking}
+              </p>
+
+              {/* Recomendações estruturais da Meta (até 3 no banner) */}
+              {diagnostics.recommendations?.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 4 }}>
+                    Recomendações da Meta
+                  </p>
+                  {diagnostics.recommendations.slice(0, 3).map((rec: any, i: number) => (
+                    <p key={i} style={{ fontSize: 12, color: "var(--black)", marginBottom: 3, lineHeight: 1.5 }}>
+                      • {rec.title}{rec.description ? <span style={{ color: "var(--muted)" }}> — {rec.description}</span> : null}
+                    </p>
+                  ))}
+                  {diagnostics.recommendations.length > 3 && (
+                    <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
+                      +{diagnostics.recommendations.length - 3} outra(s) recomendação(ões)
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => setDiagDismissed(true)}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--muted)", flexShrink: 0, lineHeight: 1 }}
+              title="Dispensar">×</button>
+          </div>
+        </div>
+      )}
+
+      {diagLoading && projectId && (
+        <div style={{ background: "#f8fafc", border: "1px solid var(--border)", borderRadius: 14, padding: "12px 20px", marginBottom: 20, fontSize: 12, color: "var(--muted)" }}>
+          🔍 Analisando a saúde da conta Meta...
+        </div>
+      )}
 
       {!projectId ? (
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 48, textAlign: "center" }}>
