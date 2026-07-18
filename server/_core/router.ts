@@ -8390,6 +8390,104 @@ const metaCampaignsRouter = router({
       return { success: true, total: input.campaignIds.length, failed: failed.length };
     }),
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MÓDULO DE INTELIGÊNCIA DE CONTA (camada de diagnóstico)
+  // Consome os endpoints REST por trás dos "Meta Ads AI Connectors":
+  //   - recommendations       → base do opportunity score (disponível hoje)
+  //   - opportunity_score      → pontuação estrutural (rollout parcial; degrada se vazio)
+  //   - datasets/pixels        → qualidade de sinal (Conversions API)
+  // Não integra o protocolo MCP; usa os mesmos endpoints da Marketing API que o
+  // token do app já acessa. Cada bloco é isolado: a falha de um não derruba os outros.
+  // ═══════════════════════════════════════════════════════════════════════════
+  accountDiagnostics: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Conta Meta não conectada. Acesse Configurações → Meta Ads." });
+      }
+      const token = (integration as any).accessToken as string;
+      const act = sanitizeAdAccountId((integration as any).adAccountId as string);
+      if (!act) throw new TRPCError({ code: "BAD_REQUEST", message: "ID da conta de anúncios inválido. Reconfigure em Configurações → Meta Ads." });
+
+      const API = "https://graph.facebook.com/v21.0";
+      const fetchMeta = async (path: string): Promise<{ ok: boolean; data: any; error: string | null }> => {
+        try {
+          const res = await fetch(`${API}/${act}/${path}${path.includes("?") ? "&" : "?"}access_token=${token}`,
+            { signal: AbortSignal.timeout(8000) });
+          const data = await res.json();
+          if (data.error) return { ok: false, data: null, error: data.error.message || "erro Meta" };
+          return { ok: true, data, error: null };
+        } catch (e: any) {
+          return { ok: false, data: null, error: e?.message || "timeout/rede" };
+        }
+      };
+
+      // ── 1. Recommendations (base do opportunity score, disponível hoje) ────────
+      // Retorna sugestões estruturais que a Meta faz para a conta.
+      const recResult = await fetchMeta("recommendations");
+      const recommendations = recResult.ok && Array.isArray(recResult.data?.data)
+        ? recResult.data.data.slice(0, 20).map((r: any) => ({
+            title:       r.title || r.recommendation_type || "Recomendação",
+            description: r.description || r.blame_field || null,
+            confidence:  r.confidence || null,
+            type:        r.recommendation_type || null,
+          }))
+        : [];
+
+      // ── 2. Opportunity Score (rollout parcial — degrada se indisponível) ───────
+      const oppResult = await fetchMeta("?fields=opportunity_score");
+      const opportunityScore = oppResult.ok && oppResult.data?.opportunity_score != null
+        ? Number(oppResult.data.opportunity_score)
+        : null;
+
+      // ── 3. Qualidade de sinal / Pixels (Conversions API) ───────────────────────
+      // Diagnóstico de saúde do rastreamento — quantos pixels ativos e recebendo eventos.
+      const pixelResult = await fetchMeta("adspixels?fields=id,name,last_fired_time,is_unavailable");
+      const pixels = pixelResult.ok && Array.isArray(pixelResult.data?.data)
+        ? pixelResult.data.data.map((p: any) => {
+            const lastFired = p.last_fired_time ? new Date(p.last_fired_time) : null;
+            const daysSinceFired = lastFired ? Math.floor((Date.now() - lastFired.getTime()) / 86400000) : null;
+            return {
+              id:    p.id,
+              name:  p.name || "Pixel",
+              active: !p.is_unavailable && daysSinceFired !== null && daysSinceFired <= 7,
+              lastFiredDays: daysSinceFired,
+            };
+          })
+        : [];
+
+      // ── Saúde geral do rastreamento (heurística local) ─────────────────────────
+      const activePixels = pixels.filter(p => p.active).length;
+      const trackingHealth: "ok" | "warning" | "missing" =
+        activePixels > 0 ? "ok"
+        : pixels.length > 0 ? "warning"   // tem pixel mas não disparou recente
+        : "missing";                       // nenhum pixel configurado
+
+      return {
+        generatedAt: new Date().toISOString(),
+        recommendations,
+        recommendationsAvailable: recResult.ok,
+        opportunityScore,
+        opportunityScoreAvailable: opportunityScore !== null,
+        pixels,
+        activePixels,
+        trackingHealth,
+        // Diagnóstico textual acionável (pronto para exibir ao usuário)
+        summary: {
+          tracking: trackingHealth === "ok"
+            ? `✅ Rastreamento saudável — ${activePixels} pixel(s) ativo(s) recebendo eventos.`
+            : trackingHealth === "warning"
+              ? "⚠️ Pixel configurado mas sem eventos recentes (>7 dias). Verifique a instalação no site."
+              : "🔴 Nenhum pixel/Conversions API detectado. Campanhas de conversão terão otimização limitada.",
+          recommendations: recommendations.length > 0
+            ? `${recommendations.length} recomendação(ões) estrutural(is) da Meta disponível(is).`
+            : recResult.ok
+              ? "Nenhuma recomendação pendente — conta bem configurada."
+              : "Recomendações indisponíveis (permissão ou rollout).",
+        },
+      };
+    }),
+
 });
 
 const tiktokBulkRouter = router({
