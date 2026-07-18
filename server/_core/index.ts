@@ -543,7 +543,10 @@ app.use(cors({
       origin.endsWith('.onrender.com') ||
       origin.endsWith('.mecproai.com')
     ) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
+    // Loga a origem rejeitada (antes: erro genérico sem dizer QUAL origem)
+    log.warn('cors', `Origem bloqueada: ${origin}`);
+    // Rejeita sem lançar Error — evita stack trace 500 no log; o browser recebe a resposta sem headers CORS
+    callback(null, false);
   },
   credentials: true,
 }));
