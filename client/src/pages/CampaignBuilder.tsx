@@ -220,6 +220,11 @@ export default function CampaignBuilder() {
     || SEGMENT_TO_NICHE[segment]
     || "geral";
 
+  // Pixel/Conversions API só é relevante quando a campanha aponta para um SITE.
+  // Sem site, o destino cai em WhatsApp (wa.me) ou Página — nenhum dos dois usa pixel,
+  // então "sem pixel" não deveria assustar quem só faz campanhas de WhatsApp.
+  const hasWebsite = !!(clientProfile as any)?.websiteUrl;
+
   const STEPS = ["Segmento", "Objetivo", "Plataforma", "Orçamento", "Detalhes", "Fotos", "Match IA", "Gerar"];
 
   // Roda o diagnóstico de conta UMA vez ao abrir o builder (loop fechado).
@@ -347,10 +352,10 @@ export default function CampaignBuilder() {
           tracking com problema ou recomendações da Meta. Conta saudável não
           polui a tela. Nunca bloqueia a criação. */}
       {projectId && diagnostics && !diagnostics.error && !diagDismissed &&
-       (diagnostics.trackingHealth !== "ok" || (diagnostics.recommendations?.length || 0) > 0 || diagnostics.opportunityScore !== null) && (
+       ((diagnostics.trackingHealth !== "ok" && hasWebsite) || (diagnostics.recommendations?.length || 0) > 0 || diagnostics.opportunityScore !== null) && (
         <div style={{
-          background: diagnostics.trackingHealth === "missing" ? "#fef2f2" : diagnostics.trackingHealth === "warning" ? "#fffbeb" : "#f0f9ff",
-          border: `1px solid ${diagnostics.trackingHealth === "missing" ? "#fecaca" : diagnostics.trackingHealth === "warning" ? "#fde68a" : "#bae6fd"}`,
+          background: (diagnostics.trackingHealth === "missing" && hasWebsite) ? "#fef2f2" : (diagnostics.trackingHealth === "warning" && hasWebsite) ? "#fffbeb" : "#f0f9ff",
+          border: `1px solid ${(diagnostics.trackingHealth === "missing" && hasWebsite) ? "#fecaca" : (diagnostics.trackingHealth === "warning" && hasWebsite) ? "#fde68a" : "#bae6fd"}`,
           borderRadius: 14, padding: "16px 20px", marginBottom: 20,
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -363,10 +368,18 @@ export default function CampaignBuilder() {
                 )}
               </p>
 
-              {/* Saúde do rastreamento */}
-              <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: diagnostics.recommendations?.length ? 8 : 0, lineHeight: 1.5 }}>
-                {diagnostics.summary?.tracking}
-              </p>
+              {/* Saúde do rastreamento — só exibida como alerta se houver site configurado.
+                  Sem site, o pixel é irrelevante (destino é WhatsApp/Página), então mostramos
+                  uma nota neutra em vez do alerta vermelho/amarelo. */}
+              {diagnostics.trackingHealth !== "ok" && !hasWebsite ? (
+                <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: diagnostics.recommendations?.length ? 8 : 0, lineHeight: 1.5 }}>
+                  ℹ️ Sem site cadastrado neste projeto — campanhas usarão WhatsApp ou Página como destino, que não dependem de pixel. Se futuramente usar um site, configure o pixel antes.
+                </p>
+              ) : (
+                <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: diagnostics.recommendations?.length ? 8 : 0, lineHeight: 1.5 }}>
+                  {diagnostics.summary?.tracking}
+                </p>
+              )}
 
               {/* Recomendações estruturais da Meta (até 3 no banner) */}
               {diagnostics.recommendations?.length > 0 && (
