@@ -308,12 +308,15 @@
       fbq('init', '1023228567098565');
       fbq('track', 'PageView');
     </script>
+    <!-- Fallback do Meta Pixel para navegadores sem JS foi movido para o body (regra do HTML) -->
+
+  </head>
+  <body>
+    <!-- Meta Pixel — fallback noscript (precisa estar no <body>, não <head>) -->
     <noscript><img height="1" width="1" style="display:none"
       src="https://www.facebook.com/tr?id=1023228567098565&ev=PageView&noscript=1"
     /></noscript>
 
-  </head>
-  <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
