@@ -96,7 +96,7 @@ function DonutChart({ segments }: { segments: { label: string; value: number; co
 
 export default function AdminAnalytics() {
   const { data: stats, isLoading } = trpc.admin.stats.useQuery();
-  const [tab, setTab] = useState<"overview" | "planos" | "financeiro">("overview");
+  const [tab, setTab] = useState<"overview" | "planos" | "financeiro" | "site">("overview");
 
   const planColors: Record<string, string> = { free: "#94a3b8", basic: "#3b82f6", premium: "var(--green)", vip: "#8b5cf6" };
   const planEmoji:  Record<string, string> = { free: "🆓", basic: "⚡", premium: "◈", vip: "◇" };
@@ -141,14 +141,14 @@ export default function AdminAnalytics() {
           <p style={{ fontSize: 13, color: "var(--muted)" }}>Métricas gerais da plataforma MECPro</p>
         </div>
         <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-          {(["overview", "planos", "financeiro"] as const).map((t, i) => (
+          {(["overview", "planos", "financeiro", "site"] as const).map((t, i) => (
             <button key={t} onClick={() => setTab(t)} style={{
               padding: "8px 16px", border: "none", cursor: "pointer",
               borderLeft: i > 0 ? "1px solid var(--border)" : "none",
               background: tab === t ? "var(--navy)" : "white",
               color: tab === t ? "white" : "var(--muted)",
               fontSize: 12, fontWeight: 700, transition: "all .15s",
-            }}>{t === "overview" ? "Visão geral" : t === "planos" ? "Planos" : "Financeiro"}</button>
+            }}>{t === "overview" ? "Visão geral" : t === "planos" ? "Planos" : t === "financeiro" ? "Financeiro" : "Site"}</button>
           ))}
         </div>
       </div>
@@ -299,6 +299,69 @@ export default function AdminAnalytics() {
                 </div>
               ))}
             </div>
+          </div>
+        </>
+      )}
+
+      {/* ── TAB SITE (tráfego mecproai.com) ── */}
+      {tab === "site" && (
+        <>
+          <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 20px", marginBottom: 20, display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <span style={{ fontSize: 18 }}>ℹ️</span>
+            <p style={{ fontSize: 12, color: "#1e40af", margin: 0, lineHeight: 1.6 }}>
+              Métricas de tráfego (GA4, Clarity, Meta Pixel) ficam nos dashboards de cada ferramenta —
+              não há API própria consultada aqui ainda. Os cards abaixo levam direto ao dashboard de cada uma.
+              Instalado no <code>index.html</code> do mecproai.com.
+            </p>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+            {[
+              {
+                name: "Google Analytics 4", icon: "📊", color: "#fef3c7",
+                id: "G-JJ1H7MV9B7", idLabel: "Measurement ID",
+                desc: "Sessões, páginas vistas, origem de tráfego, tempo real",
+                url: "https://analytics.google.com/analytics/web/",
+              },
+              {
+                name: "Microsoft Clarity", icon: "🎥", color: "#ede9fe",
+                id: "xpe2mj40zj", idLabel: "Project ID",
+                desc: "Gravações de sessão, heatmaps, rage clicks",
+                url: "https://clarity.microsoft.com/projects/view/xpe2mj40zj",
+              },
+              {
+                name: "Meta Pixel", icon: "📘", color: "#dbeafe",
+                id: "1023228567098565", idLabel: "Pixel ID",
+                desc: "Eventos de conversão, PageView, atribuição de anúncios",
+                url: "https://business.facebook.com/events_manager2/list/pixel/1023228567098565",
+              },
+            ].map(tool => (
+              <a key={tool.name} href={tool.url} target="_blank" rel="noreferrer"
+                style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 20, textDecoration: "none", display: "flex", flexDirection: "column", gap: 10, transition: "box-shadow .2s" }}
+                onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,.06)")}
+                onMouseLeave={e => (e.currentTarget.style.boxShadow = "none")}
+              >
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: tool.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{tool.icon}</div>
+                <div>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", marginBottom: 2 }}>{tool.name}</p>
+                  <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8, lineHeight: 1.5 }}>{tool.desc}</p>
+                  <p style={{ fontSize: 10, color: "var(--muted)", fontFamily: "monospace", background: "var(--off)", padding: "3px 8px", borderRadius: 6, display: "inline-block" }}>
+                    {tool.idLabel}: {tool.id}
+                  </p>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--green-d)", marginTop: 4 }}>Abrir dashboard →</span>
+              </a>
+            ))}
+          </div>
+
+          <div style={{ background: "var(--off)", border: "1px solid var(--border)", borderRadius: 14, padding: 20 }}>
+            <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 10 }}>Próximo passo possível</p>
+            <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>
+              Puxar métricas de tráfego direto para dentro desta aba (sem sair do MecProAI) requer credenciais
+              adicionais: um Service Account do Google com acesso à <strong>Analytics Data API</strong> na
+              propriedade GA4, e um token da <strong>Clarity Data Export API</strong>. Nenhuma das duas está
+              configurada ainda — os links acima são o caminho direto até isso ser priorizado.
+            </p>
           </div>
         </>
       )}
