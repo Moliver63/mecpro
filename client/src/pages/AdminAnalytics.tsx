@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 // ── Mini sparkline SVG ──────────────────────────────────────────────────────
 function Sparkline({ values, color = "var(--green)" }: { values: number[]; color?: string }) {
@@ -97,6 +98,15 @@ function DonutChart({ segments }: { segments: { label: string; value: number; co
 export default function AdminAnalytics() {
   const { data: stats, isLoading } = trpc.admin.stats.useQuery();
   const [tab, setTab] = useState<"overview" | "planos" | "financeiro" | "site">("overview");
+
+  // ── Dados GA4 (só busca quando a aba "site" está aberta) ────────────────
+  const ga4Status = (trpc as any).siteAnalytics?.status?.useQuery?.(undefined, { enabled: tab === "site" });
+  const ga4Summary = (trpc as any).siteAnalytics?.summary?.useQuery?.(
+    { days: 30 }, { enabled: tab === "site" && !!ga4Status?.data?.connected }
+  );
+  const ga4Timeseries = (trpc as any).siteAnalytics?.timeseries?.useQuery?.(
+    { days: 30 }, { enabled: tab === "site" && !!ga4Status?.data?.connected }
+  );
 
   const planColors: Record<string, string> = { free: "#94a3b8", basic: "#3b82f6", premium: "var(--green)", vip: "#8b5cf6" };
   const planEmoji:  Record<string, string> = { free: "🆓", basic: "⚡", premium: "◈", vip: "◇" };
@@ -306,12 +316,80 @@ export default function AdminAnalytics() {
       {/* ── TAB SITE (tráfego mecproai.com) ── */}
       {tab === "site" && (
         <>
+          {/* ── Status / erro da integração GA4 ── */}
+          {ga4Status?.isLoading && (
+            <div style={{ background: "var(--off)", border: "1px solid var(--border)", borderRadius: 14, padding: "14px 20px", marginBottom: 20, fontSize: 12, color: "var(--muted)" }}>
+              🔍 Verificando conexão com GA4...
+            </div>
+          )}
+
+          {ga4Status?.data && !ga4Status.data.configured && (
+            <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 14, padding: "14px 20px", marginBottom: 20 }}>
+              <p style={{ fontSize: 12, color: "#92400e", margin: 0, lineHeight: 1.6 }}>
+                ⚠️ GA4 ainda não conectado — falta a variável <code>GA4_SERVICE_ACCOUNT_JSON</code> no Render.
+                Enquanto isso, use os cards de acesso rápido abaixo.
+              </p>
+            </div>
+          )}
+
+          {ga4Status?.data?.configured && !ga4Status.data.connected && (
+            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 14, padding: "14px 20px", marginBottom: 20 }}>
+              <p style={{ fontSize: 12, color: "#991b1b", margin: 0, lineHeight: 1.6 }}>
+                🔴 Credencial GA4 configurada mas a conexão falhou: <strong>{ga4Status.data.error}</strong>.
+                Confirme se o e-mail da service account tem papel Leitor na propriedade {ga4Status.data.propertyId}.
+              </p>
+            </div>
+          )}
+
+          {/* ── Cards de resumo (30 dias vs 30 dias anteriores) ── */}
+          {ga4Status?.data?.connected && ga4Summary?.data && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
+              {[
+                { label: "Usuários ativos", ...ga4Summary.data.activeUsers },
+                { label: "Sessões",         ...ga4Summary.data.sessions },
+                { label: "Pageviews",       ...ga4Summary.data.pageViews },
+                { label: "Duração média (s)", value: ga4Summary.data.avgSessionSec.value, changePct: ga4Summary.data.avgSessionSec.changePct },
+              ].map(card => (
+                <div key={card.label} style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>{card.label}</p>
+                  <p style={{ fontSize: 24, fontWeight: 800, color: "var(--black)" }}>{card.value.toLocaleString("pt-BR")}</p>
+                  {card.changePct !== null && (
+                    <p style={{ fontSize: 11, fontWeight: 700, color: card.changePct >= 0 ? "#15803d" : "#dc2626", marginTop: 4 }}>
+                      {card.changePct >= 0 ? "▲" : "▼"} {Math.abs(card.changePct)}% vs período anterior
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Gráfico de série temporal ── */}
+          {ga4Status?.data?.connected && ga4Timeseries?.data?.rows?.length > 0 && (
+            <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 20, marginBottom: 24 }}>
+              <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 16 }}>
+                Tráfego — últimos {ga4Timeseries.data.days} dias
+              </p>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={ga4Timeseries.data.rows}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Line type="monotone" dataKey="activeUsers" name="Usuários" stroke="#1877f2" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="sessions" name="Sessões" stroke="#15803d" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="pageViews" name="Pageviews" stroke="#d97706" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
           <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 14, padding: "14px 20px", marginBottom: 20, display: "flex", gap: 12, alignItems: "flex-start" }}>
             <span style={{ fontSize: 18 }}>ℹ️</span>
             <p style={{ fontSize: 12, color: "#1e40af", margin: 0, lineHeight: 1.6 }}>
-              Métricas de tráfego (GA4, Clarity, Meta Pixel) ficam nos dashboards de cada ferramenta —
-              não há API própria consultada aqui ainda. Os cards abaixo levam direto ao dashboard de cada uma.
-              Instalado no <code>index.html</code> do mecproai.com.
+              Gráfico e cards acima usam a Google Analytics Data API (GA4) em tempo real. Clarity (heatmaps,
+              gravações) e detalhes extras do Meta Pixel continuam nos dashboards de cada ferramenta —
+              os cards abaixo levam direto até eles.
             </p>
           </div>
 
@@ -357,10 +435,9 @@ export default function AdminAnalytics() {
           <div style={{ background: "var(--off)", border: "1px solid var(--border)", borderRadius: 14, padding: 20 }}>
             <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 10 }}>Próximo passo possível</p>
             <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>
-              Puxar métricas de tráfego direto para dentro desta aba (sem sair do MecProAI) requer credenciais
-              adicionais: um Service Account do Google com acesso à <strong>Analytics Data API</strong> na
-              propriedade GA4, e um token da <strong>Clarity Data Export API</strong>. Nenhuma das duas está
-              configurada ainda — os links acima são o caminho direto até isso ser priorizado.
+              GA4 já está integrado ao vivo (gráfico e cards acima). Falta a <strong>Clarity Data Export API</strong>
+              para trazer engajamento/rage clicks direto pra cá — heatmaps e gravações de sessão em si continuam
+              exclusivos do dashboard da Clarity (não são exportáveis por API).
             </p>
           </div>
         </>

@@ -13,6 +13,7 @@ import { validateCode, type ValidatedCode } from "./pixBoletoValidator";
 import { ENV } from "./env";
 import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
+import { siteAnalyticsRouter } from "./siteAnalyticsRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
 import { calculateScore } from "../campaignIntelligenceEngine";
@@ -12651,6 +12652,7 @@ export const appRouter = router({
   consultas: consultasRouter,
   academy: academyRouter,
   intelligence:   adminIntelligenceRouter,
+  siteAnalytics:  siteAnalyticsRouter,
   vsl:            vslRouter,   // ← ADICIONAR ESTA LINHA
   public:         publicRouter,
 });
