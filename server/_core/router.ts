@@ -6443,12 +6443,34 @@ const integrationsRouter = router({
       const pages = pagesData.data || [];
 
       // 6. Salvar token no banco (atualiza integração existente)
+      // REGRA: NUNCA sobrescrever cegamente o adAccountId salvo com adAccounts[0].
+      // A ordem da lista do Graph é arbitrária — se o usuário tem acesso a várias
+      // contas, a "primeira" pode ser outra (sem grant pro app) → #200 imediato.
+      // Prioridade: (1) conta salva, se ainda aparece na lista de contas acessíveis;
+      //             (2) conta salva, se a lista veio vazia (falha parcial do Graph);
+      //             (3) primeira conta da lista (só quando não havia nenhuma salva).
+      const savedDigits = ((integration?.adAccountId as string) || "").replace(/^act_/, "").replace(/\D/g, "");
+      const listedIds = adAccounts.map((a: any) => String(a.id || "").replace(/^act_/, ""));
+      let chosenAccountId: string | null = null;
+      if (savedDigits && (listedIds.length === 0 || listedIds.includes(savedDigits))) {
+        chosenAccountId = savedDigits;                                  // preserva a conta configurada
+      } else if (adAccounts[0]?.id) {
+        chosenAccountId = String(adAccounts[0].id).replace(/^act_/, "").replace(/\D/g, "");
+      } else {
+        chosenAccountId = savedDigits || null;
+      }
+      if (savedDigits && chosenAccountId !== savedDigits) {
+        log.warn("meta-oauth", "adAccountId trocado no OAuth — conta salva não está mais acessível", {
+          userId: ctx.user.id, antes: savedDigits, depois: chosenAccountId,
+        });
+      }
+
       const tokenExpiry = new Date(Date.now() + expiresIn * 1000);
       await db.upsertApiIntegration({
         userId:         ctx.user.id,
         provider:       "meta",
         accessToken:    longToken,
-        adAccountId:    adAccounts[0]?.id || integration?.adAccountId || null,
+        adAccountId:    chosenAccountId,
         tokenExpiresAt: tokenExpiry,
       });
 
