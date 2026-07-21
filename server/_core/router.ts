@@ -6493,6 +6493,106 @@ const integrationsRouter = router({
       };
     }),
 
+  // ── Conexão via Business Manager: lista BMs e suas contas (owned + client) ──
+  // Complementa a conexão por conta direta (me/adaccounts): contas que vivem
+  // dentro de portfólios empresariais só aparecem por aqui. Usa o token já salvo
+  // (escopo business_management), sem exigir reconexão.
+  listMetaBusinesses: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta") as any;
+      if (!integration?.accessToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Conecte-se ao Meta primeiro (token ausente)." });
+      }
+      const token = integration.accessToken as string;
+      const API = "https://graph.facebook.com/v20.0";
+
+      const fetchJson = async (url: string) => {
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        return res.json() as any;
+      };
+
+      // 1. Lista os Business Managers do usuário
+      const bizData = await fetchJson(`${API}/me/businesses?fields=id,name&limit=50&access_token=${token}`);
+      if (bizData.error) {
+        const ec = bizData.error.code;
+        if (ec === 190) throw new TRPCError({ code: "UNAUTHORIZED", message: "🔑 Token Meta expirado. Reconecte com Facebook." });
+        if (ec === 200) throw new TRPCError({ code: "FORBIDDEN", message: "Token sem permissão business_management. Reconecte autorizando esse escopo." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Meta: ${bizData.error.message}` });
+      }
+
+      const businesses = bizData.data || [];
+      const fields = "id,name,account_status,currency";
+
+      // 2. Para cada BM, busca contas owned + client (em paralelo, tolerante a falha)
+      const enriched = await Promise.all(businesses.map(async (b: any) => {
+        const [owned, client] = await Promise.all([
+          fetchJson(`${API}/${b.id}/owned_ad_accounts?fields=${fields}&limit=100&access_token=${token}`).catch(() => ({ data: [] })),
+          fetchJson(`${API}/${b.id}/client_ad_accounts?fields=${fields}&limit=100&access_token=${token}`).catch(() => ({ data: [] })),
+        ]);
+        const norm = (arr: any[], rel: "owned" | "client") =>
+          (arr || []).map((a: any) => ({
+            id:       String(a.id || "").replace(/^act_/, ""),
+            name:     a.name || "Conta sem nome",
+            status:   a.account_status,   // 1 = ativa
+            currency: a.currency || null,
+            relation: rel,
+          }));
+        return {
+          businessId:   b.id,
+          businessName: b.name || "Business sem nome",
+          accounts: [...norm(owned.data, "owned"), ...norm(client.data, "client")],
+        };
+      }));
+
+      const totalAccounts = enriched.reduce((s, b) => s + b.accounts.length, 0);
+      const currentAccountId = ((integration.adAccountId as string) || "").replace(/^act_/, "").replace(/\D/g, "");
+
+      return { businesses: enriched, totalAccounts, currentAccountId };
+    }),
+
+  // ── Seleciona uma conta de anúncios sem trocar o token ──────────────────────
+  // Usado tanto pela conexão via BM quanto para trocar de conta manualmente.
+  // Preserva accessToken/expiry — muda só o adAccountId (sanitizado a dígitos).
+  selectMetaAdAccount: protectedProcedure
+    .input(z.object({ adAccountId: z.string().min(5) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta") as any;
+      if (!integration?.accessToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Conecte-se ao Meta primeiro." });
+      }
+      const digits = input.adAccountId.replace(/^act_/, "").replace(/\D/g, "");
+      if (digits.length < 5) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "ID de conta inválido (apenas números, ex: 123456789)." });
+      }
+
+      // Valida acesso à conta ANTES de salvar (evita gravar conta sem grant → #200 depois)
+      const testRes = await fetch(
+        `https://graph.facebook.com/v20.0/act_${digits}?fields=name,account_status&access_token=${integration.accessToken}`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      const testData: any = await testRes.json();
+      if (testData.error) {
+        const ec = testData.error.code;
+        if (ec === 190) throw new TRPCError({ code: "UNAUTHORIZED", message: "🔑 Token Meta expirado. Reconecte com Facebook." });
+        if (ec === 200) throw new TRPCError({ code: "FORBIDDEN", message: "Sem permissão nesta conta. O app precisa de acesso a ela no Business Manager." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Meta: ${testData.error.message}` });
+      }
+
+      await db.upsertApiIntegration({
+        userId:      ctx.user.id,
+        provider:    "meta",
+        accessToken: integration.accessToken,   // preserva token e expiry
+        adAccountId: digits,
+        tokenExpiresAt: integration.tokenExpiresAt || undefined,
+      });
+
+      log.info("meta", "Conta de anúncios selecionada via seletor", {
+        userId: ctx.user.id, adAccountId: digits, name: testData.name,
+      });
+
+      return { ok: true, adAccountId: digits, name: testData.name, status: testData.account_status };
+    }),
+
   // ── Salvar e validar WhatsApp na conta Meta ──────────────────────────────
   saveWhatsApp: protectedProcedure
     .input(z.object({

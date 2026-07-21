@@ -133,6 +133,18 @@ export default function MetaIntegration() {
 
   const existing = (integrations as ApiIntegration[] | undefined)?.find(i => i.provider === "meta");
 
+  // ── Conexão via Business Manager ──
+  const [bmData, setBmData] = useState<any>(null);
+  const [bmExpanded, setBmExpanded] = useState(false);
+  const listBusinesses = (trpc as any).integrations?.listMetaBusinesses?.useMutation?.({
+    onSuccess: (d: any) => { setBmData(d); setBmExpanded(true); },
+    onError: (e: any) => toast.error(`✕ ${e.message}`),
+  });
+  const selectAccount = (trpc as any).integrations?.selectMetaAdAccount?.useMutation?.({
+    onSuccess: (d: any) => { toast.success(`◎ Conta ${d.name} selecionada!`); refetch(); },
+    onError: (e: any) => toast.error(`✕ ${e.message}`),
+  });
+
   const [accessToken, setAccessToken] = useState("");
   const [adAccountId, setAdAccountId] = useState("");
   const [appId,       setAppId]       = useState("");
@@ -298,6 +310,69 @@ export default function MetaIntegration() {
                 onSaved={(phone) => setWaPhone(phone)}
                 compact
               />
+            </div>
+
+            {/* ── Trocar conta via Business Manager ── */}
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${tokenExpired ? "#fed7aa" : "#dcfce7"}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", marginBottom: 2 }}>🏢 Conectar por Business Manager</p>
+                  <p style={{ fontSize: 11, color: "var(--muted)" }}>Escolha uma conta de dentro dos seus portfólios empresariais (owned e de clientes).</p>
+                </div>
+                <button
+                  onClick={() => listBusinesses?.mutate?.()}
+                  disabled={listBusinesses?.isPending || tokenExpired}
+                  style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "1px solid #bfdbfe", background: "#eff6ff", color: "#1e40af", cursor: (listBusinesses?.isPending || tokenExpired) ? "not-allowed" : "pointer", opacity: (listBusinesses?.isPending || tokenExpired) ? 0.5 : 1, flexShrink: 0 }}>
+                  {listBusinesses?.isPending ? "⏳ Buscando..." : bmExpanded ? "🔄 Recarregar" : "🔍 Listar contas"}
+                </button>
+              </div>
+
+              {bmExpanded && bmData && (
+                <div style={{ marginTop: 12 }}>
+                  {bmData.totalAccounts === 0 ? (
+                    <p style={{ fontSize: 12, color: "var(--muted)", background: "#f8fafc", padding: "10px 14px", borderRadius: 8 }}>
+                      Nenhuma conta de anúncios encontrada nos seus portfólios. Verifique se você é membro de algum Business Manager com contas atribuídas.
+                    </p>
+                  ) : (
+                    bmData.businesses.filter((b: any) => b.accounts.length > 0).map((b: any) => (
+                      <div key={b.businessId} style={{ marginBottom: 14 }}>
+                        <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>
+                          {b.businessName}
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {b.accounts.map((acc: any) => {
+                            const isCurrent = acc.id === bmData.currentAccountId;
+                            return (
+                              <button key={acc.id}
+                                onClick={() => !isCurrent && selectAccount?.mutate?.({ adAccountId: acc.id })}
+                                disabled={isCurrent || selectAccount?.isPending}
+                                style={{
+                                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+                                  padding: "10px 14px", borderRadius: 10, textAlign: "left",
+                                  border: `1px solid ${isCurrent ? "#86efac" : "var(--border)"}`,
+                                  background: isCurrent ? "#f0fdf4" : "white",
+                                  cursor: isCurrent ? "default" : "pointer",
+                                }}>
+                                <div>
+                                  <p style={{ fontSize: 12, fontWeight: 700, color: "var(--black)" }}>{acc.name}</p>
+                                  <p style={{ fontSize: 10, color: "var(--muted)", fontFamily: "monospace" }}>
+                                    {acc.id} · {acc.relation === "owned" ? "própria" : "cliente"}
+                                    {acc.currency ? ` · ${acc.currency}` : ""}
+                                    {acc.status === 1 ? " · ativa" : acc.status ? " · inativa" : ""}
+                                  </p>
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: isCurrent ? "#15803d" : "#1e40af", flexShrink: 0 }}>
+                                  {isCurrent ? "◎ atual" : selectAccount?.isPending ? "..." : "Selecionar →"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Painel de diagnóstico — aparece após testar */}
