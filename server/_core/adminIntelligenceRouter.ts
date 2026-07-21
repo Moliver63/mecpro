@@ -1233,7 +1233,10 @@ export async function runAnalysisInternal(opts: {
     const { getPool } = await import("../db.js");
     const dbMod = await import("../db.js");
     const pool = await getPool();
-    if (!pool) return { scored: 0, patternsExtracted: 0, errors: 1 };
+    if (!pool) {
+      log.warn("ml-analysis", "Análise abortada: pool de banco indisponível");
+      return { scored: 0, patternsExtracted: 0, errors: 1 };
+    }
 
     const {
       calculateScore, extractWinnerParameters,
@@ -1341,12 +1344,23 @@ export async function runAnalysisInternal(opts: {
                  update.avg_ctr, update.avg_cpc, update.avg_cpm]
               ).catch(() => {});
             }
-          } catch { errors++; }
+          } catch (ce: any) {
+            errors++;
+            log.warn("ml-analysis", "Falha ao analisar campanha", {
+              campaignId: c?.id, projectId: project?.id, error: ce?.message?.slice(0, 120),
+            });
+          }
         }
-      } catch { errors++; }
+      } catch (pe: any) {
+        errors++;
+        log.warn("ml-analysis", "Falha ao processar projeto", {
+          projectId: project?.id, error: pe?.message?.slice(0, 120),
+        });
+      }
     }
     return { scored, patternsExtracted, errors };
   } catch (e: any) {
+    log.warn("ml-analysis", "Falha global na análise automática", { error: e?.message?.slice(0, 160) });
     return { scored: 0, patternsExtracted: 0, errors: 1 };
   }
 }
