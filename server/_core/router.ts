@@ -7041,17 +7041,61 @@ const integrationsRouter = router({
       appId:        z.string().optional(),
       appSecret:    z.string().optional(),
     }))
-    .mutation(({ input, ctx }) => db.upsertApiIntegration({
-      userId:      ctx.user.id,
-      provider:    "meta",
-      accessToken: input.accessToken,
-      // Normaliza para só dígitos (sem act_) antes de salvar
-      adAccountId: input.adAccountId.replace(/^act_/, "").replace(/\D/g, ""),
-      appId:       input.appId,
-      appSecret:   input.appSecret,
-      isActive:    1,
-      tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000), // 60 dias
-    })),
+    .mutation(async ({ input, ctx }) => {
+      const digits = input.adAccountId.replace(/^act_/, "").replace(/\D/g, "");
+
+      // ── Validade REAL do token (nunca assumir 60 dias) ────────────────────
+      // BUG HISTÓRICO: aqui havia `tokenExpiresAt: now + 60 dias` fixo. Ao colar
+      // um token CURTO do Graph Explorer (vive ~1-2h), o banco registrava 60 dias
+      // e a UI exibia "válido até <daqui 2 meses>" — mentira. Horas depois o token
+      // morria com código 190 enquanto a tela ainda dizia estar válido.
+      // Agora perguntamos ao próprio Meta (debug_token) qual a validade de fato.
+      const appId     = input.appId     || process.env.META_APP_ID     || process.env.FACEBOOK_APP_ID     || "";
+      const appSecret = input.appSecret || process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "";
+
+      let realExpiry: Date | null = null;
+      if (appId && appSecret) {
+        try {
+          const dbgRes = await fetch(
+            `https://graph.facebook.com/v20.0/debug_token?input_token=${input.accessToken}` +
+            `&access_token=${appId}|${appSecret}`,
+            { signal: AbortSignal.timeout(8000) }
+          );
+          const dbg: any = await dbgRes.json();
+          const expAt = dbg?.data?.expires_at;
+          // expires_at = 0 significa "não expira"; ausente = não foi possível determinar
+          if (typeof expAt === "number") realExpiry = expAt === 0 ? null : new Date(expAt * 1000);
+        } catch { /* rede/timeout: mantém desconhecido em vez de inventar prazo */ }
+      }
+
+      const saved = await db.upsertApiIntegration({
+        userId:      ctx.user.id,
+        provider:    "meta",
+        accessToken: input.accessToken,
+        adAccountId: digits,              // só dígitos (sem act_)
+        appId:       input.appId,
+        appSecret:   input.appSecret,
+        isActive:    1,
+        // null = validade desconhecida ou token sem expiração. Preferimos NÃO
+        // exibir prazo a exibir um prazo falso.
+        tokenExpiresAt: realExpiry as any,
+      });
+
+      const daysLeft = realExpiry ? Math.floor((realExpiry.getTime() - Date.now()) / 86400000) : null;
+      log.info("meta", "Integração salva", {
+        userId: ctx.user.id, adAccountId: digits,
+        tokenExpiry: realExpiry ? realExpiry.toISOString() : "desconhecida",
+        daysLeft,
+      });
+
+      return {
+        ...(saved as any),
+        tokenExpiryKnown: realExpiry !== null,
+        daysLeft,
+        // Sinaliza token de curta duração (Graph Explorer) para a UI avisar
+        isShortLived: daysLeft !== null && daysLeft < 7,
+      };
+    }),
 
   delete: protectedProcedure
     .input(z.object({ provider: z.string() }))
@@ -7121,24 +7165,56 @@ const integrationsRouter = router({
       const integration = await db.getApiIntegration(ctx.user.id, "meta");
       if (!integration || !(integration as any).accessToken) throw new Error("Integração Meta não configurada.");
       const shortToken = (integration as any).accessToken as string;
-      const appId      = (integration as any).appId as string;
-      const appSecret  = (integration as any).appSecret as string;
-      if (!appId || !appSecret) throw new Error("App ID e App Secret são necessários. Configure-os em Configurações → Meta Ads.");
-      const url = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortToken}`;
+      // Fallback para variáveis de ambiente — o fluxo OAuth (exchangeMetaCode) NÃO
+      // grava appId/appSecret no banco, e no formulário manual esses campos são
+      // opcionais. Sem este fallback, o botão "Renovar token (60 dias)" falhava
+      // com "App ID e App Secret são necessários" mesmo com as env vars definidas.
+      const appId     = (integration as any).appId     || process.env.META_APP_ID     || process.env.FACEBOOK_APP_ID     || "";
+      const appSecret = (integration as any).appSecret || process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "";
+      if (!appId || !appSecret) throw new Error("App ID e App Secret não configurados (nem no perfil, nem no ambiente do servidor).");
+      const url = `https://graph.facebook.com/v20.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortToken}`;
       const res  = await fetch(url);
       const data = await res.json() as any;
       if (data.error) throw new Error(`Meta: ${data.error.message}`);
       if (!data.access_token) throw new Error("Token longo não retornado pela Meta.");
-      const expiresIn = data.expires_in || 5184000;
-      const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000);
+
+      // Confirma a validade REAL do token recém-gerado em vez de confiar no
+      // expires_in (que a Meta omite ao re-trocar um token já longo).
+      let tokenExpiresAt: Date | null = null;
+      try {
+        const dbgRes = await fetch(
+          `https://graph.facebook.com/v20.0/debug_token?input_token=${data.access_token}` +
+          `&access_token=${appId}|${appSecret}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const dbg: any = await dbgRes.json();
+        const expAt = dbg?.data?.expires_at;
+        if (typeof expAt === "number") tokenExpiresAt = expAt === 0 ? null : new Date(expAt * 1000);
+      } catch { /* cai no fallback abaixo */ }
+      if (!tokenExpiresAt && data.expires_in) {
+        tokenExpiresAt = new Date(Date.now() + Number(data.expires_in) * 1000);
+      }
+
       await db.upsertApiIntegration({
         userId: ctx.user.id, provider: "meta",
         accessToken: data.access_token,
         adAccountId: (integration as any).adAccountId,
-        appId, appSecret, isActive: 1, tokenExpiresAt,
+        appId, appSecret, isActive: 1,
+        tokenExpiresAt: tokenExpiresAt as any,
       });
-      log.info("meta", "Token longo gerado", { userId: ctx.user.id, tokenExpiresAt: tokenExpiresAt.toISOString() });
-      return { ok: true, tokenExpiresAt: tokenExpiresAt.toISOString(), expiresInDays: Math.floor(expiresIn / 86400) };
+      const expiresInDays = tokenExpiresAt
+        ? Math.floor((tokenExpiresAt.getTime() - Date.now()) / 86400000)
+        : null;
+      log.info("meta", "Token longo gerado", {
+        userId: ctx.user.id,
+        tokenExpiresAt: tokenExpiresAt ? tokenExpiresAt.toISOString() : "sem expiração/desconhecida",
+        expiresInDays,
+      });
+      return {
+        ok: true,
+        tokenExpiresAt: tokenExpiresAt ? tokenExpiresAt.toISOString() : null,
+        expiresInDays,
+      };
     }),
 
   // -- Upload de imagem → retorna image_hash real para uso em criativos ------

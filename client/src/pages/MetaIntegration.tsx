@@ -80,7 +80,23 @@ export default function MetaIntegration() {
   const { data: integrations, refetch, isLoading } = trpc.integrations.list.useQuery();
 
   const upsert = trpc.integrations.upsertMeta.useMutation({
-    onSuccess: () => { toast.success("◎ Integração Meta salva com sucesso!"); refetch(); },
+    onSuccess: (d: any) => {
+      refetch();
+      // Avisa quando o token colado é de curta duração (típico do Graph Explorer).
+      // Antes o sistema gravava "60 dias" para qualquer token e o usuário só
+      // descobria a expiração quando tudo já tinha quebrado.
+      if (d?.isShortLived) {
+        toast.warning(
+          `⚠️ Token salvo, mas expira em ${d.daysLeft ?? 0} dia(s). ` +
+          `Clique em "Renovar token (60 dias)" agora para gerar um de longa duração.`,
+          { duration: 8000 }
+        );
+      } else if (d?.tokenExpiryKnown === false) {
+        toast.success("◎ Integração salva. Validade do token não informada pela Meta.");
+      } else {
+        toast.success("◎ Integração Meta salva com sucesso!");
+      }
+    },
     onError:   (e) => toast.error(`✕ Erro ao salvar: ${e.message}`),
   });
 
@@ -124,8 +140,13 @@ export default function MetaIntegration() {
     onSuccess: (d: any) => {
       // BUG FIX 1: o backend retorna tokenExpiresAt (não expiresAt)
       const expiry = d.tokenExpiresAt ?? d.expiresAt;
-      const dateStr = expiry ? new Date(expiry).toLocaleDateString("pt-BR") : "—";
-      toast.success(`◎ Token longo gerado! Válido por ${d.expiresInDays} dias (até ${dateStr})`);
+      if (!expiry) {
+        toast.success("◎ Token longo gerado! (sem data de expiração informada pela Meta)");
+      } else {
+        const dateStr = new Date(expiry).toLocaleDateString("pt-BR");
+        const dias = d.expiresInDays != null ? `Válido por ${d.expiresInDays} dias ` : "";
+        toast.success(`◎ Token longo gerado! ${dias}(até ${dateStr})`);
+      }
       refetch();
     },
     onError: (e) => toast.error(`✕ ${e.message}`),
