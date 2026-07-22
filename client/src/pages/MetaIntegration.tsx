@@ -329,12 +329,12 @@ export default function MetaIntegration() {
 
               {bmExpanded && bmData && (
                 <div style={{ marginTop: 12 }}>
-                  {bmData.totalAccounts === 0 ? (
+                  {!bmData.totalAccounts ? (
                     <p style={{ fontSize: 12, color: "var(--muted)", background: "#f8fafc", padding: "10px 14px", borderRadius: 8 }}>
                       Nenhuma conta de anúncios encontrada nos seus portfólios. Verifique se você é membro de algum Business Manager com contas atribuídas.
                     </p>
                   ) : (
-                    bmData.businesses.filter((b: any) => b.accounts.length > 0).map((b: any) => (
+                    (bmData.businesses || []).filter((b: any) => b.accounts?.length > 0).map((b: any) => (
                       <div key={b.businessId} style={{ marginBottom: 14 }}>
                         <p style={{ fontSize: 11, fontWeight: 800, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>
                           {b.businessName}
