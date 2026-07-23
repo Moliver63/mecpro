@@ -284,7 +284,7 @@ function RaioX({ comp, onClose, onAnalyze, analyzing, onEdit, projectId, onTikTo
               borderLeft: i > 0 ? "1px solid var(--border)" : "none",
               background: adTab === t.key ? "var(--navy)" : "white",
               color: adTab === t.key ? "white" : "var(--muted)",
-              fontSize: 11, fontWeight: 700,
+              fontSize: 11, fontWeight: 700, transition: "background .15s, color .15s",
             }}>
               {t.icon} {t.label}
             </button>
@@ -937,6 +937,7 @@ export default function CompetitorAnalysis() {
   // ── Busca por segmento (todos os anúncios de um termo, não 1 concorrente) ──
   const [segmentTerm, setSegmentTerm] = useState("");
   const [segmentResult, setSegmentResult] = useState<any>(null);
+  const [showCascadeInfo, setShowCascadeInfo] = useState(false);
   const searchSegmentMutation = (trpc as any).competitors?.searchBySegment?.useMutation?.({
     onSuccess: (data: any) => {
       setSegmentResult(data);
@@ -1097,40 +1098,68 @@ export default function CompetitorAnalysis() {
   return (
     <Layout>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: "var(--green-l)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🔍</div>
-          <div>
-            <button className="btn btn-sm btn-ghost" onClick={() => setLocation(`/projects/${projectId}/client`)} style={{ paddingLeft: 0, marginBottom: 6 }}>← Módulo 1</button>
-            <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 2 }}>Análise de Concorrentes</h1>
-            <p style={{ fontSize: 13, color: "var(--muted)" }}>Módulo 2 — Sistema de coleta com 7 camadas de fallback</p>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: "var(--green-l)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🔍</div>
+            <div>
+              <button className="btn btn-sm btn-ghost" onClick={() => setLocation(`/projects/${projectId}/client`)} style={{ paddingLeft: 0, marginBottom: 4 }}>← Módulo 1</button>
+              <h1 style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 800, color: "var(--black)", marginBottom: 2 }}>Análise de Concorrentes</h1>
+              <button onClick={() => setShowCascadeInfo(v => !v)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 4 }}>
+                Módulo 2 · coleta com 7 camadas de fallback
+                <span style={{ fontSize: 10, transform: showCascadeInfo ? "rotate(90deg)" : "none", transition: "transform .15s", display: "inline-block" }}>▶</span>
+              </button>
+            </div>
           </div>
+
+          {/* Hub de ações — um único lugar para começar */}
+          {(competitors?.length || 0) > 0 && !adding && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="btn btn-sm btn-primary" onClick={() => { setAdding(true); setSelected(null); }}>+ Adicionar concorrente</button>
+              <button
+                onClick={() => {
+                  if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
+                  discoverMut.mutate({ projectId });
+                }}
+                disabled={(discoverMut as any).isPending}
+                style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 8,
+                  border: "1px solid #a78bfa", background: "#faf5ff", color: "#7c3aed",
+                  cursor: (discoverMut as any).isPending ? "wait" : "pointer" }}>
+                {(discoverMut as any).isPending ? "⏳ Buscando..." : "✨ Descobrir com IA"}
+              </button>
+            </div>
+          )}
         </div>
 
-        <div style={{ background: "var(--navy)", borderRadius: 14, padding: "14px 18px" }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>🧠</span>
-            <div>
-              <p style={{ fontSize: 12, fontWeight: 700, color: "white", marginBottom: 6 }}>Pipeline de coleta com 7 camadas de fallback:</p>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {CASCADE_LAYERS.map((l) => (
-                  <span key={l.n} style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: l.bg, color: l.color }}>
-                    {l.n}. {l.icon} {l.label.split("→")[0].trim()}
-                  </span>
-                ))}
+        {/* Detalhe técnico das 7 camadas — recolhido por padrão, sob demanda */}
+        {showCascadeInfo && (
+          <div style={{ background: "var(--navy)", borderRadius: 14, padding: "14px 18px", marginTop: 12 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>🧠</span>
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "white", marginBottom: 6 }}>Ordem de tentativa quando você analisa um concorrente:</p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {CASCADE_LAYERS.map((l) => (
+                    <span key={l.n} style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20, background: l.bg, color: l.color }}>
+                      {l.n}. {l.icon} {l.label.split("→")[0].trim()}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── Busca por segmento (todos os anúncios de um termo) ── */}
       <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 20, marginBottom: 20 }}>
-        <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>🔍 Buscar por segmento</p>
-        <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
-          Busca todos os anúncios ativos de um termo (ex: "cosméticos veganos", "clínica estética")
-          na Ads Library — sem precisar cadastrar concorrente por concorrente.
-        </p>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+          <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)" }}>🔍 Buscar por segmento</p>
+          <p style={{ fontSize: 12, color: "var(--muted)" }}>
+            todos os anúncios de um termo, sem cadastrar concorrente por concorrente
+          </p>
+        </div>
         <div style={{ display: "flex", gap: 10 }}>
           <input
             className="input"
@@ -1219,26 +1248,37 @@ export default function CompetitorAnalysis() {
           {/* ── COLUNA ESQUERDA ── */}
           <div>
             {noCompetitors && !adding && (
-              <div style={{ background: "white", border: "2px dashed var(--green)", borderRadius: 18, padding: 48, textAlign: "center" }}>
-                <div style={{ fontSize: 48, marginBottom: 14 }}>🏁</div>
-                <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 8 }}>Adicione seu primeiro concorrente</h2>
-                <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24, maxWidth: 380, margin: "0 auto 24px" }}>
-                  Cole o link da Ads Library, pesquise pelo nome da empresa ou pelo @handle do Instagram. O sistema usará as 7 camadas para encontrar os anúncios.
+              <div style={{ background: "white", border: "2px dashed var(--green)", borderRadius: 18, padding: "40px 32px", textAlign: "center" }}>
+                <div style={{ fontSize: 44, marginBottom: 12 }}>🏁</div>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Comece a mapear sua concorrência</h2>
+                <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, marginBottom: 24, maxWidth: 400, margin: "0 auto 24px" }}>
+                  Três caminhos — use o que fizer mais sentido agora:
                 </p>
-                <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-                  <button className="btn btn-lg btn-green" onClick={() => setAdding(true)}>+ Adicionar manualmente</button>
-                  <button
-                    onClick={() => {
-                      if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
-                      discoverMut.mutate({ projectId });
-                    }}
-                    disabled={(discoverMut as any).isPending}
-                    style={{ fontSize: 14, fontWeight: 800, padding: "12px 22px", borderRadius: 12,
-                      border: "2px solid #7c3aed", background: "#faf5ff", color: "#7c3aed",
-                      cursor: (discoverMut as any).isPending ? "wait" : "pointer",
-                      display: "flex", alignItems: "center", gap: 8 }}>
-                    {(discoverMut as any).isPending ? "⏳ Buscando concorrentes..." : "🔍 Descobrir concorrentes com IA"}
-                  </button>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, maxWidth: 640, margin: "0 auto", textAlign: "left" }}>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>🔍 Por segmento</p>
+                    <p style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>Digite um termo no campo acima e veja todos os anúncios do nicho de uma vez.</p>
+                  </div>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>➕ Manualmente</p>
+                    <p style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>Já sabe quem é o concorrente? Cole o link, nome ou @handle.</p>
+                    <button className="btn btn-sm btn-green" onClick={() => setAdding(true)}>Adicionar</button>
+                  </div>
+                  <div style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 16 }}>
+                    <p style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>✨ Com IA</p>
+                    <p style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 }}>A IA sugere concorrentes com base no seu perfil do Módulo 1.</p>
+                    <button
+                      onClick={() => {
+                        if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
+                        discoverMut.mutate({ projectId });
+                      }}
+                      disabled={(discoverMut as any).isPending}
+                      style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 8,
+                        border: "1px solid #a78bfa", background: "#faf5ff", color: "#7c3aed",
+                        cursor: (discoverMut as any).isPending ? "wait" : "pointer" }}>
+                      {(discoverMut as any).isPending ? "⏳ Buscando..." : "Descobrir"}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1418,21 +1458,6 @@ export default function CompetitorAnalysis() {
                     <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>
                       Concorrentes <span style={{ color: "var(--muted)", fontWeight: 400 }}>({competitors?.length})</span>
                     </span>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        onClick={() => {
-                          if (!clientProfile) { toast.error("Preencha o Módulo 1 (Perfil do Cliente) primeiro."); return; }
-                          discoverMut.mutate({ projectId });
-                        }}
-                        disabled={(discoverMut as any).isPending}
-                        style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 8,
-                          border: "1px solid #a78bfa", background: "#faf5ff", color: "#7c3aed",
-                          cursor: (discoverMut as any).isPending ? "wait" : "pointer",
-                          display: "flex", alignItems: "center", gap: 5 }}>
-                        {(discoverMut as any).isPending ? "⏳ Buscando..." : "🔍 Descobrir com IA"}
-                      </button>
-                      <button className="btn btn-sm btn-primary" onClick={() => { setAdding(true); setSelected(null); }}>+ Adicionar</button>
-                    </div>
                   </div>
                 )}
 
