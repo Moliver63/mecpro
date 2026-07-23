@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { toast } from "sonner";
 
 // ── Mini sparkline SVG ──────────────────────────────────────────────────────
 function Sparkline({ values, color = "var(--green)" }: { values: number[]; color?: string }) {
@@ -99,6 +100,22 @@ export default function AdminAnalytics() {
   const { data: stats, isLoading } = trpc.admin.stats.useQuery();
   const [tab, setTab] = useState<"overview" | "planos" | "financeiro" | "site">("overview");
 
+  // ── Disparo manual da análise ML (learning_base parado desde 05/06) ────
+  const [lastRunResult, setLastRunResult] = useState<any>(null);
+  const runAnalysis = (trpc as any).intelligence?.runAnalysisNow?.useMutation?.({
+    onSuccess: (d: any) => {
+      setLastRunResult({ ...d, ranAt: new Date().toISOString() });
+      if (d.errors > 0 && d.scored === 0) {
+        toast.error(`⚠️ Análise rodou mas falhou: 0 campanhas processadas, ${d.errors} erro(s). Veja o log [ml-analysis] no Render.`);
+      } else if (d.errors > 0) {
+        toast.warning(`◎ Análise concluída com ressalvas: ${d.scored} campanha(s) processada(s), ${d.errors} erro(s).`);
+      } else {
+        toast.success(`◎ Análise concluída: ${d.scored} campanha(s) processada(s), ${d.patternsExtracted} padrão(ões) extraído(s).`);
+      }
+    },
+    onError: (e: any) => toast.error(`✕ Falha ao disparar análise: ${e.message}`),
+  });
+
   // ── Dados GA4 (só busca quando a aba "site" está aberta) ────────────────
   const ga4Status = (trpc as any).siteAnalytics?.status?.useQuery?.(undefined, { enabled: tab === "site" });
   const ga4Summary = (trpc as any).siteAnalytics?.summary?.useQuery?.(
@@ -177,6 +194,48 @@ export default function AdminAnalytics() {
             <KpiCard label="Taxa de conversão"     value={`${conversionRate}%`}        icon="📊" color="#fef2f2" sub="free → pago" trend={conversionRate > 10 ? 5 : -3} />
             <KpiCard label="Total de projetos"     value={stats?.totalProjects ?? 0}   icon="◫" color="#f0fdf4" />
             <KpiCard label="ARPU mensal"           value={`R$ ${arpu}`}                icon="💡" color="#ecfdf5" sub="por assinante" trend={3} />
+          </div>
+
+          {/* Diagnóstico do pipeline de aprendizado (ML) */}
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 20, marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>🧠 Pipeline de aprendizado (learning_base)</p>
+                <p style={{ fontSize: 12, color: "var(--muted)" }}>
+                  Roda sozinho a cada 48h. Use o botão para disparar agora e ver o resultado sem esperar o próximo ciclo.
+                </p>
+              </div>
+              <button
+                onClick={() => runAnalysis?.mutate?.()}
+                disabled={runAnalysis?.isPending}
+                style={{
+                  fontSize: 12, fontWeight: 700, padding: "9px 18px", borderRadius: 10, border: "none",
+                  background: runAnalysis?.isPending ? "#94a3b8" : "var(--navy)", color: "white",
+                  cursor: runAnalysis?.isPending ? "not-allowed" : "pointer", flexShrink: 0,
+                }}>
+                {runAnalysis?.isPending ? "⏳ Rodando..." : "▶️ Rodar análise agora"}
+              </button>
+            </div>
+
+            {lastRunResult && (
+              <div style={{
+                marginTop: 14, padding: "12px 16px", borderRadius: 10,
+                background: lastRunResult.errors > 0 && lastRunResult.scored === 0 ? "#fef2f2" : lastRunResult.errors > 0 ? "#fffbeb" : "#f0fdf4",
+                border: `1px solid ${lastRunResult.errors > 0 && lastRunResult.scored === 0 ? "#fecaca" : lastRunResult.errors > 0 ? "#fde68a" : "#bbf7d0"}`,
+              }}>
+                <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 6 }}>
+                  <span style={{ fontSize: 12 }}><strong>{lastRunResult.scored}</strong> campanha(s) avaliada(s)</span>
+                  <span style={{ fontSize: 12 }}><strong>{lastRunResult.patternsExtracted}</strong> padrão(ões) extraído(s)</span>
+                  <span style={{ fontSize: 12, color: lastRunResult.errors > 0 ? "#dc2626" : "var(--muted)" }}>
+                    <strong>{lastRunResult.errors}</strong> erro(s)
+                  </span>
+                </div>
+                <p style={{ fontSize: 11, color: "var(--muted)" }}>
+                  Rodou às {new Date(lastRunResult.ranAt).toLocaleTimeString("pt-BR")}.
+                  {lastRunResult.errors > 0 && " Detalhe do erro está no log [ml-analysis] do Render (Logs → filtrar por ml-analysis)."}
+                </p>
+              </div>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
