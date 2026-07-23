@@ -1260,7 +1260,7 @@ function setCompetitorCache(competitorId: number, result: any) {
 
 // ── Helpers de classificação de fonte de anúncios ────────────────────────────
 
-function getAdSource(ad: any): string {
+export function getAdSource(ad: any): string {
   // Tenta campo direto primeiro
   if (ad?.source && ad.source !== "unknown") return (ad.source as string).toLowerCase();
   // Fallback: lê source dentro do rawData JSON
@@ -1284,7 +1284,7 @@ const REAL_AD_SOURCES = new Set([
   "google_ads", "google_ads_transparency", "tiktok_ads",
 ]);
 
-function isRealAdSource(source: string): boolean {
+export function isRealAdSource(source: string): boolean {
   return REAL_AD_SOURCES.has((source || "").toLowerCase());
 }
 

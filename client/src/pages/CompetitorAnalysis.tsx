@@ -943,8 +943,10 @@ export default function CompetitorAnalysis() {
       refetch();
       if (data.timedOut) {
         toast.warning("⏳ Busca ainda em andamento — os resultados vão aparecer na lista de concorrentes.");
+      } else if (data.isEstimated && data.adsCount > 0) {
+        toast.warning(`⚠️ ${data.adsCount} anúncio(s) ESTIMADO(S) por IA para "${data.segment}" — Ads Library sem permissão (code 10), veja detalhes abaixo.`, { duration: 7000 });
       } else if (data.adsCount > 0) {
-        toast.success(`◎ ${data.adsCount} anúncio(s) encontrado(s) para "${data.segment}"`);
+        toast.success(`◎ ${data.realCount} anúncio(s) real(is) encontrado(s) para "${data.segment}"`);
       } else {
         toast.error(`✕ Nenhum anúncio encontrado para "${data.segment}". Tente um termo mais amplo.`);
       }
@@ -1159,6 +1161,23 @@ export default function CompetitorAnalysis() {
               {segmentResult.adsCount} anúncio(s) encontrado(s) para "{segmentResult.segment}"
               {segmentResult.timedOut && " (busca continua em background)"}
             </p>
+
+            {/* Transparência de fonte: nunca deixar dado estimado passar por real */}
+            {segmentResult.isEstimated && segmentResult.adsCount > 0 && (
+              <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "#92400e", margin: 0 }}>
+                  ⚠️ Estes são anúncios <strong>estimados por IA</strong>, não dados reais da Ads Library.
+                  O acesso oficial está bloqueado (App sem permissão — code 10). Para dados reais, é
+                  preciso concluir a verificação de identidade em facebook.com/ID.
+                </p>
+              </div>
+            )}
+            {!segmentResult.isEstimated && segmentResult.realCount > 0 && (
+              <p style={{ fontSize: 11, color: "#15803d", fontWeight: 700, marginBottom: 10 }}>
+                ✓ {segmentResult.realCount} anúncio(s) real(is), direto da Ads Library
+              </p>
+            )}
+
             {segmentResult.oldestAds?.length > 0 && (
               <>
                 <p style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>
@@ -1167,6 +1186,7 @@ export default function CompetitorAnalysis() {
                 {segmentResult.oldestAds.slice(0, 5).map((ad: any) => (
                   <div key={ad.id} style={{ fontSize: 12, color: "var(--black)", marginBottom: 6, paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
                     <strong>{ad.pageName || "Página desconhecida"}</strong>
+                    {!ad.isReal && <span style={{ fontSize: 10, color: "#d97706", fontWeight: 700 }}> · estimado</span>}
                     {ad.startDate && <span style={{ color: "var(--muted)" }}> · desde {new Date(ad.startDate).toLocaleDateString("pt-BR")}</span>}
                     {ad.headline && <p style={{ margin: "2px 0 0", color: "var(--muted)" }}>{ad.headline}</p>}
                   </div>

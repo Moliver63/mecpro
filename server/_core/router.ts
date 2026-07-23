@@ -2417,11 +2417,22 @@ REGRAS:
       }
 
       const ads = await db.getScrapedAdsByCompetitor(competitor.id);
+      const { getAdSource, isRealAdSource } = await import("../ai");
+
+      // Transparência de fonte: distingue anúncio REAL (Ads Library oficial)
+      // de ESTIMADO (fallback via IA quando a Ads Library nega acesso —
+      // code 10, pendência de verificação de identidade em facebook.com/ID).
+      // Sem isso, dado simulado poderia ser confundido com concorrência real.
+      const withSource = (ads as any[]).map(a => ({ ...a, _isReal: isRealAdSource(getAdSource(a)) }));
+      const realCount = withSource.filter(a => a._isReal).length;
+      const isEstimated = ads.length > 0 && realCount === 0;
+
       // Ranking por longevidade (proxy de performance — Ads Library não dá
       // métrica real para anúncios comerciais fora de UE/RU): mais antigo
       // primeiro = mais provável de estar convertendo (anunciante não paga
-      // por anúncio que não performa).
-      const ranked = (ads as any[])
+      // por anúncio que não performa). Só faz sentido em dado real — anúncio
+      // "estimado" não tem data de veiculação de verdade.
+      const ranked = withSource
         .filter(a => a.startDate)
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
@@ -2430,9 +2441,12 @@ REGRAS:
         competitorId: competitor.id,
         segment: input.segment,
         adsCount: ads.length,
+        realCount,
+        isEstimated,   // true = nenhum anúncio real, tudo veio do fallback de IA
         oldestAds: ranked.slice(0, 10).map(a => ({
           id: a.id, headline: a.headline, bodyText: a.bodyText?.slice(0, 200),
-          startDate: a.startDate, pageName: (() => { try { return JSON.parse(a.rawData || "{}").page_name; } catch { return null; } })(),
+          startDate: a.startDate, isReal: a._isReal,
+          pageName: (() => { try { return JSON.parse(a.rawData || "{}").page_name; } catch { return null; } })(),
         })),
       };
     }),
