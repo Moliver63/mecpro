@@ -2368,6 +2368,75 @@ REGRAS:
 
   // ── Descobre concorrentes por nicho usando Gemini + Google Search ─────────
 
+  // ── Busca TODOS os anúncios de um segmento (não um concorrente específico) ──
+  // Reusa 100% da infra existente (fetchViaOfficialAPI via analyzeCompetitor):
+  // circuit breaker, tratamento de erro 190/code 10, storage em scraped_ads
+  // com startDate (base para ranking por longevidade — a Ads Library não
+  // devolve performance real para anúncios comerciais fora de UE/RU).
+  // Cria um "concorrente virtual" (sem facebookPageId) por projeto+segmento,
+  // reaproveitado em buscas futuras do mesmo termo em vez de duplicar.
+  searchBySegment: protectedProcedure
+    .input(z.object({
+      projectId: z.number(),
+      segment:   z.string().min(2).max(120),   // termo de busca: "cosméticos veganos", "clínica estética"
+      force:     z.boolean().optional(),        // true = re-busca mesmo se já tiver ads salvos
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const virtualName = `🔍 Busca: ${input.segment.trim()}`;
+
+      // Encontra o concorrente-virtual já criado para este segmento neste projeto,
+      // ou cria um novo (evita duplicar a cada busca do mesmo termo)
+      const existingCompetitors = await db.getCompetitorsByProjectId(input.projectId);
+      let competitor = (existingCompetitors as any[]).find(c => c.name === virtualName);
+
+      if (!competitor) {
+        const created = await db.createCompetitor({
+          projectId: input.projectId,
+          name: virtualName,
+          notes: `Busca por segmento — criado automaticamente. Termo: "${input.segment.trim()}"`,
+        } as any);
+        competitor = { id: created.id, name: virtualName };
+        log.info("competitors", "Concorrente virtual criado para busca por segmento", {
+          projectId: input.projectId, segment: input.segment, competitorId: created.id,
+        });
+      }
+
+      const { analyzeCompetitor } = await import("../ai");
+
+      // Mesmo timeout de 25s do fluxo de análise individual (limite Render)
+      const analysisPromise = analyzeCompetitor(competitor.id, input.projectId, input.force ?? true);
+      const timeoutPromise  = new Promise<"TIMEOUT">((resolve) => setTimeout(() => resolve("TIMEOUT"), 25000));
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+
+      if (result === "TIMEOUT") {
+        return {
+          status: "running", competitorId: competitor.id, segment: input.segment,
+          message: "Busca em andamento — pode levar mais alguns segundos. Consulte os resultados na lista de anúncios.",
+          adsCount: 0, timedOut: true,
+        };
+      }
+
+      const ads = await db.getScrapedAdsByCompetitor(competitor.id);
+      // Ranking por longevidade (proxy de performance — Ads Library não dá
+      // métrica real para anúncios comerciais fora de UE/RU): mais antigo
+      // primeiro = mais provável de estar convertendo (anunciante não paga
+      // por anúncio que não performa).
+      const ranked = (ads as any[])
+        .filter(a => a.startDate)
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+      return {
+        status: "done",
+        competitorId: competitor.id,
+        segment: input.segment,
+        adsCount: ads.length,
+        oldestAds: ranked.slice(0, 10).map(a => ({
+          id: a.id, headline: a.headline, bodyText: a.bodyText?.slice(0, 200),
+          startDate: a.startDate, pageName: (() => { try { return JSON.parse(a.rawData || "{}").page_name; } catch { return null; } })(),
+        })),
+      };
+    }),
+
 });
 
 // ============ MARKET ROUTER ============
