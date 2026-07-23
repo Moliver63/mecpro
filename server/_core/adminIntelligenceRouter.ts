@@ -1256,7 +1256,7 @@ export async function runAnalysisInternal(opts: {
       computeLearningUpdate,
     } = await import("../campaignIntelligenceEngine.js");
 
-    const projects = await dbMod.db.getAllProjects().catch(() => [] as any[]);
+    const projects = await dbMod.getAllProjects().catch(() => [] as any[]);
     let scored = 0, patternsExtracted = 0, errors = 0;
     const deadline = Date.now() + 55_000;
     const perProject = Math.max(5, Math.ceil(limit / Math.max(projects.length, 1)));
