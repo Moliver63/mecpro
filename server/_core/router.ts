@@ -17,7 +17,7 @@ import { siteAnalyticsRouter } from "./siteAnalyticsRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
 import { calculateScore } from "../campaignIntelligenceEngine";
-import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet } from "../adAudit";
+import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
 import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
   updateCreativeInputSchema,
@@ -3669,7 +3669,19 @@ const campaignsRouter = router({
       // Dedup de frases redundantes (ex: "Não perca..." repetido) e
       // variação de headline conforme a persona do adSet (Investidor vs Lifestyle)
       const dedupedMessage = dedupeSentences(selectedMessage);
-      const personaHeadline = personalizeHeadlineForAdSet(selectedHeadline, adSet?.name);
+      // STOP SLOP: remove marcas de texto gerado por IA (travessão longo,
+      // "além disso", clichês motivacionais). Devolve o original intacto se a
+      // limpeza custaria substância — nunca entrega copy pior que a recebida.
+      const slopResult = deslopify(dedupedMessage);
+      const cleanMessage = slopResult.text;
+      if (slopResult.changed) {
+        log.info("ad-audit", "Stop Slop aplicado à mensagem", {
+          removed: slopResult.removed.join(","),
+          before: dedupedMessage.slice(0, 60), after: cleanMessage.slice(0, 60),
+        });
+      }
+      const slopHeadline = deslopify(selectedHeadline);
+      const personaHeadline = personalizeHeadlineForAdSet(slopHeadline.text, adSet?.name);
       if (dedupedMessage !== selectedMessage) {
         log.info("ad-audit", "Frases redundantes removidas da mensagem", {
           before: selectedMessage.slice(0, 60), after: dedupedMessage.slice(0, 60),
@@ -3683,7 +3695,7 @@ const campaignsRouter = router({
 
       const creativeAudit = auditCreative({
         headline:    personaHeadline,
-        primaryText: dedupedMessage,
+        primaryText: cleanMessage,
         description: selectedDescription || "",
         cta:         adCopy.feed?.cta || "Saiba mais",
         imageUrl:    input.imageUrl || undefined,
@@ -4304,8 +4316,8 @@ const campaignsRouter = router({
           lead_gen_data: {
             lead_gen_form_id: input.leadGenFormId,
             call_to_action:   { type: ctaType },
-            message:          selectedMessage,
-            name:             selectedHeadline,
+            message:          cleanMessage,
+            name:             personaHeadline,
             ...(resolvedImageHash ? { image_hash: resolvedImageHash } : resolvedImageUrl ? { picture: resolvedImageUrl } : {}),
           },
         };
@@ -4385,11 +4397,11 @@ const campaignsRouter = router({
 
           const getCardCopy = (idx: number) => {
             const creative = creativeList[idx % nCreatives];
-            if (!creative) return { name: selectedHeadline.slice(0, 40), description: "" };
+            if (!creative) return { name: personaHeadline.slice(0, 40), description: "" };
 
             // Headline base do criativo
             let cardHeadline = String(
-              creative.headline || creative.title || selectedHeadline
+              creative.headline || creative.title || personaHeadline
             ).trim();
 
             // Se este card está REPETINDO um criativo já usado (idx >= nCreatives),
@@ -4421,7 +4433,7 @@ const campaignsRouter = router({
             const { name: cardName, description: cardDesc } = getCardCopy(idx);
             return {
               link:           isWhatsAppDestination ? "https://wa.me/" : finalLink,
-              name:           cardName || `${selectedHeadline}`.slice(0, 40),
+              name:           cardName || `${personaHeadline}`.slice(0, 40),
               description:    cardDesc,
               call_to_action: isWhatsAppDestination
                 ? { type: "WHATSAPP_MESSAGE" }
@@ -4559,7 +4571,7 @@ const campaignsRouter = router({
             const videoDataPayload: Record<string, any> = {
               video_id:       effectiveVideoId,
               message:        auditedMessage,
-              title:          selectedHeadline,
+              title:          personaHeadline,
               ...(shortDescVideo ? { link_description: shortDescVideo } : {}),
               call_to_action: isWhatsAppDestination
                 // WHATSAPP_MESSAGE em video_data: apenas type, sem value (API rejeita link)

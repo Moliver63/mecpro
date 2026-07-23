@@ -268,6 +268,82 @@ Antes de finalizar:
 
 ---
 
+## REGRA 13 — STOP SLOP (texto sem cara de IA)
+
+Copy com marcas de IA performa pior: o leitor reconhece o padrão e ignora.
+Vale para copy de anúncio gerada pelo sistema E para qualquer texto escrito
+para o usuário (e-mails, mensagens, propostas, UI).
+
+**Proibido:**
+- Travessão longo (—) como separador de oração → use vírgula
+- Conectores de transição: "além disso", "vale ressaltar/destacar/lembrar",
+  "é importante notar", "em suma", "por fim", "dito isso", "nesse sentido",
+  "dessa forma", "no mundo de hoje", "nos dias de hoje"
+- Construção "não só X, mas também Y" → escreva "X e Y"
+- Clichês motivacionais: "descubra o poder de", "desvende os segredos",
+  "mergulhe no mundo de", "transforme sua vida", "leve ao próximo nível"
+- Verbos inflados: "potencialize" (use melhore), "revolucione" (use mude)
+- Fillers: "sem dúvida", "cada vez mais", "verdadeiramente", "simplesmente"
+
+**Implementação no código:** `deslopify()` em `server/adAudit.ts`, aplicada no
+pipeline de publicação (router.ts, junto do dedupeSentences).
+
+**REGRA DE OURO ao remover slop:** substituir preservando a sintaxe, nunca só
+deletar. Remover clichê do meio da frase deixa fragmento sem sentido
+("...e transforme sua vida hoje" → "...e hoje"). Cada padrão precisa de um
+substituto que mantenha a frase gramaticalmente válida.
+
+---
+
+## REGRA 14 — UI/UX PRO MAX
+
+Interfaces com padrão profissional. Nada de layout genérico com cara de
+template.
+
+- Hierarquia visual clara: um único ponto focal por tela, tamanhos de fonte
+  com escala intencional (não 3 tamanhos aleatórios)
+- Espaçamento consistente: usar múltiplos de uma unidade base (4 ou 8px),
+  nunca valores arbitrários misturados
+- Tipografia e cores intencionais: cada cor tem função (sucesso, alerta,
+  erro, neutro). Cinza para secundário, não para "quase tudo"
+- Estados sempre tratados: carregando, vazio, erro, sucesso. Tela que só
+  funciona no caminho feliz está incompleta
+- Densidade adequada ao contexto: painel admin pode ser denso, onboarding não
+- Feedback imediato: toda ação do usuário responde em menos de 100ms, nem que
+  seja um estado de carregamento
+
+**Escopo de aplicação:** telas NOVAS nascem neste padrão. Telas existentes só
+são reestilizadas quando já houver motivo para mexer nelas — reestilização em
+massa é risco de quebra sem ganho proporcional.
+
+---
+
+## REGRA 15 — TASK OBSERVER (correção vira padrão)
+
+Correção feita hoje vira regra daqui pra frente. Se o usuário corrigir algo
+uma vez, aquilo não deve precisar ser corrigido de novo.
+
+**Como aplicar:**
+1. Ao receber uma correção ou preferência, registrá-la neste arquivo antes de
+   seguir para a próxima tarefa
+2. Ler este arquivo no início de cada sessão (já é a Regra 10)
+3. Nunca repetir um erro que já foi apontado — se repetir, o registro falhou
+
+**Correções já incorporadas (histórico):**
+- Nunca reduzir threshold de detecção de texto em imagem abaixo de 0.18
+- esbuild rejeita newline literal em regex/split
+- `api_integrations` usa `provider`, não `platform`
+- Budget pode vir number ou string em runtime — normalizar antes de `.match()`
+- Comentário JSX `{/* */}` é inválido dentro de expressão ternária
+- `<noscript><img>` não é permitido dentro de `<head>` (spec HTML)
+- Regex com flag `/g`: `.test()` antes de `.replace()` avança lastIndex e
+  quebra o replace — aplicar replace direto e comparar antes/depois
+- Nunca gravar validade de token sem confirmar no `/debug_token` do Meta
+- Filtro de copy só tem efeito se a variável limpa for usada NO PAYLOAD, não
+  apenas na auditoria (bug real encontrado em 2026-07-22)
+
+---
+
 ## DECISÕES ARQUITETURAIS CONFIRMADAS EM PRODUÇÃO
 
 ### Meta Ads — Fluxo WhatsApp

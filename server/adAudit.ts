@@ -487,3 +487,162 @@ export function personalizeHeadlineForAdSet(headline: string, adSetName?: string
   }
   return headline;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STOP SLOP — remove marcas típicas de texto gerado por IA
+// ═══════════════════════════════════════════════════════════════════════════
+// Copy de anúncio com cara de IA performa pior: soa genérico, o leitor
+// reconhece o padrão e ignora. Esta função remove os marcadores mais comuns
+// em português.
+//
+// GARANTIA DE SEGURANÇA (nunca quebra a copy):
+//   - Se o resultado ficar vazio, perder substância (< 3 palavras) ou mais de
+//     60% do texto → devolve o texto ORIGINAL intacto.
+//   - Nunca lança exceção: qualquer falha interna devolve o original.
+// Filosofia igual à do stripPlaceholders: sanitizar é melhor que quebrar,
+// mas devolver o original é melhor que sanitizar demais.
+
+/** Conectores de transição típicos de IA (removidos no início de frase). */
+const SLOP_CONNECTORS: RegExp[] = [
+  /\bal[ée]m disso\b[,:]?\s*/gi,
+  /\bvale (?:ressaltar|destacar|lembrar|mencionar|notar)\b(?:\s+que)?[,:]?\s*/gi,
+  /\b[ée] importante (?:notar|ressaltar|destacar|lembrar)\b(?:\s+que)?[,:]?\s*/gi,
+  /\bem (?:suma|resumo)\b[,:]?\s*/gi,
+  /\bpor fim\b[,:]?\s*/gi,
+  /\bdito isso\b[,:]?\s*/gi,
+  /\bnesse sentido\b[,:]?\s*/gi,
+  /\bdessa forma\b[,:]?\s*/gi,
+  /\bno mundo (?:de hoje|atual)\b[,:]?\s*/gi,
+  /\bnos dias de hoje\b[,:]?\s*/gi,
+];
+
+/**
+ * Clichês motivacionais → versão direta.
+ * REGRA DE OURO: substituir preservando a sintaxe, nunca só deletar. Remover
+ * um clichê do meio da frase deixa fragmento sem sentido
+ * ("...e transforme sua vida hoje" → "...e hoje"). Por isso cada padrão tem
+ * um substituto que mantém a frase gramaticalmente válida.
+ */
+const SLOP_CLICHES: Array<{ re: RegExp; to: string }> = [
+  // Aberturas motivacionais → verbo direto (mantém o objeto da frase)
+  { re: /\bdescubra o poder d([eoa]s?)\b/gi,              to: "conheça $1" },
+  { re: /\bdesvende os segredos d([eoa]s?)\b/gi,          to: "conheça $1" },
+  { re: /\bmergulhe (?:no|na) mundo d([eoa]s?)\b/gi,      to: "conheça $1" },
+  { re: /\bmergulhe (?:no|na|em)\b/gi,                    to: "conheça" },
+  // Frases-clichê inteiras → equivalente concreto
+  { re: /\be transforme sua vida\b/gi,                    to: "" },
+  { re: /\btransforme sua vida\b/gi,                      to: "" },
+  { re: /\beleve (seu|sua) (\w+) (?:a|para) (?:um )?(?:outro|novo|próximo) (?:n[íi]vel|patamar)\b/gi, to: "melhore $1 $2" },
+  { re: /\bleve (seu|sua) (\w+) (?:ao|para o) próximo n[íi]vel\b/gi, to: "melhore $1 $2" },
+  // Verbos inflados → verbo comum
+  { re: /\bpotencialize\b/gi,                             to: "melhore" },
+  { re: /\brevolucione\b/gi,                              to: "mude" },
+  { re: /\buma jornada (?:de|rumo a)\b/gi,                to: "um caminho para" },
+  // "não só X, mas também Y" → "X e Y" (preserva os dois termos)
+  { re: /\bnão (?:é )?apenas (.{3,40}?), mas tamb[ée]m\b/gi, to: "$1 e" },
+  { re: /\bnão (?:só|somente) (.{3,40}?), mas tamb[ée]m\b/gi, to: "$1 e" },
+];
+
+/** Intensificadores vazios que só ocupam espaço. */
+const SLOP_FILLERS: RegExp[] = [
+  /\bsem d[úu]vida (?:alguma)?\b[,]?\s*/gi,
+  /\bcom certeza absoluta\b[,]?\s*/gi,
+  /\bcada vez mais\b\s*/gi,
+  /\bverdadeiramente\b\s*/gi,
+  /\bsimplesmente\b\s*/gi,
+];
+
+export interface DeslopResult {
+  text: string;
+  changed: boolean;
+  removed: string[];   // rótulos do que foi removido (para log/auditoria)
+}
+
+/**
+ * Remove marcas de texto gerado por IA, preservando o sentido.
+ * @param text  copy original
+ * @param maxLossRatio  perda máxima tolerada (default 0.6 = 60%)
+ */
+export function deslopify(text: string, maxLossRatio = 0.6): DeslopResult {
+  // Entrada inválida (null/undefined/número) → devolve string vazia, nunca
+  // propaga o valor cru: chamadores esperam string.
+  if (typeof text !== "string") return { text: "", changed: false, removed: [] };
+  const original = text;
+  if (text.trim().length === 0) return { text: original, changed: false, removed: [] };
+
+  try {
+    let out = text;
+    const removed: string[] = [];
+
+    // 1. Travessão longo (—) e meia-risca (–): marca registrada de IA.
+    //    Vira vírgula quando separa oração, ou hífen quando une palavras.
+    if (/[—–]/.test(out)) {
+      out = out
+        .replace(/\s+[—–]\s+/g, ", ")   // " — " → ", "
+        .replace(/[—–]/g, "-");          // resto → hífen simples
+      removed.push("travessão");
+    }
+
+    // NOTA CRÍTICA: regex com flag /g mantém lastIndex entre chamadas. Usar
+    // .test() antes de .replace() faz o replace começar da posição errada e
+    // pular ocorrências. Por isso aplicamos o replace direto e comparamos
+    // antes/depois para saber se houve mudança.
+
+    // 2. Conectores de transição
+    for (const re of SLOP_CONNECTORS) {
+      re.lastIndex = 0;
+      const prev = out;
+      out = out.replace(re, "");
+      if (out !== prev) removed.push("conector");
+    }
+
+    // 3. Clichês motivacionais
+    for (const { re, to } of SLOP_CLICHES) {
+      re.lastIndex = 0;
+      const prev = out;
+      out = out.replace(re, to);
+      if (out !== prev) removed.push("clichê");
+    }
+
+    // 4. Fillers
+    for (const re of SLOP_FILLERS) {
+      re.lastIndex = 0;
+      const prev = out;
+      out = out.replace(re, "");
+      if (out !== prev) removed.push("filler");
+    }
+
+    // 5. Limpeza de fragmentos deixados pelas remoções
+    out = out
+      .replace(/[ \t]{2,}/g, " ")            // espaços duplos
+      .replace(/\s+\be\s*([.!?])/gi, "$1")   // conjunção órfã antes de ponto ("... e.")
+      .replace(/\be\s+e\b/gi, "e")           // "e e" duplicado
+      .replace(/\s+([,.!?;:])/g, "$1")       // espaço antes de pontuação
+      .replace(/([,;:])\s*([,.;:])/g, "$1")  // pontuação duplicada
+      .replace(/^[\s,;:.-]+/gm, "")          // pontuação órfã no início da linha
+      .replace(/\n{3,}/g, "\n\n")            // quebras excessivas
+      .trim();
+
+    // 6. Recapitaliza início de frase se a remoção deixou minúscula
+    out = out.replace(/(^|[.!?]\s+|\n)([a-zà-ú])/g, (_m, p, c) => p + c.toUpperCase());
+
+    // ── Guardas de segurança: nunca entregar copy pior que a original ──
+    // Ratio puro penaliza copy curta (remover 1 clichê já passa de 45%), por
+    // isso a guarda é HÍBRIDA: o resultado precisa manter substância mínima
+    // (palavras reais) E não pode ultrapassar o teto de perda.
+    const hasLetters   = /\p{L}/u.test(out);
+    const wordCount    = (out.match(/\p{L}{2,}/gu) || []).length;
+    const origWords    = (original.match(/\p{L}{2,}/gu) || []).length;
+    const lostRatio    = 1 - (out.length / original.length);
+    const keptEnough   = wordCount >= Math.min(3, origWords);   // ≥3 palavras (ou tudo, se o original for menor)
+    if (!hasLetters || out.length === 0 || !keptEnough || lostRatio > maxLossRatio) {
+      return { text: original, changed: false, removed: [] };
+    }
+
+    const changed = out !== original;
+    return { text: out, changed, removed: changed ? [...new Set(removed)] : [] };
+  } catch {
+    // Qualquer falha inesperada: devolve o original intacto
+    return { text: original, changed: false, removed: [] };
+  }
+}
