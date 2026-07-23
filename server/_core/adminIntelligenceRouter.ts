@@ -109,6 +109,19 @@ async function loadCampaignContext(campaignId: number): Promise<{
 // ─────────────────────────────────────────────────────────────────────────────
 export const adminIntelligenceRouter = router({
 
+  // ── 0. DISPARO MANUAL DA ANÁLISE (diagnóstico) ──────────────────────────
+  // learning_base está parado desde 2026-06-05 (confirmado por query direta
+  // no banco em 2026-07-23) — o cron de 48h roda mas falha silenciosamente
+  // em algum ponto de runAnalysisInternal. Este endpoint dispara na hora,
+  // sem esperar o próximo ciclo do cron, para expor o erro real via log
+  // [ml-analysis] (instrumentado no commit d6e5857).
+  runAnalysisNow: adminProcedure
+    .mutation(async () => {
+      const result = await runAnalysisInternal({ minScore: 60, limit: 300, autoApprove: true });
+      log.info("ml-analysis", "Disparo manual concluído", result);
+      return result;
+    }),
+
   // ── 1. LISTAR TODAS AS CAMPANHAS DA PLATAFORMA (admin view) ─────────────
   listAllCampaigns: adminProcedure
     .input(z.object({
