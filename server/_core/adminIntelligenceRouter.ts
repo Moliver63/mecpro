@@ -1281,6 +1281,7 @@ export async function runAnalysisInternal(opts: {
 
             const context: any = {
               userId: c.userId, projectId: c.projectId, campaignId: c.id,
+              name: c.name || "",   // nunca era copiado — causava crash em extractWinnerParameters
               platform: c.platform || "meta", objective: c.objective || "traffic",
               // campaigns não tem colunas "budget"/"duration" — só suggestedBudgetDaily
               // e durationDays. Usar nome inexistente fazia isso cair sempre em 0/30

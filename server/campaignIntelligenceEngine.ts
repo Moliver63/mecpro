@@ -597,7 +597,7 @@ export function extractWinnerParameters(
     headlinePattern,
     copyStructure,
     ctaType:         ctaRaw,
-    mainPromise:     cr?.headline?.slice(0, 80) || context.name.slice(0, 80),
+    mainPromise:     cr?.headline?.slice(0, 80) || context.name?.slice(0, 80) || "Sem título",
     triggerTypes:    detectTriggers(allText),
     mediaTypes:      [adFormat],
     numVariations:   creatives.length || 1,
