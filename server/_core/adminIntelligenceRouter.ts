@@ -1267,7 +1267,7 @@ export async function runAnalysisInternal(opts: {
         const camps = (await pool.query(
           `SELECT c.*, p."userId" FROM campaigns c
            JOIN projects p ON p.id = c."projectId"
-           WHERE c."projectId" = $1 ORDER BY c."createdAt" DESC LIMIT $2`,
+           WHERE c."projectId" = $1 ORDER BY c."generatedAt" DESC LIMIT $2`,
           [project.id, perProject]
         )).rows;
 
@@ -1282,7 +1282,10 @@ export async function runAnalysisInternal(opts: {
             const context: any = {
               userId: c.userId, projectId: c.projectId, campaignId: c.id,
               platform: c.platform || "meta", objective: c.objective || "traffic",
-              niche: aiResp?.niche || "geral", budget: c.budget || 0, duration: c.duration || 30,
+              // campaigns não tem colunas "budget"/"duration" — só suggestedBudgetDaily
+              // e durationDays. Usar nome inexistente fazia isso cair sempre em 0/30
+              // via fallback (silencioso, sem erro), poluindo o contexto de aprendizado.
+              niche: aiResp?.niche || "geral", budget: c.suggestedBudgetDaily || 0, duration: c.durationDays || 30,
               creatives: creativesArr.map((cr: any) => ({
                 type: cr.type || "image", headline: cr.headline || "", hook: cr.hook || "", formats: [],
               })),
