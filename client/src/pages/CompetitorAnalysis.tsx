@@ -934,6 +934,24 @@ export default function CompetitorAnalysis() {
     onError: (e: any) => toast.error("✕ " + (e?.message || "Erro ao buscar pelo Page ID")),
   });
 
+  // ── Busca por segmento (todos os anúncios de um termo, não 1 concorrente) ──
+  const [segmentTerm, setSegmentTerm] = useState("");
+  const [segmentResult, setSegmentResult] = useState<any>(null);
+  const searchSegmentMutation = (trpc as any).competitors?.searchBySegment?.useMutation?.({
+    onSuccess: (data: any) => {
+      setSegmentResult(data);
+      refetch();
+      if (data.timedOut) {
+        toast.warning("⏳ Busca ainda em andamento — os resultados vão aparecer na lista de concorrentes.");
+      } else if (data.adsCount > 0) {
+        toast.success(`◎ ${data.adsCount} anúncio(s) encontrado(s) para "${data.segment}"`);
+      } else {
+        toast.error(`✕ Nenhum anúncio encontrado para "${data.segment}". Tente um termo mais amplo.`);
+      }
+    },
+    onError: (e: any) => toast.error("✕ " + (e?.message || "Erro na busca por segmento")),
+  });
+
   const [adding,    setAdding]    = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [suggestions,  setSuggestions] = useState<any[]>([]);
@@ -1102,6 +1120,61 @@ export default function CompetitorAnalysis() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Busca por segmento (todos os anúncios de um termo) ── */}
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 16, padding: 20, marginBottom: 20 }}>
+        <p style={{ fontSize: 14, fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>🔍 Buscar por segmento</p>
+        <p style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+          Busca todos os anúncios ativos de um termo (ex: "cosméticos veganos", "clínica estética")
+          na Ads Library — sem precisar cadastrar concorrente por concorrente.
+        </p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input
+            className="input"
+            placeholder="Ex: clínica de estética Balneário Camboriú"
+            value={segmentTerm}
+            onChange={e => setSegmentTerm(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && segmentTerm.trim() && !searchSegmentMutation?.isPending) {
+              searchSegmentMutation?.mutate?.({ projectId, segment: segmentTerm.trim() });
+            }}}
+            style={{ flex: 1, fontSize: 13 }}
+          />
+          <button
+            onClick={() => searchSegmentMutation?.mutate?.({ projectId, segment: segmentTerm.trim() })}
+            disabled={!segmentTerm.trim() || searchSegmentMutation?.isPending}
+            style={{
+              fontSize: 13, fontWeight: 700, padding: "10px 20px", borderRadius: 10, border: "none",
+              background: (!segmentTerm.trim() || searchSegmentMutation?.isPending) ? "#94a3b8" : "var(--green)",
+              color: "white", cursor: (!segmentTerm.trim() || searchSegmentMutation?.isPending) ? "not-allowed" : "pointer",
+              flexShrink: 0,
+            }}>
+            {searchSegmentMutation?.isPending ? "⏳ Buscando..." : "Buscar"}
+          </button>
+        </div>
+
+        {segmentResult && (
+          <div style={{ marginTop: 16, padding: "14px 16px", borderRadius: 10, background: segmentResult.adsCount > 0 ? "#f0fdf4" : "#fef2f2", border: `1px solid ${segmentResult.adsCount > 0 ? "#bbf7d0" : "#fecaca"}` }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", marginBottom: 8 }}>
+              {segmentResult.adsCount} anúncio(s) encontrado(s) para "{segmentResult.segment}"
+              {segmentResult.timedOut && " (busca continua em background)"}
+            </p>
+            {segmentResult.oldestAds?.length > 0 && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 6 }}>
+                  Mais antigos (proxy de melhor performance — rodando há mais tempo)
+                </p>
+                {segmentResult.oldestAds.slice(0, 5).map((ad: any) => (
+                  <div key={ad.id} style={{ fontSize: 12, color: "var(--black)", marginBottom: 6, paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+                    <strong>{ad.pageName || "Página desconhecida"}</strong>
+                    {ad.startDate && <span style={{ color: "var(--muted)" }}> · desde {new Date(ad.startDate).toLocaleDateString("pt-BR")}</span>}
+                    {ad.headline && <p style={{ margin: "2px 0 0", color: "var(--muted)" }}>{ad.headline}</p>}
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {isError && (
