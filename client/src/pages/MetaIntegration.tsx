@@ -125,8 +125,8 @@ export default function MetaIntegration() {
     onError: (e) => toast.error(`✕ Token inválido: ${e.message}`),
   });
 
-  const getMetaAuthUrl   = (trpc as any).integrations?.getMetaAuthUrl?.useMutation?.();
-  const exchangeMetaCode = (trpc as any).integrations?.exchangeMetaCode?.useMutation?.({
+  const getMetaAuthUrl   = trpc.integrations.getMetaAuthUrl.useMutation();
+  const exchangeMetaCode = trpc.integrations.exchangeMetaCode.useMutation({
     onSuccess: (data: any) => {
       toast.success(`◎ Conectado como ${data.userName}! ${data.adAccounts?.length || 0} conta(s) de anúncio.`);
       setOauthResult(data);
@@ -157,11 +157,11 @@ export default function MetaIntegration() {
   // ── Conexão via Business Manager ──
   const [bmData, setBmData] = useState<any>(null);
   const [bmExpanded, setBmExpanded] = useState(false);
-  const listBusinesses = (trpc as any).integrations?.listMetaBusinesses?.useMutation?.({
+  const listBusinesses = trpc.integrations.listMetaBusinesses.useMutation({
     onSuccess: (d: any) => { setBmData(d); setBmExpanded(true); },
     onError: (e: any) => toast.error(`✕ ${e.message}`),
   });
-  const selectAccount = (trpc as any).integrations?.selectMetaAdAccount?.useMutation?.({
+  const selectAccount = trpc.integrations.selectMetaAdAccount.useMutation({
     onSuccess: (d: any) => { toast.success(`◎ Conta ${d.name} selecionada!`); refetch(); },
     onError: (e: any) => toast.error(`✕ ${e.message}`),
   });
@@ -181,22 +181,50 @@ export default function MetaIntegration() {
     setOauthLoading(true);
     try {
       const REDIRECT_URI = window.location.origin + "/auth/meta/callback";
-      const result = await (getMetaAuthUrl as any)?.mutateAsync({ redirectUri: REDIRECT_URI });
+      const result = await getMetaAuthUrl.mutateAsync({ redirectUri: REDIRECT_URI });
       if (!result?.url) throw new Error("Não foi possível gerar a URL de autorização.");
 
       const popup = window.open(result.url, "fb_oauth", "width=620,height=700,left=200,top=80");
       if (!popup) { toast.error("Popup bloqueado — permita popups para este site."); setOauthLoading(false); return; }
 
+      let settled = false; // evita cleanup duplo entre onMsg / poll / timeout
+
+      const cleanup = () => {
+        window.removeEventListener("message", onMsg);
+        clearInterval(pollClosed);
+        clearTimeout(hardTimeout);
+      };
+
       const onMsg = async (e: MessageEvent) => {
         if (e.origin !== window.location.origin) return;
         if (e.data?.type !== "META_OAUTH_CODE") return;
-        window.removeEventListener("message", onMsg);
-        popup.close();
-        if (!e.data.code) { toast.error("Autorização cancelada."); setOauthLoading(false); return; }
-        await (exchangeMetaCode as any)?.mutateAsync({ code: e.data.code, redirectUri: REDIRECT_URI });
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (!popup.closed) popup.close();
+        if (!e.data.code) { toast.error(e.data.error || "Autorização cancelada."); setOauthLoading(false); return; }
+        await exchangeMetaCode.mutateAsync({ code: e.data.code, redirectUri: REDIRECT_URI });
       };
       window.addEventListener("message", onMsg);
-      setTimeout(() => { window.removeEventListener("message", onMsg); if (!popup.closed) popup.close(); setOauthLoading(false); }, 300000);
+
+      // Detecta fechamento MANUAL do popup (usuário clicou no X) — sem isso o
+      // botão ficava travado em "Aguardando autorização..." até o timeout de 5min
+      const pollClosed = setInterval(() => {
+        if (popup.closed && !settled) {
+          settled = true;
+          cleanup();
+          setOauthLoading(false);
+        }
+      }, 500);
+
+      const hardTimeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (!popup.closed) popup.close();
+        setOauthLoading(false);
+        toast.error("Tempo de autorização esgotado. Tente novamente.");
+      }, 300000);
 
     } catch (e: any) { toast.error(e.message); setOauthLoading(false); }
   };
