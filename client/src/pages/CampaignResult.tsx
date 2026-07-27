@@ -311,11 +311,13 @@ export default function CampaignResult() {
   const [loadingForms,    setLoadingForms]    = useState(false);
   const [ageMin,          setAgeMin]          = useState<number>(18);
   const [ageMax,          setAgeMax]          = useState<number>(65);
-  const [locationMode,    setLocationMode]    = useState<"brasil" | "paises" | "raio">("brasil");
+  const [locationMode,    setLocationMode]    = useState<"brasil" | "paises" | "raio" | "cidade">("brasil");
   const [regions,         setRegions]         = useState<string[]>([]);
   const [countries,       setCountries]       = useState<string[]>([]);
   const [geoCity,         setGeoCity]         = useState("");
   const [geoRadius,       setGeoRadius]       = useState<number>(15);
+  const [cities,          setCities]          = useState<string[]>([]);
+  const [cityInput,       setCityInput]       = useState("");
   const [hydratedCampaignId, setHydratedCampaignId] = useState<number | null>(null);
 
   // ── mutations edição ──
@@ -735,6 +737,7 @@ export default function CampaignResult() {
           countries: locationMode === "paises"  ? countries          : undefined,
           geoCity:   locationMode === "raio"    ? geoCity.trim()     : undefined,
           geoRadius: locationMode === "raio"    ? geoRadius          : undefined,
+          cities:    locationMode === "cidade"  ? cities             : undefined,
           imageHash:   mpMedia.imageHash,
           videoId:     mpMedia.videoId,
           imageHashes: mpImageHashes,
@@ -763,6 +766,7 @@ export default function CampaignResult() {
     if (ageMin >= ageMax) { toast.error("A idade mínima deve ser menor que a idade máxima."); return; }
     if (locationMode === "paises" && countries.length === 0) { toast.error("Selecione pelo menos um país para segmentação internacional."); return; }
     if (locationMode === "raio" && !geoCity.trim()) { toast.error("Informe a cidade ou endereço para segmentação por raio."); return; }
+    if (locationMode === "cidade" && cities.length === 0) { toast.error("Adicione pelo menos uma cidade para segmentação por cidades exatas."); return; }
     // Verifica se tem arquivo pendente de upload
     if (mediaMode === "upload" && mediaFiles.length > 0) {
       const singleVideoSelected = mediaFiles.length === 1 && isVideoFile(mediaFiles[0]);
@@ -922,6 +926,7 @@ export default function CampaignResult() {
         countries: locationMode === "paises" ? countries : undefined,
         geoCity: locationMode === "raio" ? geoCity.trim() : undefined,
         geoRadius: locationMode === "raio" ? geoRadius : undefined,
+        cities: locationMode === "cidade" ? cities : undefined,
         // Passa objetivo e segmento explicitamente — sobrepõe valor salvo no banco
         objective: ((campaign as any)?.objective || "leads") as any,
         segment:   ((campaign as any)?.segment   || "") as any,
@@ -1394,11 +1399,12 @@ export default function CampaignResult() {
 
     setAgeMin(Number(targetingConfig?.ageMin ?? 18));
     setAgeMax(Number(targetingConfig?.ageMax ?? 65));
-    setLocationMode((targetingConfig?.locationMode || "brasil") as "brasil" | "paises" | "raio");
+    setLocationMode((targetingConfig?.locationMode || "brasil") as "brasil" | "paises" | "raio" | "cidade");
     setRegions(Array.isArray(targetingConfig?.regions) ? targetingConfig.regions : []);
     setCountries(Array.isArray(targetingConfig?.countries) ? targetingConfig.countries : []);
     setGeoCity(String(targetingConfig?.geoCity || ""));
     setGeoRadius(Number(targetingConfig?.geoRadius ?? 15));
+    setCities(Array.isArray(targetingConfig?.cities) ? targetingConfig.cities : []);
 
     const objective = String((campaign as any)?.objective || "").toLowerCase();
     // Só define destino se ainda não foi escolhido pelo usuário
@@ -4184,12 +4190,14 @@ ${sc.cta}`); }}
                               { value: "brasil", label: "🇧🇷 Brasil" },
                               { value: "paises", label: "🌎 Internacional" },
                               { value: "raio", label: "📍 Por raio" },
+                              { value: "cidade", label: "🏙️ Cidades" },
                             ].map(option => (
                               <button key={option.value}
                                 onClick={() => {
-                                  setLocationMode(option.value as "brasil" | "paises" | "raio");
+                                  setLocationMode(option.value as "brasil" | "paises" | "raio" | "cidade");
                                   if (option.value !== "brasil") setRegions([]);
                                   if (option.value !== "paises") setCountries([]);
+                                  if (option.value !== "cidade") setCities([]);
                                 }}
                                 style={{
                                   padding: "6px 12px",
@@ -4268,6 +4276,58 @@ ${sc.cta}`); }}
                               </div>
                               <p style={{ fontSize: 11, color: geoCity.trim() ? "var(--green-d)" : "#b45309", margin: 0, gridColumn: "1 / -1" }}>
                                 {geoCity.trim() ? `◎ Raio de ${geoRadius}km em torno de ${geoCity}` : "Informe a cidade para montar custom_locations na Meta."}
+                              </p>
+                            </div>
+                          )}
+
+                          {locationMode === "cidade" && (
+                            <div>
+                              <p style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>
+                                Segmente cidades específicas (sem raio — usa os limites da cidade na Meta). Adicione uma ou mais.
+                              </p>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <input
+                                  className="input"
+                                  value={cityInput}
+                                  onChange={e => setCityInput(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter" && cityInput.trim()) {
+                                      e.preventDefault();
+                                      if (!cities.includes(cityInput.trim())) setCities(prev => [...prev, cityInput.trim()]);
+                                      setCityInput("");
+                                    }
+                                  }}
+                                  placeholder="Ex: Balneário Camboriú"
+                                  style={{ fontSize: 12, flex: 1 }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (cityInput.trim() && !cities.includes(cityInput.trim())) {
+                                      setCities(prev => [...prev, cityInput.trim()]);
+                                      setCityInput("");
+                                    }
+                                  }}
+                                  style={{ fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 8, border: "1px solid var(--green)", background: "var(--green-l)", color: "var(--green-d)", cursor: "pointer" }}>
+                                  + Adicionar
+                                </button>
+                              </div>
+                              {cities.length > 0 && (
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                                  {cities.map(city => (
+                                    <span key={city} style={{
+                                      display: "flex", alignItems: "center", gap: 6, padding: "4px 6px 4px 10px",
+                                      borderRadius: 16, fontSize: 11, fontWeight: 700,
+                                      border: "1px solid var(--green)", background: "var(--green-l)", color: "var(--green-d)",
+                                    }}>
+                                      {city}
+                                      <button onClick={() => setCities(prev => prev.filter(c => c !== city))}
+                                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--green-d)", fontSize: 13, lineHeight: 1, padding: 0 }}>✕</button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <p style={{ fontSize: 11, color: cities.length ? "var(--green-d)" : "#b45309", margin: "8px 0 0" }}>
+                                {cities.length ? `◎ ${cities.length} cidade(s) — enviadas como targeting exato à Meta` : "Adicione ao menos uma cidade."}
                               </p>
                             </div>
                           )}

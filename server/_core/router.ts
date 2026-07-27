@@ -3462,6 +3462,49 @@ const campaignsRouter = router({
 
         return results.filter((value): value is number => Number.isFinite(value));
       }
+
+      // ── Resolve nomes de cidade → chaves numéricas da Meta (targeting exato) ──
+      // Mesmo padrão de resolveBrazilRegionKeys, mas location_types=["city"] e
+      // entrada é texto livre (nome da cidade), não sigla de UF fixa.
+      async function resolveBrazilCityKeys(userToken: string, cityNames: string[]): Promise<number[]> {
+        const uniqueCities = [...new Set((cityNames || []).map((c) => String(c || "").trim()).filter(Boolean))];
+        if (uniqueCities.length === 0) return [];
+
+        const results = await Promise.all(uniqueCities.map(async (cityName) => {
+          const params = new URLSearchParams({
+            type: "adgeolocation",
+            q: cityName,
+            access_token: userToken,
+          });
+          params.set("location_types", '["city"]');
+          params.set("countries", '["BR"]');
+
+          const res = await fetch(`https://graph.facebook.com/v19.0/search?${params.toString()}`, {
+            signal: AbortSignal.timeout(6000),
+          });
+          const data: any = await res.json().catch(() => ({}));
+          if (!res.ok || data?.error) {
+            log.warn("meta", "Falha ao resolver cidade BR", { cityName, message: data?.error?.message || `HTTP ${res.status}` });
+            return null;
+          }
+
+          // Prioriza correspondência exata de nome; senão pega a primeira cidade retornada
+          const normalized = cityName.trim().toLowerCase().split(",")[0].trim(); // remove ", SC" etc se vier junto
+          const exact = (data?.data || []).find((item: any) => {
+            const itemName = String(item?.name || "").trim().toLowerCase();
+            const itemType = String(item?.type || "").trim().toLowerCase();
+            return itemType === "city" && itemName === normalized;
+          }) || (data?.data || []).find((item: any) => String(item?.type || "").trim().toLowerCase() === "city");
+
+          const numericKey = Number(exact?.key);
+          if (!Number.isFinite(numericKey)) {
+            log.warn("meta", "Cidade não encontrada na busca geolocation", { cityName });
+          }
+          return Number.isFinite(numericKey) ? numericKey : null;
+        }));
+
+        return results.filter((value): value is number => Number.isFinite(value));
+      }
       function resolveAutoDestination(profile: any, options?: { preferWhatsApp?: boolean }): { url?: string; source?: string } {
         const website = normalizeDestinationUrl(profile?.websiteUrl);
 
@@ -4016,6 +4059,9 @@ const campaignsRouter = router({
       const resolvedBrazilRegionKeys = input.locationMode === "brasil" && (input.regions?.length || 0) > 0
         ? await resolveBrazilRegionKeys(token, input.regions || [])
         : [];
+      const resolvedBrazilCityKeys = input.locationMode === "cidade" && (input.cities?.length || 0) > 0
+        ? await resolveBrazilCityKeys(token, input.cities || [])
+        : [];
 
       // 1. Campaign — reutiliza se existingMetaCampaignId fornecido (publicação de múltiplos adSets)
       const campaignObjective = resolvedCampaignObj;
@@ -4122,6 +4168,16 @@ const campaignsRouter = router({
                   distance_unit:  "kilometer",
                 }],
               };
+            }
+            // Modo: cidades exatas (sem raio — usa os limites da cidade na Meta)
+            if (mode === "cidade" && input.cities && input.cities.length > 0) {
+              if (resolvedBrazilCityKeys.length === 0) {
+                throw new TRPCError({
+                  code: "BAD_REQUEST",
+                  message: `Não foi possível resolver as cidades selecionadas (${input.cities.join(", ")}) para o targeting da Meta.`,
+                });
+              }
+              return { cities: resolvedBrazilCityKeys.map((key) => ({ key })) };
             }
             // Modo: estados do Brasil
             if (input.regions && input.regions.length > 0) {

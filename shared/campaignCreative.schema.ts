@@ -367,7 +367,8 @@ export const publishToMetaInputSchema = z.object({
   ageMax: z.number().min(18).max(65).optional(),
   regions: z.array(z.string()).optional(),
   countries: z.array(z.string()).optional(),
-  locationMode: z.enum(["brasil", "paises", "raio"]).optional(),
+  cities: z.array(z.string()).optional(),
+  locationMode: z.enum(["brasil", "paises", "raio", "cidade"]).optional(),
   geoCity: z.string().optional(),
   geoRadius: z.number().optional(),
 }).passthrough().superRefine((value, ctx) => {
