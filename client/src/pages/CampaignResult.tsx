@@ -320,6 +320,41 @@ export default function CampaignResult() {
   const [cityInput,       setCityInput]       = useState("");
   const [hydratedCampaignId, setHydratedCampaignId] = useState<number | null>(null);
 
+  // ── Públicos personalizados / semelhantes ──
+  const [selectedAudienceIds, setSelectedAudienceIds] = useState<string[]>([]);
+  const [showAudienceCreate, setShowAudienceCreate]   = useState<false | "custom" | "lookalike">(false);
+  const [newAudName,   setNewAudName]   = useState("");
+  const [newAudType,   setNewAudType]   = useState<"pixel_visitors" | "page_engagers">("pixel_visitors");
+  const [newAudDays,   setNewAudDays]   = useState(30);
+  const [lookalikeSeed, setLookalikeSeed] = useState("");
+  const [lookalikeRatio, setLookalikeRatio] = useState(3);
+
+  const pixelStatus = (trpc as any).integrations?.getPixelStatus?.useQuery?.({},
+    { refetchOnWindowFocus: false }
+  ) ?? { data: null, refetch: () => {} };
+  const existingAudiences: any[] = pixelStatus.data?.audiences || [];
+
+  const createAudienceMutation = (trpc as any).integrations?.createRetargetingAudience?.useMutation?.({
+    onSuccess: (d: any) => {
+      toast.success(`◎ Público "${d.name}" criado! Pode levar até 30min para popular.`);
+      setShowAudienceCreate(false);
+      setNewAudName("");
+      pixelStatus.refetch?.();
+    },
+    onError: (e: any) => toast.error("✕ " + (e.message || "Erro ao criar público")),
+  });
+
+  const createLookalikeMutation = (trpc as any).integrations?.createLookalikeAudience?.useMutation?.({
+    onSuccess: (d: any) => {
+      toast.success(`◎ Público semelhante "${d.name}" criado! Pode levar horas para popular (a Meta processa a similaridade).`);
+      setShowAudienceCreate(false);
+      setNewAudName("");
+      setLookalikeSeed("");
+      pixelStatus.refetch?.();
+    },
+    onError: (e: any) => toast.error("✕ " + (e.message || "Erro ao criar público semelhante")),
+  });
+
   // ── mutations edição ──
   const updateCreativeMutation = (trpc as any).campaigns?.updateCreative?.useMutation?.({
     onSuccess: (data: any) => {
@@ -738,6 +773,7 @@ export default function CampaignResult() {
           geoCity:   locationMode === "raio"    ? geoCity.trim()     : undefined,
           geoRadius: locationMode === "raio"    ? geoRadius          : undefined,
           cities:    locationMode === "cidade"  ? cities             : undefined,
+          customAudienceIds: selectedAudienceIds.length > 0 ? selectedAudienceIds : undefined,
           imageHash:   mpMedia.imageHash,
           videoId:     mpMedia.videoId,
           imageHashes: mpImageHashes,
@@ -927,6 +963,7 @@ export default function CampaignResult() {
         geoCity: locationMode === "raio" ? geoCity.trim() : undefined,
         geoRadius: locationMode === "raio" ? geoRadius : undefined,
         cities: locationMode === "cidade" ? cities : undefined,
+        customAudienceIds: selectedAudienceIds.length > 0 ? selectedAudienceIds : undefined,
         // Passa objetivo e segmento explicitamente — sobrepõe valor salvo no banco
         objective: ((campaign as any)?.objective || "leads") as any,
         segment:   ((campaign as any)?.segment   || "") as any,
@@ -4332,6 +4369,106 @@ ${sc.cta}`); }}
                             </div>
                           )}
                         </div>
+                      </div>
+
+                      {/* ── Públicos personalizados / semelhantes ── */}
+                      <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0", padding: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+                          <p style={{ fontSize: 13, fontWeight: 700, color: "var(--black)", margin: 0 }}>👥 Públicos (opcional)</p>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button onClick={() => setShowAudienceCreate(v => v === "custom" ? false : "custom")}
+                              style={{ fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 7, border: "1px solid var(--border)", background: showAudienceCreate === "custom" ? "#eff6ff" : "white", color: "#1d4ed8", cursor: "pointer" }}>
+                              + Personalizado
+                            </button>
+                            <button onClick={() => setShowAudienceCreate(v => v === "lookalike" ? false : "lookalike")}
+                              style={{ fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 7, border: "1px solid var(--border)", background: showAudienceCreate === "lookalike" ? "#faf5ff" : "white", color: "#7c3aed", cursor: "pointer" }}>
+                              + Semelhante
+                            </button>
+                          </div>
+                        </div>
+
+                        {existingAudiences.length === 0 && !showAudienceCreate && (
+                          <p style={{ fontSize: 11, color: "var(--muted)" }}>
+                            Nenhum público criado ainda. Crie um Público Personalizado (visitantes/engajadores) ou, com um já existente, um Público Semelhante — igual ao gerenciador de anúncios da Meta.
+                          </p>
+                        )}
+
+                        {existingAudiences.length > 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: showAudienceCreate ? 12 : 0 }}>
+                            {existingAudiences.map((a: any) => {
+                              const checked = selectedAudienceIds.includes(a.id);
+                              return (
+                                <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, cursor: "pointer", padding: "6px 8px", borderRadius: 8, background: checked ? "#f0fdf4" : "transparent" }}>
+                                  <input type="checkbox" checked={checked}
+                                    onChange={() => setSelectedAudienceIds(prev => checked ? prev.filter(id => id !== a.id) : [...prev, a.id])} />
+                                  <span style={{ fontWeight: 700, color: "var(--black)" }}>{a.type === "LOOKALIKE" ? "🎯" : "🌐"} {a.name}</span>
+                                  <span style={{ color: "var(--muted)" }}>~{(a.count || 0).toLocaleString("pt-BR")} pessoas</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {showAudienceCreate === "custom" && (
+                          <div style={{ background: "#f8fafc", borderRadius: 10, padding: 12 }}>
+                            <input className="input" placeholder="Nome do público (ex: Visitantes 30 dias)"
+                              value={newAudName} onChange={e => setNewAudName(e.target.value)}
+                              style={{ fontSize: 12, marginBottom: 8, width: "100%" }} />
+                            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                              <select className="input" value={newAudType} onChange={e => setNewAudType(e.target.value as any)} style={{ fontSize: 12, flex: 1 }}>
+                                <option value="pixel_visitors">Visitantes do site (pixel)</option>
+                                <option value="page_engagers">Engajadores da página</option>
+                              </select>
+                              <input className="input" type="number" min={1} max={180} value={newAudDays}
+                                onChange={e => setNewAudDays(Number(e.target.value))}
+                                style={{ fontSize: 12, width: 90 }} title="Dias de retenção" />
+                            </div>
+                            <button
+                              disabled={!newAudName.trim() || createAudienceMutation?.isPending}
+                              onClick={() => createAudienceMutation?.mutate?.({
+                                name: newAudName.trim(), type: newAudType, days: newAudDays,
+                                pixelId: pixelStatus.data?.pixels?.[0]?.id, pageId: pageId,
+                              })}
+                              style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", background: "#1d4ed8", color: "white", cursor: "pointer", opacity: (!newAudName.trim() || createAudienceMutation?.isPending) ? 0.5 : 1 }}>
+                              {createAudienceMutation?.isPending ? "Criando..." : "Criar público personalizado"}
+                            </button>
+                          </div>
+                        )}
+
+                        {showAudienceCreate === "lookalike" && (
+                          <div style={{ background: "#faf5ff", borderRadius: 10, padding: 12 }}>
+                            {existingAudiences.filter((a: any) => a.type !== "LOOKALIKE").length === 0 ? (
+                              <p style={{ fontSize: 11, color: "#7c3aed" }}>
+                                Público Semelhante precisa de uma audiência-semente. Crie um Público Personalizado primeiro.
+                              </p>
+                            ) : (
+                              <>
+                                <input className="input" placeholder="Nome do público semelhante"
+                                  value={newAudName} onChange={e => setNewAudName(e.target.value)}
+                                  style={{ fontSize: 12, marginBottom: 8, width: "100%" }} />
+                                <select className="input" value={lookalikeSeed} onChange={e => setLookalikeSeed(e.target.value)}
+                                  style={{ fontSize: 12, width: "100%", marginBottom: 8 }}>
+                                  <option value="">Audiência-semente...</option>
+                                  {existingAudiences.filter((a: any) => a.type !== "LOOKALIKE").map((a: any) => (
+                                    <option key={a.id} value={a.id}>{a.name} (~{(a.count || 0).toLocaleString("pt-BR")})</option>
+                                  ))}
+                                </select>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                  <span style={{ fontSize: 11, color: "var(--muted)" }}>Semelhança: {lookalikeRatio}%</span>
+                                  <input type="range" min={1} max={20} value={lookalikeRatio} onChange={e => setLookalikeRatio(Number(e.target.value))} style={{ flex: 1 }} />
+                                </div>
+                                <button
+                                  disabled={!newAudName.trim() || !lookalikeSeed || createLookalikeMutation?.isPending}
+                                  onClick={() => createLookalikeMutation?.mutate?.({
+                                    name: newAudName.trim(), originAudienceId: lookalikeSeed, ratio: lookalikeRatio / 100, country: "BR",
+                                  })}
+                                  style={{ fontSize: 12, fontWeight: 700, padding: "7px 14px", borderRadius: 8, border: "none", background: "#7c3aed", color: "white", cursor: "pointer", opacity: (!newAudName.trim() || !lookalikeSeed || createLookalikeMutation?.isPending) ? 0.5 : 1 }}>
+                                  {createLookalikeMutation?.isPending ? "Criando..." : "Criar público semelhante"}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>

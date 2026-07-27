@@ -368,6 +368,7 @@ export const publishToMetaInputSchema = z.object({
   regions: z.array(z.string()).optional(),
   countries: z.array(z.string()).optional(),
   cities: z.array(z.string()).optional(),
+  customAudienceIds: z.array(z.string()).optional(), // públicos personalizados/semelhantes selecionados
   locationMode: z.enum(["brasil", "paises", "raio", "cidade"]).optional(),
   geoCity: z.string().optional(),
   geoRadius: z.number().optional(),

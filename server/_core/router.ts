@@ -4150,6 +4150,9 @@ const campaignsRouter = router({
           age_min: parsedAgeMin,
           age_max: parsedAgeMax,
           targeting_automation: { advantage_audience: 0 },
+          ...(input.customAudienceIds?.length ? {
+            custom_audiences: input.customAudienceIds.map((id) => ({ id })),
+          } : {}),
           ...(resolvedInterests.length > 0 ? {
             flexible_spec: [{ interests: resolvedInterests }],
           } : {}),
@@ -8020,6 +8023,46 @@ const integrationsRouter = router({
       if (!res.ok || data.error) throw new TRPCError({ code: "BAD_REQUEST", message: data.error?.message || "Erro ao criar audiência" });
 
       log.info("meta", "Audiência de retargeting criada", { name: input.name, type: input.type, id: data.id });
+      return { success: true, audienceId: data.id, name: input.name };
+    }),
+
+  // -- Cria Público Semelhante (Lookalike) a partir de uma audiência-semente ──
+  createLookalikeAudience: protectedProcedure
+    .input(z.object({
+      name:             z.string().min(1),
+      originAudienceId: z.string().min(1),  // audiência-semente (custom audience já existente)
+      ratio:            z.number().min(0.01).max(0.20).default(0.03), // 1%-20% da população, Meta default 3%
+      country:          z.string().length(2).default("BR"),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const metaInt = await db.listApiIntegrations(ctx.user.id);
+      const meta    = (metaInt as any[]).find(i => i.provider === "meta");
+      const token   = meta?.accessToken;
+      const accountId = (meta?.metaAccountId || meta?.adAccountId || "").replace("act_", "");
+      if (!token) throw new TRPCError({ code: "UNAUTHORIZED", message: "Conta Meta não conectada" });
+
+      const body = {
+        name:               input.name,
+        subtype:            "LOOKALIKE",
+        origin_audience_id: input.originAudienceId,
+        lookalike_spec:     JSON.stringify({ type: "similarity", ratio: input.ratio, country: input.country }),
+        access_token:       token,
+      };
+
+      const res = await fetch(
+        `https://graph.facebook.com/v19.0/act_${accountId}/customaudiences`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        // Erro comum: audiência-semente pequena demais (Meta exige mínimo de tamanho para gerar lookalike)
+        const msg = data.error?.error_user_msg || data.error?.message || "Erro ao criar público semelhante";
+        throw new TRPCError({ code: "BAD_REQUEST", message: msg });
+      }
+
+      log.info("meta", "Público semelhante (lookalike) criado", {
+        name: input.name, originAudienceId: input.originAudienceId, ratio: input.ratio, id: data.id,
+      });
       return { success: true, audienceId: data.id, name: input.name };
     }),
 
