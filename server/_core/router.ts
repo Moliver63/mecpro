@@ -8555,6 +8555,7 @@ const metaCampaignsRouter = router({
       countries:     z.array(z.string()).optional(),
       geoCity:       z.string().optional(),
       geoRadius:     z.number().optional(),
+      cities:        z.array(z.string()).optional(),
       ageMin:        z.number().optional(),
       ageMax:        z.number().optional(),
       locationMode:  z.string().optional(),
@@ -8612,6 +8613,46 @@ const metaCampaignsRouter = router({
       }
 
       const resolvedRegionKeys = input.regions?.length ? await resolveBrazilRegionKeysForUpdate(token, input.regions) : [];
+
+      // ── Resolve cidades (mesmo padrão duplicado de resolveBrazilRegionKeysForUpdate,
+      // função local por escopo — resolveBrazilCityKeys de publishToMeta não é
+      // acessível aqui, mesma razão pela qual a versão de região também foi duplicada) ──
+      async function resolveCityKeysForUpdate(userToken: string, cityNames: string[]): Promise<number[]> {
+        const uniqueCities = [...new Set((cityNames || []).map((c) => String(c || "").trim()).filter(Boolean))];
+        if (uniqueCities.length === 0) return [];
+        const results = await Promise.all(uniqueCities.map(async (cityName) => {
+          const params = new URLSearchParams({ type: "adgeolocation", q: cityName, access_token: userToken });
+          params.set("location_types", '["city"]');
+          params.set("countries", '["BR"]');
+          const res = await fetch(`https://graph.facebook.com/v19.0/search?${params.toString()}`, { signal: AbortSignal.timeout(6000) });
+          const data: any = await res.json().catch(() => ({}));
+          if (!res.ok || data?.error) return null;
+          const normalized = cityName.trim().toLowerCase().split(",")[0].trim();
+          const exact = (data?.data || []).find((item: any) => {
+            const itemName = String(item?.name || "").trim().toLowerCase();
+            const itemType = String(item?.type || "").trim().toLowerCase();
+            return itemType === "city" && itemName === normalized;
+          }) || (data?.data || []).find((item: any) => String(item?.type || "").trim().toLowerCase() === "city");
+          const numericKey = Number(exact?.key);
+          return Number.isFinite(numericKey) ? numericKey : null;
+        }));
+        return results.filter((value): value is number => Number.isFinite(value));
+      }
+      const resolvedCityKeys = input.locationMode === "cidade" && input.cities?.length
+        ? await resolveCityKeysForUpdate(token, input.cities)
+        : [];
+
+      // Monta geo_locations respeitando o modo — mesma prioridade do publishToMeta:
+      // cidade exata > raio (custom_locations) > estados (regions) > países (fallback BR)
+      const resolvedGeoLocations: any =
+        resolvedCityKeys.length
+          ? { cities: resolvedCityKeys.map((key) => ({ key })) }
+          : (input.locationMode === "raio" && input.geoCity)
+          ? { custom_locations: [{ address_string: input.geoCity, radius: input.geoRadius || 15, distance_unit: "kilometer" }] }
+          : resolvedRegionKeys.length
+          ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
+          : { countries: input.countries?.length ? input.countries : ["BR"] };
+
       let targetingUpdate: any = {};
 
       if (input.placementMode === "auto" || input.placements.length === 0) {
@@ -8620,9 +8661,7 @@ const metaCampaignsRouter = router({
             age_min: input.ageMin ?? 18,
             age_max: input.ageMax ?? 65,
             targeting_automation: { advantage_audience: 0 },
-            geo_locations: resolvedRegionKeys.length
-              ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
-              : { countries: input.countries?.length ? input.countries : ["BR"] },
+            geo_locations: resolvedGeoLocations,
             device_platforms: ["mobile", "desktop"],
           }
         };
@@ -8646,11 +8685,7 @@ const metaCampaignsRouter = router({
             age_min: input.ageMin ?? 18,
             age_max: input.ageMax ?? 65,
             targeting_automation: { advantage_audience: 0 },
-            geo_locations: resolvedRegionKeys.length
-              ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
-              : input.countries?.length
-              ? { countries: input.countries }
-              : { countries: ["BR"] },
+            geo_locations: resolvedGeoLocations,
             publisher_platforms:             Array.from(publishers),
             ...(fbPos.length  > 0 ? { facebook_positions:          fbPos }  : {}),
             ...(igPos.length  > 0 ? { instagram_positions:         igPos }  : {}),
