@@ -8566,6 +8566,28 @@ const metaCampaignsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado." });
       const token = (integration as any).accessToken as string;
 
+      // ── Busca o targeting ATUAL do ad set na Meta antes de reconstruir ──────
+      // BUG CRÍTICO CORRIGIDO: este endpoint só recebe { adSetId, placements,
+      // placementMode } do frontend (nunca idade/geo) e SEMPRE reconstruía
+      // targeting do zero com fallback fixo (age 18-65, countries:["BR"]) —
+      // toda edição de posicionamento apagava silenciosamente a segmentação
+      // geográfica E etária real da campanha, revertendo para "Brasil inteiro,
+      // 18-65 anos" mesmo que o usuário só quisesse trocar Instagram/Facebook.
+      // Fix: busca o targeting real, usa como base, só sobrescreve o que foi
+      // EXPLICITAMENTE solicitado (placements sempre; idade/geo só se o input
+      // realmente os informar).
+      let currentTargeting: any = {};
+      try {
+        const curRes = await fetch(
+          `https://graph.facebook.com/v19.0/${input.adSetId}?fields=targeting&access_token=${token}`,
+          { signal: AbortSignal.timeout(8000) }
+        );
+        const curData: any = await curRes.json();
+        if (!curData.error) currentTargeting = curData.targeting || {};
+      } catch (e: any) {
+        log.warn("meta", "Falha ao buscar targeting atual do ad set — seguirá com fallback seguro", { adSetId: input.adSetId, error: e?.message });
+      }
+
       const PLACEMENT_MAP: Record<string, { pub: string; pos: string }> = {
         fb_feed:         { pub: "facebook",         pos: "feed" },
         fb_story:        { pub: "facebook",         pos: "story" },
@@ -8642,9 +8664,18 @@ const metaCampaignsRouter = router({
         ? await resolveCityKeysForUpdate(token, input.cities)
         : [];
 
+      // Intenção explícita de mudar geo: só reconstrói se o input realmente
+      // trouxe algo. Sem isso, PRESERVA o geo_locations real da campanha —
+      // é exatamente o que faltava antes (fallback cego para countries:["BR"]).
+      const hasExplicitGeoIntent =
+        (input.locationMode === "cidade" && (input.cities?.length || 0) > 0) ||
+        (input.locationMode === "raio" && !!input.geoCity) ||
+        (input.regions?.length || 0) > 0 ||
+        (input.countries?.length || 0) > 0;
+
       // Monta geo_locations respeitando o modo — mesma prioridade do publishToMeta:
-      // cidade exata > raio (custom_locations) > estados (regions) > países (fallback BR)
-      const resolvedGeoLocations: any =
+      // cidade exata > raio (custom_locations) > estados (regions) > países explícitos
+      const rebuiltGeoLocations: any =
         resolvedCityKeys.length
           ? { cities: resolvedCityKeys.map((key) => ({ key })) }
           : (input.locationMode === "raio" && input.geoCity)
@@ -8653,13 +8684,22 @@ const metaCampaignsRouter = router({
           ? { regions: resolvedRegionKeys.map((key) => ({ key })) }
           : { countries: input.countries?.length ? input.countries : ["BR"] };
 
+      const resolvedGeoLocations: any = hasExplicitGeoIntent
+        ? rebuiltGeoLocations
+        : (currentTargeting.geo_locations || rebuiltGeoLocations); // preserva o real; só usa fallback se a Meta não devolveu nada
+
+      // Idade: preserva a faixa real da campanha se o input não a informar —
+      // mesmo raciocínio do geo (evita resetar para 18-65 em toda edição).
+      const resolvedAgeMin = input.ageMin ?? currentTargeting.age_min ?? 18;
+      const resolvedAgeMax = input.ageMax ?? currentTargeting.age_max ?? 65;
+
       let targetingUpdate: any = {};
 
       if (input.placementMode === "auto" || input.placements.length === 0) {
         targetingUpdate = {
           targeting: {
-            age_min: input.ageMin ?? 18,
-            age_max: input.ageMax ?? 65,
+            age_min: resolvedAgeMin,
+            age_max: resolvedAgeMax,
             targeting_automation: { advantage_audience: 0 },
             geo_locations: resolvedGeoLocations,
             device_platforms: ["mobile", "desktop"],
@@ -8682,8 +8722,8 @@ const metaCampaignsRouter = router({
 
         targetingUpdate = {
           targeting: {
-            age_min: input.ageMin ?? 18,
-            age_max: input.ageMax ?? 65,
+            age_min: resolvedAgeMin,
+            age_max: resolvedAgeMax,
             targeting_automation: { advantage_audience: 0 },
             geo_locations: resolvedGeoLocations,
             publisher_platforms:             Array.from(publishers),
