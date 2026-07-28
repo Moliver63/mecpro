@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-07-23 (sessão 22)
+> **Última atualização:** 2026-07-24 (sessão 23)
 
 ---
 
@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `d9b5e4b` | fix(ml-analysis): 3ª causa raiz — context.name nunca era definido |
+| Último commit | `ec86c02` | feat(audiences): Público Personalizado e Semelhante na criação de campanha |
 
 ---
 
@@ -210,18 +210,116 @@ site institucional e qualidade de copy):
 
 ---
 
-## 📋 Pendências (atualizado sessão 22)
+## 📋 Sessão 23/07–24/07 — Módulo 2, bug crítico de targeting, Públicos
+
+**Busca por segmento na Ads Library (Módulo 2):**
+- `fb8aa15` `ed2e07d`: endpoint `competitors.searchBySegment` — busca TODOS os
+  anúncios de um termo/nicho sem precisar cadastrar concorrente por
+  concorrente. Reusa 100% a infra existente (`analyzeCompetitor`, circuit
+  breaker, cascata de 7 camadas) via um "concorrente virtual" por
+  projeto+segmento. UI na tela de Análise de Concorrentes.
+- `cb503a8`: **achado importante** — primeiro teste real revelou que os
+  resultados vinham do fallback estimado por IA (Ads Library code 10, sem
+  permissão), mas a UI mostrava como se fosse sucesso normal. Corrigido:
+  banner amarelo explícito + toast de aviso + marcação "· estimado" por item
+  quando `isReal=false`. Nunca deixar dado simulado passar por real.
+- `3b93c13` `90fb91b`: redesign do Módulo 2 (Regra 14) — banner das 7 camadas
+  virou recolhível, hub de ações unificado no header, empty state com 3
+  caminhos claros (segmento/manual/IA), painel de KPIs + gráficos (evolução
+  mensal, donut de formato) usando só dado real do `scraped_ads`, sem inventar
+  CTR/keywords que a Ads Library não fornece para anúncios comerciais no Brasil.
+
+**Fluxo Meta OAuth — dívida técnica e bug real (auditoria de doc externo):**
+- Usuário trouxe um prompt genérico de "correção Meta Ads" gerado por outra IA.
+  Auditoria linha a linha contra o código real mostrou: a maior parte do
+  documento já estava resolvida (callback OAuth já existia, rotas backend já
+  existiam e tipadas) — documento foi escrito sem acesso ao repo.
+- `78fea5d`: dos itens reais, 2 corrigidos — popup de OAuth travava até 5min se
+  fechado manualmente (agora tem `setInterval` de 500ms detectando
+  `popup.closed`, com flag `settled` evitando cleanup duplicado); e os 4
+  `(trpc as any).integrations` removidos, usando tipo direto (prova: outras 4
+  mutations do mesmo arquivo já tipavam sem `as any`, mesmo setup de
+  `import type { AppRouter }`).
+
+**Segmentação por cidade + bug CRÍTICO de perda de targeting:**
+- Auditoria de viabilidade de 8 features do gerenciador Meta (roadmap) —
+  avaliação honesta contra o código real, não teoria. Descoberta: item 6
+  (posicionamento IG/FB) já estava 100% pronto — erro de auditoria inicial
+  (arquivo errado, `CampaignBuilder.tsx` em vez de `CampaignResult.tsx`, que é
+  onde a publicação de fato acontece).
+- `dbdc434`: novo modo de segmentação **"cidade"** (targeting exato pelos
+  limites da cidade na Meta, complementando raio/estados/países). Reusa o
+  padrão já provado de `resolveBrazilRegionKeys`, só trocando
+  `location_types` para `"city"`.
+- `2a62181`: rastreando a implementação até o fim, achado que o fluxo de
+  **edição** de campanha já publicada (`updateAdSetPlacements`) tinha uma
+  cópia separada e mais limitada do construtor de `geo_locations` — não
+  suportava raio nem cidade, apenas estados/países. Corrigido com variável
+  unificada `resolvedGeoLocations`.
+- `abbe29c` — **BUG CRÍTICO, o achado mais importante da sessão**: o botão
+  "Editar posicionamentos" (só trocar Instagram/Facebook numa campanha já no
+  ar) enviava apenas `{ adSetId, placements, placementMode }` — nunca
+  idade/geo. O backend sempre reconstruía o `targeting` do zero com fallback
+  fixo (`age 18-65`, `countries:["BR"]`), **apagando silenciosamente** a
+  segmentação geográfica E etária real da campanha a cada edição de
+  posicionamento. Campanha configurada para SC, 25-45 anos, R$50/dia virava
+  Brasil inteiro, 18-65, mesmo orçamento — sem erro, sem aviso. Bug de perda
+  de dinheiro silenciosa, pré-existente (não introduzido nesta sessão).
+  **Fix arquitetural**: antes de reconstruir, busca o `targeting` real do ad
+  set na Meta (`GET /{adSetId}?fields=targeting`) e usa como base — só
+  sobrescreve geo/idade quando há intenção explícita no input. Testado com 3
+  cenários (preservação no caso real do bug, sobrescrita intencional,
+  fallback seguro se a busca falhar).
+
+**Públicos Personalizados e Semelhantes (Custom/Lookalike Audience):**
+- `ec86c02`: usuário pediu paridade com o Gerenciador de Anúncios da Meta.
+  Auditoria revelou 2 lacunas: Custom Audience já existia
+  (`createRetargetingAudience`) mas só era acessível via Dashboard, num botão
+  isolado de uma campanha já publicada — `PixelPanel` estava importado em
+  `CampaignResult.tsx` mas nunca renderizado (import morto), ou seja, não
+  havia como usar o público numa campanha nova. Lookalike não existia em
+  lugar nenhum do código.
+  - Novo endpoint `createLookalikeAudience` (mesmo padrão de
+    `createRetargetingAudience`, `subtype: LOOKALIKE`, exige audiência-semente).
+  - Nova seção "👥 Públicos (opcional)" na tela de publicação: lista públicos
+    existentes com checkbox, botões inline para criar Personalizado ou
+    Semelhante (bloqueado com aviso se não houver semente disponível).
+  - `customAudienceIds` conectado ao payload de `publishToMeta`.
+
+**Lição de processo (2 incidentes nesta sessão):**
+- Rate limit anônimo do GitHub (60/h) esgotado no meio da sessão — `git fetch`
+  passou a falhar com "could not read Username". Fix: `git remote set-url
+  origin` com o token embutido, usando o limite autenticado (5000/h) também
+  para fetch, não só para os commits via API.
+- `git reset --hard origin/main` rodado sem verificar se havia edição local
+  não commitada — descartou um fix já pronto (precisou ser refeito do zero,
+  desta vez validando `git status`/contagem de ocorrências antes de resetar).
+
+---
+
+
+
+## 📋 Pendências (atualizado sessão 23)
 
 | Prioridade | Item | Responsável |
 |---|---|---|
+| 🔴 | Ads Library API code 10 — bloqueia dado real na busca por segmento (Módulo 2) e afeta a qualidade de `winner_patterns` extraídos de anúncios estimados. Requer verificação de identidade em facebook.com/ID | Michel |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 | Michel |
 | 🔴 | Adicionar website no perfil projeto 41 (Villa Serena) | Michel |
-| 🟡 | Conectar `inferOfferType` + `SUBSEGMENTS` ao fluxo real — `learning_base` hoje só grava `niche='geral'`, perdendo granularidade | Dev |
-| 🟡 | `GA4_SERVICE_ACCOUNT_JSON` — confirmar se a Service Account tem Viewer na propriedade GA4 (erro PERMISSION_DENIED visto em sessão anterior) | Michel |
-| 🟡 | Ads Library API — code 10, requer verificação de identidade em facebook.com/ID; cobertura comercial só existe para UE/RU, Brasil só cobre anúncios políticos/eleitorais | Michel |
+| 🟡 | Conectar `inferOfferType` + `SUBSEGMENTS` ao fluxo real — `learning_base` hoje só grava `niche='geral'`, perdendo granularidade (impacta também itens 4/8 do roadmap: score preditivo e recomendação de IA pré-publicação, que dependem de comparação por nicho) | Dev |
+| 🟡 | Testar em produção: `createLookalikeAudience` com audiência-semente real (exige volume mínimo de pessoas na Meta, não testável fora de produção) | Michel |
+| 🟡 | GA4_SERVICE_ACCOUNT_JSON — confirmar Viewer na propriedade GA4 476009199 | Michel |
 | 🟡 | TikTok token no Render | Michel |
 | 🟡 | Gemini chaves 2+3 em projetos separados | Michel |
 | 🟢 | Campanhas geradas antes de `5b13463` têm budget antigo — regerar ou ajustar Módulo 4 | Michel |
+
+**Roadmap de features do gerenciador Meta (avaliado, não implementado ainda):**
+item 5 (reuso de criativo em carrossel — evita perder histórico de entrega no
+algoritmo da Meta ao criar `adcreatives` duplicado), itens 4+8 (score
+preditivo + recomendação de IA pré-publicação — mesma engine, depende de
+`SUBSEGMENTS` primeiro para ser útil de verdade), item 7 (redesign do
+`CampaignResult.tsx`/`CampaignBuilder.tsx`, maior escopo e risco, fazer por
+partes como o Módulo 2).
 
 ---
 
@@ -234,10 +332,15 @@ completo do sistema, bugs resolvidos, regras críticas e pendências.
 
 Stack: React 19 + Vite + TypeScript / Node.js + Express + tRPC / PostgreSQL + Drizzle / Render.com
 Repo local: /home/claude/mecpro (se já clonado na sessão)
-Último commit: d9b5e4b | Score: ~96% (não reavaliado) | Sessão: 22 (23/07/2026)
-MARCO: learning_base voltou a escrever dado limpo após 6+ semanas parado
-(cadeia de 4 bugs resolvida — ver seção dedicada acima). Efeito rede real
-(agrega entre clientes, sem userId na chave) recomeça a acumular agora.
+Último commit: ec86c02 | Score: ~96% (não reavaliado) | Sessão: 23 (24/07/2026)
+MARCO PRIORITÁRIO: fix crítico abbe29c — editar posicionamento de um ad set
+publicado estava apagando SILENCIOSAMENTE a segmentação geográfica e etária
+real, revertendo para Brasil inteiro/18-65 com o mesmo orçamento. Corrigido
+via fetch-then-merge (busca targeting real na Meta antes de reconstruir).
+Bug pré-existente, não introduzido nesta sessão — mas grave (perda de
+dinheiro silenciosa). Sempre que mexer em qualquer endpoint de UPDATE de
+campanha/adset, verificar se ele reconstrói o targeting do zero ou preserva
+o que não foi explicitamente alterado.
 
 ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/schema.ts          ← fonte da verdade do banco (SEMPRE consultar antes de query SQL)
@@ -339,10 +442,39 @@ REGRAS CRÍTICAS — NÃO VIOLAR:
       mas o Meta recebia o texto original mesmo assim (corrigido, mas
       padrão a vigiar em qualquer filtro novo)
 
+14. UPDATE DE CAMPANHA/ADSET NUNCA RECONSTRÓI TARGETING DO ZERO:
+    - BUG CRÍTICO (abbe29c): updateAdSetPlacements reconstruía age_min/
+      age_max/geo_locations inteiros a cada chamada, com fallback fixo
+      (18-65, Brasil) sempre que o frontend não enviava esses campos —
+      e o frontend REALMENTE não enviava (só mandava adSetId+placements)
+    - REGRA: qualquer endpoint de UPDATE deve buscar o estado atual na
+      Meta primeiro (GET) e usar como base, só sobrescrevendo campos com
+      intenção explícita no input. Nunca assumir default quando o campo
+      está ausente — ausente pode significar "não mexer", não "resetar"
+    - Mesmo padrão vale para qualquer campo futuro (interesses, públicos,
+      orçamento) adicionado a endpoints de edição
+
+15. AMBIENTE DE EXECUÇÃO — git e rate limit:
+    - git fetch anônimo pode bater rate limit do GitHub (60/h) mesmo sem
+      fazer commits — sintoma: "could not read Username for
+      'https://github.com'". Fix: git remote set-url origin com token
+      embutido, usa o limite autenticado (5000/h) também pro fetch
+    - NUNCA rodar `git reset --hard` sem antes checar se há edição local
+      não commitada (git status) — pode descartar trabalho pronto
+
+16. TABELA scraped_ads — campo source distingue real de estimado:
+    - getAdSource()/isRealAdSource() (exportadas de ai.ts) identificam se
+      um anúncio veio da Ads Library oficial ou do fallback de IA
+      (Gemini estimando com base em SEO/site, quando code 10 bloqueia)
+    - QUALQUER feature nova que exiba scraped_ads deve mostrar essa
+      distinção explicitamente (banner/badge) — nunca deixar dado
+      estimado passar visualmente como se fosse concorrência real
+
 PENDÊNCIAS ABERTAS:
 🔴 Vincular WhatsApp 47999465824 à Página 1086894187837842 no Meta Business
 🔴 Adicionar website no perfil projeto 41 (Villa Serena) — websiteUrl = null
-🟡 Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile (learning_base só grava niche='geral')
+🟡 Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile (learning_base só grava niche='geral'; impacta score preditivo/recomendação de IA do roadmap)
+🟡 Testar createLookalikeAudience em produção com semente real
 🟡 GA4_SERVICE_ACCOUNT_JSON — confirmar Viewer na propriedade GA4 476009199
 🟡 Ads Library API code 10 — requer verificação de identidade (facebook.com/ID), cobertura comercial só UE/RU
 🟡 TikTok token no Render
