@@ -909,5 +909,36 @@ export async function runMigrations(): Promise<void> {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_rag_logs_segment ON image_rag_logs(segment, validation_status)`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_rag_logs_project ON image_rag_logs(project_id, created_at DESC)`).catch(() => {});
 
+    // ── campaign_metrics — série temporal diária (Fase 1 do plano de dados) ──
+    // Complementa campaign_scores/ml_dataset (1 linha por campanha, sem tempo)
+    // e campaign_spend_snapshots (diário, mas só gasto). Aqui: CTR/CPC/CPM/
+    // ROAS/impressões/alcance/frequência POR DIA, alimentado pela Meta
+    // Insights API com time_increment=1. Puramente aditiva — não substitui
+    // nem altera nenhuma tabela existente.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS campaign_metrics (
+        id              SERIAL PRIMARY KEY,
+        "campaignId"    INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        date            DATE NOT NULL,
+        impressions     INTEGER NOT NULL DEFAULT 0,
+        clicks          INTEGER NOT NULL DEFAULT 0,
+        spend           NUMERIC(10,2) NOT NULL DEFAULT 0,
+        ctr             NUMERIC(8,4)  NOT NULL DEFAULT 0,
+        cpc             NUMERIC(10,4) NOT NULL DEFAULT 0,
+        cpm             NUMERIC(10,4) NOT NULL DEFAULT 0,
+        reach           INTEGER NOT NULL DEFAULT 0,
+        frequency       NUMERIC(6,3)  NOT NULL DEFAULT 0,
+        leads           INTEGER NOT NULL DEFAULT 0,
+        purchases       INTEGER NOT NULL DEFAULT 0,
+        "purchaseValue" NUMERIC(10,2) NOT NULL DEFAULT 0,
+        roas            NUMERIC(8,4)  NOT NULL DEFAULT 0,
+        "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE("campaignId", date)
+      )
+    `).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_metrics_campaign ON campaign_metrics("campaignId")`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_metrics_date ON campaign_metrics(date)`).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

@@ -266,6 +266,46 @@ export async function updateCampaignField(id: number, field: "creatives" | "adSe
   return updateCampaign(id, { [field]: value } as any);
 }
 
+// ── campaign_metrics: série temporal diária (Fase 1 do plano de dados) ──────
+// Upsert idempotente por (campaignId, date) — UNIQUE constraint garante que
+// rodar o sync 2x no mesmo dia atualiza a linha, não duplica.
+export interface CampaignMetricsDailyRow {
+  campaignId: number; date: string; // YYYY-MM-DD
+  impressions: number; clicks: number; spend: number;
+  ctr: number; cpc: number; cpm: number;
+  reach: number; frequency: number;
+  leads: number; purchases: number; purchaseValue: number; roas: number;
+}
+export async function upsertCampaignMetricsDaily(row: CampaignMetricsDailyRow): Promise<void> {
+  const pool = await getPool();
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO campaign_metrics
+       ("campaignId", date, impressions, clicks, spend, ctr, cpc, cpm, reach, frequency, leads, purchases, "purchaseValue", roas, "updatedAt")
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, NOW())
+     ON CONFLICT ("campaignId", date) DO UPDATE SET
+       impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks, spend = EXCLUDED.spend,
+       ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm,
+       reach = EXCLUDED.reach, frequency = EXCLUDED.frequency,
+       leads = EXCLUDED.leads, purchases = EXCLUDED.purchases,
+       "purchaseValue" = EXCLUDED."purchaseValue", roas = EXCLUDED.roas,
+       "updatedAt" = NOW()`,
+    [row.campaignId, row.date, row.impressions, row.clicks, row.spend, row.ctr, row.cpc, row.cpm,
+     row.reach, row.frequency, row.leads, row.purchases, row.purchaseValue, row.roas]
+  );
+}
+export async function getCampaignMetricsDaily(campaignId: number, days = 30): Promise<any[]> {
+  const pool = await getPool();
+  if (!pool) return [];
+  const r = await pool.query(
+    `SELECT * FROM campaign_metrics WHERE "campaignId" = $1
+       AND date >= CURRENT_DATE - $2::int
+     ORDER BY date ASC`,
+    [campaignId, days]
+  );
+  return r.rows;
+}
+
 // ============ SUBSCRIPTION PLANS ============
 export async function getAllPlans() {
   const db = await getDb(); if (!db) return [];

@@ -3119,6 +3119,53 @@ const campaignsRouter = router({
             });
           }
 
+          // ── campaign_metrics: série temporal diária (Fase 1 do plano de dados) ──
+          // Busca SEPARADA da acima (que é agregado do período inteiro) — aqui
+          // com time_increment=1 a Meta devolve uma linha por dia. Bloco
+          // isolado e não-crítico: falha aqui NUNCA deve afetar o sync
+          // principal (scoring/ml_dataset acima), que já está em produção.
+          try {
+            const dailyUrl = `https://graph.facebook.com/v21.0/${camp.metaCampaignId}/insights` +
+              `?fields=impressions,clicks,spend,ctr,cpm,cpc,actions,action_values,reach,frequency` +
+              `&time_range={"since":"${since}","until":"${today}"}` +
+              `&time_increment=1` +
+              `&access_token=${token}`;
+            const dailyRes = await fetch(dailyUrl, { signal: AbortSignal.timeout(8000) });
+            const dailyData: any = await dailyRes.json();
+            if (!dailyData.error && Array.isArray(dailyData.data)) {
+              for (const day of dailyData.data) {
+                const dLeads     = (day.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
+                const dPurchases = (day.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
+                const dPurchaseValue = Number((day.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
+                const dSpend = Number(day.spend || 0);
+                const dRoas = dSpend > 0
+                  ? (dPurchaseValue > 0 ? dPurchaseValue / dSpend : (Number(dPurchases) * AVG_CONVERSION_VALUE) / dSpend)
+                  : 0;
+                await db.upsertCampaignMetricsDaily({
+                  campaignId: camp.id,
+                  date:       day.date_start, // formato YYYY-MM-DD já vem da Meta
+                  impressions: Number(day.impressions || 0),
+                  clicks:      Number(day.clicks || 0),
+                  spend:       dSpend,
+                  ctr:         Number(day.ctr || 0),
+                  cpc:         Number(day.cpc || 0),
+                  cpm:         Number(day.cpm || 0),
+                  reach:       Number(day.reach || 0),
+                  frequency:   Number(day.frequency || 0),
+                  leads:       Number(dLeads),
+                  purchases:   Number(dPurchases),
+                  purchaseValue: dPurchaseValue,
+                  roas:        dRoas,
+                });
+              }
+              log.info("sync", "campaign_metrics diário atualizado", { campaignId: camp.id, dias: dailyData.data.length });
+            }
+          } catch (metricsErr: any) {
+            log.warn("sync", "Falha ao gravar campaign_metrics diário (não crítico, sync principal não afetado)", {
+              campaignId: camp.id, error: metricsErr.message?.slice(0, 60),
+            });
+          }
+
         } catch (e: any) {
           errors++;
           log.warn("sync", "Erro ao sincronizar campanha", { campaignId: camp.id, error: e.message?.slice(0, 60) });
