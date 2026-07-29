@@ -64,6 +64,9 @@ Quando necessário: **"Preciso validar esta informação."**
 | `i.isActive = true` | `i.accessToken IS NOT NULL` | Ler schema |
 | `db.getPool()` | `await getPool()` (import direto) | Verificar imports no topo |
 | `import("./_core/adminIntelligenceRouter")` | `import("./adminIntelligenceRouter")` | Checar path relativo |
+| `dbMod.db.getAllProjects()` | `dbMod.getAllProjects()` — db.ts não exporta objeto `db`, só named exports | Comparar com `import * as db from "../db"` já usado em router.ts |
+| `campaigns.createdAt` | `campaigns.generatedAt` — createdAt nunca existiu nessa tabela | `grep pgTable` no schema real, não supor nome convencional |
+| `campaigns.budget` / `campaigns.duration` | `suggestedBudgetDaily` / `durationDays` — os primeiros não existem, viram `undefined` silenciosamente (sem erro) | Mesmo cuidado acima — acesso a campo inexistente em objeto JS não quebra, só falha silenciosamente |
 
 ### Alucinação de copy — 3 fontes eliminadas (sessão 21)
 
@@ -86,6 +89,16 @@ FONTE 3 — fillTemplate deixava frases quebradas:
   {cidade} sem valor → "Seu imóvel em  por " (buraco + preposição órfã).
   Agora: limpa espaços duplos, preposições órfãs e pontuação solta
   após qualquer substituição de template.
+
+FONTE 4 — dado ESTIMADO exibido como se fosse REAL (sessão 23):
+  Ads Library sem permissão (code 10) cai no fallback de estimativa via
+  IA (Gemini simulando com base em SEO/site). Antes: UI mostrava como
+  sucesso normal, toast verde, sem diferenciação.
+  Agora: getAdSource()/isRealAdSource() (ai.ts, exportadas) classificam
+  cada item. Toda tela que exibe scraped_ads precisa mostrar a origem
+  explicitamente — banner de aviso + badge "· estimado" por item quando
+  não é fonte real. Nunca deixar dado simulado passar visualmente como
+  concorrência real.
 
 ESTRATÉGIA GERAL: regenerar > sanitizar > marcar para revisão humana.
 Nunca publicar silenciosamente algo suspeito.
@@ -472,6 +485,22 @@ Campanha"). NÃO assumir que campanhas atuais já usam essa inferência.
 // ✅ CORRETO: text.split("\n")        — quebra de linha escapada de verdade
 ```
 
+### Token Meta — validade real, nunca prazo fixo (sessão 22-23)
+
+```typescript
+// ❌ ERRADO: grava "60 dias" para QUALQUER token, mesmo um curto do
+// Graph Explorer (vive 1-2h). Sistema mente sobre validade até o
+// token morrer em produção enquanto a UI ainda garante "válido até".
+tokenExpiresAt: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000)
+
+// ✅ CORRETO: consulta /debug_token da própria Meta para a validade real.
+// expires_at=0 = sem expiração (grava null). Ausente/erro = grava null
+// (validade desconhecida) — nunca inventar prazo.
+const dbg = await fetch(`/debug_token?input_token=${token}&access_token=${appId}|${appSecret}`);
+const expiresAt = dbg.data?.expires_at;
+tokenExpiresAt = typeof expiresAt === "number" ? (expiresAt === 0 ? null : new Date(expiresAt * 1000)) : null;
+```
+
 ### Pool lazy init — evitar crash no boot
 
 ```typescript
@@ -483,6 +512,39 @@ export async function getPool(): Promise<Pool | null> {
   if (!_pool) _pool = new Pool({ connectionString: DATABASE_URL });
   return _pool;
 }
+```
+
+### Endpoints de UPDATE nunca reconstroem estado do zero (CRÍTICO, sessão 23)
+
+```
+BUG DE NEGÓCIO GRAVE encontrado: updateAdSetPlacements (editar posicionamento
+de um ad set já publicado) reconstruía o targeting do zero a cada chamada,
+com fallback fixo (age 18-65, countries:["BR"]) sempre que o frontend não
+enviava um campo. O frontend só mandava { adSetId, placements, placementMode }
+— nunca idade/geo. Resultado: toda edição de posicionamento APAGAVA
+SILENCIOSAMENTE a segmentação geográfica E etária real da campanha,
+revertendo para "Brasil inteiro, 18-65 anos" com o mesmo orçamento.
+Sem erro, sem aviso — só descoberto rastreando a cadeia até o fim.
+
+REGRA: qualquer endpoint de UPDATE parcial deve buscar o estado ATUAL
+no provedor (Meta) antes de reconstruir, e usar como base — só
+sobrescrevendo campos com intenção EXPLÍCITA no input:
+
+  // ❌ ERRADO: reconstrói tudo, campo ausente = fallback fixo
+  targeting: {
+    age_min: input.ageMin ?? 18,
+    geo_locations: input.regions?.length ? {...} : { countries: ["BR"] },
+  }
+
+  // ✅ CORRETO: busca o real primeiro, preserva o que não foi pedido
+  const current = await fetch(`/{id}?fields=targeting`).then(r => r.json());
+  const hasExplicitIntent = !!(input.regions?.length || input.cities?.length);
+  const geo = hasExplicitIntent ? rebuildFromInput(input) : current.targeting.geo_locations;
+  const ageMin = input.ageMin ?? current.targeting.age_min ?? 18; // só fallback se AMBOS ausentes
+
+Vale para qualquer campo futuro adicionado a um endpoint de edição
+(interesses, públicos, orçamento) — ausência de campo no input nunca
+deve significar "resetar", só "não mexer".
 ```
 
 ---
@@ -596,15 +658,19 @@ Meta token:      validado até 06/07/2026 — ⚠️ CONFIRMAR RENOVAÇÃO,
 
 | Prioridade | Item |
 |---|---|
+| 🔴 | Ads Library API code 10 — requer verificação de identidade (facebook.com/ID); bloqueia dado real em 2 fluxos (Módulo 2 e winner_patterns) |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 |
 | 🔴 | Website no perfil projeto 41 (Villa Serena) |
-| 🔴 | Confirmar validade do Meta Token (data de referência 06/07/2026 já vencida) |
-| 🟡 | Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile |
+| 🟡 | Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile — learning_base só grava niche='geral', também trava score preditivo/recomendação de IA pré-publicação (roadmap) |
 | 🟡 | TikTok token no Render |
 | 🟡 | Gemini chaves 2+3 em projetos Google separados |
-| 🟡 | syncMetaCampaignMetrics para avgScore real |
+| 🟡 | Testar createLookalikeAudience em produção com audiência-semente real |
 | 🟢 | Fine-tuning MECPRO_AI_URL (HuggingFace) — 500+ campanhas |
+
+~~Confirmar validade do Meta Token~~ — resolvido estruturalmente (sessão 22):
+token nunca mais grava prazo fixo, sempre consulta `/debug_token` da própria
+Meta. Ver padrão em "Token Meta — validade real" acima.
 
 ---
 
-*Atualizado: 2026-07-08 (sessão 21) | Score: ~96% (não reavaliado) | Último commit: 36a898d*
+*Atualizado: 2026-07-24 (sessão 23) | Score: ~96% (não reavaliado) | Último commit: 5b35dc4*
