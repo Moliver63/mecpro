@@ -355,3 +355,36 @@ export function sendCampaignsPausedEmail(
   });
 }
 
+export function sendLowBalanceWarningEmail(
+  email: string,
+  name: string,
+  balanceCents: number,
+  activeCampaignsCount: number,
+) {
+  const balanceFmt = (balanceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+  return resend.emails.send({
+    from: FROM,
+    to:   email,
+    subject: `⚠️ Saldo baixo — suas campanhas podem pausar em breve`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+        <h2 style="font-size:20px;font-weight:800;color:#0a0a0a;margin-bottom:8px">Seu saldo está acabando</h2>
+        <p style="color:#495057;font-size:15px;line-height:1.6">Olá ${name}, seu saldo atual é <strong>${balanceFmt}</strong>.</p>
+        <p style="color:#495057;font-size:15px;line-height:1.6">
+          Você tem ${activeCampaignsCount} campanha${activeCampaignsCount > 1 ? "s" : ""} ativa${activeCampaignsCount > 1 ? "s" : ""} rodando agora.
+          Quando o saldo zerar, a Meta pausa a entrega automaticamente — sem aviso adicional.
+        </p>
+        <p style="color:#92400e;font-size:14px;background:#fffbeb;padding:12px;border-radius:8px">
+          Recarregue agora para evitar interrupção na entrega dos seus anúncios.
+        </p>
+        <a href="${APP_URL}/financeiro" style="display:inline-block;margin:16px 0;padding:12px 24px;background:#0a0a0a;color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:14px">
+          Recarregar saldo
+        </a>
+        <div style="border-top:1px solid #e9ecef;margin-top:24px;padding-top:16px">
+          <p style="color:#adb5bd;font-size:12px;margin:0">MECPro · Plataforma de Inteligência de Campanhas</p>
+        </div>
+      </div>
+    `,
+  });
+}

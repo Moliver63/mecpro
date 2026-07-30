@@ -949,5 +949,16 @@ export async function runMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS "pauseNotifiedAt" TIMESTAMPTZ
     `).catch(() => {});
 
+    // ── media_balance.lowBalanceNotifiedAt — debounce do aviso PROATIVO ──
+    // Diferente de pauseNotifiedAt (campanha já parou): este avisa ANTES,
+    // quando o saldo cai abaixo do limiar mas as campanhas ainda rodam.
+    // NULL = não avisado no estado atual. Resetado quando o saldo volta
+    // a subir acima do limiar (recarga), pra poder avisar de novo no
+    // próximo ciclo de queda. Puramente aditiva.
+    await pool.query(`
+      ALTER TABLE media_balance
+        ADD COLUMN IF NOT EXISTS "lowBalanceNotifiedAt" TIMESTAMPTZ
+    `).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

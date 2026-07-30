@@ -1849,6 +1849,7 @@ async function main() {
 
           const newlyPaused: { name: string; status: string }[] = [];
           const backToActiveIds: number[] = [];
+          let activeCount = 0;
 
           for (const camp of userCamps) {
             try {
@@ -1860,6 +1861,7 @@ async function main() {
               if (data.error) continue;
               const status = data.effective_status as string;
               const isActive = status === "ACTIVE";
+              if (isActive) activeCount++;
 
               if (!isActive && !camp.pauseNotifiedAt) {
                 // Nova pausa detectada, ainda não avisamos
@@ -1879,22 +1881,49 @@ async function main() {
             ).catch(() => {});
           }
 
+          // Busca saldo 1x, reusado tanto pelo email de pausa quanto pelo aviso proativo
+          const balRow = await pool.query(
+            `SELECT balance, "lowBalanceNotifiedAt" FROM media_balance WHERE "userId" = $1`,
+            [userId]
+          ).catch(() => ({ rows: [] }));
+          const balanceCents = Number(balRow.rows[0]?.balance || 0);
+          const lowBalanceNotifiedAt = balRow.rows[0]?.lowBalanceNotifiedAt;
+
           if (newlyPaused.length > 0) {
             const userRow = await pool.query(`SELECT email, name FROM users WHERE id = $1`, [userId]).catch(() => ({ rows: [] }));
-            const balRow  = await pool.query(`SELECT balance FROM media_balance WHERE "userId" = $1`, [userId]).catch(() => ({ rows: [] }));
             const user = userRow.rows[0];
             if (user?.email) {
               try {
                 const { sendCampaignsPausedEmail } = await import('../email.js');
                 await sendCampaignsPausedEmail(
                   user.email, user.name || "Usuário",
-                  newlyPaused, Number(balRow.rows[0]?.balance || 0),
+                  newlyPaused, balanceCents,
                 );
                 log.info("pause-alert", `Email de campanha(s) pausada(s) enviado`, { userId, count: newlyPaused.length });
               } catch (emailErr: any) {
                 log.warn("pause-alert", "Falha ao enviar email de campanha pausada", { userId, error: emailErr.message?.slice(0, 80) });
               }
             }
+          }
+
+          // ── Aviso PROATIVO de saldo baixo — dispara ANTES de pausar, não depois ──
+          const LOW_BALANCE_THRESHOLD_CENTS = 15000; // R$150 (~2-3 dias de fôlego pro mínimo viável de R$675/mês)
+          if (activeCount > 0 && balanceCents < LOW_BALANCE_THRESHOLD_CENTS && !lowBalanceNotifiedAt) {
+            const userRow = await pool.query(`SELECT email, name FROM users WHERE id = $1`, [userId]).catch(() => ({ rows: [] }));
+            const user = userRow.rows[0];
+            if (user?.email) {
+              try {
+                const { sendLowBalanceWarningEmail } = await import('../email.js');
+                await sendLowBalanceWarningEmail(user.email, user.name || "Usuário", balanceCents, activeCount);
+                await pool.query(`UPDATE media_balance SET "lowBalanceNotifiedAt" = NOW() WHERE "userId" = $1`, [userId]).catch(() => {});
+                log.info("pause-alert", "Email de saldo baixo (proativo) enviado", { userId, balanceCents });
+              } catch (emailErr: any) {
+                log.warn("pause-alert", "Falha ao enviar email de saldo baixo", { userId, error: emailErr.message?.slice(0, 80) });
+              }
+            }
+          } else if (balanceCents >= LOW_BALANCE_THRESHOLD_CENTS && lowBalanceNotifiedAt) {
+            // Saldo recuperado (recarga) — reseta pra poder avisar de novo numa queda futura
+            await pool.query(`UPDATE media_balance SET "lowBalanceNotifiedAt" = NULL WHERE "userId" = $1`, [userId]).catch(() => {});
           }
         } catch { /* usuário individual — continue */ }
       }
