@@ -303,3 +303,55 @@ export function sendExternalPaymentEmail(
     `,
   });
 }
+
+export function sendCampaignsPausedEmail(
+  email: string,
+  name: string,
+  campaigns: { name: string; status: string }[],
+  balanceCents: number,
+) {
+  const balanceFmt = (balanceCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const lowBalance = balanceCents < 5000; // menos de R$50
+  const statusLabel: Record<string, string> = {
+    PAUSED: "Pausada",
+    DISAPPROVED: "Reprovada pela Meta",
+    ARCHIVED: "Arquivada",
+    WITH_ISSUES: "Com problemas",
+    PENDING_REVIEW: "Em revisão",
+  };
+  const rows = campaigns.map(c => `
+    <tr>
+      <td style="padding:8px 0;color:#0a0a0a;font-size:14px">${c.name}</td>
+      <td style="padding:8px 0;color:#dc2626;font-size:13px;font-weight:600;text-align:right">${statusLabel[c.status] || c.status}</td>
+    </tr>
+  `).join("");
+
+  return resend.emails.send({
+    from: FROM,
+    to:   email,
+    subject: `⚠️ ${campaigns.length} campanha${campaigns.length > 1 ? "s" : ""} pausada${campaigns.length > 1 ? "s" : ""} na Meta`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+        <h2 style="font-size:20px;font-weight:800;color:#0a0a0a;margin-bottom:8px">Campanhas pausadas na Meta</h2>
+        <p style="color:#495057;font-size:15px;line-height:1.6">Olá ${name}, detectamos que ${campaigns.length > 1 ? "as campanhas abaixo pararam" : "a campanha abaixo parou"} de rodar:</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          ${rows}
+        </table>
+        ${lowBalance ? `
+        <p style="color:#991b1b;font-size:14px;background:#fef2f2;padding:12px;border-radius:8px;margin-top:8px">
+          Seu saldo atual é <strong>${balanceFmt}</strong> — pode ser a causa da pausa. Considere recarregar.
+        </p>
+        ` : `
+        <p style="color:#495057;font-size:13px">Saldo atual: <strong>${balanceFmt}</strong>. Se não foi você quem pausou, confira o motivo no Gerenciador de Anúncios da Meta (política, revisão, pagamento).</p>
+        `}
+        <a href="${APP_URL}/financeiro" style="display:inline-block;margin:16px 0;padding:12px 24px;background:#0a0a0a;color:white;text-decoration:none;border-radius:10px;font-weight:700;font-size:14px">
+          Ver painel financeiro
+        </a>
+        <div style="border-top:1px solid #e9ecef;margin-top:24px;padding-top:16px">
+          <p style="color:#adb5bd;font-size:12px;margin:0">MECPro · Plataforma de Inteligência de Campanhas</p>
+        </div>
+      </div>
+    `,
+  });
+}
+

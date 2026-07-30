@@ -1812,6 +1812,103 @@ async function main() {
   checkPendingRecharges();
   setInterval(checkPendingRecharges, 30 * 60 * 1000);
 
+  // ── checkPausedCampaigns: alerta quando campanha para de rodar na Meta ──
+  // Motivado por incidente real (30/07): 5 campanhas de clientes pausaram
+  // por falta de crédito sem NINGUÉM saber, descoberto só por acaso
+  // debugando outra coisa. Isolado e não-crítico: falha aqui nunca afeta
+  // nada além de si mesmo.
+  async function checkPausedCampaigns() {
+    try {
+      const pool = await getPool();
+      if (!pool) return;
+
+      // Mesma elegibilidade do autoSyncMLMetrics — todas, não só as ainda
+      // não notificadas, porque também precisamos detectar quem VOLTOU a
+      // ficar ativo (pra resetar o debounce e poder alertar de novo no futuro)
+      const camps = await pool.query(`
+        SELECT c.id, c."metaCampaignId", c.name, c."pauseNotifiedAt", p."userId"
+        FROM campaigns c
+        JOIN projects p ON p.id = c."projectId"
+        WHERE c."metaCampaignId" IS NOT NULL
+          AND c."publishStatus" = 'success'
+          AND c."publishedAt" > NOW() - INTERVAL '90 days'
+        ORDER BY c."publishedAt" DESC
+        LIMIT 100
+      `).catch(() => ({ rows: [] }));
+      if (camps.rows.length === 0) return;
+
+      const byUser: Record<number, any[]> = {};
+      for (const c of camps.rows) (byUser[c.userId] ||= []).push(c);
+
+      for (const [userIdStr, userCamps] of Object.entries(byUser)) {
+        const userId = Number(userIdStr);
+        try {
+          const metaInt = await db.getApiIntegration(userId, "meta").catch(() => null);
+          if (!metaInt || !(metaInt as any).accessToken) continue;
+          const token = (metaInt as any).accessToken as string;
+
+          const newlyPaused: { name: string; status: string }[] = [];
+          const backToActiveIds: number[] = [];
+
+          for (const camp of userCamps) {
+            try {
+              const res = await fetch(
+                `https://graph.facebook.com/v21.0/${camp.metaCampaignId}?fields=effective_status&access_token=${token}`,
+                { signal: AbortSignal.timeout(8000) }
+              );
+              const data: any = await res.json();
+              if (data.error) continue;
+              const status = data.effective_status as string;
+              const isActive = status === "ACTIVE";
+
+              if (!isActive && !camp.pauseNotifiedAt) {
+                // Nova pausa detectada, ainda não avisamos
+                newlyPaused.push({ name: camp.name, status });
+                await pool.query(`UPDATE campaigns SET "pauseNotifiedAt" = NOW() WHERE id = $1`, [camp.id]);
+              } else if (isActive && camp.pauseNotifiedAt) {
+                // Voltou a rodar — reseta pra poder alertar de novo numa pausa futura
+                backToActiveIds.push(camp.id);
+              }
+            } catch { /* campanha individual — continue */ }
+          }
+
+          if (backToActiveIds.length > 0) {
+            await pool.query(
+              `UPDATE campaigns SET "pauseNotifiedAt" = NULL WHERE id = ANY($1::int[])`,
+              [backToActiveIds]
+            ).catch(() => {});
+          }
+
+          if (newlyPaused.length > 0) {
+            const userRow = await pool.query(`SELECT email, name FROM users WHERE id = $1`, [userId]).catch(() => ({ rows: [] }));
+            const balRow  = await pool.query(`SELECT balance FROM media_balance WHERE "userId" = $1`, [userId]).catch(() => ({ rows: [] }));
+            const user = userRow.rows[0];
+            if (user?.email) {
+              try {
+                const { sendCampaignsPausedEmail } = await import('../email.js');
+                await sendCampaignsPausedEmail(
+                  user.email, user.name || "Usuário",
+                  newlyPaused, Number(balRow.rows[0]?.balance || 0),
+                );
+                log.info("pause-alert", `Email de campanha(s) pausada(s) enviado`, { userId, count: newlyPaused.length });
+              } catch (emailErr: any) {
+                log.warn("pause-alert", "Falha ao enviar email de campanha pausada", { userId, error: emailErr.message?.slice(0, 80) });
+              }
+            }
+          }
+        } catch { /* usuário individual — continue */ }
+      }
+    } catch (err: any) {
+      log.warn("pause-alert", "Erro no check de campanhas pausadas", { error: err.message?.slice(0, 80) });
+    }
+  }
+
+  // Primeira execução 15min após boot (dá tempo do resto do sistema estabilizar), depois a cada 2h
+  setTimeout(() => {
+    checkPausedCampaigns();
+    setInterval(checkPausedCampaigns, 2 * 60 * 60 * 1000);
+  }, 15 * 60 * 1000);
+
   // Executa imediatamente e depois a cada 6 horas
   refreshExpiringMetaTokens();
   setInterval(refreshExpiringMetaTokens, 6 * 60 * 60 * 1000);

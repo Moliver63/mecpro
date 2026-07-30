@@ -940,5 +940,14 @@ export async function runMigrations(): Promise<void> {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_metrics_campaign ON campaign_metrics("campaignId")`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_metrics_date ON campaign_metrics(date)`).catch(() => {});
 
+    // ── campaigns.pauseNotifiedAt — debounce do alerta de campanha pausada ──
+    // NULL = não notificado no estado atual. Setado quando o e-mail é
+    // enviado; resetado para NULL quando a campanha volta a ACTIVE na Meta
+    // (permite alertar de novo numa pausa futura). Puramente aditiva.
+    await pool.query(`
+      ALTER TABLE campaigns
+        ADD COLUMN IF NOT EXISTS "pauseNotifiedAt" TIMESTAMPTZ
+    `).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }
