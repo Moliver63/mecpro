@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-07-24 (sessão 23)
+> **Última atualização:** 2026-07-30 (sessão 24)
 
 ---
 
@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `ec86c02` | feat(audiences): Público Personalizado e Semelhante na criação de campanha |
+| Último commit | `4a55219` | feat(alerts): notifica usuário por email quando campanha pausa na Meta |
 
 ---
 
@@ -299,10 +299,89 @@ site institucional e qualidade de copy):
 
 
 
-## 📋 Pendências (atualizado sessão 23)
+## 📋 Sessão 30/07 — campaign_metrics em produção, saga de debug, alerta de pausa
+
+**Fase 1 do plano de dados executada: `campaign_metrics` diário**
+- `5b35dc4`: tabela nova (série temporal diária de CTR/CPC/CPM/ROAS/
+  impressões/alcance/frequência/leads/purchases), puramente aditiva —
+  zero alteração em `adSets`/`creatives`/`learning_base`/`ad_patterns`.
+  Decisão de segurança: chamada à Meta SEPARADA da agregada existente
+  (com `time_increment=1`), em vez de reaproveitar a resposta — custa
+  1 chamada extra por campanha, mas garante zero risco pro scoring já
+  testado em produção.
+- `3977716`: `FRAMEWORK_EXCELENCIA.md` sincronizado no mesmo lote —
+  ver seção própria mais abaixo.
+
+**Bug real descoberto ao validar em produção: código foi parar no lugar errado**
+- `83ff3a2`: o bloco de `campaign_metrics` do commit `5b35dc4` foi
+  inserido dentro de `syncMetaCampaignMetrics` (router.ts) — que é um
+  `protectedProcedure` tRPC, só roda quando alguém clica o botão em
+  Admin → Campaign Intelligence. O cron real que roda sozinho a cada
+  24h (`autoSyncMLMetrics`, em `index.ts`) é uma implementação
+  **completamente separada e duplicada**, que só atualizava
+  `ml_dataset` e nunca tinha conhecimento da tabela nova. Fix: mesmo
+  bloco (já testado) replicado também em `autoSyncMLMetrics`, isolado
+  do bloco de `ml_dataset` existente (try/catch próprio, não toca
+  numa linha do que já funcionava).
+- `45b8cde`: o bloco novo em `autoSyncMLMetrics` tinha catch
+  **totalmente silencioso** (nem log) — impossível diagnosticar se
+  rodava ou falhava. Corrigido: `log.warn` com erro específico por
+  campanha + log de resumo ao final de todo ciclo (sucesso, zero
+  linhas, ou erro), sempre visível nos logs do Render com prefixo
+  `[ml-cron]`.
+
+**Causa raiz real da tabela vazia: nenhuma campanha estava ativa**
+- Investigação em produção (não é bug de código nenhum, nem do antigo
+  nem do novo): as 5 campanhas elegíveis do `userId 2`/`3` estavam
+  todas com `effective_status: PAUSED` na Meta — pausadas por falta de
+  crédito. Confirmado testando direto a API da Meta via `curl` do
+  Shell do Render (token real, sem passar pelo nosso código), pra
+  isolar se o problema era aplicação ou dado externo.
+- **Lição de processo**: `publishStatus: 'success'` no nosso banco
+  significa só "a chamada de criação funcionou" — não significa
+  "a campanha está ativa e gastando". São conceitos diferentes que
+  se confundiram durante o debug.
+- **Achado à parte, sobre confiabilidade de análise externa**: uma
+  reanálise trazida pelo usuário (de outra IA/agente) afirmou "156
+  campanhas scored desde 23/07" como fato consumado. Query real:
+  `0`. A alegação era fabricada — reforça que toda alegação numérica
+  de análise externa precisa ser conferida contra o dado real antes
+  de aceitar, nunca só contra o código.
+
+**Nova feature: alerta de campanha pausada (`4a55219`)**
+- Motivada diretamente pelo incidente acima — 3 clientes reais
+  (imobiliária, psicóloga, cosméticos) ficaram com campanha parada
+  sem ninguém saber, só descoberto por acaso durante outro debug.
+- `campaigns.pauseNotifiedAt` (nova coluna, nullable): debounce —
+  seta quando o alerta é enviado, reseta pra `NULL` quando a campanha
+  volta a `ACTIVE` (permite alertar de novo numa pausa futura).
+- `sendCampaignsPausedEmail()` em `email.ts`: mesmo padrão visual das
+  funções existentes (Resend). Lista campanhas paradas + status +
+  saldo atual, com destaque quando saldo < R$50.
+- `checkPausedCampaigns()`: cron novo e isolado, primeira execução
+  15min após boot, depois a cada 2h (mais frequente que os syncs de
+  24h/48h — isso é sensível a tempo, campanha parada é lead perdido).
+  1 e-mail por usuário agrupando todas as campanhas paradas dele.
+
+**Lição de processo — cadeia de commit via GitHub API**
+- Dois incidentes nesta sessão: um push retornou 422 sem motivo
+  aparente (refeito passo a passo, sha por sha, funcionou na segunda
+  tentativa — provável falha transitória da API); outro deu erro de
+  parsing JSON ao ler a resposta do commit via `echo "$VAR" | python3`.
+  Fix nos dois casos: salvar cada resposta HTTP em arquivo
+  (`-o /tmp/resp.json`) em vez de capturar em variável de shell e
+  fazer pipe — mais robusto contra caracteres especiais e mais fácil
+  de inspecionar quando algo falha no meio da cadeia blob→tree→commit→ref.
+
+---
+
+
+
+## 📋 Pendências (atualizado sessão 24)
 
 | Prioridade | Item | Responsável |
 |---|---|---|
+| 🔴 | Recarregar crédito das 5 campanhas pausadas (imobiliária, psicóloga, cosméticos) — pausadas desde antes de 30/07 por falta de saldo, só descoberto por acaso nesta sessão | Michel |
 | 🔴 | Ads Library API code 10 — bloqueia dado real na busca por segmento (Módulo 2) e afeta a qualidade de `winner_patterns` extraídos de anúncios estimados. Requer verificação de identidade em facebook.com/ID | Michel |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 | Michel |
 | 🔴 | Adicionar website no perfil projeto 41 (Villa Serena) | Michel |
@@ -332,15 +411,16 @@ completo do sistema, bugs resolvidos, regras críticas e pendências.
 
 Stack: React 19 + Vite + TypeScript / Node.js + Express + tRPC / PostgreSQL + Drizzle / Render.com
 Repo local: /home/claude/mecpro (se já clonado na sessão)
-Último commit: ec86c02 | Score: ~96% (não reavaliado) | Sessão: 23 (24/07/2026)
-MARCO PRIORITÁRIO: fix crítico abbe29c — editar posicionamento de um ad set
-publicado estava apagando SILENCIOSAMENTE a segmentação geográfica e etária
-real, revertendo para Brasil inteiro/18-65 com o mesmo orçamento. Corrigido
-via fetch-then-merge (busca targeting real na Meta antes de reconstruir).
-Bug pré-existente, não introduzido nesta sessão — mas grave (perda de
-dinheiro silenciosa). Sempre que mexer em qualquer endpoint de UPDATE de
-campanha/adset, verificar se ele reconstrói o targeting do zero ou preserva
-o que não foi explicitamente alterado.
+Último commit: 4a55219 | Score: ~96% (não reavaliado) | Sessão: 24 (30/07/2026)
+MARCO PRIORITÁRIO: 5 campanhas de clientes reais (imobiliária, psicóloga,
+cosméticos) ficaram PAUSADAS na Meta por falta de crédito sem NINGUÉM
+saber — só descoberto por acaso debugando outro problema (campaign_metrics
+vazio). publishStatus='success' no banco significa só "criação funcionou",
+NUNCA assumir que significa "está ativa e gastando" — são coisas
+diferentes. Corrigido estruturalmente: checkPausedCampaigns (cron a cada
+2h) agora avisa por e-mail quando isso acontecer de novo. Lição anterior
+(fix crítico abbe29c, sessão 23 — update nunca reconstrói targeting do
+zero) continua valendo, ver Regra 14 do FRAMEWORK_EXCELENCIA.md.
 
 ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/schema.ts          ← fonte da verdade do banco (SEMPRE consultar antes de query SQL)

@@ -547,6 +547,67 @@ Vale para qualquer campo futuro adicionado a um endpoint de edição
 deve significar "resetar", só "não mexer".
 ```
 
+### publishStatus='success' ≠ campanha ativa na Meta (CRÍTICO, sessão 24)
+
+```
+CONFUSÃO REAL que custou uma sessão inteira de debug: publishStatus='success'
+no nosso banco significa "a chamada de CRIAÇÃO funcionou na Meta" — não
+significa "a campanha está ativa e gastando agora". São dois conceitos
+completamente diferentes que se confundiram durante uma investigação de
+campaign_metrics vazio.
+
+CAUSA REAL do incidente: 5 campanhas de clientes reais estavam com
+effective_status='PAUSED' na Meta (falta de crédito) havia dias, todas
+marcadas 'success' no nosso banco — e ninguém sabia, porque nada monitora
+esse tipo de divergência.
+
+REGRA: ao investigar "por que não tem dado real de uma campanha", SEMPRE
+checar o effective_status atual na Meta antes de suspeitar do código:
+
+  GET /{campaign-id}?fields=name,status,effective_status
+
+Valores possíveis além de ACTIVE: PAUSED, PENDING_REVIEW, DISAPPROVED,
+WITH_ISSUES, ARCHIVED — todos resultam em insights vazio, sem erro.
+
+FIX ESTRUTURAL (não pontual): checkPausedCampaigns (index.ts, cron a
+cada 2h) avisa por e-mail assim que detecta essa divergência, com
+debounce via campaigns.pauseNotifiedAt — nunca mais depender de alguém
+notar por acaso.
+```
+
+### curl com JSON em query string — usar --data-urlencode (sessão 24)
+
+```bash
+# ❌ ERRADO: colar {"since":"...","until":"..."} direto na URL do curl
+# quebra de forma inconsistente dependendo do shell/terminal (chaves e
+# vírgulas podem sofrer expansão ou escape incorreto, às vezes disparando
+# a chamada em duplicidade sem erro visível)
+curl "...&time_range={\"since\":\"$SINCE\",\"until\":\"$TODAY\"}&..."
+
+# ✅ CORRETO: montar a string numa variável separada, depois usar
+# curl -G --data-urlencode (deixa o curl fazer o URL-encoding)
+TR="{\"since\":\"$SINCE\",\"until\":\"$TODAY\"}"
+curl -s -G "https://graph.facebook.com/v21.0/$ID/insights" \
+  --data-urlencode "time_range=$TR" \
+  --data-urlencode "access_token=$TOKEN"
+```
+
+### Cadeia de commit via GitHub API — salvar resposta em arquivo (sessão 24)
+
+```bash
+# ❌ FRÁGIL: capturar resposta HTTP em variável de shell via $() e fazer
+# pipe pro python — falha de forma intermitente (JSONDecodeError sem
+# causa clara, ou push retorna 422 sem motivo aparente)
+COMMIT=$(curl ... | python3 -c "import json,sys; print(json.load(sys.stdin)['sha'])")
+
+# ✅ ROBUSTO: salvar em arquivo com -o, inspecionar antes de parsear
+curl -s -X POST ... -o /tmp/commitresp.json
+python3 -c "import json; print(json.load(open('/tmp/commitresp.json'))['sha'])"
+# Se falhar, dá pra abrir o arquivo e ver a resposta bruta antes de
+# tentar de novo — mais fácil de debugar no meio da cadeia
+# blob → tree → commit → PATCH ref.
+```
+
 ---
 
 ## ERROS META ADS — SOLUÇÕES CONFIRMADAS
@@ -658,6 +719,7 @@ Meta token:      validado até 06/07/2026 — ⚠️ CONFIRMAR RENOVAÇÃO,
 
 | Prioridade | Item |
 |---|---|
+| 🔴 | Recarregar crédito das 5 campanhas pausadas (imobiliária, psicóloga, cosméticos) — descoberto por acaso na sessão 24 |
 | 🔴 | Ads Library API code 10 — requer verificação de identidade (facebook.com/ID); bloqueia dado real em 2 fluxos (Módulo 2 e winner_patterns) |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 |
 | 🔴 | Website no perfil projeto 41 (Villa Serena) |
@@ -671,6 +733,11 @@ Meta token:      validado até 06/07/2026 — ⚠️ CONFIRMAR RENOVAÇÃO,
 token nunca mais grava prazo fixo, sempre consulta `/debug_token` da própria
 Meta. Ver padrão em "Token Meta — validade real" acima.
 
+~~syncMetaCampaignMetrics para avgScore real~~ — resolvido (sessão 24):
+campaign_metrics diário rodando via cron automático (autoSyncMLMetrics),
+com log de erro/resumo visível. Ver padrão "publishStatus='success' ≠
+campanha ativa" acima para a causa raiz real de dado vazio.
+
 ---
 
-*Atualizado: 2026-07-24 (sessão 23) | Score: ~96% (não reavaliado) | Último commit: 5b35dc4*
+*Atualizado: 2026-07-30 (sessão 24) | Score: ~96% (não reavaliado) | Último commit: 4a55219*
