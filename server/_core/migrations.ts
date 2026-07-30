@@ -960,5 +960,43 @@ export async function runMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS "lowBalanceNotifiedAt" TIMESTAMPTZ
     `).catch(() => {});
 
+    // ── Caixa de e-mail do admin (webmail) — mesmo padrão da Caro Vargas ──
+    // inbox_messages: e-mails recebidos via webhook Resend (email.received).
+    // O payload do webhook só traz metadados — o corpo é buscado à parte via
+    // GET /emails/receiving/{id}, e o resendEmailId garante idempotência
+    // (o Resend pode reenviar o mesmo evento se não receber 200 a tempo).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS inbox_messages (
+        id              SERIAL PRIMARY KEY,
+        "resendEmailId" VARCHAR(200) UNIQUE,
+        "fromAddress"   VARCHAR(300) NOT NULL,
+        "toAddress"     VARCHAR(300),
+        subject         VARCHAR(500),
+        "bodyText"      TEXT,
+        "bodyHtml"      TEXT,
+        attachments     JSONB,  -- [{id, filename, size, contentType}]
+        "isRead"        BOOLEAN NOT NULL DEFAULT false,
+        "isReplied"     BOOLEAN NOT NULL DEFAULT false,
+        "isArchived"    BOOLEAN NOT NULL DEFAULT false,
+        "isDeleted"     BOOLEAN NOT NULL DEFAULT false,
+        "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_inbox_messages_created ON inbox_messages("createdAt" DESC)`).catch(() => {});
+
+    // sent_messages: respostas/e-mails que o admin mandou pela caixa —
+    // sem isso, uma resposta enviada "some" (sai de verdade pelo Resend,
+    // mas não fica registro nenhum pra rever depois).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sent_messages (
+        id                SERIAL PRIMARY KEY,
+        "originMessageId" INTEGER REFERENCES inbox_messages(id) ON DELETE SET NULL,
+        "toAddress"       VARCHAR(300) NOT NULL,
+        subject           VARCHAR(500),
+        body              TEXT NOT NULL,
+        "createdAt"       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }

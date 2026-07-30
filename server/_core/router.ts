@@ -5767,6 +5767,75 @@ const adminRouter = router({
   createInvite:   adminProcedure.input(z.object({ email: z.string().email(), role: z.enum(["admin","superadmin"]) })).mutation(({ input, ctx }) => db.createAdminInvite(input.email, input.role, ctx.user.id)),
   listInvites:    adminProcedure.query(() => db.listAdminInvites()),
   deleteInvite:   adminProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteInvite(input.id)),
+
+  // ── Caixa de email (webmail) — mesmo padrão da Caro Vargas ──────────────
+  emailsList: adminProcedure
+    .input(z.object({ folder: z.enum(["inbox", "archived", "trash"]).default("inbox") }).optional())
+    .query(({ input }) => db.listInboxMessages(input?.folder ?? "inbox")),
+  emailsListSent:  adminProcedure.query(() => db.listSentMessages()),
+  emailsCountUnread: adminProcedure.query(() => db.countUnreadInboxMessages()),
+  emailsMarkRead: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(({ input }) => db.setInboxMessageFlag(input.id, "isRead", true)),
+  emailsMarkUnread: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(({ input }) => db.setInboxMessageFlag(input.id, "isRead", false)),
+  emailsArchive: adminProcedure
+    .input(z.object({ id: z.number(), archived: z.boolean().default(true) }))
+    .mutation(({ input }) => db.setInboxMessageFlag(input.id, "isArchived", input.archived)),
+  emailsDelete: adminProcedure
+    .input(z.object({ id: z.number(), deleted: z.boolean().default(true) }))
+    .mutation(({ input }) => db.setInboxMessageFlag(input.id, "isDeleted", input.deleted)),
+  emailsDeletePermanent: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(({ input }) => db.deleteInboxMessagePermanently(input.id)),
+  emailsAttachmentLink: adminProcedure
+    .input(z.object({ messageId: z.number(), attachmentId: z.string() }))
+    .query(async ({ input }) => {
+      const msg = await db.getInboxMessageById(input.messageId);
+      if (!msg?.resendEmailId) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada" });
+      if (!process.env.RESEND_API_KEY) throw new TRPCError({ code: "BAD_GATEWAY", message: "Resend não configurado no servidor." });
+      const res = await fetch(
+        `https://api.resend.com/emails/receiving/${msg.resendEmailId}/attachments/${input.attachmentId}`,
+        { headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` } }
+      );
+      const data: any = await res.json();
+      if (data.error || !data.download_url) throw new TRPCError({ code: "BAD_GATEWAY", message: "Não foi possível gerar o link do anexo agora." });
+      return { url: data.download_url as string };
+    }),
+  emailsReply: adminProcedure
+    .input(z.object({ id: z.number(), body: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const msg = await db.getInboxMessageById(input.id);
+      if (!msg) throw new TRPCError({ code: "NOT_FOUND", message: "Mensagem não encontrada" });
+
+      const match = (msg.fromAddress as string).match(/<([^>]+)>/);
+      const toAddress = match ? match[1] : msg.fromAddress.trim();
+      const originalSubject = msg.subject || "";
+      const replySubject = originalSubject.toLowerCase().startsWith("re:") ? originalSubject : `Re: ${originalSubject || "sua mensagem"}`;
+
+      const { sendAdminEmail } = await import("../email.js");
+      const sent = await sendAdminEmail(
+        toAddress, replySubject, input.body,
+        msg.bodyText ? { from: msg.fromAddress, date: new Date(msg.createdAt).toLocaleString("pt-BR"), body: msg.bodyText } : undefined
+      );
+      if ((sent as any)?.error) throw new TRPCError({ code: "BAD_GATEWAY", message: "Não foi possível enviar a resposta agora." });
+
+      await db.setInboxMessageFlag(input.id, "isReplied", true);
+      await db.setInboxMessageFlag(input.id, "isRead", true);
+      await db.insertSentMessage({ originMessageId: msg.id, toAddress, subject: replySubject, body: input.body });
+      return { success: true as const };
+    }),
+  emailsSendNew: adminProcedure
+    .input(z.object({ to: z.string().email(), subject: z.string().min(1), body: z.string().min(1) }))
+    .mutation(async ({ input }) => {
+      const { sendAdminEmail } = await import("../email.js");
+      const sent = await sendAdminEmail(input.to, input.subject, input.body);
+      if ((sent as any)?.error) throw new TRPCError({ code: "BAD_GATEWAY", message: "Não foi possível enviar o email agora." });
+      await db.insertSentMessage({ originMessageId: null, toAddress: input.to, subject: input.subject, body: input.body });
+      return { success: true as const };
+    }),
+
   // Planos
   listPlans:      adminProcedure.query(() => db.getAllPlansAdmin()),
   upsertPlan:     adminProcedure.input(z.object({

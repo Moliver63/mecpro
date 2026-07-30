@@ -94,6 +94,7 @@ import Financeiro from "@/pages/Financeiro";
 import AdminAuditoria from "@/pages/AdminAuditoria";
 import AdminTokenAnalytics from "@/pages/AdminTokenAnalytics";
 import AdminFinanceiro from "@/pages/AdminFinanceiro";
+import AdminEmails from "@/pages/AdminEmails";
 import AdminPlans from "@/pages/AdminPlans";
 import AdminModeration from "@/pages/AdminModeration";
 import AdminStudents from "@/pages/AdminStudents";
@@ -270,6 +271,7 @@ export default function App() {
             <Route path="/admin/auditoria"><ProtectedRoute role="admin"><AdminAuditoria /></ProtectedRoute></Route>
             <Route path="/admin/tokens"><ProtectedRoute role="admin"><AdminTokenAnalytics /></ProtectedRoute></Route>
             <Route path="/admin/financeiro"><ProtectedRoute role="admin"><AdminFinanceiro /></ProtectedRoute></Route>
+            <Route path="/admin/emails"><ProtectedRoute role="admin"><AdminEmails /></ProtectedRoute></Route>
             <Route path="/admin/plans"><ProtectedRoute role="admin"><AdminPlans /></ProtectedRoute></Route>
             <Route path="/admin/moderation"><ProtectedRoute role="admin"><AdminModeration /></ProtectedRoute></Route>
             <Route path="/admin/students"><ProtectedRoute role="admin"><AdminStudents /></ProtectedRoute></Route>

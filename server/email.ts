@@ -388,3 +388,34 @@ export function sendLowBalanceWarningEmail(
     `,
   });
 }
+
+export function sendAdminEmail(
+  to: string,
+  subject: string,
+  body: string,
+  quote?: { from: string; date: string; body: string },
+) {
+  const bodyHtml = body.replace(/\n/g, "<br>");
+  const quoteHtml = quote ? `
+    <div style="margin-top:20px;padding-left:12px;border-left:2px solid #dee2e6;color:#868e96;font-size:13px">
+      <p style="margin:0 0 4px 0">Em ${quote.date}, ${quote.from} escreveu:</p>
+      <p style="margin:0;white-space:pre-wrap">${quote.body.slice(0, 2000).replace(/\n/g, "<br>")}</p>
+    </div>
+  ` : "";
+
+  return resend.emails.send({
+    from: FROM,
+    to,
+    subject,
+    reply_to: FROM,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
+        <p style="color:#0a0a0a;font-size:15px;line-height:1.6;white-space:pre-wrap">${bodyHtml}</p>
+        ${quoteHtml}
+        <div style="border-top:1px solid #e9ecef;margin-top:24px;padding-top:16px">
+          <p style="color:#adb5bd;font-size:12px;margin:0">MECPro · Plataforma de Inteligência de Campanhas</p>
+        </div>
+      </div>
+    `,
+  });
+}

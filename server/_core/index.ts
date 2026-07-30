@@ -1313,6 +1313,57 @@ app.post('/api/webhook/resend', express.raw({ type: 'application/json' }), async
       );
     }
 
+    // ── email.received (inbound) — alguém mandou email pra caixa do admin ──
+    // Payload do webhook só traz metadados; o corpo é buscado à parte via
+    // REST direto (não via SDK, porque a versão do resend instalada aqui
+    // não tem os métodos .emails.receiving.* — evita bump de major version
+    // só por causa disso, que arriscaria quebrar os 8 emails já em produção).
+    if (type === 'email.received' && data.email_id && process.env.RESEND_API_KEY) {
+      const pool = await getPool();
+      if (pool) {
+        try {
+          const jaExiste = await pool.query(
+            `SELECT id FROM inbox_messages WHERE "resendEmailId" = $1`,
+            [data.email_id]
+          );
+          if (jaExiste.rows.length === 0) {
+            const emailRes = await fetch(`https://api.resend.com/emails/receiving/${data.email_id}`, {
+              headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+              signal: AbortSignal.timeout(8000),
+            });
+            const email: any = await emailRes.json();
+            if (!email.error) {
+              const attachments = Array.isArray(email.attachments) && email.attachments.length > 0
+                ? email.attachments.map((a: any) => ({
+                    id: a.id, filename: a.filename || "arquivo",
+                    size: a.size, contentType: a.content_type,
+                  }))
+                : null;
+              await pool.query(
+                `INSERT INTO inbox_messages
+                   ("resendEmailId", "fromAddress", "toAddress", subject, "bodyText", "bodyHtml", attachments)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`,
+                [
+                  data.email_id,
+                  email.from || "desconhecido",
+                  Array.isArray(email.to) ? email.to.join(", ") : String(email.to || ""),
+                  email.subject || "(sem assunto)",
+                  email.text || null,
+                  email.html || null,
+                  JSON.stringify(attachments),
+                ]
+              );
+              log.info('resend-webhook', 'Email inbound salvo na caixa do admin', { from: email.from, subject: email.subject });
+            } else {
+              log.warn('resend-webhook', 'Falha ao buscar corpo do email inbound', { error: email.error });
+            }
+          }
+        } catch (inboundErr: any) {
+          log.warn('resend-webhook', 'Erro ao processar email inbound (não crítico)', { error: inboundErr.message?.slice(0, 80) });
+        }
+      }
+    }
+
     res.status(200).json({ received: true });
   } catch (err: any) {
     log.warn('resend-webhook', `Erro ao processar evento (não crítico)`, { error: err.message?.slice(0, 80) });

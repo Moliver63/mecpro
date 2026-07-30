@@ -306,6 +306,70 @@ export async function getCampaignMetricsDaily(campaignId: number, days = 30): Pr
   return r.rows;
 }
 
+// ── Caixa de email do admin (webmail) — mesmo padrão da Caro Vargas ────────
+export type InboxFolder = "inbox" | "archived" | "trash";
+
+export async function listInboxMessages(folder: InboxFolder = "inbox"): Promise<any[]> {
+  const pool = await getPool();
+  if (!pool) return [];
+  const where =
+    folder === "trash"    ? `"isDeleted" = true` :
+    folder === "archived" ? `"isArchived" = true AND "isDeleted" = false` :
+                             `"isArchived" = false AND "isDeleted" = false`;
+  const r = await pool.query(`SELECT * FROM inbox_messages WHERE ${where} ORDER BY "createdAt" DESC LIMIT 200`);
+  return r.rows;
+}
+
+export async function listSentMessages(): Promise<any[]> {
+  const pool = await getPool();
+  if (!pool) return [];
+  const r = await pool.query(`SELECT * FROM sent_messages ORDER BY "createdAt" DESC LIMIT 200`);
+  return r.rows;
+}
+
+export async function countUnreadInboxMessages(): Promise<number> {
+  const pool = await getPool();
+  if (!pool) return 0;
+  const r = await pool.query(
+    `SELECT COUNT(*)::int as total FROM inbox_messages WHERE "isRead" = false AND "isArchived" = false AND "isDeleted" = false`
+  );
+  return r.rows[0]?.total || 0;
+}
+
+export async function getInboxMessageById(id: number): Promise<any | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  const r = await pool.query(`SELECT * FROM inbox_messages WHERE id = $1`, [id]);
+  return r.rows[0] || null;
+}
+
+export async function setInboxMessageFlag(
+  id: number,
+  field: "isRead" | "isReplied" | "isArchived" | "isDeleted",
+  value: boolean
+): Promise<void> {
+  const pool = await getPool();
+  if (!pool) return;
+  await pool.query(`UPDATE inbox_messages SET "${field}" = $1 WHERE id = $2`, [value, id]);
+}
+
+export async function deleteInboxMessagePermanently(id: number): Promise<void> {
+  const pool = await getPool();
+  if (!pool) return;
+  await pool.query(`DELETE FROM inbox_messages WHERE id = $1`, [id]);
+}
+
+export async function insertSentMessage(row: {
+  originMessageId: number | null; toAddress: string; subject: string; body: string;
+}): Promise<void> {
+  const pool = await getPool();
+  if (!pool) return;
+  await pool.query(
+    `INSERT INTO sent_messages ("originMessageId", "toAddress", subject, body) VALUES ($1,$2,$3,$4)`,
+    [row.originMessageId, row.toAddress, row.subject, row.body]
+  );
+}
+
 // ============ SUBSCRIPTION PLANS ============
 export async function getAllPlans() {
   const db = await getDb(); if (!db) return [];
