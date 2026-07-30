@@ -34,6 +34,7 @@ const NAV_ADMIN = [
   { icon: "◎",  label: "Planos",            path: "/admin/plans" },
   { icon: "📋", label: "Pedidos Plano",      path: "/admin/plan-requests" },
   { icon: "◉",  label: "Financeiro",        path: "/admin/financeiro" },
+  { icon: "✉",  label: "Caixa de Email",     path: "/admin/emails" },
   { icon: "◷",  label: "Admins",            path: "/admin/manage-admins" },
   { icon: "🔑", label: "Permissões",         path: "/admin/roles" },
   { icon: "◻",  label: "Convites",          path: "/admin/invites" },

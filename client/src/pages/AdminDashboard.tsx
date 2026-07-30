@@ -59,6 +59,7 @@ export default function AdminDashboard() {
     { icon: "💳", label: "Assinaturas",       path: "/admin/manage-subscriptions" },
     { icon: "🏷", label: "Planos",            path: "/admin/plans" },
     { icon: "◉",  label: "Financeiro",        path: "/admin/financeiro" },
+    { icon: "✉",  label: "Caixa de Email",     path: "/admin/emails" },
     { icon: "🛡",  label: "Admins",           path: "/admin/manage-admins" },
     { icon: "🧠",  label: "ML",               path: "/admin/intelligence" },
     { icon: "☰",  label: "Visibilidade",      path: "/admin/ui-config" },
