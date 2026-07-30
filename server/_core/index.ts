@@ -1883,6 +1883,49 @@ async function main() {
 
               totalSynced++;
             } catch { /* individual campaign error — continue */ }
+
+            // ── campaign_metrics diário (aditivo, isolado, não afeta o ml_dataset acima) ──
+            // Mesmo padrão já validado em syncMetaCampaignMetrics (router.ts):
+            // chamada SEPARADA com time_increment=1, try/catch próprio.
+            try {
+              const AVG_CONVERSION_VALUE = 50;
+              const dailyRes = await fetch(
+                `https://graph.facebook.com/v21.0/${camp.metaCampaignId}/insights` +
+                `?fields=impressions,clicks,spend,ctr,cpm,cpc,actions,action_values,reach,frequency` +
+                `&time_range={"since":"${since}","until":"${today}"}` +
+                `&time_increment=1` +
+                `&access_token=${token}`,
+                { signal: AbortSignal.timeout(8000) }
+              );
+              const dailyData: any = await dailyRes.json();
+              if (!dailyData.error && Array.isArray(dailyData.data)) {
+                for (const day of dailyData.data) {
+                  const dLeads     = (day.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
+                  const dPurchases = (day.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
+                  const dPurchaseValue = Number((day.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
+                  const dSpend = Number(day.spend || 0);
+                  const dRoas = dSpend > 0
+                    ? (dPurchaseValue > 0 ? dPurchaseValue / dSpend : (Number(dPurchases) * AVG_CONVERSION_VALUE) / dSpend)
+                    : 0;
+                  await db.upsertCampaignMetricsDaily({
+                    campaignId: camp.id,
+                    date:       day.date_start,
+                    impressions: Number(day.impressions || 0),
+                    clicks:      Number(day.clicks || 0),
+                    spend:       dSpend,
+                    ctr:         Number(day.ctr || 0),
+                    cpc:         Number(day.cpc || 0),
+                    cpm:         Number(day.cpm || 0),
+                    reach:       Number(day.reach || 0),
+                    frequency:   Number(day.frequency || 0),
+                    leads:       Number(dLeads),
+                    purchases:   Number(dPurchases),
+                    purchaseValue: dPurchaseValue,
+                    roas:        dRoas,
+                  });
+                }
+              }
+            } catch { /* campaign_metrics error — nunca afeta ml_dataset acima, continue */ }
           }
         } catch { /* user error — continue */ }
       }
