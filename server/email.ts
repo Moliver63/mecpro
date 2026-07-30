@@ -389,6 +389,31 @@ export function sendLowBalanceWarningEmail(
   });
 }
 
+// ── Assinatura profissional — usada nos e-mails de resposta/envio manual
+// do admin (sendAdminEmail). Os e-mails automáticos (verificação, alertas)
+// não levam assinatura pessoal — só esse aqui, que representa uma resposta
+// direta a um cliente/lead.
+const EMAIL_SIGNATURE = `
+  <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e9ecef">
+    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+      <tr>
+        <td style="padding-right:14px;vertical-align:top">
+          <div style="width:44px;height:44px;border-radius:10px;background:#0a0a0a;color:white;text-align:center;line-height:44px;font-size:15px;font-weight:800;font-family:sans-serif">MP</div>
+        </td>
+        <td style="vertical-align:top">
+          <p style="margin:0 0 2px 0;font-size:14px;font-weight:800;color:#0a0a0a;font-family:sans-serif">Michel</p>
+          <p style="margin:0 0 8px 0;font-size:12px;color:#868e96;font-family:sans-serif">Fundador · MECPro</p>
+          <p style="margin:0;font-size:12px;font-family:sans-serif">
+            <a href="${APP_URL}" style="color:#0071e3;text-decoration:none">mecproai.com</a>
+            <span style="color:#dee2e6;margin:0 6px">·</span>
+            <a href="https://wa.me/5547999465824" style="color:#0071e3;text-decoration:none">(47) 99946-5824</a>
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+`;
+
 export function sendAdminEmail(
   to: string,
   subject: string,
@@ -411,6 +436,7 @@ export function sendAdminEmail(
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px 24px">
         <p style="color:#0a0a0a;font-size:15px;line-height:1.6;white-space:pre-wrap">${bodyHtml}</p>
+        ${EMAIL_SIGNATURE}
         ${quoteHtml}
         <div style="border-top:1px solid #e9ecef;margin-top:24px;padding-top:16px">
           <p style="color:#adb5bd;font-size:12px;margin:0">MECPro · Plataforma de Inteligência de Campanhas</p>
