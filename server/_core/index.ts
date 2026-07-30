@@ -1833,6 +1833,7 @@ async function main() {
       `).catch(() => ({ rows: [] }));
 
       let totalSynced = 0;
+      let totalMetricsDaysSynced = 0;
       for (const u of users.rows) {
         try {
           const metaInt = await db.getApiIntegration(u.userId, "meta").catch(() => null);
@@ -1924,13 +1925,23 @@ async function main() {
                     roas:        dRoas,
                   });
                 }
+                totalMetricsDaysSynced += dailyData.data.length;
               }
-            } catch { /* campaign_metrics error — nunca afeta ml_dataset acima, continue */ }
+            } catch (metricsErr: any) {
+              log.warn("ml-cron", "Falha ao gravar campaign_metrics diário (não crítico)", {
+                campaignId: camp.id, error: metricsErr?.message?.slice(0, 80),
+              });
+            }
           }
         } catch { /* user error — continue */ }
       }
       if (totalSynced > 0) {
         log.info("ml-cron", `✅ Auto-sync ML: ${totalSynced} campanhas atualizadas com métricas reais`);
+      }
+      if (totalMetricsDaysSynced > 0) {
+        log.info("ml-cron", `✅ campaign_metrics: ${totalMetricsDaysSynced} linhas diárias gravadas`);
+      } else {
+        log.info("ml-cron", "campaign_metrics: 0 linhas gravadas neste ciclo");
       }
     } catch (err: any) {
       log.warn("ml-cron", "Erro no auto-sync ML", { error: err.message?.slice(0, 80) });
