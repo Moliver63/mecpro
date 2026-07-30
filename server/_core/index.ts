@@ -100,6 +100,7 @@ import publicApiRouter from '../publicApi';
 import { createContext } from './context.js';
 import { appRouter } from './router.js';
 import Stripe from 'stripe';
+import { Webhook as SvixWebhook } from 'svix';
 import { json } from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -1264,6 +1265,59 @@ app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Respons
   } catch (err: any) {
     log.warn('asaas-webhook', 'Erro no webhook', { error: err.message });
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Webhook Resend — bounce/complaint/delivery dos emails transacionais ───
+// Verificação de assinatura via Svix (padrão usado pelo Resend). Corpo RAW
+// obrigatório (igual Stripe) — a verificação é sobre os bytes exatos, não
+// sobre o JSON já parseado.
+app.post('/api/webhook/resend', express.raw({ type: 'application/json' }), async (req: Request, res: Response) => {
+  const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
+
+  let event: any;
+  try {
+    if (webhookSecret) {
+      const wh = new SvixWebhook(webhookSecret);
+      event = wh.verify(req.body, {
+        'svix-id':        req.headers['svix-id'] as string,
+        'svix-timestamp': req.headers['svix-timestamp'] as string,
+        'svix-signature': req.headers['svix-signature'] as string,
+      });
+    } else {
+      log.warn('resend-webhook', 'RESEND_WEBHOOK_SECRET não configurado — aceitando sem validação (dev)');
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (err: any) {
+    log.warn('resend-webhook', `Assinatura inválida — requisição rejeitada: ${err.message}`);
+    return res.status(400).json({ error: 'Invalid signature' });
+  }
+
+  try {
+    const type = event?.type as string;
+    const data = event?.data || {};
+    const to   = Array.isArray(data.to) ? data.to[0] : data.to;
+
+    log.info('resend-webhook', `Evento recebido: ${type}`, { to, email_id: data.email_id, subject: data.subject });
+
+    // Bounce e complaint são os únicos que exigem ação/visibilidade real —
+    // os demais (sent/delivered/opened/clicked/delivery_delayed) só logam.
+    if (type === 'email.bounced' || type === 'email.complained') {
+      const { errorLog } = await import('../errorTelemetry.js');
+      const isComplaint = type === 'email.complained';
+      errorLog[isComplaint ? 'warn' : 'error'](
+        'email',
+        isComplaint ? 'EMAIL_COMPLAINED' : 'EMAIL_BOUNCED',
+        `Email ${isComplaint ? 'marcado como spam' : 'retornou (bounce)'}: ${to || 'destinatário desconhecido'} — assunto: "${data.subject || '?'}"`,
+        { extra: { to, subject: data.subject, email_id: data.email_id, bounce_type: data.bounce?.type } },
+      );
+    }
+
+    res.status(200).json({ received: true });
+  } catch (err: any) {
+    log.warn('resend-webhook', `Erro ao processar evento (não crítico)`, { error: err.message?.slice(0, 80) });
+    // Sempre 200 — evita que o Resend reenvie o mesmo evento em loop
+    res.status(200).json({ received: true });
   }
 });
 

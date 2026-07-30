@@ -16,6 +16,7 @@ type Area =
   | "image_gen"       // Geração de imagens
   | "video_gen"       // Geração de vídeo
   | "payment"         // Pagamentos Asaas/Stripe
+  | "email"           // Entrega de email (bounce/complaint via Resend)
   | "general";        // Geral
 
 interface ErrorContext {
