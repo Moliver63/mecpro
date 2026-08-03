@@ -3653,6 +3653,8 @@ const campaignsRouter = router({
 
           if (subcode === 1487246) {
             friendlyMsg = "O número de WhatsApp informado não está vinculado à sua conta Meta Business. Acesse business.facebook.com → Configurações → Contas do WhatsApp e vincule o número antes de publicar.";
+          } else if (subcode === 1487855) {
+            friendlyMsg = "A Meta não conseguiu localizar a cidade/endereço informado no targeting por raio. Tente um formato mais completo (ex: \"Rio de Janeiro, RJ, Brasil\" em vez de só \"Rio de Janeiro\"), ou troque para o modo de segmentação por cidade exata (sem raio), que não depende de geocodificação.";
           } else if (subcode === 1443050 || msg.includes("video_id") || msg.includes("link_data")) {
             friendlyMsg = "Erro no formato do criativo de vídeo. O vídeo foi enviado corretamente mas houve conflito na estrutura do anúncio. Tente publicar novamente — o sistema foi corrigido.";
           } else if (errorCode === 100 && msg.includes("Invalid parameter")) {
@@ -4183,6 +4185,52 @@ const campaignsRouter = router({
         }
       }
 
+      // ── Resolve geo_locations ANTES da chamada — permite logar o valor real
+      // que vai pra Meta. Sem isso, uma falha de geocoding (ex: subcode
+      // 1487855) é impossível de diagnosticar depois, porque o payload
+      // nunca fica visível em lugar nenhum antes de sair pro fetch.
+      const resolvedGeoLocationsForAdSet: any = (() => {
+        const mode = input.locationMode || (input.regions?.length ? "brasil" : "brasil");
+        if (mode === "paises" && input.countries && input.countries.length > 0) {
+          return { countries: input.countries };
+        }
+        if (mode === "raio" && input.geoCity) {
+          return {
+            custom_locations: [{
+              address_string: input.geoCity,
+              radius:         input.geoRadius || 15,
+              distance_unit:  "kilometer",
+            }],
+          };
+        }
+        if (mode === "cidade" && input.cities && input.cities.length > 0) {
+          if (resolvedBrazilCityKeys.length === 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Não foi possível resolver as cidades selecionadas (${input.cities.join(", ")}) para o targeting da Meta.`,
+            });
+          }
+          return { cities: resolvedBrazilCityKeys.map((key) => ({ key })) };
+        }
+        if (input.regions && input.regions.length > 0) {
+          if (resolvedBrazilRegionKeys.length === 0) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Não foi possível resolver os estados selecionados (${input.regions.join(", ")}) para o targeting da Meta.`,
+            });
+          }
+          return { regions: resolvedBrazilRegionKeys.map((key) => ({ key })) };
+        }
+        return { countries: ["BR"] };
+      })();
+      log.info("meta", "geo_locations resolvido para AdSet", {
+        campaignId: input.campaignId,
+        locationMode: input.locationMode,
+        geoCity: input.geoCity || null,
+        geoRadius: input.geoRadius || null,
+        resolvedGeoLocations: resolvedGeoLocationsForAdSet,
+      });
+
       const adSetData = await metaPost<any>(`${accountId}/adsets`, {
         name:              adSetName,
         campaign_id:       metaCampaignId,
@@ -4203,45 +4251,7 @@ const campaignsRouter = router({
           ...(resolvedInterests.length > 0 ? {
             flexible_spec: [{ interests: resolvedInterests }],
           } : {}),
-          geo_locations: (() => {
-            const mode = input.locationMode || (input.regions?.length ? "brasil" : "brasil");
-            // Modo: países internacionais
-            if (mode === "paises" && input.countries && input.countries.length > 0) {
-              return { countries: input.countries };
-            }
-            // Modo: raio por cidade (custom_locations)
-            if (mode === "raio" && input.geoCity) {
-              return {
-                custom_locations: [{
-                  address_string: input.geoCity,
-                  radius:         input.geoRadius || 15,
-                  distance_unit:  "kilometer",
-                }],
-              };
-            }
-            // Modo: cidades exatas (sem raio — usa os limites da cidade na Meta)
-            if (mode === "cidade" && input.cities && input.cities.length > 0) {
-              if (resolvedBrazilCityKeys.length === 0) {
-                throw new TRPCError({
-                  code: "BAD_REQUEST",
-                  message: `Não foi possível resolver as cidades selecionadas (${input.cities.join(", ")}) para o targeting da Meta.`,
-                });
-              }
-              return { cities: resolvedBrazilCityKeys.map((key) => ({ key })) };
-            }
-            // Modo: estados do Brasil
-            if (input.regions && input.regions.length > 0) {
-              if (resolvedBrazilRegionKeys.length === 0) {
-                throw new TRPCError({
-                  code: "BAD_REQUEST",
-                  message: `Não foi possível resolver os estados selecionados (${input.regions.join(", ")}) para o targeting da Meta.`,
-                });
-              }
-              return { regions: resolvedBrazilRegionKeys.map((key) => ({ key })) };
-            }
-            // Padrão: Brasil todo
-            return { countries: ["BR"] };
-          })(),
+          geo_locations: resolvedGeoLocationsForAdSet,
           // Placements selecionados pelo usuário (adapter Meta)
           ...((): object => {
             if (!input.placements || input.placements.length === 0 || input.placementMode === "auto") {
