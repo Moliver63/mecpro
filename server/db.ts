@@ -370,6 +370,101 @@ export async function insertSentMessage(row: {
   );
 }
 
+// ── Servidor OAuth 2.1 (Fase 2 do MCP) ──────────────────────────────────────
+export async function createOAuthClient(clientName: string, redirectUris: string[]): Promise<{ clientId: string }> {
+  const pool = await getPool();
+  if (!pool) throw new Error("DB unavailable");
+  const clientId = "mcp_client_" + crypto.randomBytes(16).toString("hex");
+  await pool.query(
+    `INSERT INTO oauth_clients ("clientId", "clientName", "redirectUris") VALUES ($1,$2,$3::jsonb)`,
+    [clientId, clientName || "MCP Client", JSON.stringify(redirectUris)]
+  );
+  return { clientId };
+}
+
+export async function getOAuthClient(clientId: string): Promise<any | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  const r = await pool.query(`SELECT * FROM oauth_clients WHERE "clientId" = $1`, [clientId]);
+  return r.rows[0] || null;
+}
+
+export async function createOAuthAuthCode(params: {
+  clientId: string; userId: number; redirectUri: string;
+  codeChallenge: string; codeChallengeMethod: string; resource: string | null;
+}): Promise<string> {
+  const pool = await getPool();
+  if (!pool) throw new Error("DB unavailable");
+  const code = crypto.randomBytes(32).toString("base64url");
+  await pool.query(
+    `INSERT INTO oauth_auth_codes
+       ("code", "clientId", "userId", "redirectUri", "codeChallenge", "codeChallengeMethod", resource, "expiresAt")
+     VALUES ($1,$2,$3,$4,$5,$6,$7, NOW() + INTERVAL '10 minutes')`,
+    [code, params.clientId, params.userId, params.redirectUri, params.codeChallenge, params.codeChallengeMethod, params.resource]
+  );
+  return code;
+}
+
+// Consome o código (marca como usado) e retorna os dados — SÓ funciona uma vez.
+// Não basta checar "used=false" e depois marcar em 2 passos (race condition);
+// o UPDATE...RETURNING com a condição no WHERE garante atomicidade.
+export async function consumeOAuthAuthCode(code: string): Promise<any | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  const r = await pool.query(
+    `UPDATE oauth_auth_codes SET used = true
+     WHERE code = $1 AND used = false AND "expiresAt" > NOW()
+     RETURNING *`,
+    [code]
+  );
+  return r.rows[0] || null;
+}
+
+export async function createOAuthToken(params: {
+  clientId: string; userId: number; resource: string | null;
+}): Promise<{ accessToken: string; refreshToken: string; expiresIn: number }> {
+  const pool = await getPool();
+  if (!pool) throw new Error("DB unavailable");
+  const accessToken  = "mecpro_oauth_" + crypto.randomBytes(32).toString("base64url");
+  const refreshToken = "mecpro_refresh_" + crypto.randomBytes(32).toString("base64url");
+  const expiresIn = 3600; // 1h — access token de vida curta, refresh renova sem novo login
+  await pool.query(
+    `INSERT INTO oauth_tokens
+       ("accessToken", "refreshToken", "clientId", "userId", resource, "expiresAt", "refreshExpiresAt")
+     VALUES ($1,$2,$3,$4,$5, NOW() + INTERVAL '1 hour', NOW() + INTERVAL '90 days')`,
+    [accessToken, refreshToken, params.clientId, params.userId, params.resource]
+  );
+  return { accessToken, refreshToken, expiresIn };
+}
+
+export async function getOAuthTokenRow(accessToken: string): Promise<any | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  const r = await pool.query(
+    `SELECT t.*, u.email, u.name AS username, u.plan
+     FROM oauth_tokens t JOIN users u ON u.id = t."userId"
+     WHERE t."accessToken" = $1 AND t.revoked = false AND t."expiresAt" > NOW()`,
+    [accessToken]
+  );
+  return r.rows[0] || null;
+}
+
+// Rotaciona o refresh token (exigência do OAuth 2.1 pra clientes públicos) —
+// revoga o par antigo e emite um novo, em vez de só estender a validade.
+export async function rotateOAuthToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; expiresIn: number } | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  const old = await pool.query(
+    `SELECT * FROM oauth_tokens WHERE "refreshToken" = $1 AND revoked = false AND "refreshExpiresAt" > NOW()`,
+    [refreshToken]
+  );
+  if (!old.rows.length) return null;
+  const row = old.rows[0];
+  await pool.query(`UPDATE oauth_tokens SET revoked = true WHERE id = $1`, [row.id]);
+  return createOAuthToken({ clientId: row.clientId, userId: row.userId, resource: row.resource });
+}
+
+
 // ============ SUBSCRIPTION PLANS ============
 export async function getAllPlans() {
   const db = await getDb(); if (!db) return [];

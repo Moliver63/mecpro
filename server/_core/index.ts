@@ -97,6 +97,7 @@ import express, { type Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import publicApiRouter from '../publicApi';
+import oauthRouter from '../oauthServer';
 import { createContext } from './context.js';
 import { appRouter } from './router.js';
 import Stripe from 'stripe';
@@ -191,6 +192,13 @@ app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
 app.use(cookieParser());
 app.use(json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// ── Servidor OAuth 2.1 (conector remoto MCP do Claude) — montado na RAIZ,
+// não sob /api/v1, porque .well-known/*, /authorize, /token e /register
+// são esperados no domínio raiz pela especificação. Depois de
+// cookieParser/json/urlencoded de propósito — precisa de req.cookies pra
+// resolver o usuário logado na tela de consentimento.
+app.use(oauthRouter);
 
 const marketplaceAuthMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {

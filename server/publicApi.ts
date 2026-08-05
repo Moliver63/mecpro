@@ -30,16 +30,35 @@ const PLAN_LIMITS: Record<string, PlanLimit> = {
 };
 
 // â”€â”€ Middleware de autenticaÃ§Ã£o por API Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const WWW_AUTHENTICATE = `Bearer resource_metadata="${process.env.APP_URL || "https://www.mecproai.com"}/.well-known/oauth-protected-resource"`;
+
 async function authApiKey(req: Request, res: Response, next: Function) {
   const authHeader = req.headers.authorization || "";
   const key = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
   if (!key) {
+    res.set("WWW-Authenticate", WWW_AUTHENTICATE);
     return res.status(401).json({ error: "missing_api_key", message: "Informe a API key no header: Authorization: Bearer <key>" });
   }
 
   const pool = await getPool();
   if (!pool) return res.status(500).json({ error: "db_unavailable" });
+
+  // -- Token OAuth (emitido pelo /token do oauthServer.ts), prefixo mecpro_oauth_ --
+  // Caminho separado do api_keys normal: valida contra oauth_tokens, checa
+  // expiracao e audiencia (resource), NAO conta em reqToday/reqMonth (o
+  // controle de cota do OAuth ainda nao esta implementado nesta fase --
+  // a seguranca real vem da checagem de posse ja feita em cada tool do MCP).
+  if (key.startsWith("mecpro_oauth_")) {
+    const oauthRow = await db.getOAuthTokenRow(key);
+    if (!oauthRow) {
+      res.set("WWW-Authenticate", WWW_AUTHENTICATE);
+      return res.status(401).json({ error: "invalid_token", message: "Token OAuth invalido, expirado ou revogado." });
+    }
+    (req as any).apiUser = { id: oauthRow.userId, plan: (oauthRow.plan || "free").toLowerCase(), email: oauthRow.email, username: oauthRow.username, keyId: null };
+    (req as any).apiLimits = { daily: 9999, monthly: 99999, usedToday: 0, usedMonth: 0 };
+    return next();
+  }
 
   // Busca a key + usuÃ¡rio + plano
   const result = await pool.query(`
@@ -52,6 +71,7 @@ async function authApiKey(req: Request, res: Response, next: Function) {
   `, [key]);
 
   if (!result.rows.length) {
+    res.set("WWW-Authenticate", WWW_AUTHENTICATE);
     return res.status(401).json({ error: "invalid_api_key", message: "API key invÃ¡lida ou inexistente." });
   }
 

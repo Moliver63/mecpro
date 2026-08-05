@@ -998,5 +998,52 @@ export async function runMigrations(): Promise<void> {
       )
     `).catch(() => {});
 
+    // ── Servidor OAuth 2.1 (Fase 2 do MCP) — permite o Claude conectar via
+    // conector remoto sem precisar de header/API key manual. Reaproveita o
+    // login por sessão já existente (cookie "token") pro consentimento —
+    // não duplica sistema de auth, só emite tokens de acesso vinculados a
+    // um userId já autenticado.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS oauth_clients (
+        id             SERIAL PRIMARY KEY,
+        "clientId"     VARCHAR(64) NOT NULL UNIQUE,
+        "clientName"   VARCHAR(200),
+        "redirectUris" JSONB NOT NULL,
+        "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS oauth_auth_codes (
+        id                    SERIAL PRIMARY KEY,
+        code                  VARCHAR(128) NOT NULL UNIQUE,
+        "clientId"            VARCHAR(64) NOT NULL,
+        "userId"              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        "redirectUri"         TEXT NOT NULL,
+        "codeChallenge"       VARCHAR(128) NOT NULL,
+        "codeChallengeMethod" VARCHAR(10) NOT NULL DEFAULT 'S256',
+        resource              TEXT,
+        used                  BOOLEAN NOT NULL DEFAULT false,
+        "expiresAt"           TIMESTAMPTZ NOT NULL,
+        "createdAt"           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS oauth_tokens (
+        id                 SERIAL PRIMARY KEY,
+        "accessToken"      VARCHAR(128) NOT NULL UNIQUE,
+        "refreshToken"     VARCHAR(128) UNIQUE,
+        "clientId"         VARCHAR(64) NOT NULL,
+        "userId"           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        resource           TEXT,
+        revoked            BOOLEAN NOT NULL DEFAULT false,
+        "expiresAt"        TIMESTAMPTZ NOT NULL,
+        "refreshExpiresAt" TIMESTAMPTZ,
+        "createdAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens("userId")`).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }
