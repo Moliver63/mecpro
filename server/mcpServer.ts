@@ -22,9 +22,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as db from "./db";
+import { appRouter } from "./_core/router";
 
 export function createMcpServerForUser(userId: number): McpServer {
   const server = new McpServer({ name: "mecproai", version: "1.0.0" });
+
+  // Cria um "caller" tRPC autenticado sob demanda — usado só pelas tools da
+  // Fase 3, que precisam invocar procedures reais (upload de imagem,
+  // resolver página, publicar) sem reimplementar nenhuma lógica deles.
+  // Preguiçoso porque buscar o usuário é assíncrono e essa função é síncrona.
+  async function getCaller() {
+    const user = await db.getUserById(userId);
+    if (!user) throw new Error("Usuário não encontrado.");
+    return appRouter.createCaller({ req: {} as any, res: {} as any, user } as any);
+  }
 
   // ── list_projects ──────────────────────────────────────────────────────
   server.registerTool(
@@ -361,6 +372,159 @@ export function createMcpServerForUser(userId: number): McpServer {
       } catch (e: any) {
         return { content: [{ type: "text", text: e.message || "Falha ao gerar a campanha." }], isError: true };
       }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // FASE 3 — publicação real na Meta. A PARTIR DAQUI, gasta orçamento real
+  // do cliente. Toda a lógica de negócio (upload de imagem, resolução de
+  // página, criação de campaign/adset/ad na Meta) é feita pelos MESMOS
+  // procedures tRPC que a interface usa — via createCaller, nunca
+  // reimplementada aqui. O papel dessas tools é só orquestrar a ordem
+  // certa de chamadas, igual o botão "Publicar" da tela já faz.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // ── list_meta_pages ───────────────────────────────────────────────────
+  server.registerTool(
+    "list_meta_pages",
+    {
+      title: "Listar Páginas do Facebook conectadas",
+      description:
+        "Lista as Páginas do Facebook que a conta Meta do usuário tem acesso — " +
+        "necessário pra saber qual pageId usar em publish_campaign. Chame isso " +
+        "antes de publicar, se o usuário não souber o pageId de cor.",
+      inputSchema: {},
+    },
+    async () => {
+      const integration: any = await db.getApiIntegration(userId, "meta");
+      if (!integration?.accessToken) {
+        return { content: [{ type: "text", text: "Conta Meta não conectada. Acesse Configurações → Meta Ads no MecProAI primeiro." }], isError: true };
+      }
+      try {
+        const res = await fetch(
+          `https://graph.facebook.com/v20.0/me/accounts?fields=id,name&limit=50&access_token=${integration.accessToken}`,
+          { signal: AbortSignal.timeout(6000) }
+        );
+        const data: any = await res.json();
+        if (data.error) {
+          return { content: [{ type: "text", text: `Erro ao buscar páginas: ${data.error.message}` }], isError: true };
+        }
+        const pages = (data.data || []).map((p: any) => ({ pageId: p.id, name: p.name }));
+        return {
+          content: [{ type: "text", text: JSON.stringify(pages, null, 2) }],
+          structuredContent: { pages },
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao consultar a Meta: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── publish_campaign ─────────────────────────────────────────────────────
+  server.registerTool(
+    "publish_campaign",
+    {
+      title: "Publicar campanha na Meta",
+      description:
+        "PUBLICA a campanha na Meta Ads DE VERDADE — a partir daqui, o orçamento " +
+        "real do cliente começa a ser gasto. NUNCA chame isso sem confirmação " +
+        "explícita do usuário sobre orçamento, página e público antes. Publica " +
+        "todos os ad sets da campanha (ou só os índices indicados), reaproveitando " +
+        "a mesma campanha na Meta entre eles. Usa a imagem já gerada pelo " +
+        "generate_campaign — não gera imagem nova.",
+      inputSchema: {
+        campaignId: z.number().int().positive(),
+        pageId: z.string().describe("ID da Página do Facebook (use list_meta_pages se não souber)."),
+        destination: z.enum(["website", "lead_form"]).optional().describe("Padrão: website."),
+        linkUrl: z.string().optional().describe("URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da página."),
+        adSetIndexes: z.array(z.number().int().min(0)).optional().describe("Quais ad sets publicar (por índice, começando em 0). Se omitido, publica todos."),
+      },
+    },
+    async (input) => {
+      const campaign: any = await db.getCampaignById(input.campaignId);
+      if (!campaign) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+      }
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+
+      const adSets: any[] = (() => { try { return JSON.parse(campaign.adSets || "[]"); } catch { return []; } })();
+      const creatives: any[] = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
+      if (adSets.length === 0) {
+        return { content: [{ type: "text", text: "Essa campanha não tem ad sets gerados. Rode generate_campaign primeiro." }], isError: true };
+      }
+
+      let caller;
+      try {
+        caller = await getCaller();
+      } catch (e: any) {
+        return { content: [{ type: "text", text: e.message }], isError: true };
+      }
+
+      // ── Resolve UMA imagem pra usar em todos os ad sets — mesmo padrão
+      // que a tela usa (o payload de imagem é resolvido 1x, fora do loop).
+      const mainCreative = creatives[0];
+      let imageHash: string | undefined = mainCreative?.feedImageHash || mainCreative?.imageHash || undefined;
+      if (!imageHash) {
+        const imageUrl = mainCreative?.feedImageUrl || mainCreative?.imageUrl;
+        if (!imageUrl) {
+          return { content: [{ type: "text", text: "Nenhuma imagem encontrada nos criativos gerados — não é possível publicar sem imagem." }], isError: true };
+        }
+        try {
+          const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15000) });
+          const buf = Buffer.from(await imgRes.arrayBuffer());
+          const uploadResult: any = await caller.campaigns.uploadImageToMeta({
+            imageBase64: buf.toString("base64"),
+            fileName: `campaign-${input.campaignId}.jpg`,
+          } as any);
+          imageHash = uploadResult.hash || uploadResult.imageHash;
+        } catch (e: any) {
+          return { content: [{ type: "text", text: `Falha ao enviar a imagem pra Meta: ${e.message}` }], isError: true };
+        }
+      }
+
+      // ── Resolve o link de destino, se não veio explícito ──────────────
+      let linkUrl = input.linkUrl;
+      if (!linkUrl) {
+        try {
+          const resolved: any = await caller.campaigns.resolvePageLink({ pageId: input.pageId });
+          linkUrl = resolved?.whatsappUrl || (resolved?.website ? (resolved.website.startsWith("http") ? resolved.website : `https://${resolved.website}`) : undefined);
+        } catch { /* segue sem link automático, publishToMeta pode dar erro claro se precisar */ }
+      }
+
+      const indexesToPublish = input.adSetIndexes?.length ? input.adSetIndexes : adSets.map((_, i) => i);
+      const results: { adSetName: string; success: boolean; error?: string }[] = [];
+      let sharedMetaCampaignId: string | undefined;
+
+      for (const idx of indexesToPublish) {
+        const adSetName = adSets[idx]?.name || `Conjunto ${idx + 1}`;
+        try {
+          const result: any = await caller.campaigns.publishToMeta({
+            campaignId: input.campaignId,
+            projectId: campaign.projectId,
+            pageId: input.pageId,
+            destination: input.destination || "website",
+            linkUrl,
+            imageHash,
+            adSetIndex: idx,
+            ...(sharedMetaCampaignId ? { existingMetaCampaignId: sharedMetaCampaignId } : {}),
+          } as any);
+          if (!sharedMetaCampaignId && result?.campaignId) sharedMetaCampaignId = result.campaignId;
+          results.push({ adSetName, success: true });
+        } catch (e: any) {
+          results.push({ adSetName, success: false, error: e.message?.slice(0, 200) });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      const summary = results.map(r => r.success ? `✅ ${r.adSetName}` : `❌ ${r.adSetName}: ${r.error}`).join("\n");
+      return {
+        content: [{ type: "text", text: `${successCount}/${results.length} ad set(s) publicado(s) na Meta.\n\n${summary}` }],
+        structuredContent: { successCount, total: results.length, results, metaCampaignId: sharedMetaCampaignId },
+        isError: successCount === 0,
+      };
     }
   );
 
