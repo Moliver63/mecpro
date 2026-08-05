@@ -344,6 +344,7 @@ export default function Settings() {
               { method: "GET",  path: "/api/v1/competitors/list",        desc: "Lista concorrentes do projeto" },
               { method: "POST", path: "/api/v1/competitors/analyze",     desc: "Analisa concorrente com IA" },
               { method: "POST", path: "/api/v1/insights/generate",       desc: "Gera SWOT, copy, oportunidades" },
+              { method: "POST", path: "/api/v1/mcp",                     desc: "Servidor MCP — conectar com Claude" },
             ].map((ep, i, arr) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", borderBottom: i < arr.length-1 ? "1px solid var(--border)" : "none" }}>
                 <span style={{ fontSize: 10, fontWeight: 800, color: ep.method === "GET" ? "#0369a1" : "#7c3aed", background: ep.method === "GET" ? "#e0f2fe" : "#f3e8ff", padding: "2px 7px", borderRadius: 4, minWidth: 36, textAlign: "center" as const }}>{ep.method}</span>
@@ -351,6 +352,31 @@ export default function Settings() {
                 <span style={{ fontSize: 11, color: "var(--muted)" }}>{ep.desc}</span>
               </div>
             ))}
+          </div>
+
+          {/* Conectar com Claude via MCP */}
+          <div style={{ background: "linear-gradient(135deg, rgba(88,86,214,0.06), rgba(88,86,214,0.02))", border: "1px solid rgba(88,86,214,0.2)", borderRadius: 12, padding: "16px 18px", marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>🤖 Conectar com Claude (MCP)</div>
+            <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
+              Deixe o Claude consultar seus projetos e campanhas diretamente — sem sair da conversa.
+              Adicione um conector MCP customizado no Claude apontando pra URL abaixo, usando sua API key
+              (criada mais abaixo nesta página) como Bearer token.
+            </p>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+              <code style={{ flex: 1, background: "white", border: "1px solid var(--border)", borderRadius: 8, padding: "9px 14px", fontSize: 12, wordBreak: "break-all" as const, color: "var(--dark)" }}>
+                https://www.mecproai.com/api/v1/mcp
+              </code>
+              <button
+                onClick={() => { navigator.clipboard?.writeText("https://www.mecproai.com/api/v1/mcp"); setCopiedKey("mcp-url"); }}
+                style={{ padding: "9px 14px", borderRadius: 8, border: "none", background: "var(--blue)", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const, flexShrink: 0, fontFamily: "inherit" }}>
+                {copiedKey === "mcp-url" ? "✅ Copiado!" : "📋 Copiar URL"}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.7 }}>
+              1. Crie uma API key abaixo (se ainda não tiver uma) · {" "}
+              2. No Claude, adicione um conector MCP customizado com essa URL · {" "}
+              3. Use <code style={{ background: "var(--off)", padding: "1px 5px", borderRadius: 4 }}>Authorization: Bearer &lt;sua_api_key&gt;</code>
+            </div>
           </div>
 
           {/* Rate limits */}
