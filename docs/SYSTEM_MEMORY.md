@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-07-30 (sessão 24)
+> **Última atualização:** 2026-08-05 (sessão 25)
 
 ---
 
@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `4a55219` | feat(alerts): notifica usuário por email quando campanha pausa na Meta |
+| Último commit | `e515c82` | fix(mcp): publish_campaign coleta TODAS as imagens dos criativos |
 
 ---
 
@@ -377,28 +377,136 @@ site institucional e qualidade de copy):
 
 
 
-## 📋 Pendências (atualizado sessão 24)
+## 📋 Sessão 05/08 — Webmail, MCP (3 fases) e servidor OAuth 2.1
+
+Sessão grande, começou investigando por que `campaign_metrics` continuava
+vazio (causa real: as 5 campanhas do incidente da sessão 24 continuavam
+pausadas por falta de crédito) e evoluiu pra construir infraestrutura nova
+significativa: caixa de email no admin, e um servidor MCP completo com OAuth
+pra conectar o Claude diretamente ao MecProAI.
+
+**Alerta proativo de saldo baixo (`16e1244`)**
+Gap identificado pelo próprio usuário: o alerta de campanha pausada só
+disparava DEPOIS da campanha já ter parado. Novo aviso dispara ANTES,
+quando o saldo cai abaixo de R$150 com campanha ainda ativa — debounce
+próprio (`media_balance.lowBalanceNotifiedAt`), reseta quando o saldo sobe
+de novo (recarga).
+
+**Webhook do Resend + Caixa de Email no admin (`1b9e361`, `7352958`)**
+Webhook `/api/webhook/resend` (bounce/complaint dos emails transacionais,
+via Svix) e depois uma caixa de email completa em `/admin/emails` —
+inbox/enviados/arquivadas/lixeira, resposta inline, portado do padrão real
+da Caro Vargas mas adaptado (inglês nos campos, sem SDK novo do Resend pra
+não arriscar quebrar os emails já em produção — REST direto em vez de
+`.emails.receiving.*`). Assinatura profissional (`dcd8c8a`) nos emails de
+resposta do admin, com um bug de compatibilidade Outlook (`display:flex`
+não funciona lá) pego e corrigido antes de subir.
+
+**Fix real de produção: erro de geocoding (`55a5fca`)**
+Log real mostrou `publishToMeta` falhando com subcode 1487855
+(“não foi possível geocodificar o endereço”) no modo de targeting por raio.
+Não havia log nenhum do valor real de `geoCity` antes da falha —
+adicionado, junto de mensagem amigável pro erro (mesmo padrão já usado
+pra outros subcodes conhecidos).
+
+**Servidor MCP — 3 fases, 9 tools no total**
+
+Motivado pelo pedido de conectar o Claude direto ao MecProAI. Decisão de
+arquitetura mais importante: reaproveitar o sistema de API key já
+existente (`api_keys` + `authApiKey`, já usado pela API pública de
+concorrentes/insights) em vez de construir autorização do zero.
+
+- **Fase 1 (`6ff39ba`)**: 4 tools de leitura — `list_projects`,
+  `list_campaigns`, `get_campaign`, `get_campaign_metrics`. Cada uma
+  verifica posse do projeto/campanha antes de devolver dado. Testado
+  com cliente MCP real (não mock, via `InMemoryTransport`) confirmando
+  isolamento entre usuários.
+- **Fase 2 (`03f97b5`)**: 3 tools de escrita — `create_project`,
+  `set_client_profile`, `generate_campaign`. Reusa exatamente a mesma
+  lógica dos endpoints tRPC reais (`checkPlanLimit`, `generateCampaign`
+  de `ai.ts`) — não reimplementa regra de negócio nenhuma.
+- **Fase 3 (`9ad3524`, corrigido em `e515c82`)**: `list_meta_pages` +
+  `publish_campaign`. A mais arriscada (gasta dinheiro real). Descoberta
+  importante no caminho: `publishToMeta` publica UM ad set por vez, e a
+  1ª chamada cria a campanha na Meta enquanto as seguintes reaproveitam
+  esse ID via `existingMetaCampaignId` — mesmo padrão exato que
+  `CampaignResult.tsx` já usa no loop de publicação multi-adset. As
+  tools usam `appRouter.createCaller()` pra chamar os MESMOS procedures
+  tRPC que a tela usa (upload de imagem, resolver página, publicar) —
+  nunca reimplementa a lógica da Meta.
+  - **Bug real corrigido em `e515c82`**: a primeira versão de
+    `publish_campaign` usava só a imagem do primeiro criativo. O
+    usuário apontou que isso já estava parametrizado — conferido na
+    Regra 2 deste mesmo arquivo (coletar TODAS as `feedImageUrl`,
+    dedup, limite 10). Corrigido pra coletar de todos os criativos.
+    Uma função ainda mais precisa (`buildPublishMediaFromCreative`,
+    trata vídeo + um segundo mecanismo de carrossel por criativo
+    individual) foi encontrada mas **não integrada** — registrado como
+    lacuna conhecida, não testado contra Meta real.
+
+**Servidor OAuth 2.1 (`e5a2eed`) — a peça mais sensível desta sessão**
+Necessário porque a conta do usuário no Claude não tinha acesso ao recurso
+beta de "Request headers" (Bearer token manual) no conector customizado —
+sem OAuth de verdade, a conexão falhava com 404 em `/authorize`.
+Implementado o subconjunto da especificação oficial do MCP que o
+Claude.ai realmente usa (RFC 8414, 7591, 9728, PKCE S256), reaproveitando
+o login por sessão já existente (cookie `token`/jose) pra tela de
+consentimento — não duplica autenticação.
+
+**2 vulnerabilidades reais encontradas e corrigidas ANTES de considerar
+pronto** (não depois de reportar bug):
+1. XSS na tela de consentimento — `redirect_uri`/`code_challenge`/
+   `state`/`resource` vêm da query string (controláveis por quem monta
+   o link) e estavam sendo interpolados no HTML sem escapar.
+2. Redirecionamento aberto no caminho de "negar" — a validação de que
+   `redirect_uri` pertence ao client registrado só rodava no caminho de
+   "permitir". Movida pra rodar antes de qualquer redirect, nos dois
+   caminhos.
+
+Testado com PKCE S256 real (gerar/derivar/validar/rejeitar) e os 4
+ataques que a especificação exige bloquear (reuso de código, verifier
+errado, client_id roubado) — todos rejeitados corretamente antes do
+commit.
+
+Indicador de status "Claude conectado" (`7fdd82a`) adicionado em
+Settings após o próprio usuário perguntar se apareceria algum feedback
+visual — bolinha verde/cinza + botão de desconectar (revoga o token na
+hora).
+
+**Bug pré-existente descoberto no caminho, corrigido de bônus**: o
+parser JSON global (`app.use(json(...))`) era registrado DEPOIS do
+router `/api/v1` ser montado em `index.ts` — confirmado código
+sequencial sem condicional entre as duas linhas. Isso deixava `req.body`
+undefined em TODAS as rotas POST desse router, incluindo duas que já
+existiam antes desta sessão (`/competitors/analyze`, `/insights/generate`)
+e a de criação de API key (`/keys`). Corrigido com `json()` local em
+cada rota (mesmo padrão defensivo que o webhook do Asaas já usava,
+possivelmente por ter batido nesse mesmo problema antes).
+
+---
+
+## 📋 Pendências (atualizado sessão 25)
 
 | Prioridade | Item | Responsável |
 |---|---|---|
-| 🔴 | Recarregar crédito das 5 campanhas pausadas (imobiliária, psicóloga, cosméticos) — pausadas desde antes de 30/07 por falta de saldo, só descoberto por acaso nesta sessão | Michel |
+| 🔴 | Testar `publish_campaign` (MCP) contra a Meta de verdade — só validado isolado, nunca contra a API real. Usar projeto de teste, orçamento baixo | Michel |
+| 🔴 | Recarregar crédito das 5 campanhas pausadas (imobiliária, psicóloga, cosméticos) — pausadas desde antes de 30/07 por falta de saldo | Michel |
 | 🔴 | Ads Library API code 10 — bloqueia dado real na busca por segmento (Módulo 2) e afeta a qualidade de `winner_patterns` extraídos de anúncios estimados. Requer verificação de identidade em facebook.com/ID | Michel |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 | Michel |
 | 🔴 | Adicionar website no perfil projeto 41 (Villa Serena) | Michel |
-| 🟡 | Conectar `inferOfferType` + `SUBSEGMENTS` ao fluxo real — `learning_base` hoje só grava `niche='geral'`, perdendo granularidade (impacta também itens 4/8 do roadmap: score preditivo e recomendação de IA pré-publicação, que dependem de comparação por nicho) | Dev |
-| 🟡 | Testar em produção: `createLookalikeAudience` com audiência-semente real (exige volume mínimo de pessoas na Meta, não testável fora de produção) | Michel |
+| 🟡 | Integrar `buildPublishMediaFromCreative` no `publish_campaign` (MCP) — trata vídeo + segundo mecanismo de carrossel por criativo, encontrado mas não integrado nesta sessão | Dev |
+| 🟡 | Expor `creativeMode`/`uploadedImages` (fotos reais do cliente) no `generate_campaign` (MCP) — hoje só gera no modo automático | Dev |
+| 🟡 | Conectar `inferOfferType` + `SUBSEGMENTS` ao fluxo real — `learning_base` hoje só grava `niche='geral'` | Dev |
+| 🟡 | Testar em produção: `createLookalikeAudience` com audiência-semente real | Michel |
 | 🟡 | GA4_SERVICE_ACCOUNT_JSON — confirmar Viewer na propriedade GA4 476009199 | Michel |
 | 🟡 | TikTok token no Render | Michel |
 | 🟡 | Gemini chaves 2+3 em projetos separados | Michel |
 | 🟢 | Campanhas geradas antes de `5b13463` têm budget antigo — regerar ou ajustar Módulo 4 | Michel |
 
 **Roadmap de features do gerenciador Meta (avaliado, não implementado ainda):**
-item 5 (reuso de criativo em carrossel — evita perder histórico de entrega no
-algoritmo da Meta ao criar `adcreatives` duplicado), itens 4+8 (score
-preditivo + recomendação de IA pré-publicação — mesma engine, depende de
-`SUBSEGMENTS` primeiro para ser útil de verdade), item 7 (redesign do
-`CampaignResult.tsx`/`CampaignBuilder.tsx`, maior escopo e risco, fazer por
-partes como o Módulo 2).
+item 5 (reuso de criativo em carrossel), itens 4+8 (score preditivo +
+recomendação de IA pré-publicação — depende de `SUBSEGMENTS`), item 7
+(redesign do `CampaignResult.tsx`/`CampaignBuilder.tsx`).
 
 ---
 
@@ -411,16 +519,22 @@ completo do sistema, bugs resolvidos, regras críticas e pendências.
 
 Stack: React 19 + Vite + TypeScript / Node.js + Express + tRPC / PostgreSQL + Drizzle / Render.com
 Repo local: /home/claude/mecpro (se já clonado na sessão)
-Último commit: 4a55219 | Score: ~96% (não reavaliado) | Sessão: 24 (30/07/2026)
-MARCO PRIORITÁRIO: 5 campanhas de clientes reais (imobiliária, psicóloga,
-cosméticos) ficaram PAUSADAS na Meta por falta de crédito sem NINGUÉM
-saber — só descoberto por acaso debugando outro problema (campaign_metrics
-vazio). publishStatus='success' no banco significa só "criação funcionou",
-NUNCA assumir que significa "está ativa e gastando" — são coisas
-diferentes. Corrigido estruturalmente: checkPausedCampaigns (cron a cada
-2h) agora avisa por e-mail quando isso acontecer de novo. Lição anterior
-(fix crítico abbe29c, sessão 23 — update nunca reconstrói targeting do
-zero) continua valendo, ver Regra 14 do FRAMEWORK_EXCELENCIA.md.
+Último commit: e515c82 | Score: ~96% (não reavaliado) | Sessão: 25 (05/08/2026)
+MARCO PRIORITÁRIO: servidor MCP completo (9 tools, 3 fases) + OAuth 2.1
+próprio, permitindo o Claude conectar direto no MecProAI e consultar
+dados, criar campanhas e publicar na Meta. Decisão-chave: TODA a
+lógica de negócio real (Meta targeting, geração de copy/imagem,
+regras de carrossel) é acionada via os MESMOS procedures tRPC que a
+interface usa (appRouter.createCaller), NUNCA reimplementada nas
+tools MCP — só orquestração. Fase 3 (publish_campaign) ainda não foi
+testada contra a Meta real, só isolado — cuidado extra ao usar.
+2 vulnerabilidades reais (XSS + redirect aberto) foram encontradas e
+corrigidas no servidor OAuth ANTES do commit, não depois de reportar
+bug — ver seção completa da sessão 25 acima antes de mexer em
+qualquer rota de /authorize, /token ou /register.
+Lições anteriores continuam valendo: publishStatus='success' ≠ ativa
+(sessão 24), update nunca reconstrói targeting do zero (sessão 23,
+Regra 14 do FRAMEWORK_EXCELENCIA.md).
 
 ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/schema.ts          ← fonte da verdade do banco (SEMPRE consultar antes de query SQL)
@@ -431,6 +545,9 @@ ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/imageRAG.ts        ← análise Vision (corrigido sessão 21, cuidado com split("\n"))
 - shared/subsegments.ts     ← SUBSEGMENTS (isolado, não plugado)
 - client/src/pages/CampaignResult.tsx ← publicação Meta
+- server/mcpServer.ts       ← servidor MCP (9 tools, 3 fases) — sessão 25
+- server/oauthServer.ts     ← servidor OAuth 2.1 (/authorize, /token, /register) — sessão 25, sensível a segurança
+- server/publicApi.ts       ← API pública + authApiKey (aceita API key E token OAuth) — encoding corrompido pré-existente nos comentários (mojibake), usar edição via Python/linha, não str_replace com acentos
 
 REGRAS CRÍTICAS — NÃO VIOLAR:
 

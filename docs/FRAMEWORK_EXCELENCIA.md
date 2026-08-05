@@ -610,6 +610,73 @@ python3 -c "import json; print(json.load(open('/tmp/commitresp.json'))['sha'])"
 
 ---
 
+### Tools MCP acionam procedures tRPC reais via createCaller (CRÍTICO, sessão 25)
+
+```
+Ao construir o servidor MCP (server/mcpServer.ts), a tentação é
+reimplementar a lógica de negocio (targeting da Meta, resolução de
+imagem/carrossel, checkPlanLimit) direto na tool. NUNCA fazer isso —
+essa lógica já existe, já foi testada, e duplicar cria dois lugares
+pra divergir com o tempo (mesma classe de bug já vista nesta sessão
+com syncMetaCampaignMetrics/autoSyncMLMetrics duplicados).
+
+PADRÃO: appRouter.createCaller({ req, res, user }) invoca o MESMO
+procedure tRPC que a interface chama — literalmente o mesmo código
+rodando, só acionado por uma tool MCP em vez de um clique. O helper
+getCaller() busca o usuário (db.getUserById) e cria o caller sob
+demanda, porque criar o McpServer é síncrono mas buscar o usuário é
+assíncrono.
+
+  const caller = appRouter.createCaller({ req: {} as any, res: {} as any, user });
+  const result = await caller.campaigns.publishToMeta({ ...input });
+
+O papel da tool MCP é só ORQUESTRAR (validar posse, resolver dependências
+como imagem/página, chamar na ordem certa) — nunca decidir regra de
+negócio.
+```
+
+### Antes de simplificar uma tool nova, conferir se já existe regra documentada (sessão 25)
+
+```
+Construi publish_campaign (MCP) usando só a imagem do primeiro
+criativo — pareceu uma simplificação razoável. O usuário apontou "o
+mecproai já tem isso parametrizado" e pediu pra ler docs/ antes de
+responder. A Regra 2 deste arquivo (carrossel) já documentava
+exatamente o comportamento correto (coletar TODAS as imagens dos
+criativos, dedup, limite 10) — com histórico de um bug real
+idêntico já resolvido antes (sessão 21).
+
+LIÇÃO: ao construir qualquer coisa nova que toca um fluxo já
+existente (publicação, geração, targeting), grep nas Regras Críticas
+deste arquivo E no SYSTEM_MEMORY.md ANTES de decidir uma simplificação
+"razoável" — ela pode já ter sido tentada e corrigida antes, com o
+porquê documentado.
+```
+
+### Servidor OAuth próprio — 2 vulnerabilidades reais a sempre checar (sessão 25)
+
+```
+Construindo server/oauthServer.ts (autorização do conector MCP do
+Claude), 2 vulnerabilidades reais foram encontradas e corrigidas ANTES
+do commit — vale checar sempre que mexer em fluxo de autorização novo:
+
+1. XSS na tela de consentimento: redirect_uri/code_challenge/state/
+   resource vêm da query string (controláveis por quem monta o link)
+   — NUNCA interpolar direto no HTML sem escapar (escapeHtml()).
+
+2. Redirecionamento aberto: se o fluxo tem um caminho de "negar"/
+   "cancelar" que também faz redirect, a validação de que o
+   redirect_uri pertence ao client registrado precisa rodar ANTES de
+   QUALQUER redirect — inclusive no caminho de negação. Validar só no
+   caminho de sucesso deixa a rota funcionar como redirecionador
+   aberto via o caminho de erro.
+
+Teste mínimo antes de confiar em fluxo de autorização novo: PKCE
+S256 real (gerar/derivar/validar/rejeitar verifier errado) + os 4
+ataques clássicos (reuso de código, verifier errado, client_id
+roubado, redirect_uri adulterado).
+```
+
 ## ERROS META ADS — SOLUÇÕES CONFIRMADAS
 
 ### Carousel — copy por card (sessão 20)
@@ -719,11 +786,13 @@ Meta token:      validado até 06/07/2026 — ⚠️ CONFIRMAR RENOVAÇÃO,
 
 | Prioridade | Item |
 |---|---|
+| 🔴 | Testar `publish_campaign` (MCP) contra a Meta real — só validado isolado até agora |
 | 🔴 | Recarregar crédito das 5 campanhas pausadas (imobiliária, psicóloga, cosméticos) — descoberto por acaso na sessão 24 |
 | 🔴 | Ads Library API code 10 — requer verificação de identidade (facebook.com/ID); bloqueia dado real em 2 fluxos (Módulo 2 e winner_patterns) |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 |
 | 🔴 | Website no perfil projeto 41 (Villa Serena) |
-| 🟡 | Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile — learning_base só grava niche='geral', também trava score preditivo/recomendação de IA pré-publicação (roadmap) |
+| 🟡 | Integrar buildPublishMediaFromCreative no publish_campaign (MCP) — trata vídeo + 2º mecanismo de carrossel, encontrado mas não integrado |
+| 🟡 | Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile — learning_base só grava niche='geral' |
 | 🟡 | TikTok token no Render |
 | 🟡 | Gemini chaves 2+3 em projetos Google separados |
 | 🟡 | Testar createLookalikeAudience em produção com audiência-semente real |
@@ -738,6 +807,9 @@ campaign_metrics diário rodando via cron automático (autoSyncMLMetrics),
 com log de erro/resumo visível. Ver padrão "publishStatus='success' ≠
 campanha ativa" acima para a causa raiz real de dado vazio.
 
+~~Conector MCP do Claude falhava com 404~~ — resolvido (sessão 25):
+servidor OAuth 2.1 próprio, ver seção "Servidor OAuth próprio" acima.
+
 ---
 
-*Atualizado: 2026-07-30 (sessão 24) | Score: ~96% (não reavaliado) | Último commit: 4a55219*
+*Atualizado: 2026-08-05 (sessão 25) | Score: ~96% (não reavaliado) | Último commit: e515c82*
