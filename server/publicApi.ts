@@ -10,10 +10,13 @@
  */
 
 import { Router, Request, Response } from "express";
+import { json } from "express";
 import crypto from "crypto";
 import { getPool } from "./db";
 import { log } from "./logger";
 import * as db from "./db";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createMcpServerForUser } from "./mcpServer";
 
 const router = Router();
 
@@ -118,7 +121,31 @@ function apiResponse(res: Response, data: any, req: Request) {
   });
 }
 
-// â”€â”€ GET /api/v1/status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- POST /api/v1/mcp -- servidor MCP (Fase 1: tools de leitura) --------
+// Autenticacao reaproveita authApiKey (mesma API key usada no resto da API
+// publica). Um McpServer NOVO e criado por request, escopado ao userId da
+// key autenticada -- nunca um singleton global, pra garantir que dado de
+// um usuario nunca vaza pra outro.
+router.post("/mcp", authApiKey, json(), async (req: Request, res: Response) => {
+  const apiUser = (req as any).apiUser;
+  try {
+    const server = createMcpServerForUser(apiUser.id);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // stateless -- mais simples de escalar
+      enableJsonResponse: true,
+    });
+    res.on("close", () => { transport.close(); server.close(); });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (e: any) {
+    log.error("mcp", "Erro ao processar request MCP", { userId: apiUser?.id, error: e.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: "internal_error", message: "Erro ao processar a requisicao MCP." });
+    }
+  }
+});
+
+// -- GET /api/v1/status --------------------------------------------------
 router.get("/status", authApiKey, async (req: Request, res: Response) => {
   const user   = (req as any).apiUser;
   const limits = (req as any).apiLimits;
@@ -199,7 +226,7 @@ router.get("/competitors/list", authApiKey, async (req: Request, res: Response) 
 });
 
 // â”€â”€ POST /api/v1/competitors/analyze â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-router.post("/competitors/analyze", authApiKey, async (req: Request, res: Response) => {
+router.post("/competitors/analyze", authApiKey, json(), async (req: Request, res: Response) => {
   const user = (req as any).apiUser;
   const { competitor_id, project_id, wait = false } = req.body || {};
 
@@ -267,7 +294,7 @@ router.post("/competitors/analyze", authApiKey, async (req: Request, res: Respon
 });
 
 // â”€â”€ POST /api/v1/insights/generate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-router.post("/insights/generate", authApiKey, async (req: Request, res: Response) => {
+router.post("/insights/generate", authApiKey, json(), async (req: Request, res: Response) => {
   const user = (req as any).apiUser;
   const {
     project_id,
@@ -443,7 +470,7 @@ router.get("/keys", async (req: Request, res: Response) => {
 });
 
 // POST /api/v1/keys â€” cria nova key
-router.post("/keys", async (req: Request, res: Response) => {
+router.post("/keys", json(), async (req: Request, res: Response) => {
   const userId = (req as any).user?.id || ((req as any).session as any)?.userId;
   if (!userId) return res.status(401).json({ error: "not_authenticated" });
 
