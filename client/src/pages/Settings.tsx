@@ -7,6 +7,41 @@ import { trpc } from "@/lib/trpc";
 
 const TABS = ["Conta", "Segurança", "Notificações", "Integrações", "API"];
 
+function McpConnectionStatus() {
+  const utils = trpc.useUtils();
+  const { data: connection, isLoading } = trpc.admin.oauthConnectionStatus.useQuery();
+  const revoke = trpc.admin.revokeOAuthConnection.useMutation({
+    onSuccess: () => utils.admin.oauthConnectionStatus.invalidate(),
+  });
+
+  if (isLoading) return null;
+
+  if (!connection) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#d1d1d6", display: "inline-block" }} />
+        Não conectado ainda
+      </div>
+    );
+  }
+
+  const connectedDate = new Date(connection.connectedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--black)" }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--green)", display: "inline-block" }} />
+        <strong>Conectado</strong> desde {connectedDate}
+      </div>
+      <button
+        onClick={() => { if (confirm("Desconectar o Claude da sua conta MecProAI?")) revoke.mutate(); }}
+        disabled={revoke.isPending}
+        style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, color: "var(--muted)", cursor: "pointer", fontFamily: "inherit" }}>
+        {revoke.isPending ? "..." : "Desconectar"}
+      </button>
+    </div>
+  );
+}
+
 export default function Settings() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -357,6 +392,7 @@ export default function Settings() {
           {/* Conectar com Claude via MCP */}
           <div style={{ background: "linear-gradient(135deg, rgba(88,86,214,0.06), rgba(88,86,214,0.02))", border: "1px solid rgba(88,86,214,0.2)", borderRadius: 12, padding: "16px 18px", marginBottom: 20 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>🤖 Conectar com Claude (MCP)</div>
+            <McpConnectionStatus />
             <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
               Deixe o Claude consultar seus projetos e campanhas diretamente — sem sair da conversa.
               Adicione um conector MCP customizado no Claude apontando pra URL abaixo, usando sua API key

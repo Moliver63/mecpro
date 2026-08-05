@@ -6523,6 +6523,12 @@ const adminRouter = router({
       return result.rows[0];
     }),
 
+  oauthConnectionStatus: protectedProcedure.query(({ ctx }) => db.getActiveOAuthConnection(ctx.user.id)),
+  revokeOAuthConnection: protectedProcedure.mutation(async ({ ctx }) => {
+    await db.revokeAllOAuthTokens(ctx.user.id);
+    return { success: true as const };
+  }),
+
   revokeApiKey: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {

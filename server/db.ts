@@ -464,6 +464,31 @@ export async function rotateOAuthToken(refreshToken: string): Promise<{ accessTo
   return createOAuthToken({ clientId: row.clientId, userId: row.userId, resource: row.resource });
 }
 
+// Considera "conectado" se existe QUALQUER token não revogado com refresh
+// ainda válido — o access token em si pode ter expirado (dura só 1h), mas
+// enquanto o refresh funcionar, o Claude renova sozinho sem o usuário notar.
+export async function getActiveOAuthConnection(userId: number): Promise<{ connectedAt: string; clientName: string } | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+  const r = await pool.query(
+    `SELECT t."createdAt", c."clientName"
+     FROM oauth_tokens t
+     LEFT JOIN oauth_clients c ON c."clientId" = t."clientId"
+     WHERE t."userId" = $1 AND t.revoked = false AND t."refreshExpiresAt" > NOW()
+     ORDER BY t."createdAt" DESC
+     LIMIT 1`,
+    [userId]
+  );
+  if (!r.rows.length) return null;
+  return { connectedAt: r.rows[0].createdAt, clientName: r.rows[0].clientName || "Claude" };
+}
+
+export async function revokeAllOAuthTokens(userId: number): Promise<void> {
+  const pool = await getPool();
+  if (!pool) return;
+  await pool.query(`UPDATE oauth_tokens SET revoked = true WHERE "userId" = $1 AND revoked = false`, [userId]);
+}
+
 
 // ============ SUBSCRIPTION PLANS ============
 export async function getAllPlans() {
