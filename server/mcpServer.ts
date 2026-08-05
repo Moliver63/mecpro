@@ -201,5 +201,168 @@ export function createMcpServerForUser(userId: number): McpServer {
     }
   );
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // FASE 2 — tools de escrita (criar/editar). Ainda NÃO publica na Meta —
+  // isso é a Fase 3, deliberadamente separada por ser a parte que gasta
+  // dinheiro real. Tudo aqui reusa exatamente a mesma lógica dos endpoints
+  // tRPC reais (checkPlanLimit, generateCampaign de ai.ts) — o MCP não
+  // reimplementa regra de negócio nenhuma, só entrega dados estruturados
+  // pro motor que já existe.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // ── create_project ───────────────────────────────────────────────────────
+  server.registerTool(
+    "create_project",
+    {
+      title: "Criar projeto (cliente)",
+      description:
+        "Cria um novo projeto no MecProAI — o 'container' que representa um " +
+        "cliente/negócio. Toda campanha precisa pertencer a um projeto. Use " +
+        "list_projects primeiro pra checar se o cliente já não tem um projeto.",
+      inputSchema: {
+        name: z.string().min(2).describe("Nome do projeto/cliente (ex: 'Clínica Dr. Silva')."),
+        description: z.string().optional().describe("Descrição breve opcional."),
+      },
+    },
+    async ({ name, description }) => {
+      const check = await db.checkPlanLimit(userId, "projects");
+      if (!check.allowed) {
+        return { content: [{ type: "text", text: `Não foi possível criar: ${check.reason}` }], isError: true };
+      }
+      const project: any = await db.createProject({ name, description, userId } as any);
+      return {
+        content: [{ type: "text", text: `Projeto criado: "${project.name}" (id: ${project.id})` }],
+        structuredContent: { id: project.id, name: project.name },
+      };
+    }
+  );
+
+  // ── set_client_profile ───────────────────────────────────────────────────
+  server.registerTool(
+    "set_client_profile",
+    {
+      title: "Definir perfil do cliente",
+      description:
+        "Preenche ou atualiza o perfil do cliente de um projeto — nicho, público-alvo, " +
+        "dor principal, proposta de valor, objeções, site. Quanto mais completo, melhor " +
+        "a qualidade da copy que a IA do MecProAI vai gerar. Chame isso ANTES de " +
+        "generate_campaign — a geração usa esses dados como contexto principal.",
+      inputSchema: {
+        projectId: z.number().int().positive().describe("ID do projeto (de create_project ou list_projects)."),
+        companyName: z.string().describe("Nome da empresa/cliente."),
+        niche: z.string().describe("Nicho/segmento de mercado (ex: 'clínica odontológica', 'e-commerce de moda')."),
+        productService: z.string().describe("O que a empresa vende — produto ou serviço."),
+        targetAudience: z.string().optional().describe("Público-alvo (ex: 'mulheres 25-45, classe B/C, interessadas em bem-estar')."),
+        mainPain: z.string().optional().describe("Principal dor/problema que o público tem."),
+        desiredTransformation: z.string().optional().describe("O que o público quer alcançar/se tornar."),
+        uniqueValueProposition: z.string().optional().describe("O que diferencia essa empresa da concorrência."),
+        mainObjections: z.string().optional().describe("Principais objeções de compra que o público costuma ter."),
+        campaignObjective: z.enum(["leads", "sales", "branding", "traffic", "engagement"]).optional(),
+        monthlyBudget: z.number().optional().describe("Orçamento mensal de mídia em reais."),
+        websiteUrl: z.string().optional().describe("Site da empresa (com ou sem https://)."),
+        socialLinks: z.string().optional().describe("Links de redes sociais (Instagram, Facebook etc), texto livre."),
+        businessScope: z.enum(["local", "regional", "national", "global"]).optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        country: z.string().optional(),
+      },
+    },
+    async (input) => {
+      const project: any = await db.getProjectById(input.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Projeto ${input.projectId} não encontrado ou não pertence a este usuário.` }], isError: true };
+      }
+      // Mesma normalização do endpoint real (clientProfileRouter.upsert):
+      // aceita "www.site.com.br", "site.com" etc e sempre grava com https://
+      const websiteUrl = (() => {
+        const raw = String(input.websiteUrl || "").trim();
+        if (!raw) return undefined;
+        if (/^https?:\/\//i.test(raw)) return raw.replace(/^http:\/\//i, "https://");
+        const lower = raw.toLowerCase().replace(/\s+/g, "");
+        if (/^[a-z0-9][a-z0-9._-]*\.[a-z]{2,}(\/.*)?$/.test(lower)) return `https://${lower}`;
+        return raw;
+      })();
+      await db.upsertClientProfile({ ...input, websiteUrl } as any);
+      return {
+        content: [{ type: "text", text: `Perfil do cliente salvo para o projeto ${input.projectId} (${project.name}).` }],
+      };
+    }
+  );
+
+  // ── generate_campaign ────────────────────────────────────────────────────
+  server.registerTool(
+    "generate_campaign",
+    {
+      title: "Gerar campanha",
+      description:
+        "Dispara o motor de geração de campanha do MecProAI — a mesma lógica de IA " +
+        "que roda quando alguém clica 'gerar' na interface (copy, criativos, orçamento " +
+        "por ad set, auditoria de qualidade). NÃO publica na Meta — só cria o rascunho " +
+        "da campanha. Chame set_client_profile antes, se o projeto ainda não tiver perfil " +
+        "preenchido — a qualidade da copy depende disso. Pode demorar até 50s (é IA real gerando).",
+      inputSchema: {
+        projectId: z.number().int().positive(),
+        name: z.string().describe("Nome da campanha."),
+        objective: z.string().describe("Objetivo (ex: 'sales', 'leads', 'traffic', 'branding')."),
+        platform: z.string().describe("Plataforma (ex: 'meta', 'google', 'tiktok')."),
+        budget: z.number().positive().describe("Orçamento total em reais."),
+        duration: z.number().int().positive().describe("Duração em dias."),
+        extraContext: z.string().optional().describe("Contexto adicional livre pra IA considerar."),
+        ageMin: z.number().int().min(13).max(65).optional(),
+        ageMax: z.number().int().min(18).max(65).optional(),
+        locationMode: z.enum(["brasil", "paises", "raio", "cidade"]).optional(),
+        regions: z.array(z.string()).optional().describe("Estados do Brasil (sigla), se locationMode='brasil'."),
+        countries: z.array(z.string()).optional().describe("Países, se locationMode='paises'."),
+        geoCity: z.string().optional().describe("Cidade, se locationMode='raio'."),
+        geoRadius: z.number().optional().describe("Raio em km, se locationMode='raio'."),
+        mediaFormat: z.string().optional().describe("Formato de mídia (ex: 'image', 'video', 'carousel', 'mixed')."),
+        audienceProfile: z.string().optional(),
+      },
+    },
+    async (input) => {
+      const project: any = await db.getProjectById(input.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Projeto ${input.projectId} não encontrado ou não pertence a este usuário.` }], isError: true };
+      }
+      const check = await db.checkPlanLimit(userId, "campaigns", { projectId: input.projectId });
+      if (!check.allowed) {
+        return { content: [{ type: "text", text: `Não foi possível gerar: ${check.reason}` }], isError: true };
+      }
+
+      const { generateCampaign } = await import("../ai");
+      const segmentContext = [
+        input.extraContext || "",
+        (input.regions?.length)   ? "Regioes: " + input.regions.join(", ")                         : "",
+        (input.countries?.length) ? "Paises: "  + input.countries.join(", ")                       : "",
+        input.geoCity             ? "Raio de "  + (input.geoRadius || 15) + "km em " + input.geoCity : "",
+        (input.ageMin && input.ageMax) ? "Faixa etaria: " + input.ageMin + "-" + input.ageMax + " anos" : "",
+        (input.mediaFormat && input.mediaFormat !== "mixed") ? "Formato de midia: " + input.mediaFormat : "",
+      ].filter(Boolean).join(". ");
+
+      const campaignPromise = generateCampaign({
+        projectId: input.projectId, userId, name: input.name, objective: input.objective,
+        platform: input.platform, budget: input.budget, duration: input.duration,
+        extraContext: segmentContext, ageMin: input.ageMin, ageMax: input.ageMax,
+        regions: input.regions, countries: input.countries, locationMode: input.locationMode,
+        geoCity: input.geoCity, geoRadius: input.geoRadius, mediaFormat: input.mediaFormat,
+      } as any);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(
+          "A geração demorou mais que o esperado (>50s). Verifique list_campaigns em alguns segundos — ela pode ter sido criada com sucesso mesmo assim."
+        )), 50_000)
+      );
+
+      try {
+        const campaign: any = await Promise.race([campaignPromise, timeoutPromise]);
+        return {
+          content: [{ type: "text", text: `Campanha gerada: "${campaign.name || input.name}" (id: ${campaign.id}) no projeto ${project.name}. Ainda não publicada na Meta.` }],
+          structuredContent: { id: campaign.id, name: campaign.name || input.name, projectId: input.projectId },
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: e.message || "Falha ao gerar a campanha." }], isError: true };
+      }
+    }
+  );
+
   return server;
 }
