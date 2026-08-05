@@ -430,8 +430,9 @@ export function createMcpServerForUser(userId: number): McpServer {
         "real do cliente começa a ser gasto. NUNCA chame isso sem confirmação " +
         "explícita do usuário sobre orçamento, página e público antes. Publica " +
         "todos os ad sets da campanha (ou só os índices indicados), reaproveitando " +
-        "a mesma campanha na Meta entre eles. Usa a imagem já gerada pelo " +
-        "generate_campaign — não gera imagem nova.",
+        "a mesma campanha na Meta entre eles. Usa as imagens já geradas pelo " +
+        "generate_campaign — se houver 2+ imagens distintas nos criativos, publica " +
+        "como carrossel automaticamente; não gera imagem nova.",
       inputSchema: {
         campaignId: z.number().int().positive(),
         pageId: z.string().describe("ID da Página do Facebook (use list_meta_pages se não souber)."),
@@ -463,26 +464,45 @@ export function createMcpServerForUser(userId: number): McpServer {
         return { content: [{ type: "text", text: e.message }], isError: true };
       }
 
-      // ── Resolve UMA imagem pra usar em todos os ad sets — mesmo padrão
-      // que a tela usa (o payload de imagem é resolvido 1x, fora do loop).
-      const mainCreative = creatives[0];
-      let imageHash: string | undefined = mainCreative?.feedImageHash || mainCreative?.imageHash || undefined;
-      if (!imageHash) {
-        const imageUrl = mainCreative?.feedImageUrl || mainCreative?.imageUrl;
-        if (!imageUrl) {
-          return { content: [{ type: "text", text: "Nenhuma imagem encontrada nos criativos gerados — não é possível publicar sem imagem." }], isError: true };
+      // ── Resolve TODAS as imagens dos criativos (não só a 1ª) — regra
+      // documentada em docs/FRAMEWORK_EXCELENCIA.md: "coletar todas as
+      // feedImageUrl únicas dos criativos, dedup, limite 10". Sem isso,
+      // campanha com múltiplas fotos (carrossel) publicaria só com a
+      // imagem do 1º criativo — bug real já documentado no histórico do
+      // projeto (effectiveImageUrls vazio = publica sem visual completo).
+      const uniqueImages = Array.from(new Set(
+        creatives
+          .map((c: any) => ({ hash: c?.feedImageHash || c?.imageHash, url: c?.feedImageUrl || c?.imageUrl }))
+          .filter((x: any) => x.hash || x.url)
+          .map((x: any) => x.hash ? `hash:${x.hash}` : `url:${x.url}`)
+      )).slice(0, 10);
+
+      if (uniqueImages.length === 0) {
+        return { content: [{ type: "text", text: "Nenhuma imagem encontrada nos criativos gerados — não é possível publicar sem imagem." }], isError: true };
+      }
+
+      async function resolveToHash(tagged: string): Promise<string> {
+        if (tagged.startsWith("hash:")) return tagged.slice(5);
+        const url = tagged.slice(4);
+        const imgRes = await fetch(url, { signal: AbortSignal.timeout(15000) });
+        const buf = Buffer.from(await imgRes.arrayBuffer());
+        const uploadResult: any = await caller.campaigns.uploadImageToMeta({
+          imageBase64: buf.toString("base64"),
+          fileName: `campaign-${input.campaignId}-${Date.now()}.jpg`,
+        } as any);
+        return uploadResult.hash || uploadResult.imageHash;
+      }
+
+      let imageHash: string | undefined;
+      let imageHashes: string[] | undefined;
+      try {
+        if (uniqueImages.length === 1) {
+          imageHash = await resolveToHash(uniqueImages[0]);
+        } else {
+          imageHashes = await Promise.all(uniqueImages.map(resolveToHash));
         }
-        try {
-          const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(15000) });
-          const buf = Buffer.from(await imgRes.arrayBuffer());
-          const uploadResult: any = await caller.campaigns.uploadImageToMeta({
-            imageBase64: buf.toString("base64"),
-            fileName: `campaign-${input.campaignId}.jpg`,
-          } as any);
-          imageHash = uploadResult.hash || uploadResult.imageHash;
-        } catch (e: any) {
-          return { content: [{ type: "text", text: `Falha ao enviar a imagem pra Meta: ${e.message}` }], isError: true };
-        }
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao enviar imagem(ns) pra Meta: ${e.message}` }], isError: true };
       }
 
       // ── Resolve o link de destino, se não veio explícito ──────────────
@@ -508,6 +528,7 @@ export function createMcpServerForUser(userId: number): McpServer {
             destination: input.destination || "website",
             linkUrl,
             imageHash,
+            imageHashes,
             adSetIndex: idx,
             ...(sharedMetaCampaignId ? { existingMetaCampaignId: sharedMetaCampaignId } : {}),
           } as any);
