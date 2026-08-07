@@ -12,6 +12,7 @@
 import { Router, Request, Response } from "express";
 import { json } from "express";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 import { getPool } from "./db";
 import { log } from "./logger";
 import * as db from "./db";
@@ -141,12 +142,36 @@ function apiResponse(res: Response, data: any, req: Request) {
   });
 }
 
+// -- Rate limit de burst para o endpoint MCP -----------------------------
+// A cota diaria/mensal do authApiKey nao limita RAJADA (ex: 50 req em 2s,
+// todas dentro da cota do dia, cada uma criando um McpServer novo). Esse
+// limiter roda DEPOIS do authApiKey de proposito -- so entao req.apiUser
+// existe, permitindo chave por usuario autenticado (nao por IP, que seria
+// injusto/inutil aqui: chamadas MCP tendem a vir do mesmo IP de origem do
+// cliente MCP, nao do usuario final).
+const mcpBurstLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 30,             // 30 requisicoes MCP por minuto por usuario autenticado
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => {
+    const apiUser = (req as any).apiUser;
+    return apiUser?.id ? `mcp_user_${apiUser.id}` : (req.ip || "unknown");
+  },
+  handler: (req: Request, res: Response) => {
+    res.status(429).json({
+      error: "rate_limit_burst",
+      message: "Muitas requisicoes MCP em pouco tempo (limite: 30/min). Aguarde um momento.",
+    });
+  },
+});
+
 // -- POST /api/v1/mcp -- servidor MCP (Fase 1: tools de leitura) --------
 // Autenticacao reaproveita authApiKey (mesma API key usada no resto da API
 // publica). Um McpServer NOVO e criado por request, escopado ao userId da
 // key autenticada -- nunca um singleton global, pra garantir que dado de
 // um usuario nunca vaza pra outro.
-router.post("/mcp", authApiKey, json(), async (req: Request, res: Response) => {
+router.post("/mcp", authApiKey, mcpBurstLimiter, json(), async (req: Request, res: Response) => {
   const apiUser = (req as any).apiUser;
   try {
     const server = createMcpServerForUser(apiUser.id);
