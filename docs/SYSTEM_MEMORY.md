@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-08-05 (sessão 25)
+> **Última atualização:** 2026-08-07 (sessão 26)
 
 ---
 
@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `e515c82` | fix(mcp): publish_campaign coleta TODAS as imagens dos criativos |
+| Último commit | `6be00a9` | fix(ai): wire ctaRule into the main Gemini prompt |
 
 ---
 
@@ -485,7 +485,108 @@ possivelmente por ter batido nesse mesmo problema antes).
 
 ---
 
-## 📋 Pendências (atualizado sessão 25)
+## 📋 Sessão 07/08 — Auditoria do conector MCP + fix real do `learning_base` + SUBSEGMENTS plugado
+
+Sessão puxada por um pedido simples ("testa e audita o conector MCP") que
+virou uma cadeia de achados reais em produção — nenhum deles veio de
+suposição, todos confirmados por teste vivo (curl, query no banco, ou
+smoke test isolado) antes de qualquer commit.
+
+**Auditoria do MCP contra o código real, não contra padrão/memória**
+Uma segunda IA (sem acesso ao repo, GitHub em timeout) tentou complementar
+a auditoria com 6 "falhas adicionais" baseadas em padrão conhecido do
+projeto. Checado uma a uma contra o código: **5 de 6 eram especulação
+incorreta** (timeout em `publish_campaign` já existia, `AbortSignal.timeout`
+em toda chamada Meta; validação de `campaignId` já era `z.number()`, nunca
+`string`/`any`; log não vazava token). **1 era real**: `express-rate-limit`
+estava instalado no `package.json` mas nunca importado em lugar nenhum —
+zero rate limit de rajada no endpoint `/mcp`, só a cota diária/mensal por
+API key. Lição: checar código real sempre vence pattern-matching, mesmo
+quando o pattern-matching acerta ocasionalmente.
+
+**2 bugs reais confirmados e corrigidos no MCP/API pública**
+1. `security(publicApi): corrige double-encoding UTF-8/CP1252` (`bde37d7`)
+   — `server/publicApi.ts` tinha mojibake em toda mensagem de erro PT-BR
+   (confirmado via curl real: `"API key invÃ¡lida"` em vez de `"inválida"`).
+   Causa: arquivo salvo com BOM + double-encoding em algum commit antigo.
+   Corrigido linha a linha (script Python, `cp1252→utf-8`, não `latin-1` —
+   caracteres de box-drawing em comentários usam a faixa 0x80-0x9F onde os
+   dois encodings divergem).
+2. `security(publicApi): adiciona rate limit de burst no endpoint MCP`
+   (`5afd51d`) — 30 req/min por usuário autenticado (chaveado por
+   `apiUser.id`, não por IP). Testado em produção: 30× `200`, depois `429`
+   a partir da 31ª chamada, exatamente como esperado.
+
+**`learning_base` — não estava "parado", tinha 2 bugs silenciosos de dado**
+Um prompt de correção de outra sessão pediu pra "reativar" o pipeline —
+checagem ao vivo (`server/scripts/check-learning-base.ts`, novo, somente
+leitura) mostrou que ele JÁ estava ativo (escritas recentes confirmadas).
+O problema real, achado só depois de ler o código com atenção: a função
+que o cron de fato chama (`runAnalysisInternal`, `_core/index.ts:2203`)
+**reimplementava context/metrics do zero** em vez de usar o helper
+compartilhado `loadCampaignContext` que as outras 6 procedures do arquivo
+já usam — e essa duplicação tinha divergido em dois pontos:
+1. Nicho nunca era normalizado (texto livre da IA direto na chave) —
+   confirmado em produção: `imobiliário`/`IMOBILIARIO`/`imoveis`/
+   `Mercado Imobiliário` como 4+ linhas separadas do mesmo nicho real,
+   diluindo o efeito de rede entre clientes que é a vantagem estrutural
+   do sistema.
+2. `avg_roas` nem estava na lista de colunas do `UPDATE`/`INSERT` —
+   estruturalmente impossível gravar ROAS, mesmo com dado real disponível.
+
+Fix (`af3092c` + `306c2ad`): troca pra `loadCampaignContext` (mata a
+duplicação, ganha normalização de graça) + busca `metric_roas` real de
+`campaign_scores` + `avg_roas` nas duas queries de escrita + acrescenta
+remoção de acento na normalização (`imobiliário`→`imobiliario`, NFD +
+strip de combining marks — `toLowerCase()`+`trim()` sozinhos não bastavam).
+Testado ao vivo: `meta/sales/imobiliario` pulou de `n=17` pra `n=54` numa
+única rodada pós-fix, confirmando convergência das variantes.
+
+**ROAS zerado — investigado até a causa raiz real, não é mais bug**
+Depois do fix, `roas` continuava `0.0000` em toda escrita nova. Antes de
+assumir que o fix falhou, query direta: `campaign_scores` tem **946
+linhas, ZERO com `metric_roas > 0`**. Não é bug do pipeline — é ausência
+real de dado de conversão em qualquer lugar do sistema (provavelmente
+falta configuração de Pixel de valor de compra nos clientes). Virou
+pendência nova e separada (ver tabela abaixo), não confundir com o fix
+de hoje, que está correto e vai funcionar assim que existir dado real.
+
+**`inferOfferType` + `SUBSEGMENTS` finalmente plugados (`7ec0d50`)**
+Ambos existiam prontos e testados (12/12 e 15/15 casos documentados) mas
+nunca eram chamados em fluxo real. Plugado em `generateCampaign`, logo
+após o `ctaRule` existente — resolve o mesmo `segment` que
+`getSegmentInstruction` já resolve internamente (sem duplicar lógica),
+roda `inferSubsegment` contra os mesmos campos de texto livre que já iam
+pro prompt (produto/serviço, dor, proposta de valor, contexto extra), e só
+injeta instrução de hook/CTA no prompt quando confiança é alta ou média —
+confiança baixa ou sem match mantém comportamento anterior 100% intacto.
+Validado com 3 smoke tests reais antes do commit: lançamento imobiliário →
+alta confiança, texto genérico → baixa/null (sem instrução extra),
+delivery → alta confiança.
+
+**Achado de bônus, fora do escopo original, também corrigido (`6be00a9`)**
+No mesmo lugar onde plugei o subsegmento, notei que `ctaRule` (a variável
+que já existia, resultado de `getSegmentInstruction` — CTA por segmento
+E palavras proibidas) nunca era de fato interpolada no prompt principal
+enviado ao Gemini. Só era usada dentro do fallback do Groq (variável
+homônima, escopo separado, shadowing). Ou seja: a maioria das campanhas
+(Gemini funcionando, o caminho comum) nunca recebia essa camada de
+guidance de segmento/compliance — só o caminho raro do fallback recebia.
+Fix de uma linha: interpolar `${ctaRule}` no prompt principal, ao lado do
+`${subsegmentInstruction}` novo.
+
+**Lição pra próxima sessão:** o padrão "função duplicada em vez de reusar
+helper compartilhado" já apareceu 3 vezes documentado neste arquivo
+(sessão 25 — MCP tools vs. lógica tRPC; hoje — `runAnalysisInternal` vs.
+`loadCampaignContext`; hoje — `ctaRule` externo nunca usado vs. `ctaRule`
+interno do Groq). Ao encontrar qualquer variável/lógica que "parece"
+repetida em dois lugares do mesmo arquivo, vale sempre checar se as duas
+cópias divergiram silenciosamente antes de assumir que fazem a mesma
+coisa.
+
+---
+
+## 📋 Pendências (atualizado sessão 26)
 
 | Prioridade | Item | Responsável |
 |---|---|---|
@@ -494,19 +595,27 @@ possivelmente por ter batido nesse mesmo problema antes).
 | 🔴 | Ads Library API code 10 — bloqueia dado real na busca por segmento (Módulo 2) e afeta a qualidade de `winner_patterns` extraídos de anúncios estimados. Requer verificação de identidade em facebook.com/ID | Michel |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 | Michel |
 | 🔴 | Adicionar website no perfil projeto 41 (Villa Serena) | Michel |
-| 🟡 | Integrar `buildPublishMediaFromCreative` no `publish_campaign` (MCP) — trata vídeo + segundo mecanismo de carrossel por criativo, encontrado mas não integrado nesta sessão | Dev |
+| 🟡 | **NOVO (sessão 26)** — Implementar sync de `metric_roas` real via Pixel de conversão de valor. Confirmado ao vivo: 946 linhas em `campaign_scores`, ZERO com roas > 0. O fix de hoje (avg_roas na query) está correto, só não tem dado real pra gravar ainda | Dev |
+| 🟢 | **NOVO (sessão 26), opcional** — Migrar linhas antigas de `learning_base` com nicho não-normalizado (`imobiliário`/`IMOBILIARIO`/etc, ~50 linhas pré-sessão-26) pra dentro das linhas novas normalizadas — soma `sample_count`, recalcula médias ponderadas. Fix de hoje só evita poluição nova, não limpa histórico | Dev |
+| 🟡 | Integrar `buildPublishMediaFromCreative` no `publish_campaign` (MCP) — trata vídeo + segundo mecanismo de carrossel por criativo, encontrado mas não integrado na sessão 25 | Dev |
 | 🟡 | Expor `creativeMode`/`uploadedImages` (fotos reais do cliente) no `generate_campaign` (MCP) — hoje só gera no modo automático | Dev |
-| 🟡 | Conectar `inferOfferType` + `SUBSEGMENTS` ao fluxo real — `learning_base` hoje só grava `niche='geral'` | Dev |
 | 🟡 | Testar em produção: `createLookalikeAudience` com audiência-semente real | Michel |
 | 🟡 | GA4_SERVICE_ACCOUNT_JSON — confirmar Viewer na propriedade GA4 476009199 | Michel |
 | 🟡 | TikTok token no Render | Michel |
 | 🟡 | Gemini chaves 2+3 em projetos separados | Michel |
 | 🟢 | Campanhas geradas antes de `5b13463` têm budget antigo — regerar ou ajustar Módulo 4 | Michel |
+| 🟢 | Testes automatizados mínimos (`parseBudgetString`, `stripPlaceholders`, `dedupeSentences`, `inferOfferType`, `buildDescription`) — usar `tsx --test` nativo, já é o padrão do projeto (só 1 arquivo de teste existe hoje: `placementGuidance.test.ts`). Não instalar Vitest/Jest, criaria sistema de teste paralelo | Dev |
+| 🟢 | Reavaliar scores de Imagens/Copies com volume real pós fotos-reais-do-cliente — depende de acumular 10-20 campanhas no novo fluxo | Dev |
+
+**Resolvidas nesta sessão** (removidas da lista): rate limit ausente no
+MCP, encoding corrompido em `publicApi.ts`, `inferOfferType`+`SUBSEGMENTS`
+nunca plugados, `learning_base` com nicho fragmentado e roas nunca
+gravável, `ctaRule` nunca chegando no prompt principal do Gemini.
 
 **Roadmap de features do gerenciador Meta (avaliado, não implementado ainda):**
 item 5 (reuso de criativo em carrossel), itens 4+8 (score preditivo +
-recomendação de IA pré-publicação — depende de `SUBSEGMENTS`), item 7
-(redesign do `CampaignResult.tsx`/`CampaignBuilder.tsx`).
+recomendação de IA pré-publicação — agora desbloqueado, `SUBSEGMENTS` já
+está plugado), item 7 (redesign do `CampaignResult.tsx`/`CampaignBuilder.tsx`).
 
 ---
 
@@ -519,22 +628,25 @@ completo do sistema, bugs resolvidos, regras críticas e pendências.
 
 Stack: React 19 + Vite + TypeScript / Node.js + Express + tRPC / PostgreSQL + Drizzle / Render.com
 Repo local: /home/claude/mecpro (se já clonado na sessão)
-Último commit: e515c82 | Score: ~96% (não reavaliado) | Sessão: 25 (05/08/2026)
-MARCO PRIORITÁRIO: servidor MCP completo (9 tools, 3 fases) + OAuth 2.1
-próprio, permitindo o Claude conectar direto no MecProAI e consultar
-dados, criar campanhas e publicar na Meta. Decisão-chave: TODA a
-lógica de negócio real (Meta targeting, geração de copy/imagem,
-regras de carrossel) é acionada via os MESMOS procedures tRPC que a
-interface usa (appRouter.createCaller), NUNCA reimplementada nas
-tools MCP — só orquestração. Fase 3 (publish_campaign) ainda não foi
-testada contra a Meta real, só isolado — cuidado extra ao usar.
+Último commit: 6be00a9 | Score: ~96% (não reavaliado) | Sessão: 26 (07/08/2026)
+MARCO PRIORITÁRIO: MCP auditado e com 2 bugs reais corrigidos (rate limit
+ausente + encoding corrompido); learning_base tinha 2 bugs silenciosos de
+dado (nicho fragmentado + roas nunca gravável), não estava "parado" como
+um prompt de correção antigo assumia — corrigido, e ROAS zerado confirmado
+como ausência real de dado (946 linhas em campaign_scores, zero com roas
+> 0), não bug. inferOfferType + SUBSEGMENTS finalmente plugados em
+generateCampaign, e ctaRule (CTA + palavras proibidas por segmento) agora
+chega no prompt principal do Gemini pela primeira vez — antes só o
+fallback do Groq recebia essa instrução.
 2 vulnerabilidades reais (XSS + redirect aberto) foram encontradas e
 corrigidas no servidor OAuth ANTES do commit, não depois de reportar
 bug — ver seção completa da sessão 25 acima antes de mexer em
 qualquer rota de /authorize, /token ou /register.
 Lições anteriores continuam valendo: publishStatus='success' ≠ ativa
 (sessão 24), update nunca reconstrói targeting do zero (sessão 23,
-Regra 14 do FRAMEWORK_EXCELENCIA.md).
+Regra 14 do FRAMEWORK_EXCELENCIA.md). Nova lição (sessão 26): função
+"parecida" duplicada em vez de reusar helper compartilhado já apareceu
+3 vezes neste arquivo — sempre suspeitar de divergência silenciosa.
 
 ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/schema.ts          ← fonte da verdade do banco (SEMPRE consultar antes de query SQL)
@@ -543,11 +655,11 @@ ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/ai.ts              ← geração de campanhas (Gemini → Groq), inferOfferType (isolado)
 - server/imageGeneration.ts ← FLUX → Pixabay → Google
 - server/imageRAG.ts        ← análise Vision (corrigido sessão 21, cuidado com split("\n"))
-- shared/subsegments.ts     ← SUBSEGMENTS (isolado, não plugado)
+- shared/subsegments.ts     ← SUBSEGMENTS (plugado em generateCampaign — sessão 26, inferSubsegment())
 - client/src/pages/CampaignResult.tsx ← publicação Meta
 - server/mcpServer.ts       ← servidor MCP (9 tools, 3 fases) — sessão 25
 - server/oauthServer.ts     ← servidor OAuth 2.1 (/authorize, /token, /register) — sessão 25, sensível a segurança
-- server/publicApi.ts       ← API pública + authApiKey (aceita API key E token OAuth) — encoding corrompido pré-existente nos comentários (mojibake), usar edição via Python/linha, não str_replace com acentos
+- server/publicApi.ts       ← API pública + authApiKey (aceita API key E token OAuth) + rate limit de burst no /mcp (sessão 26). Encoding corrompido (mojibake) corrigido na sessão 26 — se reaparecer, usar script Python cp1252→utf-8 linha a linha, não latin-1 (box-drawing chars usam faixa 0x80-0x9F onde os dois divergem)
 
 REGRAS CRÍTICAS — NÃO VIOLAR:
 
@@ -596,10 +708,14 @@ REGRAS CRÍTICAS — NÃO VIOLAR:
    - Verificar schema.ts ANTES de qualquer query SQL — tabela api_integrations
      (NÃO integrations), campo provider (NÃO platform)
 
-9. SEGMENTAÇÃO (NOVO, NÃO PLUGADO):
-   - inferOfferType() e SUBSEGMENTS existem e passam nos testes, mas NÃO estão
-     conectados a nenhum fluxo real ainda — não assumir que já influenciam campanhas
-   - learning_base hoje só grava niche='geral' por causa disso
+9. SEGMENTAÇÃO (plugado na sessão 26):
+   - inferOfferType() e SUBSEGMENTS agora rodam dentro de generateCampaign
+     (server/ai.ts), logo após o ctaRule — só influenciam o prompt quando
+     confiança é "alta" ou "média"; confiança "baixa" ou sem match não
+     adiciona nada (fallback seguro)
+   - learning_base agora normaliza nicho de verdade (lowercase + trim +
+     remoção de acento via NFD) — linhas gravadas ANTES da sessão 26
+     continuam fragmentadas (não foi feita migração retroativa)
 
 10. MÓDULO server/db.ts:
     - NÃO exporta objeto "db" agregado — são named exports diretos
@@ -670,13 +786,14 @@ REGRAS CRÍTICAS — NÃO VIOLAR:
 PENDÊNCIAS ABERTAS:
 🔴 Vincular WhatsApp 47999465824 à Página 1086894187837842 no Meta Business
 🔴 Adicionar website no perfil projeto 41 (Villa Serena) — websiteUrl = null
-🟡 Conectar inferOfferType + SUBSEGMENTS ao resolveCampaignProfile (learning_base só grava niche='geral'; impacta score preditivo/recomendação de IA do roadmap)
+🟡 Implementar sync de metric_roas real via Pixel de conversão (946 linhas em campaign_scores, ZERO com roas>0 — confirmado sessão 26)
 🟡 Testar createLookalikeAudience em produção com semente real
 🟡 GA4_SERVICE_ACCOUNT_JSON — confirmar Viewer na propriedade GA4 476009199
 🟡 Ads Library API code 10 — requer verificação de identidade (facebook.com/ID), cobertura comercial só UE/RU
 🟡 TikTok token no Render
 🟡 Gemini chaves 2+3 em projetos Google separados
 🟢 Campanhas geradas antes de 5b13463 com budget antigo → regerar ou ajustar Módulo 4
+🟢 Migrar ~50 linhas antigas de learning_base com nicho não-normalizado pras linhas novas (opcional, sessão 26)
 
 CUSTOS REAIS (logs produção, sessão 20 — não remedido sessão 21):
 - Gemini+Groq: US$0,0021/campanha
