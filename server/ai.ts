@@ -6102,6 +6102,7 @@ ${(clientProfile as any)?.productCTA ? `- 🎯 CTA PREFERIDO: "${String((clientP
 ${(clientProfile as any)?.city ? `- Cidade: ${(clientProfile as any).city}` : ""}
 ${buildPersonasBlock((clientProfile as any)?.personas)}
 ${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
+${ctaRule}
 ${subsegmentInstruction}
 
 CAMPANHA: ${input.name}
