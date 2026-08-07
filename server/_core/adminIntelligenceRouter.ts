@@ -1274,41 +1274,29 @@ export async function runAnalysisInternal(opts: {
         for (const c of camps) {
           if (Date.now() > deadline) break;
           try {
-            let aiResp: any = {};
-            let creativesArr: any[] = [];
-            try { aiResp = JSON.parse(c.aiResponse || "{}"); } catch {}
-            try { creativesArr = JSON.parse(c.creatives || "[]"); } catch {}
+            // Antes: context/metrics eram remontados aqui do zero, duplicando
+            // loadCampaignContext (usado por todo o resto deste arquivo) e
+            // divergindo dele em dois pontos: niche nunca era normalizado
+            // (gravava o texto livre da IA direto, fragmentando a chave de
+            // aprendizado em variantes tipo "imobiliário"/"IMOBILIARIO"/
+            // "imoveis") e roas nunca era buscado de campaign_scores (ficava
+            // sempre 0, mesmo com sample_count alto). Reusa o helper — mesma
+            // normalização de nicho, mesmo shape de context/metrics que
+            // runFullAnalysis já usa em produção.
+            const { context, metrics } = await loadCampaignContext(c.id);
 
-            const context: any = {
-              userId: c.userId, projectId: c.projectId, campaignId: c.id,
-              name: c.name || "",   // nunca era copiado — causava crash em extractWinnerParameters
-              platform: c.platform || "meta", objective: c.objective || "traffic",
-              // campaigns não tem colunas "budget"/"duration" — só suggestedBudgetDaily
-              // e durationDays. Usar nome inexistente fazia isso cair sempre em 0/30
-              // via fallback (silencioso, sem erro), poluindo o contexto de aprendizado.
-              niche: aiResp?.niche || "geral", budget: c.suggestedBudgetDaily || 0, duration: c.durationDays || 30,
-              creatives: creativesArr.map((cr: any) => ({
-                type: cr.type || "image", headline: cr.headline || "", hook: cr.hook || "", formats: [],
-              })),
-              targeting: aiResp?.targeting || {}, strategy: aiResp?.strategy || {},
-            };
-
-            const m = aiResp?.metrics || {};
-            const metrics: any = {
-              impressions: 0, clicks: 0, spend: 0, roas: 0, conversions: 0, leads: 0,
-              ctr: parseFloat(String(m.estimatedCTR || "").replace(/[^0-9.]/g, "") || "2.5"),
-              cpc: parseFloat(String(m.estimatedCPC || "").replace(/[^0-9.]/g, "") || "0.80"),
-              cpm: parseFloat(String(m.estimatedCPM || "").replace(/[^0-9.]/g, "") || "15"),
-            };
-
-            // Usa métricas reais se disponíveis (do sync Meta)
+            // Usa métricas reais se disponíveis (do sync Meta) — mesma lógica
+            // de antes, agora também cobrindo roas (faltava por completo).
             const realRow = (await pool.query(
-              `SELECT metric_ctr, metric_cpc FROM campaign_scores WHERE campaign_id = $1 LIMIT 1`,
+              `SELECT metric_ctr, metric_cpc, metric_roas FROM campaign_scores WHERE campaign_id = $1 LIMIT 1`,
               [c.id]
             )).rows[0];
             if (realRow?.metric_ctr > 0) {
               metrics.ctr = Number(realRow.metric_ctr);
               metrics.cpc = Number(realRow.metric_cpc);
+            }
+            if (realRow?.metric_roas > 0) {
+              metrics.roas = Number(realRow.metric_roas);
             }
 
             const score = calculateScore(context, metrics);
@@ -1346,19 +1334,19 @@ export async function runAnalysisInternal(opts: {
             const update = computeLearningUpdate(existing, score.total, metrics, params2 as any);
             if (existing) {
               await pool.query(
-                `UPDATE learning_base SET sample_count=$1, avg_score=$2, best_score=$3, avg_ctr=$4, avg_cpc=$5, avg_cpm=$6
-                 WHERE platform=$7 AND objective=$8 AND niche=$9`,
+                `UPDATE learning_base SET sample_count=$1, avg_score=$2, best_score=$3, avg_ctr=$4, avg_cpc=$5, avg_cpm=$6, avg_roas=$7, last_updated=NOW()
+                 WHERE platform=$8 AND objective=$9 AND niche=$10`,
                 [update.sample_count, update.avg_score, update.best_score,
-                 update.avg_ctr, update.avg_cpc, update.avg_cpm,
+                 update.avg_ctr, update.avg_cpc, update.avg_cpm, update.avg_roas,
                  context.platform, context.objective, context.niche]
               ).catch(() => {});
             } else {
               await pool.query(
-                `INSERT INTO learning_base (platform, objective, niche, sample_count, avg_score, best_score, avg_ctr, avg_cpc, avg_cpm)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+                `INSERT INTO learning_base (platform, objective, niche, sample_count, avg_score, best_score, avg_ctr, avg_cpc, avg_cpm, avg_roas)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
                 [context.platform, context.objective, context.niche,
                  update.sample_count, update.avg_score, update.best_score,
-                 update.avg_ctr, update.avg_cpc, update.avg_cpm]
+                 update.avg_ctr, update.avg_cpc, update.avg_cpm, update.avg_roas]
               ).catch(() => {});
             }
           } catch (ce: any) {
