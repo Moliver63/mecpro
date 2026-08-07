@@ -87,6 +87,23 @@ async function main() {
       );
     }
 
+    // ── Checagem extra: existe ALGUM metric_roas real no banco? ────────────
+    // Distingue "o fix não pegou" de "não tem dado de ROAS pra pegar ainda"
+    // (ROAS depende de conversão/compra rastreada via Pixel, que pode nunca
+    // ter chegado a existir pra boa parte das campanhas).
+    const roasCheck = await client.query(`
+      SELECT
+        COUNT(*) AS total_campaign_scores,
+        COUNT(*) FILTER (WHERE metric_roas > 0) AS com_roas_real,
+        MAX(metric_roas) AS maior_roas_visto
+      FROM campaign_scores
+    `);
+    const rc = roasCheck.rows[0];
+    console.log("\n💰 campaign_scores — existe ROAS real no banco?");
+    console.log(`   Total de linhas em campaign_scores: ${rc.total_campaign_scores}`);
+    console.log(`   Linhas com metric_roas > 0:         ${rc.com_roas_real}`);
+    console.log(`   Maior metric_roas já visto:         ${rc.maior_roas_visto ?? "—"}`);
+
     // ── Veredito automático ─────────────────────────────────────────────
     console.log("\n🎯 Veredito:");
     if (Number(o.updated_48h) > 0) {

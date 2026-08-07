@@ -83,7 +83,14 @@ async function loadCampaignContext(campaignId: number): Promise<{
     niche = rawN.toLowerCase()
       .replace(/corretagem.*(imóveis?|imoveis?)/i, "imoveis")
       .replace(/compra.*venda.*(imóveis?|imoveis?)/i, "imoveis")
-      .split(",")[0].split("\n")[0].trim().slice(0, 50);
+      .split(",")[0].split("\n")[0].trim()
+      // Remove acentos (á→a, ã→a, ç→c, ...) — sem isso "imobiliário" e
+      // "imobiliario" viravam chaves separadas em learning_base, mesmo
+      // já passando por toLowerCase()+trim(). Confirmado em produção:
+      // duas linhas novas no mesmo dia, uma com acento e outra sem,
+      // pro mesmo nicho real.
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .slice(0, 50);
   } catch {}
 
   const context: CampaignContext = {
