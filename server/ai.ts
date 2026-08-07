@@ -14,6 +14,7 @@ type MetaFetchResult = {
 import * as db from "./db";
 import type { CampaignCreative } from "../shared/campaignCreative.schema";
 import { syncCreativeTextToV2, syncCreativeImageToV2 } from "../shared/campaignCreative.sync";
+import { inferSubsegment, SUBSEGMENTS } from "../shared/subsegments";
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 
@@ -6033,6 +6034,52 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
   // Segmento modulo 4 -> regras de copy por niche
   const ctaRule = getSegmentInstruction(input.segment || "", (clientProfile as any)?.niche || "", input.objective);
 
+  // ── Módulo 4b — inferOfferType + SUBSEGMENTS ────────────────────────────
+  // Antes: as duas funções existiam prontas e testadas (12/12 e 15/15 nos
+  // casos de teste documentados), mas nunca eram chamadas em nenhum fluxo
+  // real — learning_base só gravava niche="geral" por causa disso.
+  //
+  // Mesma resolução de segmento que getSegmentInstruction já faz por dentro
+  // (input.segment se for uma chave válida de SEGMENT_COPY_RULES, senão
+  // detecta a partir do nicho) — não duplica lógica nova, só expõe o mesmo
+  // resultado pra alimentar a inferência de subsegmento.
+  const resolvedSegment = input.segment && SEGMENT_COPY_RULES[input.segment]
+    ? input.segment
+    : detectSegmentFromNiche((clientProfile as any)?.niche || "");
+
+  // Texto-fonte pra inferência: os mesmos campos de texto livre que já vão
+  // pro prompt (produto/serviço, dor, proposta de valor, diferenciais,
+  // contexto extra do usuário) — nada novo é pedido ao cliente.
+  const offerInferenceText = [
+    (clientProfile as any)?.productService,
+    (clientProfile as any)?.mainPain,
+    (clientProfile as any)?.uniqueValueProposition,
+    (clientProfile as any)?.productDifferentials,
+    input.extraContext,
+  ].filter(Boolean).join(". ");
+
+  const offerType = inferOfferType(offerInferenceText, resolvedSegment);
+  const subsegment = inferSubsegment(offerInferenceText, resolvedSegment);
+  const matchedSub = subsegment.key
+    ? SUBSEGMENTS[resolvedSegment]?.find(s => s.key === subsegment.key)
+    : undefined;
+
+  // Só influencia o prompt se a confiança for alta ou média — sinal fraco
+  // ou ausente mantém o comportamento anterior 100% intacto (sem instrução
+  // extra nenhuma), conforme o critério de aceitação original.
+  const subsegmentInstruction = (matchedSub && subsegment.confidence !== "baixa")
+    ? `\n🎯 SUBSEGMENTO DETECTADO: ${subsegment.label} (confiança ${subsegment.confidence}, sinais: ${subsegment.matched.slice(0, 3).join(", ")})
+${matchedSub.hookOverride ? `- Use como inspiração de HOOK: ${matchedSub.hookOverride}` : ""}
+${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxima): ${matchedSub.ctaOverride.join(", ")}` : ""}`
+    : "";
+
+  if (subsegment.key) {
+    log.info("ai", "Módulo 4b — subsegmento inferido", {
+      segment: resolvedSegment, offerType: offerType.offerType, offerConfidence: offerType.confidence,
+      subsegmentKey: subsegment.key, subsegmentConfidence: subsegment.confidence,
+    });
+  }
+
   const prompt = `
 Você é um estrategista de marketing digital sênior especializado em performance.
 Crie uma campanha completa e detalhada para o seguinte briefing:
@@ -6055,6 +6102,7 @@ ${(clientProfile as any)?.productCTA ? `- 🎯 CTA PREFERIDO: "${String((clientP
 ${(clientProfile as any)?.city ? `- Cidade: ${(clientProfile as any).city}` : ""}
 ${buildPersonasBlock((clientProfile as any)?.personas)}
 ${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
+${subsegmentInstruction}
 
 CAMPANHA: ${input.name}
 OBJETIVO: ${objectiveLabels[input.objective] || input.objective}
