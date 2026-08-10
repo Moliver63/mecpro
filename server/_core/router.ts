@@ -2886,6 +2886,9 @@ const campaignsRouter = router({
         score:   z.number().nullable(),
         status:  z.string(),
       })).optional(),
+      // Quantidade de criativos (2-10). Opcional — se omitido, generateCampaign
+      // calcula sozinho: 1 por foto enviada (modo upload) ou 4 (padrão histórico).
+      numCreatives:    z.number().int().min(2).max(10).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const check = await db.checkPlanLimit(ctx.user.id, "campaigns", { projectId: input.projectId });
@@ -2940,6 +2943,7 @@ const campaignsRouter = router({
         realImageInsights: (input.creativeMode === "upload" && Array.isArray(input.imageInsights))
                         ? input.imageInsights.filter((i: any) => i.status === "done")
                         : undefined,
+        numCreatives: input.numCreatives,
       } as any);
 
       // Timeout aumentado para 55s:
