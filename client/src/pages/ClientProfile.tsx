@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
+import { PENDENCY_GUIDES } from "~shared/pendencyQuestions";
 
 const OBJECTIVES = [
   { value: "leads",      label: "Captação de leads" },
@@ -179,8 +180,18 @@ interface FieldProps {
   required?: boolean;
   textarea?: boolean;
   rows?: number;
+  /**
+   * Chave de PENDENCY_GUIDES (ver ~shared/pendencyQuestions.ts). Quando
+   * informada e o campo estiver vazio, mostra a pergunta-guia + opções de
+   * resposta clicáveis, em vez de deixar o usuário travado num campo em
+   * branco (ou pior: a IA inventando o dado na hora de gerar a campanha).
+   */
+  guideKey?: keyof typeof PENDENCY_GUIDES;
 }
-function Field({ label, value, onChange, placeholder, required, textarea, rows = 3 }: FieldProps) {
+function Field({ label, value, onChange, placeholder, required, textarea, rows = 3, guideKey }: FieldProps) {
+  const guide = guideKey ? PENDENCY_GUIDES[guideKey] : undefined;
+  const showGuide = !!guide && !value.trim();
+
   return (
     <div style={{ marginBottom: 18 }}>
       <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>
@@ -192,6 +203,31 @@ function Field({ label, value, onChange, placeholder, required, textarea, rows =
       ) : (
         <input className="input" placeholder={placeholder} value={value}
           onChange={e => onChange(e.target.value)} style={{ width: "100%" }} />
+      )}
+
+      {showGuide && (
+        <div style={{ marginTop: 8, padding: "10px 12px", background: "#fffbeb",
+          border: "1px solid #fde68a", borderRadius: 10 }}>
+          <p style={{ fontSize: 12, color: "#92400e", fontWeight: 600, margin: "0 0 8px" }}>
+            🤔 {guide.question}
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {guide.options.map(opt => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => onChange(opt)}
+                style={{
+                  fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 20,
+                  border: "1px solid #f59e0b", background: "white", color: "#92400e",
+                  cursor: "pointer",
+                }}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -411,7 +447,8 @@ export default function ClientProfile() {
             <Field label="Nicho de mercado" required placeholder="Ex: SaaS para PMEs, e-commerce de moda"
               value={form.niche ?? ""} onChange={v => set("niche", v)} />
             <Field label="Site" placeholder="https://..."
-              value={form.websiteUrl ?? ""} onChange={v => set("websiteUrl", v)} />
+              value={form.websiteUrl ?? ""} onChange={v => set("websiteUrl", v)}
+              guideKey="hasWebsite" />
             <div style={{ marginBottom: 18 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "var(--black)", display: "block", marginBottom: 6 }}>Objetivo da campanha</label>
               <select className="input" value={form.campaignObjective ?? "leads"} onChange={e => set("campaignObjective", e.target.value)} style={{ width: "100%" }}>
@@ -478,7 +515,8 @@ export default function ClientProfile() {
               <Field label="Nome do produto / serviço anunciado *"
                 placeholder="Ex: CEG Lofts, Curso Tráfego Pro, Clínica Dra. Ana..."
                 value={(form as any).productName ?? ""}
-                onChange={v => set("productName" as any, v)} />
+                onChange={v => set("productName" as any, v)}
+                guideKey="hasProduct" />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Field label="Preço / Faixa de preço"
                   placeholder="Ex: R$ 997, a partir de R$ 200/mês, consulte"
@@ -497,12 +535,14 @@ export default function ClientProfile() {
             <Field label="3 diferenciais do produto" textarea
               placeholder="1. O único com garantia de X dias&#10;2. Resultado em Y semanas&#10;3. Sem contrato de fidelidade"
               value={(form as any).productDifferentials ?? ""}
-              onChange={v => set("productDifferentials" as any, v)} />
+              onChange={v => set("productDifferentials" as any, v)}
+              guideKey="hasDifferentials" />
 
             <Field label="Provas sociais / Resultados" textarea
               placeholder="Ex: +500 clientes, 92% de aprovação, R$ 2M em vendas, case: cliente X atingiu Y"
               value={(form as any).productProofPoints ?? ""}
-              onChange={v => set("productProofPoints" as any, v)} />
+              onChange={v => set("productProofPoints" as any, v)}
+              guideKey="hasProofPoints" />
 
             <Field label="Proposta única de valor" placeholder="O que te diferencia dos concorrentes?" textarea
               value={form.uniqueValueProposition ?? ""} onChange={v => set("uniqueValueProposition", v)} />

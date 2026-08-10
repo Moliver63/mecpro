@@ -16,6 +16,7 @@ import * as db from "./db";
 import type { CampaignCreative } from "../shared/campaignCreative.schema";
 import { syncCreativeTextToV2, syncCreativeImageToV2 } from "../shared/campaignCreative.sync";
 import { inferSubsegment, SUBSEGMENTS } from "../shared/subsegments";
+import { isAbsenceAnswer } from "../shared/pendencyQuestions";
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 
@@ -5682,8 +5683,8 @@ ${(clientProfile as any)?.productName ? `- PRODUTO ANUNCIADO: "${(clientProfile 
 - Nicho: ${(clientProfile as any)?.niche || "—"}
 - Produto/Serviço: ${(clientProfile as any)?.productService || "—"}
 ${(clientProfile as any)?.productPrice ? `- Preço/Oferta: ${(clientProfile as any)?.productPrice}` : ""}
-${(clientProfile as any)?.productDifferentials ? `- Diferenciais do produto: ${(clientProfile as any)?.productDifferentials}` : ""}
-${(clientProfile as any)?.productProofPoints ? `- PROVAS SOCIAIS: ${(clientProfile as any)?.productProofPoints}` : ""}
+${(clientProfile as any)?.productDifferentials && !isAbsenceAnswer((clientProfile as any).productDifferentials) ? `- Diferenciais do produto: ${(clientProfile as any)?.productDifferentials}` : ""}
+${(clientProfile as any)?.productProofPoints && !isAbsenceAnswer((clientProfile as any).productProofPoints) ? `- PROVAS SOCIAIS: ${(clientProfile as any)?.productProofPoints}` : ""}
 ${(clientProfile as any)?.productCTA ? `- CTA preferido: "${(clientProfile as any)?.productCTA}"` : ""}
 - Público-alvo: ${(clientProfile as any)?.targetAudience || "—"}
 - Dor principal: ${(clientProfile as any)?.mainPain || "—"}
@@ -6155,8 +6156,8 @@ ${(clientProfile as any)?.productName ? `- PRODUTO: "${String((clientProfile as 
 - Nicho: ${String((clientProfile as any)?.niche || "—").slice(0, 40)}
 - Produto/Serviço: ${String((clientProfile as any)?.productService || "—").slice(0, 80)}
 ${(clientProfile as any)?.productPrice ? `- Preço: ${String((clientProfile as any).productPrice).slice(0, 40)}` : ""}
-${(clientProfile as any)?.productDifferentials ? `- ⭐ DIFERENCIAIS: ${String((clientProfile as any).productDifferentials).slice(0, 200)}` : ""}
-${(clientProfile as any)?.productProofPoints ? `- 🏆 PROVAS SOCIAIS: ${String((clientProfile as any).productProofPoints).slice(0, 150)}` : ""}
+${(clientProfile as any)?.productDifferentials && !isAbsenceAnswer((clientProfile as any).productDifferentials) ? `- ⭐ DIFERENCIAIS: ${String((clientProfile as any).productDifferentials).slice(0, 200)}` : ""}
+${(clientProfile as any)?.productProofPoints && !isAbsenceAnswer((clientProfile as any).productProofPoints) ? `- 🏆 PROVAS SOCIAIS: ${String((clientProfile as any).productProofPoints).slice(0, 150)}` : ""}
 ${(clientProfile as any)?.productCTA ? `- 🎯 CTA PREFERIDO: "${String((clientProfile as any).productCTA).slice(0, 50)}"` : ""}
 - Público: ${String((clientProfile as any)?.targetAudience || "—").slice(0, 120)}
 - Dor: ${String((clientProfile as any)?.mainPain || "—").slice(0, 120)}
@@ -6632,17 +6633,19 @@ ${creativeSlotInstructions}
       const ctaRule = getSegmentInstruction(input.segment || "", p?.niche || "", input.objective);
 
       // Ancora do produto (Modulo 1) para alinhamento das copies
+      const hasDifferentials = !!p?.productDifferentials && !isAbsenceAnswer(p.productDifferentials);
+      const hasProofPoints   = !!p?.productProofPoints   && !isAbsenceAnswer(p.productProofPoints);
       const prodAnchor = [
         p?.productName   ? `PRODUTO: "${p.productName}" <- use este nome exato nas copies` : "",
-        p?.productDifferentials ? `DIFERENCIAIS REAIS: ${String(p.productDifferentials).slice(0,200)}` : "",
-        p?.productProofPoints   ? `PROVAS SOCIAIS (use nas copies): ${String(p.productProofPoints).slice(0,200)}` : "",
+        hasDifferentials ? `DIFERENCIAIS REAIS: ${String(p.productDifferentials).slice(0,200)}` : "",
+        hasProofPoints   ? `PROVAS SOCIAIS (use nas copies): ${String(p.productProofPoints).slice(0,200)}` : "",
         p?.productCTA           ? `CTA PREFERIDO DO CLIENTE: "${p.productCTA}"` : "",
         p?.mainObjections       ? `OBJEÇÕES A QUEBRAR: ${String(p.mainObjections).slice(0,150)}` : "",
         p?.targetAudience       ? `PÚBLICO-ALVO: ${String(p.targetAudience).slice(0,100)}` : "",
         p?.city                 ? `CIDADE: ${p.city}` : "",
-        // Avisa IA quando campos críticos estão vazios
-        !p?.productDifferentials || String(p.productDifferentials).includes("VAZIO") ? "ATENÇÃO: diferenciais não preenchidos — crie copies baseadas no nome e nicho do produto" : "",
-        !p?.productProofPoints   || String(p.productProofPoints).includes("não preenchido") ? "" : "",
+        // Avisa IA quando campos críticos estão vazios — NUNCA inventar dado factual
+        !hasDifferentials ? "ATENÇÃO: diferenciais não preenchidos — crie copies baseadas no nome e nicho do produto, sem inventar um diferencial específico" : "",
+        !hasProofPoints   ? "ATENÇÃO: sem prova social real cadastrada — NÃO invente depoimento, número, estatística ou citação de cliente. Não use aspas simulando fala de cliente nem crie \"resultado\" numérico. Escreva a copy sem esse elemento." : "",
       ].filter(Boolean).join("\n");
 
       const productSlug = (p?.companyName || input.name || "produto").split(" ")[0].replace(/[^a-zA-Z]/g,"");
@@ -7379,8 +7382,10 @@ export async function generateCampaignPart(input: {
   // Campos de produto específico — aparecem em DESTAQUE no prompt
   const productName   = (clientProfile as any)?.productName          || "";
   const productPrice  = (clientProfile as any)?.productPrice         || "";
-  const productDiffs  = (clientProfile as any)?.productDifferentials || "";
-  const proofPoints   = (clientProfile as any)?.productProofPoints   || "";
+  const productDiffsRaw = (clientProfile as any)?.productDifferentials || "";
+  const proofPointsRaw  = (clientProfile as any)?.productProofPoints   || "";
+  const productDiffs  = isAbsenceAnswer(productDiffsRaw) ? "" : productDiffsRaw;
+  const proofPoints   = isAbsenceAnswer(proofPointsRaw)  ? "" : proofPointsRaw;
   const preferredCTA  = (clientProfile as any)?.productCTA           || "";
   const copyStructure = (clientProfile as any)?.copyStructure        || "mixed";
   const companyName   = (clientProfile as any)?.companyName          || "";

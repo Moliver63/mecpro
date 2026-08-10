@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
+import { PENDENCY_GUIDES } from "~shared/pendencyQuestions";
 
 const STATUS_CONF: Record<string, { label: string; color: string; bg: string; border: string }> = {
   ok:      { label: "Conforme",   color: "#059669", bg: "#f0fdf4", border: "#bbf7d0" },
@@ -393,11 +394,31 @@ export default function AdminProjects() {
                             <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", marginBottom: 4 }}>
                               ⚠️ Pendências
                             </div>
-                            {failedChecks.map(([key]) => (
-                              <div key={key} style={{ fontSize: 12, color: "#78350f", marginTop: 2 }}>
-                                → {CHECK_LABELS[key] || key}
-                              </div>
-                            ))}
+                            {failedChecks.map(([key]) => {
+                              const guide = PENDENCY_GUIDES[key];
+                              return (
+                                <div key={key} style={{ marginTop: 6 }}>
+                                  <div style={{ fontSize: 12, color: "#78350f", fontWeight: 700 }}>
+                                    → {CHECK_LABELS[key] || key}
+                                  </div>
+                                  {guide && (
+                                    <div style={{ marginTop: 3, marginLeft: 12 }}>
+                                      <div style={{ fontSize: 11, color: "#92400e" }}>
+                                        🤔 Pergunte ao cliente: "{guide.question}"
+                                      </div>
+                                      <div style={{ fontSize: 11, color: "#a16207", marginTop: 2, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                        {guide.options.map(opt => (
+                                          <span key={opt} style={{
+                                            padding: "2px 8px", borderRadius: 20, background: "white",
+                                            border: "1px solid #fde68a",
+                                          }}>{opt}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 
