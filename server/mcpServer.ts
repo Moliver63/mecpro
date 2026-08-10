@@ -331,6 +331,22 @@ export function createMcpServerForUser(userId: number): McpServer {
         geoRadius: z.number().optional().describe("Raio em km, se locationMode='raio'."),
         mediaFormat: z.string().optional().describe("Formato de mídia (ex: 'image', 'video', 'carousel', 'mixed')."),
         audienceProfile: z.string().optional(),
+        // ── Fotos reais do cliente (mesmo "modo upload" que a interface web já tem) ──
+        // Antes, só a interface conseguia acionar esse modo — a tool MCP não expunha
+        // esses campos, então uma campanha gerada por aqui nunca podia usar fotos
+        // reais desde a geração (só dava pra trocar 1 imagem por vez, depois, via
+        // upload_creative_image). Agora o caminho fica igual em ambos os canais.
+        uploadedImages: z.array(z.string()).optional().describe(
+          "URLs https públicas das fotos reais do cliente (não base64 — se a foto só existir " +
+          "localmente, use upload_creative_image DEPOIS de gerar a campanha em vez deste campo). " +
+          "Quando informado, cada criativo usa UMA foto real em vez de gerar por IA, e a quantidade " +
+          "de criativos passa a acompanhar a quantidade de fotos (a menos que numCreatives seja informado)."
+        ),
+        numCreatives: z.number().int().min(2).max(10).optional().describe(
+          "Quantidade de criativos a gerar (2-10). Se omitido: usa 1 por foto em uploadedImages, " +
+          "ou 4 (padrão) se uploadedImages não for informado. Cada criativo recebe copy própria e " +
+          "distinta — é isso que evita headline/texto repetido entre os cards de um carrossel."
+        ),
       },
     },
     async (input) => {
@@ -359,6 +375,8 @@ export function createMcpServerForUser(userId: number): McpServer {
         extraContext: segmentContext, ageMin: input.ageMin, ageMax: input.ageMax,
         regions: input.regions, countries: input.countries, locationMode: input.locationMode,
         geoCity: input.geoCity, geoRadius: input.geoRadius, mediaFormat: input.mediaFormat,
+        realImages: input.uploadedImages?.length ? input.uploadedImages : undefined,
+        numCreatives: input.numCreatives,
       } as any);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(
