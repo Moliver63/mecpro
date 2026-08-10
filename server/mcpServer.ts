@@ -340,7 +340,7 @@ export function createMcpServerForUser(userId: number): McpServer {
         return { content: [{ type: "text", text: `Não foi possível gerar: ${check.reason}` }], isError: true };
       }
 
-      const { generateCampaign } = await import("../ai");
+      const { generateCampaign } = await import("./ai");
       const segmentContext = [
         input.extraContext || "",
         (input.regions?.length)   ? "Regioes: " + input.regions.join(", ")                         : "",
