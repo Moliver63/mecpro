@@ -145,6 +145,12 @@ router.get("/authorize", async (req: Request, res: Response) => {
   }
   log.info("oauth", "GET /authorize — mostrando tela de consentimento", { client_id, userId: user.id, email: user.email });
 
+  // Nome do app conectando — vem do client_name registrado via DCR (Claude,
+  // ChatGPT, ou qualquer outro cliente MCP compatível). Nunca hardcoded:
+  // esse servidor não é exclusivo do Claude.ai, qualquer cliente MCP que
+  // siga a spec de autorização (DCR + PKCE S256) pode se conectar aqui.
+  const connectingAppName = escapeHtml(client.clientName || "Um app");
+
   // Tela de consentimento simples, estilo visual alinhado ao resto do site
   res.set("Content-Type", "text/html; charset=utf-8").send(`
 <!DOCTYPE html>
@@ -169,8 +175,8 @@ router.get("/authorize", async (req: Request, res: Response) => {
 </head>
 <body>
   <div class="card">
-    <h1>🤖 Claude quer acessar sua conta MECPro</h1>
-    <p>Isso vai permitir que o Claude consulte seus projetos, campanhas e métricas em seu nome.</p>
+    <h1>🤖 ${connectingAppName} quer acessar sua conta MECPro</h1>
+    <p>Isso vai permitir que ${connectingAppName} consulte e, se solicitado, publique projetos, campanhas e métricas em seu nome.</p>
     <div class="user">Conectado como <strong>${escapeHtml(user.email)}</strong></div>
     <form method="POST" action="/authorize">
       <input type="hidden" name="client_id" value="${escapeHtml(client_id)}">
