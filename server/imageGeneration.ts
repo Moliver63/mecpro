@@ -422,7 +422,13 @@ export function getPixabayVideoQuery(segment: string, creative: any): string {
 }
 
 
-function inferPrompt(creative: any, segment: string, objective: string, format: CreativeImageFormat): string {
+function inferPrompt(
+  creative: any,
+  segment: string,
+  objective: string,
+  format: CreativeImageFormat,
+  productContext?: { productName?: string; productService?: string; niche?: string },
+): string {
   const dim       = FORMAT_DIMENSIONS[format];
   const headline  = toText(creative?.headline);
   const hook      = toText(creative?.hook);
@@ -481,12 +487,22 @@ function inferPrompt(creative: any, segment: string, objective: string, format: 
   const noTextFix = "ABSOLUTELY NO TEXT. NO WORDS. NO LETTERS. NO NUMBERS. NO TYPOGRAPHY. NO WRITING. NO SIGNS. NO LOGOS. NO CAPTIONS. NO OVERLAYS. NO WATERMARKS. Pure clean photography only.";
   const noTextPrefix = "NO TEXT NO WORDS NO LETTERS — pure photography only —";
 
+  // Contexto real do negocio (produto/nicho do cliente) — sempre que disponivel, soma-se
+  // ao mapa categorico de segmento (SEGMENT_VISUAL) pra descrever visualmente o que o
+  // cliente REALMENTE vende, em vez de depender so de um dos 9 buckets genericos
+  // (que caem em "outro" quando o nicho do cliente nao bate com nenhum deles).
+  const realBusinessContext = [
+    toText(productContext?.productService),
+    toText(productContext?.niche),
+  ].filter(Boolean).join(", ");
+
   const parts = [
     noTextPrefix, // NO INÍCIO — maior peso no modelo
     `Professional Brazilian advertising photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
     segmentVisual ? `Scene context: ${segmentVisual}.` : (niche ? `Brazilian market context: ${niche}.` : ""),
+    realBusinessContext ? `Specific business/product being advertised: ${realBusinessContext}. Depict this literally and concretely in the scene.` : "",
     // hook/headline removidos — causam alucinação de texto no modelo de imagem
     pain     ? `Emotional context: ${pain.slice(0, 40)}.` : "",
     solution ? `Visual concept: ${solution.slice(0, 40)}.` : "",
@@ -1387,7 +1403,7 @@ export async function generateAdImage(
   // Se o provider primário está esgotado, pula direto para Pollinations
   if (isProviderExhausted(provider)) {
     log.info("image-generation", `Provider ${provider} esgotado — Pollinations direto`, { format });
-    const polUrl = await tryPollinations(inferPrompt(creative, segment, objective, format), format).catch((e: any) => {
+    const polUrl = await tryPollinations(inferPrompt(creative, segment, objective, format, productContext), format).catch((e: any) => {
       log.warn("image-generation", "Pollinations falhou no fallback direto", { error: e.message?.slice(0, 60) });
       return null;
     });
@@ -1412,7 +1428,7 @@ export async function generateAdImage(
         for (let attempt = 1; attempt <= MAX_CF_ATTEMPTS; attempt++) {
           try {
             const cfBuffer = await generateWithCloudflareBuffer(
-              inferPrompt(creative, segment, objective, format), format
+              inferPrompt(creative, segment, objective, format, productContext), format
             );
             if (cfBuffer && cfBuffer.length > 1000) {
               const hasText = await imageHasHallucinatedText(cfBuffer);
@@ -1602,7 +1618,7 @@ export async function generateAdImage(
     // Usa o mesmo prompt rico do inferPrompt (com nicho, copy, etc)
     log.info("image-generation", "Tentando Pollinations.AI (fallback principal)", { format });
     const pollinationsUrl = await tryPollinations(
-      inferPrompt(creative, segment, objective, format),
+      inferPrompt(creative, segment, objective, format, productContext),
       format
     ).catch((e: any) => {
       log.warn("image-generation", "Pollinations falhou no pipeline principal", { error: e.message?.slice(0, 60) });
