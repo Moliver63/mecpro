@@ -23,6 +23,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as db from "./db";
 import { appRouter } from "./_core/router";
+import { uploadBase64ImageToCloudinary } from "./imageGeneration";
 
 export function createMcpServerForUser(userId: number): McpServer {
   const server = new McpServer({ name: "mecproai", version: "1.0.0" });
@@ -373,6 +374,105 @@ export function createMcpServerForUser(userId: number): McpServer {
         };
       } catch (e: any) {
         return { content: [{ type: "text", text: e.message || "Falha ao gerar a campanha." }], isError: true };
+      }
+    }
+  );
+
+  // ── upload_creative_image ────────────────────────────────────────────────
+  // Substitui a imagem de um criativo específico (gerada por IA) por uma
+  // imagem enviada manualmente pelo usuário (ex: foto real do cliente).
+  // Reaproveita duas peças já existentes e testadas — nenhuma lógica nova
+  // de upload/storage é criada aqui:
+  //   1. uploadBase64ImageToCloudinary (server/imageGeneration.ts) — mesma
+  //      função que o gerador de imagem por IA usa pra subir pro Cloudinary.
+  //   2. campaigns.updateCreativeImage (server/_core/router.ts) — mesma
+  //      procedure que a tela de edição de criativo usa pra trocar imagem.
+  // Ainda é Fase 2 (rascunho) — não gasta orçamento, não publica nada.
+  server.registerTool(
+    "upload_creative_image",
+    {
+      title: "Enviar imagem manual pra um criativo",
+      description:
+        "Substitui a imagem gerada por IA de um criativo específico da " +
+        "campanha por uma imagem enviada manualmente (ex: foto real do " +
+        "cliente). Sobe a imagem pro Cloudinary e atualiza o rascunho da " +
+        "campanha — não publica nada na Meta. Chame get_campaign antes pra " +
+        "saber o creativeIndex certo.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID da campanha (de get_campaign/list_campaigns)."),
+        creativeIndex: z.number().int().min(0).describe("Índice do criativo dentro da campanha (0 = primeiro)."),
+        format: z.enum(["feed", "stories", "square"]).describe(
+          "Formato/aspect ratio de destino: feed (4:5), stories (9:16) ou square (1:1). " +
+          "Uma mesma foto normalmente não serve pros 3 formatos sem cortar errado — " +
+          "confirme com o usuário qual formato ele quer trocar."
+        ),
+        imageBase64: z.string().describe("Conteúdo da imagem em base64 (com ou sem prefixo data:image/...;base64,)."),
+        fileName: z.string().describe("Nome do arquivo, com extensão (ex: foto-cliente.jpg)."),
+      },
+    },
+    async ({ campaignId, creativeIndex, format, imageBase64, fileName }) => {
+      // ── checagem de posse — mesmo padrão de get_campaign ──────────────
+      const campaign: any = await db.getCampaignById(campaignId);
+      if (!campaign) {
+        return { content: [{ type: "text", text: `Campanha ${campaignId} não encontrada.` }], isError: true };
+      }
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${campaignId} não pertence a este usuário.` }], isError: true };
+      }
+
+      const creatives = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
+      if (!creatives[creativeIndex]) {
+        return { content: [{ type: "text", text: `Criativo de índice ${creativeIndex} não existe nessa campanha (ela tem ${creatives.length}).` }], isError: true };
+      }
+
+      // ── validação do payload — sem lib de imagem no projeto, então ────
+      // valida por assinatura de bytes (magic numbers) + tamanho, não por
+      // dimensão. Formatos aceitos: JPEG, PNG, WEBP.
+      const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(base64Clean, "base64");
+      } catch {
+        return { content: [{ type: "text", text: "Base64 inválido — não foi possível decodificar a imagem." }], isError: true };
+      }
+      if (buffer.length === 0) {
+        return { content: [{ type: "text", text: "Imagem vazia." }], isError: true };
+      }
+      const MAX_BYTES = 12 * 1024 * 1024; // 12MB — folga do limite de 50MB do body, com margem pra overhead do base64/JSON
+      if (buffer.length > MAX_BYTES) {
+        return { content: [{ type: "text", text: `Imagem muito grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB). Máximo aceito: 12MB.` }], isError: true };
+      }
+      const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+      const isPng  = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+      const isWebp = buffer.slice(0, 4).toString("ascii") === "RIFF" && buffer.slice(8, 12).toString("ascii") === "WEBP";
+      if (!isJpeg && !isPng && !isWebp) {
+        return { content: [{ type: "text", text: "Formato de imagem não reconhecido — envie JPEG, PNG ou WEBP." }], isError: true };
+      }
+
+      // ── upload pro Cloudinary (mesma função que o gerador de IA usa) ──
+      const cloudUrl = await uploadBase64ImageToCloudinary(base64Clean, fileName || `manual-${campaignId}-${creativeIndex}-${Date.now()}.jpg`);
+      if (!cloudUrl) {
+        return { content: [{ type: "text", text: "Falha ao subir a imagem pro Cloudinary. Verifique as credenciais do Cloudinary no servidor." }], isError: true };
+      }
+
+      // ── atualiza o criativo via a MESMA procedure que a tela usa ──────
+      let caller;
+      try {
+        caller = await getCaller();
+      } catch (e: any) {
+        return { content: [{ type: "text", text: e.message }], isError: true };
+      }
+      try {
+        const result: any = await caller.campaigns.updateCreativeImage({
+          campaignId, creativeIndex, format, imageUrl: cloudUrl,
+        } as any);
+        return {
+          content: [{ type: "text", text: `Imagem do criativo ${creativeIndex} (${format}) atualizada com sucesso.\nURL: ${cloudUrl}` }],
+          structuredContent: { ok: true, imageUrl: cloudUrl, creativeIndex, format, creative: result?.creative ?? null },
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Upload pro Cloudinary funcionou, mas falhou ao salvar no criativo: ${e.message}` }], isError: true };
       }
     }
   );
