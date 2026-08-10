@@ -159,6 +159,8 @@ export function createMcpServerForUser(userId: number): McpServer {
         metaCampaignId: c.metaCampaignId || null,
         adSetsCount: Array.isArray(adSets) ? adSets.length : 0,
         creativesCount: Array.isArray(creatives) ? creatives.length : 0,
+        adSets,
+        creatives,
       };
       return {
         content: [{ type: "text", text: JSON.stringify(detail, null, 2) }],
