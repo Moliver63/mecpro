@@ -5816,6 +5816,7 @@ export async function generateCampaign(input: {
   mediaFormat?: string; audienceProfile?: string; leadForm?: any;
   realImages?: string[];  // fotos reais do cliente (modo upload)
   realImageInsights?: Array<{ url: string; summary: string; score: number | null; status: string }>;
+  numCreatives?: number;  // quantidade de criativos a gerar (2-10) — default: 1 por foto real, ou 4 se não houver fotos
 }) {
   log.info("ai", "generateCampaign start", {
     projectId: input.projectId, objective: input.objective,
@@ -6099,6 +6100,49 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
     });
   }
 
+  // ── Quantidade de criativos: dinâmica, não mais fixa em 4 ────────────────
+  // ANTES: o prompt sempre pedia "EXATAMENTE 4 criativos", hardcoded, não
+  // importava quantas fotos reais o cliente enviasse. Resultado: com "modo
+  // fotos reais" (realImages), fotos além da 4ª nunca eram referenciadas em
+  // nenhum criativo, e um carrossel publicado nunca passava de 4 copies
+  // distintas (cards extras repetiam texto de um dos 4 criativos, só com uma
+  // variação de ângulo colada — ver getCardCopy em router.ts).
+  // AGORA: se numCreatives vier explícito, usa (clamped 2-10). Senão, se
+  // houver fotos reais do cliente, usa 1 criativo por foto (clamped 2-10) —
+  // assim toda foto ganha copy própria e nenhuma sobra sem uso. Sem nenhum
+  // dos dois, mantém o padrão histórico de 4 (retrocompatível).
+  const MIN_CREATIVES = 2;
+  const MAX_CREATIVES = 10; // teto do carrossel usado hoje no publish_campaign (coleta até 10 cardAssetIds)
+  const requestedCreatives = input.numCreatives ?? input.realImages?.length ?? 4;
+  const effectiveNumCreatives = Math.min(Math.max(Math.round(requestedCreatives), MIN_CREATIVES), MAX_CREATIVES);
+  if (effectiveNumCreatives !== requestedCreatives) {
+    log.info("ai", "numCreatives ajustado pro intervalo permitido", {
+      solicitado: requestedCreatives, ajustado: effectiveNumCreatives, min: MIN_CREATIVES, max: MAX_CREATIVES,
+    });
+  }
+
+  // Pool de combinações formato+funil pra distribuir entre os N criativos
+  // sem repetir a mesma combinação (regra que o prompt já cobrava: "NUNCA
+  // repita o mesmo format+funnelStage"). Só cresce em variedade — os 4
+  // primeiros itens são EXATAMENTE os 4 originais, pra não mudar o
+  // comportamento de quem não usa mais de 4 criativos.
+  const CREATIVE_SLOT_POOL: Array<{ format: string; funnel: string }> = [
+    { format: "Imagem Feed (4:5)",              funnel: "TOF (público frio)" },
+    { format: "Vídeo 15s Reels/Stories (9:16)", funnel: "TOF ou MOF" },
+    { format: "Carrossel",                      funnel: "MOF (consideração)" },
+    { format: "Imagem ou Vídeo",                funnel: "BOF (conversão/fundo de funil)" },
+    { format: "Vídeo 30s",                      funnel: "MOF (consideração)" },
+    { format: "Stories 9:16",                   funnel: "TOF (público frio)" },
+    { format: "Carrossel",                      funnel: "BOF (conversão/fundo de funil)" },
+    { format: "Imagem Feed (4:5)",              funnel: "MOF (consideração)" },
+    { format: "Vídeo 15s",                      funnel: "BOF (conversão/fundo de funil)" },
+    { format: "Imagem Square (1:1)",            funnel: "TOF (público frio)" },
+  ];
+  const creativeSlotInstructions = Array.from({ length: effectiveNumCreatives }, (_, i) => {
+    const slot = CREATIVE_SLOT_POOL[i % CREATIVE_SLOT_POOL.length];
+    return `    criativo ${i + 1}: ${slot.format} — ${slot.funnel}`;
+  }).join("\n");
+
   const prompt = `
 Você é um estrategista de marketing digital sênior especializado em performance.
 Crie uma campanha completa e detalhada para o seguinte briefing:
@@ -6307,11 +6351,9 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       "safeAlternative": "versão alternativa segura se warning ou danger"
     }
   ],
-  INSTRUÇÃO CRÍTICA: Gere EXATAMENTE 4 criativos com formatos DIFERENTES entre si:
-    criativo 1: Imagem Feed (4:5) — TOF (público frio)
-    criativo 2: Vídeo 15s Reels/Stories (9:16) — TOF ou MOF
-    criativo 3: Carrossel — MOF (consideração)
-    criativo 4: Imagem ou Vídeo — BOF (conversão/fundo de funil)
+  INSTRUÇÃO CRÍTICA: Gere EXATAMENTE ${effectiveNumCreatives} criativos com formatos DIFERENTES entre si:
+${creativeSlotInstructions}
+  ${input.realImages?.length ? `Este número de criativos foi calculado a partir das ${input.realImages.length} foto(s) real(is) enviada(s) pelo cliente — CADA criativo corresponde a UMA foto, então cada um precisa de headline/copy/hook PRÓPRIOS e distintos entre si (nunca repita texto entre criativos, mesmo que o produto seja o mesmo).` : ""}
   NUNCA repita o mesmo format+funnelStage. NUNCA use [placeholder] em nenhum campo.
   TODOS os campos são obrigatórios — especialmente headline, copy, bodyText, hook, pain, solution, cta.
   "hooks": [
@@ -6475,6 +6517,14 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
     // ── Engine de copy selecionado pelo painel Admin ──────────────────────
     const copyEngine = getCopyEngine();
     let raw: string;
+    // Resposta cresce com o número de criativos (cada um tem headline/copy/
+    // bodyText/hook/pain/solution/script) — acima de 4, dá folga extra no
+    // teto de tokens de saída pra não truncar o JSON no meio de um criativo.
+    // Base 8192 (default histórico) + ~450 tokens por criativo extra, com
+    // teto conservador de 12000 (não testado acima disso neste projeto).
+    const dynamicMaxOutputTokens = effectiveNumCreatives > 4
+      ? Math.min(8192 + (effectiveNumCreatives - 4) * 450, 12000)
+      : undefined; // undefined = usa o default de 8192 do helper gemini()
 
     if (copyEngine === "groq") {
       log.info("ai", "✍️ Copy Engine: Groq/Llama (campanha principal)", { projectId: input.projectId });
@@ -6491,12 +6541,13 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       }
     } else if (copyEngine === "ml_first") {
       log.info("ai", "✍️ Copy Engine: ML-First (campanha principal)", { projectId: input.projectId });
-      raw = await gemini(prompt, { temperature: 0.5 });
+      raw = await gemini(prompt, { temperature: 0.5, maxOutputTokens: dynamicMaxOutputTokens });
     } else {
       raw = await gemini(prompt, { temperature: 0.6,
       _endpoint: "generateCampaign",
       _projectId: input.projectId,
       _userId: input.userId,
+      maxOutputTokens: dynamicMaxOutputTokens,
     });
     }
 
