@@ -81,17 +81,21 @@ router.get("/.well-known/oauth-authorization-server", (_req: Request, res: Respo
 router.post("/register", json(), async (req: Request, res: Response) => {
   try {
     const { redirect_uris, client_name } = req.body || {};
+    log.info("oauth", "POST /register recebido", { client_name, redirect_uris });
     if (!Array.isArray(redirect_uris) || redirect_uris.length === 0) {
+      log.warn("oauth", "POST /register rejeitado — redirect_uris ausente/vazio");
       return res.status(400).json({ error: "invalid_client_metadata", error_description: "redirect_uris é obrigatório e precisa ser um array não vazio." });
     }
     // Segurança: todo redirect_uri precisa ser https ou localhost (exigência do spec)
     for (const uri of redirect_uris) {
       const isLocalhost = uri.startsWith("http://localhost") || uri.startsWith("http://127.0.0.1");
       if (!uri.startsWith("https://") && !isLocalhost) {
+        log.warn("oauth", "POST /register rejeitado — redirect_uri inválido", { uri });
         return res.status(400).json({ error: "invalid_redirect_uri", error_description: `redirect_uri deve ser https ou localhost: ${uri}` });
       }
     }
     const { clientId } = await db.createOAuthClient(client_name || "MCP Client", redirect_uris);
+    log.info("oauth", "POST /register — client registrado com sucesso", { clientId, client_name });
     res.status(201).json({
       client_id: clientId,
       client_name: client_name || "MCP Client",
@@ -109,30 +113,37 @@ router.post("/register", json(), async (req: Request, res: Response) => {
 // ── GET /authorize — tela de consentimento ──────────────────────────────────
 router.get("/authorize", async (req: Request, res: Response) => {
   const { response_type, client_id, redirect_uri, code_challenge, code_challenge_method, state, resource } = req.query as Record<string, string>;
+  log.info("oauth", "GET /authorize recebido", { client_id, redirect_uri, hasCodeChallenge: !!code_challenge });
 
   if (response_type !== "code" || !client_id || !redirect_uri || !code_challenge) {
+    log.warn("oauth", "GET /authorize rejeitado — parâmetros ausentes", { response_type, client_id, redirect_uri, hasCodeChallenge: !!code_challenge });
     return res.status(400).send("Requisição de autorização inválida — parâmetros obrigatórios ausentes.");
   }
   if ((code_challenge_method || "S256") !== "S256") {
+    log.warn("oauth", "GET /authorize rejeitado — code_challenge_method não suportado", { code_challenge_method });
     return res.status(400).send("Só o método PKCE S256 é suportado.");
   }
 
   const client = await db.getOAuthClient(client_id);
   if (!client) {
+    log.warn("oauth", "GET /authorize rejeitado — client_id desconhecido", { client_id });
     return res.status(400).send("client_id desconhecido — o conector precisa se registrar primeiro.");
   }
   // Segurança CRÍTICA: redirect_uri precisa bater EXATO com o que foi registrado,
   // nunca aceitar aproximado — previne ataque de redirecionamento aberto.
   const registeredUris: string[] = client.redirectUris || [];
   if (!registeredUris.includes(redirect_uri)) {
+    log.warn("oauth", "GET /authorize rejeitado — redirect_uri não bate com o registrado", { client_id, redirect_uri, registeredUris });
     return res.status(400).send("redirect_uri não corresponde ao que foi registrado para este client_id.");
   }
 
   const user = await getLoggedInUser(req);
   if (!user) {
+    log.info("oauth", "GET /authorize — usuário não logado, redirecionando pro login", { client_id });
     const fullUrl = `${APP_URL}${req.originalUrl}`;
     return res.redirect(`/login?redirect=${encodeURIComponent(fullUrl)}`);
   }
+  log.info("oauth", "GET /authorize — mostrando tela de consentimento", { client_id, userId: user.id, email: user.email });
 
   // Tela de consentimento simples, estilo visual alinhado ao resto do site
   res.set("Content-Type", "text/html; charset=utf-8").send(`
@@ -186,14 +197,17 @@ router.post("/authorize", json(), urlencoded(), async (req: Request, res: Respon
   // Sem isso, alguém poderia montar um POST direto com redirect_uri arbitrário
   // e decision=deny pra usar essa rota como redirecionador aberto.
   if (!client_id || !redirect_uri) {
+    log.warn("oauth", "POST /authorize rejeitado — client_id ou redirect_uri ausente");
     return res.status(400).send("Requisição inválida.");
   }
   const client = await db.getOAuthClient(client_id);
   if (!client || !(client.redirectUris || []).includes(redirect_uri)) {
+    log.warn("oauth", "POST /authorize rejeitado — client_id/redirect_uri não reconhecidos", { client_id, redirect_uri });
     return res.status(400).send("Requisição inválida — client_id ou redirect_uri não reconhecidos.");
   }
 
   if (decision !== "allow") {
+    log.info("oauth", "POST /authorize — usuário negou o consentimento", { client_id });
     const url = new URL(redirect_uri);
     url.searchParams.set("error", "access_denied");
     if (state) url.searchParams.set("state", state);
@@ -201,13 +215,17 @@ router.post("/authorize", json(), urlencoded(), async (req: Request, res: Respon
   }
 
   const user = await getLoggedInUser(req);
-  if (!user) return res.redirect(`/login?redirect=${encodeURIComponent(`${APP_URL}/authorize`)}`);
+  if (!user) {
+    log.warn("oauth", "POST /authorize — sessão perdida entre GET e POST", { client_id });
+    return res.redirect(`/login?redirect=${encodeURIComponent(`${APP_URL}/authorize`)}`);
+  }
 
   const code = await db.createOAuthAuthCode({
     clientId: client_id, userId: user.id, redirectUri: redirect_uri,
     codeChallenge: code_challenge, codeChallengeMethod: "S256",
     resource: resource || MCP_RESOURCE,
   });
+  log.info("oauth", "POST /authorize — consentimento aprovado, código emitido", { client_id, userId: user.id, email: user.email });
 
   const url = new URL(redirect_uri);
   url.searchParams.set("code", code);
@@ -228,22 +246,27 @@ router.post("/token", json(), urlencoded(), async (req: Request, res: Response) 
 
       const row = await db.consumeOAuthAuthCode(code);
       if (!row) {
+        log.warn("oauth", "POST /token rejeitado — código inválido/expirado/já usado", { client_id });
         return res.status(400).json({ error: "invalid_grant", error_description: "Código inválido, expirado ou já utilizado." });
       }
       if (row.clientId !== client_id) {
+        log.warn("oauth", "POST /token rejeitado — client_id não bate com o código", { esperado: row.clientId, recebido: client_id });
         return res.status(400).json({ error: "invalid_grant", error_description: "client_id não corresponde ao código emitido." });
       }
       if (row.redirectUri !== redirect_uri) {
+        log.warn("oauth", "POST /token rejeitado — redirect_uri não bate com o código", { esperado: row.redirectUri, recebido: redirect_uri });
         return res.status(400).json({ error: "invalid_grant", error_description: "redirect_uri não corresponde ao usado na autorização." });
       }
 
       // Verificação PKCE — o núcleo da segurança do fluxo
       const computed = crypto.createHash("sha256").update(code_verifier).digest("base64url");
       if (computed !== row.codeChallenge) {
+        log.warn("oauth", "POST /token rejeitado — PKCE code_verifier não bate", { client_id });
         return res.status(400).json({ error: "invalid_grant", error_description: "code_verifier não corresponde ao code_challenge." });
       }
 
       const tokens = await db.createOAuthToken({ clientId: client_id, userId: row.userId, resource: row.resource });
+      log.info("oauth", "POST /token — access_token emitido com sucesso (authorization_code)", { client_id, userId: row.userId });
       return res.json({
         access_token: tokens.accessToken,
         token_type: "Bearer",
@@ -256,7 +279,11 @@ router.post("/token", json(), urlencoded(), async (req: Request, res: Response) 
       const { refresh_token } = req.body || {};
       if (!refresh_token) return res.status(400).json({ error: "invalid_request" });
       const tokens = await db.rotateOAuthToken(refresh_token);
-      if (!tokens) return res.status(400).json({ error: "invalid_grant", error_description: "Refresh token inválido ou expirado." });
+      if (!tokens) {
+        log.warn("oauth", "POST /token rejeitado — refresh_token inválido/expirado");
+        return res.status(400).json({ error: "invalid_grant", error_description: "Refresh token inválido ou expirado." });
+      }
+      log.info("oauth", "POST /token — access_token renovado com sucesso (refresh_token)");
       return res.json({
         access_token: tokens.accessToken,
         token_type: "Bearer",
@@ -265,6 +292,7 @@ router.post("/token", json(), urlencoded(), async (req: Request, res: Response) 
       });
     }
 
+    log.warn("oauth", "POST /token — grant_type não suportado", { grant_type });
     return res.status(400).json({ error: "unsupported_grant_type" });
   } catch (e: any) {
     log.error("oauth", "Erro no /token", { error: e.message });
