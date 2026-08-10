@@ -60,6 +60,15 @@ export default function Login() {
     login.mutate({ email, password });
   };
 
+  // Propaga ?redirect=... pro login do Google também — sem isso, o fluxo do
+  // MCP (que manda o usuário pra /login?redirect=/authorize?...) perde o
+  // destino se a pessoa clicar "Continuar com Google" em vez de email/senha,
+  // e sempre volta pro /dashboard normal em vez de completar a autorização.
+  const redirectParam = new URLSearchParams(window.location.search).get("redirect");
+  const googleHref = redirectParam
+    ? `/api/auth/google?redirect=${encodeURIComponent(redirectParam)}`
+    : "/api/auth/google";
+
   return (
     <div style={{ minHeight:"100vh", background:"var(--off)", display:"flex", flexDirection:"column" }}>
       <nav style={{ height:60, background:"white", borderBottom:"1px solid var(--border)", display:"flex", alignItems:"center", padding:"0 32px" }}>
@@ -99,7 +108,7 @@ export default function Login() {
             )}
 
             {/* Google OAuth */}
-            <a href="/api/auth/google"
+            <a href={googleHref}
               style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:10, padding:"11px 20px", background:"white", border:"1.5px solid var(--border2)", borderRadius:10, textDecoration:"none", fontSize:14, fontWeight:500, color:"var(--dark)", marginBottom:20, transition:"border-color .15s" }}
               onMouseEnter={e=>(e.currentTarget.style.borderColor="#adb5bd")}
               onMouseLeave={e=>(e.currentTarget.style.borderColor="var(--border2)")}>

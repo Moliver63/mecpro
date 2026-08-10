@@ -972,9 +972,22 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   app.use(passport.initialize());
 
   // Iniciar fluxo OAuth
-  app.get('/api/auth/google',
-    passport.authenticate('google', { scope: ['profile', 'email'], session: false })
-  );
+  // Carrega ?redirect= (se veio de /login?redirect=... por sua vez vindo do
+  // /authorize do MCP) através do parâmetro "state" do próprio OAuth —
+  // sem isso, o callback nunca sabe pra onde voltar depois do login e cai
+  // sempre em /dashboard, quebrando qualquer fluxo (como o /authorize do
+  // MCP) que dependia de retornar pro lugar certo após autenticar.
+  app.get('/api/auth/google', (req: Request, res: Response, next: NextFunction) => {
+    const redirect = typeof req.query.redirect === 'string' ? req.query.redirect : undefined;
+    // Só aceita path relativo (começa com /) ou URL do próprio domínio —
+    // nunca repassa uma URL externa como state (mesmo cuidado de
+    // redirecionamento aberto já aplicado no servidor OAuth)
+    const appUrl = process.env.APP_URL || 'https://www.mecproai.com';
+    const safeState = redirect && (redirect.startsWith('/') || redirect.startsWith(appUrl))
+      ? redirect
+      : undefined;
+    passport.authenticate('google', { scope: ['profile', 'email'], session: false, state: safeState })(req, res, next);
+  });
 
   // Callback do Google
   app.get('/api/auth/google/callback',
@@ -1012,7 +1025,17 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           sameSite: 'lax',
           maxAge:   7 * 24 * 60 * 60 * 1000,
         });
-        res.redirect('/dashboard');
+
+        // Volta pro destino original (ex: /authorize do MCP) se veio via
+        // state — valida de novo aqui (nunca confiar em query string sem
+        // checar), senão cai no /dashboard normal.
+        const returnedState = typeof req.query.state === 'string' ? req.query.state : undefined;
+        const appUrl = process.env.APP_URL || 'https://www.mecproai.com';
+        const dest = returnedState && (returnedState.startsWith('/') || returnedState.startsWith(appUrl))
+          ? returnedState
+          : '/dashboard';
+        log.info('oauth', 'Google callback — redirecionando após login', { userId: user.id, temState: !!returnedState, dest: dest.slice(0, 100) });
+        res.redirect(dest);
       } catch (err: any) {
         log.error('oauth', 'Google callback error: ' + err.message);
         res.redirect('/login?error=oauth_failed');
