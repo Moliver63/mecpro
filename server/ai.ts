@@ -611,7 +611,7 @@ export function validateMetaCompliance(text: string): {
     issues.push("Uso excessivo de CAPS LOCK (>30% do texto)");
     suggestions.push("Reduza maiúsculas — use apenas para ênfase pontual");
   }
-  const urgencyTest = /últimas?\s+\d+\s+vagas?|expira\s+em\s+\d+|apenas\s+(hoje|agora)|somente\s+hoje/i;
+  const urgencyTest = /últimas?\s+\d+\s+(vagas?|horas?|dias?|unidades?|lugares?)|apenas\s+\d+\s+(vagas?|unidades?|lugares?)|expira\s+em\s+\d+|apenas\s+(hoje|agora)|somente\s+(hoje|at[ée]\s+\w+)|restam?\s+(apenas\s+)?\d+|esgot(a|e|ando|ar)\b/i;
   if (urgencyTest.test(text)) {
     issues.push("Falsa urgência detectada — proibida pela Meta");
     suggestions.push("Use datas reais ao invés de urgência artificial");
@@ -7865,6 +7865,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
           `- copy: máx 500 caracteres, sem frases repetidas\n` +
           `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
+          `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se a recomendação pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
           `Retorne APENAS o JSON com os mesmos campos, sem markdown.`,
           { temperature: 0.8, jsonMode: true, maxOutputTokens: 800, _endpoint: "improve_creative" },
         );
