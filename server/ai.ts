@@ -8024,19 +8024,35 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       }
     }
 
-    // Para os demais criativos, gera apenas feed (mais importante)
-    for (let index = 1; index < scored.length; index++) {
-      const c = scored[index];
-      const url = await Promise.race([
-        generateAdImage(c, context.segment, context.objective, config, "feed", {
-            productName:    context.productName,
-            productService: context.productService,
-            niche:          context.niche,
-            city:           context.city,
-          }),
-        new Promise<null>(resolve => setTimeout(() => resolve(null), 20000)),
-      ]);
-      if (url) { c.feedImageUrl = url; c.imageUpdatedAt = new Date().toISOString(); }
+    // Para os demais criativos, gera feed em LOTES PARALELOS (concorrência limitada)
+    // em vez de 1 por vez — antes, N criativos = N chamadas sequenciais de até 20s cada,
+    // o que cresce linearmente e aproxima do timeout de 50-55s mesmo com poucos criativos.
+    // Processa em lotes de BATCH_SIZE em paralelo, com respiro entre lotes — mesma lógica
+    // de mitigação de rate limit já usada acima (delay entre chamadas), só que em lote
+    // em vez de por chamada individual.
+    const remainingIndexes: number[] = [];
+    for (let index = 1; index < scored.length; index++) remainingIndexes.push(index);
+    const IMAGE_BATCH_SIZE = 3;
+    for (let i = 0; i < remainingIndexes.length; i += IMAGE_BATCH_SIZE) {
+      const batch = remainingIndexes.slice(i, i + IMAGE_BATCH_SIZE);
+      await Promise.all(batch.map(async (index) => {
+        const c = scored[index];
+        const url = await Promise.race([
+          generateAdImage(c, context.segment, context.objective, config, "feed", {
+              productName:    context.productName,
+              productService: context.productService,
+              niche:          context.niche,
+              city:           context.city,
+            }),
+          new Promise<null>(resolve => setTimeout(() => resolve(null), 20000)),
+        ]);
+        if (url) { c.feedImageUrl = url; c.imageUpdatedAt = new Date().toISOString(); }
+      }));
+      // Respiro entre lotes — evita que o próximo lote chegue no provider
+      // no mesmo instante que o anterior terminou (mitiga rate limit).
+      if (i + IMAGE_BATCH_SIZE < remainingIndexes.length) {
+        await new Promise(r => setTimeout(r, 500));
+      }
     }
   }
 
