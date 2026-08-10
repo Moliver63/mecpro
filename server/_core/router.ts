@@ -84,6 +84,7 @@ function buildAdCopy(campaign: any, opts: {
   maxDescription?: number;
   placement?: "feed" | "stories" | "reels";
   objective?: string;
+  hasPixel?: boolean;
 } = {}) {
   const {
     maxMessage     = 2000,
@@ -91,6 +92,7 @@ function buildAdCopy(campaign: any, opts: {
     maxDescription = 500,  // feedCopy usado como texto de suporte, não como description do Meta
     placement      = "feed",
     objective      = campaign?.objective || "leads",
+    hasPixel       = false,
   } = opts;
 
   let creatives: any[] = [];
@@ -194,18 +196,26 @@ function buildAdCopy(campaign: any, opts: {
     advocacia:        "Agendar consulta",
   };
 
-  const normalizeMetaCta = (raw: string, currentObjective: string, segment?: string) => {
+  const normalizeMetaCta = (raw: string, currentObjective: string, segment?: string, hasPixel?: boolean) => {
     const seg = (segment || "").toLowerCase();
+    // "sales" sem pixel configurado é rebaixado pela Meta pra campanha OUTCOME_TRAFFIC
+    // (ver resolveObjectiveAndGoal) — BUY_NOW não é um CTA válido pra esse objetivo e a
+    // Meta mostra "Desconhecido" no editor. Nesse caso, trata como se fosse tráfego.
+    const effectiveObjective = currentObjective === "sales" && !hasPixel ? "traffic" : currentObjective;
 
     // CTA explícito da copy tem prioridade
     const clean = String(raw || "").trim().toLowerCase();
     if (clean) {
       const direct = META_CTA_MAP[clean];
-      if (direct) return direct;
+      if (direct === "BUY_NOW" && effectiveObjective !== "sales") {
+        // BUY_NOW só é válido em campanha de vendas real (com pixel) — cai pra LEARN_MORE
+      } else if (direct) {
+        return direct;
+      }
       if (/whats/.test(clean)) return "WHATSAPP_MESSAGE";
       if (/visit|agendar visit/.test(clean)) return "WHATSAPP_MESSAGE";
       if (/agend/.test(clean)) return "BOOK_NOW";
-      if (/compr|oferta|desconto/.test(clean)) return /locat|alugu|locaç/.test(seg) ? "LEARN_MORE" : (currentObjective === "sales" ? "BUY_NOW" : "LEARN_MORE");
+      if (/compr|oferta|desconto/.test(clean)) return /locat|alugu|locaç/.test(seg) ? "LEARN_MORE" : (effectiveObjective === "sales" ? "BUY_NOW" : "LEARN_MORE");
       if (/cadast|guia|ebook|material|inscri/.test(clean)) return "SIGN_UP";
       if (/orcamento|orçamento|proposta|quote/.test(clean)) return "GET_QUOTE";
       if (/mensagem/.test(clean)) return "MESSAGE_PAGE";
@@ -218,9 +228,9 @@ function buildAdCopy(campaign: any, opts: {
     if (segKey) return SEGMENT_DEFAULT_CTA[segKey];
 
     // Fallback por objetivo
-    if (currentObjective === "engagement") return "WHATSAPP_MESSAGE";
-    if (currentObjective === "leads")      return "SIGN_UP";
-    if (currentObjective === "sales")      return "BUY_NOW";
+    if (effectiveObjective === "engagement") return "WHATSAPP_MESSAGE";
+    if (effectiveObjective === "leads")      return "SIGN_UP";
+    if (effectiveObjective === "sales")      return "BUY_NOW";
     return "LEARN_MORE";
   };
 
@@ -259,7 +269,7 @@ function buildAdCopy(campaign: any, opts: {
     ? rawMessage.slice(0, maxMessage)
     : [hook, feedHeadline, fallbackCopy].filter(Boolean).join("\n\n").slice(0, maxMessage)
       || String(campaign.name || "").slice(0, maxMessage);
-  const feedCta = normalizeMetaCta(selectedCreative?.cta, objective, campaign?.segment || campaign?.niche || "");
+  const feedCta = normalizeMetaCta(selectedCreative?.cta, objective, campaign?.segment || campaign?.niche || "", hasPixel);
   const feedAngle = buildAngle(selectedCreative);
 
   const storiesBase = storiesCreative || selectedCreative || feedCreative;
@@ -277,7 +287,7 @@ function buildAdCopy(campaign: any, opts: {
   };
 
   const storiesScript = [0, 1, 2].map((index) => fitStoryLine(storyTexts[index] || storyTexts[storyTexts.length - 1] || hook || feedHeadline));
-  const storiesCta = normalizeMetaCta(storiesBase?.cta, objective, campaign?.segment || campaign?.niche || "");
+  const storiesCta = normalizeMetaCta(storiesBase?.cta, objective, campaign?.segment || campaign?.niche || "", hasPixel);
   const storiesHook = String(storiesBase?.hook || hook || feedHeadline).slice(0, 120);
   const storiesAngle = buildAngle(storiesBase);
 
@@ -348,7 +358,7 @@ function buildAdCopy(campaign: any, opts: {
     reels: {
       creative: reelsCreative || storiesCreative || feedCreative,
       hook: String(reelsCreative?.hook || storiesHook || hook).slice(0, 120),
-      cta: normalizeMetaCta(reelsCreative?.cta || storiesBase?.cta, objective, campaign?.segment || campaign?.niche || ""),
+      cta: normalizeMetaCta(reelsCreative?.cta || storiesBase?.cta, objective, campaign?.segment || campaign?.niche || "", hasPixel),
       angle: buildAngle(reelsCreative || storiesBase),
     },
     googleHeadlines,
@@ -3740,7 +3750,7 @@ const campaignsRouter = router({
         : "feed";
       // Prioriza objetivo do input (passado pelo frontend) sobre o salvo no banco
       const objective = (input as any).objective || c.objective || "leads";
-      const adCopy = buildAdCopy(c, { placement: placementKey, objective });
+      const adCopy = buildAdCopy(c, { placement: placementKey, objective, hasPixel: !!input.pixelId });
       const creative = placementKey === "stories"
         ? (adCopy as any).stories?.creative || creativeList[0]
         : placementKey === "reels"
@@ -4859,8 +4869,29 @@ const campaignsRouter = router({
         name:              creativeName,
         object_story_spec: storySpec,
         access_token:      token,
-        // degrees_of_freedom_spec REMOVIDO — descontinuado pela Meta (error_subcode 3858504, mai/2026)
-        // Referência: https://fburl.com/hyth50xo
+        // Desde a Marketing API v22.0 (jan/2025), a Meta descontinuou o toggle único
+        // "Standard Enhancements" — cada aprimoramento Advantage+ agora é opt-in/opt-out
+        // individual via degrees_of_freedom_spec.creative_features_spec. Sem isso, a Meta
+        // aplica os enrolls padrão dela (texto, overlays, música, comentários relevantes
+        // etc. ligados), o que reescreve headline/descrição na hora de veicular — é por
+        // isso que "Título"/"Descrição" aparecem vazios no editor mesmo com valor enviado.
+        // Desligamos só os que MUDAM MENSAGEM/DESTINO (alto risco); mantemos ligados os
+        // que só ajustam formato (visual touch-ups, expansão de imagem — baixo risco).
+        degrees_of_freedom_spec: {
+          creative_features_spec: {
+            standard_enhancements: { enroll_status: "OPT_OUT" },
+            text_improvements:     { enroll_status: "OPT_OUT" },
+            text_generation:       { enroll_status: "OPT_OUT" },
+            image_text_generation: { enroll_status: "OPT_OUT" },
+            add_overlays:          { enroll_status: "OPT_OUT" },
+            image_overlay:         { enroll_status: "OPT_OUT" },
+            relevant_comments:     { enroll_status: "OPT_OUT" },
+            music:                 { enroll_status: "OPT_OUT" },
+            site_extensions:       { enroll_status: "OPT_OUT" },
+            enhance_cta:           { enroll_status: "OPT_OUT" },
+          },
+        },
+        // Referência: https://fburl.com/hyth50xo (degrees_of_freedom_spec)
       };
 
       // Injeta pixel_id quando fornecido
@@ -4905,7 +4936,24 @@ const campaignsRouter = router({
         }
       }
 
-      const creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
+      let creativeData: any;
+      try {
+        creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
+      } catch (creativeErr: any) {
+        const errMsg = String(creativeErr?.message || "");
+        const looksLikeEnhancementFieldRejected =
+          /degrees_of_freedom|creative_features_spec|standard_enhancements/i.test(errMsg);
+        if (looksLikeEnhancementFieldRejected) {
+          log.warn("meta", "Meta rejeitou degrees_of_freedom_spec — refazendo sem controle de Advantage+ (título/descrição podem ser reescritos pela Meta)", {
+            error: errMsg.slice(0, 200),
+          });
+          // Fallback montado só agora, já com tracking_specs (pixel) incluído se houver
+          const { degrees_of_freedom_spec, ...creativeBodyNoEnhancementControl } = creativeBody;
+          creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBodyNoEnhancementControl, "Creative");
+        } else {
+          throw creativeErr;
+        }
+      }
       const metaCreativeId = creativeData.id;
 
       // 4. Ad

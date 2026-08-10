@@ -6122,12 +6122,36 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
     });
   }
 
+  // ── Carrossel só entra na pool quando faz sentido pro negócio ────────────
+  // ANTES: "Carrossel" ocupava os slots 3 e 7 da pool por posição fixa,
+  // sem checar se o cliente TEM conteúdo pra sustentar múltiplos cards
+  // distintos. Resultado visto na prática (Shadia Hasan, 1 produto único,
+  // sem depoimento real): o card de carrossel "inventou" 2 depoimentos
+  // fictícios pra preencher os slides — risco de compliance e copy fraca.
+  // AGORA: carrossel só é oferecido quando há sinal real de conteúdo
+  // múltiplo — senão o slot vira imagem/vídeo (formato que sustenta 1 oferta).
+  const MULTI_ITEM_SEGMENTS = [
+    "imoveis_venda", "imoveis_locacao", "ecommerce", "moda_varejo",
+    "academia", "alimentacao", "automotivo",
+  ];
+  const diffsRaw = String((clientProfile as any)?.productDifferentials || "");
+  const diffCount = (diffsRaw.match(/\n|;|·|^\d+[.)]/gm) || []).length + (diffsRaw.trim() ? 1 : 0);
+  const hasMultipleRealPhotos = (input.realImages?.length ?? 0) >= 3;
+  const hasMultiItemSegment = MULTI_ITEM_SEGMENTS.includes(resolvedSegment);
+  const hasEnoughDifferentials = diffCount >= 3 && !isAbsenceAnswer(diffsRaw);
+  const carouselMakesSense = hasMultipleRealPhotos || hasMultiItemSegment || hasEnoughDifferentials;
+  if (!carouselMakesSense) {
+    log.info("ai", "Carrossel desabilitado nesta geração — sem sinal de conteúdo múltiplo", {
+      resolvedSegment, diffCount, realPhotos: input.realImages?.length ?? 0,
+    });
+  }
+
   // Pool de combinações formato+funil pra distribuir entre os N criativos
   // sem repetir a mesma combinação (regra que o prompt já cobrava: "NUNCA
   // repita o mesmo format+funnelStage"). Só cresce em variedade — os 4
   // primeiros itens são EXATAMENTE os 4 originais, pra não mudar o
   // comportamento de quem não usa mais de 4 criativos.
-  const CREATIVE_SLOT_POOL: Array<{ format: string; funnel: string }> = [
+  const CREATIVE_SLOT_POOL_BASE: Array<{ format: string; funnel: string }> = [
     { format: "Imagem Feed (4:5)",              funnel: "TOF (público frio)" },
     { format: "Vídeo 15s Reels/Stories (9:16)", funnel: "TOF ou MOF" },
     { format: "Carrossel",                      funnel: "MOF (consideração)" },
@@ -6139,6 +6163,11 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
     { format: "Vídeo 15s",                      funnel: "BOF (conversão/fundo de funil)" },
     { format: "Imagem Square (1:1)",            funnel: "TOF (público frio)" },
   ];
+  const CREATIVE_SLOT_POOL: Array<{ format: string; funnel: string }> = carouselMakesSense
+    ? CREATIVE_SLOT_POOL_BASE
+    : CREATIVE_SLOT_POOL_BASE.map(slot =>
+        slot.format === "Carrossel" ? { format: "Imagem Feed (4:5)", funnel: slot.funnel } : slot
+      );
   const creativeSlotInstructions = Array.from({ length: effectiveNumCreatives }, (_, i) => {
     const slot = CREATIVE_SLOT_POOL[i % CREATIVE_SLOT_POOL.length];
     return `    criativo ${i + 1}: ${slot.format} — ${slot.funnel}`;
