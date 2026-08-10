@@ -6534,10 +6534,31 @@ const adminRouter = router({
     .mutation(async ({ ctx, input }) => {
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-      await pool.query(
-        `UPDATE api_keys SET active = false WHERE id = $1 AND "userId" = $2`,
+      const result = await pool.query(
+        `UPDATE api_keys SET active = false WHERE id = $1 AND "userId" = $2 RETURNING id`,
         [input.id, ctx.user.id]
       );
+      if (result.rowCount === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Chave não encontrada ou já não pertence a você." });
+      }
+      return { ok: true };
+    }),
+
+  // Exclusão de verdade (hard delete) — diferente de revokeApiKey, que só
+  // desativa. Existia só "revogar" antes; usuário pediu auditoria e "excluir"
+  // nunca existiu como opção real.
+  deleteApiKey: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const result = await pool.query(
+        `DELETE FROM api_keys WHERE id = $1 AND "userId" = $2 RETURNING id`,
+        [input.id, ctx.user.id]
+      );
+      if (result.rowCount === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Chave não encontrada ou já não pertence a você." });
+      }
       return { ok: true };
     }),
 

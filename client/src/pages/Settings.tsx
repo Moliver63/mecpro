@@ -51,11 +51,16 @@ export default function Settings() {
   const [showNewKey, setShowNewKey] = useState<string | null>(null);
   const { data: integrations } = trpc.integrations.list.useQuery();
   const { data: apiKeys, refetch: refetchKeys } = (trpc as any).admin?.listApiKeys?.useQuery?.() ?? { data: [], refetch: () => {} };
+  const activeKeysCount = (apiKeys || []).filter((k: any) => k.active).length;
   const createKey = (trpc as any).admin?.createApiKey?.useMutation?.({
     onSuccess: (data: any) => { setShowNewKey(data.key); setNewKeyName(""); refetchKeys?.(); },
     onError:   (e: any)    => alert(e.message),
   }) ?? { mutate: () => {}, isPending: false };
   const revokeKey = (trpc as any).admin?.revokeApiKey?.useMutation?.({
+    onSuccess: () => refetchKeys?.(),
+    onError:   (e: any) => alert(e.message),
+  }) ?? { mutate: () => {} };
+  const deleteKey = (trpc as any).admin?.deleteApiKey?.useMutation?.({
     onSuccess: () => refetchKeys?.(),
     onError:   (e: any) => alert(e.message),
   }) ?? { mutate: () => {} };
@@ -454,16 +459,21 @@ export default function Settings() {
           {/* Lista de keys */}
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", marginBottom: 20 }}>
             <div style={{ padding: "11px 18px", background: "var(--off)", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{(apiKeys || []).length} key{(apiKeys || []).length !== 1 ? "s" : ""} ativa{(apiKeys || []).length !== 1 ? "s" : ""} · máx. 5</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)" }}>{activeKeysCount} key{activeKeysCount !== 1 ? "s" : ""} ativa{activeKeysCount !== 1 ? "s" : ""} · máx. 5</span>
             </div>
             {!(apiKeys || []).length && (
               <div style={{ padding: "30px 20px", textAlign: "center" as const, color: "var(--muted)", fontSize: 13 }}>Nenhuma API key. Crie a primeira abaixo.</div>
             )}
             {(apiKeys || []).map((k: any) => (
-              <div key={k.id} style={{ padding: "13px 18px", borderBottom: "1px solid var(--off)", display: "flex", alignItems: "center", gap: 12 }}>
+              <div key={k.id} style={{ padding: "13px 18px", borderBottom: "1px solid var(--off)", display: "flex", alignItems: "center", gap: 12, opacity: k.active ? 1 : 0.5 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(88,86,214,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🔑</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)" }}>{k.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)", display: "flex", alignItems: "center", gap: 8 }}>
+                    {k.name}
+                    {!k.active && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", background: "#fef2f2", padding: "1px 7px", borderRadius: 6, textTransform: "uppercase" as const, letterSpacing: ".03em" }}>Revogada</span>
+                    )}
+                  </div>
                   <code style={{ fontSize: 11, color: "var(--muted)" }}>{k.key_preview}</code>
                 </div>
                 <div style={{ textAlign: "right" as const, flexShrink: 0 }}>
@@ -475,10 +485,17 @@ export default function Settings() {
                     Último uso<br/>{new Date(k.lastUsedAt).toLocaleDateString("pt-BR")}
                   </div>
                 )}
-                <button onClick={() => { if (window.confirm(`Revogar "${k.name}"?`)) (revokeKey as any).mutate({ id: k.id }); }}
-                  style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #fca5a5", background: "white", color: "#dc2626", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0, fontFamily: "inherit" }}>
-                  Revogar
-                </button>
+                {k.active ? (
+                  <button onClick={() => { if (window.confirm(`Revogar "${k.name}"? Ela para de funcionar imediatamente.`)) (revokeKey as any).mutate({ id: k.id }); }}
+                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid #fca5a5", background: "white", color: "#dc2626", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0, fontFamily: "inherit" }}>
+                    Revogar
+                  </button>
+                ) : (
+                  <button onClick={() => { if (window.confirm(`Excluir "${k.name}" permanentemente? Não dá pra desfazer.`)) (deleteKey as any).mutate({ id: k.id }); }}
+                    style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "white", color: "var(--muted)", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0, fontFamily: "inherit" }}>
+                    Excluir
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -493,15 +510,15 @@ export default function Settings() {
                 style={{ flex: 1, padding: "9px 14px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 13, outline: "none", fontFamily: "inherit" }}
               />
               <button onClick={() => newKeyName.trim() && (createKey as any).mutate({ name: newKeyName.trim() })}
-                disabled={!newKeyName.trim() || (createKey as any).isPending || (apiKeys || []).length >= 5}
+                disabled={!newKeyName.trim() || (createKey as any).isPending || activeKeysCount >= 5}
                 style={{ padding: "9px 20px", borderRadius: 10, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const, fontFamily: "inherit",
-                  background: !newKeyName.trim() || (apiKeys || []).length >= 5 ? "var(--off)" : "var(--blue)",
-                  color: !newKeyName.trim() || (apiKeys || []).length >= 5 ? "var(--muted)" : "white" }}>
+                  background: !newKeyName.trim() || activeKeysCount >= 5 ? "var(--off)" : "var(--blue)",
+                  color: !newKeyName.trim() || activeKeysCount >= 5 ? "var(--muted)" : "white" }}>
                 {(createKey as any).isPending ? "Criando..." : "Criar Key"}
               </button>
             </div>
-            {(apiKeys || []).length >= 5 && (
-              <div style={{ marginTop: 8, fontSize: 12, color: "#d97706" }}>⚠ Limite de 5 keys atingido. Revogue uma para criar nova.</div>
+            {activeKeysCount >= 5 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#d97706" }}>⚠ Limite de 5 keys ativas atingido. Revogue uma para criar nova.</div>
             )}
           </div>
 
