@@ -5854,7 +5854,8 @@ export async function generateCampaign(input: {
   // Padrão de 4 adSets (TOF/MOF/BOF/SCALE) → mínimo R$5,11×4×30×1,1 ≈ R$675/mês.
   const META_MIN_DAILY_PER_ADSET = 5.11;
   const EXPECTED_ADSETS = 4; // padrão do funil gerado
-  const MIN_VIABLE_MONTHLY = Math.ceil(META_MIN_DAILY_PER_ADSET * EXPECTED_ADSETS * 30 * 1.1);
+  const campaignDurationDays = input.duration && input.duration > 0 ? input.duration : 30;
+  const MIN_VIABLE_MONTHLY = Math.ceil(META_MIN_DAILY_PER_ADSET * EXPECTED_ADSETS * campaignDurationDays * 1.1);
 
   let effectiveBudget = input.budget;
   if (effectiveBudget < MIN_VIABLE_MONTHLY) {
@@ -5866,7 +5867,7 @@ export async function generateCampaign(input: {
     effectiveBudget = MIN_VIABLE_MONTHLY;
   }
 
-  const budgetDaily = Math.round(effectiveBudget / 30);
+  const budgetDaily = Math.round(effectiveBudget / campaignDurationDays);
 
   // Helper: personas block para o prompt
   function buildPersonasBlock(personasJson: string | null | undefined): string {
