@@ -1,4 +1,5 @@
 import "dotenv/config";
+import crypto from "crypto";
 import { log } from "./logger";
 import { logTokens, estimateTokens } from "./tokenTelemetry";
 import { buildCacheKey, getCachedResponse, setCachedResponse, cleanExpiredCache, type CacheMeta } from "./aiCache";
@@ -478,6 +479,17 @@ function getCachedGemini(key: string): string | null {
     return null;
   }
   return entry[0];
+}
+
+/**
+ * Chave do cache RAM: hash SHA-256 do prompt INTEIRO + temperature.
+ * ANTES: usava só prompt.slice(0, 200), que colidia entre clientes/nichos
+ * diferentes quando o prefixo do prompt (ex: recomendações genéricas de score)
+ * era igual, fazendo o conteúdo específico de um cliente (JSON do criativo)
+ * nunca entrar na chave. Hash do prompt inteiro elimina essa colisão.
+ */
+function buildRamCacheKey(prompt: string, temperature: number): string {
+  return crypto.createHash("sha256").update(`${prompt}::${temperature}`).digest("hex");
 }
 
 function setCachedGemini(key: string, result: string) {
@@ -1731,8 +1743,13 @@ async function _geminiImpl(
   }
 
   // Cache RAM — sessão atual (15min)
+  // Hash do prompt INTEIRO (não só os primeiros 200 chars) — evita colisão entre
+  // clientes/nichos diferentes quando o prefixo do prompt é genérico/compartilhado
+  // (ex: recomendações de score iguais para nichos distintos faziam a chave colidir
+  // antes do JSON específico do criativo entrar na chave — bug real de vazamento
+  // de conteúdo entre clientes, encontrado em auditoria 2026-08-10).
   if (opts.useCache !== false && retryCount === 0) {
-    const cacheKey = prompt.slice(0, 200) + (opts.temperature || 0.3);
+    const cacheKey = buildRamCacheKey(prompt, opts.temperature ?? 0.3);
     const cached = getCachedGemini(cacheKey);
     if (cached) {
       log.info("ai", "Gemini cache hit (RAM)", { promptSlice: prompt.slice(0, 50) });
@@ -1922,7 +1939,7 @@ async function _geminiImpl(
 
   // Salva no cache se foi bem-sucedido
   if (result && opts.useCache !== false && retryCount === 0) {
-    const cacheKey = prompt.slice(0, 200) + (opts.temperature || 0.3);
+    const cacheKey = buildRamCacheKey(prompt, opts.temperature ?? 0.3);
     setCachedGemini(cacheKey, result);
     // Persiste no cache DB se cacheAs especificado
     if (opts.cacheAs) {
@@ -2509,8 +2526,9 @@ function _cacheKey(prompt: string, fn: string): string {
 }
 
 export function cacheGet(prompt: string, fn: string): string | null {
-  // Usa o _geminiCache existente como backend
-  const key = prompt.slice(0, 200) + fn + "0.3";
+  // Usa o _geminiCache existente como backend — chave por hash do prompt inteiro
+  // (não só os primeiros 200 chars — ver buildRamCacheKey para o motivo)
+  const key = fn + "_" + crypto.createHash("sha256").update(`${prompt}::0.3`).digest("hex");
   const cached = getCachedGemini(key);
   if (cached) {
     _cacheHits++;
@@ -2522,8 +2540,8 @@ export function cacheGet(prompt: string, fn: string): string | null {
 }
 
 export function cacheSet(prompt: string, fn: string, value: string, _ttlMs = 15 * 60 * 1000) {
-  // Usa o _geminiCache existente como backend
-  const key = prompt.slice(0, 200) + fn + "0.3";
+  // Usa o _geminiCache existente como backend — mesma chave de cacheGet
+  const key = fn + "_" + crypto.createHash("sha256").update(`${prompt}::0.3`).digest("hex");
   setCachedGemini(key, value);
 }
 
