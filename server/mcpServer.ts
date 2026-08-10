@@ -23,7 +23,35 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import * as db from "./db";
 import { appRouter } from "./_core/router";
-import { uploadBase64ImageToCloudinary } from "./imageGeneration";
+import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
+
+// ── Validação de imagem enviada em base64 ─────────────────────────────────
+// Compartilhada entre upload_creative_image e generate_campaign (modo fotos
+// reais em base64) — sem lib de imagem no projeto (sem sharp/image-size),
+// então valida por assinatura de bytes (magic numbers) + tamanho, não por
+// dimensão. Formatos aceitos: JPEG, PNG, WEBP.
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024; // 12MB — folga do limite de 50MB do body, com margem pro overhead do base64/JSON
+
+function decodeAndValidateImage(imageBase64: string): { ok: boolean; buffer: Buffer | null; error: string | null } {
+  const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(base64Clean, "base64");
+  } catch {
+    return { ok: false, buffer: null, error: "Base64 inválido — não foi possível decodificar a imagem." };
+  }
+  if (buffer.length === 0) return { ok: false, buffer: null, error: "Imagem vazia." };
+  if (buffer.length > MAX_IMAGE_BYTES) {
+    return { ok: false, buffer: null, error: `Imagem muito grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB). Máximo aceito: 12MB.` };
+  }
+  const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const isPng  = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+  const isWebp = buffer.slice(0, 4).toString("ascii") === "RIFF" && buffer.slice(8, 12).toString("ascii") === "WEBP";
+  if (!isJpeg && !isPng && !isWebp) {
+    return { ok: false, buffer: null, error: "Formato de imagem não reconhecido — envie JPEG, PNG ou WEBP." };
+  }
+  return { ok: true, buffer, error: null };
+}
 
 export function createMcpServerForUser(userId: number): McpServer {
   const server = new McpServer({ name: "mecproai", version: "1.0.0" });
@@ -337,15 +365,25 @@ export function createMcpServerForUser(userId: number): McpServer {
         // reais desde a geração (só dava pra trocar 1 imagem por vez, depois, via
         // upload_creative_image). Agora o caminho fica igual em ambos os canais.
         uploadedImages: z.array(z.string()).optional().describe(
-          "URLs https públicas das fotos reais do cliente (não base64 — se a foto só existir " +
-          "localmente, use upload_creative_image DEPOIS de gerar a campanha em vez deste campo). " +
-          "Quando informado, cada criativo usa UMA foto real em vez de gerar por IA, e a quantidade " +
-          "de criativos passa a acompanhar a quantidade de fotos (a menos que numCreatives seja informado)."
+          "URLs https públicas das fotos reais do cliente. Combina com realPhotosBase64 se ambos " +
+          "forem informados. Quando informado, cada criativo usa UMA foto real em vez de gerar por " +
+          "IA, e a quantidade de criativos passa a acompanhar a quantidade de fotos (a menos que " +
+          "numCreatives seja informado)."
+        ),
+        realPhotosBase64: z.array(z.object({
+          imageBase64: z.string().describe("Conteúdo da foto em base64 (com ou sem prefixo data:image/...;base64,)."),
+          fileName: z.string().optional().describe("Nome do arquivo, com extensão (ex: foto-cliente-1.jpg)."),
+        })).optional().describe(
+          "Fotos reais do cliente enviadas em base64 (ex: fotos que o usuário mandou direto na " +
+          "conversa) — sobe cada uma pro Cloudinary automaticamente ANTES de gerar a campanha, sem " +
+          "precisar gerar primeiro e trocar imagem depois. Cada JPEG/PNG/WEBP até 12MB. Combina com " +
+          "uploadedImages se ambos forem informados (essas entram depois das URLs já públicas)."
         ),
         numCreatives: z.number().int().min(2).max(10).optional().describe(
-          "Quantidade de criativos a gerar (2-10). Se omitido: usa 1 por foto em uploadedImages, " +
-          "ou 4 (padrão) se uploadedImages não for informado. Cada criativo recebe copy própria e " +
-          "distinta — é isso que evita headline/texto repetido entre os cards de um carrossel."
+          "Quantidade de criativos a gerar (2-10). Se omitido: usa 1 por foto (uploadedImages + " +
+          "realPhotosBase64 combinadas), ou 4 (padrão) se nenhuma foto real for informada. Cada " +
+          "criativo recebe copy própria e distinta — é isso que evita headline/texto repetido entre " +
+          "os cards de um carrossel."
         ),
       },
     },
@@ -358,6 +396,31 @@ export function createMcpServerForUser(userId: number): McpServer {
       if (!check.allowed) {
         return { content: [{ type: "text", text: `Não foi possível gerar: ${check.reason}` }], isError: true };
       }
+
+      // ── Sobe fotos reais em base64 pro Cloudinary ANTES de gerar ─────────
+      // Une com uploadedImages (URLs já públicas) — resultado único vira o
+      // realImages passado pra generateCampaign. Falha em QUALQUER foto
+      // aborta a geração (evita gastar tokens de IA num briefing incompleto,
+      // com uma foto faltando do que o usuário pediu).
+      const uploadedFromBase64: string[] = [];
+      if (input.realPhotosBase64?.length) {
+        for (let i = 0; i < input.realPhotosBase64.length; i++) {
+          const photo = input.realPhotosBase64[i];
+          const decoded = decodeAndValidateImage(photo.imageBase64);
+          if (!decoded.ok || !decoded.buffer) {
+            return { content: [{ type: "text", text: `Foto ${i + 1}/${input.realPhotosBase64.length} (${photo.fileName || "sem nome"}) inválida: ${decoded.error}` }], isError: true };
+          }
+          const cloudUrl = await uploadImageBufferToCloudinary(
+            decoded.buffer,
+            photo.fileName || `campaign-photo-${input.projectId}-${i}-${Date.now()}.jpg`,
+          );
+          if (!cloudUrl) {
+            return { content: [{ type: "text", text: `Falha ao subir a foto ${i + 1}/${input.realPhotosBase64.length} pro Cloudinary. Verifique as credenciais do Cloudinary no servidor.` }], isError: true };
+          }
+          uploadedFromBase64.push(cloudUrl);
+        }
+      }
+      const allRealImages = [...(input.uploadedImages || []), ...uploadedFromBase64];
 
       const { generateCampaign } = await import("./ai");
       const segmentContext = [
@@ -375,7 +438,7 @@ export function createMcpServerForUser(userId: number): McpServer {
         extraContext: segmentContext, ageMin: input.ageMin, ageMax: input.ageMax,
         regions: input.regions, countries: input.countries, locationMode: input.locationMode,
         geoCity: input.geoCity, geoRadius: input.geoRadius, mediaFormat: input.mediaFormat,
-        realImages: input.uploadedImages?.length ? input.uploadedImages : undefined,
+        realImages: allRealImages.length ? allRealImages : undefined,
         numCreatives: input.numCreatives,
       } as any);
       const timeoutPromise = new Promise((_, reject) =>
@@ -444,32 +507,15 @@ export function createMcpServerForUser(userId: number): McpServer {
         return { content: [{ type: "text", text: `Criativo de índice ${creativeIndex} não existe nessa campanha (ela tem ${creatives.length}).` }], isError: true };
       }
 
-      // ── validação do payload — sem lib de imagem no projeto, então ────
-      // valida por assinatura de bytes (magic numbers) + tamanho, não por
-      // dimensão. Formatos aceitos: JPEG, PNG, WEBP.
-      const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
-      let buffer: Buffer;
-      try {
-        buffer = Buffer.from(base64Clean, "base64");
-      } catch {
-        return { content: [{ type: "text", text: "Base64 inválido — não foi possível decodificar a imagem." }], isError: true };
+      // ── validação do payload — helper compartilhado com generate_campaign ──
+      const decoded = decodeAndValidateImage(imageBase64);
+      if (!decoded.ok || !decoded.buffer) {
+        return { content: [{ type: "text", text: decoded.error || "Imagem inválida." }], isError: true };
       }
-      if (buffer.length === 0) {
-        return { content: [{ type: "text", text: "Imagem vazia." }], isError: true };
-      }
-      const MAX_BYTES = 12 * 1024 * 1024; // 12MB — folga do limite de 50MB do body, com margem pra overhead do base64/JSON
-      if (buffer.length > MAX_BYTES) {
-        return { content: [{ type: "text", text: `Imagem muito grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB). Máximo aceito: 12MB.` }], isError: true };
-      }
-      const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
-      const isPng  = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
-      const isWebp = buffer.slice(0, 4).toString("ascii") === "RIFF" && buffer.slice(8, 12).toString("ascii") === "WEBP";
-      if (!isJpeg && !isPng && !isWebp) {
-        return { content: [{ type: "text", text: "Formato de imagem não reconhecido — envie JPEG, PNG ou WEBP." }], isError: true };
-      }
+      const buffer = decoded.buffer;
 
       // ── upload pro Cloudinary (mesma função que o gerador de IA usa) ──
-      const cloudUrl = await uploadBase64ImageToCloudinary(base64Clean, fileName || `manual-${campaignId}-${creativeIndex}-${Date.now()}.jpg`);
+      const cloudUrl = await uploadImageBufferToCloudinary(buffer, fileName || `manual-${campaignId}-${creativeIndex}-${Date.now()}.jpg`);
       if (!cloudUrl) {
         return { content: [{ type: "text", text: "Falha ao subir a imagem pro Cloudinary. Verifique as credenciais do Cloudinary no servidor." }], isError: true };
       }
