@@ -4435,7 +4435,7 @@ const campaignsRouter = router({
         : fallbackPublishMedia?.imageUrls ?? null;
 
       if (realPhotoUrls.length > 0) {
-        log.info("meta", "Carrossel com fotos reais do cliente", {
+        log.info("meta", realPhotoUrls.length >= 2 ? "Carrossel com fotos reais do cliente" : "Imagem real do cliente (1 foto — sem carrossel)", {
           fotos: realPhotoUrls.length,
           urls: realPhotoUrls.map((u: string) => u.slice(-30)),
         });
@@ -4447,7 +4447,14 @@ const campaignsRouter = router({
             ? (selectedGeneratedImageHash ?? null)
             : (fallbackPublishMedia?.imageHash ?? selectedGeneratedImageHash ?? null))
         : null);
-      const effectiveImageUrl = input.imageUrl ?? (!effectiveImageHashes && !effectiveImageHash && !effectiveVideoId
+      const effectiveImageUrl = input.imageUrl
+        // Foto real do cliente (quando é só 1 — não vira carrossel, mas AINDA é a
+        // foto que o cliente mandou, não pode ser trocada pela imagem de stock/IA
+        // sem avisar. BUG CORRIGIDO: antes essa variável nunca olhava pra
+        // effectiveImageUrls, então 1 foto real virava "carrossel" no log mas
+        // publicava com a imagem gerada por IA no lugar.
+        ?? (effectiveImageUrls?.length === 1 ? effectiveImageUrls[0] : null)
+        ?? (!effectiveImageHashes && !effectiveImageHash && !effectiveVideoId
         ? ((placementKey === "stories" || placementKey === "reels")
             ? (selectedGeneratedImageUrl ?? null)
             : (fallbackPublishMedia?.imageUrl ?? selectedGeneratedImageUrl ?? null))
@@ -4869,29 +4876,17 @@ const campaignsRouter = router({
         name:              creativeName,
         object_story_spec: storySpec,
         access_token:      token,
-        // Desde a Marketing API v22.0 (jan/2025), a Meta descontinuou o toggle único
-        // "Standard Enhancements" — cada aprimoramento Advantage+ agora é opt-in/opt-out
-        // individual via degrees_of_freedom_spec.creative_features_spec. Sem isso, a Meta
-        // aplica os enrolls padrão dela (texto, overlays, música, comentários relevantes
-        // etc. ligados), o que reescreve headline/descrição na hora de veicular — é por
-        // isso que "Título"/"Descrição" aparecem vazios no editor mesmo com valor enviado.
-        // Desligamos só os que MUDAM MENSAGEM/DESTINO (alto risco); mantemos ligados os
-        // que só ajustam formato (visual touch-ups, expansão de imagem — baixo risco).
-        degrees_of_freedom_spec: {
-          creative_features_spec: {
-            standard_enhancements: { enroll_status: "OPT_OUT" },
-            text_improvements:     { enroll_status: "OPT_OUT" },
-            text_generation:       { enroll_status: "OPT_OUT" },
-            image_text_generation: { enroll_status: "OPT_OUT" },
-            add_overlays:          { enroll_status: "OPT_OUT" },
-            image_overlay:         { enroll_status: "OPT_OUT" },
-            relevant_comments:     { enroll_status: "OPT_OUT" },
-            music:                 { enroll_status: "OPT_OUT" },
-            site_extensions:       { enroll_status: "OPT_OUT" },
-            enhance_cta:           { enroll_status: "OPT_OUT" },
-          },
-        },
-        // Referência: https://fburl.com/hyth50xo (degrees_of_freedom_spec)
+        // degrees_of_freedom_spec.creative_features_spec: TENTAMOS controlar as
+        // melhorias Advantage+ (texto, overlays etc.) por aqui — a Meta rejeitou
+        // e devolveu o enum REAL de chaves válidas pra esse tipo de anúncio
+        // (link_data, não catálogo): IG_VIDEO_NATIVE_SUBTITLE, IMAGE_ANIMATION,
+        // PRODUCT_BROWSING, PRODUCT_METADATA_AUTOMATION, PROFILE_CARD,
+        // STANDARD_ENHANCEMENTS_CATALOG, TEXT_OVERLAY_TRANSLATION — nenhuma
+        // dessas controla reescrita de texto/título. NÃO EXISTE, hoje, um jeito
+        // confirmado via API de desligar "Melhorias no texto" nesse tipo de
+        // criativo. Removido pra não gastar 1 round-trip extra à toa em toda
+        // publicação (erro 400 -> fallback -> sucesso, sempre). Se algum dia a
+        // Meta expuser esse controle, reintroduzir usando só as chaves do enum acima.
       };
 
       // Injeta pixel_id quando fornecido
@@ -4936,24 +4931,7 @@ const campaignsRouter = router({
         }
       }
 
-      let creativeData: any;
-      try {
-        creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
-      } catch (creativeErr: any) {
-        const errMsg = String(creativeErr?.message || "");
-        const looksLikeEnhancementFieldRejected =
-          /degrees_of_freedom|creative_features_spec|standard_enhancements/i.test(errMsg);
-        if (looksLikeEnhancementFieldRejected) {
-          log.warn("meta", "Meta rejeitou degrees_of_freedom_spec — refazendo sem controle de Advantage+ (título/descrição podem ser reescritos pela Meta)", {
-            error: errMsg.slice(0, 200),
-          });
-          // Fallback montado só agora, já com tracking_specs (pixel) incluído se houver
-          const { degrees_of_freedom_spec, ...creativeBodyNoEnhancementControl } = creativeBody;
-          creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBodyNoEnhancementControl, "Creative");
-        } else {
-          throw creativeErr;
-        }
-      }
+      const creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
       const metaCreativeId = creativeData.id;
 
       // 4. Ad
