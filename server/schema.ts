@@ -462,3 +462,25 @@ export const approvedImages = pgTable("approved_images", {
 });
 
 export type ApprovedImage = typeof approvedImages.$inferSelect;
+
+// ── Idempotência de tools MCP com efeito colateral real ───────────────────
+// Protege mutations como publish_campaign contra duplicação quando um
+// agente (Claude, ChatGPT etc.) reenvia a mesma chamada — por timeout,
+// retry automático do protocolo, ou o próprio usuário confirmando duas
+// vezes. requestKey = `${userId}:${toolName}:${idempotencyKey}`, único.
+// status: "in_progress" (chamada em andamento, bloqueia repetição
+// concorrente) | "completed" (retorna o resultado já armazenado) |
+// "failed" (permite tentar de novo com a mesma key).
+export const mcpIdempotencyKeys = pgTable("mcp_idempotency_keys", {
+  id:           serial("id").primaryKey(),
+  requestKey:   varchar("request_key", { length: 400 }).notNull().unique(),
+  userId:       integer("user_id").notNull(),
+  toolName:     varchar("tool_name", { length: 100 }).notNull(),
+  status:       varchar("status", { length: 20 }).default("in_progress").notNull(),
+  resultJson:   text("result_json"),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+  completedAt:  timestamp("completed_at"),
+});
+
+export type McpIdempotencyKey = typeof mcpIdempotencyKeys.$inferSelect;
+export type InsertMcpIdempotencyKey = typeof mcpIdempotencyKeys.$inferInsert;

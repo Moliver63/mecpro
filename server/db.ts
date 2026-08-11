@@ -10,6 +10,7 @@ import {
   apiIntegrations,
   lessonProgress,
   appSettings,
+  mcpIdempotencyKeys,
   type InsertUser, type InsertProject, type InsertClientProfile,
   type InsertCompetitor, type InsertCampaign, type InsertPaymentHistory,
 } from "./schema";
@@ -1449,5 +1450,91 @@ export async function updateMarketplaceListing(id: number, data: Record<string, 
     `UPDATE marketplace_listings SET ${sets}, "updatedAt" = NOW() WHERE id = $1`,
     [id, ...vals]
   );
+}
+
+// ============ MCP IDEMPOTENCY ============
+// Protege tools MCP com efeito colateral real (ex: publish_campaign) contra
+// execução duplicada. Ver server/schema.ts (mcpIdempotencyKeys) para o porquê.
+
+export type McpIdempotencyOutcome =
+  | { kind: "proceed"; recordId: number }
+  | { kind: "duplicate_in_progress" }
+  | { kind: "cached_result"; result: any };
+
+/**
+ * Tenta "reservar" uma idempotency key pra essa (userId, toolName, key).
+ * - Se é a primeira vez: insere status "in_progress" e devolve { kind: "proceed" }
+ *   → o caller deve chamar completeMcpIdempotencyKey/failMcpIdempotencyKey depois.
+ * - Se já existe e terminou (status "completed"): devolve o resultado
+ *   cacheado, sem executar nada de novo.
+ * - Se já existe e ainda está "in_progress" (chamada concorrente/duplicada
+ *   chegando antes da primeira terminar): devolve duplicate_in_progress.
+ * - Se a tentativa anterior falhou ("failed"): permite tentar de novo,
+ *   reabrindo o registro como "in_progress".
+ *
+ * A unicidade de requestKey no banco é o que garante atomicidade real —
+ * mesmo sob duas requests simultâneas, só uma delas consegue inserir.
+ */
+export async function reserveMcpIdempotencyKey(
+  userId: number,
+  toolName: string,
+  idempotencyKey: string
+): Promise<McpIdempotencyOutcome> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const requestKey = `${userId}:${toolName}:${idempotencyKey}`;
+
+  try {
+    const inserted = await db
+      .insert(mcpIdempotencyKeys)
+      .values({ requestKey, userId, toolName, status: "in_progress" })
+      .returning();
+    return { kind: "proceed", recordId: inserted[0].id };
+  } catch (e: any) {
+    // Violação de unique constraint → já existe registro pra essa key.
+    const isUniqueViolation = e?.code === "23505" || /duplicate key/i.test(e?.message || "");
+    if (!isUniqueViolation) throw e;
+
+    const existing = await db
+      .select()
+      .from(mcpIdempotencyKeys)
+      .where(eq(mcpIdempotencyKeys.requestKey, requestKey))
+      .limit(1);
+    const record = existing[0];
+    if (!record) throw e; // corrida rara: sumiu entre o erro e o select — trata como erro real
+
+    if (record.status === "completed") {
+      let result: any = null;
+      try { result = record.resultJson ? JSON.parse(record.resultJson) : null; } catch { /* mantém null */ }
+      return { kind: "cached_result", result };
+    }
+    if (record.status === "in_progress") {
+      return { kind: "duplicate_in_progress" };
+    }
+    // status === "failed" → libera nova tentativa reabrindo o mesmo registro
+    await db
+      .update(mcpIdempotencyKeys)
+      .set({ status: "in_progress", resultJson: null, completedAt: null })
+      .where(eq(mcpIdempotencyKeys.id, record.id));
+    return { kind: "proceed", recordId: record.id };
+  }
+}
+
+export async function completeMcpIdempotencyKey(recordId: number, result: any): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(mcpIdempotencyKeys)
+    .set({ status: "completed", resultJson: JSON.stringify(result).slice(0, 100000), completedAt: new Date() })
+    .where(eq(mcpIdempotencyKeys.id, recordId));
+}
+
+export async function failMcpIdempotencyKey(recordId: number, errorMessage: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(mcpIdempotencyKeys)
+    .set({ status: "failed", resultJson: JSON.stringify({ error: errorMessage }).slice(0, 100000), completedAt: new Date() })
+    .where(eq(mcpIdempotencyKeys.id, recordId));
 }
 

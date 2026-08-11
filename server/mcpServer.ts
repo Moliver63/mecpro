@@ -598,13 +598,21 @@ export function createMcpServerForUser(userId: number): McpServer {
         "todos os ad sets da campanha (ou só os índices indicados), reaproveitando " +
         "a mesma campanha na Meta entre eles. Usa as imagens já geradas pelo " +
         "generate_campaign — se houver 2+ imagens distintas nos criativos, publica " +
-        "como carrossel automaticamente; não gera imagem nova.",
+        "como carrossel automaticamente; não gera imagem nova.\n\n" +
+        "IDEMPOTÊNCIA: sempre gere um idempotencyKey único (ex: UUID v4) na " +
+        "primeira vez que chamar essa tool pra uma dada intenção de publicação, " +
+        "e reenvie o MESMO valor se precisar repetir a chamada (timeout, erro " +
+        "de rede, retry automático). Isso evita publicar a campanha duas vezes " +
+        "e gastar orçamento em dobro. Nunca gere uma key nova só porque a " +
+        "resposta demorou ou pareceu falhar — reenvie a key original.",
       inputSchema: {
         campaignId: z.number().int().positive(),
         pageId: z.string().describe("ID da Página do Facebook (use list_meta_pages se não souber)."),
         destination: z.enum(["website", "lead_form"]).optional().describe("Padrão: website."),
         linkUrl: z.string().optional().describe("URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da página."),
         adSetIndexes: z.array(z.number().int().min(0)).optional().describe("Quais ad sets publicar (por índice, começando em 0). Se omitido, publica todos."),
+        idempotencyKey: z.string().min(8).max(200)
+          .describe("Identificador único desta tentativa de publicação (ex: UUID v4). Reenvie o MESMO valor em caso de retry para evitar publicar a campanha duas vezes."),
       },
     },
     async (input) => {
@@ -617,9 +625,41 @@ export function createMcpServerForUser(userId: number): McpServer {
         return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
       }
 
+      // ── Reserva a idempotency key ANTES de qualquer efeito colateral ──
+      // (upload de imagem pra Meta e publicação em si). Se essa mesma key
+      // já foi usada: devolve o resultado cacheado (completed), recusa por
+      // estar em andamento (in_progress), ou libera nova tentativa (failed).
+      const requestKey = `publish_campaign:${input.idempotencyKey}`;
+      let idempotency: Awaited<ReturnType<typeof db.reserveMcpIdempotencyKey>>;
+      try {
+        idempotency = await db.reserveMcpIdempotencyKey(userId, "publish_campaign", input.idempotencyKey);
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao verificar idempotência: ${e.message}` }], isError: true };
+      }
+
+      if (idempotency.kind === "cached_result") {
+        const cached = idempotency.result || {};
+        return {
+          content: [{
+            type: "text",
+            text: `[Resultado já processado anteriormente para esta idempotencyKey — nenhuma publicação nova foi feita]\n\n${cached.summaryText || JSON.stringify(cached, null, 2)}`,
+          }],
+          structuredContent: { ...cached, fromCache: true },
+          isError: cached.isError === true,
+        };
+      }
+      if (idempotency.kind === "duplicate_in_progress") {
+        return {
+          content: [{ type: "text", text: "Já existe uma publicação em andamento com essa mesma idempotencyKey. Aguarde ela terminar em vez de repetir a chamada — repetir agora pode causar condição de corrida." }],
+          isError: true,
+        };
+      }
+      const idempotencyRecordId = idempotency.recordId;
+
       const adSets: any[] = (() => { try { return JSON.parse(campaign.adSets || "[]"); } catch { return []; } })();
       const creatives: any[] = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
       if (adSets.length === 0) {
+        await db.failMcpIdempotencyKey(idempotencyRecordId, "Campanha sem ad sets gerados.");
         return { content: [{ type: "text", text: "Essa campanha não tem ad sets gerados. Rode generate_campaign primeiro." }], isError: true };
       }
 
@@ -627,6 +667,7 @@ export function createMcpServerForUser(userId: number): McpServer {
       try {
         caller = await getCaller();
       } catch (e: any) {
+        await db.failMcpIdempotencyKey(idempotencyRecordId, e.message);
         return { content: [{ type: "text", text: e.message }], isError: true };
       }
 
@@ -644,6 +685,7 @@ export function createMcpServerForUser(userId: number): McpServer {
       )).slice(0, 10);
 
       if (uniqueImages.length === 0) {
+        await db.failMcpIdempotencyKey(idempotencyRecordId, "Nenhuma imagem encontrada nos criativos.");
         return { content: [{ type: "text", text: "Nenhuma imagem encontrada nos criativos gerados — não é possível publicar sem imagem." }], isError: true };
       }
 
@@ -668,6 +710,7 @@ export function createMcpServerForUser(userId: number): McpServer {
           imageHashes = await Promise.all(uniqueImages.map(resolveToHash));
         }
       } catch (e: any) {
+        await db.failMcpIdempotencyKey(idempotencyRecordId, `Falha ao enviar imagem(ns): ${e.message}`);
         return { content: [{ type: "text", text: `Falha ao enviar imagem(ns) pra Meta: ${e.message}` }], isError: true };
       }
 
@@ -707,8 +750,25 @@ export function createMcpServerForUser(userId: number): McpServer {
 
       const successCount = results.filter(r => r.success).length;
       const summary = results.map(r => r.success ? `✅ ${r.adSetName}` : `❌ ${r.adSetName}: ${r.error}`).join("\n");
+      const summaryText = `${successCount}/${results.length} ad set(s) publicado(s) na Meta.\n\n${summary}`;
+      const finalPayload = {
+        successCount,
+        total: results.length,
+        results,
+        metaCampaignId: sharedMetaCampaignId,
+        summaryText,
+        isError: successCount === 0,
+      };
+
+      // Marca como "completed" mesmo se successCount === 0: a essa altura o
+      // loop já chamou publishToMeta pelo menos uma vez (efeito colateral
+      // real já disparado), então repetir a MESMA idempotencyKey nunca deve
+      // tentar de novo — deve só devolver o que de fato aconteceu. Pra
+      // tentar de novo de propósito, o chamador precisa gerar uma nova key.
+      await db.completeMcpIdempotencyKey(idempotencyRecordId, finalPayload);
+
       return {
-        content: [{ type: "text", text: `${successCount}/${results.length} ad set(s) publicado(s) na Meta.\n\n${summary}` }],
+        content: [{ type: "text", text: summaryText }],
         structuredContent: { successCount, total: results.length, results, metaCampaignId: sharedMetaCampaignId },
         isError: successCount === 0,
       };
