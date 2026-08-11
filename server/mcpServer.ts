@@ -694,7 +694,7 @@ export function createMcpServerForUser(userId: number): McpServer {
         const url = tagged.slice(4);
         const imgRes = await fetch(url, { signal: AbortSignal.timeout(15000) });
         const buf = Buffer.from(await imgRes.arrayBuffer());
-        const uploadResult: any = await caller.campaigns.uploadImageToMeta({
+        const uploadResult: any = await caller.integrations.uploadImageToMeta({
           imageBase64: buf.toString("base64"),
           fileName: `campaign-${input.campaignId}-${Date.now()}.jpg`,
         } as any);
@@ -718,7 +718,7 @@ export function createMcpServerForUser(userId: number): McpServer {
       let linkUrl = input.linkUrl;
       if (!linkUrl) {
         try {
-          const resolved: any = await caller.campaigns.resolvePageLink({ pageId: input.pageId });
+          const resolved: any = await caller.competitors.resolvePageLink({ pageId: input.pageId });
           linkUrl = resolved?.whatsappUrl || (resolved?.website ? (resolved.website.startsWith("http") ? resolved.website : `https://${resolved.website}`) : undefined);
         } catch { /* segue sem link automático, publishToMeta pode dar erro claro se precisar */ }
       }
