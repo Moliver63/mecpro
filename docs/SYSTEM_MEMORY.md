@@ -586,18 +586,87 @@ coisa.
 
 ---
 
-## 📋 Pendências (atualizado sessão 26)
+## 📋 Sessão 11/08 — Idempotência no `publish_campaign`, incidente de perda de dados (recuperado via PITR), e bug real de namespace tRPC descoberto em teste ao vivo
+
+Sessão puxada pelo auditor estático (`scripts/audit-architecture.mjs`, novo)
+apontando `publish_campaign` sem nenhuma proteção contra chamada duplicada —
+risco real porque é a única mutation do MCP que gasta orçamento de cliente
+de verdade. Terminou em teste ponta-a-ponta contra a Meta real, incluindo
+recuperação de um incidente sério no meio do caminho.
+
+**Idempotência implementada (`baf381d`)**
+Nova tabela `mcp_idempotency_keys` (`requestKey` = `userId:toolName:key`,
+unique constraint fazendo o trabalho de atomicidade — não é
+`SELECT` seguido de `INSERT`, é a própria constraint do banco capturando
+`23505` em corrida). `publish_campaign` agora exige `idempotencyKey`
+obrigatório no input; reserva a key **antes** de qualquer efeito colateral
+(upload de imagem, chamada à Meta); devolve resultado cacheado se a mesma
+key já foi usada; recusa se está em andamento (chamada concorrente). Uma
+vez que o loop de publicação começa, o resultado fica `completed` mesmo em
+falha parcial — nunca reexecuta às cegas só porque a mesma key voltou.
+
+**Incidente: `drizzle-kit push:pg` apagou 20 tabelas em produção**
+`server/schema.ts` está desatualizado em relação ao banco real — faltam
+~20 tabelas que existem em produção mas não estão declaradas no schema
+(`learning_base`, `oauth_tokens`, `oauth_clients`, `campaign_scores`,
+`ad_patterns`, `winner_patterns`, `ml_dataset`, entre outras). Rodar
+`db:push` pra aplicar só a tabela nova comparou o schema incompleto contra
+o banco real e gerou um diff destrutivo — confirmado (não foi alarme
+falso): `DROP TABLE` rodou em pelo menos 20 tabelas antes de travar num
+erro de cast incompatível (`weeklyReportEnabled`) no meio da execução.
+**Recuperado via Point-in-Time Recovery do Render** (plano Basic-256mb,
+retenção de 7 dias) — banco novo restaurado (`mecpro_db_wpuh`,
+`dpg-d9tlf6e417fc73en7e30-a`), dados confirmados linha por linha contra os
+números do aviso de data-loss (só 1 linha de diferença em `oauth_tokens`,
+esperado pela janela entre o timestamp escolhido e o incidente real).
+`DATABASE_URL` do serviço web trocado pro banco restaurado. Tabela nova
+criada via `CREATE TABLE IF NOT EXISTS` direto por SQL, não por
+`drizzle-kit push` — **lição permanente: nunca mais rodar `db:push` contra
+produção enquanto `server/schema.ts` não estiver reconciliado 1:1 com o
+banco real. Virou pendência crítica nova (ver tabela abaixo).**
+
+**Bug real descoberto só em teste ao vivo: namespace tRPC errado no MCP (`bdfad08`)**
+Primeira tentativa de publicar de verdade (campanha 618, R$100/dia) falhou
+com `No procedure found on path "campaigns,uploadImageToMeta"`. Investigação
+no `appRouter` (composição final, `_core/router.ts:13277`) confirmou:
+`uploadImageToMeta` vive em `integrationsRouter` (mount `integrations`), e
+`resolvePageLink` vive em `competitorsRouter` (mount `competitors`) — nenhum
+dos dois está em `campaignsRouter`, mas `server/mcpServer.ts` chamava
+`caller.campaigns.uploadImageToMeta` e `caller.campaigns.resolvePageLink`.
+Só `publishToMeta` estava no namespace certo (`campaignsRouter`, linha 3215).
+**Esse bug já existia antes de hoje** — não foi introduzido pela mudança de
+idempotência, só nunca tinha sido exercitado com imagem real de criativo
+(a auditoria estática não detecta isso: `grep` prova presença de string, não
+resolução correta de rota). Corrigido, testado de novo com a mesma
+`idempotencyKey` (retry seguro, primeira tentativa tinha marcado a key como
+`failed` antes de qualquer gasto real) — publicação confirmada
+(`metaCampaignId: 120249006558020375`, carrossel de 6 criativos, ad set
+ativo).
+
+**Lição pra próxima sessão:** dois achados reforçam o mesmo padrão já
+documentado nas sessões 22/25/26 — "parece certo no código, mas nunca foi
+exercitado de ponta a ponta com dado real". Auditoria estática (grep,
+contagem de linha, presença de padrão) é útil pra priorizar onde olhar,
+mas não substitui teste funcional contra o sistema real quando dinheiro
+de cliente está envolvido. E qualquer migration de schema contra produção
+exige primeiro confirmar que o schema declarado bate 1:1 com o banco real
+— um schema incompleto usado em `db:push` é indistinguível de uma intenção
+real de apagar tabelas.
+
+---
+
+## 📋 Pendências (atualizado sessão 27 — 11/08)
 
 | Prioridade | Item | Responsável |
 |---|---|---|
-| 🔴 | Testar `publish_campaign` (MCP) contra a Meta de verdade — só validado isolado, nunca contra a API real. Usar projeto de teste, orçamento baixo | Michel |
+| 🔴 | **NOVO (sessão 27), CRÍTICO** — `server/schema.ts` está desatualizado em relação ao banco real (~20 tabelas de produção não declaradas: `learning_base`, `oauth_tokens`, `oauth_clients`, `campaign_scores`, `ad_patterns`, `winner_patterns`, `ml_dataset`, entre outras). Causou incidente real de perda de dados via `drizzle-kit push:pg` (recuperado via PITR). Reconciliar schema declarado com estado real do banco ANTES de rodar `db:push` de novo | Dev |
 | 🔴 | Recarregar crédito das 5 campanhas pausadas (imobiliária, psicóloga, cosméticos) — pausadas desde antes de 30/07 por falta de saldo | Michel |
 | 🔴 | Ads Library API code 10 — bloqueia dado real na busca por segmento (Módulo 2) e afeta a qualidade de `winner_patterns` extraídos de anúncios estimados. Requer verificação de identidade em facebook.com/ID | Michel |
 | 🔴 | Vincular WhatsApp 47999465824 à Página 1086894187837842 | Michel |
 | 🔴 | Adicionar website no perfil projeto 41 (Villa Serena) | Michel |
-| 🟡 | **NOVO (sessão 26)** — Implementar sync de `metric_roas` real via Pixel de conversão de valor. Confirmado ao vivo: 946 linhas em `campaign_scores`, ZERO com roas > 0. O fix de hoje (avg_roas na query) está correto, só não tem dado real pra gravar ainda | Dev |
-| 🟢 | **NOVO (sessão 26), opcional** — Migrar linhas antigas de `learning_base` com nicho não-normalizado (`imobiliário`/`IMOBILIARIO`/etc, ~50 linhas pré-sessão-26) pra dentro das linhas novas normalizadas — soma `sample_count`, recalcula médias ponderadas. Fix de hoje só evita poluição nova, não limpa histórico | Dev |
-| 🟡 | Integrar `buildPublishMediaFromCreative` no `publish_campaign` (MCP) — trata vídeo + segundo mecanismo de carrossel por criativo, encontrado mas não integrado na sessão 25 | Dev |
+| 🟡 | **NOVO (sessão 27)** — Decidir o que fazer com o banco antigo quebrado (`mecpro_db`, pré-restore) — manter parado por segurança por alguns dias ou já decomissionar pra não pagar por dois bancos | Michel |
+| 🟡 | Implementar sync de `metric_roas` real via Pixel de conversão de valor. Confirmado ao vivo: 946 linhas em `campaign_scores`, ZERO com roas > 0 | Dev |
+| 🟢 | Migrar linhas antigas de `learning_base` com nicho não-normalizado (`imobiliário`/`IMOBILIARIO`/etc, ~50 linhas pré-sessão-26) pra dentro das linhas novas normalizadas — soma `sample_count`, recalcula médias ponderadas | Dev |
 | 🟡 | Expor `creativeMode`/`uploadedImages` (fotos reais do cliente) no `generate_campaign` (MCP) — hoje só gera no modo automático | Dev |
 | 🟡 | Testar em produção: `createLookalikeAudience` com audiência-semente real | Michel |
 | 🟡 | GA4_SERVICE_ACCOUNT_JSON — confirmar Viewer na propriedade GA4 476009199 | Michel |
@@ -607,10 +676,12 @@ coisa.
 | 🟢 | Testes automatizados mínimos (`parseBudgetString`, `stripPlaceholders`, `dedupeSentences`, `inferOfferType`, `buildDescription`) — usar `tsx --test` nativo, já é o padrão do projeto (só 1 arquivo de teste existe hoje: `placementGuidance.test.ts`). Não instalar Vitest/Jest, criaria sistema de teste paralelo | Dev |
 | 🟢 | Reavaliar scores de Imagens/Copies com volume real pós fotos-reais-do-cliente — depende de acumular 10-20 campanhas no novo fluxo | Dev |
 
-**Resolvidas nesta sessão** (removidas da lista): rate limit ausente no
-MCP, encoding corrompido em `publicApi.ts`, `inferOfferType`+`SUBSEGMENTS`
-nunca plugados, `learning_base` com nicho fragmentado e roas nunca
-gravável, `ctaRule` nunca chegando no prompt principal do Gemini.
+**Resolvidas nesta sessão (27)** — removidas da lista: `publish_campaign`
+(MCP) testado contra a Meta real com sucesso (era item 🔴 top da lista
+anterior); idempotência ausente em mutations MCP; bug de namespace tRPC
+(`uploadImageToMeta`/`resolvePageLink` chamados sob `campaigns` em vez de
+`integrations`/`competitors` — quebrava toda publicação com upload de
+imagem via MCP).
 
 **Roadmap de features do gerenciador Meta (avaliado, não implementado ainda):**
 item 5 (reuso de criativo em carrossel), itens 4+8 (score preditivo +
@@ -657,7 +728,7 @@ ARQUIVOS CRÍTICOS (verificar antes de editar):
 - server/imageRAG.ts        ← análise Vision (corrigido sessão 21, cuidado com split("\n"))
 - shared/subsegments.ts     ← SUBSEGMENTS (plugado em generateCampaign — sessão 26, inferSubsegment())
 - client/src/pages/CampaignResult.tsx ← publicação Meta
-- server/mcpServer.ts       ← servidor MCP (9 tools, 3 fases) — sessão 25
+- server/mcpServer.ts       ← servidor MCP (9 tools, 3 fases) — sessão 25; idempotência em `publish_campaign` + fix de namespace tRPC (`uploadImageToMeta`/`resolvePageLink`) — sessão 27
 - server/oauthServer.ts     ← servidor OAuth 2.1 (/authorize, /token, /register) — sessão 25, sensível a segurança
 - server/publicApi.ts       ← API pública + authApiKey (aceita API key E token OAuth) + rate limit de burst no /mcp (sessão 26). Encoding corrompido (mojibake) corrigido na sessão 26 — se reaparecer, usar script Python cp1252→utf-8 linha a linha, não latin-1 (box-drawing chars usam faixa 0x80-0x9F onde os dois divergem)
 
@@ -783,7 +854,41 @@ REGRAS CRÍTICAS — NÃO VIOLAR:
       distinção explicitamente (banner/badge) — nunca deixar dado
       estimado passar visualmente como se fosse concorrência real
 
+17. NAMESPACE tRPC EM caller.createCaller() — nunca assumir, sempre grep
+    no appRouter (sessão 27):
+    - `server/mcpServer.ts` chamava `caller.campaigns.uploadImageToMeta`
+      e `caller.campaigns.resolvePageLink` — ambos existem no código, mas
+      NENHUM dos dois está montado sob `campaigns` no appRouter real
+      (`_core/router.ts:13277`): `uploadImageToMeta` é `integrations`,
+      `resolvePageLink` é `competitors`. Só `publishToMeta` está de fato
+      em `campaigns`. Bug ficou invisível até o primeiro teste real com
+      imagem de criativo — erro só aparece em runtime
+      (`No procedure found on path "..."`), TypeScript não pega porque
+      `createCaller` é tipado como `any` nesse ponto do MCP
+    - REGRA: antes de escrever `caller.<namespace>.<procedure>`, sempre
+      confirmar o namespace real via grep na composição final do
+      `appRouter` (`export const appRouter = router({ ... })`), nunca
+      assumir pelo nome do arquivo/router interno onde a procedure foi
+      declarada — o mount key pode ser diferente do nome da const
+
+18. MIGRATION CONTRA PRODUÇÃO — nunca rodar db:push sem confirmar schema
+    declarado == banco real primeiro (sessão 27, incidente real):
+    - `server/schema.ts` tem só um subconjunto das tabelas que existem em
+      produção (~20 tabelas reais não declaradas: learning_base,
+      oauth_tokens, oauth_clients, campaign_scores, ad_patterns,
+      winner_patterns, ml_dataset, entre outras)
+    - `drizzle-kit push:pg` compara schema declarado × banco real e gera
+      DROP TABLE para qualquer tabela real ausente do schema — isso já
+      aconteceu de verdade (20 tabelas apagadas, recuperado via Point-in-
+      Time Recovery do Render)
+    - REGRA: NUNCA rodar `db:push` contra produção sem antes: (1) listar
+      todas as tabelas reais do banco (`information_schema.tables`) e
+      confirmar que batem 1:1 com `server/schema.ts`, ou (2) aplicar
+      mudança pontual via `CREATE TABLE`/`ALTER TABLE` manual direto por
+      SQL, nunca via diff automático de schema inteiro
+
 PENDÊNCIAS ABERTAS:
+🔴 CRÍTICO — reconciliar server/schema.ts com o banco real (~20 tabelas de produção não declaradas) antes de qualquer novo db:push (sessão 27)
 🔴 Vincular WhatsApp 47999465824 à Página 1086894187837842 no Meta Business
 🔴 Adicionar website no perfil projeto 41 (Villa Serena) — websiteUrl = null
 🟡 Implementar sync de metric_roas real via Pixel de conversão (946 linhas em campaign_scores, ZERO com roas>0 — confirmado sessão 26)
