@@ -2126,8 +2126,16 @@ async function main() {
               );
               const data: any = await res.json();
               const ins = data.data?.[0];
-              if (!ins || data.error) continue;
-
+              // ANTES: `if (!ins || data.error) continue;` pulava o loop
+              // inteiro, incluindo o bloco de campaign_metrics diário logo
+              // abaixo (tecnicamente um try/catch IRMÃO, mas `continue`
+              // ainda salta pra próxima campanha antes de alcançá-lo) — a
+              // mesma busca INDEPENDENTE (time_increment=1) podia trazer
+              // linha mesmo quando o agregado sem time_increment não volta
+              // nada. Corrigido: só a parte que DEPENDE do agregado
+              // (ml_dataset) fica condicionada; o bloco diário roda sempre
+              // (fix sessão 29, mesmo bug de server/_core/router.ts).
+              if (ins && !data.error) {
               const ctr   = Number(ins.ctr   || 0);
               const cpc   = Number(ins.cpc   || 0);
               const spend = Number(ins.spend  || 0);
@@ -2145,6 +2153,7 @@ async function main() {
               `, [camp.id, ctr, cpc, cpl, spend, isWinner]);
 
               totalSynced++;
+              } // fecha if (ins && !data.error)
             } catch { /* individual campaign error — continue */ }
 
             // ── campaign_metrics diário (aditivo, isolado, não afeta o ml_dataset acima) ──

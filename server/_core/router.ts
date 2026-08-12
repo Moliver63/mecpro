@@ -3027,12 +3027,24 @@ const campaignsRouter = router({
           if (data.error) {
             log.warn("sync", "Meta insights erro", { campaignId: camp.id, metaId: camp.metaCampaignId, error: data.error.message?.slice(0, 80) });
             errors++;
-            continue;
           }
 
           const ins = data.data?.[0];
-          if (!ins) continue; // campanha sem dados no período
+          // Movido pra fora do bloco condicional abaixo — o fetch diário
+          // (independente, mais abaixo) também usa essa constante e precisa
+          // rodar mesmo quando `ins` está vazio.
+          const AVG_CONVERSION_VALUE = 50;
 
+          // ANTES: `if (!ins) continue;` aqui pulava TODO o resto do
+          // processamento desta campanha, incluindo o bloco de
+          // campaign_metrics diário mais abaixo — que é uma busca
+          // INDEPENDENTE (time_increment=1) e podia trazer linhas mesmo
+          // quando o agregado sem time_increment não retorna dado algum
+          // (achado real: campanhas com 3 semanas publicadas e zero métrica
+          // diária registrada apesar do sync rodar a cada 24h — sessão 29).
+          // Corrigido: só a parte que DEPENDE do agregado (score/ml_dataset)
+          // fica dentro de `if (ins)`; o bloco diário roda sempre.
+          if (ins) {
           const impressions = Number(ins.impressions || 0);
           const clicks      = Number(ins.clicks || 0);
           const spend       = Number(ins.spend || 0);
@@ -3046,7 +3058,6 @@ const campaignsRouter = router({
           // ROAS: usa valor REAL de conversão do Meta (action_values) quando disponível;
           // fallback: estimativa única de R$50/conversão (antes havia 2 fórmulas divergentes: R$100 e R$50)
           const purchaseValue = Number((ins.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
-          const AVG_CONVERSION_VALUE = 50;
           const roas = spend > 0
             ? (purchaseValue > 0 ? purchaseValue / spend : (Number(purchases) * AVG_CONVERSION_VALUE) / spend)
             : 0;
@@ -3132,6 +3143,7 @@ const campaignsRouter = router({
               error: mlErr.message?.slice(0, 60),
             });
           }
+          } // fecha if (ins) — daqui pra baixo roda mesmo sem dado agregado (fix sessão 29)
 
           // ── campaign_metrics: série temporal diária (Fase 1 do plano de dados) ──
           // Busca SEPARADA da acima (que é agregado do período inteiro) — aqui
