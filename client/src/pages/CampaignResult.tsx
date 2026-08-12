@@ -277,6 +277,9 @@ export default function CampaignResult() {
   const [placementMode,       setPlacementMode]       = useState<PlacementMode>("auto");
   const [selectedPlacements,  setSelectedPlacements]  = useState<string[]>([]);
 
+  // ── Creative Dinâmico (sessão 30, 12/08) — opt-in, experimental ──
+  const [useDynamicCreative, setUseDynamicCreative] = useState(false);
+
   // ── post orgânico ──
   const [showOrganicModal,  setShowOrganicModal]  = useState(false);
   const [organicPageId,     setOrganicPageId]     = useState("");
@@ -779,6 +782,7 @@ export default function CampaignResult() {
           imageHashes: mpImageHashes,
           imageUrl:    mpMedia.imageUrl,
           videoThumbnailHash: mpMedia.videoThumbnailHash,
+          useDynamicCreative,
         } as any);
         setPageId(prevPageId);
         results.push({ pageId: pid, pageName, success: true });
@@ -967,6 +971,7 @@ export default function CampaignResult() {
         // Passa objetivo e segmento explicitamente — sobrepõe valor salvo no banco
         objective: ((campaign as any)?.objective || "leads") as any,
         segment:   ((campaign as any)?.segment   || "") as any,
+        useDynamicCreative,
       };
 
       // Determina quais adSets publicar
@@ -4491,6 +4496,39 @@ ${sc.cta}`); }}
                           </div>
                           <p style={{ fontSize: 11, color: ageMin < ageMax ? "var(--green-d)" : "#dc2626", margin: 0, gridColumn: "1 / -1" }}>
                             {ageMin < ageMax ? `◎ A Meta receberá ${ageMin}–${ageMax} anos no ad set.` : "A idade mínima precisa ser menor do que a máxima."}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Creative Dinâmico — opt-in, experimental (sessão 30, 12/08) */}
+                      <div style={{ marginBottom: 16, borderRadius: 12, overflow: "hidden", border: "1.5px solid #e2e8f0" }}>
+                        <div style={{ background: "#f8fafc", padding: "10px 14px", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 15 }}>🧪</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--black)" }}>Creative Dinâmico</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fef3c7", padding: "2px 8px", borderRadius: 999 }}>
+                            EXPERIMENTAL
+                          </span>
+                        </div>
+                        <div style={{ padding: 14 }}>
+                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: creativeList.length >= 2 ? "pointer" : "not-allowed", opacity: creativeList.length >= 2 ? 1 : 0.5 }}>
+                            <input
+                              type="checkbox"
+                              checked={useDynamicCreative}
+                              disabled={creativeList.length < 2}
+                              onChange={e => setUseDynamicCreative(e.target.checked)}
+                              style={{ marginTop: 2 }}
+                            />
+                            <span style={{ fontSize: 12, color: "var(--black)", lineHeight: 1.5 }}>
+                              Deixar a Meta testar automaticamente as {creativeList.length} variações de copy geradas pela IA, em vez de publicar só uma versão fixa.
+                              {creativeList.length < 2 && (
+                                <span style={{ display: "block", color: "var(--muted)", marginTop: 2 }}>
+                                  Precisa de pelo menos 2 variações de criativo geradas — este projeto tem {creativeList.length}.
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                          <p style={{ fontSize: 10.5, color: "var(--muted)", margin: "8px 0 0", lineHeight: 1.4 }}>
+                            Baseado em dados reais: as 2 melhores campanhas analisadas (40 e 15 leads) usavam esse formato. Ainda não validado em larga escala no MecProAI — recomendado testar com orçamento baixo primeiro. Não funciona com carrossel, vídeo ou formulário nativo de leads.
                           </p>
                         </div>
                       </div>
