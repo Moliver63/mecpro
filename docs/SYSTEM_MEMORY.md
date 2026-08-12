@@ -1,7 +1,7 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-08-07 (sessão 26)
+> **Última atualização:** 2026-08-12 (sessão 28)
 
 ---
 
@@ -17,7 +17,7 @@
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `6be00a9` | fix(ai): wire ctaRule into the main Gemini prompt |
+| Último commit | `3e5c476` | feat(tokens): captura cache implícito automático do Gemini na telemetria |
 
 ---
 
@@ -655,6 +655,72 @@ real de apagar tabelas.
 
 ---
 
+---
+
+## 📋 Sessão 12/08 — Cérebro de referência externo, circuit breaker de modelo Gemini e telemetria de cache implícito
+
+Sessão puxada por avaliação (via Conselho de LLM) de 5 plugins de terceiros
+divulgados publicamente para Claude Code (OmniRoute, Claude-Mem, Headroom,
+claude-code-setup oficial, Task Observer). Decisão: não instalar nenhum —
+risco de supply-chain e interceptação de tráfego (OmniRoute tem MITM/TPROXY
+embutido; Task Observer contém texto endereçado diretamente à IA leitora
+tentando auto-ativação, padrão de prompt injection) desproporcional ao ganho
+pra um ambiente que já lida com dados de cliente (KYC, contratos, tokens).
+Extraídos só os padrões conceituais, sem código de terceiros, em
+`docs/reference-patterns/` (`705c2d0`) — inclui
+`task-observer-ALERTA.md` documentando o padrão de auto-ativação encontrado,
+pra reconhecer o mesmo golpe em outras ferramentas no futuro.
+
+**Circuit breaker por MODELO Gemini, distinto do rastreamento de quota por CHAVE (`10d289e`)**
+`server/ai.ts` já tinha `_exhaustedKeys`/`_exhaustedAt` rastreando quota (429)
+por chave, com reset de 60min — mas nenhum rastreamento de sobrecarga
+transitória (503/"high demand") por MODELO. Toda nova requisição
+(`retryCount` sempre reinicia em 0) batia de novo no `gemini-2.5-flash-lite`
+mesmo que ele tivesse acabado de devolver 503 pra outra chamada concorrente
+segundos antes — ~500ms-2s desperdiçados por requisição em pico de
+concorrência. Adicionado `_overloadedModels` (Map, cooldown 20s) que só
+decide o índice INICIAL da cascata em `retryCount===0`; retries subsequentes
+seguem a cascata normal sem pular, pra não mascarar indisponibilidade real.
+Zero linhas de lógica existente alteradas, só adição (+46/-2, as 2 removidas
+eram a mesma linha reescrita com comentário).
+
+**Telemetria de cache implícito automático do Gemini (`3e5c476`)**
+Confirmado via busca: Gemini 2.5+ tem cache implícito ATIVO POR PADRÃO desde
+meados de 2025 — 90% de desconto em tokens que batem no cache, mínimo 2.048
+tokens de elegibilidade (`gemini-2.5-flash-lite`/`gemini-2.5-flash` ambos
+qualificam), sem nenhuma configuração necessária do lado da aplicação.
+`SYSTEM_MECPRO` (~3.047 tokens) é reenviado idêntico como prefixo em quase
+toda chamada — já elegível estruturalmente. O problema: `usageMetadata.cachedContentTokenCount`
+nunca era capturado, então essa economia (que já acontecia) ficava invisível
+e o custo estimado em `tokenTelemetry.ts` calculava sempre o preço cheio.
+Corrigido: nova coluna `gemini_cached_tokens` em `ai_token_log` (migration
+idempotente, mesmo padrão de `ADD COLUMN IF NOT EXISTS` já usado no arquivo),
+`estimateCost()` agora aplica os 90% de desconto na parcela cacheada pra
+modelos `gemini-2.5`/`gemini-3`. **Zero mudança de comportamento na geração
+de campanha** — só visibilidade e precisão de custo sobre algo que já era
+real.
+
+**Ideia descartada no meio do caminho, registrada pra não repetir:** cogitei
+aplicar `_compressPromptLight()` (hoje só usado no fallback Groq) direto no
+caminho principal do Gemini pra "economizar tokens". Ao olhar o código de
+perto, essa função troca `"glossary": [...]` por `"glossary": []` e comprime
+o bloco de compliance Meta Ads — isso é uma degradação de qualidade aceitável
+só no modo de emergência (Groq caiu), não algo pra aplicar no motor principal
+que o cliente paga pra usar. **Lição: "economizar tokens" nunca deve custar
+qualidade do output no caminho principal — só no fallback explícito, onde
+o trade-off já é assumido.**
+
+**Lição pra próxima sessão:** antes de propor qualquer otimização de
+performance/custo em `server/ai.ts`, ler primeiro a implementação real —
+o arquivo já tem cascata de modelos, rotação de 5 chaves, cache RAM (60min)
++ DB persistente (TTL por tipo), semáforo de concorrência (max 2), e fallback
+em cadeia Gemini→Groq→Genspark→Claude→OpenRouter→mock. Reimplementar um
+padrão genérico por cima disso é redundante na melhor hipótese e degradante
+na pior. O ganho real está sempre num gap específico e pequeno, não numa
+reescrita.
+
+---
+
 ## 📋 Pendências (atualizado sessão 27 — 11/08)
 
 | Prioridade | Item | Responsável |
@@ -887,6 +953,38 @@ REGRAS CRÍTICAS — NÃO VIOLAR:
       mudança pontual via `CREATE TABLE`/`ALTER TABLE` manual direto por
       SQL, nunca via diff automático de schema inteiro
 
+19. server/ai.ts JÁ É SOFISTICADO — ler antes de propor otimização de
+    custo/performance, e cache implícito do Gemini já é automático
+    (sessão 28):
+    - Antes de sugerir circuit breaker, retry, cascata de fallback ou
+      compressão de prompt em `server/ai.ts`, ler a implementação real
+      primeiro: já existe cascata de modelos (`GEMINI_MODELS`), rotação
+      de 5 chaves com rastreamento de quota (`_exhaustedKeys`, reset
+      60min), circuit breaker de sobrecarga por MODELO (`_overloadedModels`,
+      cooldown 20s, sessão 28), cache RAM (60min) + DB persistente (TTL
+      por tipo em `aiCache.ts`), semáforo de concorrência (max 2), e
+      fallback em cadeia Gemini→Groq→Genspark→Claude→OpenRouter→mock.
+      Reimplementar um padrão genérico por cima disso é redundante ou pior
+    - Gemini 2.5+ tem CACHE IMPLÍCITO AUTOMÁTICO desde meados de 2025 —
+      90% de desconto em tokens que batem no cache, mínimo 2.048 tokens de
+      elegibilidade, SEM configuração necessária. `SYSTEM_MECPRO` (~3.047
+      tokens) já é enviado idêntico como prefixo na quase totalidade das
+      chamadas — já elegível. NÃO propor implementação manual de context
+      caching explícito sem antes checar se o ganho marginal justifica a
+      complexidade adicional (a "explicit caching" API do Gemini tem custo
+      de storage próprio e histórico de faturas surpresa reportado por
+      devs — ver busca web de ago/2026)
+    - `usageMetadata.cachedContentTokenCount` (tokens que bateram no cache)
+      é capturado e logado desde `3e5c476` — coluna `gemini_cached_tokens`
+      em `ai_token_log`. Consultar essa coluna ANTES de propor qualquer
+      otimização de custo — ela mostra o que já está sendo economizado de
+      graça pelo Google, evitando trabalho duplicado
+    - REGRA GERAL: "economizar tokens" nunca deve degradar qualidade do
+      output no caminho PRINCIPAL (o que o cliente paga pra usar) — só é
+      aceitável no fallback explícito de emergência (`_compressPromptLight`,
+      usado hoje só na cascata Groq/OpenRouter), onde o trade-off já é
+      assumido conscientemente
+
 PENDÊNCIAS ABERTAS:
 🔴 CRÍTICO — reconciliar server/schema.ts com o banco real (~20 tabelas de produção não declaradas) antes de qualquer novo db:push (sessão 27)
 🔴 Vincular WhatsApp 47999465824 à Página 1086894187837842 no Meta Business
@@ -904,4 +1002,9 @@ CUSTOS REAIS (logs produção, sessão 20 — não remedido sessão 21):
 - Gemini+Groq: US$0,0021/campanha
 - Imagens: R$0 (Pixabay/Google fallback gratuito) — reavaliar com fotos reais (Cloudinary)
 - Margem: >99% em qualquer escala até 1M clientes
+- NOVO (sessão 28): coluna `gemini_cached_tokens` em `ai_token_log` agora
+  mostra tokens que bateram no cache implícito automático do Gemini (90%
+  desconto) — consultar essa coluna antes de remedir custo real, o número
+  de US$0,0021/campanha acima provavelmente já estava um pouco inflado por
+  não descontar o cache hit
 ```
