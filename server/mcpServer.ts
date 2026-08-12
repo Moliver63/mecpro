@@ -523,6 +523,16 @@ export function createMcpServerForUser(userId: number): McpServer {
   //   2. campaigns.updateCreativeImage (server/_core/router.ts) — mesma
   //      procedure que a tela de edição de criativo usa pra trocar imagem.
   // Ainda é Fase 2 (rascunho) — não gasta orçamento, não publica nada.
+  //
+  // (sessão 31, 12/08) — aceita fileUrl como alternativa ao imageBase64.
+  // Motivo: Base64 infla o payload em ~33% e pode bater limite de tamanho
+  // de requisição em clientes MCP diferentes (ex: ChatGPT/outros agentes),
+  // especialmente com múltiplas imagens. fileUrl evita reencodar o arquivo
+  // inteiro como string — o servidor baixa a imagem direto da URL e reusa
+  // exatamente o mesmo pipeline de validação+upload que o Base64 já usa
+  // (mesma função uploadImageBufferToCloudinary, só muda como o buffer
+  // chega). Nenhum dos dois é obrigatório sozinho — exatamente um dos dois
+  // precisa vir preenchido.
   server.registerTool(
     "upload_creative_image",
     {
@@ -532,7 +542,9 @@ export function createMcpServerForUser(userId: number): McpServer {
         "campanha por uma imagem enviada manualmente (ex: foto real do " +
         "cliente). Sobe a imagem pro Cloudinary e atualiza o rascunho da " +
         "campanha — não publica nada na Meta. Chame get_campaign antes pra " +
-        "saber o creativeIndex certo.",
+        "saber o creativeIndex certo. Informe imageBase64 OU fileUrl (nunca " +
+        "os dois) — fileUrl é preferível quando a imagem já está hospedada " +
+        "em algum lugar acessível, pois evita payload grande.",
       inputSchema: {
         campaignId: z.number().int().positive().describe("ID da campanha (de get_campaign/list_campaigns)."),
         creativeIndex: z.number().int().min(0).describe("Índice do criativo dentro da campanha (0 = primeiro)."),
@@ -541,11 +553,19 @@ export function createMcpServerForUser(userId: number): McpServer {
           "Uma mesma foto normalmente não serve pros 3 formatos sem cortar errado — " +
           "confirme com o usuário qual formato ele quer trocar."
         ),
-        imageBase64: z.string().describe("Conteúdo da imagem em base64 (com ou sem prefixo data:image/...;base64,)."),
+        imageBase64: z.string().optional().describe(
+          "Conteúdo da imagem em base64 (com ou sem prefixo data:image/...;base64,). " +
+          "Use isso OU fileUrl, não os dois."
+        ),
+        fileUrl: z.string().url().optional().describe(
+          "URL pública HTTPS de onde baixar a imagem (preferível a imageBase64 " +
+          "quando disponível — evita payload grande, especialmente com várias " +
+          "imagens). Use isso OU imageBase64, não os dois."
+        ),
         fileName: z.string().describe("Nome do arquivo, com extensão (ex: foto-cliente.jpg)."),
       },
     },
-    async ({ campaignId, creativeIndex, format, imageBase64, fileName }) => {
+    async ({ campaignId, creativeIndex, format, imageBase64, fileUrl, fileName }) => {
       // ── checagem de posse — mesmo padrão de get_campaign ──────────────
       const campaign: any = await db.getCampaignById(campaignId);
       if (!campaign) {
@@ -561,12 +581,45 @@ export function createMcpServerForUser(userId: number): McpServer {
         return { content: [{ type: "text", text: `Criativo de índice ${creativeIndex} não existe nessa campanha (ela tem ${creatives.length}).` }], isError: true };
       }
 
-      // ── validação do payload — helper compartilhado com generate_campaign ──
-      const decoded = decodeAndValidateImage(imageBase64);
-      if (!decoded.ok || !decoded.buffer) {
-        return { content: [{ type: "text", text: decoded.error || "Imagem inválida." }], isError: true };
+      // ── validação: exatamente uma fonte de imagem precisa vir preenchida ──
+      if (!imageBase64 && !fileUrl) {
+        return { content: [{ type: "text", text: "Informe imageBase64 ou fileUrl." }], isError: true };
       }
-      const buffer = decoded.buffer;
+      if (imageBase64 && fileUrl) {
+        return { content: [{ type: "text", text: "Informe apenas um: imageBase64 OU fileUrl, não os dois." }], isError: true };
+      }
+
+      // ── resolve o buffer da imagem, seja por Base64 ou por download da URL ──
+      let buffer: Buffer;
+      if (fileUrl) {
+        let fetchRes: Response;
+        try {
+          fetchRes = await fetch(fileUrl, { signal: AbortSignal.timeout(15000) });
+        } catch (e: any) {
+          return { content: [{ type: "text", text: `Falha ao baixar a imagem de fileUrl: ${e?.message || "erro de rede"}.` }], isError: true };
+        }
+        if (!fetchRes.ok) {
+          return { content: [{ type: "text", text: `fileUrl retornou status ${fetchRes.status} — verifique se a URL é pública e acessível.` }], isError: true };
+        }
+        const contentType = fetchRes.headers.get("content-type") || "";
+        if (contentType && !contentType.startsWith("image/")) {
+          return { content: [{ type: "text", text: `fileUrl não aponta pra uma imagem (content-type: ${contentType}).` }], isError: true };
+        }
+        const arrayBuf = await fetchRes.arrayBuffer();
+        buffer = Buffer.from(arrayBuf);
+        // Limite básico de tamanho — mesma ordem de grandeza do que o
+        // caminho Base64 já tolera implicitamente via limite de payload MCP.
+        if (buffer.byteLength > 15 * 1024 * 1024) {
+          return { content: [{ type: "text", text: "Imagem baixada de fileUrl excede 15MB — use uma imagem menor." }], isError: true };
+        }
+      } else {
+        // ── validação do payload — helper compartilhado com generate_campaign ──
+        const decoded = decodeAndValidateImage(imageBase64!);
+        if (!decoded.ok || !decoded.buffer) {
+          return { content: [{ type: "text", text: decoded.error || "Imagem inválida." }], isError: true };
+        }
+        buffer = decoded.buffer;
+      }
 
       // ── upload pro Cloudinary (mesma função que o gerador de IA usa) ──
       const cloudUrl = await uploadImageBufferToCloudinary(buffer, fileName || `manual-${campaignId}-${creativeIndex}-${Date.now()}.jpg`);
