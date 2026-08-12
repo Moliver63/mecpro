@@ -546,6 +546,34 @@ function markGeminiKeyExhausted(key: string) {
   });
 }
 
+// ── Circuit breaker leve por MODELO (sobrecarga transitória, não quota) ──────
+// _exhaustedKeys/_exhaustedAt acima rastreiam quota (429) por CHAVE, com reset
+// de 60min. Isto é diferente: rastreia sobrecarga momentânea (503/"high demand")
+// por MODELO — um erro que não tem relação com sua chave, é o modelo em si sob
+// rajada de tráfego global do Google naquele instante. Sem isso, toda nova
+// requisição (retryCount sempre reinicia em 0) batia de novo no mesmo modelo
+// que tinha acabado de devolver 503 pra outra chamada concorrente segundos
+// antes, desperdiçando ~500ms-2s por requisição em alta concorrência.
+// Padrão: circuit breaker por provedor de gateways multi-modelo (ver
+// docs/reference-patterns/omniroute-patterns.md), adaptado à cascata GEMINI_MODELS
+// já existente — só decide o ÍNDICE INICIAL da cascata, não muda o resto da lógica.
+const _overloadedModels = new Map<string, number>(); // model -> timestamp da última sobrecarga
+const MODEL_OVERLOAD_COOLDOWN_MS = 20 * 1000; // 20s — sobrecarga do Gemini costuma ser rajada curta
+
+function markModelOverloaded(model: string) {
+  _overloadedModels.set(model, Date.now());
+}
+
+function isModelOverloaded(model: string): boolean {
+  const ts = _overloadedModels.get(model);
+  if (!ts) return false;
+  if (Date.now() - ts > MODEL_OVERLOAD_COOLDOWN_MS) {
+    _overloadedModels.delete(model); // cooldown expirou — libera o modelo de novo
+    return false;
+  }
+  return true;
+}
+
 
 // ══════════════════════════════════════════════════════════════════════════
 // META ADS COMPLIANCE ENGINE — Políticas Meta 2025/2026
@@ -1797,8 +1825,18 @@ async function _geminiImpl(
     },
   };
 
-  // Cascata de modelos — avança para o próximo quando sobrecarregado
-  const modelIndex = Math.min(retryCount, GEMINI_MODELS.length - 1);
+  // Cascata de modelos — avança para o próximo quando sobrecarregado.
+  // Em retryCount 0 (primeira tentativa desta requisição), pula modelos que
+  // sinalizaram sobrecarga (503/"high demand") nos últimos MODEL_OVERLOAD_COOLDOWN_MS
+  // — evita começar batendo de novo num modelo que acabou de falhar pra outra
+  // chamada concorrente. Retries subsequentes (retryCount > 0) seguem a cascata
+  // normal, sem pular, pra não mascarar problemas reais de disponibilidade.
+  let modelIndex = Math.min(retryCount, GEMINI_MODELS.length - 1);
+  if (retryCount === 0) {
+    while (modelIndex < GEMINI_MODELS.length - 1 && isModelOverloaded(GEMINI_MODELS[modelIndex])) {
+      modelIndex++;
+    }
+  }
   const model      = GEMINI_MODELS[modelIndex];
   const url        = `${GEMINI_BASE}/${model}:generateContent`;
 
@@ -1830,6 +1868,12 @@ async function _geminiImpl(
 
     // Marca chave como esgotada quando for erro de quota
     if (isQuota && apiKey) markGeminiKeyExhausted(apiKey);
+
+    // Marca MODELO (não a chave) como temporariamente sobrecarregado quando o
+    // erro é 503/"high demand"/"overloaded" real — não quota, não 404 (modelo
+    // inválido). Isso é sobrecarga do lado do Google, independente de qual
+    // chave está sendo usada.
+    if (!isQuota && !is404) markModelOverloaded(model);
 
     // Se todas as chaves esgotadas após marcar → pula direto para Groq sem tentar mais modelos
     if (isQuota) {
