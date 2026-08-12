@@ -372,6 +372,13 @@ export const publishToMetaInputSchema = z.object({
   locationMode: z.enum(["brasil", "paises", "raio", "cidade"]).optional(),
   geoCity: z.string().optional(),
   geoRadius: z.number().optional(),
+  // (sessão 30, 12/08) — opt-in pra publicar como Creative Dinâmico da Meta
+  // (asset_feed_spec: múltiplas variações de texto/título testadas automaticamente
+  // pela Meta). Dado real: campanhas do cliente Eduardo (userId 3) usando esse
+  // formato tiveram os 2 melhores resultados do portfólio dele (40 e 15 leads).
+  // Default false — não muda o comportamento de publicações existentes até
+  // ser testado e habilitado explicitamente no frontend.
+  useDynamicCreative: z.boolean().optional().default(false),
 }).passthrough().superRefine((value, ctx) => {
   const hasVideo = !!value.videoId;
   const hasCarousel = (value.imageHashes?.length ?? 0) >= 2 || (value.imageUrls?.length ?? 0) >= 2;

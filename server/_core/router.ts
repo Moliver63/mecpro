@@ -3755,6 +3755,24 @@ const campaignsRouter = router({
       const extra     = parseJson(c.aiResponse);
       const adSet     = Array.isArray(adSets) ? (adSets[input.adSetIndex] ?? adSets[0]) : null;
       const creativeList = Array.isArray(creatives) ? creatives as CampaignCreative[] : [];
+
+      // ── Elegibilidade pro Creative Dinâmico (sessão 30, 12/08) ─────────
+      // Calculado cedo (antes do AdSet) porque a Meta exige is_dynamic_creative
+      // no AdSet no MESMO valor que será usado no Creative — decidir isso tarde
+      // demais causaria mismatch (AdSet dizendo "dinâmico" e Creative não tendo
+      // asset_feed_spec, ou vice-versa). Usa input.videoId/imageHashes/imageUrls
+      // direto (não as versões "effective*", que só existem mais adiante) porque
+      // são equivalentes pra esse propósito de pré-checagem.
+      const dynamicCreativeBodies = creativeList
+        .map((c: any) => String((c as any).message || (c as any).body || (c as any).hook || "").trim())
+        .filter(Boolean);
+      const isDynamicCreativeEligible =
+        !!input.useDynamicCreative &&
+        !input.videoId &&
+        (input.imageHashes?.length ?? 0) < 2 &&
+        (input.imageUrls?.length ?? 0) < 2 &&
+        input.destination !== "lead_form" &&
+        dynamicCreativeBodies.length >= 2;
       const manualPlacements = input.placementMode === "manual" ? (input.placements || []) : [];
       const storyLikePlacements = manualPlacements.filter((placement: string) => /(story|reels)/i.test(placement));
       const placementKey: "feed" | "stories" | "reels" = storyLikePlacements.length > 0 && storyLikePlacements.length === manualPlacements.length
@@ -4262,6 +4280,9 @@ const campaignsRouter = router({
         campaign_id:       metaCampaignId,
         billing_event:     toBillingEvent(objective),
         optimization_goal: adSetOptimizationGoal,
+        // is_dynamic_creative: precisa bater com o Creative — ver
+        // isDynamicCreativeEligible (calculado acima, perto de creativeList)
+        ...(isDynamicCreativeEligible ? { is_dynamic_creative: true } : {}),
         bid_strategy:      "LOWEST_COST_WITHOUT_CAP",
         daily_budget:      budgetDaily * 100,
         end_time:          endTime,
@@ -4270,7 +4291,14 @@ const campaignsRouter = router({
         targeting: {
           age_min: parsedAgeMin,
           age_max: parsedAgeMax,
-          targeting_automation: { advantage_audience: 0 },
+          // advantage_audience: 1 (sessão 30, 12/08) — dado real do cliente Eduardo (userId 3):
+          // as 3 campanhas com melhor resultado (40/20/15 leads) usavam Advantage+ Audience
+          // ligado. Estava hard-coded em 0 (desligado). Desliga automaticamente se o usuário
+          // já definiu público customizado ou interesses específicos, pra não sobrescrever
+          // uma segmentação manual intencional.
+          targeting_automation: {
+            advantage_audience: (input.customAudienceIds?.length || resolvedInterests.length > 0) ? 0 : 1,
+          },
           ...(input.customAudienceIds?.length ? {
             custom_audiences: input.customAudienceIds.map((id) => ({ id })),
           } : {}),
@@ -4524,6 +4552,10 @@ const campaignsRouter = router({
 
       // Monta link_data ou lead_gen_data dependendo do destino
       let storySpec: any;
+      // Campos extras pro creativeBody (hoje só asset_feed_spec, quando
+      // o Creative Dinâmico é usado) — separado de storySpec porque
+      // asset_feed_spec é irmão de object_story_spec, não filho dele.
+      const creativeBodyExtras: Record<string, any> = {};
       let carouselHashes: string[] | null = null;
       let carouselUrls: string[] | null = null;
       let isCarousel = false;
@@ -4609,7 +4641,73 @@ const campaignsRouter = router({
           : null;
         isCarousel = !!(carouselHashes || carouselUrls);
 
-        if (isCarousel) {
+        // ── Creative Dinâmico (sessão 30, 12/08) ──────────────────────────
+        // isDynamicCreativeEligible já foi calculado cedo (perto de
+        // creativeList) pra poder ser usado também na criação do AdSet
+        // (is_dynamic_creative precisa bater entre AdSet e Creative).
+        // Reforça aqui só a exclusão mútua com carrossel, que só é
+        // conhecida depois (carouselHashes/carouselUrls calculados acima).
+        if (isDynamicCreativeEligible && !isCarousel) {
+          const bodies = creativeList
+            .map((c: any) => String(c.message || c.body || c.hook || "").trim())
+            .filter(Boolean)
+            .slice(0, 5)   // Meta: máximo 5 variações de texto
+            .map((text: string) => ({ text: text.slice(0, 2200) }));  // limite Meta
+
+          const titles = creativeList
+            .map((c: any) => String(c.headline || c.title || "").trim())
+            .filter(Boolean)
+            .slice(0, 5)
+            .map((text: string) => ({ text: text.slice(0, 40) }));
+
+          const dynamicImages = resolvedImageHash
+            ? [{ hash: resolvedImageHash }]
+            : resolvedImageUrl
+              ? [{ url: resolvedImageUrl }]
+              : [];
+
+          const dynamicLink = isWhatsAppDestination
+            ? (((whatsappDestination as any)._connectedPhone)
+                ? (normalizeDestinationUrl((clientProfile as any)?.websiteUrl) || `https://www.facebook.com/${input.pageId}`)
+                : (whatsappDestination.link || normalizeDestinationUrl((clientProfile as any)?.websiteUrl) || `https://www.facebook.com/${input.pageId}`))
+            : finalLink;
+
+          // Fallback pra bodies/titles vazios (creativeList sem os campos esperados)
+          // — se não conseguirmos montar pelo menos 2 variações reais, desiste do
+          // dynamic creative e cai no branch de imagem simples abaixo.
+          if (bodies.length >= 2 && dynamicImages.length > 0) {
+            log.info("meta", "Publicando como Creative Dinâmico (asset_feed_spec)", {
+              campaignId: input.campaignId,
+              variacoesCorpo: bodies.length,
+              variacoesTitulo: titles.length,
+            });
+
+            storySpec = {
+              page_id: input.pageId,
+              link_data: {
+                link: dynamicLink,
+                call_to_action: isWhatsAppDestination
+                  ? { type: "WHATSAPP_MESSAGE" }
+                  : { type: noLinkRequired && !effectiveLink ? "LEARN_MORE" : ctaType, ...(noLinkRequired && !effectiveLink ? {} : { value: ctaValue }) },
+              },
+            };
+
+            (creativeBodyExtras as any).asset_feed_spec = {
+              images: dynamicImages,
+              bodies,
+              ...(titles.length ? { titles } : {}),
+              ad_formats: ["SINGLE_IMAGE"],
+              call_to_action_types: [isWhatsAppDestination ? "WHATSAPP_MESSAGE" : (noLinkRequired && !effectiveLink ? "LEARN_MORE" : ctaType)],
+              link_urls: [{ website_url: dynamicLink }],
+            };
+          } else {
+            log.warn("meta", "Dynamic creative solicitado mas sem variações suficientes — usando imagem simples", {
+              campaignId: input.campaignId, bodiesFound: bodies.length,
+            });
+          }
+        }
+
+        if (!storySpec && isCarousel) {
           // -- Formato Carrossel (2-10 fotos) -----------------------------
           // Cada card usa um criativo diferente: headline + descrição próprios
           // Mapeamento: card idx → creative idx (rotativo se mais cards que criativos)
@@ -4694,7 +4792,10 @@ const campaignsRouter = router({
             },
           };
           log.info("meta", "Criativo carrossel", { cards: child_attachments.length, pageId: input.pageId });
-        } else {
+        } else if (!storySpec) {
+          // storySpec pode já estar definido aqui pelo branch de Creative
+          // Dinâmico acima (isDynamicCreativeEligible) — só monta o formato
+          // padrão (vídeo/imagem simples) se ainda não houver storySpec.
           // -- Formato vídeo (video_data) ou imagem simples (link_data) ------
           // A Meta exige estruturas DIFERENTES para vídeo vs imagem:
           // Vídeo → object_story_spec.video_data
@@ -4887,6 +4988,7 @@ const campaignsRouter = router({
       const creativeBody: any = {
         name:              creativeName,
         object_story_spec: storySpec,
+        ...creativeBodyExtras,   // asset_feed_spec quando Creative Dinâmico está ativo
         access_token:      token,
         // degrees_of_freedom_spec.creative_features_spec: TENTAMOS controlar as
         // melhorias Advantage+ (texto, overlays etc.) por aqui — a Meta rejeitou
