@@ -9963,6 +9963,267 @@ const unifiedRouter = router({
       return { campaigns: camps.length, spend, impressions, clicks, cpc, cpm, ctr };
     }),
 
+  // ── Relatório completo multi-plataforma, com granularidade real ────────────
+  // Diferente de metaMetrics/googleMetrics/tiktokMetrics acima (que só somam
+  // totais gerais), isto traz QUEBRAS direto das APIs oficiais — idade/gênero,
+  // posicionamento/plataforma e dispositivo na Meta; dispositivo + conversões
+  // reais no Google; idade/gênero no TikTok. Esse nível de detalhe é o que o
+  // MCP padrão de cada plataforma normalmente não expõe (eles dão agregado).
+  // Usado pela tool MCP get_full_ads_report (server/mcpServer.ts). Cada
+  // plataforma é isolada em try/catch própria — uma falhar não derruba as
+  // outras nem impede o relatório parcial de ser devolvido.
+  getFullReport: protectedProcedure
+    .input(z.object({
+      platforms: z.array(z.enum(["meta", "google", "tiktok"])).default(["meta", "google", "tiktok"]),
+      period:    z.enum(["7d", "30d", "90d"]).default("30d"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const days  = input.period === "7d" ? 7 : input.period === "30d" ? 30 : 90;
+      const since = daysAgo(days);
+      const until = today();
+      const report: Record<string, any> = {};
+
+      // ── META — breakdowns por idade/gênero, posicionamento e dispositivo ────
+      if (input.platforms.includes("meta")) {
+        try {
+          const integration = await db.getApiIntegration(ctx.user.id, "meta");
+          const token  = (integration as any)?.accessToken;
+          const rawAcc = (integration as any)?.adAccountId;
+          if (!token || !rawAcc) {
+            report.meta = { configured: false, error: "Integração Meta não configurada." };
+          } else {
+            const act = sanitizeAdAccountId(rawAcc);
+            if (!act) {
+              report.meta = { configured: false, error: "Ad Account ID Meta inválido." };
+            } else {
+              const baseFields = "impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,action_values";
+              const timeRange  = `{"since":"${since}","until":"${until}"}`;
+
+              const fetchInsights = async (breakdowns?: string) => {
+                const params = new URLSearchParams({
+                  level: "campaign", fields: baseFields, time_range: timeRange,
+                  limit: "500", access_token: token,
+                });
+                if (breakdowns) params.set("breakdowns", breakdowns);
+                const res  = await fetch(`https://graph.facebook.com/v21.0/${act}/insights?${params.toString()}`, { signal: AbortSignal.timeout(15000) });
+                const data: any = await res.json();
+                if (data.error) throw new Error(data.error.message);
+                return (data.data || []) as any[];
+              };
+
+              const [summary, byAgeGender, byPlacement, byDevice] = await Promise.all([
+                fetchInsights(),
+                fetchInsights("age,gender").catch((e: any) => { log.warn("unified", "Meta breakdown age/gender falhou", { error: e.message?.slice(0, 80) }); return []; }),
+                fetchInsights("publisher_platform,platform_position").catch((e: any) => { log.warn("unified", "Meta breakdown placement falhou", { error: e.message?.slice(0, 80) }); return []; }),
+                fetchInsights("device_platform").catch((e: any) => { log.warn("unified", "Meta breakdown device falhou", { error: e.message?.slice(0, 80) }); return []; }),
+              ]);
+
+              const extractAction = (row: any, type: string) => Number((row.actions || []).find((a: any) => a.action_type === type)?.value || 0);
+              const extractValue  = (row: any, type: string) => Number((row.action_values || []).find((a: any) => a.action_type === type)?.value || 0);
+
+              const totals = summary.reduce((acc: any, row: any) => {
+                acc.impressions   += Number(row.impressions || 0);
+                acc.clicks        += Number(row.clicks || 0);
+                acc.spend         += Number(row.spend || 0);
+                acc.reach          = Math.max(acc.reach, Number(row.reach || 0));
+                acc.leads         += extractAction(row, "lead");
+                acc.purchases     += extractAction(row, "purchase");
+                acc.purchaseValue += extractValue(row, "purchase");
+                return acc;
+              }, { impressions: 0, clicks: 0, spend: 0, reach: 0, leads: 0, purchases: 0, purchaseValue: 0 });
+
+              report.meta = {
+                configured: true,
+                period: { since, until },
+                totals: {
+                  ...totals,
+                  ctr:  totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+                  cpc:  totals.clicks > 0 ? totals.spend / totals.clicks : 0,
+                  cpm:  totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
+                  roas: totals.spend > 0 ? totals.purchaseValue / totals.spend : 0,
+                },
+                campaigns: summary.map((row: any) => ({
+                  campaignId: row.campaign_id, campaignName: row.campaign_name,
+                  impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
+                  spend: Number(row.spend || 0), ctr: Number(row.ctr || 0), cpc: Number(row.cpc || 0),
+                  cpm: Number(row.cpm || 0), reach: Number(row.reach || 0), frequency: Number(row.frequency || 0),
+                  leads: extractAction(row, "lead"), purchases: extractAction(row, "purchase"),
+                  purchaseValue: extractValue(row, "purchase"),
+                })),
+                breakdowns: {
+                  ageGender: byAgeGender.map((row: any) => ({
+                    age: row.age, gender: row.gender,
+                    impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
+                    spend: Number(row.spend || 0), ctr: Number(row.ctr || 0),
+                  })),
+                  placement: byPlacement.map((row: any) => ({
+                    platform: row.publisher_platform, position: row.platform_position,
+                    impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
+                    spend: Number(row.spend || 0), ctr: Number(row.ctr || 0),
+                  })),
+                  device: byDevice.map((row: any) => ({
+                    device: row.device_platform,
+                    impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
+                    spend: Number(row.spend || 0), ctr: Number(row.ctr || 0),
+                  })),
+                },
+              };
+            }
+          }
+        } catch (e: any) {
+          const message = String(e?.message || "");
+          log.warn("unified", "getFullReport: Meta falhou", { error: message.slice(0, 100) });
+          report.meta = { configured: true, error: message.slice(0, 200) || "Erro ao buscar dados Meta." };
+        }
+      }
+
+      // ── GOOGLE ADS — quebra por dispositivo + conversões reais ──────────────
+      if (input.platforms.includes("google")) {
+        try {
+          const userId = (ctx as any).user?.id;
+          const _drz = await getDb();
+          const [integration] = await _drz!.select().from(integrations)
+            .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
+          if (!integration) {
+            report.google = { configured: false, error: "Integração Google Ads não configurada." };
+          } else {
+            const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+            const query = `SELECT campaign.id, campaign.name, segments.device, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.ctr, metrics.average_cpc, metrics.conversions, metrics.conversions_value FROM campaign WHERE segments.date BETWEEN '${since}' AND '${until}' LIMIT 500`;
+            const data = await googleAdsPost<any>(
+              "googleAds:search", { query },
+              runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId,
+            );
+            const rows = data.results || [];
+            const totals = rows.reduce((acc: any, r: any) => {
+              const micros = Number(r.metrics?.costMicros ?? r.metrics?.cost_micros ?? 0);
+              acc.spend            += micros / 1_000_000;
+              acc.impressions      += Number(r.metrics?.impressions || 0);
+              acc.clicks           += Number(r.metrics?.clicks || 0);
+              acc.conversions      += Number(r.metrics?.conversions || 0);
+              acc.conversionsValue += Number(r.metrics?.conversionsValue ?? r.metrics?.conversions_value ?? 0);
+              return acc;
+            }, { spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionsValue: 0 });
+
+            const byDevice: Record<string, any> = {};
+            rows.forEach((r: any) => {
+              const device = r.segments?.device || "UNKNOWN";
+              if (!byDevice[device]) byDevice[device] = { device, impressions: 0, clicks: 0, spend: 0 };
+              byDevice[device].impressions += Number(r.metrics?.impressions || 0);
+              byDevice[device].clicks      += Number(r.metrics?.clicks || 0);
+              byDevice[device].spend       += Number(r.metrics?.costMicros ?? r.metrics?.cost_micros ?? 0) / 1_000_000;
+            });
+
+            report.google = {
+              configured: true,
+              period: { since, until },
+              totals: {
+                ...totals,
+                ctr:  totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+                cpc:  totals.clicks > 0 ? totals.spend / totals.clicks : 0,
+                cpm:  totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
+                roas: totals.spend > 0 ? totals.conversionsValue / totals.spend : 0,
+              },
+              breakdowns: { device: Object.values(byDevice) },
+              campaignCount: new Set(rows.map((r: any) => r.campaign?.id)).size,
+            };
+          }
+        } catch (e: any) {
+          const message = String(e?.message || "");
+          log.warn("unified", "getFullReport: Google falhou", { error: message.slice(0, 100) });
+          report.google = { configured: true, error: message.slice(0, 200) || "Erro ao buscar dados Google Ads." };
+        }
+      }
+
+      // ── TIKTOK ADS — quebra por idade/gênero quando suportado ───────────────
+      if (input.platforms.includes("tiktok")) {
+        try {
+          const userId = (ctx as any).user?.id;
+          const _drz = await getDb();
+          const [integration] = await _drz!.select().from(integrations)
+            .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
+          const tikTokConfig = getTikTokRuntimeConfig(integration as any);
+          if (!tikTokConfig.configured) {
+            report.tiktok = { configured: false, error: "Integração TikTok não configurada." };
+          } else {
+            const token = tikTokConfig.accessToken;
+            const advertiserId = tikTokConfig.accountId;
+
+            const fetchReport = async (dimensions: string[]) => {
+              const res = await fetch(`https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/`, {
+                method: "POST",
+                headers: { "Access-Token": token, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  advertiser_id: advertiserId, report_type: "BASIC", dimensions,
+                  metrics: ["campaign_name", "spend", "impressions", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion"],
+                  start_date: since, end_date: until, page_size: 500,
+                }),
+                signal: AbortSignal.timeout(15000),
+              });
+              const data: any = await res.json();
+              if (data.code !== 0) throw new Error(data.message || "Erro TikTok Ads API");
+              return (data.data?.list || []) as any[];
+            };
+
+            const [summary, byAgeGender] = await Promise.all([
+              fetchReport(["campaign_id"]),
+              fetchReport(["campaign_id", "age", "gender"]).catch((e: any) => { log.warn("unified", "TikTok breakdown age/gender falhou", { error: e.message?.slice(0, 80) }); return []; }),
+            ]);
+
+            const totals = summary.reduce((acc: any, r: any) => {
+              acc.spend       += Number(r.metrics?.spend || 0);
+              acc.impressions += Number(r.metrics?.impressions || 0);
+              acc.clicks      += Number(r.metrics?.clicks || 0);
+              acc.conversions += Number(r.metrics?.conversion || 0);
+              return acc;
+            }, { spend: 0, impressions: 0, clicks: 0, conversions: 0 });
+
+            report.tiktok = {
+              configured: true,
+              period: { since, until },
+              totals: {
+                ...totals,
+                ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+                cpc: totals.clicks > 0 ? totals.spend / totals.clicks : 0,
+                cpm: totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
+              },
+              campaignCount: summary.length,
+              breakdowns: {
+                ageGender: byAgeGender.map((r: any) => ({
+                  age: r.dimensions?.age, gender: r.dimensions?.gender,
+                  impressions: Number(r.metrics?.impressions || 0), clicks: Number(r.metrics?.clicks || 0),
+                  spend: Number(r.metrics?.spend || 0),
+                })),
+              },
+            };
+          }
+        } catch (e: any) {
+          const message = String(e?.message || "");
+          log.warn("unified", "getFullReport: TikTok falhou", { error: message.slice(0, 100) });
+          report.tiktok = { configured: true, error: message.slice(0, 200) || "Erro ao buscar dados TikTok." };
+        }
+      }
+
+      // ── RESUMO CONSOLIDADO CROSS-PLATAFORMA ──────────────────────────────────
+      const platformsOk = Object.values(report).filter((p: any) => p?.configured && !p?.error);
+      const consolidated = platformsOk.reduce((acc: any, p: any) => {
+        acc.totalSpend       += p.totals?.spend || 0;
+        acc.totalImpressions += p.totals?.impressions || 0;
+        acc.totalClicks      += p.totals?.clicks || 0;
+        return acc;
+      }, { totalSpend: 0, totalImpressions: 0, totalClicks: 0 });
+
+      return {
+        period: { since, until, days },
+        platforms: report,
+        consolidated: {
+          ...consolidated,
+          blendedCtr: consolidated.totalImpressions > 0 ? (consolidated.totalClicks / consolidated.totalImpressions) * 100 : 0,
+          blendedCpc: consolidated.totalClicks > 0 ? consolidated.totalSpend / consolidated.totalClicks : 0,
+          platformsReporting: platformsOk.length,
+        },
+      };
+    }),
+
   // ── Saldo e billing de cada plataforma ────────────────────────────────────
   billing: protectedProcedure
     .query(async ({ ctx }) => {

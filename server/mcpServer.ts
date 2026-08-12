@@ -4,8 +4,9 @@
  * Servidor MCP do MecProAI — expõe dados/ações da plataforma pro Claude.
  *
  * FASE 1 (esta): tools de LEITURA apenas. list_projects, list_campaigns,
- * get_campaign, get_campaign_metrics. Nenhuma tool aqui cria, edita ou
- * publica nada — é seguro, sem risco de gasto ou efeito colateral.
+ * get_campaign, get_campaign_metrics, get_full_ads_report. Nenhuma tool
+ * aqui cria, edita ou publica nada — é seguro, sem risco de gasto ou
+ * efeito colateral.
  *
  * Autenticação: reaproveita o sistema de API key já existente
  * (server/publicApi.ts → authApiKey), não um sistema novo. Cada request
@@ -240,6 +241,59 @@ export function createMcpServerForUser(userId: number): McpServer {
         content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
         structuredContent: { campaignId, days: days || 30, metrics: rows },
       };
+    }
+  );
+
+  // ── get_full_ads_report ──────────────────────────────────────────────────
+  // Diferente de get_campaign_metrics acima (que dá a série diária de UMA
+  // campanha já publicada pelo MecProAI, vinda do sync interno), esta tool
+  // busca DIRETO nas APIs oficiais de Meta, Google Ads e TikTok — cobre
+  // TODAS as campanhas da conta conectada (não só as criadas por aqui) e
+  // traz quebras (breakdowns) por idade/gênero, posicionamento e dispositivo
+  // que o MCP padrão de cada plataforma normalmente não expõe. Reusa a
+  // procedure tRPC unified.getFullReport — nenhuma lógica de API duplicada.
+  server.registerTool(
+    "get_full_ads_report",
+    {
+      title: "Relatório completo Meta / Google / TikTok",
+      description:
+        "Traz um relatório completo e granular de métricas de anúncios, " +
+        "direto das APIs oficiais Meta Ads, Google Ads e TikTok Ads — não do " +
+        "MCP padrão de cada plataforma. Inclui totais consolidados, métricas " +
+        "por campanha, e quebras (breakdowns) por idade/gênero, " +
+        "posicionamento/plataforma e dispositivo (Meta), por dispositivo " +
+        "com conversões reais (Google), e por idade/gênero (TikTok). Use " +
+        "quando o usuário pedir 'relatório', 'métricas', 'performance' ou " +
+        "'como estão minhas campanhas' na Meta, Google ou TikTok. Requer " +
+        "que a integração da plataforma já esteja configurada em " +
+        "Configurações — plataformas sem integração aparecem no relatório " +
+        "com configured:false, sem quebrar o restante.",
+      inputSchema: {
+        platforms: z.array(z.enum(["meta", "google", "tiktok"])).optional()
+          .describe("Quais plataformas incluir. Padrão: todas as três (meta, google, tiktok)."),
+        period: z.enum(["7d", "30d", "90d"]).optional()
+          .describe("Janela de tempo do relatório. Padrão: 30d."),
+      },
+    },
+    async ({ platforms, period }) => {
+      let caller;
+      try {
+        caller = await getCaller();
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao autenticar: ${e.message}` }], isError: true };
+      }
+      try {
+        const result = await caller.unified.getFullReport({
+          platforms: platforms || ["meta", "google", "tiktok"],
+          period: period || "30d",
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          structuredContent: result as any,
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao gerar relatório: ${e.message}` }], isError: true };
+      }
     }
   );
 
