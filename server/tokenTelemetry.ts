@@ -18,12 +18,21 @@ const MODEL_PRICES: Record<string, ModelPrice> = {
 export function estimateCost(
   model: string,
   promptTokens: number,
-  completionTokens: number
+  completionTokens: number,
+  cachedTokens = 0
 ): number {
   const prices = MODEL_PRICES[model] || { input: 0.1, output: 0.3 };
+  // Gemini 2.5+ dá 90% de desconto nos tokens que batem no cache implícito
+  // automático (ver docs/reference-patterns/ — confirmado ago/2026, sem custo
+  // de configuração). Tokens cacheados custam 10% do preço normal de input;
+  // o restante do prompt paga o preço cheio, igual antes.
+  const isGemini25 = model.startsWith("gemini-2.5") || model.startsWith("gemini-3");
+  const cachedDiscount = isGemini25 ? 0.10 : 1.0;
+  const uncachedPromptTokens = Math.max(0, promptTokens - cachedTokens);
   return (
-    (promptTokens    / 1_000_000) * prices.input +
-    (completionTokens / 1_000_000) * prices.output
+    (uncachedPromptTokens / 1_000_000) * prices.input +
+    (cachedTokens          / 1_000_000) * prices.input * cachedDiscount +
+    (completionTokens      / 1_000_000) * prices.output
   );
 }
 
@@ -45,6 +54,10 @@ export interface TokenLogEntry {
   errorMsg?:        string;
   systemPromptTokens?: number;
   copyEngine?:      string;
+  // Tokens do prompt que bateram no cache implícito automático do Gemini
+  // 2.5+ (usageMetadata.cachedContentTokenCount na resposta da API).
+  // Ausente/0 = sem cache hit ou provedor sem esse recurso (Groq, etc.)
+  cachedTokens?:    number;
 }
 
 // Pool lazy-loaded para não criar dependência circular
@@ -60,7 +73,7 @@ async function getPool() {
 // Fire-and-forget — nunca bloqueia o caller
 export function logTokens(entry: TokenLogEntry): void {
   const totalTokens = entry.promptTokens + entry.completionTokens;
-  const cost = estimateCost(entry.model, entry.promptTokens, entry.completionTokens);
+  const cost = estimateCost(entry.model, entry.promptTokens, entry.completionTokens, entry.cachedTokens ?? 0);
 
   // Log estruturado no console para debugging imediato
   log.info("tokens", `${entry.provider}/${entry.model} ${entry.endpoint}`, {
@@ -70,6 +83,7 @@ export function logTokens(entry: TokenLogEntry): void {
     costUSD: cost.toFixed(6),
     latencyMs: entry.latencyMs,
     cache: entry.cacheHit ? (entry.cacheType || "hit") : "miss",
+    geminiCachedTokens: entry.cachedTokens || 0,
   });
 
   // INSERT assíncrono — não aguarda, não bloqueia
@@ -84,8 +98,9 @@ export function logTokens(entry: TokenLogEntry): void {
           prompt_tokens, completion_tokens, total_tokens,
           estimated_cost_usd, latency_ms, temperature,
           cache_hit, cache_type, retry_count,
-          status, error_msg, system_prompt_tokens, copy_engine
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          status, error_msg, system_prompt_tokens, copy_engine,
+          gemini_cached_tokens
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       `, [
         entry.userId    || null,
         entry.projectId || null,
@@ -106,6 +121,7 @@ export function logTokens(entry: TokenLogEntry): void {
         entry.errorMsg ?? null,
         entry.systemPromptTokens ?? 0,
         entry.copyEngine ?? null,
+        entry.cachedTokens ?? 0,
       ]);
     } catch (e: any) {
       // Silencioso — telemetria nunca deve quebrar o sistema

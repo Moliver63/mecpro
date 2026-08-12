@@ -799,6 +799,16 @@ export async function runMigrations(): Promise<void> {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_token_log_model   ON ai_token_log(model, provider)`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_token_log_project ON ai_token_log(project_id)`).catch(() => {});
 
+    // Gemini 2.5+ tem cache implícito automático (90% desconto em tokens que
+    // batem no cache, sem nenhuma configuração necessária — Google decide
+    // internamente). A API retorna quantos tokens do prompt vieram do cache
+    // em usageMetadata.cachedContentTokenCount. Sem esta coluna, essa economia
+    // acontecia de forma invisível — não dava pra saber se estava rolando.
+    await pool.query(`
+      ALTER TABLE ai_token_log
+      ADD COLUMN IF NOT EXISTS gemini_cached_tokens integer DEFAULT 0
+    `).catch(() => {});
+
     // Rastreia qual engine de copy gerou cada campanha no ML dataset
     await pool.query(`
       ALTER TABLE ml_dataset

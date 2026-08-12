@@ -1963,12 +1963,18 @@ async function _geminiImpl(
     const usage = (data as any).usageMetadata;
     const pTok  = usage?.promptTokenCount     ?? Math.round(prompt.length / 4);
     const cTok  = usage?.candidatesTokenCount ?? Math.round(result.length / 4);
+    // Tokens do prompt que bateram no cache implícito automático do Gemini
+    // 2.5+ (ativo por padrão, sem configuração — 90% de desconto nesses
+    // tokens). Antes disso não era capturado — a economia acontecia mas
+    // ficava invisível na telemetria e no cálculo de custo estimado.
+    const cachedTok = usage?.cachedContentTokenCount ?? 0;
     logTokens({
       provider: "gemini",
       model: (data as any)._modelUsed || "gemini-2.5-flash-lite",
       endpoint: opts?._endpoint || opts?.cacheAs || "gemini",
       promptTokens: pTok,
       completionTokens: cTok,
+      cachedTokens: cachedTok,
       latencyMs: Math.round(prompt.length / 4),
       temperature: opts?.temperature,
       cacheHit: false,
