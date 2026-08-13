@@ -3756,7 +3756,13 @@ const campaignsRouter = router({
       const rawBudgetValue = currentAdSet?.budget ?? currentAdSet?.rawBudget ?? "";
       let currentAdSetBudget: number;
       if (typeof rawBudgetValue === "number" && Number.isFinite(rawBudgetValue)) {
-        currentAdSetBudget = rawBudgetValue;
+        // Mesma regra do cálculo real de budgetDaily (fix 80f9f2e): número
+        // puro 0–100 = percentual do total da campanha, não R$ direto.
+        // Sem isso, essa validação podia aprovar um budget que na hora de
+        // publicar (linha ~4030) resolve pra um valor bem menor.
+        currentAdSetBudget = (rawBudgetValue > 0 && rawBudgetValue <= 100)
+          ? totalDailyForValidation * (rawBudgetValue / 100)
+          : rawBudgetValue;
       } else {
         const budgetStr = String(rawBudgetValue);
         const currentBudgetMatch = budgetStr.match(/R\$?\s*([\d.,]+)/);
