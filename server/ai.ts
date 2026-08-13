@@ -6725,6 +6725,16 @@ ${creativeSlotInstructions}
         // Avisa IA quando campos críticos estão vazios — NUNCA inventar dado factual
         !hasDifferentials ? "ATENÇÃO: diferenciais não preenchidos — crie copies baseadas no nome e nicho do produto, sem inventar um diferencial específico" : "",
         !hasProofPoints   ? "ATENÇÃO: sem prova social real cadastrada — NÃO invente depoimento, número, estatística ou citação de cliente. Não use aspas simulando fala de cliente nem crie \"resultado\" numérico. Escreva a copy sem esse elemento." : "",
+        // (sessão 33, 13/08) — guarda SEMPRE ativa, não condicionada a campo vazio.
+        // Achado real: em campanha imobiliária, a IA inventou "Visite o decorado"
+        // (apartamento modelo/showroom) sem essa informação existir em nenhum
+        // lugar do briefing — clichê comum do gênero "copy imobiliária" que o
+        // modelo reproduz por padrão de linguagem, não por dado real fornecido.
+        // As duas guardas acima só cobrem diferenciais/prova social; esta cobre
+        // qualquer amenidade, característica física ou serviço específico
+        // (decorado, elevador, portaria 24h, vaga coberta, academia, etc.)
+        // que não esteja EXPLICITAMENTE em DIFERENCIAIS REAIS acima.
+        "ATENÇÃO CRÍTICA: NÃO mencione nenhuma amenidade, característica física ou serviço específico (ex: apartamento decorado, elevador, portaria 24h, vaga coberta, academia, salão de festas) que não esteja EXPLICITAMENTE listado em DIFERENCIAIS REAIS acima ou no nome/briefing do produto. Se não foi informado, não existe pra fins desta copy — não assuma, não infira, não use como clichê do nicho.",
       ].filter(Boolean).join("\n");
 
       const productSlug = (p?.companyName || input.name || "produto").split(" ")[0].replace(/[^a-zA-Z]/g,"");
