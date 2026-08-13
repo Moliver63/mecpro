@@ -6638,7 +6638,7 @@ const adminRouter = router({
     const pool = await getPool();
     if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
     const rows = await pool.query(
-      `SELECT id, name,
+      `SELECT id, name, scope,
               LEFT(key, 12) || '••••••••••••••••' AS key_preview,
               "reqToday", "reqMonth", "lastUsedAt", active, "createdAt"
        FROM api_keys WHERE "userId" = $1 ORDER BY "createdAt" DESC`,
@@ -6648,7 +6648,14 @@ const adminRouter = router({
   }),
 
   createApiKey: protectedProcedure
-    .input(z.object({ name: z.string().min(1).max(60).default("Minha Key") }))
+    .input(z.object({
+      name: z.string().min(1).max(60).default("Minha Key"),
+      // Default 'read' de propósito — key nova nasce só de leitura. Cliente
+      // que precisa de mais (rascunho ou publicação) eleva conscientemente,
+      // em vez de ganhar acesso total sem pedir (Sessão Conselho, conectar
+      // MCP a clientes novos tipo Kimi).
+      scope: z.enum(["read", "write", "publish"]).default("read"),
+    }))
     .mutation(async ({ ctx, input }) => {
       const pool = await getPool();
       if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -6661,8 +6668,8 @@ const adminRouter = router({
       const { createHash, randomBytes } = await import("crypto");
       const key = `mecpro_sk_${randomBytes(24).toString("hex")}`;
       const result = await pool.query(
-        `INSERT INTO api_keys ("userId", key, name) VALUES ($1, $2, $3) RETURNING id, key, name, "createdAt"`,
-        [ctx.user.id, key, input.name]
+        `INSERT INTO api_keys ("userId", key, name, scope) VALUES ($1, $2, $3, $4) RETURNING id, key, name, scope, "createdAt"`,
+        [ctx.user.id, key, input.name, input.scope]
       );
       return result.rows[0];
     }),

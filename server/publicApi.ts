@@ -56,14 +56,19 @@ async function authApiKey(req: Request, res: Response, next: Function) {
       res.set("WWW-Authenticate", WWW_AUTHENTICATE);
       return res.status(401).json({ error: "invalid_token", message: "Token OAuth invalido, expirado ou revogado." });
     }
-    (req as any).apiUser = { id: oauthRow.userId, plan: (oauthRow.plan || "free").toLowerCase(), email: oauthRow.email, username: oauthRow.username, keyId: null };
+    // Escopo do OAuth: 'publish' (acesso total) — clientes Claude.ai/ChatGPT já
+    // passaram pela tela de consentimento própria do fluxo OAuth, que é a barreira
+    // de confiança deles. O conceito de escopo por 'read'/'write'/'publish' foi
+    // desenhado pro caminho de API key (abaixo), usado por clientes que não falam
+    // OAuth (ex: Kimi Code via Bearer). Não reduz nem altera o que já funcionava.
+    (req as any).apiUser = { id: oauthRow.userId, plan: (oauthRow.plan || "free").toLowerCase(), email: oauthRow.email, username: oauthRow.username, keyId: null, scope: "publish" as const };
     (req as any).apiLimits = { daily: 9999, monthly: 99999, usedToday: 0, usedMonth: 0 };
     return next();
   }
 
   // Busca a key + usuário + plano
   const result = await pool.query(`
-    SELECT k.id, k."userId", k.active, k."reqToday", k."reqMonth", k."resetAt", k.name,
+    SELECT k.id, k."userId", k.active, k."reqToday", k."reqMonth", k."resetAt", k.name, k.scope,
            u.plan, u.email, u.name AS username
     FROM api_keys k
     JOIN users u ON u.id = k."userId"
@@ -115,8 +120,10 @@ async function authApiKey(req: Request, res: Response, next: Function) {
     WHERE id = $1
   `, [apiKey.id]);
 
-  // Injeta no request
-  (req as any).apiUser = { id: apiKey.userId, plan, email: apiKey.email, username: apiKey.username, keyId: apiKey.id };
+  // Injeta no request. Fallback pra 'publish' se a coluna vier nula por algum motivo
+  // (linha antiga sem default aplicado ainda) — nunca degrada silenciosamente pra
+  // 'read', porque isso quebraria integrações existentes sem aviso nenhum.
+  (req as any).apiUser = { id: apiKey.userId, plan, email: apiKey.email, username: apiKey.username, keyId: apiKey.id, scope: (apiKey.scope || "publish") as "read" | "write" | "publish" };
   (req as any).apiLimits = { daily: limits.daily, monthly: limits.monthly, usedToday: apiKey.reqToday + 1, usedMonth: apiKey.reqMonth + 1 };
 
   next();
@@ -174,7 +181,7 @@ const mcpBurstLimiter = rateLimit({
 router.post("/mcp", authApiKey, mcpBurstLimiter, json(), async (req: Request, res: Response) => {
   const apiUser = (req as any).apiUser;
   try {
-    const server = createMcpServerForUser(apiUser.id);
+    const server = createMcpServerForUser(apiUser.id, apiUser.scope);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless -- mais simples de escalar
       enableJsonResponse: true,

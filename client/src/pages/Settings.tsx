@@ -47,13 +47,14 @@ export default function Settings() {
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState("Conta");
   const [newKeyName, setNewKeyName] = useState("");
+  const [newKeyScope, setNewKeyScope] = useState<"read" | "write" | "publish">("read");
   const [copiedKey,  setCopiedKey]  = useState<string | null>(null);
   const [showNewKey, setShowNewKey] = useState<string | null>(null);
   const { data: integrations } = trpc.integrations.list.useQuery();
   const { data: apiKeys, refetch: refetchKeys } = (trpc as any).admin?.listApiKeys?.useQuery?.() ?? { data: [], refetch: () => {} };
   const activeKeysCount = (apiKeys || []).filter((k: any) => k.active).length;
   const createKey = (trpc as any).admin?.createApiKey?.useMutation?.({
-    onSuccess: (data: any) => { setShowNewKey(data.key); setNewKeyName(""); refetchKeys?.(); },
+    onSuccess: (data: any) => { setShowNewKey(data.key); setNewKeyName(""); setNewKeyScope("read"); refetchKeys?.(); },
     onError:   (e: any)    => alert(e.message),
   }) ?? { mutate: () => {}, isPending: false };
   const revokeKey = (trpc as any).admin?.revokeApiKey?.useMutation?.({
@@ -482,12 +483,20 @@ export default function Settings() {
             {!(apiKeys || []).length && (
               <div style={{ padding: "30px 20px", textAlign: "center" as const, color: "var(--muted)", fontSize: 13 }}>Nenhuma API key. Crie a primeira abaixo.</div>
             )}
-            {(apiKeys || []).map((k: any) => (
+            {(apiKeys || []).map((k: any) => {
+              const scopeMeta: Record<string, { label: string; bg: string; fg: string }> = {
+                read:    { label: "Leitura",              bg: "#eff6ff", fg: "#1d4ed8" },
+                write:   { label: "Leitura + Rascunho",    bg: "#fffbeb", fg: "#b45309" },
+                publish: { label: "Publica (gasta $)",     bg: "#fef2f2", fg: "#b91c1c" },
+              };
+              const sm = scopeMeta[k.scope] || scopeMeta.read;
+              return (
               <div key={k.id} style={{ padding: "13px 18px", borderBottom: "1px solid var(--off)", display: "flex", alignItems: "center", gap: 12, opacity: k.active ? 1 : 0.5 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(88,86,214,0.08)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, flexShrink: 0 }}>🔑</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "var(--dark)", display: "flex", alignItems: "center", gap: 8 }}>
                     {k.name}
+                    <span style={{ fontSize: 10, fontWeight: 700, color: sm.fg, background: sm.bg, padding: "1px 7px", borderRadius: 6, textTransform: "uppercase" as const, letterSpacing: ".03em" }}>{sm.label}</span>
                     {!k.active && (
                       <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626", background: "#fef2f2", padding: "1px 7px", borderRadius: 6, textTransform: "uppercase" as const, letterSpacing: ".03em" }}>Revogada</span>
                     )}
@@ -515,25 +524,35 @@ export default function Settings() {
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Criar nova key */}
           <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 14, padding: "18px 20px", marginBottom: 20 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: "var(--dark)", marginBottom: 12 }}>➕ Criar nova API Key</div>
             <div style={{ display: "flex", gap: 10 }}>
-              <input placeholder="Nome (ex: Produção, Zapier...)"
+              <input placeholder="Nome (ex: Produção, Zapier, Kimi...)"
                 value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && newKeyName.trim() && (createKey as any).mutate({ name: newKeyName.trim() })}
+                onKeyDown={e => e.key === "Enter" && newKeyName.trim() && (createKey as any).mutate({ name: newKeyName.trim(), scope: newKeyScope })}
                 style={{ flex: 1, padding: "9px 14px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 13, outline: "none", fontFamily: "inherit" }}
               />
-              <button onClick={() => newKeyName.trim() && (createKey as any).mutate({ name: newKeyName.trim() })}
+              <select value={newKeyScope} onChange={e => setNewKeyScope(e.target.value as "read" | "write" | "publish")}
+                style={{ padding: "9px 12px", borderRadius: 10, border: "1.5px solid var(--border)", fontSize: 13, outline: "none", fontFamily: "inherit", background: "white", color: "var(--dark)" }}>
+                <option value="read">Só leitura</option>
+                <option value="write">Leitura + rascunho</option>
+                <option value="publish">Publica (gasta $)</option>
+              </select>
+              <button onClick={() => newKeyName.trim() && (createKey as any).mutate({ name: newKeyName.trim(), scope: newKeyScope })}
                 disabled={!newKeyName.trim() || (createKey as any).isPending || activeKeysCount >= 5}
                 style={{ padding: "9px 20px", borderRadius: 10, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" as const, fontFamily: "inherit",
                   background: !newKeyName.trim() || activeKeysCount >= 5 ? "var(--off)" : "var(--blue)",
                   color: !newKeyName.trim() || activeKeysCount >= 5 ? "var(--muted)" : "white" }}>
                 {(createKey as any).isPending ? "Criando..." : "Criar Key"}
               </button>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--muted)" }}>
+              Padrão é "só leitura" de propósito — eleve pra "publica" só quando o cliente MCP realmente precisar rodar publish_campaign.
             </div>
             {activeKeysCount >= 5 && (
               <div style={{ marginTop: 8, fontSize: 12, color: "#d97706" }}>⚠ Limite de 5 keys ativas atingido. Revogue uma para criar nova.</div>

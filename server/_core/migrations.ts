@@ -337,6 +337,16 @@ export async function runMigrations(): Promise<void> {
       )
     `).catch(() => {});
 
+    // ── API Keys: escopo de acesso (Sessão Conselho — conectar MCP a novos clientes) ──
+    // 'read' = só tools de leitura (Fase 1) · 'write' = leitura + rascunho (Fase 1+2,
+    // não publica nem gasta dinheiro) · 'publish' = tudo, incluindo publish_campaign.
+    // Default 'publish' preserva o comportamento de TODAS as keys já existentes —
+    // nenhuma integração ativa perde acesso com este ALTER. Keys NOVAS, a partir de
+    // agora, são criadas com 'read' por padrão em createApiKey — o usuário escolhe
+    // conscientemente elevar o escopo, em vez de ganhar acesso total sem pedir.
+    await pool.query(`ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'publish'`).catch(() => {});
+    await pool.query(`ALTER TABLE api_keys ADD CONSTRAINT IF NOT EXISTS api_keys_scope_check CHECK (scope IN ('read','write','publish'))`).catch(() => {});
+
     // ── Schema updates: competitors ──────────────────────────────────────────
     await pool.query(`ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiInsights"    TEXT`).catch(()=>{});
     await pool.query(`ALTER TABLE competitors ADD COLUMN IF NOT EXISTS "aiGeneratedAt" TIMESTAMPTZ`).catch(()=>{});

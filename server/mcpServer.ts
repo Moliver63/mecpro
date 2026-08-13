@@ -54,7 +54,33 @@ function decodeAndValidateImage(imageBase64: string): { ok: boolean; buffer: Buf
   return { ok: true, buffer, error: null };
 }
 
-export function createMcpServerForUser(userId: number): McpServer {
+// ── Escopo de acesso por API key ──────────────────────────────────────────
+// 'read' < 'write' < 'publish', hierárquico (quem tem 'publish' também pode
+// tudo que 'write' e 'read' podem). Existe pra dar a clientes MCP menos
+// confiáveis por padrão (ex: uma integração nova, testada pela primeira vez)
+// acesso só de leitura, sem abrir publish_campaign — que gasta dinheiro real
+// do cliente — antes de alguém decidir conscientemente elevar o escopo da key.
+type McpScope = "read" | "write" | "publish";
+const SCOPE_RANK: Record<McpScope, number> = { read: 0, write: 1, publish: 2 };
+
+function hasScope(userScope: McpScope, required: McpScope): boolean {
+  return SCOPE_RANK[userScope] >= SCOPE_RANK[required];
+}
+
+function scopeErrorContent(required: McpScope, userScope: McpScope) {
+  return {
+    content: [{
+      type: "text" as const,
+      text:
+        `Esta API key tem escopo '${userScope}' e essa ferramenta exige '${required}'. ` +
+        `Gere ou eleve o escopo de uma API key em Configurações → API Keys no MecProAI ` +
+        `pra liberar esta ação.`,
+    }],
+    isError: true,
+  };
+}
+
+export function createMcpServerForUser(userId: number, scope: McpScope = "publish"): McpServer {
   const server = new McpServer({ name: "mecproai", version: "1.0.0" });
 
   // Cria um "caller" tRPC autenticado sob demanda — usado só pelas tools da
@@ -321,6 +347,7 @@ export function createMcpServerForUser(userId: number): McpServer {
       },
     },
     async ({ name, description }) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
       const check = await db.checkPlanLimit(userId, "projects");
       if (!check.allowed) {
         return { content: [{ type: "text", text: `Não foi possível criar: ${check.reason}` }], isError: true };
@@ -364,6 +391,7 @@ export function createMcpServerForUser(userId: number): McpServer {
       },
     },
     async (input) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
       const project: any = await db.getProjectById(input.projectId);
       if (!project || project.userId !== userId) {
         return { content: [{ type: "text", text: `Projeto ${input.projectId} não encontrado ou não pertence a este usuário.` }], isError: true };
@@ -442,6 +470,7 @@ export function createMcpServerForUser(userId: number): McpServer {
       },
     },
     async (input) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
       const project: any = await db.getProjectById(input.projectId);
       if (!project || project.userId !== userId) {
         return { content: [{ type: "text", text: `Projeto ${input.projectId} não encontrado ou não pertence a este usuário.` }], isError: true };
@@ -566,6 +595,7 @@ export function createMcpServerForUser(userId: number): McpServer {
       },
     },
     async ({ campaignId, creativeIndex, format, imageBase64, fileUrl, fileName }) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
       // ── checagem de posse — mesmo padrão de get_campaign ──────────────
       const campaign: any = await db.getCampaignById(campaignId);
       if (!campaign) {
@@ -669,6 +699,11 @@ export function createMcpServerForUser(userId: number): McpServer {
       inputSchema: {},
     },
     async () => {
+      // Mesmo escopo de publish_campaign: em si list_meta_pages não gasta dinheiro,
+      // mas ela só existe pra alimentar o pageId de publish_campaign — deixá-la aberta
+      // com escopo 'write' não vazaria dado sensível, mas sinalizaria pro cliente MCP
+      // que o próximo passo (publicar) está disponível quando não está. Trava igual.
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
       const integration: any = await db.getApiIntegration(userId, "meta");
       if (!integration?.accessToken) {
         return { content: [{ type: "text", text: "Conta Meta não conectada. Acesse Configurações → Meta Ads no MecProAI primeiro." }], isError: true };
@@ -723,6 +758,10 @@ export function createMcpServerForUser(userId: number): McpServer {
       },
     },
     async (input) => {
+      // Gate de escopo é o PRIMEIRO check da tool inteira, antes até de checar posse
+      // da campanha — essa é a tool que gasta dinheiro real, então nenhuma outra
+      // lógica roda pra uma key sem escopo 'publish'.
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
       const campaign: any = await db.getCampaignById(input.campaignId);
       if (!campaign) {
         return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
