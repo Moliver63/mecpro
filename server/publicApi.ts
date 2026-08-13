@@ -178,7 +178,13 @@ const mcpBurstLimiter = rateLimit({
 // publica). Um McpServer NOVO e criado por request, escopado ao userId da
 // key autenticada -- nunca um singleton global, pra garantir que dado de
 // um usuario nunca vaza pra outro.
-router.post("/mcp", authApiKey, mcpBurstLimiter, json(), async (req: Request, res: Response) => {
+//
+// (sessão 32, 13/08) — json({ limit: "50mb" }): o padrão do Express (~100KB-1MB)
+// rejeita silenciosamente o payload quando o cliente MCP envia várias fotos em
+// base64 na tool generate_campaign/upload_creative_image (ex: 9 fotos ≈ 3.3MB).
+// 50MB cobre confortavelmente até 10 fotos de 8MB cada (limite já validado por
+// decodeAndValidateImage) sem abrir demais a porta pra payloads abusivos.
+router.post("/mcp", authApiKey, mcpBurstLimiter, json({ limit: "50mb" }), async (req: Request, res: Response) => {
   const apiUser = (req as any).apiUser;
   try {
     const server = createMcpServerForUser(apiUser.id, apiUser.scope);

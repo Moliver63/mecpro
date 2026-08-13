@@ -524,10 +524,18 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         realImages: allRealImages.length ? allRealImages : undefined,
         numCreatives: input.numCreatives,
       } as any);
+      // (sessão 32, 13/08) — timeout escalado por quantidade de imagens reais.
+      // O upload pro Cloudinary (linhas acima) já terminou antes daqui, então
+      // não entra nessa corrida — mas a análise Vision de cada imagem (quando
+      // habilitada) roda DENTRO do generateCampaign, e pode empurrar o tempo
+      // total além dos 50s fixos com várias fotos. +4s por imagem, teto de 120s
+      // pra não deixar uma chamada travada indefinidamente em caso de problema
+      // real no motor de IA.
+      const timeoutMs = Math.min(50_000 + allRealImages.length * 4_000, 120_000);
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(
-          "A geração demorou mais que o esperado (>50s). Verifique list_campaigns em alguns segundos — ela pode ter sido criada com sucesso mesmo assim."
-        )), 50_000)
+          `A geração demorou mais que o esperado (>${Math.round(timeoutMs / 1000)}s). Verifique list_campaigns em alguns segundos — ela pode ter sido criada com sucesso mesmo assim.`
+        )), timeoutMs)
       );
 
       try {
