@@ -4019,7 +4019,25 @@ const campaignsRouter = router({
         const monthly  = parseFloat((valMatch![1] || "100").replace(/\./g,"").replace(",","."));
         budgetDaily    = Math.max(1, Math.round(monthly / 30));
       } else if (adSetBudgetRaw.match(/^[\d.]+$/)) {
-        budgetDaily = Math.max(1, Math.round(parseFloat(adSetBudgetRaw) / 30));
+        // Número puro sem "%" nem "R$" (ex: adSet.budget = 25).
+        // O comentário acima já documentava a intenção original: "33% do
+        // total" e "33" devem se comportar igual — número puro = percentual.
+        // BUG CORRIGIDO (13/08/2026): estava tratando como valor MENSAL em
+        // R$ (÷30), o que fazia 25 virar ~R$1/dia e ser elevado ao piso de
+        // R$6/dia — muito abaixo do pretendido. Achado na auditoria da
+        // campanha 672 (Edu Imóveis): 4 ad sets com budget=25 cada
+        // publicaram a ~R$6/dia (R$24/dia total) em vez dos ~R$12,50/dia
+        // (R$50/dia total) que "25% × 4" deveria significar.
+        // Faixa 0–100 = percentual (caso documentado e observado em produção).
+        // Acima de 100 mantém o fallback antigo (valor mensal ÷30), pra não
+        // quebrar nenhum dado legado que porventura use número puro grande
+        // como R$ mensal.
+        const rawNum = parseFloat(adSetBudgetRaw);
+        if (rawNum > 0 && rawNum <= 100) {
+          budgetDaily = Math.max(1, Math.round(totalDaily * (rawNum / 100)));
+        } else {
+          budgetDaily = Math.max(1, Math.round(rawNum / 30));
+        }
       } else {
         const totalAdSets = (() => { try { return JSON.parse(c.adSets || "[]").length || 4; } catch { return 4; } })();
         budgetDaily = Math.max(1, Math.round(totalDaily / totalAdSets));
