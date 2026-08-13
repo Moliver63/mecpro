@@ -543,6 +543,15 @@ export default function CampaignResult() {
     onError: (e: any) => toast.error("Erro ao regenerar imagem: " + e.message),
   });
 
+  // ── Foto em destaque/capa (sessão 34, 13/08) ──
+  const setFeaturedPhotoMutation = trpc.campaigns.setFeaturedPhoto.useMutation({
+    onSuccess: () => {
+      toast.success("⭐ Foto marcada como destaque — vai primeiro no carrossel ao publicar.");
+      refetchCampaign?.();
+    },
+    onError: (e: any) => toast.error("Erro ao marcar destaque: " + e.message),
+  });
+
   const discoverPageIdMutation = (trpc as any).competitors?.discoverPageId?.useMutation?.({
     onSuccess: (data: any) => {
       setDiscoveringPage(false);
@@ -2464,13 +2473,28 @@ export default function CampaignResult() {
                             <div style={{ position: "absolute", top: 6, left: 6, background: "#6366f1", color: "white", fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 20 }}>🎬 VÍDEO</div>
                           </div>
                         ) : creativeImage ? (
-                          <div style={{ position: "relative", width: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid #e5e7eb", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }}>
+                          <div style={{ position: "relative", width: "100%", borderRadius: 12, overflow: "hidden", border: cr.isFeaturedPhoto ? "2px solid #f59e0b" : "1px solid #e5e7eb", aspectRatio: creativeFormat === "stories" ? "9 / 16" : creativeFormat === "square" ? "1 / 1" : "4 / 5" }}>
                             {/* Imagem de fundo */}
                             <img src={creativeImage} alt={cr.headline || `Criativo ${i + 1}`} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                             {/* Badge de formato no topo direito */}
                             <div style={{ position: "absolute", top: 8, right: 8, background: "rgba(0,0,0,0.6)", color: "white", fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 8, backdropFilter: "blur(4px)" }}>
                               {creativeFormat === "stories" ? "9:16" : creativeFormat === "square" ? "1:1" : "4:5"}
                             </div>
+                            {/* Foto em destaque/capa — badge se já marcada, botão pra marcar se não */}
+                            {cr.isFeaturedPhoto ? (
+                              <div style={{ position: "absolute", top: 8, left: 8, background: "#f59e0b", color: "white", fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 8, display: "flex", alignItems: "center", gap: 4 }}>
+                                ⭐ DESTAQUE
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setFeaturedPhotoMutation.mutate({ campaignId: id, creativeIndex: i })}
+                                disabled={setFeaturedPhotoMutation.isLoading}
+                                title="Marcar essa foto como destaque — vai primeiro no carrossel ao publicar"
+                                style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.55)", color: "white", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 8, border: "none", cursor: "pointer", backdropFilter: "blur(4px)" }}
+                              >
+                                ☆ Marcar destaque
+                              </button>
+                            )}
                             {/* Overlay de texto — headline + CTA sobre a imagem */}
                             {showOverlay && (cr.headline || cr.cta) && (
                               <div style={{
