@@ -898,8 +898,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         } catch { /* segue sem link automático, publishToMeta pode dar erro claro se precisar */ }
       }
 
+      // Códigos TRPCError que indicam problema não-transitório — repetir a
+      // mesma chamada sem o usuário agir primeiro só vai falhar de novo.
+      // UNAUTHORIZED = token Meta expirado; FORBIDDEN = permissão negada na
+      // conta de anúncios; NOT_FOUND = campanha/projeto inexistente.
+      const NON_RETRYABLE_ERROR_CODES = new Set(["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"]);
+
       const indexesToPublish = input.adSetIndexes?.length ? input.adSetIndexes : adSets.map((_, i) => i);
-      const results: { adSetName: string; success: boolean; error?: string }[] = [];
+      const results: { adSetName: string; success: boolean; error?: string; errorCode?: string; retryable?: boolean }[] = [];
       let sharedMetaCampaignId: string | undefined;
 
       for (const idx of indexesToPublish) {
@@ -919,7 +925,18 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           if (!sharedMetaCampaignId && result?.campaignId) sharedMetaCampaignId = result.campaignId;
           results.push({ adSetName, success: true });
         } catch (e: any) {
-          results.push({ adSetName, success: false, error: e.message?.slice(0, 200) });
+          // e.code vem do TRPCError lançado por publishToMeta/metaPost, que já
+          // categoriza (UNAUTHORIZED = token expirado, FORBIDDEN = sem permissão
+          // na conta de anúncios, BAD_REQUEST = validação/parâmetro/Meta rejeitou).
+          // Antes isso era descartado — só sobrava a mensagem, truncada em 200
+          // chars, que às vezes cortava a instrução de como resolver.
+          const errorCode: string | undefined = e?.code;
+          results.push({
+            adSetName,
+            success: false,
+            error: e?.message || "Erro desconhecido ao publicar.",
+            ...(errorCode ? { errorCode, retryable: !NON_RETRYABLE_ERROR_CODES.has(errorCode) } : {}),
+          });
         }
       }
 
