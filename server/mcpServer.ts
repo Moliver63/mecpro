@@ -485,8 +485,16 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       // realImages passado pra generateCampaign. Falha em QUALQUER foto
       // aborta a geração (evita gastar tokens de IA num briefing incompleto,
       // com uma foto faltando do que o usuário pediu).
+      //
+      // (sessão 34, 13/08) — coleta labels do Google Vision (já usado no
+      // fluxo web via imageRAG.ts, aqui reaproveitado) pra alimentar a copy
+      // com sinais visuais sutis. Best-effort: se o Vision falhar numa foto,
+      // simplesmente não contribui labels — NUNCA aborta a geração por isso
+      // (diferente da validação de imagem em si, que é obrigatória).
       const uploadedFromBase64: string[] = [];
+      const visualLabelsSet = new Set<string>();
       if (input.realPhotosBase64?.length) {
+        const { analyzeImageWithVision } = await import("./imageRAG");
         for (let i = 0; i < input.realPhotosBase64.length; i++) {
           const photo = input.realPhotosBase64[i];
           const decoded = decodeAndValidateImage(photo.imageBase64);
@@ -501,9 +509,18 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             return { content: [{ type: "text", text: `Falha ao subir a foto ${i + 1}/${input.realPhotosBase64.length} pro Cloudinary. Verifique as credenciais do Cloudinary no servidor.` }], isError: true };
           }
           uploadedFromBase64.push(cloudUrl);
+
+          try {
+            const vision = await analyzeImageWithVision(cloudUrl);
+            if (vision?.labels?.length) vision.labels.slice(0, 4).forEach((l: string) => visualLabelsSet.add(l));
+            if (vision?.objects?.length) vision.objects.slice(0, 3).forEach((o: string) => visualLabelsSet.add(o));
+          } catch {
+            // Vision indisponível ou erro — segue sem labels dessa foto, sem abortar.
+          }
         }
       }
       const allRealImages = [...(input.uploadedImages || []), ...uploadedFromBase64];
+      const visualLabels = Array.from(visualLabelsSet).slice(0, 8); // limite pra não sobrecarregar o prompt
 
       const { generateCampaign } = await import("./ai");
       const segmentContext = [
@@ -522,6 +539,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         regions: input.regions, countries: input.countries, locationMode: input.locationMode,
         geoCity: input.geoCity, geoRadius: input.geoRadius, mediaFormat: input.mediaFormat,
         realImages: allRealImages.length ? allRealImages : undefined,
+        visualLabels: visualLabels.length ? visualLabels : undefined,
         numCreatives: input.numCreatives,
       } as any);
       // (sessão 32, 13/08) — timeout escalado por quantidade de imagens reais.

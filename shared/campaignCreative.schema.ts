@@ -330,6 +330,15 @@ export const regenerateCreativeImageInputSchema = z.object({
   format: creativeImageEditFormatSchema,
 });
 
+// (sessão 34, 13/08) — marcar qual criativo/foto é a "capa"/destaque da
+// campanha. Mutuamente exclusivo: marcar um desmarca os outros da mesma
+// campanha. Usado no publish pra colocar essa foto primeiro no carrossel
+// (ou como imagem principal, se não for carrossel).
+export const setFeaturedPhotoInputSchema = z.object({
+  campaignId: z.number().int().positive(),
+  creativeIndex: z.number().int().min(0),
+});
+
 export const uploadImageToMetaInputSchema = z.object({
   imageBase64: nonEmptyString,
   fileName: z.string().trim().min(1).default("ad_image.jpg"),

@@ -5867,6 +5867,13 @@ export async function generateCampaign(input: {
   mediaFormat?: string; audienceProfile?: string; leadForm?: any;
   realImages?: string[];  // fotos reais do cliente (modo upload)
   realImageInsights?: Array<{ url: string; summary: string; score: number | null; status: string }>;
+  // (sessão 34, 13/08) — rótulos do Google Vision extraídos das fotos reais
+  // (ex: "piscina", "varanda"), já deduplicados e limitados a poucos itens
+  // pelo chamador. Usado como sinal visual SUTIL na copy — nunca como fato
+  // confirmado (ver ressalva no prompt abaixo). Deliberadamente mais enxuto
+  // que realImageInsights (que carrega o resumo textual completo por foto e
+  // sobrecarregaria o prompt se usado direto).
+  visualLabels?: string[];
   numCreatives?: number;  // quantidade de criativos a gerar (2-10) — default: 1 por foto real, ou 4 se não houver fotos
 }) {
   log.info("ai", "generateCampaign start", {
@@ -6735,6 +6742,16 @@ ${creativeSlotInstructions}
         // (decorado, elevador, portaria 24h, vaga coberta, academia, etc.)
         // que não esteja EXPLICITAMENTE em DIFERENCIAIS REAIS acima.
         "ATENÇÃO CRÍTICA: NÃO mencione nenhuma amenidade, característica física ou serviço específico (ex: apartamento decorado, elevador, portaria 24h, vaga coberta, academia, salão de festas) que não esteja EXPLICITAMENTE listado em DIFERENCIAIS REAIS acima ou no nome/briefing do produto. Se não foi informado, não existe pra fins desta copy — não assuma, não infira, não use como clichê do nicho.",
+        // (sessão 34, 13/08) — sinal visual sutil das fotos reais (Google Vision).
+        // Propositalmente framed como NÃO-CONFIRMADO: é inferência automática
+        // sobre a imagem, não dado que o cliente informou. Só deve influenciar
+        // tom/ângulo/ambientação da copy, nunca virar uma afirmação factual
+        // (ex: Vision detecta "piscina" numa foto — pode ser piscina do prédio,
+        // não necessariamente privativa do imóvel anunciado; a copy não pode
+        // declarar isso como fato sem confirmação em DIFERENCIAIS REAIS).
+        input.visualLabels?.length
+          ? `ELEMENTOS VISUAIS DETECTADOS NAS FOTOS (automático, NÃO confirmado pelo cliente — use apenas para calibrar tom/ambientação da copy, NUNCA declare como fato ou diferencial confirmado; só cite se também estiver em DIFERENCIAIS REAIS): ${input.visualLabels.slice(0, 8).join(", ")}`
+          : "",
       ].filter(Boolean).join("\n");
 
       const productSlug = (p?.companyName || input.name || "produto").split(" ")[0].replace(/[^a-zA-Z]/g,"");

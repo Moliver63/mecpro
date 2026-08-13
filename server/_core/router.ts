@@ -22,6 +22,7 @@ import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage,
 import {
   updateCreativeInputSchema,
   updateCreativeImageInputSchema,
+  setFeaturedPhotoInputSchema,
   regenerateCreativeImageInputSchema,
   uploadImageToMetaInputSchema,
   uploadVideoToMetaInputSchema,
@@ -2682,6 +2683,36 @@ const campaignsRouter = router({
       };
     }),
 
+  // (sessão 34, 13/08) — marca um criativo como "foto em destaque/capa" da
+  // campanha. Mutuamente exclusivo: marcar um desmarca automaticamente
+  // qualquer outro que já estivesse marcado na mesma campanha. Consumido
+  // no publish (publishToMeta) pra reordenar o carrossel colocando essa
+  // foto primeiro, ou usá-la como imagem principal fora de carrossel.
+  setFeaturedPhoto: protectedProcedure
+    .input(setFeaturedPhotoInputSchema)
+    .mutation(async ({ input }) => {
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+
+      const creatives = JSON.parse(campaign.creatives || "[]") as any[];
+      if (!creatives[input.creativeIndex]) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
+      }
+
+      const updated = creatives.map((cr, idx) => ({
+        ...cr,
+        isFeaturedPhoto: idx === input.creativeIndex,
+      }));
+
+      await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(updated));
+
+      log.info("campaigns", "setFeaturedPhoto", {
+        campaignId: input.campaignId, creativeIndex: input.creativeIndex,
+      });
+
+      return { ok: true, creativeIndex: input.creativeIndex };
+    }),
+
   generateCreativeVideo: protectedProcedure
     .input(z.object({
       campaignId:  z.number(),
@@ -4460,8 +4491,16 @@ const campaignsRouter = router({
       // têm feedImageUrl individual por criativo. Para o carrossel, precisamos
       // coletar TODAS as URLs únicas dos criativos e usá-las como imageUrls[].
       // Se input.imageUrls já veio preenchido (override manual), usa ele.
-      const realPhotoUrls: string[] = creativeList
-        .filter((cr: any) => cr.usesRealPhoto && (cr.feedImageUrl || cr.imageUrl))
+      //
+      // (sessão 34, 13/08) — ordena colocando primeiro a foto marcada como
+      // isFeaturedPhoto (via campaigns.setFeaturedPhoto), se houver alguma.
+      // Sem foto marcada, mantém a ordem original (comportamento antigo).
+      const realPhotoCreatives = creativeList
+        .filter((cr: any) => cr.usesRealPhoto && (cr.feedImageUrl || cr.imageUrl));
+      const featuredFirst = [...realPhotoCreatives].sort((a: any, b: any) =>
+        (b.isFeaturedPhoto ? 1 : 0) - (a.isFeaturedPhoto ? 1 : 0)
+      );
+      const realPhotoUrls: string[] = featuredFirst
         .map((cr: any) => String(cr.feedImageUrl || cr.imageUrl))
         .filter((url: string, idx: number, arr: string[]) => url && arr.indexOf(url) === idx) // dedup
         .slice(0, 10); // Meta: máx 10 cards
@@ -4478,6 +4517,7 @@ const campaignsRouter = router({
         log.info("meta", realPhotoUrls.length >= 2 ? "Carrossel com fotos reais do cliente" : "Imagem real do cliente (1 foto — sem carrossel)", {
           fotos: realPhotoUrls.length,
           urls: realPhotoUrls.map((u: string) => u.slice(-30)),
+          featuredAplicado: realPhotoCreatives.some((cr: any) => cr.isFeaturedPhoto),
         });
       }
       const hasExplicitUploadedMedia = !!input.videoId || !!input.imageHash || !!input.imageUrl || !!(input.imageHashes?.length) || !!(input.imageUrls?.length);
