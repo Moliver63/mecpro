@@ -707,6 +707,212 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+
+  // ── upload_campaign_images (lote) ────────────────────────────────────
+  server.registerTool(
+    "upload_campaign_images",
+    {
+      title: "Enviar várias imagens para uma campanha",
+      description:
+        "Envia várias fotos reais de uma só vez para os criativos da campanha. " +
+        "Aceita URLs públicas ou base64 e distribui as imagens na ordem recebida.",
+      inputSchema: {
+        campaignId: z.number().int().positive(),
+  
+        images: z.array(
+          z.object({
+            fileUrl: z.string().url().optional(),
+            imageBase64: z.string().optional(),
+            fileName: z.string(),
+            creativeIndex: z.number().int().min(0).optional(),
+            format: z
+              .enum(["feed", "stories", "square"])
+              .default("feed"),
+          })
+        ).min(1).max(10),
+      },
+    },
+  
+    async ({ campaignId, images }) => {
+      if (!hasScope(scope, "write")) {
+        return scopeErrorContent("write", scope);
+      }
+  
+      const campaign: any = await db.getCampaignById(campaignId);
+  
+      if (!campaign) {
+        return {
+          content: [{
+            type: "text",
+            text: `Campanha ${campaignId} não encontrada.`,
+          }],
+          isError: true,
+        };
+      }
+  
+      const project: any = await db.getProjectById(campaign.projectId);
+  
+      if (!project || project.userId !== userId) {
+        return {
+          content: [{
+            type: "text",
+            text: `Campanha ${campaignId} não pertence a este usuário.`,
+          }],
+          isError: true,
+        };
+      }
+  
+      const creatives = (() => {
+        try {
+          return JSON.parse(campaign.creatives || "[]");
+        } catch {
+          return [];
+        }
+      })();
+  
+      const caller = await getCaller();
+  
+      const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
+  
+      function looksLikeImage(contentType: string, fileUrl: string): boolean {
+        if (contentType.startsWith("image/")) return true;
+        // Muitos CDNs/Drive/S3 devolvem octet-stream ou vazio para imagens legítimas.
+        // Nesse caso, cai pro fallback de extensão no nome/URL.
+        if (!contentType || contentType === "application/octet-stream") {
+          return IMAGE_EXT_RE.test(fileUrl);
+        }
+        return false;
+      }
+  
+      async function processOne(image: (typeof images)[number], index: number) {
+        const creativeIndex =
+          image.creativeIndex !== undefined ? image.creativeIndex : index;
+  
+        if (!creatives[creativeIndex]) {
+          return {
+            index,
+            creativeIndex,
+            success: false,
+            error: "Criativo não encontrado",
+          };
+        }
+  
+        if (
+          (!image.fileUrl && !image.imageBase64) ||
+          (image.fileUrl && image.imageBase64)
+        ) {
+          return {
+            index,
+            creativeIndex,
+            success: false,
+            error: "Informe fileUrl OU imageBase64.",
+          };
+        }
+  
+        try {
+          let buffer: Buffer;
+  
+          // URL
+          if (image.fileUrl) {
+            const response = await fetch(image.fileUrl, {
+              signal: AbortSignal.timeout(20000),
+            });
+  
+            if (!response.ok) {
+              throw new Error(`Download retornou HTTP ${response.status}`);
+            }
+  
+            const contentType = response.headers.get("content-type") || "";
+  
+            if (!looksLikeImage(contentType, image.fileUrl)) {
+              throw new Error(`Arquivo não parece ser imagem: ${contentType || "sem content-type"}`);
+            }
+  
+            buffer = Buffer.from(await response.arrayBuffer());
+  
+            if (buffer.length > 15 * 1024 * 1024) {
+              throw new Error("Imagem excede o limite de 15MB");
+            }
+          }
+  
+          // BASE64
+          else {
+            const decoded = decodeAndValidateImage(image.imageBase64!);
+  
+            if (!decoded.ok || !decoded.buffer) {
+              throw new Error(decoded.error || "Imagem inválida");
+            }
+  
+            buffer = decoded.buffer;
+          }
+  
+          const cloudUrl = await uploadImageBufferToCloudinary(buffer, image.fileName);
+  
+          if (!cloudUrl) {
+            throw new Error("Falha no upload para Cloudinary");
+          }
+  
+          await caller.campaigns.updateCreativeImage({
+            campaignId,
+            creativeIndex,
+            format: image.format,
+            imageUrl: cloudUrl,
+          } as any);
+  
+          return {
+            index,
+            creativeIndex,
+            success: true,
+            imageUrl: cloudUrl,
+          };
+        } catch (error: any) {
+          return {
+            index,
+            creativeIndex,
+            success: false,
+            error: error?.message || "Erro desconhecido",
+          };
+        }
+      }
+  
+      // Paralelo (limitado pelo próprio Promise.allSettled na ordem dos itens),
+      // já que cada imagem escreve em um creativeIndex/format diferente e não
+      // há dependência sequencial entre elas.
+      const settled = await Promise.allSettled(
+        images.map((image, i) => processOne(image, i))
+      );
+  
+      const results = settled.map((r, i) =>
+        r.status === "fulfilled"
+          ? r.value
+          : {
+              index: i,
+              creativeIndex: images[i].creativeIndex ?? i,
+              success: false,
+              error: r.reason?.message || "Erro desconhecido",
+            }
+      );
+  
+      const successCount = results.filter(r => r.success).length;
+  
+      return {
+        content: [{
+          type: "text",
+          text: `${successCount}/${images.length} imagens enviadas para a campanha ${campaignId}.`,
+        }],
+  
+        structuredContent: {
+          campaignId,
+          successCount,
+          total: images.length,
+          results,
+        },
+  
+        isError: successCount === 0,
+      };
+    }
+  );
+
   // ═══════════════════════════════════════════════════════════════════════
   // FASE 3 — publicação real na Meta. A PARTIR DAQUI, gasta orçamento real
   // do cliente. Toda a lógica de negócio (upload de imagem, resolução de
