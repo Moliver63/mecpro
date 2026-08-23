@@ -54,6 +54,101 @@ function decodeAndValidateImage(imageBase64: string): { ok: boolean; buffer: Buf
   return { ok: true, buffer, error: null };
 }
 
+// ── Resolução de fileUrl — trata o caso especial do Google Drive ──────────
+// Links de compartilhamento do Drive (.../file/d/ID/view, .../open?id=ID)
+// devolvem a página HTML do visualizador, não o arquivo — content-type
+// text/html, o que derrubava a validação de imagem com um erro genérico.
+// normalizeGoogleDriveUrl() reescreve qualquer formato de link do Drive pro
+// endpoint de download direto (uc?export=download&id=ID). Mesmo assim, o
+// Drive às vezes devolve uma página de confirmação HTML ("não foi possível
+// verificar vírus") em vez do arquivo — comportamento dele pra certos
+// arquivos, não algo evitável só pela URL certa. fetchImageBuffer() detecta
+// essa página, extrai o link de confirmação real e refaz o download uma vez
+// antes de desistir com um erro acionável.
+const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
+const MAX_FILEURL_IMAGE_BYTES = 15 * 1024 * 1024;
+
+function normalizeGoogleDriveUrl(url: string): string {
+  const patterns = [
+    /drive\.google\.com\/file\/d\/([^/]+)/,
+    /drive\.google\.com\/open\?id=([^&]+)/,
+    /drive\.google\.com\/uc\?.*[?&]id=([^&]+)/,
+  ];
+  for (const re of patterns) {
+    const match = url.match(re);
+    if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+  }
+  return url;
+}
+
+function looksLikeImage(contentType: string, fileUrl: string): boolean {
+  if (contentType.startsWith("image/")) return true;
+  // Muitos CDNs/Drive/S3 devolvem octet-stream ou vazio para imagens legítimas.
+  // Nesse caso, cai pro fallback de extensão no nome/URL.
+  if (!contentType || contentType === "application/octet-stream") {
+    return IMAGE_EXT_RE.test(fileUrl);
+  }
+  return false;
+}
+
+async function fetchImageBuffer(
+  rawUrl: string,
+  timeoutMs = 20000
+): Promise<{ ok: true; buffer: Buffer } | { ok: false; error: string }> {
+  const isDrive = /drive\.google\.com/.test(rawUrl);
+  const url = isDrive ? normalizeGoogleDriveUrl(rawUrl) : rawUrl;
+
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e: any) {
+    return { ok: false, error: `Falha ao baixar a imagem de fileUrl: ${e?.message || "erro de rede"}.` };
+  }
+  if (!response.ok) {
+    return { ok: false, error: `fileUrl retornou status ${response.status} — verifique se a URL é pública e acessível.` };
+  }
+
+  let contentType = response.headers.get("content-type") || "";
+  let buffer = Buffer.from(await response.arrayBuffer());
+
+  if (isDrive && contentType.startsWith("text/html")) {
+    const html = buffer.toString("utf-8");
+    const confirmMatch =
+      html.match(/href="(\/uc\?export=download[^"]+)"/) ||
+      html.match(/action="([^"]+)"[^>]*id="download-form"/);
+    if (confirmMatch) {
+      const confirmUrl = confirmMatch[1].startsWith("http")
+        ? confirmMatch[1].replace(/&amp;/g, "&")
+        : `https://drive.google.com${confirmMatch[1].replace(/&amp;/g, "&")}`;
+      try {
+        const retryRes = await fetch(confirmUrl, { signal: AbortSignal.timeout(timeoutMs) });
+        if (retryRes.ok) {
+          contentType = retryRes.headers.get("content-type") || "";
+          buffer = Buffer.from(await retryRes.arrayBuffer());
+        }
+      } catch {
+        // mantém o buffer/contentType da primeira tentativa; o check abaixo cobre o erro
+      }
+    }
+  }
+
+  if (isDrive && contentType.startsWith("text/html")) {
+    return {
+      ok: false,
+      error:
+        "Este link do Google Drive está bloqueando o download direto (página de confirmação do próprio Drive). " +
+        "Baixe o arquivo manualmente e reenvie como base64, ou hospede em outro serviço (Cloudinary, Imgur etc.).",
+    };
+  }
+  if (!looksLikeImage(contentType, url)) {
+    return { ok: false, error: `fileUrl não aponta pra uma imagem (content-type: ${contentType || "desconhecido"}).` };
+  }
+  if (buffer.byteLength > MAX_FILEURL_IMAGE_BYTES) {
+    return { ok: false, error: "Imagem baixada de fileUrl excede 15MB — use uma imagem menor." };
+  }
+  return { ok: true, buffer };
+}
+
 // ── Escopo de acesso por API key ──────────────────────────────────────────
 // 'read' < 'write' < 'publish', hierárquico (quem tem 'publish' também pode
 // tudo que 'write' e 'read' podem). Existe pra dar a clientes MCP menos
@@ -651,26 +746,11 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       // ── resolve o buffer da imagem, seja por Base64 ou por download da URL ──
       let buffer: Buffer;
       if (fileUrl) {
-        let fetchRes: Response;
-        try {
-          fetchRes = await fetch(fileUrl, { signal: AbortSignal.timeout(15000) });
-        } catch (e: any) {
-          return { content: [{ type: "text", text: `Falha ao baixar a imagem de fileUrl: ${e?.message || "erro de rede"}.` }], isError: true };
+        const result = await fetchImageBuffer(fileUrl, 15000);
+        if (!result.ok) {
+          return { content: [{ type: "text", text: result.error }], isError: true };
         }
-        if (!fetchRes.ok) {
-          return { content: [{ type: "text", text: `fileUrl retornou status ${fetchRes.status} — verifique se a URL é pública e acessível.` }], isError: true };
-        }
-        const contentType = fetchRes.headers.get("content-type") || "";
-        if (contentType && !contentType.startsWith("image/")) {
-          return { content: [{ type: "text", text: `fileUrl não aponta pra uma imagem (content-type: ${contentType}).` }], isError: true };
-        }
-        const arrayBuf = await fetchRes.arrayBuffer();
-        buffer = Buffer.from(arrayBuf);
-        // Limite básico de tamanho — mesma ordem de grandeza do que o
-        // caminho Base64 já tolera implicitamente via limite de payload MCP.
-        if (buffer.byteLength > 15 * 1024 * 1024) {
-          return { content: [{ type: "text", text: "Imagem baixada de fileUrl excede 15MB — use uma imagem menor." }], isError: true };
-        }
+        buffer = result.buffer;
       } else {
         // ── validação do payload — helper compartilhado com generate_campaign ──
         const decoded = decodeAndValidateImage(imageBase64!);
@@ -771,19 +851,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       })();
   
       const caller = await getCaller();
-  
-      const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
-  
-      function looksLikeImage(contentType: string, fileUrl: string): boolean {
-        if (contentType.startsWith("image/")) return true;
-        // Muitos CDNs/Drive/S3 devolvem octet-stream ou vazio para imagens legítimas.
-        // Nesse caso, cai pro fallback de extensão no nome/URL.
-        if (!contentType || contentType === "application/octet-stream") {
-          return IMAGE_EXT_RE.test(fileUrl);
-        }
-        return false;
-      }
-  
+
       async function processOne(image: (typeof images)[number], index: number) {
         const creativeIndex =
           image.creativeIndex !== undefined ? image.creativeIndex : index;
@@ -814,25 +882,11 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
   
           // URL
           if (image.fileUrl) {
-            const response = await fetch(image.fileUrl, {
-              signal: AbortSignal.timeout(20000),
-            });
-  
-            if (!response.ok) {
-              throw new Error(`Download retornou HTTP ${response.status}`);
+            const result = await fetchImageBuffer(image.fileUrl, 20000);
+            if (!result.ok) {
+              throw new Error(result.error);
             }
-  
-            const contentType = response.headers.get("content-type") || "";
-  
-            if (!looksLikeImage(contentType, image.fileUrl)) {
-              throw new Error(`Arquivo não parece ser imagem: ${contentType || "sem content-type"}`);
-            }
-  
-            buffer = Buffer.from(await response.arrayBuffer());
-  
-            if (buffer.length > 15 * 1024 * 1024) {
-              throw new Error("Imagem excede o limite de 15MB");
-            }
+            buffer = result.buffer;
           }
   
           // BASE64
