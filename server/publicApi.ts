@@ -21,6 +21,29 @@ import { createMcpServerForUser } from "./mcpServer";
 
 const router = Router();
 
+// -- CORS/preflight especifico do endpoint MCP -------------------------------
+// /api/v1 e montado antes do CORS global em server/_core/index.ts. Sem estes
+// headers aqui, alguns clientes remotos podem marcar o conector como
+// indisponivel antes mesmo de executar uma tool (ex: upload_campaign_images).
+function applyMcpCorsHeaders(req: Request, res: Response) {
+  const origin = req.headers.origin;
+  res.set("Access-Control-Allow-Origin", origin || "*");
+  res.set("Vary", "Origin");
+  res.set("Access-Control-Allow-Methods", "GET,HEAD,POST,OPTIONS");
+  res.set(
+    "Access-Control-Allow-Headers",
+    "Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID"
+  );
+  res.set("Access-Control-Expose-Headers", "WWW-Authenticate, Mcp-Session-Id");
+  res.set("Access-Control-Max-Age", "86400");
+}
+
+router.use("/mcp", (req: Request, res: Response, next: Function) => {
+  applyMcpCorsHeaders(req, res);
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
+
 // ── Limites por plano ────────────────────────────────────────────────────────
 interface PlanLimit { daily: number; monthly: number; }
 const PLAN_LIMITS: Record<string, PlanLimit> = {
@@ -201,6 +224,33 @@ router.post("/mcp", authApiKey, mcpBurstLimiter, json({ limit: "50mb" }), async 
       res.status(500).json({ error: "internal_error", message: "Erro ao processar a requisicao MCP." });
     }
   }
+});
+
+// Health/probe leve para clientes e monitores diferenciarem "endpoint MCP fora"
+// de erro dentro de uma tool. Nao executa nenhuma acao e nao depende de API key.
+router.head("/mcp", (_req: Request, res: Response) => {
+  res.status(204).end();
+});
+
+router.get("/mcp", (_req: Request, res: Response) => {
+  res.json({
+    status: "available",
+    transport: "streamable-http",
+    resource: `${process.env.APP_URL || "https://www.mecproai.com"}/api/v1/mcp`,
+    tools: [
+      "list_projects",
+      "list_campaigns",
+      "get_campaign",
+      "get_campaign_metrics",
+      "get_full_ads_report",
+      "set_client_profile",
+      "generate_campaign",
+      "upload_creative_image",
+      "upload_campaign_images",
+      "list_meta_pages",
+      "publish_campaign",
+    ],
+  });
 });
 
 // -- GET /api/v1/status --------------------------------------------------

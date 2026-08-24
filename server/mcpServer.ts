@@ -849,8 +849,32 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           return [];
         }
       })();
-  
-      const caller = await getCaller();
+
+      let caller;
+      try {
+        caller = await getCaller();
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text:
+              "Conector MECProAI disponível, mas falhou ao preparar o contexto interno antes do upload. " +
+              `Detalhe: ${error?.message || "erro desconhecido"}`,
+          }],
+          structuredContent: {
+            campaignId,
+            successCount: 0,
+            total: images.length,
+            errorType: "connector_runtime",
+            stage: "prepare_trpc_caller",
+            reachedTool: true,
+            reachedRender: true,
+            reachedCloudinary: false,
+            reachedImageValidator: false,
+          },
+          isError: true,
+        };
+      }
 
       async function processOne(image: (typeof images)[number], index: number) {
         const creativeIndex =
@@ -861,6 +885,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             index,
             creativeIndex,
             success: false,
+            errorType: "campaign_validation",
+            stage: "creative_lookup",
             error: "Criativo não encontrado",
           };
         }
@@ -873,6 +899,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             index,
             creativeIndex,
             success: false,
+            errorType: "payload_validation",
+            stage: "source_selection",
             error: "Informe fileUrl OU imageBase64.",
           };
         }
@@ -884,7 +912,16 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           if (image.fileUrl) {
             const result = await fetchImageBuffer(image.fileUrl, 20000);
             if (!result.ok) {
-              throw new Error(result.error);
+              return {
+                index,
+                creativeIndex,
+                success: false,
+                errorType: "file_download",
+                stage: "fetch_file_url",
+                reachedImageValidator: false,
+                reachedCloudinary: false,
+                error: result.error,
+              };
             }
             buffer = result.buffer;
           }
@@ -894,7 +931,16 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             const decoded = decodeAndValidateImage(image.imageBase64!);
   
             if (!decoded.ok || !decoded.buffer) {
-              throw new Error(decoded.error || "Imagem inválida");
+              return {
+                index,
+                creativeIndex,
+                success: false,
+                errorType: "payload_validation",
+                stage: "decode_image_base64",
+                reachedImageValidator: true,
+                reachedCloudinary: false,
+                error: decoded.error || "Imagem inválida",
+              };
             }
   
             buffer = decoded.buffer;
@@ -903,20 +949,47 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           const cloudUrl = await uploadImageBufferToCloudinary(buffer, image.fileName);
   
           if (!cloudUrl) {
-            throw new Error("Falha no upload para Cloudinary");
+            return {
+              index,
+              creativeIndex,
+              success: false,
+              errorType: "cloudinary_upload",
+              stage: "upload_cloudinary",
+              reachedImageValidator: true,
+              reachedCloudinary: true,
+              error: "Falha no upload para Cloudinary",
+            };
           }
-  
-          await caller.campaigns.updateCreativeImage({
-            campaignId,
-            creativeIndex,
-            format: image.format,
-            imageUrl: cloudUrl,
-          } as any);
+
+          try {
+            await caller.campaigns.updateCreativeImage({
+              campaignId,
+              creativeIndex,
+              format: image.format,
+              imageUrl: cloudUrl,
+            } as any);
+          } catch (error: any) {
+            return {
+              index,
+              creativeIndex,
+              success: false,
+              errorType: "creative_update",
+              stage: "save_creative_image",
+              reachedImageValidator: true,
+              reachedCloudinary: true,
+              imageUrl: cloudUrl,
+              error: error?.message || "Upload feito, mas falhou ao salvar no criativo",
+            };
+          }
   
           return {
             index,
             creativeIndex,
             success: true,
+            errorType: null,
+            stage: "completed",
+            reachedImageValidator: true,
+            reachedCloudinary: true,
             imageUrl: cloudUrl,
           };
         } catch (error: any) {
@@ -924,6 +997,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             index,
             creativeIndex,
             success: false,
+            errorType: "unexpected",
+            stage: "process_image",
             error: error?.message || "Erro desconhecido",
           };
         }
@@ -943,22 +1018,37 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
               index: i,
               creativeIndex: images[i].creativeIndex ?? i,
               success: false,
+              errorType: "unexpected",
+              stage: "promise_settlement",
               error: r.reason?.message || "Erro desconhecido",
             }
       );
   
       const successCount = results.filter(r => r.success).length;
+      const failedByType = results.reduce<Record<string, number>>((acc, result: any) => {
+        if (!result.success) {
+          const type = result.errorType || "unknown";
+          acc[type] = (acc[type] || 0) + 1;
+        }
+        return acc;
+      }, {});
+      const firstError = results.find((r: any) => !r.success);
   
       return {
         content: [{
           type: "text",
-          text: `${successCount}/${images.length} imagens enviadas para a campanha ${campaignId}.`,
+          text:
+            `${successCount}/${images.length} imagens enviadas para a campanha ${campaignId}.` +
+            (firstError
+              ? ` Primeira falha: ${firstError.stage || "etapa desconhecida"} (${firstError.errorType || "erro"}): ${firstError.error}`
+              : ""),
         }],
   
         structuredContent: {
           campaignId,
           successCount,
           total: images.length,
+          failedByType,
           results,
         },
   
