@@ -953,7 +953,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
 
   async function uploadCampaignImagesHandler({ campaignId, images }: {
     campaignId: number;
-    images: Array<{
     images: McpUploadImageInput[];
   }) {
     if (!hasScope(scope, "write")) {
