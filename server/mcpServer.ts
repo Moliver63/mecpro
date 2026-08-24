@@ -789,273 +789,283 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
 
 
   // ── upload_campaign_images (lote) ────────────────────────────────────
-  server.registerTool(
-    "upload_campaign_images",
-    {
-      title: "Enviar várias imagens para uma campanha",
-      description:
-        "Envia várias fotos reais de uma só vez para os criativos da campanha. " +
-        "Aceita URLs públicas ou base64 e distribui as imagens na ordem recebida.",
-      inputSchema: {
-        campaignId: z.number().int().positive(),
-  
-        images: z.array(
-          z.object({
-            fileUrl: z.string().url().optional(),
-            imageBase64: z.string().optional(),
-            fileName: z.string(),
-            creativeIndex: z.number().int().min(0).optional(),
-            format: z
-              .enum(["feed", "stories", "square"])
-              .default("feed"),
-          })
-        ).min(1).max(10),
-      },
-    },
-  
-    async ({ campaignId, images }) => {
-      if (!hasScope(scope, "write")) {
-        return scopeErrorContent("write", scope);
-      }
-  
-      const campaign: any = await db.getCampaignById(campaignId);
-  
-      if (!campaign) {
-        return {
-          content: [{
-            type: "text",
-            text: `Campanha ${campaignId} não encontrada.`,
-          }],
-          isError: true,
-        };
-      }
-  
-      const project: any = await db.getProjectById(campaign.projectId);
-  
-      if (!project || project.userId !== userId) {
-        return {
-          content: [{
-            type: "text",
-            text: `Campanha ${campaignId} não pertence a este usuário.`,
-          }],
-          isError: true,
-        };
-      }
-  
-      const creatives = (() => {
-        try {
-          return JSON.parse(campaign.creatives || "[]");
-        } catch {
-          return [];
-        }
-      })();
+  const uploadCampaignImagesInputSchema = {
+    campaignId: z.number().int().positive(),
+    images: z.array(
+      z.object({
+        fileUrl: z.string().url().optional(),
+        imageBase64: z.string().optional(),
+        fileName: z.string(),
+        creativeIndex: z.number().int().min(0).optional(),
+        format: z.enum(["feed", "stories", "square"]).default("feed"),
+      })
+    ).min(1).max(10),
+  };
 
-      let caller;
+  const uploadCampaignImagesToolConfig = {
+    title: "Enviar várias imagens para uma campanha",
+    description:
+      "Envia várias fotos reais de uma só vez para os criativos da campanha. " +
+      "Aceita URLs públicas ou base64 e distribui as imagens na ordem recebida.",
+    inputSchema: uploadCampaignImagesInputSchema,
+  };
+
+  async function uploadCampaignImagesHandler({ campaignId, images }: {
+    campaignId: number;
+    images: Array<{
+      fileUrl?: string;
+      imageBase64?: string;
+      fileName: string;
+      creativeIndex?: number;
+      format?: "feed" | "stories" | "square";
+    }>;
+  }) {
+    if (!hasScope(scope, "write")) {
+      return scopeErrorContent("write", scope);
+    }
+
+    const campaign: any = await db.getCampaignById(campaignId);
+
+    if (!campaign) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Campanha ${campaignId} não encontrada.`,
+        }],
+        isError: true,
+      };
+    }
+
+    const project: any = await db.getProjectById(campaign.projectId);
+
+    if (!project || project.userId !== userId) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Campanha ${campaignId} não pertence a este usuário.`,
+        }],
+        isError: true,
+      };
+    }
+
+    const creatives = (() => {
       try {
-        caller = await getCaller();
-      } catch (error: any) {
+        return JSON.parse(campaign.creatives || "[]");
+      } catch {
+        return [];
+      }
+    })();
+
+    let caller;
+    try {
+      caller = await getCaller();
+    } catch (error: any) {
+      return {
+        content: [{
+          type: "text" as const,
+          text:
+            "Conector MECProAI disponível, mas falhou ao preparar o contexto interno antes do upload. " +
+            `Detalhe: ${error?.message || "erro desconhecido"}`,
+        }],
+        structuredContent: {
+          campaignId,
+          successCount: 0,
+          total: images.length,
+          errorType: "connector_runtime",
+          stage: "prepare_trpc_caller",
+          reachedTool: true,
+          reachedRender: true,
+          reachedCloudinary: false,
+          reachedImageValidator: false,
+        },
+        isError: true,
+      };
+    }
+
+    async function processOne(image: (typeof images)[number], index: number) {
+      const creativeIndex =
+        image.creativeIndex !== undefined ? image.creativeIndex : index;
+
+      if (!creatives[creativeIndex]) {
         return {
-          content: [{
-            type: "text",
-            text:
-              "Conector MECProAI disponível, mas falhou ao preparar o contexto interno antes do upload. " +
-              `Detalhe: ${error?.message || "erro desconhecido"}`,
-          }],
-          structuredContent: {
-            campaignId,
-            successCount: 0,
-            total: images.length,
-            errorType: "connector_runtime",
-            stage: "prepare_trpc_caller",
-            reachedTool: true,
-            reachedRender: true,
-            reachedCloudinary: false,
-            reachedImageValidator: false,
-          },
-          isError: true,
+          index,
+          creativeIndex,
+          success: false,
+          errorType: "campaign_validation",
+          stage: "creative_lookup",
+          error: "Criativo não encontrado",
         };
       }
 
-      async function processOne(image: (typeof images)[number], index: number) {
-        const creativeIndex =
-          image.creativeIndex !== undefined ? image.creativeIndex : index;
-  
-        if (!creatives[creativeIndex]) {
-          return {
-            index,
-            creativeIndex,
-            success: false,
-            errorType: "campaign_validation",
-            stage: "creative_lookup",
-            error: "Criativo não encontrado",
-          };
-        }
-  
-        if (
-          (!image.fileUrl && !image.imageBase64) ||
-          (image.fileUrl && image.imageBase64)
-        ) {
-          return {
-            index,
-            creativeIndex,
-            success: false,
-            errorType: "payload_validation",
-            stage: "source_selection",
-            error: "Informe fileUrl OU imageBase64.",
-          };
-        }
-  
-        try {
-          let buffer: Buffer;
-  
-          // URL
-          if (image.fileUrl) {
-            const result = await fetchImageBuffer(image.fileUrl, 20000);
-            if (!result.ok) {
-              return {
-                index,
-                creativeIndex,
-                success: false,
-                errorType: "file_download",
-                stage: "fetch_file_url",
-                reachedImageValidator: false,
-                reachedCloudinary: false,
-                error: result.error,
-              };
-            }
-            buffer = result.buffer;
-          }
-  
-          // BASE64
-          else {
-            const decoded = decodeAndValidateImage(image.imageBase64!);
-  
-            if (!decoded.ok || !decoded.buffer) {
-              return {
-                index,
-                creativeIndex,
-                success: false,
-                errorType: "payload_validation",
-                stage: "decode_image_base64",
-                reachedImageValidator: true,
-                reachedCloudinary: false,
-                error: decoded.error || "Imagem inválida",
-              };
-            }
-  
-            buffer = decoded.buffer;
-          }
-  
-          const cloudUrl = await uploadImageBufferToCloudinary(buffer, image.fileName);
-  
-          if (!cloudUrl) {
+      if (
+        (!image.fileUrl && !image.imageBase64) ||
+        (image.fileUrl && image.imageBase64)
+      ) {
+        return {
+          index,
+          creativeIndex,
+          success: false,
+          errorType: "payload_validation",
+          stage: "source_selection",
+          error: "Informe fileUrl OU imageBase64.",
+        };
+      }
+
+      try {
+        let buffer: Buffer;
+
+        if (image.fileUrl) {
+          const result = await fetchImageBuffer(image.fileUrl, 20000);
+          if (!result.ok) {
             return {
               index,
               creativeIndex,
               success: false,
-              errorType: "cloudinary_upload",
-              stage: "upload_cloudinary",
+              errorType: "file_download",
+              stage: "fetch_file_url",
+              reachedImageValidator: false,
+              reachedCloudinary: false,
+              error: result.error,
+            };
+          }
+          buffer = result.buffer;
+        } else {
+          const decoded = decodeAndValidateImage(image.imageBase64!);
+
+          if (!decoded.ok || !decoded.buffer) {
+            return {
+              index,
+              creativeIndex,
+              success: false,
+              errorType: "payload_validation",
+              stage: "decode_image_base64",
               reachedImageValidator: true,
-              reachedCloudinary: true,
-              error: "Falha no upload para Cloudinary",
+              reachedCloudinary: false,
+              error: decoded.error || "Imagem inválida",
             };
           }
 
-          try {
-            await caller.campaigns.updateCreativeImage({
-              campaignId,
-              creativeIndex,
-              format: image.format,
-              imageUrl: cloudUrl,
-            } as any);
-          } catch (error: any) {
-            return {
-              index,
-              creativeIndex,
-              success: false,
-              errorType: "creative_update",
-              stage: "save_creative_image",
-              reachedImageValidator: true,
-              reachedCloudinary: true,
-              imageUrl: cloudUrl,
-              error: error?.message || "Upload feito, mas falhou ao salvar no criativo",
-            };
-          }
-  
+          buffer = decoded.buffer;
+        }
+
+        const cloudUrl = await uploadImageBufferToCloudinary(buffer, image.fileName);
+
+        if (!cloudUrl) {
           return {
             index,
             creativeIndex,
-            success: true,
-            errorType: null,
-            stage: "completed",
+            success: false,
+            errorType: "cloudinary_upload",
+            stage: "upload_cloudinary",
             reachedImageValidator: true,
             reachedCloudinary: true,
-            imageUrl: cloudUrl,
+            error: "Falha no upload para Cloudinary",
           };
+        }
+
+        try {
+          await caller.campaigns.updateCreativeImage({
+            campaignId,
+            creativeIndex,
+            format: image.format || "feed",
+            imageUrl: cloudUrl,
+          } as any);
         } catch (error: any) {
           return {
             index,
             creativeIndex,
             success: false,
-            errorType: "unexpected",
-            stage: "process_image",
-            error: error?.message || "Erro desconhecido",
+            errorType: "creative_update",
+            stage: "save_creative_image",
+            reachedImageValidator: true,
+            reachedCloudinary: true,
+            imageUrl: cloudUrl,
+            error: error?.message || "Upload feito, mas falhou ao salvar no criativo",
           };
         }
+
+        return {
+          index,
+          creativeIndex,
+          success: true,
+          errorType: null,
+          stage: "completed",
+          reachedImageValidator: true,
+          reachedCloudinary: true,
+          imageUrl: cloudUrl,
+        };
+      } catch (error: any) {
+        return {
+          index,
+          creativeIndex,
+          success: false,
+          errorType: "unexpected",
+          stage: "process_image",
+          error: error?.message || "Erro desconhecido",
+        };
       }
-  
-      // Paralelo (limitado pelo próprio Promise.allSettled na ordem dos itens),
-      // já que cada imagem escreve em um creativeIndex/format diferente e não
-      // há dependência sequencial entre elas.
-      const settled = await Promise.allSettled(
-        images.map((image, i) => processOne(image, i))
-      );
-  
-      const results = settled.map((r, i) =>
-        r.status === "fulfilled"
-          ? r.value
-          : {
-              index: i,
-              creativeIndex: images[i].creativeIndex ?? i,
-              success: false,
-              errorType: "unexpected",
-              stage: "promise_settlement",
-              error: r.reason?.message || "Erro desconhecido",
-            }
-      );
-  
-      const successCount = results.filter(r => r.success).length;
-      const failedByType = results.reduce<Record<string, number>>((acc, result: any) => {
-        if (!result.success) {
-          const type = result.errorType || "unknown";
-          acc[type] = (acc[type] || 0) + 1;
-        }
-        return acc;
-      }, {});
-      const firstError = results.find((r: any) => !r.success);
-  
-      return {
-        content: [{
-          type: "text",
-          text:
-            `${successCount}/${images.length} imagens enviadas para a campanha ${campaignId}.` +
-            (firstError
-              ? ` Primeira falha: ${firstError.stage || "etapa desconhecida"} (${firstError.errorType || "erro"}): ${firstError.error}`
-              : ""),
-        }],
-  
-        structuredContent: {
-          campaignId,
-          successCount,
-          total: images.length,
-          failedByType,
-          results,
-        },
-  
-        isError: successCount === 0,
-      };
     }
-  );
+
+    const settled = await Promise.allSettled(
+      images.map((image, i) => processOne(image, i))
+    );
+
+    const results = settled.map((r, i) =>
+      r.status === "fulfilled"
+        ? r.value
+        : {
+            index: i,
+            creativeIndex: images[i].creativeIndex ?? i,
+            success: false,
+            errorType: "unexpected",
+            stage: "promise_settlement",
+            error: r.reason?.message || "Erro desconhecido",
+          }
+    );
+
+    const successCount = results.filter(r => r.success).length;
+    const failedByType = results.reduce<Record<string, number>>((acc, result: any) => {
+      if (!result.success) {
+        const type = result.errorType || "unknown";
+        acc[type] = (acc[type] || 0) + 1;
+      }
+      return acc;
+    }, {});
+    const firstError = results.find((r: any) => !r.success);
+
+    return {
+      content: [{
+        type: "text" as const,
+        text:
+          `${successCount}/${images.length} imagens enviadas para a campanha ${campaignId}.` +
+          (firstError
+            ? ` Primeira falha: ${firstError.stage || "etapa desconhecida"} (${firstError.errorType || "erro"}): ${firstError.error}`
+            : ""),
+      }],
+      structuredContent: {
+        campaignId,
+        successCount,
+        total: images.length,
+        failedByType,
+        results,
+      },
+      isError: successCount === 0,
+    };
+  }
+
+  server.registerTool("upload_campaign_images", uploadCampaignImagesToolConfig, uploadCampaignImagesHandler);
+
+  // Alguns clientes expõem/chamam tools MCP como "NOME_DO_CONECTOR.tool".
+  // Registrar aliases evita "Resource not found: MECPROAI.upload_campaign_images"
+  // quando o manifesto remoto ainda estiver usando o nome qualificado.
+  server.registerTool("MECPROAI.upload_campaign_images", {
+    ...uploadCampaignImagesToolConfig,
+    title: "Enviar várias imagens para uma campanha (alias MECPROAI)",
+  }, uploadCampaignImagesHandler);
+  server.registerTool("mecproai.upload_campaign_images", {
+    ...uploadCampaignImagesToolConfig,
+    title: "Enviar várias imagens para uma campanha (alias mecproai)",
+  }, uploadCampaignImagesHandler);
 
   // ═══════════════════════════════════════════════════════════════════════
   // FASE 3 — publicação real na Meta. A PARTIR DAQUI, gasta orçamento real

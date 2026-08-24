@@ -247,6 +247,8 @@ router.get("/mcp", (_req: Request, res: Response) => {
       "generate_campaign",
       "upload_creative_image",
       "upload_campaign_images",
+      "MECPROAI.upload_campaign_images",
+      "mecproai.upload_campaign_images",
       "list_meta_pages",
       "publish_campaign",
     ],
