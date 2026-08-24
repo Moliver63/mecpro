@@ -25,6 +25,7 @@ import { z } from "zod";
 import * as db from "./db";
 import { appRouter } from "./_core/router";
 import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
+import { log } from "./logger";
 
 // ── Validação de imagem enviada em base64 ─────────────────────────────────
 // Compartilhada entre upload_creative_image e generate_campaign (modo fotos
@@ -958,10 +959,12 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     if (!hasScope(scope, "write")) {
       return scopeErrorContent("write", scope);
     }
+    log.info("mcp-upload-images", "batch start", { userId, campaignId, total: images.length });
 
     const campaign: any = await db.getCampaignById(campaignId);
 
     if (!campaign) {
+      log.warn("mcp-upload-images", "campaign not found", { userId, campaignId });
       return {
         content: [{
           type: "text" as const,
@@ -974,6 +977,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     const project: any = await db.getProjectById(campaign.projectId);
 
     if (!project || project.userId !== userId) {
+      log.warn("mcp-upload-images", "campaign ownership denied", { userId, campaignId, projectId: campaign.projectId });
       return {
         content: [{
           type: "text" as const,
@@ -995,6 +999,12 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     try {
       caller = await getCaller();
     } catch (error: any) {
+      log.error("mcp-upload-images", "prepare caller failed", {
+        userId,
+        campaignId,
+        total: images.length,
+        error: error?.message,
+      });
       return {
         content: [{
           type: "text" as const,
@@ -1022,6 +1032,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         image.creativeIndex !== undefined ? image.creativeIndex : index;
 
       if (!creatives[creativeIndex]) {
+        log.warn("mcp-upload-images", "creative not found", { userId, campaignId, index, creativeIndex, creativesCount: creatives.length });
         return {
           index,
           creativeIndex,
@@ -1034,6 +1045,16 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
 
       const normalized = normalizeUploadImageInput(image, index);
       if (normalized.error) {
+        log.warn("mcp-upload-images", "attachment normalize failed", {
+          userId,
+          campaignId,
+          index,
+          creativeIndex,
+          hasFileUrl: !!(image.fileUrl || image.url || image.imageUrl || image.downloadUrl || image.file?.url || image.file?.imageUrl || image.file?.downloadUrl),
+          hasBase64: !!(image.imageBase64 || image.base64 || image.dataUrl || image.file?.imageBase64 || image.file?.base64 || image.file?.dataUrl),
+          hasLocalPath: !!(image.path || image.filePath || image.file?.path),
+          error: normalized.error.slice(0, 240),
+        });
         return {
           index,
           creativeIndex,
@@ -1050,8 +1071,22 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         let buffer: Buffer;
 
         if (normalized.fileUrl) {
+          log.info("mcp-upload-images", "fetching image url", {
+            userId,
+            campaignId,
+            index,
+            creativeIndex,
+            fileName: normalized.fileName.slice(0, 120),
+          });
           const result = await fetchImageBuffer(normalized.fileUrl, 20000);
           if (!result.ok) {
+            log.warn("mcp-upload-images", "fetch image url failed", {
+              userId,
+              campaignId,
+              index,
+              creativeIndex,
+              error: result.error.slice(0, 240),
+            });
             return {
               index,
               creativeIndex,
@@ -1065,9 +1100,23 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           }
           buffer = result.buffer;
         } else {
+          log.info("mcp-upload-images", "decoding image base64", {
+            userId,
+            campaignId,
+            index,
+            creativeIndex,
+            fileName: normalized.fileName.slice(0, 120),
+          });
           const decoded = decodeAndValidateImage(normalized.imageBase64!);
 
           if (!decoded.ok || !decoded.buffer) {
+            log.warn("mcp-upload-images", "decode image base64 failed", {
+              userId,
+              campaignId,
+              index,
+              creativeIndex,
+              error: (decoded.error || "Imagem inválida").slice(0, 240),
+            });
             return {
               index,
               creativeIndex,
@@ -1083,9 +1132,26 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           buffer = decoded.buffer;
         }
 
+        log.info("mcp-upload-images", "uploading to cloudinary", {
+          userId,
+          campaignId,
+          index,
+          creativeIndex,
+          sourceKind: normalized.sourceKind,
+          bytes: buffer.byteLength,
+          fileName: normalized.fileName.slice(0, 120),
+        });
         const cloudUrl = await uploadImageBufferToCloudinary(buffer, normalized.fileName);
 
         if (!cloudUrl) {
+          log.error("mcp-upload-images", "cloudinary upload failed", {
+            userId,
+            campaignId,
+            index,
+            creativeIndex,
+            bytes: buffer.byteLength,
+            fileName: normalized.fileName.slice(0, 120),
+          });
           return {
             index,
             creativeIndex,
@@ -1099,6 +1165,13 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         }
 
         try {
+          log.info("mcp-upload-images", "updating creative image", {
+            userId,
+            campaignId,
+            index,
+            creativeIndex,
+            format: image.format || "feed",
+          });
           await caller.campaigns.updateCreativeImage({
             campaignId,
             creativeIndex,
@@ -1106,6 +1179,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             imageUrl: cloudUrl,
           } as any);
         } catch (error: any) {
+          log.error("mcp-upload-images", "creative update failed", {
+            userId,
+            campaignId,
+            index,
+            creativeIndex,
+            format: image.format || "feed",
+            error: error?.message,
+          });
           return {
             index,
             creativeIndex,
@@ -1130,6 +1211,13 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           imageUrl: cloudUrl,
         };
       } catch (error: any) {
+        log.error("mcp-upload-images", "process image unexpected error", {
+          userId,
+          campaignId,
+          index,
+          creativeIndex,
+          error: error?.message,
+        });
         return {
           index,
           creativeIndex,
@@ -1167,6 +1255,15 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       return acc;
     }, {});
     const firstError = results.find((r: any) => !r.success);
+    log.info("mcp-upload-images", "batch done", {
+      userId,
+      campaignId,
+      successCount,
+      total: images.length,
+      failedByType,
+      firstErrorType: firstError?.errorType || null,
+      firstErrorStage: firstError?.stage || null,
+    });
 
     return {
       content: [{
