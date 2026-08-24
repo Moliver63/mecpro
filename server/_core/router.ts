@@ -4571,7 +4571,7 @@ const campaignsRouter = router({
         ? selectedCreative?.storyVideoThumbnailUrl || selectedCreative?.feedVideoThumbnailUrl || null
         : selectedCreative?.feedVideoThumbnailUrl || selectedCreative?.squareVideoThumbnailUrl || selectedCreative?.storyVideoThumbnailUrl || null;
       const effectiveVideoId = input.videoId ?? fallbackPublishMedia?.videoId ?? null;
-      const effectiveImageHashes = input.imageHashes?.length && input.imageHashes.length >= 2
+      const candidateImageHashes = input.imageHashes?.length && input.imageHashes.length >= 2
         ? input.imageHashes
         : fallbackPublishMedia?.imageHashes ?? null;
 
@@ -4601,12 +4601,25 @@ const campaignsRouter = router({
         : realPhotoUrls.length >= 1 ? realPhotoUrls
         // 3. Fallback do banco (fluxo automático normal)
         : fallbackPublishMedia?.imageUrls ?? null;
+      const effectiveImageHashes: string[] | null =
+        candidateImageHashes?.length && candidateImageHashes.length >= 2 &&
+        candidateImageHashes.length >= (effectiveImageUrls?.length ?? 0)
+          ? candidateImageHashes
+          : null;
 
       if (realPhotoUrls.length > 0) {
         log.info("meta", realPhotoUrls.length >= 2 ? "Carrossel com fotos reais do cliente" : "Imagem real do cliente (1 foto — sem carrossel)", {
           fotos: realPhotoUrls.length,
           urls: realPhotoUrls.map((u: string) => u.slice(-30)),
           featuredAplicado: realPhotoCreatives.some((cr: any) => cr.isFeaturedPhoto),
+          hashesDisponiveis: candidateImageHashes?.length ?? 0,
+          fonteMidia: effectiveImageHashes ? "hashes" : effectiveImageUrls ? "urls" : "nenhuma",
+        });
+      }
+      if ((candidateImageHashes?.length ?? 0) >= 2 && (effectiveImageUrls?.length ?? 0) > (candidateImageHashes?.length ?? 0)) {
+        log.warn("meta", "Ignorando imageHashes incompletos para preservar todas as fotos reais do carrossel", {
+          hashes: candidateImageHashes?.length ?? 0,
+          urls: effectiveImageUrls?.length ?? 0,
         });
       }
       const hasExplicitUploadedMedia = !!input.videoId || !!input.imageHash || !!input.imageUrl || !!(input.imageHashes?.length) || !!(input.imageUrls?.length);
@@ -4769,6 +4782,14 @@ const campaignsRouter = router({
           ? effectiveImageUrls.slice(0, 10)
           : null;
         isCarousel = !!(carouselHashes || carouselUrls);
+        const expectedRealPhotoCards = realPhotoUrls.length >= 2 ? Math.min(realPhotoUrls.length, 10) : 0;
+        const actualCarouselCards = carouselHashes?.length ?? carouselUrls?.length ?? 0;
+        if (expectedRealPhotoCards > 0 && actualCarouselCards < expectedRealPhotoCards) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Carrossel incompleto bloqueado: ${actualCarouselCards}/${expectedRealPhotoCards} fotos seriam enviadas para a Meta. Reenvie usando todas as imagens ou gere novamente os hashes.`,
+          });
+        }
 
         // ── Creative Dinâmico (sessão 30, 12/08) ──────────────────────────
         // isDynamicCreativeEligible já foi calculado cedo (perto de

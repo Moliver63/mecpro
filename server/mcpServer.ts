@@ -1633,16 +1633,29 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const successCount = results.filter(r => r.success).length;
       const summary = results.map(r => r.success ? `✅ ${r.adSetName}` : `❌ ${r.adSetName}: ${r.error}`).join("\n");
       const summaryText = `${successCount}/${results.length} ad set(s) publicado(s) na Meta.\n\n${summary}`;
+      const isPartial = successCount > 0 && successCount < results.length;
+      const failedSummary = results
+        .filter(r => !r.success)
+        .map(r => `${r.adSetName}: ${r.error}`)
+        .join("\n");
       const finalPayload = {
         successCount,
         total: results.length,
         results,
         metaCampaignId: sharedMetaCampaignId,
         summaryText,
-        isError: successCount === 0,
+        status: successCount === results.length ? "success" : successCount === 0 ? "error" : "partial",
+        isError: successCount !== results.length,
       };
 
-      // Marca como "completed" mesmo se successCount === 0: a essa altura o
+      if (successCount !== results.length) {
+        await db.updateCampaign(input.campaignId, {
+          publishStatus: successCount === 0 ? "error" : "partial",
+          publishError: failedSummary || "Publicação parcial na Meta.",
+        } as any).catch(() => {});
+      }
+
+      // Marca como "completed" mesmo se successCount < total: a essa altura o
       // loop já chamou publishToMeta pelo menos uma vez (efeito colateral
       // real já disparado), então repetir a MESMA idempotencyKey nunca deve
       // tentar de novo — deve só devolver o que de fato aconteceu. Pra
@@ -1651,8 +1664,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
 
       return {
         content: [{ type: "text", text: summaryText }],
-        structuredContent: { successCount, total: results.length, results, metaCampaignId: sharedMetaCampaignId },
-        isError: successCount === 0,
+        structuredContent: { successCount, total: results.length, results, metaCampaignId: sharedMetaCampaignId, partial: isPartial },
+        isError: successCount !== results.length,
       };
     }
   );
