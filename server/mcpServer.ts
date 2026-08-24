@@ -710,8 +710,38 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       // com sinais visuais sutis. Best-effort: se o Vision falhar numa foto,
       // simplesmente não contribui labels — NUNCA aborta a geração por isso
       // (diferente da validação de imagem em si, que é obrigatória).
+      const uploadedFromUrl: string[] = [];
       const uploadedFromBase64: string[] = [];
       const visualLabelsSet = new Set<string>();
+      if (input.uploadedImages?.length) {
+        const { analyzeImageWithVision } = await import("./imageRAG");
+        for (let i = 0; i < input.uploadedImages.length; i++) {
+          const url = String(input.uploadedImages[i] || "").trim();
+          if (!/^https:\/\//i.test(url)) {
+            return { content: [{ type: "text", text: `Foto por URL ${i + 1}/${input.uploadedImages.length} inválida: use uma URL HTTPS pública.` }], isError: true };
+          }
+          const downloaded = await fetchImageBuffer(url, 20000);
+          if (!downloaded.ok || !downloaded.buffer) {
+            return { content: [{ type: "text", text: `Falha ao baixar a foto ${i + 1}/${input.uploadedImages.length}: ${downloaded.error}` }], isError: true };
+          }
+          const cloudUrl = await uploadImageBufferToCloudinary(
+            downloaded.buffer,
+            `campaign-photo-${input.projectId}-url-${i}-${Date.now()}.jpg`,
+          );
+          if (!cloudUrl) {
+            return { content: [{ type: "text", text: `Falha ao subir a foto ${i + 1}/${input.uploadedImages.length} pro Cloudinary. Verifique as credenciais do Cloudinary no servidor.` }], isError: true };
+          }
+          uploadedFromUrl.push(cloudUrl);
+
+          try {
+            const vision = await analyzeImageWithVision(cloudUrl);
+            if (vision?.labels?.length) vision.labels.slice(0, 4).forEach((l: string) => visualLabelsSet.add(l));
+            if (vision?.objects?.length) vision.objects.slice(0, 3).forEach((o: string) => visualLabelsSet.add(o));
+          } catch {
+            // Vision indisponível ou erro — segue sem labels dessa foto, sem abortar.
+          }
+        }
+      }
       if (input.realPhotosBase64?.length) {
         const { analyzeImageWithVision } = await import("./imageRAG");
         for (let i = 0; i < input.realPhotosBase64.length; i++) {
@@ -738,7 +768,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           }
         }
       }
-      const allRealImages = [...(input.uploadedImages || []), ...uploadedFromBase64];
+      const allRealImages = [...uploadedFromUrl, ...uploadedFromBase64];
       const visualLabels = Array.from(visualLabelsSet).slice(0, 8); // limite pra não sobrecarregar o prompt
 
       const { generateCampaign } = await import("./ai");

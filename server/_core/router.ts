@@ -63,6 +63,71 @@ function sanitizeAdAccountId(raw: string | null | undefined): string | null {
   return `act_${digits}`;
 }
 
+function compactAdText(value: unknown): string {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[•|]+$/g, "")
+    .trim();
+}
+
+function limitMetaText(value: unknown, max: number): string {
+  const text = compactAdText(value);
+  return text.length > max ? text.slice(0, max).trim() : text;
+}
+
+function isWeakCarouselText(value: unknown): boolean {
+  const text = compactAdText(value).toLowerCase();
+  if (!text || text.length < 8) return true;
+  return /^(saiba mais|confira|veja detalhes|oportunidade|não perca|nao perca|disponível|disponivel|agende visita|fale conosco|venha conhecer|imóvel incrível|imovel incrivel)$/i.test(text);
+}
+
+function firstUsefulSentence(value: unknown, max = 70): string {
+  const text = compactAdText(value);
+  const sentences = text
+    .split(/[.!?\n]+/)
+    .map((sentence) => compactAdText(sentence))
+    .filter((sentence) =>
+      sentence.length >= 12 &&
+      sentence.length <= max &&
+      !/^(clique|saiba mais|não perca|nao perca|venha conhecer)/i.test(sentence)
+    );
+  return sentences[0] || "";
+}
+
+function buildCarouselFallback(idx: number, total: number, objective: string, creative: any): { name: string; description: string } {
+  const raw = [
+    creative?.headline,
+    creative?.copy,
+    creative?.bodyText,
+    creative?.hook,
+    creative?.solution,
+  ].join(" ").toLowerCase();
+  const isLead = String(objective || "").toLowerCase() === "leads";
+
+  if (idx === total - 1 && isLead) {
+    return { name: "Quer conhecer pessoalmente?", description: "Agende sua visita" };
+  }
+  if (/piscina|pool|rooftop/.test(raw)) {
+    return { name: "Piscina privativa", description: "Lazer exclusivo" };
+  }
+  if (/cozinha|gourmet|jantar|mesa/.test(raw)) {
+    return { name: "Ambientes integrados", description: "Para receber bem" };
+  }
+  if (/sala|living|escada|triplex/.test(raw)) {
+    return { name: "Triplex amplo", description: "190 m² privativos" };
+  }
+  if (/vista|mar|praia brava/.test(raw)) {
+    return { name: "Vista na Praia Brava", description: "Localização premium" };
+  }
+  if (/suíte|suite|quarto|dormitório|dormitorio/.test(raw)) {
+    return { name: "3 suítes espaçosas", description: "Conforto e privacidade" };
+  }
+  if (/closet|mobiliad|pronta/.test(raw)) {
+    return { name: "Mobiliada e pronta", description: "Locação anual" };
+  }
+  return { name: "Cobertura Triplex", description: "Praia Brava" };
+}
+
 // -- TikTok Ads API helper ----------------------------------------------------
 async function tikTokPost<T>(path: string, body: unknown, accessToken: string): Promise<T> {
   const url = `https://business-api.tiktok.com/open_api/v1.3/${path}`;
@@ -4791,12 +4856,22 @@ const campaignsRouter = router({
 
           const getCardCopy = (idx: number) => {
             const creative = creativeList[idx % nCreatives];
-            if (!creative) return { name: personaHeadline.slice(0, 40), description: "" };
+            if (!creative) {
+              const fallback = buildCarouselFallback(idx, items.length, objective, null);
+              return { name: limitMetaText(fallback.name || personaHeadline, 40), description: limitMetaText(fallback.description, 30) };
+            }
 
-            // Headline base do criativo
-            let cardHeadline = String(
-              creative.headline || creative.title || personaHeadline
-            ).trim();
+            const fallback = buildCarouselFallback(idx, items.length, objective, creative);
+            const isLastLeadCard = idx === items.length - 1 && String(objective || "").toLowerCase() === "leads";
+
+            // Headline base do criativo. Se a IA devolveu texto fraco ou
+            // generico, usa um fallback concreto a partir do contexto do card.
+            let cardHeadline = compactAdText(
+              isLastLeadCard
+                ? (creative.headline || creative.title || fallback.name)
+                : (creative.headline || creative.title || fallback.name || personaHeadline)
+            );
+            if (isWeakCarouselText(cardHeadline)) cardHeadline = fallback.name || personaHeadline;
 
             // Se este card está REPETINDO um criativo já usado (idx >= nCreatives),
             // diferencia o headline com uma variação de ângulo
@@ -4808,17 +4883,34 @@ const campaignsRouter = router({
                 cardHeadline = `${base} • ${variation}`;
               }
             }
-            cardHeadline = cardHeadline.slice(0, 40);  // Meta: max 40 chars
+            cardHeadline = limitMetaText(cardHeadline, 40);  // Meta: max 40 chars
 
-            // Descrição: prioriza description dedicada, depois CTA, depois hook
-            let cardDesc = String(
-              creative.description || creative.cta || creative.hook || ""
-            ).trim();
+            // Descrição: prioriza description dedicada e trechos concretos da
+            // copy. CTA/hook só entram depois, porque sozinhos deixam card fraco.
+            const descCandidates = [
+              creative.description,
+              creative.shortDescription,
+              firstUsefulSentence(creative.bodyText || creative.copy),
+              creative.solution,
+              creative.pain,
+              creative.hook,
+              isLastLeadCard ? (creative.cta || "Agende sua visita") : "",
+              fallback.description,
+            ].map(compactAdText).filter(Boolean);
+
+            let cardDesc = descCandidates.find((candidate) => {
+              const lower = candidate.toLowerCase();
+              const headlineLower = cardHeadline.toLowerCase();
+              return !isWeakCarouselText(candidate)
+                && lower !== headlineLower
+                && !lower.includes(headlineLower.slice(0, 18));
+            }) || fallback.description;
+
             // Cards repetidos recebem variação de descrição também
             if (idx >= nCreatives && (!cardDesc || cardDesc.length < 5)) {
               cardDesc = cardAngleVariations[(idx + 1) % cardAngleVariations.length] || "";
             }
-            cardDesc = cardDesc.slice(0, 30);  // Meta: max 30 chars
+            cardDesc = limitMetaText(cardDesc, 30);  // Meta: max 30 chars
 
             return { name: cardHeadline, description: cardDesc };
           };
@@ -4842,6 +4934,14 @@ const campaignsRouter = router({
             cards: child_attachments.length,
             criativos: creativeList.length,
             sample: child_attachments[0]?.name,
+            weakCards: child_attachments.filter((card: any) => isWeakCarouselText(card.name) || isWeakCarouselText(card.description)).length,
+            imagesWithUrl: child_attachments.filter((card: any) => !!card.picture).length,
+            imagesWithHash: child_attachments.filter((card: any) => !!card.image_hash).length,
+            cardPreview: child_attachments.map((card: any) => ({
+              name: card.name,
+              description: card.description,
+              media: card.image_hash ? "hash" : card.picture ? "url" : "missing",
+            })),
           });
 
           storySpec = {

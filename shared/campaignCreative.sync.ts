@@ -137,6 +137,15 @@ export function syncCreativeTextToV2(
     intent: "cta"
   } as any);
 
+  const descriptionText = creative.description || creative.shortDescription;
+  if (descriptionText) {
+    (v2.copyBank as any).descriptions = upsert(v2.copyBank.descriptions as any, {
+      id: "legacy_description_primary",
+      text: descriptionText,
+      intent: "description"
+    } as any);
+  }
+
   v2.legacyProjection = {
     ...v2.legacyProjection,
     format: creative.format ?? v2.legacyProjection?.format ?? null,

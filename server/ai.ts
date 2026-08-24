@@ -6229,6 +6229,41 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
     const slot = CREATIVE_SLOT_POOL[i % CREATIVE_SLOT_POOL.length];
     return `    criativo ${i + 1}: ${slot.format} — ${slot.funnel}`;
   }).join("\n");
+  const carouselPhotoBrief = input.realImages?.length
+    ? `\n========================
+MOTOR DE COPY ROBUSTA — META ADS / CARROSSEL COM FOTOS REAIS
+========================
+Há ${input.realImages.length} foto(s) real(is) do cliente e elas serão usadas em ordem no carrossel. Trate cada criativo como o card correspondente à foto do mesmo índice.
+
+Antes de escrever cada criativo:
+1. Identifique o elemento visual provável pelo contexto/ordem da foto e pelos dados confirmados do produto.
+2. Gere headline e description específicas para aquele card, nunca genéricas.
+3. Crie uma sequência narrativa: card 1 impacto, cards intermediários desejo/prova/valor, último card conversão.
+4. Não invente características não confirmadas. Use apenas dados do briefing/produto/campanha.
+5. Se não souber interpretar a foto, use um diferencial confirmado compatível e marque needsReview=true.
+
+Para imóveis, prefira especificidade comercial:
+- produto/localização: Cobertura Triplex na Praia Brava
+- dados confirmados: 3 suítes, 190 m², mobiliada, piscina privativa, locação anual, R$ 18.000 + taxas
+- ambientes visíveis prováveis: piscina, cozinha, sala, vista, suíte, closet, área gourmet
+
+Texto principal do anúncio: robusto, com gancho + diferencial + benefícios + informações objetivas + CTA. Não entregue texto principal curto.
+
+Cada criativo DEVE incluir:
+- headline: título do card, max 40 caracteres, específico para a foto/card.
+- description ou shortDescription: complemento curto, max 30 caracteres, específico e diferente do headline.
+- copy/bodyText: texto principal mais completo, 180-450 caracteres, aproveitando dados confirmados.
+- hook: gancho específico, sem clichês.
+- cta: para leads/WhatsApp use "Agendar visita", "Falar no WhatsApp" ou equivalente claro.
+
+Checklist obrigatório antes de responder:
+- Cada foto recebeu copy própria?
+- Headlines repetidas foram reescritas?
+- Descrições genéricas foram reescritas?
+- Último card tem CTA claro?
+- A narrativa do carrossel evolui de impacto para conversão?
+`
+    : "";
 
   const prompt = `
 Você é um estrategista de marketing digital sênior especializado em performance.
@@ -6297,6 +6332,7 @@ ${marketAnalysis ? `
 ${input.extraContext ? `CONTEXTO ADICIONAL DO CLIENTE:
 ${input.extraContext}
 ` : ""}
+${carouselPhotoBrief}
 ${temporalContext}
 
 DADOS REAIS DE PERFORMANCE — META ADS INSIGHTS API (últimos 30 dias da conta):
@@ -6425,6 +6461,8 @@ Crie uma campanha COMPLETA como Campaign Intelligence System. Responda APENAS em
       "format": "Vídeo 15s|Vídeo 30s|Carrossel|Imagem estática|Stories 9:16|Reels 9:16",
       "orientation": "vertical_9_16|quadrado_1_1|feed_4_5|horizontal_16_9",
       "headline": "headline REAL max 40 chars — específica para o nicho, NUNCA use [placeholder]",
+      "description": "descrição curta do card, max 30 chars, específica da imagem e diferente da headline",
+      "shortDescription": "mesmo valor de description — campo opcional de compatibilidade",
       "copy": "copy REAL 150-400 chars — texto persuasivo com QUEBRA DE LINHA entre parágrafos. ESTRUTURA: (1) Hook/dor do cliente. (2) Solução/diferencial. (3) Prova social ou especificidade. (4) CTA urgente. EXEMPLO BONS: Você passa horas criando anúncios que não convertem?\\n\\nO MecProAI usa IA para criar e publicar campanhas em minutos — com copies testadas, imagens geradas e publicação direta no Meta e Google.\\n\\nMais de 500 campanhas publicadas. Assine agora e receba 60% em créditos. | Cansado de pagar agência e não ver resultado?\\n\\nCrie campanhas profissionais sozinho com IA. Anúncios, copies e imagens em minutos.\\n\\nPrimeiro mês com 60% de cashback em créditos. Garanta agora.",
       "bodyText": "MESMO valor de copy — campo obrigatório para compatibilidade",
       "cta": "para LEADS: Quero meu guia grátis|Cadastrar grátis. Para SALES: Comprar agora|Garantir desconto. NUNCA apenas Saiba mais",
