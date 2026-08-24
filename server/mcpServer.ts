@@ -1299,6 +1299,74 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     title: "Enviar várias imagens para uma campanha (alias mecproai)",
   }, uploadCampaignImagesHandler);
 
+  // ── set_featured_photo ────────────────────────────────────────────────
+  // Expõe no MCP a mesma ação do MVP/web app: escolher a foto que vai abrir o
+  // carrossel. O publish_campaign já consome isFeaturedPhoto e coloca essa
+  // foto primeiro, sem publicar nada nesta etapa.
+  const setFeaturedPhotoToolConfig = {
+    title: "Definir foto destaque da campanha",
+    description:
+      "Marca um criativo/foto como destaque/capa da campanha. Use depois de " +
+      "upload_campaign_images e antes de publish_campaign. Não publica nada na Meta.",
+    inputSchema: {
+      campaignId: z.number().int().positive(),
+      creativeIndex: z.number().int().min(0).describe("Índice da foto/criativo que deve ser destaque (0 = primeira)."),
+    },
+  };
+
+  async function setFeaturedPhotoHandler({ campaignId, creativeIndex }: {
+    campaignId: number;
+    creativeIndex: number;
+  }) {
+    if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
+
+    const campaign: any = await db.getCampaignById(campaignId);
+    if (!campaign) {
+      return { content: [{ type: "text" as const, text: `Campanha ${campaignId} não encontrada.` }], isError: true };
+    }
+    const project: any = await db.getProjectById(campaign.projectId);
+    if (!project || project.userId !== userId) {
+      return { content: [{ type: "text" as const, text: `Campanha ${campaignId} não pertence a este usuário.` }], isError: true };
+    }
+
+    let caller;
+    try {
+      caller = await getCaller();
+    } catch (error: any) {
+      return {
+        content: [{ type: "text" as const, text: `Falha ao preparar contexto interno: ${error?.message || "erro desconhecido"}` }],
+        structuredContent: { campaignId, creativeIndex, errorType: "connector_runtime", stage: "prepare_trpc_caller" },
+        isError: true,
+      };
+    }
+
+    try {
+      const result: any = await caller.campaigns.setFeaturedPhoto({ campaignId, creativeIndex } as any);
+      log.info("mcp-upload-images", "featured photo set", { userId, campaignId, creativeIndex });
+      return {
+        content: [{ type: "text" as const, text: `Foto destaque definida: criativo ${creativeIndex} da campanha ${campaignId}.` }],
+        structuredContent: { ok: true, campaignId, creativeIndex, result },
+      };
+    } catch (error: any) {
+      log.error("mcp-upload-images", "set featured photo failed", { userId, campaignId, creativeIndex, error: error?.message });
+      return {
+        content: [{ type: "text" as const, text: `Falha ao definir foto destaque: ${error?.message || "erro desconhecido"}` }],
+        structuredContent: { campaignId, creativeIndex, errorType: "creative_update", stage: "set_featured_photo" },
+        isError: true,
+      };
+    }
+  }
+
+  server.registerTool("set_featured_photo", setFeaturedPhotoToolConfig, setFeaturedPhotoHandler);
+  server.registerTool("MECPROAI.set_featured_photo", {
+    ...setFeaturedPhotoToolConfig,
+    title: "Definir foto destaque da campanha (alias MECPROAI)",
+  }, setFeaturedPhotoHandler);
+  server.registerTool("mecproai.set_featured_photo", {
+    ...setFeaturedPhotoToolConfig,
+    title: "Definir foto destaque da campanha (alias mecproai)",
+  }, setFeaturedPhotoHandler);
+
   // ═══════════════════════════════════════════════════════════════════════
   // FASE 3 — publicação real na Meta. A PARTIR DAQUI, gasta orçamento real
   // do cliente. Toda a lógica de negócio (upload de imagem, resolução de
