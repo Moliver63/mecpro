@@ -3043,7 +3043,7 @@ function parseHtmlIntoAds(html: string, competitorId: number, websiteUrl: string
 }
 
 // ── Gera campanha a partir dos ads coletados — sem LLM ──────────────────────
-async function buildCampaignFromAds(projectId: number, objective: string, clientProfile: any, ads: any[]): Promise<any> {
+async function buildCampaignFromAds(projectId: number, objective: string, clientProfile: any, ads: any[], opts?: { desiredCreatives?: number }): Promise<any> {
   const niche   = clientProfile?.niche || "negócios";
   const company = clientProfile?.companyName || "sua empresa";
   const product = clientProfile?.productService || "seu produto";
@@ -3142,7 +3142,8 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
   }
 
   const tones: Array<"urgent"|"emotional"|"rational"|"premium"> = ["urgent","emotional","rational","premium"];
-  const hybrid  = await hybridGenerateAds({niche,clientName:company,product,tones,useLLMRefine:false,count:4});
+  const desiredCreatives = Math.min(Math.max(Math.round(opts?.desiredCreatives || 4), 2), 10);
+  const hybrid  = await hybridGenerateAds({niche,clientName:company,product,tones,useLLMRefine:false,count:desiredCreatives});
   const budgets: Record<string,number> = {leads:40,sales:50,traffic:30,engagement:25,branding:20};
   const total   = budgets[objective]||30;
 
@@ -3213,15 +3214,15 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
       { name:"Remarketing Hot", audience:"Engajamento 7 dias",                   budget:`${Math.round(total*0.25)}%`,objective:"Conversão",      funnelStage:"BOF" },
     ],
     creatives: hybrid.ads.map((ad,i)=>({
-      type:["direct_offer","emotional","social_proof","educational"][i],
+      type:["direct_offer","emotional","social_proof","educational","direct_offer","storytelling","social_proof","direct_offer","educational","direct_offer"][i % 10],
       format:topFmt==="video"?"Video 15s":"Imagem Feed", orientation:"vertical_9_16",
       headline:ad.headline, bodyText:ad.body, copy:ad.body,
       cta: ad.cta && !segRulesHybrid?.forbidden?.some((f:string) => ad.cta?.toLowerCase().includes(f.toLowerCase()))
         ? ad.cta
         : segCtas[i % segCtas.length] || topCta,
       hook:ad.headline, pain:"Dificuldade em encontrar solução", solution:`${company} — ${product}`,
-      funnelStage:["TOF","MOF","BOF","BOF"][i], complianceScore:"safe",
-      targetAudience:`25-50 anos, ${niche}`, platforms:["meta"], budget:Math.round(total/4), duration:7, tone:ad.tone, source:"hybrid",
+      funnelStage:["TOF","MOF","MOF","BOF","BOF","TOF","MOF","BOF","TOF","BOF"][i % 10], complianceScore:"safe",
+      targetAudience:`25-50 anos, ${niche}`, platforms:["meta"], budget:Math.round(total/desiredCreatives), duration:7, tone:ad.tone, source:"hybrid",
     })),
     conversionFunnel,
     executionPlan,
@@ -6595,13 +6596,150 @@ ${creativeSlotInstructions}
     return s;
   }
 
+  const normalizeCopyText = (value: unknown) => String(value || "").replace(/\s+/g, " ").trim();
+  const isWeakGeneratedCopy = (value: unknown) => {
+    const text = normalizeCopyText(value).toLowerCase();
+    if (!text || text.length < 20) return true;
+    return /^(saiba mais|confira|veja detalhes|oportunidade|não perca|nao perca|venha conhecer|clique aqui)$/i.test(text)
+      || /milhares de clientes|resultados mensuráveis|mudaram de vida|oportunidade única|ultimas unidades disponíveis|últimas unidades disponíveis|sinta a transformação/i.test(text);
+  };
+
+  const trimMetaField = (value: unknown, max: number) => {
+    const text = normalizeCopyText(value);
+    return text.length > max ? text.slice(0, max).trim() : text;
+  };
+
+  function confirmedOfferFacts(): string[] {
+    const p = clientProfile as any;
+    return [
+      p?.productName,
+      p?.productService,
+      p?.productPrice ? `Preço: ${p.productPrice}` : "",
+      p?.productDifferentials,
+      input.extraContext,
+    ].filter(Boolean).map((item) => String(item));
+  }
+
+  function carouselFallbackForIndex(index: number, total: number): any {
+    const facts = confirmedOfferFacts().join(". ").toLowerCase();
+    const isRealEstate = /im[oó]v|cobertura|triplex|praia|su[ií]te|mobiliad|loca[cç][aã]o|piscina/.test(facts);
+    const cta = String(input.objective || "").toLowerCase() === "leads" ? "Agendar visita" : "Ver detalhes";
+    const realEstateCards = [
+      {
+        headline: "Piscina privativa no triplex",
+        description: "Lazer com exclusividade",
+        copy: "Comece pelo principal diferencial: uma cobertura triplex na Praia Brava com piscina privativa, mobiliada e pronta para locação anual.\n\nUm imóvel para quem busca privacidade, conforto e uma experiência de alto padrão no litoral.\n\nAgende sua visita.",
+        hook: "Piscina privativa na Praia Brava",
+      },
+      {
+        headline: "Cozinha integrada e vista",
+        description: "Ambiente para receber",
+        copy: "Ambientes integrados valorizam a rotina e os momentos de recepção. A cozinha ampla conversa com a área social e reforça a sensação de espaço do triplex.\n\nSão 190 m² para viver com conforto na Praia Brava.\n\nFale para saber disponibilidade.",
+        hook: "Ambientes amplos para receber",
+      },
+      {
+        headline: "190 m² em três pavimentos",
+        description: "Espaço de verdade",
+        copy: "A planta triplex entrega amplitude e separação inteligente dos ambientes. São 190 m², 3 suítes e mobília completa para uma locação anual de alto padrão.\n\nIdeal para quem quer chegar e morar.\n\nAgende uma visita.",
+        hook: "Triplex com 190 m²",
+      },
+      {
+        headline: "Vista e localização premium",
+        description: "Praia Brava, Itajaí",
+        copy: "A localização na Praia Brava une desejo, praticidade e valorização. A vista e a luz natural reforçam o padrão do imóvel e a experiência de morar perto do mar.\n\nLocação anual por R$ 18.000 + taxas.\n\nConsulte detalhes.",
+        hook: "Praia Brava como endereço",
+      },
+      {
+        headline: "3 suítes para privacidade",
+        description: "Conforto na área íntima",
+        copy: "A área íntima foi pensada para conforto e privacidade. Com 3 suítes, o imóvel acomoda bem rotina, família e visitas sem abrir mão da exclusividade.\n\nCobertura mobiliada e pronta para morar.\n\nFale com a Edu Imóveis.",
+        hook: "3 suítes no alto padrão",
+      },
+      {
+        headline: "Quer conhecer pessoalmente?",
+        description: "Agende sua visita",
+        copy: "Se a proposta combina com o que você procura, o próximo passo é simples: conhecer a cobertura pessoalmente.\n\nCobertura triplex mobiliada, 190 m², 3 suítes, piscina privativa e locação anual na Praia Brava.\n\nChame no WhatsApp e agende sua visita.",
+        hook: "Agende sua visita exclusiva",
+      },
+    ];
+    const genericCards = [
+      {
+        headline: "Conheça a proposta",
+        description: "Veja os detalhes",
+        copy: "Conheça os principais diferenciais desta oferta com informações claras, imagens reais e um próximo passo simples para falar com a equipe.\n\nConfira os detalhes e solicite atendimento.",
+        hook: "Veja os diferenciais",
+      },
+      {
+        headline: "Detalhes que importam",
+        description: "Informação objetiva",
+        copy: "Cada card destaca um ponto concreto da oferta para facilitar a decisão: benefícios, características confirmadas e chamada direta para contato.\n\nFale com a equipe para saber mais.",
+        hook: "Informação para decidir",
+      },
+    ];
+    const card = (isRealEstate ? realEstateCards : genericCards)[index % (isRealEstate ? realEstateCards.length : genericCards.length)];
+    const lastLead = String(input.objective || "").toLowerCase() === "leads" && index === total - 1;
+    return {
+      type: lastLead ? "direct_offer" : "social_proof",
+      format: "Carrossel",
+      orientation: "quadrado_1_1",
+      headline: trimMetaField(lastLead ? "Quer conhecer pessoalmente?" : card.headline, 40),
+      description: trimMetaField(lastLead ? "Agende sua visita" : card.description, 30),
+      shortDescription: trimMetaField(lastLead ? "Agende sua visita" : card.description, 30),
+      bodyText: card.copy,
+      copy: card.copy,
+      cta,
+      hook: card.hook,
+      pain: "Encontrar um imóvel de alto padrão com dados claros e visita qualificada.",
+      solution: confirmedOfferFacts().join(". ").slice(0, 240),
+      script: null,
+      funnelStage: lastLead ? "BOF" : ["TOF", "MOF", "MOF", "BOF"][index % 4],
+      complianceScore: "safe",
+      needsReview: false,
+      source: "carousel_real_photo_fallback",
+    };
+  }
+
+  function normalizeRealPhotoCreatives(raw: any[]): any[] {
+    const targetCount = input.realImages?.length ? Math.min(input.realImages.length, MAX_CREATIVES) : effectiveNumCreatives;
+    const normalized = Array.isArray(raw) ? raw.slice(0, targetCount) : [];
+    while (input.realImages?.length && normalized.length < targetCount) {
+      normalized.push(carouselFallbackForIndex(normalized.length, targetCount));
+    }
+    if (!input.realImages?.length) return normalized;
+    return normalized.map((creative, index) => {
+      const fallback = carouselFallbackForIndex(index, targetCount);
+      const headline = isWeakGeneratedCopy(creative?.headline) ? fallback.headline : creative.headline;
+      const description = isWeakGeneratedCopy(creative?.description || creative?.shortDescription)
+        ? fallback.description
+        : (creative.description || creative.shortDescription);
+      const copy = isWeakGeneratedCopy(creative?.copy || creative?.bodyText) ? fallback.copy : (creative.copy || creative.bodyText);
+      const hook = isWeakGeneratedCopy(creative?.hook) ? fallback.hook : creative.hook;
+      const isLastLead = String(input.objective || "").toLowerCase() === "leads" && index === targetCount - 1;
+      return {
+        ...fallback,
+        ...creative,
+        format: "Carrossel",
+        headline: trimMetaField(isLastLead ? fallback.headline : headline, 40),
+        description: trimMetaField(isLastLead ? fallback.description : description, 30),
+        shortDescription: trimMetaField(isLastLead ? fallback.description : description, 30),
+        copy,
+        bodyText: copy,
+        hook,
+        cta: isLastLead ? "Agendar visita" : (creative?.cta || fallback.cta),
+        creativeIndex: index,
+      };
+    });
+  }
+
   // Eco mode: pula toda a geração via LLM e usa motor híbrido diretamente
   if (!shouldUseLLM("high")) {
     log.info("ai", "generateCampaign: ecoMode HIGH — usando buildCampaignFromAds diretamente", {
       projectId: input.projectId, adsCount: allAds.length,
     });
     try {
-      const hybrid = await buildCampaignFromAds(input.projectId, input.objective, clientProfile, allAds);
+      const hybrid = await buildCampaignFromAds(input.projectId, input.objective, clientProfile, allAds, {
+        desiredCreatives: effectiveNumCreatives,
+      });
       strategy         = hybrid.strategy;
       adSets           = JSON.stringify(hybrid.adSets);
       creatives        = JSON.stringify(hybrid.creatives);
@@ -6818,8 +6956,8 @@ REGRAS CRÍTICAS:
 - Cada criativo DEVE ter ângulo, hook e CTA completamente diferentes
 - Criativo 1 (TOF): ângulo DESCOBERTA — problema/dor do cliente, sem mencionar a empresa logo
 - Criativo 2 (MOF): ângulo DIFERENCIAL — por que escolher esta empresa vs concorrentes
-- Criativo 3 (BOF): ângulo URGÊNCIA — oferta/escassez/call to action direto
-- Criativo 4 (SCALE): ângulo PROVA SOCIAL — resultado/transformação/testemunho
+- Criativo 3 (MOF): ângulo PROVA/VALOR — dado concreto, ambiente, benefício ou característica confirmada
+- Último criativo (BOF): ângulo CONVERSÃO — CTA direto para contato/lead
 
 Gere JSON com:
 - strategy: estrategia baseada nos diferenciais do cliente
@@ -6827,7 +6965,7 @@ Gere JSON com:
 - adSets: array {name, audience, budget(%), objective, funnelStage}
   REGRA adSets: name deve refletir o produto "${p?.companyName}" — ex: "TOF_${productSlug}_Interesse", "MOF_Remarketing_${productSlug}"
   PROIBIDO: nomes genéricos como "TOF_InteressesFin", "AppBancario" que não relacionam ao produto
-- creatives: EXATAMENTE 4 itens com copies COMPLETAMENTE DIFERENTES entre si
+- creatives: EXATAMENTE ${effectiveNumCreatives} itens com copies COMPLETAMENTE DIFERENTES entre si
   {type, format, orientation, headline, description, copy, hook, cta, funnelStage, complianceScore, targetAudience, angle}
   COPY OBRIGATÓRIO: 150-400 chars com quebras de linha (\n\n entre parágrafos)
   ESTRUTURA DA COPY: (1) dor/problema do cliente (2) solução/diferencial da empresa (3) CTA direto com urgência
@@ -6958,7 +7096,9 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
             db.getScrapedAdsByProject(input.projectId).catch(()=>[] as any[]),
             db.getClientProfile(input.projectId).catch(()=>null),
           ]);
-          const hybrid = await buildCampaignFromAds(input.projectId, input.objective, profile, scrapedAds);
+          const hybrid = await buildCampaignFromAds(input.projectId, input.objective, profile, scrapedAds, {
+            desiredCreatives: effectiveNumCreatives,
+          });
           strategy         = hybrid.strategy;
           adSets           = JSON.stringify(hybrid.adSets);
           creatives        = JSON.stringify(hybrid.creatives);
@@ -6985,7 +7125,15 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
   }
 
   try {
-    const parsedCreatives = JSON.parse(creatives || "[]");
+    const parsedCreativesRaw = JSON.parse(creatives || "[]");
+    const parsedCreatives = normalizeRealPhotoCreatives(parsedCreativesRaw);
+    if (input.realImages?.length && Array.isArray(parsedCreativesRaw) && parsedCreatives.length !== parsedCreativesRaw.length) {
+      log.info("ai", "Criativos de fotos reais normalizados para quantidade de fotos", {
+        before: parsedCreativesRaw.length,
+        after: parsedCreatives.length,
+        realImages: input.realImages.length,
+      });
+    }
     if (Array.isArray(parsedCreatives) && parsedCreatives.length > 0) {
       const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsedCreatives, {
         objective:      input.objective,
