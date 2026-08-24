@@ -149,6 +149,126 @@ async function fetchImageBuffer(
   return { ok: true, buffer };
 }
 
+type McpUploadImageInput = {
+  fileUrl?: string;
+  url?: string;
+  imageUrl?: string;
+  downloadUrl?: string;
+  imageBase64?: string;
+  base64?: string;
+  dataUrl?: string;
+  fileName?: string;
+  name?: string;
+  path?: string;
+  filePath?: string;
+  file?: {
+    url?: string;
+    imageUrl?: string;
+    downloadUrl?: string;
+    imageBase64?: string;
+    base64?: string;
+    dataUrl?: string;
+    fileName?: string;
+    name?: string;
+    path?: string;
+  };
+  creativeIndex?: number;
+  format?: "feed" | "stories" | "square";
+};
+
+function firstNonEmpty(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function looksLikeLocalAttachmentPath(value?: string): boolean {
+  return !!value && (/^\/mnt\/data\//.test(value) || /^file:\/\//i.test(value) || /^[A-Za-z]:\\/.test(value));
+}
+
+function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
+  fileUrl?: string;
+  imageBase64?: string;
+  fileName: string;
+  sourceKind?: "fileUrl" | "imageBase64";
+  error?: string;
+} {
+  const fileUrl = firstNonEmpty(
+    image.fileUrl,
+    image.url,
+    image.imageUrl,
+    image.downloadUrl,
+    image.file?.url,
+    image.file?.imageUrl,
+    image.file?.downloadUrl
+  );
+  const imageBase64 = firstNonEmpty(
+    image.imageBase64,
+    image.base64,
+    image.dataUrl,
+    image.file?.imageBase64,
+    image.file?.base64,
+    image.file?.dataUrl
+  );
+  const fileName = firstNonEmpty(image.fileName, image.name, image.file?.fileName, image.file?.name)
+    || `campaign-upload-${index + 1}.jpg`;
+  const localPath = firstNonEmpty(image.filePath, image.path, image.file?.path);
+
+  // URL publica/temporaria ganha de base64: evita JSON gigante e tambem cobre
+  // clientes que mandam um placeholder em imageBase64 junto com a URL real.
+  if (fileUrl) {
+    if (looksLikeLocalAttachmentPath(fileUrl)) {
+      return {
+        fileName,
+        error:
+          `Recebi "${fileUrl}" como caminho local do ambiente do cliente. ` +
+          "O servidor MecProAI/Render não consegue ler /mnt/data ou file:// diretamente; envie uma URL HTTPS temporária ou data:image/...;base64.",
+      };
+    }
+    return { fileUrl, fileName, sourceKind: "fileUrl" };
+  }
+
+  if (imageBase64) {
+    if (/^https?:\/\//i.test(imageBase64)) {
+      return { fileUrl: imageBase64, fileName, sourceKind: "fileUrl" };
+    }
+    if (looksLikeLocalAttachmentPath(imageBase64)) {
+      return {
+        fileName,
+        error:
+          `Recebi "${imageBase64}" dentro de imageBase64, mas isso é só um caminho local do cliente. ` +
+          "Envie os bytes da imagem como data URL/base64 real ou uma URL HTTPS baixável.",
+      };
+    }
+    const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+    if (base64Clean.length < 64) {
+      return {
+        fileName,
+        error:
+          "imageBase64/dataUrl não contém bytes suficientes de imagem. " +
+          "Envie data:image/jpeg;base64,/9j/... ou use fileUrl/url/downloadUrl com uma URL HTTPS pública.",
+      };
+    }
+    return { imageBase64, fileName, sourceKind: "imageBase64" };
+  }
+
+  if (localPath) {
+    return {
+      fileName,
+      error:
+        `Recebi apenas o caminho local "${localPath}". ` +
+        "Esse caminho existe no ambiente do ChatGPT, não no servidor MecProAI. Envie URL HTTPS temporária ou base64 real.",
+    };
+  }
+
+  return {
+    fileName,
+    error:
+      "Informe uma imagem como fileUrl/url/downloadUrl, dataUrl/base64/imageBase64, ou file.url/file.dataUrl.",
+  };
+}
+
 // ── Escopo de acesso por API key ──────────────────────────────────────────
 // 'read' < 'write' < 'publish', hierárquico (quem tem 'publish' também pode
 // tudo que 'write' e 'read' podem). Existe pra dar a clientes MCP menos
@@ -793,12 +913,31 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     campaignId: z.number().int().positive(),
     images: z.array(
       z.object({
-        fileUrl: z.string().url().optional(),
+        fileUrl: z.string().optional(),
+        url: z.string().optional(),
+        imageUrl: z.string().optional(),
+        downloadUrl: z.string().optional(),
         imageBase64: z.string().optional(),
-        fileName: z.string(),
+        base64: z.string().optional(),
+        dataUrl: z.string().optional(),
+        fileName: z.string().optional(),
+        name: z.string().optional(),
+        path: z.string().optional(),
+        filePath: z.string().optional(),
+        file: z.object({
+          url: z.string().optional(),
+          imageUrl: z.string().optional(),
+          downloadUrl: z.string().optional(),
+          imageBase64: z.string().optional(),
+          base64: z.string().optional(),
+          dataUrl: z.string().optional(),
+          fileName: z.string().optional(),
+          name: z.string().optional(),
+          path: z.string().optional(),
+        }).passthrough().optional(),
         creativeIndex: z.number().int().min(0).optional(),
         format: z.enum(["feed", "stories", "square"]).default("feed"),
-      })
+      }).passthrough()
     ).min(1).max(10),
   };
 
@@ -806,19 +945,16 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     title: "Enviar várias imagens para uma campanha",
     description:
       "Envia várias fotos reais de uma só vez para os criativos da campanha. " +
-      "Aceita URLs públicas ou base64 e distribui as imagens na ordem recebida.",
+      "Prefira enviar anexos como file.url/url/downloadUrl HTTPS temporária; " +
+      "também aceita dataUrl/base64/imageBase64 real. Não envie caminhos locais " +
+      "como /mnt/data, porque o servidor MecProAI não consegue ler o filesystem do cliente.",
     inputSchema: uploadCampaignImagesInputSchema,
   };
 
   async function uploadCampaignImagesHandler({ campaignId, images }: {
     campaignId: number;
     images: Array<{
-      fileUrl?: string;
-      imageBase64?: string;
-      fileName: string;
-      creativeIndex?: number;
-      format?: "feed" | "stories" | "square";
-    }>;
+    images: McpUploadImageInput[];
   }) {
     if (!hasScope(scope, "write")) {
       return scopeErrorContent("write", scope);
@@ -897,25 +1033,25 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         };
       }
 
-      if (
-        (!image.fileUrl && !image.imageBase64) ||
-        (image.fileUrl && image.imageBase64)
-      ) {
+      const normalized = normalizeUploadImageInput(image, index);
+      if (normalized.error) {
         return {
           index,
           creativeIndex,
           success: false,
           errorType: "payload_validation",
-          stage: "source_selection",
-          error: "Informe fileUrl OU imageBase64.",
+          stage: "normalize_attachment",
+          reachedImageValidator: false,
+          reachedCloudinary: false,
+          error: normalized.error,
         };
       }
 
       try {
         let buffer: Buffer;
 
-        if (image.fileUrl) {
-          const result = await fetchImageBuffer(image.fileUrl, 20000);
+        if (normalized.fileUrl) {
+          const result = await fetchImageBuffer(normalized.fileUrl, 20000);
           if (!result.ok) {
             return {
               index,
@@ -930,7 +1066,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           }
           buffer = result.buffer;
         } else {
-          const decoded = decodeAndValidateImage(image.imageBase64!);
+          const decoded = decodeAndValidateImage(normalized.imageBase64!);
 
           if (!decoded.ok || !decoded.buffer) {
             return {
@@ -948,7 +1084,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           buffer = decoded.buffer;
         }
 
-        const cloudUrl = await uploadImageBufferToCloudinary(buffer, image.fileName);
+        const cloudUrl = await uploadImageBufferToCloudinary(buffer, normalized.fileName);
 
         if (!cloudUrl) {
           return {

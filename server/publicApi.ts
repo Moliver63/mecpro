@@ -44,6 +44,17 @@ router.use("/mcp", (req: Request, res: Response, next: Function) => {
   next();
 });
 
+function normalizeMcpToolCallBody(body: any) {
+  const toolName = body?.params?.name;
+  if (body?.method === "tools/call" && typeof toolName === "string") {
+    const canonical = toolName.replace(/^(MECPROAI|mecproai)\./, "");
+    if (canonical !== toolName) {
+      body.params.name = canonical;
+    }
+  }
+  return body;
+}
+
 // ── Limites por plano ────────────────────────────────────────────────────────
 interface PlanLimit { daily: number; monthly: number; }
 const PLAN_LIMITS: Record<string, PlanLimit> = {
@@ -217,7 +228,7 @@ router.post("/mcp", authApiKey, mcpBurstLimiter, json({ limit: "50mb" }), async 
     });
     res.on("close", () => { transport.close(); server.close(); });
     await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
+    await transport.handleRequest(req, res, normalizeMcpToolCallBody(req.body));
   } catch (e: any) {
     log.error("mcp", "Erro ao processar request MCP", { userId: apiUser?.id, error: e.message });
     if (!res.headersSent) {
