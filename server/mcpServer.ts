@@ -1512,6 +1512,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         campaignId: z.number().int().positive().describe("ID da campanha a publicar."),
         pageId: z.string().describe("ID da Página do Facebook (use list_meta_pages se não souber)."),
         destination: z.enum(["website", "lead_form"]).optional().describe("Padrão: website."),
+        leadGenFormId: z.string().optional().describe("ID de um formulario instantaneo Meta ja existente. Obrigatorio para destination=lead_form publicar como formulario real."),
         linkUrl: z.string().optional().describe("URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da página."),
         adSetIndexes: z.array(z.number().int().min(0)).optional().describe("Quais ad sets publicar (por índice, começando em 0). Se omitido, publica todos."),
         idempotencyKey: z.string().min(8).max(200)
@@ -1630,6 +1631,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             projectId: campaign.projectId,
             pageId: input.pageId,
             destination: input.destination || "website",
+            leadGenFormId: input.leadGenFormId,
             linkUrl,
             imageHash,
             imageHashes,

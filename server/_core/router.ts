@@ -4148,14 +4148,24 @@ const campaignsRouter = router({
         ? String((adCopy as any).stories?.cta || adCopy.feed.cta || "")
         : String(adCopy.feed.cta || "");
       const preferWhatsAppDestination = /whats/i.test(preferredCtaText) || ["engagement", "leads"].includes(String(objective || "").toLowerCase());
-      const manualLink = dest === "lead_form" ? undefined : normalizeDestinationUrl(input.linkUrl);
-      const autoDestination = dest === "lead_form" ? {} : resolveAutoDestination(clientProfile, { preferWhatsApp: preferWhatsAppDestination });
-      const pageFallback = dest === "lead_form" || !input.pageId ? undefined : normalizeDestinationUrl(`https://www.facebook.com/${input.pageId}`);
+      const hasNativeLeadForm = dest === "lead_form" && !!input.leadGenFormId;
+      if (dest === "lead_form" && !input.leadGenFormId) {
+        log.warn("meta", "Lead form solicitado sem leadGenFormId — usando destino de link/WhatsApp", {
+          campaignId: input.campaignId,
+          projectId: input.projectId,
+          pageId: input.pageId,
+          hasLinkUrl: !!input.linkUrl,
+        });
+        publishWarnings.push("Formulario Meta solicitado sem leadGenFormId; publicacao usara destino de link/WhatsApp.");
+      }
+      const manualLink = hasNativeLeadForm ? undefined : normalizeDestinationUrl(input.linkUrl);
+      const autoDestination = hasNativeLeadForm ? {} : resolveAutoDestination(clientProfile, { preferWhatsApp: preferWhatsAppDestination });
+      const pageFallback = hasNativeLeadForm || !input.pageId ? undefined : normalizeDestinationUrl(`https://www.facebook.com/${input.pageId}`);
       const effectiveLink = manualLink || autoDestination.url || pageFallback;
       const destinationSource = manualLink
         ? "input.linkUrl"
         : autoDestination.source || (pageFallback ? "pageId_facebook_page" : undefined);
-      const whatsappDestination = dest === "lead_form" ? {} : extractWhatsAppDetails(effectiveLink);
+      const whatsappDestination = hasNativeLeadForm ? {} : extractWhatsAppDetails(effectiveLink);
       let isWhatsAppDestination = !!whatsappDestination.link;
 
       // ── Validação prévia: verifica se número WhatsApp está vinculado na conta ──
@@ -4726,7 +4736,7 @@ const campaignsRouter = router({
           });
         }
       }
-      if (dest === "lead_form" && input.leadGenFormId) {
+      if (hasNativeLeadForm) {
         storySpec = {
           page_id: input.pageId,
           lead_gen_data: {
@@ -4948,8 +4958,15 @@ const campaignsRouter = router({
 
           const child_attachments = items.map((item: string, idx: number) => {
             const { name: cardName, description: cardDesc } = getCardCopy(idx);
+            const hasConnectedWA = !!(whatsappDestination as any)._connectedPhone;
+            const waDirectUrl = whatsappDestination.link || null;
+            const linkForCarouselCard = isWhatsAppDestination
+              ? (hasConnectedWA
+                  ? (normalizeDestinationUrl((clientProfile as any)?.websiteUrl) || `https://www.facebook.com/${input.pageId}`)
+                  : (waDirectUrl || normalizeDestinationUrl((clientProfile as any)?.websiteUrl) || `https://www.facebook.com/${input.pageId}`))
+              : finalLink;
             return {
-              link:           isWhatsAppDestination ? "https://wa.me/" : finalLink,
+              link:           linkForCarouselCard,
               name:           cardName || `${personaHeadline}`.slice(0, 40),
               description:    cardDesc,
               call_to_action: isWhatsAppDestination
