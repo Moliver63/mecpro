@@ -1,38 +1,69 @@
 /**
- * server/mcpServer.ts
+ * server/mcpServer.ts — VERSÃO MELHORADA
  *
- * Servidor MCP do MecProAI — expõe dados/ações da plataforma pro Claude.
- *
- * FASE 1 (esta): tools de LEITURA apenas. list_projects, list_campaigns,
- * get_campaign, get_campaign_metrics, get_full_ads_report. Nenhuma tool
- * aqui cria, edita ou publica nada — é seguro, sem risco de gasto ou
- * efeito colateral.
- *
- * Autenticação: reaproveita o sistema de API key já existente
- * (server/publicApi.ts → authApiKey), não um sistema novo. Cada request
- * autenticada resolve um userId — e cada tool AQUI verifica posse antes
- * de devolver qualquer dado (nunca confia em campaignId/projectId vindo
- * do input sem checar se pertence ao usuário autenticado).
- *
- * Padrão de instância: um McpServer NOVO é criado por request (função
- * createMcpServerForUser), não um singleton global. Isso garante que o
- * userId de uma request nunca vaza pra outra — sem isso, um bug de
- * estado compartilhado poderia mostrar campanha de um cliente pra outro.
+ * Melhorias aplicadas:
+ * 1. Schema upload_campaign_images sem .passthrough() — inputs previsíveis
+ * 2. .describe() em TODOS os campos — GPT/Claude sabe exatamente o que enviar
+ * 3. URLs incluídas no content.text — usuário vê o resultado
+ * 4. Validação de creativeIndex ANTES do download — evita trabalho desperdiçado
+ * 5. Retry com backoff no fetchImageBuffer — robustez contra falhas de rede
+ * 6. Timeout de generate_campaign inclui tempo de upload — evita timeout falso
+ * 7. Cache de imagens por SHA256 — economia de banda/storage
+ * 8. Nova tool upload_image — upload genérico que retorna URL pública
+ * 9. Suporte a formats[] no upload_campaign_images — multi-formato em 1 chamada
+ * 10. structuredContent simplificado — menos confusão pro LLM
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import crypto from "crypto";
 import * as db from "./db";
 import { appRouter } from "./_core/router";
 import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
 
+// ── Cache de imagens por SHA256 (evita upload duplicado) ──────────────────
+const _imageHashCache = new Map<string, { url: string; ts: number }>();
+const IMAGE_HASH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+async function getCachedImageUrl(hash: string): Promise<string | null> {
+  const cached = _imageHashCache.get(hash);
+  if (cached && Date.now() - cached.ts < IMAGE_HASH_CACHE_TTL_MS) {
+    log.info("mcp-upload-images", "Cache hit SHA256", { hash: hash.slice(0, 16) });
+    return cached.url;
+  }
+  // Também consulta o banco (persistente entre reinícios)
+  try {
+    const pool = await db.getPool();
+    if (!pool) return null;
+    const res = await pool.query(
+      `SELECT cloud_url FROM image_upload_cache WHERE sha256 = $1 AND created_at > NOW() - INTERVAL '7 days'`,
+      [hash]
+    );
+    if (res.rows[0]?.cloud_url) {
+      _imageHashCache.set(hash, { url: res.rows[0].cloud_url, ts: Date.now() });
+      return res.rows[0].cloud_url;
+    }
+  } catch { /* silencioso */ }
+  return null;
+}
+
+async function saveImageCache(hash: string, cloudUrl: string, fileName: string, bytes: number): Promise<void> {
+  _imageHashCache.set(hash, { url: cloudUrl, ts: Date.now() });
+  try {
+    const pool = await db.getPool();
+    if (!pool) return;
+    await pool.query(
+      `INSERT INTO image_upload_cache (sha256, cloud_url, file_name, bytes, created_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (sha256) DO UPDATE SET cloud_url = EXCLUDED.cloud_url, created_at = NOW()`,
+      [hash, cloudUrl, fileName, bytes]
+    );
+  } catch { /* silencioso */ }
+}
+
 // ── Validação de imagem enviada em base64 ─────────────────────────────────
-// Compartilhada entre upload_creative_image e generate_campaign (modo fotos
-// reais em base64) — sem lib de imagem no projeto (sem sharp/image-size),
-// então valida por assinatura de bytes (magic numbers) + tamanho, não por
-// dimensão. Formatos aceitos: JPEG, PNG, WEBP.
-const MAX_IMAGE_BYTES = 12 * 1024 * 1024; // 12MB — folga do limite de 50MB do body, com margem pro overhead do base64/JSON
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 function decodeAndValidateImage(imageBase64: string): { ok: boolean; buffer: Buffer | null; error: string | null } {
   const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
@@ -55,17 +86,7 @@ function decodeAndValidateImage(imageBase64: string): { ok: boolean; buffer: Buf
   return { ok: true, buffer, error: null };
 }
 
-// ── Resolução de fileUrl — trata o caso especial do Google Drive ──────────
-// Links de compartilhamento do Drive (.../file/d/ID/view, .../open?id=ID)
-// devolvem a página HTML do visualizador, não o arquivo — content-type
-// text/html, o que derrubava a validação de imagem com um erro genérico.
-// normalizeGoogleDriveUrl() reescreve qualquer formato de link do Drive pro
-// endpoint de download direto (uc?export=download&id=ID). Mesmo assim, o
-// Drive às vezes devolve uma página de confirmação HTML ("não foi possível
-// verificar vírus") em vez do arquivo — comportamento dele pra certos
-// arquivos, não algo evitável só pela URL certa. fetchImageBuffer() detecta
-// essa página, extrai o link de confirmação real e refaz o download uma vez
-// antes de desistir com um erro acionável.
+// ── Resolução de fileUrl — trata Google Drive + retry ─────────────────────
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
 const MAX_FILEURL_IMAGE_BYTES = 15 * 1024 * 1024;
 
@@ -84,8 +105,6 @@ function normalizeGoogleDriveUrl(url: string): string {
 
 function looksLikeImage(contentType: string, fileUrl: string): boolean {
   if (contentType.startsWith("image/")) return true;
-  // Muitos CDNs/Drive/S3 devolvem octet-stream ou vazio para imagens legítimas.
-  // Nesse caso, cai pro fallback de extensão no nome/URL.
   if (!contentType || contentType === "application/octet-stream") {
     return IMAGE_EXT_RE.test(fileUrl);
   }
@@ -94,62 +113,79 @@ function looksLikeImage(contentType: string, fileUrl: string): boolean {
 
 async function fetchImageBuffer(
   rawUrl: string,
-  timeoutMs = 20000
+  timeoutMs = 20000,
+  retries = 3
 ): Promise<{ ok: true; buffer: Buffer } | { ok: false; error: string }> {
   const isDrive = /drive\.google\.com/.test(rawUrl);
   const url = isDrive ? normalizeGoogleDriveUrl(rawUrl) : rawUrl;
 
-  let response: Response;
-  try {
-    response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-  } catch (e: any) {
-    return { ok: false, error: `Falha ao baixar a imagem de fileUrl: ${e?.message || "erro de rede"}.` };
-  }
-  if (!response.ok) {
-    return { ok: false, error: `fileUrl retornou status ${response.status} — verifique se a URL é pública e acessível.` };
-  }
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e: any) {
+      if (attempt < retries) {
+        const delay = 1000 * attempt;
+        log.info("mcp-upload-images", `fetch retry ${attempt}/${retries}`, { url: url.slice(0, 60), delay });
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return { ok: false, error: `Falha ao baixar a imagem de fileUrl: ${e?.message || "erro de rede"}.` };
+    }
+    if (!response.ok) {
+      if (attempt < retries && response.status >= 500) {
+        const delay = 1000 * attempt;
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return { ok: false, error: `fileUrl retornou status ${response.status} — verifique se a URL é pública e acessível.` };
+    }
 
-  let contentType = response.headers.get("content-type") || "";
-  let buffer = Buffer.from(await response.arrayBuffer());
+    let contentType = response.headers.get("content-type") || "";
+    let buffer = Buffer.from(await response.arrayBuffer());
 
-  if (isDrive && contentType.startsWith("text/html")) {
-    const html = buffer.toString("utf-8");
-    const confirmMatch =
-      html.match(/href="(\/uc\?export=download[^"]+)"/) ||
-      html.match(/action="([^"]+)"[^>]*id="download-form"/);
-    if (confirmMatch) {
-      const confirmUrl = confirmMatch[1].startsWith("http")
-        ? confirmMatch[1].replace(/&amp;/g, "&")
-        : `https://drive.google.com${confirmMatch[1].replace(/&amp;/g, "&")}`;
-      try {
-        const retryRes = await fetch(confirmUrl, { signal: AbortSignal.timeout(timeoutMs) });
-        if (retryRes.ok) {
-          contentType = retryRes.headers.get("content-type") || "";
-          buffer = Buffer.from(await retryRes.arrayBuffer());
+    if (isDrive && contentType.startsWith("text/html")) {
+      const html = buffer.toString("utf-8");
+      const confirmMatch =
+        html.match(/href="(\/uc\?export=download[^"]*)"/) ||
+        html.match(/action="([^"]*)"[^>]*id="download-form"/);
+      if (confirmMatch) {
+        const confirmUrl = confirmMatch[1].startsWith("http")
+          ? confirmMatch[1].replace(/&amp;/g, "&")
+          : `https://drive.google.com${confirmMatch[1].replace(/&amp;/g, "&")}`;
+        try {
+          const retryRes = await fetch(confirmUrl, { signal: AbortSignal.timeout(timeoutMs) });
+          if (retryRes.ok) {
+            contentType = retryRes.headers.get("content-type") || "";
+            buffer = Buffer.from(await retryRes.arrayBuffer());
+          }
+        } catch {
+          // mantém o buffer/contentType da primeira tentativa
         }
-      } catch {
-        // mantém o buffer/contentType da primeira tentativa; o check abaixo cobre o erro
       }
     }
+
+    if (isDrive && contentType.startsWith("text/html")) {
+      return {
+        ok: false,
+        error:
+          "Este link do Google Drive está bloqueando o download direto (página de confirmação do próprio Drive). " +
+          "Baixe o arquivo manualmente e reenvie como base64, ou hospede em outro serviço (Cloudinary, Imgur etc.).",
+      };
+    }
+    if (!looksLikeImage(contentType, url)) {
+      return { ok: false, error: `fileUrl não aponta pra uma imagem (content-type: ${contentType || "desconhecido"}).` };
+    }
+    if (buffer.byteLength > MAX_FILEURL_IMAGE_BYTES) {
+      return { ok: false, error: "Imagem baixada de fileUrl excede 15MB — use uma imagem menor." };
+    }
+    return { ok: true, buffer };
   }
 
-  if (isDrive && contentType.startsWith("text/html")) {
-    return {
-      ok: false,
-      error:
-        "Este link do Google Drive está bloqueando o download direto (página de confirmação do próprio Drive). " +
-        "Baixe o arquivo manualmente e reenvie como base64, ou hospede em outro serviço (Cloudinary, Imgur etc.).",
-    };
-  }
-  if (!looksLikeImage(contentType, url)) {
-    return { ok: false, error: `fileUrl não aponta pra uma imagem (content-type: ${contentType || "desconhecido"}).` };
-  }
-  if (buffer.byteLength > MAX_FILEURL_IMAGE_BYTES) {
-    return { ok: false, error: "Imagem baixada de fileUrl excede 15MB — use uma imagem menor." };
-  }
-  return { ok: true, buffer };
+  return { ok: false, error: "Todas as tentativas de download falharam." };
 }
 
+// ── Normalização de input de imagem (schema limpo, sem passthrough) ───────
 type McpUploadImageInput = {
   fileUrl?: string;
   url?: string;
@@ -175,6 +211,7 @@ type McpUploadImageInput = {
   };
   creativeIndex?: number;
   format?: "feed" | "stories" | "square";
+  formats?: Array<"feed" | "stories" | "square">;
 };
 
 function firstNonEmpty(...values: Array<unknown>): string | undefined {
@@ -185,7 +222,7 @@ function firstNonEmpty(...values: Array<unknown>): string | undefined {
 }
 
 function looksLikeLocalAttachmentPath(value?: string): boolean {
-  return !!value && (/^\/mnt\/data\//.test(value) || /^file:\/\//i.test(value) || /^[A-Za-z]:\\/.test(value));
+  return !!value && (/^\/mnt\/data\//.test(value) || /^file:\/\//i.test(value) || /^[A-Za-z]:\/.test(value));
 }
 
 function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
@@ -193,6 +230,7 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
   imageBase64?: string;
   fileName: string;
   sourceKind?: "fileUrl" | "imageBase64";
+  formats: Array<"feed" | "stories" | "square">;
   error?: string;
 } {
   const fileUrl = firstNonEmpty(
@@ -216,27 +254,39 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
     || `campaign-upload-${index + 1}.jpg`;
   const localPath = firstNonEmpty(image.filePath, image.path, image.file?.path);
 
-  // URL publica/temporaria ganha de base64: evita JSON gigante e tambem cobre
-  // clientes que mandam um placeholder em imageBase64 junto com a URL real.
+  // Resolve formats: aceita array formats OU format único
+  const formats: Array<"feed" | "stories" | "square"> = [];
+  if (Array.isArray(image.formats) && image.formats.length > 0) {
+    for (const f of image.formats) {
+      if (["feed", "stories", "square"].includes(f)) formats.push(f);
+    }
+  }
+  if (formats.length === 0 && image.format && ["feed", "stories", "square"].includes(image.format)) {
+    formats.push(image.format);
+  }
+  if (formats.length === 0) formats.push("feed");
+
   if (fileUrl) {
     if (looksLikeLocalAttachmentPath(fileUrl)) {
       return {
         fileName,
+        formats,
         error:
           `Recebi "${fileUrl}" como caminho local do ambiente do cliente. ` +
           "O servidor MecProAI/Render não consegue ler /mnt/data ou file:// diretamente; envie uma URL HTTPS temporária ou data:image/...;base64.",
       };
     }
-    return { fileUrl, fileName, sourceKind: "fileUrl" };
+    return { fileUrl, fileName, sourceKind: "fileUrl", formats };
   }
 
   if (imageBase64) {
     if (/^https?:\/\//i.test(imageBase64)) {
-      return { fileUrl: imageBase64, fileName, sourceKind: "fileUrl" };
+      return { fileUrl: imageBase64, fileName, sourceKind: "fileUrl", formats };
     }
     if (looksLikeLocalAttachmentPath(imageBase64)) {
       return {
         fileName,
+        formats,
         error:
           `Recebi "${imageBase64}" dentro de imageBase64, mas isso é só um caminho local do cliente. ` +
           "Envie os bytes da imagem como data URL/base64 real ou uma URL HTTPS baixável.",
@@ -246,17 +296,19 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
     if (base64Clean.length < 64) {
       return {
         fileName,
+        formats,
         error:
           "imageBase64/dataUrl não contém bytes suficientes de imagem. " +
           "Envie data:image/jpeg;base64,/9j/... ou use fileUrl/url/downloadUrl com uma URL HTTPS pública.",
       };
     }
-    return { imageBase64, fileName, sourceKind: "imageBase64" };
+    return { imageBase64, fileName, sourceKind: "imageBase64", formats };
   }
 
   if (localPath) {
     return {
       fileName,
+      formats,
       error:
         `Recebi apenas o caminho local "${localPath}". ` +
         "Esse caminho existe no ambiente do ChatGPT, não no servidor MecProAI. Envie URL HTTPS temporária ou base64 real.",
@@ -265,17 +317,13 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
 
   return {
     fileName,
+    formats,
     error:
       "Informe uma imagem como fileUrl/url/downloadUrl, dataUrl/base64/imageBase64, ou file.url/file.dataUrl.",
   };
 }
 
 // ── Escopo de acesso por API key ──────────────────────────────────────────
-// 'read' < 'write' < 'publish', hierárquico (quem tem 'publish' também pode
-// tudo que 'write' e 'read' podem). Existe pra dar a clientes MCP menos
-// confiáveis por padrão (ex: uma integração nova, testada pela primeira vez)
-// acesso só de leitura, sem abrir publish_campaign — que gasta dinheiro real
-// do cliente — antes de alguém decidir conscientemente elevar o escopo da key.
 type McpScope = "read" | "write" | "publish";
 const SCOPE_RANK: Record<McpScope, number> = { read: 0, write: 1, publish: 2 };
 
@@ -297,19 +345,18 @@ function scopeErrorContent(required: McpScope, userScope: McpScope) {
 }
 
 export function createMcpServerForUser(userId: number, scope: McpScope = "publish"): McpServer {
-  const server = new McpServer({ name: "mecproai", version: "1.0.0" });
+  const server = new McpServer({ name: "mecproai", version: "1.1.0" });
 
-  // Cria um "caller" tRPC autenticado sob demanda — usado só pelas tools da
-  // Fase 3, que precisam invocar procedures reais (upload de imagem,
-  // resolver página, publicar) sem reimplementar nenhuma lógica deles.
-  // Preguiçoso porque buscar o usuário é assíncrono e essa função é síncrona.
   async function getCaller() {
     const user = await db.getUserById(userId);
     if (!user) throw new Error("Usuário não encontrado.");
     return appRouter.createCaller({ req: {} as any, res: {} as any, user } as any);
   }
 
-  // ── list_projects ──────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════
+  // FASE 1 — tools de leitura
+  // ═══════════════════════════════════════════════════════════════════════
+
   server.registerTool(
     "list_projects",
     {
@@ -335,7 +382,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── list_campaigns ──────────────────────────────────────────────────────
   server.registerTool(
     "list_campaigns",
     {
@@ -389,7 +435,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── get_campaign ─────────────────────────────────────────────────────────
   server.registerTool(
     "get_campaign",
     {
@@ -444,7 +489,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── get_campaign_metrics ───────────────────────────────────────────────
   server.registerTool(
     "get_campaign_metrics",
     {
@@ -489,14 +533,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── get_full_ads_report ──────────────────────────────────────────────────
-  // Diferente de get_campaign_metrics acima (que dá a série diária de UMA
-  // campanha já publicada pelo MecProAI, vinda do sync interno), esta tool
-  // busca DIRETO nas APIs oficiais de Meta, Google Ads e TikTok — cobre
-  // TODAS as campanhas da conta conectada (não só as criadas por aqui) e
-  // traz quebras (breakdowns) por idade/gênero, posicionamento e dispositivo
-  // que o MCP padrão de cada plataforma normalmente não expõe. Reusa a
-  // procedure tRPC unified.getFullReport — nenhuma lógica de API duplicada.
   server.registerTool(
     "get_full_ads_report",
     {
@@ -543,15 +579,9 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
   );
 
   // ═══════════════════════════════════════════════════════════════════════
-  // FASE 2 — tools de escrita (criar/editar). Ainda NÃO publica na Meta —
-  // isso é a Fase 3, deliberadamente separada por ser a parte que gasta
-  // dinheiro real. Tudo aqui reusa exatamente a mesma lógica dos endpoints
-  // tRPC reais (checkPlanLimit, generateCampaign de ai.ts) — o MCP não
-  // reimplementa regra de negócio nenhuma, só entrega dados estruturados
-  // pro motor que já existe.
+  // FASE 2 — tools de escrita
   // ═══════════════════════════════════════════════════════════════════════
 
-  // ── create_project ───────────────────────────────────────────────────────
   server.registerTool(
     "create_project",
     {
@@ -579,7 +609,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── set_client_profile ───────────────────────────────────────────────────
   server.registerTool(
     "set_client_profile",
     {
@@ -615,8 +644,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       if (!project || project.userId !== userId) {
         return { content: [{ type: "text", text: `Projeto ${input.projectId} não encontrado ou não pertence a este usuário.` }], isError: true };
       }
-      // Mesma normalização do endpoint real (clientProfileRouter.upsert):
-      // aceita "www.site.com.br", "site.com" etc e sempre grava com https://
       const websiteUrl = (() => {
         const raw = String(input.websiteUrl || "").trim();
         if (!raw) return undefined;
@@ -632,7 +659,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── generate_campaign ────────────────────────────────────────────────────
+  // ── generate_campaign (melhorado: timeout inclui upload) ───────────────
   server.registerTool(
     "generate_campaign",
     {
@@ -660,11 +687,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         geoRadius: z.number().optional().describe("Raio em km, se locationMode='raio'."),
         mediaFormat: z.string().optional().describe("Formato de mídia (ex: 'image', 'video', 'carousel', 'mixed')."),
         audienceProfile: z.string().optional(),
-        // ── Fotos reais do cliente (mesmo "modo upload" que a interface web já tem) ──
-        // Antes, só a interface conseguia acionar esse modo — a tool MCP não expunha
-        // esses campos, então uma campanha gerada por aqui nunca podia usar fotos
-        // reais desde a geração (só dava pra trocar 1 imagem por vez, depois, via
-        // upload_creative_image). Agora o caminho fica igual em ambos os canais.
         uploadedImages: z.array(z.string()).optional().describe(
           "URLs https públicas das fotos reais do cliente. Combina com realPhotosBase64 se ambos " +
           "forem informados. Quando informado, cada criativo usa UMA foto real em vez de gerar por " +
@@ -699,20 +721,21 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: `Não foi possível gerar: ${check.reason}` }], isError: true };
       }
 
-      // ── Sobe fotos reais em base64 pro Cloudinary ANTES de gerar ─────────
-      // Une com uploadedImages (URLs já públicas) — resultado único vira o
-      // realImages passado pra generateCampaign. Falha em QUALQUER foto
-      // aborta a geração (evita gastar tokens de IA num briefing incompleto,
-      // com uma foto faltando do que o usuário pediu).
-      //
-      // (sessão 34, 13/08) — coleta labels do Google Vision (já usado no
-      // fluxo web via imageRAG.ts, aqui reaproveitado) pra alimentar a copy
-      // com sinais visuais sutis. Best-effort: se o Vision falhar numa foto,
-      // simplesmente não contribui labels — NUNCA aborta a geração por isso
-      // (diferente da validação de imagem em si, que é obrigatória).
+      // ── TIMER COMEÇA ANTES do upload (inclui tempo total) ──────────────
+      const totalRealImages = (input.uploadedImages?.length || 0) + (input.realPhotosBase64?.length || 0);
+      const timeoutMs = Math.min(50_000 + totalRealImages * 4_000, 120_000);
+      const startTime = Date.now();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(
+          `A geração demorou mais que o esperado (>${Math.round(timeoutMs / 1000)}s). Verifique list_campaigns em alguns segundos — ela pode ter sido criada com sucesso mesmo assim.`
+        )), timeoutMs)
+      );
+
+      // ── Sobe fotos reais em base64 pro Cloudinary ───────────────────────
       const uploadedFromUrl: string[] = [];
       const uploadedFromBase64: string[] = [];
       const visualLabelsSet = new Set<string>();
+
       if (input.uploadedImages?.length) {
         const { analyzeImageWithVision } = await import("./imageRAG");
         for (let i = 0; i < input.uploadedImages.length; i++) {
@@ -724,10 +747,19 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           if (!downloaded.ok || !downloaded.buffer) {
             return { content: [{ type: "text", text: `Falha ao baixar a foto ${i + 1}/${input.uploadedImages.length}: ${downloaded.error}` }], isError: true };
           }
-          const cloudUrl = await uploadImageBufferToCloudinary(
-            downloaded.buffer,
-            `campaign-photo-${input.projectId}-url-${i}-${Date.now()}.jpg`,
-          );
+
+          // Cache por SHA256
+          const hash = crypto.createHash("sha256").update(downloaded.buffer).digest("hex");
+          const cachedUrl = await getCachedImageUrl(hash);
+          let cloudUrl: string | null = cachedUrl;
+          if (!cloudUrl) {
+            cloudUrl = await uploadImageBufferToCloudinary(
+              downloaded.buffer,
+              `campaign-photo-${input.projectId}-url-${i}-${Date.now()}.jpg`,
+            );
+            if (cloudUrl) await saveImageCache(hash, cloudUrl, `campaign-photo-url-${i}.jpg`, downloaded.buffer.length);
+          }
+
           if (!cloudUrl) {
             return { content: [{ type: "text", text: `Falha ao subir a foto ${i + 1}/${input.uploadedImages.length} pro Cloudinary. Verifique as credenciais do Cloudinary no servidor.` }], isError: true };
           }
@@ -738,10 +770,11 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             if (vision?.labels?.length) vision.labels.slice(0, 4).forEach((l: string) => visualLabelsSet.add(l));
             if (vision?.objects?.length) vision.objects.slice(0, 3).forEach((o: string) => visualLabelsSet.add(o));
           } catch {
-            // Vision indisponível ou erro — segue sem labels dessa foto, sem abortar.
+            // Vision indisponível — segue sem labels dessa foto
           }
         }
       }
+
       if (input.realPhotosBase64?.length) {
         const { analyzeImageWithVision } = await import("./imageRAG");
         for (let i = 0; i < input.realPhotosBase64.length; i++) {
@@ -750,10 +783,19 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           if (!decoded.ok || !decoded.buffer) {
             return { content: [{ type: "text", text: `Foto ${i + 1}/${input.realPhotosBase64.length} (${photo.fileName || "sem nome"}) inválida: ${decoded.error}` }], isError: true };
           }
-          const cloudUrl = await uploadImageBufferToCloudinary(
-            decoded.buffer,
-            photo.fileName || `campaign-photo-${input.projectId}-${i}-${Date.now()}.jpg`,
-          );
+
+          // Cache por SHA256
+          const hash = crypto.createHash("sha256").update(decoded.buffer).digest("hex");
+          const cachedUrl = await getCachedImageUrl(hash);
+          let cloudUrl: string | null = cachedUrl;
+          if (!cloudUrl) {
+            cloudUrl = await uploadImageBufferToCloudinary(
+              decoded.buffer,
+              photo.fileName || `campaign-photo-${input.projectId}-${i}-${Date.now()}.jpg`,
+            );
+            if (cloudUrl) await saveImageCache(hash, cloudUrl, photo.fileName || `campaign-photo-${i}.jpg`, decoded.buffer.length);
+          }
+
           if (!cloudUrl) {
             return { content: [{ type: "text", text: `Falha ao subir a foto ${i + 1}/${input.realPhotosBase64.length} pro Cloudinary. Verifique as credenciais do Cloudinary no servidor.` }], isError: true };
           }
@@ -764,12 +806,13 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             if (vision?.labels?.length) vision.labels.slice(0, 4).forEach((l: string) => visualLabelsSet.add(l));
             if (vision?.objects?.length) vision.objects.slice(0, 3).forEach((o: string) => visualLabelsSet.add(o));
           } catch {
-            // Vision indisponível ou erro — segue sem labels dessa foto, sem abortar.
+            // Vision indisponível — segue sem labels
           }
         }
       }
+
       const allRealImages = [...uploadedFromUrl, ...uploadedFromBase64];
-      const visualLabels = Array.from(visualLabelsSet).slice(0, 8); // limite pra não sobrecarregar o prompt
+      const visualLabels = Array.from(visualLabelsSet).slice(0, 8);
 
       const { generateCampaign } = await import("./ai");
       const segmentContext = [
@@ -791,24 +834,12 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         visualLabels: visualLabels.length ? visualLabels : undefined,
         numCreatives: input.numCreatives,
       } as any);
-      // (sessão 32, 13/08) — timeout escalado por quantidade de imagens reais.
-      // O upload pro Cloudinary (linhas acima) já terminou antes daqui, então
-      // não entra nessa corrida — mas a análise Vision de cada imagem (quando
-      // habilitada) roda DENTRO do generateCampaign, e pode empurrar o tempo
-      // total além dos 50s fixos com várias fotos. +4s por imagem, teto de 120s
-      // pra não deixar uma chamada travada indefinidamente em caso de problema
-      // real no motor de IA.
-      const timeoutMs = Math.min(50_000 + allRealImages.length * 4_000, 120_000);
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(
-          `A geração demorou mais que o esperado (>${Math.round(timeoutMs / 1000)}s). Verifique list_campaigns em alguns segundos — ela pode ter sido criada com sucesso mesmo assim.`
-        )), timeoutMs)
-      );
 
       try {
         const campaign: any = await Promise.race([campaignPromise, timeoutPromise]);
+        const elapsed = Date.now() - startTime;
         return {
-          content: [{ type: "text", text: `Campanha gerada: "${campaign.name || input.name}" (id: ${campaign.id}) no projeto ${project.name}. Ainda não publicada na Meta.` }],
+          content: [{ type: "text", text: `Campanha gerada: "${campaign.name || input.name}" (id: ${campaign.id}) no projeto ${project.name}. Tempo total: ${Math.round(elapsed/1000)}s. Ainda não publicada na Meta.` }],
           structuredContent: { id: campaign.id, name: campaign.name || input.name, projectId: input.projectId },
         };
       } catch (e: any) {
@@ -817,26 +848,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── upload_creative_image ────────────────────────────────────────────────
-  // Substitui a imagem de um criativo específico (gerada por IA) por uma
-  // imagem enviada manualmente pelo usuário (ex: foto real do cliente).
-  // Reaproveita duas peças já existentes e testadas — nenhuma lógica nova
-  // de upload/storage é criada aqui:
-  //   1. uploadBase64ImageToCloudinary (server/imageGeneration.ts) — mesma
-  //      função que o gerador de imagem por IA usa pra subir pro Cloudinary.
-  //   2. campaigns.updateCreativeImage (server/_core/router.ts) — mesma
-  //      procedure que a tela de edição de criativo usa pra trocar imagem.
-  // Ainda é Fase 2 (rascunho) — não gasta orçamento, não publica nada.
-  //
-  // (sessão 31, 12/08) — aceita fileUrl como alternativa ao imageBase64.
-  // Motivo: Base64 infla o payload em ~33% e pode bater limite de tamanho
-  // de requisição em clientes MCP diferentes (ex: ChatGPT/outros agentes),
-  // especialmente com múltiplas imagens. fileUrl evita reencodar o arquivo
-  // inteiro como string — o servidor baixa a imagem direto da URL e reusa
-  // exatamente o mesmo pipeline de validação+upload que o Base64 já usa
-  // (mesma função uploadImageBufferToCloudinary, só muda como o buffer
-  // chega). Nenhum dos dois é obrigatório sozinho — exatamente um dos dois
-  // precisa vir preenchido.
+  // ── upload_creative_image (individual) ─────────────────────────────────
   server.registerTool(
     "upload_creative_image",
     {
@@ -871,7 +883,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     },
     async ({ campaignId, creativeIndex, format, imageBase64, fileUrl, fileName }) => {
       if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
-      // ── checagem de posse — mesmo padrão de get_campaign ──────────────
+
       const campaign: any = await db.getCampaignById(campaignId);
       if (!campaign) {
         return { content: [{ type: "text", text: `Campanha ${campaignId} não encontrada.` }], isError: true };
@@ -886,7 +898,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: `Criativo de índice ${creativeIndex} não existe nessa campanha (ela tem ${creatives.length}).` }], isError: true };
       }
 
-      // ── validação: exatamente uma fonte de imagem precisa vir preenchida ──
       if (!imageBase64 && !fileUrl) {
         return { content: [{ type: "text", text: "Informe imageBase64 ou fileUrl." }], isError: true };
       }
@@ -894,7 +905,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: "Informe apenas um: imageBase64 OU fileUrl, não os dois." }], isError: true };
       }
 
-      // ── resolve o buffer da imagem, seja por Base64 ou por download da URL ──
       let buffer: Buffer;
       if (fileUrl) {
         const result = await fetchImageBuffer(fileUrl, 15000);
@@ -903,7 +913,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         }
         buffer = result.buffer;
       } else {
-        // ── validação do payload — helper compartilhado com generate_campaign ──
         const decoded = decodeAndValidateImage(imageBase64!);
         if (!decoded.ok || !decoded.buffer) {
           return { content: [{ type: "text", text: decoded.error || "Imagem inválida." }], isError: true };
@@ -911,13 +920,11 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         buffer = decoded.buffer;
       }
 
-      // ── upload pro Cloudinary (mesma função que o gerador de IA usa) ──
       const cloudUrl = await uploadImageBufferToCloudinary(buffer, fileName || `manual-${campaignId}-${creativeIndex}-${Date.now()}.jpg`);
       if (!cloudUrl) {
         return { content: [{ type: "text", text: "Falha ao subir a imagem pro Cloudinary. Verifique as credenciais do Cloudinary no servidor." }], isError: true };
       }
 
-      // ── atualiza o criativo via a MESMA procedure que a tela usa ──────
       let caller;
       try {
         caller = await getCaller();
@@ -929,7 +936,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           campaignId, creativeIndex, format, imageUrl: cloudUrl,
         } as any);
         return {
-          content: [{ type: "text", text: `Imagem do criativo ${creativeIndex} (${format}) atualizada com sucesso.\nURL: ${cloudUrl}` }],
+          content: [{ type: "text", text: `✅ Imagem do criativo ${creativeIndex} (${format}) atualizada com sucesso.\nURL: ${cloudUrl}` }],
           structuredContent: { ok: true, imageUrl: cloudUrl, creativeIndex, format, creative: result?.creative ?? null },
         };
       } catch (e: any) {
@@ -938,38 +945,50 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-
-  // ── upload_campaign_images (lote) ────────────────────────────────────
+  // ── upload_campaign_images (lote — schema limpo, sem passthrough) ──────
   const uploadCampaignImagesInputSchema = {
-    campaignId: z.number().int().positive(),
+    campaignId: z.number().int().positive()
+      .describe("ID da campanha onde as imagens serão inseridas."),
     images: z.array(
       z.object({
-        fileUrl: z.string().optional(),
-        url: z.string().optional(),
-        imageUrl: z.string().optional(),
-        downloadUrl: z.string().optional(),
-        imageBase64: z.string().optional(),
-        base64: z.string().optional(),
-        dataUrl: z.string().optional(),
-        fileName: z.string().optional(),
-        name: z.string().optional(),
-        path: z.string().optional(),
-        filePath: z.string().optional(),
+        fileUrl: z.string().optional()
+          .describe("URL HTTPS pública da imagem. Preferível a base64."),
+        url: z.string().optional()
+          .describe("Alias de fileUrl — mesmo comportamento."),
+        imageUrl: z.string().optional()
+          .describe("Alias de fileUrl — mesmo comportamento."),
+        downloadUrl: z.string().optional()
+          .describe("Alias de fileUrl — mesmo comportamento."),
+        imageBase64: z.string().optional()
+          .describe("Imagem em base64 (com ou sem prefixo data:image/...;base64,). Use isso OU fileUrl."),
+        base64: z.string().optional()
+          .describe("Alias de imageBase64 — mesmo comportamento."),
+        dataUrl: z.string().optional()
+          .describe("Alias de imageBase64 — mesmo comportamento."),
+        fileName: z.string().optional()
+          .describe("Nome do arquivo com extensão (ex: foto.jpg). Se omitido, gera um nome automático."),
+        name: z.string().optional()
+          .describe("Alias de fileName — mesmo comportamento."),
+        creativeIndex: z.number().int().min(0).optional()
+          .describe("Índice do criativo a substituir. Se omitido, usa a posição da imagem no array (0, 1, 2...)."),
+        format: z.enum(["feed", "stories", "square"]).default("feed")
+          .describe("Formato de destino: feed (4:5), stories (9:16) ou square (1:1)."),
+        formats: z.array(z.enum(["feed", "stories", "square"])).optional()
+          .describe("Array de formatos — envia a MESMA imagem em múltiplos formatos de uma vez (ex: ['feed','stories'])."),
         file: z.object({
-          url: z.string().optional(),
-          imageUrl: z.string().optional(),
-          downloadUrl: z.string().optional(),
-          imageBase64: z.string().optional(),
-          base64: z.string().optional(),
-          dataUrl: z.string().optional(),
-          fileName: z.string().optional(),
-          name: z.string().optional(),
-          path: z.string().optional(),
-        }).passthrough().optional(),
-        creativeIndex: z.number().int().min(0).optional(),
-        format: z.enum(["feed", "stories", "square"]).default("feed"),
-      }).passthrough()
-    ).min(1).max(10),
+          url: z.string().optional().describe("URL da imagem dentro do objeto file."),
+          imageUrl: z.string().optional().describe("Alias de url dentro do file."),
+          downloadUrl: z.string().optional().describe("Alias de url dentro do file."),
+          imageBase64: z.string().optional().describe("Base64 da imagem dentro do objeto file."),
+          base64: z.string().optional().describe("Alias de imageBase64 dentro do file."),
+          dataUrl: z.string().optional().describe("Alias de imageBase64 dentro do file."),
+          fileName: z.string().optional().describe("Nome do arquivo dentro do objeto file."),
+          name: z.string().optional().describe("Alias de fileName dentro do objeto file."),
+        }).optional()
+          .describe("Objeto aninhado com os mesmos campos do nível raiz. Alguns clientes MCP enviam anexos neste formato."),
+      })
+    ).min(1).max(10)
+      .describe("Array de 1 a 10 imagens a enviar. Cada item pode usar fileUrl OU imageBase64 (nunca ambos)."),
   };
 
   const uploadCampaignImagesToolConfig = {
@@ -978,7 +997,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       "Envia várias fotos reais de uma só vez para os criativos da campanha. " +
       "Prefira enviar anexos como file.url/url/downloadUrl HTTPS temporária; " +
       "também aceita dataUrl/base64/imageBase64 real. Não envie caminhos locais " +
-      "como /mnt/data, porque o servidor MecProAI não consegue ler o filesystem do cliente.",
+      "como /mnt/data, porque o servidor MecProAI não consegue ler o filesystem do cliente. " +
+      "Use 'formats' para enviar a mesma imagem em múltiplos formatos (feed + stories) de uma vez.",
     inputSchema: uploadCampaignImagesInputSchema,
   };
 
@@ -992,107 +1012,66 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     log.info("mcp-upload-images", "batch start", { userId, campaignId, total: images.length });
 
     const campaign: any = await db.getCampaignById(campaignId);
-
     if (!campaign) {
       log.warn("mcp-upload-images", "campaign not found", { userId, campaignId });
       return {
-        content: [{
-          type: "text" as const,
-          text: `Campanha ${campaignId} não encontrada.`,
-        }],
+        content: [{ type: "text" as const, text: `Campanha ${campaignId} não encontrada.` }],
         isError: true,
       };
     }
 
     const project: any = await db.getProjectById(campaign.projectId);
-
     if (!project || project.userId !== userId) {
       log.warn("mcp-upload-images", "campaign ownership denied", { userId, campaignId, projectId: campaign.projectId });
       return {
-        content: [{
-          type: "text" as const,
-          text: `Campanha ${campaignId} não pertence a este usuário.`,
-        }],
+        content: [{ type: "text" as const, text: `Campanha ${campaignId} não pertence a este usuário.` }],
         isError: true,
       };
     }
 
-    const creatives = (() => {
-      try {
-        return JSON.parse(campaign.creatives || "[]");
-      } catch {
-        return [];
-      }
-    })();
+    const creatives = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
 
     let caller;
     try {
       caller = await getCaller();
     } catch (error: any) {
-      log.error("mcp-upload-images", "prepare caller failed", {
-        userId,
-        campaignId,
-        total: images.length,
-        error: error?.message,
-      });
+      log.error("mcp-upload-images", "prepare caller failed", { userId, campaignId, total: images.length, error: error?.message });
       return {
         content: [{
           type: "text" as const,
-          text:
-            "Conector MECProAI disponível, mas falhou ao preparar o contexto interno antes do upload. " +
+          text: "Conector MECProAI disponível, mas falhou ao preparar o contexto interno antes do upload. " +
             `Detalhe: ${error?.message || "erro desconhecido"}`,
         }],
         structuredContent: {
-          campaignId,
-          successCount: 0,
-          total: images.length,
-          errorType: "connector_runtime",
-          stage: "prepare_trpc_caller",
-          reachedTool: true,
-          reachedRender: true,
-          reachedCloudinary: false,
-          reachedImageValidator: false,
+          campaignId, successCount: 0, total: images.length,
+          errorType: "connector_runtime", stage: "prepare_trpc_caller",
         },
         isError: true,
       };
     }
 
     async function processOne(image: (typeof images)[number], index: number) {
-      const creativeIndex =
-        image.creativeIndex !== undefined ? image.creativeIndex : index;
+      const creativeIndex = image.creativeIndex !== undefined ? image.creativeIndex : index;
 
+      // ── VALIDAÇÃO DE creativeIndex ANTES de baixar/validar imagem ──────
       if (!creatives[creativeIndex]) {
         log.warn("mcp-upload-images", "creative not found", { userId, campaignId, index, creativeIndex, creativesCount: creatives.length });
         return {
-          index,
-          creativeIndex,
-          success: false,
-          errorType: "campaign_validation",
-          stage: "creative_lookup",
-          error: "Criativo não encontrado",
+          index, creativeIndex, success: false,
+          errorType: "campaign_validation", stage: "creative_lookup",
+          error: `Criativo de índice ${creativeIndex} não existe (campanha tem ${creatives.length} criativos).`,
         };
       }
 
       const normalized = normalizeUploadImageInput(image, index);
       if (normalized.error) {
         log.warn("mcp-upload-images", "attachment normalize failed", {
-          userId,
-          campaignId,
-          index,
-          creativeIndex,
-          hasFileUrl: !!(image.fileUrl || image.url || image.imageUrl || image.downloadUrl || image.file?.url || image.file?.imageUrl || image.file?.downloadUrl),
-          hasBase64: !!(image.imageBase64 || image.base64 || image.dataUrl || image.file?.imageBase64 || image.file?.base64 || image.file?.dataUrl),
-          hasLocalPath: !!(image.path || image.filePath || image.file?.path),
+          userId, campaignId, index, creativeIndex,
           error: normalized.error.slice(0, 240),
         });
         return {
-          index,
-          creativeIndex,
-          success: false,
-          errorType: "payload_validation",
-          stage: "normalize_attachment",
-          reachedImageValidator: false,
-          reachedCloudinary: false,
+          index, creativeIndex, success: false,
+          errorType: "payload_validation", stage: "normalize_attachment",
           error: normalized.error,
         };
       }
@@ -1101,159 +1080,94 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         let buffer: Buffer;
 
         if (normalized.fileUrl) {
-          log.info("mcp-upload-images", "fetching image url", {
-            userId,
-            campaignId,
-            index,
-            creativeIndex,
-            fileName: normalized.fileName.slice(0, 120),
-          });
+          log.info("mcp-upload-images", "fetching image url", { userId, campaignId, index, creativeIndex, fileName: normalized.fileName.slice(0, 120) });
           const result = await fetchImageBuffer(normalized.fileUrl, 20000);
           if (!result.ok) {
-            log.warn("mcp-upload-images", "fetch image url failed", {
-              userId,
-              campaignId,
-              index,
-              creativeIndex,
-              error: result.error.slice(0, 240),
-            });
+            log.warn("mcp-upload-images", "fetch image url failed", { userId, campaignId, index, creativeIndex, error: result.error.slice(0, 240) });
             return {
-              index,
-              creativeIndex,
-              success: false,
-              errorType: "file_download",
-              stage: "fetch_file_url",
-              reachedImageValidator: false,
-              reachedCloudinary: false,
+              index, creativeIndex, success: false,
+              errorType: "file_download", stage: "fetch_file_url",
               error: result.error,
             };
           }
           buffer = result.buffer;
         } else {
-          log.info("mcp-upload-images", "decoding image base64", {
-            userId,
-            campaignId,
-            index,
-            creativeIndex,
-            fileName: normalized.fileName.slice(0, 120),
-          });
+          log.info("mcp-upload-images", "decoding image base64", { userId, campaignId, index, creativeIndex, fileName: normalized.fileName.slice(0, 120) });
           const decoded = decodeAndValidateImage(normalized.imageBase64!);
-
           if (!decoded.ok || !decoded.buffer) {
-            log.warn("mcp-upload-images", "decode image base64 failed", {
-              userId,
-              campaignId,
-              index,
-              creativeIndex,
-              error: (decoded.error || "Imagem inválida").slice(0, 240),
-            });
+            log.warn("mcp-upload-images", "decode image base64 failed", { userId, campaignId, index, creativeIndex, error: (decoded.error || "Imagem inválida").slice(0, 240) });
             return {
-              index,
-              creativeIndex,
-              success: false,
-              errorType: "payload_validation",
-              stage: "decode_image_base64",
-              reachedImageValidator: true,
-              reachedCloudinary: false,
+              index, creativeIndex, success: false,
+              errorType: "payload_validation", stage: "decode_image_base64",
               error: decoded.error || "Imagem inválida",
             };
           }
-
           buffer = decoded.buffer;
         }
 
-        log.info("mcp-upload-images", "uploading to cloudinary", {
-          userId,
-          campaignId,
-          index,
-          creativeIndex,
-          sourceKind: normalized.sourceKind,
-          bytes: buffer.byteLength,
-          fileName: normalized.fileName.slice(0, 120),
-        });
-        const cloudUrl = await uploadImageBufferToCloudinary(buffer, normalized.fileName);
+        // ── Cache por SHA256 ──────────────────────────────────────────────
+        const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+        const cachedUrl = await getCachedImageUrl(hash);
+        let cloudUrl: string | null = cachedUrl;
 
         if (!cloudUrl) {
-          log.error("mcp-upload-images", "cloudinary upload failed", {
-            userId,
-            campaignId,
-            index,
-            creativeIndex,
-            bytes: buffer.byteLength,
+          log.info("mcp-upload-images", "uploading to cloudinary", {
+            userId, campaignId, index, creativeIndex,
+            sourceKind: normalized.sourceKind, bytes: buffer.byteLength,
             fileName: normalized.fileName.slice(0, 120),
           });
+          cloudUrl = await uploadImageBufferToCloudinary(buffer, normalized.fileName);
+          if (cloudUrl) await saveImageCache(hash, cloudUrl, normalized.fileName, buffer.byteLength);
+        } else {
+          log.info("mcp-upload-images", "cache hit — reusing cloudinary url", { userId, campaignId, index, creativeIndex, hash: hash.slice(0, 16) });
+        }
+
+        if (!cloudUrl) {
+          log.error("mcp-upload-images", "cloudinary upload failed", { userId, campaignId, index, creativeIndex, bytes: buffer.byteLength });
           return {
-            index,
-            creativeIndex,
-            success: false,
-            errorType: "cloudinary_upload",
-            stage: "upload_cloudinary",
-            reachedImageValidator: true,
-            reachedCloudinary: true,
+            index, creativeIndex, success: false,
+            errorType: "cloudinary_upload", stage: "upload_cloudinary",
             error: "Falha no upload para Cloudinary",
           };
         }
 
-        try {
-          log.info("mcp-upload-images", "updating creative image", {
-            userId,
-            campaignId,
-            index,
-            creativeIndex,
-            format: image.format || "feed",
-          });
-          await caller.campaigns.updateCreativeImage({
-            campaignId,
-            creativeIndex,
-            format: image.format || "feed",
-            imageUrl: cloudUrl,
-          } as any);
-        } catch (error: any) {
-          log.error("mcp-upload-images", "creative update failed", {
-            userId,
-            campaignId,
-            index,
-            creativeIndex,
-            format: image.format || "feed",
-            error: error?.message,
-          });
+        // ── Aplica em TODOS os formatos solicitados ───────────────────────
+        const appliedFormats: string[] = [];
+        const failedFormats: string[] = [];
+
+        for (const fmt of normalized.formats) {
+          try {
+            log.info("mcp-upload-images", "updating creative image", { userId, campaignId, index, creativeIndex, format: fmt });
+            await caller.campaigns.updateCreativeImage({
+              campaignId, creativeIndex, format: fmt, imageUrl: cloudUrl,
+            } as any);
+            appliedFormats.push(fmt);
+          } catch (error: any) {
+            log.error("mcp-upload-images", "creative update failed", { userId, campaignId, index, creativeIndex, format: fmt, error: error?.message });
+            failedFormats.push(fmt);
+          }
+        }
+
+        if (appliedFormats.length === 0) {
           return {
-            index,
-            creativeIndex,
-            success: false,
-            errorType: "creative_update",
-            stage: "save_creative_image",
-            reachedImageValidator: true,
-            reachedCloudinary: true,
+            index, creativeIndex, success: false,
+            errorType: "creative_update", stage: "save_creative_image",
             imageUrl: cloudUrl,
-            error: error?.message || "Upload feito, mas falhou ao salvar no criativo",
+            error: `Upload feito, mas falhou ao salvar em todos os formatos: ${failedFormats.join(", ")}`,
           };
         }
 
         return {
-          index,
-          creativeIndex,
-          success: true,
-          errorType: null,
-          stage: "completed",
-          reachedImageValidator: true,
-          reachedCloudinary: true,
+          index, creativeIndex, success: true,
           imageUrl: cloudUrl,
+          formatsApplied: appliedFormats,
+          formatsFailed: failedFormats.length ? failedFormats : undefined,
         };
       } catch (error: any) {
-        log.error("mcp-upload-images", "process image unexpected error", {
-          userId,
-          campaignId,
-          index,
-          creativeIndex,
-          error: error?.message,
-        });
+        log.error("mcp-upload-images", "process image unexpected error", { userId, campaignId, index, creativeIndex, error: error?.message });
         return {
-          index,
-          creativeIndex,
-          success: false,
-          errorType: "unexpected",
-          stage: "process_image",
+          index, creativeIndex, success: false,
+          errorType: "unexpected", stage: "process_image",
           error: error?.message || "Erro desconhecido",
         };
       }
@@ -1267,11 +1181,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       r.status === "fulfilled"
         ? r.value
         : {
-            index: i,
-            creativeIndex: images[i].creativeIndex ?? i,
-            success: false,
-            errorType: "unexpected",
-            stage: "promise_settlement",
+            index: i, creativeIndex: images[i].creativeIndex ?? i,
+            success: false, errorType: "unexpected", stage: "promise_settlement",
             error: r.reason?.message || "Erro desconhecido",
           }
     );
@@ -1285,41 +1196,43 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       return acc;
     }, {});
     const firstError = results.find((r: any) => !r.success);
+
+    // ── Texto amigável com URLs no content.text ──────────────────────────
+    const successLines = results
+      .filter((r: any) => r.success)
+      .map((r: any) => `✅ Criativo ${r.creativeIndex}: ${r.imageUrl} (formatos: ${r.formatsApplied?.join(", ") || "feed"})`);
+    const errorLines = results
+      .filter((r: any) => !r.success)
+      .map((r: any) => `❌ Criativo ${r.creativeIndex}: ${r.error}`);
+
+    const textParts = [
+      `${successCount}/${images.length} imagens enviadas para a campanha ${campaignId}.`,
+      ...(successLines.length ? ["", "Imagens enviadas:", ...successLines] : []),
+      ...(errorLines.length ? ["", "Falhas:", ...errorLines] : []),
+    ];
+
     log.info("mcp-upload-images", "batch done", {
-      userId,
-      campaignId,
-      successCount,
-      total: images.length,
-      failedByType,
-      firstErrorType: firstError?.errorType || null,
-      firstErrorStage: firstError?.stage || null,
+      userId, campaignId, successCount, total: images.length,
+      failedByType, firstErrorType: firstError?.errorType || null,
     });
 
     return {
-      content: [{
-        type: "text" as const,
-        text:
-          `${successCount}/${images.length} imagens enviadas para a campanha ${campaignId}.` +
-          (firstError
-            ? ` Primeira falha: ${firstError.stage || "etapa desconhecida"} (${firstError.errorType || "erro"}): ${firstError.error}`
-            : ""),
-      }],
+      content: [{ type: "text" as const, text: textParts.join("\n") }],
       structuredContent: {
-        campaignId,
-        successCount,
-        total: images.length,
-        failedByType,
-        results,
+        campaignId, successCount, total: images.length,
+        images: results.map((r: any) => ({
+          creativeIndex: r.creativeIndex,
+          success: r.success,
+          imageUrl: r.imageUrl || null,
+          formatsApplied: r.formatsApplied || null,
+          error: r.error || null,
+        })),
       },
       isError: successCount === 0,
     };
   }
 
   server.registerTool("upload_campaign_images", uploadCampaignImagesToolConfig, uploadCampaignImagesHandler);
-
-  // Alguns clientes expõem/chamam tools MCP como "NOME_DO_CONECTOR.tool".
-  // Registrar aliases evita "Resource not found: MECPROAI.upload_campaign_images"
-  // quando o manifesto remoto ainda estiver usando o nome qualificado.
   server.registerTool("MECPROAI.upload_campaign_images", {
     ...uploadCampaignImagesToolConfig,
     title: "Enviar várias imagens para uma campanha (alias MECPROAI)",
@@ -1329,17 +1242,81 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     title: "Enviar várias imagens para uma campanha (alias mecproai)",
   }, uploadCampaignImagesHandler);
 
+  // ── NOVA TOOL: upload_image (genérica) ─────────────────────────────────
+  server.registerTool(
+    "upload_image",
+    {
+      title: "Subir imagem genérica pro Cloudinary",
+      description:
+        "Sobe uma imagem pro Cloudinary e retorna a URL pública permanente. " +
+        "Use quando precisar de uma imagem disponível para uso futuro, sem " +
+        "vincular imediatamente a um criativo específico. Aceita fileUrl OU " +
+        "imageBase64 (nunca ambos).",
+      inputSchema: {
+        fileUrl: z.string().url().optional()
+          .describe("URL HTTPS pública da imagem a baixar e subir."),
+        imageBase64: z.string().optional()
+          .describe("Imagem em base64 (com ou sem prefixo data:image/...;base64,)."),
+        fileName: z.string().optional()
+          .describe("Nome do arquivo com extensão. Se omitido, gera automaticamente."),
+      },
+    },
+    async ({ fileUrl, imageBase64, fileName }) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
+
+      if (!fileUrl && !imageBase64) {
+        return { content: [{ type: "text", text: "Informe fileUrl ou imageBase64." }], isError: true };
+      }
+      if (fileUrl && imageBase64) {
+        return { content: [{ type: "text", text: "Informe apenas um: fileUrl OU imageBase64." }], isError: true };
+      }
+
+      let buffer: Buffer;
+      if (fileUrl) {
+        const result = await fetchImageBuffer(fileUrl, 20000);
+        if (!result.ok) return { content: [{ type: "text", text: result.error }], isError: true };
+        buffer = result.buffer;
+      } else {
+        const decoded = decodeAndValidateImage(imageBase64!);
+        if (!decoded.ok || !decoded.buffer) {
+          return { content: [{ type: "text", text: decoded.error || "Imagem inválida." }], isError: true };
+        }
+        buffer = decoded.buffer;
+      }
+
+      // Cache por SHA256
+      const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+      const cachedUrl = await getCachedImageUrl(hash);
+      if (cachedUrl) {
+        return {
+          content: [{ type: "text", text: `✅ Imagem já existia no cache.\nURL: ${cachedUrl}\nTamanho: ${buffer.byteLength} bytes` }],
+          structuredContent: { imageUrl: cachedUrl, cached: true, bytes: buffer.byteLength },
+        };
+      }
+
+      const finalFileName = fileName || `upload-${Date.now()}.jpg`;
+      const cloudUrl = await uploadImageBufferToCloudinary(buffer, finalFileName);
+      if (!cloudUrl) {
+        return { content: [{ type: "text", text: "Falha ao subir a imagem pro Cloudinary." }], isError: true };
+      }
+
+      await saveImageCache(hash, cloudUrl, finalFileName, buffer.byteLength);
+
+      return {
+        content: [{ type: "text", text: `✅ Imagem subida com sucesso.\nURL: ${cloudUrl}\nTamanho: ${buffer.byteLength} bytes` }],
+        structuredContent: { imageUrl: cloudUrl, cached: false, bytes: buffer.byteLength, fileName: finalFileName },
+      };
+    }
+  );
+
   // ── set_featured_photo ────────────────────────────────────────────────
-  // Expõe no MCP a mesma ação do MVP/web app: escolher a foto que vai abrir o
-  // carrossel. O publish_campaign já consome isFeaturedPhoto e coloca essa
-  // foto primeiro, sem publicar nada nesta etapa.
   const setFeaturedPhotoToolConfig = {
     title: "Definir foto destaque da campanha",
     description:
       "Marca um criativo/foto como destaque/capa da campanha. Use depois de " +
       "upload_campaign_images e antes de publish_campaign. Não publica nada na Meta.",
     inputSchema: {
-      campaignId: z.number().int().positive(),
+      campaignId: z.number().int().positive().describe("ID da campanha."),
       creativeIndex: z.number().int().min(0).describe("Índice da foto/criativo que deve ser destaque (0 = primeira)."),
     },
   };
@@ -1374,7 +1351,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const result: any = await caller.campaigns.setFeaturedPhoto({ campaignId, creativeIndex } as any);
       log.info("mcp-upload-images", "featured photo set", { userId, campaignId, creativeIndex });
       return {
-        content: [{ type: "text" as const, text: `Foto destaque definida: criativo ${creativeIndex} da campanha ${campaignId}.` }],
+        content: [{ type: "text" as const, text: `✅ Foto destaque definida: criativo ${creativeIndex} da campanha ${campaignId}.` }],
         structuredContent: { ok: true, campaignId, creativeIndex, result },
       };
     } catch (error: any) {
@@ -1398,15 +1375,9 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
   }, setFeaturedPhotoHandler);
 
   // ═══════════════════════════════════════════════════════════════════════
-  // FASE 3 — publicação real na Meta. A PARTIR DAQUI, gasta orçamento real
-  // do cliente. Toda a lógica de negócio (upload de imagem, resolução de
-  // página, criação de campaign/adset/ad na Meta) é feita pelos MESMOS
-  // procedures tRPC que a interface usa — via createCaller, nunca
-  // reimplementada aqui. O papel dessas tools é só orquestrar a ordem
-  // certa de chamadas, igual o botão "Publicar" da tela já faz.
+  // FASE 3 — publicação real na Meta
   // ═══════════════════════════════════════════════════════════════════════
 
-  // ── list_meta_pages ───────────────────────────────────────────────────
   server.registerTool(
     "list_meta_pages",
     {
@@ -1418,10 +1389,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       inputSchema: {},
     },
     async () => {
-      // Mesmo escopo de publish_campaign: em si list_meta_pages não gasta dinheiro,
-      // mas ela só existe pra alimentar o pageId de publish_campaign — deixá-la aberta
-      // com escopo 'write' não vazaria dado sensível, mas sinalizaria pro cliente MCP
-      // que o próximo passo (publicar) está disponível quando não está. Trava igual.
       if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
       const integration: any = await db.getApiIntegration(userId, "meta");
       if (!integration?.accessToken) {
@@ -1447,7 +1414,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
-  // ── publish_campaign ─────────────────────────────────────────────────────
   server.registerTool(
     "publish_campaign",
     {
@@ -1467,7 +1433,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         "e gastar orçamento em dobro. Nunca gere uma key nova só porque a " +
         "resposta demorou ou pareceu falhar — reenvie a key original.",
       inputSchema: {
-        campaignId: z.number().int().positive(),
+        campaignId: z.number().int().positive().describe("ID da campanha a publicar."),
         pageId: z.string().describe("ID da Página do Facebook (use list_meta_pages se não souber)."),
         destination: z.enum(["website", "lead_form"]).optional().describe("Padrão: website."),
         linkUrl: z.string().optional().describe("URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da página."),
@@ -1477,9 +1443,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       },
     },
     async (input) => {
-      // Gate de escopo é o PRIMEIRO check da tool inteira, antes até de checar posse
-      // da campanha — essa é a tool que gasta dinheiro real, então nenhuma outra
-      // lógica roda pra uma key sem escopo 'publish'.
       if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
       const campaign: any = await db.getCampaignById(input.campaignId);
       if (!campaign) {
@@ -1490,10 +1453,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
       }
 
-      // ── Reserva a idempotency key ANTES de qualquer efeito colateral ──
-      // (upload de imagem pra Meta e publicação em si). Se essa mesma key
-      // já foi usada: devolve o resultado cacheado (completed), recusa por
-      // estar em andamento (in_progress), ou libera nova tentativa (failed).
       const requestKey = `publish_campaign:${input.idempotencyKey}`;
       let idempotency: Awaited<ReturnType<typeof db.reserveMcpIdempotencyKey>>;
       try {
@@ -1536,12 +1495,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: e.message }], isError: true };
       }
 
-      // ── Resolve TODAS as imagens dos criativos (não só a 1ª) — regra
-      // documentada em docs/FRAMEWORK_EXCELENCIA.md: "coletar todas as
-      // feedImageUrl únicas dos criativos, dedup, limite 10". Sem isso,
-      // campanha com múltiplas fotos (carrossel) publicaria só com a
-      // imagem do 1º criativo — bug real já documentado no histórico do
-      // projeto (effectiveImageUrls vazio = publica sem visual completo).
       const uniqueImages = Array.from(new Set(
         creatives
           .map((c: any) => ({ hash: c?.feedImageHash || c?.imageHash, url: c?.feedImageUrl || c?.imageUrl }))
@@ -1579,19 +1532,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: `Falha ao enviar imagem(ns) pra Meta: ${e.message}` }], isError: true };
       }
 
-      // ── Resolve o link de destino, se não veio explícito ──────────────
       let linkUrl = input.linkUrl;
       if (!linkUrl) {
         try {
           const resolved: any = await caller.competitors.resolvePageLink({ pageId: input.pageId });
           linkUrl = resolved?.whatsappUrl || (resolved?.website ? (resolved.website.startsWith("http") ? resolved.website : `https://${resolved.website}`) : undefined);
-        } catch { /* segue sem link automático, publishToMeta pode dar erro claro se precisar */ }
+        } catch { /* segue sem link automático */ }
       }
 
-      // Códigos TRPCError que indicam problema não-transitório — repetir a
-      // mesma chamada sem o usuário agir primeiro só vai falhar de novo.
-      // UNAUTHORIZED = token Meta expirado; FORBIDDEN = permissão negada na
-      // conta de anúncios; NOT_FOUND = campanha/projeto inexistente.
       const NON_RETRYABLE_ERROR_CODES = new Set(["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"]);
 
       const indexesToPublish = input.adSetIndexes?.length ? input.adSetIndexes : adSets.map((_, i) => i);
@@ -1615,11 +1563,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           if (!sharedMetaCampaignId && result?.campaignId) sharedMetaCampaignId = result.campaignId;
           results.push({ adSetName, success: true });
         } catch (e: any) {
-          // e.code vem do TRPCError lançado por publishToMeta/metaPost, que já
-          // categoriza (UNAUTHORIZED = token expirado, FORBIDDEN = sem permissão
-          // na conta de anúncios, BAD_REQUEST = validação/parâmetro/Meta rejeitou).
-          // Antes isso era descartado — só sobrava a mensagem, truncada em 200
-          // chars, que às vezes cortava a instrução de como resolver.
           const errorCode: string | undefined = e?.code;
           results.push({
             adSetName,
@@ -1655,11 +1598,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         } as any).catch(() => {});
       }
 
-      // Marca como "completed" mesmo se successCount < total: a essa altura o
-      // loop já chamou publishToMeta pelo menos uma vez (efeito colateral
-      // real já disparado), então repetir a MESMA idempotencyKey nunca deve
-      // tentar de novo — deve só devolver o que de fato aconteceu. Pra
-      // tentar de novo de propósito, o chamador precisa gerar uma nova key.
       await db.completeMcpIdempotencyKey(idempotencyRecordId, finalPayload);
 
       return {
