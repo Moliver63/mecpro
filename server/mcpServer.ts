@@ -21,6 +21,7 @@ import * as db from "./db";
 import { appRouter } from "./_core/router";
 import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
+import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 
 // ── Cache de imagens por SHA256 (evita upload duplicado) ──────────────────
 const _imageHashCache = new Map<string, { url: string; ts: number }>();
@@ -60,6 +61,17 @@ async function saveImageCache(hash: string, cloudUrl: string, fileName: string, 
       [hash, cloudUrl, fileName, bytes]
     );
   } catch { /* silencioso */ }
+}
+
+function formatBriefingReadinessText(readiness: ReturnType<typeof evaluateCampaignBriefingReadiness>): string {
+  const required = readiness.requiredMissing.map((issue, index) => `${index + 1}. ${issue.question}`);
+  const recommended = readiness.recommendedMissing.map((issue, index) => `${index + 1}. ${issue.question}`);
+  return [
+    readiness.summary,
+    `Score do briefing: ${readiness.score}/100.`,
+    required.length ? `Perguntas obrigatorias:\n${required.join("\n")}` : "",
+    recommended.length ? `Perguntas recomendadas:\n${recommended.join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 // ── Validação de imagem enviada em base64 ─────────────────────────────────
@@ -662,6 +674,51 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  server.registerTool(
+    "assess_campaign_briefing",
+    {
+      title: "Avaliar briefing de campanha",
+      description:
+        "Verifica se o projeto tem informacoes suficientes para gerar uma campanha com boa chance " +
+        "de performance. Use antes de generate_campaign. Retorna score, itens obrigatorios, " +
+        "perguntas recomendadas e o que falta conforme o objetivo: leads, vendas, trafego, " +
+        "engajamento ou reconhecimento.",
+      inputSchema: {
+        projectId: z.number().int().positive().describe("ID do projeto."),
+        objective: z.string().optional().describe("Objetivo: leads, sales, traffic, engagement ou branding."),
+        platform: z.string().optional().describe("Plataforma: meta, google, tiktok, both ou all."),
+        budget: z.number().optional().describe("Orcamento total em reais."),
+        duration: z.number().int().optional().describe("Duracao em dias."),
+        extraContext: z.string().optional(),
+        creativeMode: z.enum(["auto", "upload"]).optional(),
+        uploadedImages: z.array(z.string()).optional().describe("URLs publicas das fotos que serao usadas."),
+        realPhotosBase64: z.array(z.object({
+          imageBase64: z.string(),
+          fileName: z.string().optional(),
+        })).optional().describe("Fotos em base64, se houver."),
+        locationMode: z.enum(["brasil", "paises", "raio", "cidade"]).optional(),
+        regions: z.array(z.string()).optional(),
+        countries: z.array(z.string()).optional(),
+        geoCity: z.string().optional(),
+        geoRadius: z.number().optional(),
+        leadForm: z.any().optional(),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const project: any = await db.getProjectById(input.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Projeto ${input.projectId} não encontrado ou não pertence a este usuário.` }], isError: true };
+      }
+      const clientProfile = await db.getClientProfile(input.projectId);
+      const readiness = evaluateCampaignBriefingReadiness(input, clientProfile);
+      return {
+        content: [{ type: "text", text: formatBriefingReadinessText(readiness) }],
+        structuredContent: readiness,
+      };
+    }
+  );
+
   // ── generate_campaign (melhorado: timeout inclui upload) ───────────────
   server.registerTool(
     "generate_campaign",
@@ -671,8 +728,10 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         "Dispara o motor de geração de campanha do MecProAI — a mesma lógica de IA " +
         "que roda quando alguém clica 'gerar' na interface (copy, criativos, orçamento " +
         "por ad set, auditoria de qualidade). NÃO publica na Meta — só cria o rascunho " +
-        "da campanha. Chame set_client_profile antes, se o projeto ainda não tiver perfil " +
-        "preenchido — a qualidade da copy depende disso. Pode demorar até 50s (é IA real gerando).",
+        "da campanha. Chame assess_campaign_briefing antes para saber se precisa perguntar " +
+        "objetivo, orcamento, destino, publico, oferta ou foto destaque. Chame set_client_profile " +
+        "antes, se o projeto ainda não tiver perfil preenchido — a qualidade da copy depende disso. " +
+        "Pode demorar até 50s (é IA real gerando).",
       inputSchema: {
         projectId: z.number().int().positive(),
         name: z.string().describe("Nome da campanha."),
@@ -722,6 +781,20 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const check = await db.checkPlanLimit(userId, "campaigns", { projectId: input.projectId });
       if (!check.allowed) {
         return { content: [{ type: "text", text: `Não foi possível gerar: ${check.reason}` }], isError: true };
+      }
+      const clientProfile = await db.getClientProfile(input.projectId);
+      const readiness = evaluateCampaignBriefingReadiness(input, clientProfile);
+      if (readiness.status === "blocked") {
+        return {
+          content: [{
+            type: "text",
+            text:
+              "Antes de gerar a campanha, colete as informações obrigatórias abaixo.\n\n" +
+              formatBriefingReadinessText(readiness),
+          }],
+          structuredContent: readiness,
+          isError: true,
+        };
       }
 
       // ── TIMER COMEÇA ANTES do upload (inclui tempo total) ──────────────

@@ -37,6 +37,7 @@ import {
   syncCreativeImageToV2,
   syncCreativePublishMediaToV2,
 } from "../../shared/campaignCreative.sync";
+import { evaluateCampaignBriefingReadiness } from "../../shared/campaignBriefingReadiness";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -2999,6 +3000,15 @@ const campaignsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const check = await db.checkPlanLimit(ctx.user.id, "campaigns", { projectId: input.projectId });
       if (!check.allowed) throw new TRPCError({ code: "FORBIDDEN", message: check.reason });
+
+      const clientProfile = await db.getClientProfile(input.projectId);
+      const readiness = evaluateCampaignBriefingReadiness(input, clientProfile);
+      if (readiness.status === "blocked") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `${readiness.summary} ${readiness.questions.slice(0, 3).join(" ")}`,
+        });
+      }
 
       // Dedup: previne geração duplicada do mesmo projeto em <10s
       const dedupKey = `gen:${ctx.user.id}:${input.projectId}`;

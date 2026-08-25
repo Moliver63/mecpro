@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { usePlanLimit } from "@/hooks/usePlanLimit";
 import IntelligenceRecommendation from "@/components/IntelligenceRecommendation";
 import CreativeDistributionPanel from "@/components/CreativeDistributionPanel";
+import { evaluateCampaignBriefingReadiness } from "~shared/campaignBriefingReadiness";
 
 // Objetivos alinhados com o Gerenciador de Anúncios da Meta
 // Padrão: "leads" — melhor para geração de contatos e WhatsApp
@@ -142,11 +143,11 @@ export default function CampaignBuilder() {
   const campaignCheck = canGenerateCampaign(campaignsThisMonth);
   const metaCheck = canUseMeta();
   const googleCheck = canUseGoogle();
-  const hasClientProfile = !!(clientProfile as any)?.companyName || !!(clientProfile as any)?.niche || !!(clientProfile as any)?.productService;
+  const hasClientProfile = !!(clientProfile as any)?.companyName || !!(clientProfile as any)?.niche || !!(clientProfile as any)?.productService || !!(clientProfile as any)?.productName;
   const hasMarketAnalysis = !!(marketAnalysis as any)?.competitiveGaps || !!(marketAnalysis as any)?.unexploredOpportunities || !!(marketAnalysis as any)?.suggestedPositioning || !!(marketAnalysis as any)?.threats || !!(marketAnalysis as any)?.competitiveMap;
   // hasMarketAnalysis é recomendado mas não bloqueia — apenas avisa
-  // Bloqueio real: limite de plano ou sem perfil preenchido
-  const creationBlocked = !campaignCheck.allowed || !hasClientProfile;
+  // Bloqueio real: limite de plano, sem perfil preenchido ou briefing essencial incompleto
+  const profileBlocked = !hasClientProfile;
   const missingMarketAnalysis = !hasMarketAnalysis; // apenas aviso, não bloqueia
 
   function isPlatformAllowed(platform: string) {
@@ -214,6 +215,10 @@ export default function CampaignBuilder() {
     uploadedImages: [] as string[],           // URLs das imagens enviadas
     imageInsights:  [] as Array<{ url: string; summary: string; score: number | null; status: "analyzing" | "done" | "error" }>,
   });
+
+  const briefingReadiness = evaluateCampaignBriefingReadiness(form, clientProfile);
+  const briefingBlocked = briefingReadiness.status === "blocked";
+  const creationBlocked = !campaignCheck.allowed || profileBlocked || briefingBlocked;
 
   // Nicho atual para recomendação de inteligência
   const currentNiche = (clientProfile as any)?.niche
@@ -291,6 +296,11 @@ export default function CampaignBuilder() {
   async function handleGenerate() {
     if (!form.name.trim()) return;
     if (generating) return; // useSafeMutation já controla duplo clique
+    if (briefingBlocked) {
+      toast.error(briefingReadiness.questions[0] || "Complete as informações obrigatórias antes de gerar.");
+      setShowBuilderAudit(true);
+      return;
+    }
 
     const startTs = Date.now();
     const result = await executeGenerate({
@@ -1528,6 +1538,36 @@ export default function CampaignBuilder() {
                       <a href="/pricing" style={{ fontSize:12, fontWeight:700, color:"#d97706" }}>Fazer upgrade →</a>
                     </div>
                   )}
+                  {briefingReadiness.status !== "ready" && (
+                    <div style={{
+                      background: briefingBlocked ? "#fef2f2" : "#fffbeb",
+                      border: `1px solid ${briefingBlocked ? "#fecaca" : "#fde68a"}`,
+                      borderRadius: 12,
+                      padding: "14px 16px",
+                      marginBottom: 16,
+                    }}>
+                      <p style={{ fontSize: 13, fontWeight: 800, color: briefingBlocked ? "#991b1b" : "#92400e", marginBottom: 6 }}>
+                        Briefing {briefingReadiness.score}/100
+                      </p>
+                      <p style={{ fontSize: 12, color: briefingBlocked ? "#b91c1c" : "#b45309", marginBottom: 10 }}>
+                        {briefingReadiness.summary}
+                      </p>
+                      {briefingReadiness.issues.slice(0, 5).map((issue) => (
+                        <div key={`${issue.field}-${issue.severity}`} style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 900, color: issue.severity === "required" ? "#dc2626" : "#d97706", flexShrink: 0 }}>
+                            {issue.severity === "required" ? "Obrigatório" : "Recomendado"}
+                          </span>
+                          <p style={{ fontSize: 12, color: "#374151", margin: 0 }}>{issue.question}</p>
+                        </div>
+                      ))}
+                      {profileBlocked && (
+                        <button onClick={() => setLocation(`/projects/${projectId}/client`)}
+                          style={{ marginTop: 12, background: "white", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
+                          Abrir perfil do cliente
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {matchResult && (
                     <div style={{ background: "var(--green-l)", border: "1px solid var(--green)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
                       <span style={{ fontSize: 20 }}>🎯</span>
@@ -1638,7 +1678,7 @@ export default function CampaignBuilder() {
                       : <button className="btn btn-md btn-green" style={{ width: "100%" }}
                           onClick={handleGenerate}
                           disabled={generating || generateMutation.isPending || !form.name.trim() || creationBlocked}>
-                          {generating || generateMutation.isPending ? "⏳ Gerando campanha..." : creationBlocked ? "⚠️ Ajuste os pré-requisitos" : "✨ Gerar com IA"}
+                          {generating || generateMutation.isPending ? "⏳ Gerando campanha..." : creationBlocked ? "⚠️ Ajuste o briefing" : "✨ Gerar com IA"}
                         </button>
                     }
                   </div>
