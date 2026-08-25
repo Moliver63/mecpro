@@ -222,7 +222,10 @@ function firstNonEmpty(...values: Array<unknown>): string | undefined {
 }
 
 function looksLikeLocalAttachmentPath(value?: string): boolean {
-  return !!value && (/^\/mnt\/data\//.test(value) || /^file:\/\//i.test(value) || /^[A-Za-z]:\/.test(value));
+  if (!value) return false;
+  return value.startsWith("/mnt/data/") ||
+         value.toLowerCase().startsWith("file://") ||
+         new RegExp("^[A-Za-z]:\\/").test(value);
 }
 
 function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
