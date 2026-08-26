@@ -206,6 +206,9 @@ type McpUploadImageInput = {
   imageBase64?: string;
   base64?: string;
   dataUrl?: string;
+  bytes?: string;
+  content?: string;
+  data?: string;
   fileName?: string;
   name?: string;
   path?: string;
@@ -217,6 +220,9 @@ type McpUploadImageInput = {
     imageBase64?: string;
     base64?: string;
     dataUrl?: string;
+    bytes?: string;
+    content?: string;
+    data?: string;
     fileName?: string;
     name?: string;
     path?: string;
@@ -235,9 +241,19 @@ function firstNonEmpty(...values: Array<unknown>): string | undefined {
 
 function looksLikeLocalAttachmentPath(value?: string): boolean {
   if (!value) return false;
-  return value.startsWith("/mnt/data/") ||
-         value.toLowerCase().startsWith("file://") ||
-         new RegExp("^[A-Za-z]:\\/").test(value);
+  const lower = value.trim().toLowerCase();
+  const decoded = (() => {
+    try { return decodeURIComponent(lower); } catch { return lower; }
+  })();
+  return decoded.startsWith("/mnt/data/") ||
+         decoded.includes("/mnt/data/") ||
+         decoded.startsWith("sandbox:") ||
+         decoded.includes("sandbox:/") ||
+         decoded.includes("/sandbox/") ||
+         decoded.startsWith("attachment:") ||
+         decoded.startsWith("blob:") ||
+         decoded.startsWith("file://") ||
+         new RegExp("^[A-Za-z]:[\\\\/]").test(value);
 }
 
 function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
@@ -261,9 +277,15 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
     image.imageBase64,
     image.base64,
     image.dataUrl,
+    image.bytes,
+    image.content,
+    image.data,
     image.file?.imageBase64,
     image.file?.base64,
-    image.file?.dataUrl
+    image.file?.dataUrl,
+    image.file?.bytes,
+    image.file?.content,
+    image.file?.data
   );
   const fileName = firstNonEmpty(image.fileName, image.name, image.file?.fileName, image.file?.name)
     || `campaign-upload-${index + 1}.jpg`;
@@ -282,13 +304,16 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
   if (formats.length === 0) formats.push("feed");
 
   if (fileUrl) {
+    if (/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(fileUrl)) {
+      return { imageBase64: fileUrl, fileName, sourceKind: "imageBase64", formats };
+    }
     if (looksLikeLocalAttachmentPath(fileUrl)) {
       return {
         fileName,
         formats,
         error:
           `Recebi "${fileUrl}" como caminho local do ambiente do cliente. ` +
-          "O servidor MecProAI/Render não consegue ler /mnt/data ou file:// diretamente; envie uma URL HTTPS temporária ou data:image/...;base64.",
+          "O servidor MecProAI/Render não consegue ler /mnt/data, sandbox:, blob:, attachment: ou file:// diretamente; envie uma URL HTTPS pública/temporária baixável ou data:image/...;base64 com os bytes reais.",
       };
     }
     return { fileUrl, fileName, sourceKind: "fileUrl", formats };
@@ -304,7 +329,7 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
         formats,
         error:
           `Recebi "${imageBase64}" dentro de imageBase64, mas isso é só um caminho local do cliente. ` +
-          "Envie os bytes da imagem como data URL/base64 real ou uma URL HTTPS baixável.",
+          "Envie os bytes da imagem como data URL/base64 real ou uma URL HTTPS pública/temporária baixável.",
       };
     }
     const base64Clean = imageBase64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
@@ -326,7 +351,7 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
       formats,
       error:
         `Recebi apenas o caminho local "${localPath}". ` +
-        "Esse caminho existe no ambiente do ChatGPT, não no servidor MecProAI. Envie URL HTTPS temporária ou base64 real.",
+        "Esse caminho existe no ambiente do ChatGPT, não no servidor MecProAI. Envie URL HTTPS pública/temporária baixável ou base64 real.",
     };
   }
 
@@ -1041,6 +1066,12 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           .describe("Alias de imageBase64 — mesmo comportamento."),
         dataUrl: z.string().optional()
           .describe("Alias de imageBase64 — mesmo comportamento."),
+        bytes: z.string().optional()
+          .describe("Alias de imageBase64 — bytes/base64 reais da imagem."),
+        content: z.string().optional()
+          .describe("Alias de imageBase64 — conteúdo/base64 real da imagem."),
+        data: z.string().optional()
+          .describe("Alias de imageBase64 — dados/base64 reais da imagem."),
         fileName: z.string().optional()
           .describe("Nome do arquivo com extensão (ex: foto.jpg). Se omitido, gera um nome automático."),
         name: z.string().optional()
@@ -1058,6 +1089,9 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           imageBase64: z.string().optional().describe("Base64 da imagem dentro do objeto file."),
           base64: z.string().optional().describe("Alias de imageBase64 dentro do file."),
           dataUrl: z.string().optional().describe("Alias de imageBase64 dentro do file."),
+          bytes: z.string().optional().describe("Alias de imageBase64 dentro do file."),
+          content: z.string().optional().describe("Alias de imageBase64 dentro do file."),
+          data: z.string().optional().describe("Alias de imageBase64 dentro do file."),
           fileName: z.string().optional().describe("Nome do arquivo dentro do objeto file."),
           name: z.string().optional().describe("Alias de fileName dentro do objeto file."),
         }).optional()
@@ -1071,9 +1105,9 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     title: "Enviar várias imagens para uma campanha",
     description:
       "Envia várias fotos reais de uma só vez para os criativos da campanha. " +
-      "Prefira enviar anexos como file.url/url/downloadUrl HTTPS temporária; " +
-      "também aceita dataUrl/base64/imageBase64 real. Não envie caminhos locais " +
-      "como /mnt/data, porque o servidor MecProAI não consegue ler o filesystem do cliente. " +
+      "Prefira enviar anexos como file.url/url/downloadUrl HTTPS pública/temporária baixável; " +
+      "também aceita dataUrl/base64/imageBase64/bytes/content/data reais. Não envie referências internas " +
+      "como /mnt/data, sandbox:, blob: ou attachment:, porque o servidor MecProAI não consegue ler o filesystem do cliente. " +
       "Use 'formats' para enviar a mesma imagem em múltiplos formatos (feed + stories) de uma vez.",
     inputSchema: uploadCampaignImagesInputSchema,
   };
@@ -1301,6 +1335,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           success: r.success,
           imageUrl: r.imageUrl || null,
           formatsApplied: r.formatsApplied || null,
+          errorType: r.errorType || null,
+          stage: r.stage || null,
           error: r.error || null,
         })),
       },
