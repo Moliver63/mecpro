@@ -11,6 +11,8 @@ export interface CampaignBriefingInput {
   creativeMode?: string | null;
   uploadedImages?: unknown[] | null;
   realPhotosBase64?: unknown[] | null;
+  featuredPhotoIndex?: number | null;
+  photoOrder?: number[] | null;
   locationMode?: string | null;
   regions?: string[] | null;
   countries?: string[] | null;
@@ -175,8 +177,12 @@ export function evaluateCampaignBriefingReadiness(
 
   const photoCount = (input.uploadedImages?.length || 0) + (input.realPhotosBase64?.length || 0);
   if ((input.creativeMode === "upload" || photoCount > 0) && photoCount > 1) {
-    addIssue(issues, "featured_photo", "recommended", "Qual foto deve ser a capa/destaque do carrossel?", "A primeira imagem define a parada de rolagem e o contexto visual do anuncio.");
-    addIssue(issues, "photo_order", "recommended", "Quer uma ordem especifica das fotos ou posso organizar por impacto visual?", "A ordem dos cards muda a narrativa do carrossel.");
+    if (typeof input.featuredPhotoIndex !== "number" && !(input.photoOrder?.length)) {
+      addIssue(issues, "featured_photo", "recommended", "Qual foto deve ser a capa/destaque do carrossel?", "A primeira imagem define a parada de rolagem e o contexto visual do anuncio.");
+    }
+    if (!(input.photoOrder?.length)) {
+      addIssue(issues, "photo_order", "recommended", "Quer uma ordem especifica das fotos ou posso organizar por impacto visual?", "A ordem dos cards muda a narrativa do carrossel.");
+    }
   }
 
   if (["brasil", "raio", "cidade"].includes(String(input.locationMode || "")) && input.locationMode === "raio" && !text(input.geoCity)) {

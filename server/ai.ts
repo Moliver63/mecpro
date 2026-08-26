@@ -5867,6 +5867,19 @@ export async function generateCampaign(input: {
   locationMode?: "brasil" | "paises" | "raio"; geoCity?: string; geoRadius?: number;
   mediaFormat?: string; audienceProfile?: string; leadForm?: any;
   realImages?: string[];  // fotos reais do cliente (modo upload)
+  photoInsights?: Array<{
+    url: string;
+    originalIndex: number;
+    fileName?: string;
+    role: string;
+    copyAngle: string;
+    labels?: string[];
+    objects?: string[];
+    textFound?: string;
+    hasText?: boolean;
+    qualityScore?: number | null;
+    isFeatured?: boolean;
+  }>;
   realImageInsights?: Array<{ url: string; summary: string; score: number | null; status: string }>;
   // (sessão 34, 13/08) — rótulos do Google Vision extraídos das fotos reais
   // (ex: "piscina", "varanda"), já deduplicados e limitados a poucos itens
@@ -6230,16 +6243,27 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
     const slot = CREATIVE_SLOT_POOL[i % CREATIVE_SLOT_POOL.length];
     return `    criativo ${i + 1}: ${slot.format} — ${slot.funnel}`;
   }).join("\n");
+  const photoInsightLines = input.photoInsights?.length
+    ? input.photoInsights.slice(0, MAX_CREATIVES).map((photo, idx) => {
+        const visual = [
+          ...(photo.labels || []).slice(0, 4),
+          ...(photo.objects || []).slice(0, 3),
+        ].filter(Boolean).join(", ") || "sem labels confiaveis";
+        const textFound = photo.hasText && photo.textFound ? ` texto detectado: ${String(photo.textFound).replace(/\s+/g, " ").slice(0, 80)}.` : "";
+        return `- Card ${idx + 1}: foto original ${photo.originalIndex + 1}${photo.isFeatured ? " (DESTAQUE/CAPA)" : ""}; papel=${photo.role}; angulo de copy=${photo.copyAngle}; sinais visuais=${visual}.${textFound}`;
+      }).join("\n")
+    : "";
   const carouselPhotoBrief = input.realImages?.length
     ? `\n========================
 MOTOR DE COPY ROBUSTA — META ADS / CARROSSEL COM FOTOS REAIS
 ========================
 Há ${input.realImages.length} foto(s) real(is) do cliente e elas serão usadas em ordem no carrossel. Trate cada criativo como o card correspondente à foto do mesmo índice.
+${photoInsightLines ? `\nCLASSIFICACAO VISUAL E ORDEM NARRATIVA DAS FOTOS:\n${photoInsightLines}\n` : ""}
 
 Antes de escrever cada criativo:
-1. Identifique o elemento visual provável pelo contexto/ordem da foto e pelos dados confirmados do produto.
+1. Use a classificacao visual de cada card como guia, mas só declare fatos confirmados no briefing.
 2. Gere headline e description específicas para aquele card, nunca genéricas.
-3. Crie uma sequência narrativa: card 1 impacto, cards intermediários desejo/prova/valor, último card conversão.
+3. Crie uma sequência narrativa: card 1 destaque/impacto, cards intermediários desejo/prova/valor, último card conversão.
 4. Não invente características não confirmadas. Use apenas dados do briefing/produto/campanha.
 5. Se não souber interpretar a foto, use um diferencial confirmado compatível e marque needsReview=true.
 
@@ -6676,7 +6700,19 @@ ${creativeSlotInstructions}
         hook: "Informação para decidir",
       },
     ];
-    const card = (isRealEstate ? realEstateCards : genericCards)[index % (isRealEstate ? realEstateCards.length : genericCards.length)];
+    const insight = input.photoInsights?.[index];
+    const rolePreferredIndex = (() => {
+      if (!isRealEstate || !insight?.role) return null;
+      if (insight.role.includes("hero_exterior") || insight.role.includes("amenity")) return 0;
+      if (insight.role.includes("gourmet")) return 1;
+      if (insight.role.includes("living")) return 2;
+      if (insight.role.includes("suite")) return 4;
+      if (insight.role.includes("detail")) return 2;
+      if (insight.role.includes("offer")) return 5;
+      return null;
+    })();
+    const cardIndex = rolePreferredIndex ?? index % (isRealEstate ? realEstateCards.length : genericCards.length);
+    const card = (isRealEstate ? realEstateCards : genericCards)[cardIndex];
     const lastLead = String(input.objective || "").toLowerCase() === "leads" && index === total - 1;
     return {
       type: lastLead ? "direct_offer" : "social_proof",
@@ -6695,6 +6731,12 @@ ${creativeSlotInstructions}
       funnelStage: lastLead ? "BOF" : ["TOF", "MOF", "MOF", "BOF"][index % 4],
       complianceScore: "safe",
       needsReview: false,
+      photoRole: insight?.role || null,
+      photoCopyAngle: insight?.copyAngle || null,
+      visualSignals: [
+        ...(insight?.labels || []).slice(0, 4),
+        ...(insight?.objects || []).slice(0, 3),
+      ],
       source: "carousel_real_photo_fallback",
     };
   }
@@ -6727,6 +6769,10 @@ ${creativeSlotInstructions}
         hook,
         cta: isLastLead ? "Agendar visita" : (creative?.cta || fallback.cta),
         creativeIndex: index,
+        isFeaturedPhoto: index === 0,
+        photoRole: fallback.photoRole,
+        photoCopyAngle: fallback.photoCopyAngle,
+        visualSignals: fallback.visualSignals,
       };
     });
   }
@@ -7143,6 +7189,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
         niche:          (clientProfile as any)?.niche          || "",
         city:           (clientProfile as any)?.city           || "",
         realImages:     input.realImages,          // fotos reais do cliente (modo upload)
+        photoInsights:  input.photoInsights,
       });
       const creativesWithV2 = enrichedCreatives.map((rawCreative: any) => {
         let creative = rawCreative as CampaignCreative;
@@ -8146,6 +8193,14 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   niche?: string;
   city?: string;
   realImages?: string[];  // fotos reais do cliente — quando presentes, substituem FLUX
+  photoInsights?: Array<{
+    role?: string;
+    copyAngle?: string;
+    labels?: string[];
+    objects?: string[];
+    originalIndex?: number;
+    isFeatured?: boolean;
+  }>;
 }) {
   // ── Validação de compliance e segmento nas copies geradas ──────────────────
   const segment = context?.segment || "";
@@ -8300,6 +8355,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     for (let index = 0; index < scored.length; index++) {
       // Cada criativo recebe uma foto real (ciclando se houver menos fotos que criativos)
       const img = realImages[index % realImages.length];
+      const insight = context.photoInsights?.[index % realImages.length];
       scored[index].feedImageUrl   = img;
       scored[index].storyImageUrl  = img;
       scored[index].squareImageUrl = img;
@@ -8307,6 +8363,14 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       scored[index].imageProviderUsed = "client_upload";
       scored[index].imageGenerationMode = "real_photo";
       scored[index].usesRealPhoto = true;
+      scored[index].isFeaturedPhoto = index === 0 || !!insight?.isFeatured;
+      scored[index].photoRole = insight?.role || null;
+      scored[index].photoCopyAngle = insight?.copyAngle || null;
+      scored[index].photoOriginalIndex = typeof insight?.originalIndex === "number" ? insight.originalIndex : index;
+      scored[index].visualSignals = [
+        ...(insight?.labels || []).slice(0, 4),
+        ...(insight?.objects || []).slice(0, 3),
+      ];
     }
     return scored; // ← pula toda a geração FLUX
   }

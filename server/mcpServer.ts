@@ -232,6 +232,20 @@ type McpUploadImageInput = {
   formats?: Array<"feed" | "stories" | "square">;
 };
 
+type CampaignPhotoInsight = {
+  url: string;
+  originalIndex: number;
+  fileName?: string;
+  role: string;
+  copyAngle: string;
+  labels: string[];
+  objects: string[];
+  textFound?: string;
+  hasText?: boolean;
+  qualityScore?: number | null;
+  isFeatured?: boolean;
+};
+
 function firstNonEmpty(...values: Array<unknown>): string | undefined {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -361,6 +375,66 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
     error:
       "Informe uma imagem como fileUrl/url/downloadUrl, dataUrl/base64/imageBase64, ou file.url/file.dataUrl.",
   };
+}
+
+function classifyCampaignPhoto(vision: any, index: number, total: number): { role: string; copyAngle: string; orderWeight: number } {
+  const text = [
+    ...(Array.isArray(vision?.labels) ? vision.labels : []),
+    ...(Array.isArray(vision?.objects) ? vision.objects : []),
+    vision?.text_found || "",
+  ].join(" ").toLowerCase();
+  const has = (patterns: RegExp[]) => patterns.some((pattern) => pattern.test(text));
+
+  if (has([/swimming|pool|water|terrace|balcony|deck|outdoor|facade|building|sky|view|vista|piscina|varanda/])) {
+    return { role: "hero_exterior_amenity", copyAngle: "impacto visual, estilo de vida e desejo principal", orderWeight: 10 };
+  }
+  if (has([/kitchen|countertop|cabinet|appliance|dining|table|gourmet|restaurant|food|meal|cozinha|mesa|gourmet/])) {
+    return { role: "main_living_gourmet", copyAngle: "uso diario, conforto e experiencia do produto", orderWeight: 30 };
+  }
+  if (has([/living room|sofa|couch|room|interior|stair|stairs|lounge|sala|escada/])) {
+    return { role: "living_space", copyAngle: "amplitude, integracao e conforto", orderWeight: 35 };
+  }
+  if (has([/bed|bedroom|suite|pillow|mattress|quarto|suite|cama/])) {
+    return { role: "private_suite", copyAngle: "privacidade, descanso e padrao de acabamento", orderWeight: 45 };
+  }
+  if (has([/wardrobe|closet|clothing|hanger|shelf|mirror|closet|roupa|cabide|espelho/])) {
+    return { role: "detail_storage", copyAngle: "detalhes funcionais e praticidade", orderWeight: 60 };
+  }
+  if (vision?.has_text) {
+    return { role: "offer_information", copyAngle: "informacoes objetivas, oferta e chamada para acao", orderWeight: total > 1 ? 90 : 20 };
+  }
+  return { role: index === 0 ? "hero_general" : "supporting_detail", copyAngle: index === 0 ? "impacto inicial" : "diferencial complementar", orderWeight: 50 + index };
+}
+
+function orderCampaignPhotoInsights(
+  photos: CampaignPhotoInsight[],
+  featuredPhotoIndex?: number,
+  photoOrder?: number[],
+): CampaignPhotoInsight[] {
+  if (photoOrder?.length) {
+    const byOriginalIndex = new Map(photos.map((photo) => [photo.originalIndex, photo]));
+    const ordered: CampaignPhotoInsight[] = [];
+    for (const originalIndex of photoOrder) {
+      const photo = byOriginalIndex.get(originalIndex);
+      if (photo && !ordered.includes(photo)) ordered.push(photo);
+    }
+    for (const photo of photos) {
+      if (!ordered.includes(photo)) ordered.push(photo);
+    }
+    return ordered.map((photo, idx) => ({ ...photo, isFeatured: idx === 0 }));
+  }
+
+  const featured = typeof featuredPhotoIndex === "number"
+    ? photos.find((photo) => photo.originalIndex === featuredPhotoIndex)
+    : undefined;
+  const rest = photos
+    .filter((photo) => photo !== featured)
+    .sort((a, b) => {
+      const roleA = classifyCampaignPhoto({ labels: a.labels, objects: a.objects, text_found: a.textFound, has_text: a.hasText }, a.originalIndex, photos.length);
+      const roleB = classifyCampaignPhoto({ labels: b.labels, objects: b.objects, text_found: b.textFound, has_text: b.hasText }, b.originalIndex, photos.length);
+      return roleA.orderWeight - roleB.orderWeight || a.originalIndex - b.originalIndex;
+    });
+  return [...(featured ? [featured] : []), ...rest].map((photo, idx) => ({ ...photo, isFeatured: idx === 0 }));
 }
 
 // ── Escopo de acesso por API key ──────────────────────────────────────────
@@ -721,6 +795,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           imageBase64: z.string(),
           fileName: z.string().optional(),
         })).optional().describe("Fotos em base64, se houver."),
+        featuredPhotoIndex: z.number().int().min(0).max(9).optional().describe("Foto escolhida como destaque/capa, começando em 0."),
+        photoOrder: z.array(z.number().int().min(0).max(9)).optional().describe("Ordem manual das fotos por índice original, começando em 0."),
         locationMode: z.enum(["brasil", "paises", "raio", "cidade"]).optional(),
         regions: z.array(z.string()).optional(),
         countries: z.array(z.string()).optional(),
@@ -789,6 +865,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           "precisar gerar primeiro e trocar imagem depois. Cada JPEG/PNG/WEBP até 12MB. Combina com " +
           "uploadedImages se ambos forem informados (essas entram depois das URLs já públicas)."
         ),
+        featuredPhotoIndex: z.number().int().min(0).max(9).optional().describe(
+          "Índice da foto escolhida pelo usuário como destaque/capa do carrossel, começando em 0. " +
+          "Se omitido, o sistema escolhe automaticamente pela análise visual."
+        ),
+        photoOrder: z.array(z.number().int().min(0).max(9)).optional().describe(
+          "Ordem manual opcional das fotos, usando os índices originais começando em 0. " +
+          "Quando informado, tem prioridade sobre a ordenação automática."
+        ),
         numCreatives: z.number().int().min(2).max(10).optional().describe(
           "Quantidade de criativos a gerar (2-10). Se omitido: usa 1 por foto (uploadedImages + " +
           "realPhotosBase64 combinadas), ou 4 (padrão) se nenhuma foto real for informada. Cada " +
@@ -836,6 +920,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const uploadedFromUrl: string[] = [];
       const uploadedFromBase64: string[] = [];
       const visualLabelsSet = new Set<string>();
+      const photoInsights: CampaignPhotoInsight[] = [];
 
       if (input.uploadedImages?.length) {
         const { analyzeImageWithVision } = await import("./imageRAG");
@@ -866,13 +951,27 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           }
           uploadedFromUrl.push(cloudUrl);
 
+          let vision: any = null;
           try {
-            const vision = await analyzeImageWithVision(cloudUrl);
+            vision = await analyzeImageWithVision(cloudUrl);
             if (vision?.labels?.length) vision.labels.slice(0, 4).forEach((l: string) => visualLabelsSet.add(l));
             if (vision?.objects?.length) vision.objects.slice(0, 3).forEach((o: string) => visualLabelsSet.add(o));
           } catch {
             // Vision indisponível — segue sem labels dessa foto
           }
+          const classified = classifyCampaignPhoto(vision, i, totalRealImages);
+          photoInsights.push({
+            url: cloudUrl,
+            originalIndex: i,
+            fileName: `url-${i + 1}.jpg`,
+            role: classified.role,
+            copyAngle: classified.copyAngle,
+            labels: Array.isArray(vision?.labels) ? vision.labels.slice(0, 8) : [],
+            objects: Array.isArray(vision?.objects) ? vision.objects.slice(0, 5) : [],
+            textFound: vision?.text_found ? String(vision.text_found).slice(0, 160) : undefined,
+            hasText: !!vision?.has_text,
+            qualityScore: typeof vision?.quality_score === "number" ? vision.quality_score : null,
+          });
         }
       }
 
@@ -902,17 +1001,35 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           }
           uploadedFromBase64.push(cloudUrl);
 
+          let vision: any = null;
           try {
-            const vision = await analyzeImageWithVision(cloudUrl);
+            vision = await analyzeImageWithVision(cloudUrl);
             if (vision?.labels?.length) vision.labels.slice(0, 4).forEach((l: string) => visualLabelsSet.add(l));
             if (vision?.objects?.length) vision.objects.slice(0, 3).forEach((o: string) => visualLabelsSet.add(o));
           } catch {
             // Vision indisponível — segue sem labels
           }
+          const originalIndex = (input.uploadedImages?.length || 0) + i;
+          const classified = classifyCampaignPhoto(vision, originalIndex, totalRealImages);
+          photoInsights.push({
+            url: cloudUrl,
+            originalIndex,
+            fileName: photo.fileName || `base64-${i + 1}.jpg`,
+            role: classified.role,
+            copyAngle: classified.copyAngle,
+            labels: Array.isArray(vision?.labels) ? vision.labels.slice(0, 8) : [],
+            objects: Array.isArray(vision?.objects) ? vision.objects.slice(0, 5) : [],
+            textFound: vision?.text_found ? String(vision.text_found).slice(0, 160) : undefined,
+            hasText: !!vision?.has_text,
+            qualityScore: typeof vision?.quality_score === "number" ? vision.quality_score : null,
+          });
         }
       }
 
-      const allRealImages = [...uploadedFromUrl, ...uploadedFromBase64];
+      const orderedPhotoInsights = orderCampaignPhotoInsights(photoInsights, input.featuredPhotoIndex, input.photoOrder);
+      const allRealImages = orderedPhotoInsights.length
+        ? orderedPhotoInsights.map((photo) => photo.url)
+        : [...uploadedFromUrl, ...uploadedFromBase64];
       const visualLabels = Array.from(visualLabelsSet).slice(0, 8);
 
       const { generateCampaign } = await import("./ai");
@@ -932,6 +1049,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         regions: input.regions, countries: input.countries, locationMode: input.locationMode,
         geoCity: input.geoCity, geoRadius: input.geoRadius, mediaFormat: input.mediaFormat,
         realImages: allRealImages.length ? allRealImages : undefined,
+        photoInsights: orderedPhotoInsights.length ? orderedPhotoInsights : undefined,
         visualLabels: visualLabels.length ? visualLabels : undefined,
         numCreatives: input.numCreatives,
       } as any);
@@ -941,7 +1059,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         const elapsed = Date.now() - startTime;
         return {
           content: [{ type: "text", text: `Campanha gerada: "${campaign.name || input.name}" (id: ${campaign.id}) no projeto ${project.name}. Tempo total: ${Math.round(elapsed/1000)}s. Ainda não publicada na Meta.` }],
-          structuredContent: { id: campaign.id, name: campaign.name || input.name, projectId: input.projectId },
+          structuredContent: {
+            id: campaign.id,
+            name: campaign.name || input.name,
+            projectId: input.projectId,
+            photoOrder: orderedPhotoInsights.map((photo) => photo.originalIndex),
+            featuredPhotoIndex: orderedPhotoInsights[0]?.originalIndex ?? null,
+            photoInsights: orderedPhotoInsights,
+          },
         };
       } catch (e: any) {
         return { content: [{ type: "text", text: e.message || "Falha ao gerar a campanha." }], isError: true };
