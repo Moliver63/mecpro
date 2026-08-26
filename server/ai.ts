@@ -6253,6 +6253,35 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
         return `- Card ${idx + 1}: foto original ${photo.originalIndex + 1}${photo.isFeatured ? " (DESTAQUE/CAPA)" : ""}; papel=${photo.role}; angulo de copy=${photo.copyAngle}; sinais visuais=${visual}.${textFound}`;
       }).join("\n")
     : "";
+  const segmentCarouselCopyGuidance = (() => {
+    const segmentText = [
+      resolvedSegment,
+      (clientProfile as any)?.niche,
+      (clientProfile as any)?.productName,
+      (clientProfile as any)?.productService,
+      input.extraContext,
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (/im[oó]v|imobili|apartamento|cobertura|loca[cç][aã]o|aluguel|condom/i.test(segmentText)) {
+      return `Para imóveis, transforme ambientes em argumentos comerciais: destaque localização, metragem, suítes, mobília, lazer, vista, valor, disponibilidade e CTA de visita apenas quando esses dados estiverem confirmados no briefing. Se a foto mostrar piscina, cozinha, sala, suíte, closet, fachada ou vista, conecte o ambiente a uma razão concreta para o lead chamar no WhatsApp ou preencher formulário.`;
+    }
+    if (/aliment|food|delivery|restaurante|doce|bolo|brigadeiro|confeito|doceria|sobremesa/i.test(segmentText)) {
+      return `Para alimentação/doces, cada card deve vender uma sensação e uma ocasião: sabor, variedade, capricho, embalagem, encomenda, presente, evento, pronta-entrega ou pedido pelo WhatsApp. Não use dados de imóvel. Se houver foto com cardápio, telefone ou marca, use como prova e chamada para pedido.`;
+    }
+    if (/moda|fashion|roupa|look|vestido|cal[cç]ado|bolsa|acess[oó]rio/i.test(segmentText)) {
+      return `Para moda, organize os cards por desejo de uso: look principal, variações, detalhe de material/acabamento, combinações e CTA para consultar tamanho ou disponibilidade. Não invente preço, tecido ou estoque sem briefing.`;
+    }
+    if (/sa[uú]de|clin|dent|est[eé]tica|procedimento|tratamento|beauty/i.test(segmentText)) {
+      return `Para saúde/estética, priorize confiança: benefício, segurança, autoridade, acolhimento, tecnologia e consulta. Evite promessas absolutas de resultado e não use antes/depois sem confirmação explícita.`;
+    }
+    if (/auto|carro|ve[ií]culo|moto|oficina|automot/i.test(segmentText)) {
+      return `Para automotivo, ordene por impacto do veículo/serviço, estado de conservação, detalhes relevantes, confiança e CTA para cotação ou visita. Não invente ano, quilometragem ou garantia sem briefing.`;
+    }
+    if (/fitness|academia|treino|personal|muscula/i.test(segmentText)) {
+      return `Para fitness, crie narrativa de transformação: ambiente, estrutura, acompanhamento, modalidade, rotina e CTA para aula experimental ou conversa. Não prometa resultado garantido.`;
+    }
+    return `Use o papel visual de cada foto para montar uma narrativa comercial própria do segmento do cliente. Card 1 vende o principal motivo de atenção; cards intermediários sustentam desejo, prova e diferenciais; último card fecha com CTA claro.`;
+  })();
   const carouselPhotoBrief = input.realImages?.length
     ? `\n========================
 MOTOR DE COPY ROBUSTA — META ADS / CARROSSEL COM FOTOS REAIS
@@ -6267,10 +6296,8 @@ Antes de escrever cada criativo:
 4. Não invente características não confirmadas. Use apenas dados do briefing/produto/campanha.
 5. Se não souber interpretar a foto, use um diferencial confirmado compatível e marque needsReview=true.
 
-Para imóveis, prefira especificidade comercial:
-- produto/localização: Cobertura Triplex na Praia Brava
-- dados confirmados: 3 suítes, 190 m², mobiliada, piscina privativa, locação anual, R$ 18.000 + taxas
-- ambientes visíveis prováveis: piscina, cozinha, sala, vista, suíte, closet, área gourmet
+GUIA DO SEGMENTO:
+${segmentCarouselCopyGuidance}
 
 Texto principal do anúncio: robusto, com gancho + diferencial + benefícios + informações objetivas + CTA. Não entregue texto principal curto.
 

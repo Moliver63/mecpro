@@ -377,13 +377,55 @@ function normalizeUploadImageInput(image: McpUploadImageInput, index: number): {
   };
 }
 
-function classifyCampaignPhoto(vision: any, index: number, total: number): { role: string; copyAngle: string; orderWeight: number } {
+function classifyCampaignPhoto(vision: any, index: number, total: number, segmentHint = ""): { role: string; copyAngle: string; orderWeight: number } {
   const text = [
     ...(Array.isArray(vision?.labels) ? vision.labels : []),
     ...(Array.isArray(vision?.objects) ? vision.objects : []),
     vision?.text_found || "",
+    segmentHint,
   ].join(" ").toLowerCase();
   const has = (patterns: RegExp[]) => patterns.some((pattern) => pattern.test(text));
+
+  if (has([/food|meal|dessert|cake|sweet|chocolate|cookie|brigadeiro|beijinho|doce|bolo|confeito|doceria|aliment|restaurante|delivery/])) {
+    if (vision?.has_text || has([/card|logo|brand|marca|telefone|whatsapp|instagram|texto/])) {
+      return { role: "offer_information", copyAngle: "contato, marca, pedido e chamada para acao", orderWeight: total > 1 ? 85 : 20 };
+    }
+    if (has([/box|package|gift|tray|kit|caixa|embalagem|presente|bandeja/])) {
+      return { role: "package_proof", copyAngle: "apresentacao, quantidade e prova visual do produto", orderWeight: 25 };
+    }
+    if (has([/variety|assorted|mix|flavor|sabores|variado|sortido/]) || total > 2) {
+      return { role: "menu_variety", copyAngle: "variedade de sabores, escolha e desejo imediato", orderWeight: index === 0 ? 10 : 30 };
+    }
+    return { role: "food_hero", copyAngle: "apetite, frescor e desejo de pedir agora", orderWeight: 10 + index };
+  }
+
+  if (has([/fashion|clothing|shirt|dress|shoe|bag|look|moda|roupa|camisa|vestido|sapato|bolsa/])) {
+    if (has([/hanger|rack|shelf|mirror|cabide|arara|prateleira|espelho/])) {
+      return { role: "product_variation", copyAngle: "variedade, estilo e combinacoes disponiveis", orderWeight: 30 };
+    }
+    return { role: index === 0 ? "look_hero" : "material_detail", copyAngle: index === 0 ? "estilo principal e desejo de compra" : "acabamento, caimento e detalhe do produto", orderWeight: index === 0 ? 10 : 45 };
+  }
+
+  if (has([/clinic|doctor|dentist|procedure|treatment|beauty|aesthetic|saude|clinica|dentista|procedimento|tratamento|estetica/])) {
+    if (has([/machine|equipment|technology|device|aparelho|equipamento|tecnologia/])) {
+      return { role: "technology_detail", copyAngle: "tecnologia, seguranca e resultado esperado", orderWeight: 30 };
+    }
+    return { role: index === 0 ? "clinic_environment" : "procedure_context", copyAngle: index === 0 ? "confianca, acolhimento e autoridade" : "beneficio do tratamento e reducao de objecoes", orderWeight: index === 0 ? 10 : 40 };
+  }
+
+  if (has([/car|vehicle|auto|motor|wheel|interior|oficina|carro|veiculo|automotivo|roda/])) {
+    if (has([/seat|dashboard|interior|banco|painel|interno/])) {
+      return { role: "interior_detail", copyAngle: "conforto, conservacao e detalhe interno", orderWeight: 35 };
+    }
+    return { role: index === 0 ? "vehicle_hero" : "service_detail", copyAngle: index === 0 ? "impacto do veiculo e desejo inicial" : "diferencial tecnico, estado e prova visual", orderWeight: index === 0 ? 10 : 45 };
+  }
+
+  if (has([/gym|fitness|training|workout|exercise|academia|treino|musculacao|personal/])) {
+    if (has([/equipment|machine|weight|halter|aparelho|equipamento|peso/])) {
+      return { role: "equipment_detail", copyAngle: "estrutura, variedade de treino e suporte", orderWeight: 35 };
+    }
+    return { role: index === 0 ? "gym_environment" : "class_experience", copyAngle: index === 0 ? "ambiente, energia e transformacao" : "experiencia de aula, acompanhamento e consistencia", orderWeight: index === 0 ? 10 : 45 };
+  }
 
   if (has([/swimming|pool|water|terrace|balcony|deck|outdoor|facade|building|sky|view|vista|piscina|varanda/])) {
     return { role: "hero_exterior_amenity", copyAngle: "impacto visual, estilo de vida e desejo principal", orderWeight: 10 };
@@ -410,6 +452,7 @@ function orderCampaignPhotoInsights(
   photos: CampaignPhotoInsight[],
   featuredPhotoIndex?: number,
   photoOrder?: number[],
+  segmentHint = "",
 ): CampaignPhotoInsight[] {
   if (photoOrder?.length) {
     const byOriginalIndex = new Map(photos.map((photo) => [photo.originalIndex, photo]));
@@ -430,11 +473,70 @@ function orderCampaignPhotoInsights(
   const rest = photos
     .filter((photo) => photo !== featured)
     .sort((a, b) => {
-      const roleA = classifyCampaignPhoto({ labels: a.labels, objects: a.objects, text_found: a.textFound, has_text: a.hasText }, a.originalIndex, photos.length);
-      const roleB = classifyCampaignPhoto({ labels: b.labels, objects: b.objects, text_found: b.textFound, has_text: b.hasText }, b.originalIndex, photos.length);
+      const roleA = classifyCampaignPhoto({ labels: a.labels, objects: a.objects, text_found: a.textFound, has_text: a.hasText }, a.originalIndex, photos.length, segmentHint);
+      const roleB = classifyCampaignPhoto({ labels: b.labels, objects: b.objects, text_found: b.textFound, has_text: b.hasText }, b.originalIndex, photos.length, segmentHint);
       return roleA.orderWeight - roleB.orderWeight || a.originalIndex - b.originalIndex;
     });
   return [...(featured ? [featured] : []), ...rest].map((photo, idx) => ({ ...photo, isFeatured: idx === 0 }));
+}
+
+function getCreativeMedia(c: any) {
+  return {
+    hash: c?.feedImageHash || c?.imageHash || c?.metaImageHash,
+    url: c?.feedImageUrl || c?.imageUrl || c?.mediaUrl,
+  };
+}
+
+function orderedCreativesForCarousel(creatives: any[]): any[] {
+  return creatives
+    .map((creative, index) => ({ creative, index }))
+    .sort((a, b) => {
+      const aFeatured = a.creative?.isFeaturedPhoto === true ? 0 : 1;
+      const bFeatured = b.creative?.isFeaturedPhoto === true ? 0 : 1;
+      if (aFeatured !== bFeatured) return aFeatured - bFeatured;
+      const aOriginal = Number.isFinite(Number(a.creative?.photoOriginalIndex)) ? Number(a.creative.photoOriginalIndex) : Number.MAX_SAFE_INTEGER;
+      const bOriginal = Number.isFinite(Number(b.creative?.photoOriginalIndex)) ? Number(b.creative.photoOriginalIndex) : Number.MAX_SAFE_INTEGER;
+      if (aOriginal !== bOriginal) return aOriginal - bOriginal;
+      return a.index - b.index;
+    })
+    .map((item) => item.creative);
+}
+
+function auditCarouselCreatives(creatives: any[]) {
+  const mediaCreatives = orderedCreativesForCarousel(creatives)
+    .filter((creative) => {
+      const media = getCreativeMedia(creative);
+      return media.hash || media.url;
+    })
+    .slice(0, 10);
+
+  if (mediaCreatives.length < 2) return { ok: true, issues: [] as string[], orderedCreatives: mediaCreatives };
+
+  const issues: string[] = [];
+  const seenHeadlines = new Map<string, number>();
+  const seenDescriptions = new Map<string, number>();
+  const normalize = (value: unknown) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+
+  mediaCreatives.forEach((creative, index) => {
+    const card = index + 1;
+    const headline = normalize(creative?.headline || creative?.title || creative?.name);
+    const description = normalize(creative?.description || creative?.shortDescription);
+    const body = normalize(creative?.copy || creative?.bodyText || creative?.primaryText || creative?.text);
+
+    if (headline.length < 8) issues.push(`Card ${card}: headline ausente ou curta demais.`);
+    if (description.length < 4) issues.push(`Card ${card}: description/shortDescription ausente ou curta demais.`);
+    if (body.length < 80) issues.push(`Card ${card}: copy/bodyText principal curto demais para carrossel.`);
+
+    const previousHeadline = headline ? seenHeadlines.get(headline) : undefined;
+    if (previousHeadline !== undefined) issues.push(`Card ${card}: headline repetida do card ${previousHeadline + 1}.`);
+    if (headline) seenHeadlines.set(headline, index);
+
+    const previousDescription = description ? seenDescriptions.get(description) : undefined;
+    if (previousDescription !== undefined) issues.push(`Card ${card}: description repetida do card ${previousDescription + 1}.`);
+    if (description) seenDescriptions.set(description, index);
+  });
+
+  return { ok: issues.length === 0, issues, orderedCreatives: mediaCreatives };
 }
 
 // ── Escopo de acesso por API key ──────────────────────────────────────────
@@ -892,6 +994,17 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: `Não foi possível gerar: ${check.reason}` }], isError: true };
       }
       const clientProfile = await db.getClientProfile(input.projectId);
+      const segmentHint = [
+        project?.name || "",
+        project?.niche || "",
+        (clientProfile as any)?.companyName || "",
+        (clientProfile as any)?.niche || "",
+        (clientProfile as any)?.productName || "",
+        (clientProfile as any)?.productService || "",
+        input.objective || "",
+        input.mediaFormat || "",
+        input.extraContext || "",
+      ].filter(Boolean).join(" ");
       const readiness = evaluateCampaignBriefingReadiness(input, clientProfile);
       if (readiness.status === "blocked") {
         return {
@@ -959,7 +1072,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           } catch {
             // Vision indisponível — segue sem labels dessa foto
           }
-          const classified = classifyCampaignPhoto(vision, i, totalRealImages);
+          const classified = classifyCampaignPhoto(vision, i, totalRealImages, segmentHint);
           photoInsights.push({
             url: cloudUrl,
             originalIndex: i,
@@ -1010,7 +1123,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             // Vision indisponível — segue sem labels
           }
           const originalIndex = (input.uploadedImages?.length || 0) + i;
-          const classified = classifyCampaignPhoto(vision, originalIndex, totalRealImages);
+          const classified = classifyCampaignPhoto(vision, originalIndex, totalRealImages, segmentHint);
           photoInsights.push({
             url: cloudUrl,
             originalIndex,
@@ -1026,7 +1139,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         }
       }
 
-      const orderedPhotoInsights = orderCampaignPhotoInsights(photoInsights, input.featuredPhotoIndex, input.photoOrder);
+      const orderedPhotoInsights = orderCampaignPhotoInsights(photoInsights, input.featuredPhotoIndex, input.photoOrder, segmentHint);
       const allRealImages = orderedPhotoInsights.length
         ? orderedPhotoInsights.map((photo) => photo.url)
         : [...uploadedFromUrl, ...uploadedFromBase64];
@@ -1651,6 +1764,96 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  const listLeadFormsToolConfig = {
+    title: "Listar formularios instantaneos Meta",
+    description:
+      "Lista os formularios instantaneos de uma Pagina do Facebook. Use antes " +
+      "de publicar com destination='lead_form' para reaproveitar um formulario " +
+      "existente quando fizer sentido.",
+    inputSchema: {
+      pageId: z.string().trim().min(1).describe("ID da Pagina do Facebook."),
+    },
+  };
+
+  async function listLeadFormsHandler({ pageId }: { pageId: string }) {
+    if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+    try {
+      const caller = await getCaller();
+      const forms = await caller.integrations.listLeadForms({ pageId } as any);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify(forms, null, 2) }],
+        structuredContent: { pageId, forms },
+      };
+    } catch (e: any) {
+      return { content: [{ type: "text" as const, text: `Falha ao listar formularios: ${e?.message || "erro desconhecido"}` }], isError: true };
+    }
+  }
+
+  server.registerTool("list_lead_forms", listLeadFormsToolConfig, listLeadFormsHandler);
+  server.registerTool("MECPROAI.list_lead_forms", {
+    ...listLeadFormsToolConfig,
+    title: "Listar formularios instantaneos Meta (alias MECPROAI)",
+  }, listLeadFormsHandler);
+  server.registerTool("mecproai.list_lead_forms", {
+    ...listLeadFormsToolConfig,
+    title: "Listar formularios instantaneos Meta (alias mecproai)",
+  }, listLeadFormsHandler);
+
+  const createLeadFormToolConfig = {
+    title: "Criar formulario instantaneo Meta",
+    description:
+      "Cria um formulario instantaneo padrao na Pagina do Facebook para " +
+      "campanhas de leads. Use quando o usuario pedir formulario ou quando a " +
+      "campanha for de lead_form e ainda nao existir leadGenFormId. Depois passe " +
+      "o id retornado para publish_campaign.",
+    inputSchema: {
+      pageId: z.string().trim().min(1).describe("ID da Pagina do Facebook."),
+      name: z.string().trim().min(1).describe("Nome do formulario."),
+      fields: z.array(z.string()).optional().describe("Campos Meta. Padrao: FULL_NAME, EMAIL, PHONE."),
+      customQuestion: z.string().optional().describe("Pergunta personalizada, ex: 'Qual tipo de imovel voce procura?'"),
+      thankYouMessage: z.string().optional().describe("Mensagem de obrigado apos envio."),
+      privacyUrl: z.string().trim().min(1).describe("URL da politica de privacidade."),
+    },
+  };
+
+  async function createLeadFormHandler(input: {
+    pageId: string;
+    name: string;
+    fields?: string[];
+    customQuestion?: string;
+    thankYouMessage?: string;
+    privacyUrl: string;
+  }) {
+    if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+    try {
+      const caller = await getCaller();
+      const form = await caller.integrations.createLeadForm({
+        pageId: input.pageId,
+        name: input.name,
+        fields: input.fields?.length ? input.fields : ["FULL_NAME", "EMAIL", "PHONE"],
+        customQuestion: input.customQuestion,
+        thankYouMessage: input.thankYouMessage,
+        privacyUrl: input.privacyUrl,
+      } as any);
+      return {
+        content: [{ type: "text" as const, text: `Formulario criado: ${JSON.stringify(form, null, 2)}` }],
+        structuredContent: form as any,
+      };
+    } catch (e: any) {
+      return { content: [{ type: "text" as const, text: `Falha ao criar formulario: ${e?.message || "erro desconhecido"}` }], isError: true };
+    }
+  }
+
+  server.registerTool("create_lead_form", createLeadFormToolConfig, createLeadFormHandler);
+  server.registerTool("MECPROAI.create_lead_form", {
+    ...createLeadFormToolConfig,
+    title: "Criar formulario instantaneo Meta (alias MECPROAI)",
+  }, createLeadFormHandler);
+  server.registerTool("mecproai.create_lead_form", {
+    ...createLeadFormToolConfig,
+    title: "Criar formulario instantaneo Meta (alias mecproai)",
+  }, createLeadFormHandler);
+
   server.registerTool(
     "publish_campaign",
     {
@@ -1733,9 +1936,28 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: e.message }], isError: true };
       }
 
+      const copyAudit = auditCarouselCreatives(creatives);
+      if (!copyAudit.ok) {
+        const message =
+          "Publicação bloqueada pela auditoria de carrossel: há cards com copy fraca, curta ou repetida. " +
+          "Regere ou atualize os criativos antes de publicar na Meta.\n\n" +
+          copyAudit.issues.map((issue) => `- ${issue}`).join("\n");
+        await db.failMcpIdempotencyKey(idempotencyRecordId, message);
+        return {
+          content: [{ type: "text", text: message }],
+          structuredContent: {
+            errorType: "creative_copy_audit",
+            stage: "pre_publish_carousel_copy_audit",
+            issues: copyAudit.issues,
+          },
+          isError: true,
+        };
+      }
+
+      const orderedCreatives = orderedCreativesForCarousel(creatives);
       const uniqueImages = Array.from(new Set(
-        creatives
-          .map((c: any) => ({ hash: c?.feedImageHash || c?.imageHash, url: c?.feedImageUrl || c?.imageUrl }))
+        orderedCreatives
+          .map((c: any) => getCreativeMedia(c))
           .filter((x: any) => x.hash || x.url)
           .map((x: any) => x.hash ? `hash:${x.hash}` : `url:${x.url}`)
       )).slice(0, 10);
