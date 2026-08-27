@@ -1854,6 +1854,213 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     title: "Criar formulario instantaneo Meta (alias mecproai)",
   }, createLeadFormHandler);
 
+  const updateLiveMetaCampaignToolConfig = {
+    title: "Atualizar campanha ativa na Meta",
+    description:
+      "Atualiza uma campanha ja publicada na Meta Ads usando os IDs salvos no MecProAI. " +
+      "Use apenas para ajustes seguros de campanha/ad set: status ACTIVE/PAUSED, orçamento diario, idade, localizacao/raio/cidades/estados e posicionamentos. " +
+      "Nao troca fotos nem copy; para isso crie uma nova versao/anuncio, porque a Meta trata criativos publicados como objetos separados. " +
+      "Sempre confirme explicitamente com o usuario antes de chamar, pois uma campanha ativa pode gastar orçamento real.",
+    inputSchema: {
+      campaignId: z.number().int().positive().describe("ID local da campanha no MecProAI, ex: 700."),
+      confirmed: z.boolean().describe("Deve ser true somente depois de confirmacao explicita do usuario."),
+      status: z.enum(["ACTIVE", "PAUSED"]).optional().describe("Novo status da campanha na Meta."),
+      dailyBudget: z.number().min(1).optional().describe("Novo orçamento diario em reais para o ad set."),
+      adSetId: z.string().optional().describe("ID do ad set Meta. Se omitido, usa o metaAdSetId salvo na campanha ou o primeiro ad set encontrado na Meta."),
+      placementMode: z.enum(["auto", "manual"]).optional().describe("auto para Advantage+ placements; manual para usar placements."),
+      placements: z.array(z.string()).optional().describe("IDs internos: fb_feed, fb_story, fb_marketplace, fb_search, ig_feed, ig_story, ig_reels, ig_explore etc."),
+      ageMin: z.number().min(13).max(65).optional(),
+      ageMax: z.number().min(18).max(65).optional(),
+      locationMode: z.enum(["brasil", "paises", "raio", "cidade"]).optional(),
+      geoCity: z.string().optional().describe("Cidade/endereco para raio, ex: Balneario Camboriu, SC, Brasil."),
+      geoRadius: z.number().min(1).max(80).optional().describe("Raio em km."),
+      cities: z.array(z.string()).optional().describe("Cidades exatas no Brasil, ex: Balneario Camboriu."),
+      regions: z.array(z.string()).optional().describe("Estados/UFs, ex: SC, PR."),
+      countries: z.array(z.string()).optional().describe("Paises ISO, ex: BR."),
+    },
+  };
+
+  async function updateLiveMetaCampaignHandler(input: {
+    campaignId: number;
+    confirmed: boolean;
+    status?: "ACTIVE" | "PAUSED";
+    dailyBudget?: number;
+    adSetId?: string;
+    placementMode?: "auto" | "manual";
+    placements?: string[];
+    ageMin?: number;
+    ageMax?: number;
+    locationMode?: "brasil" | "paises" | "raio" | "cidade";
+    geoCity?: string;
+    geoRadius?: number;
+    cities?: string[];
+    regions?: string[];
+    countries?: string[];
+  }) {
+    if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+    if (!input.confirmed) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: "Atualizacao bloqueada: confirme explicitamente com o usuario antes de mexer em campanha ativa na Meta e envie confirmed=true.",
+        }],
+        structuredContent: { errorType: "confirmation_required", campaignId: input.campaignId },
+        isError: true,
+      };
+    }
+
+    const campaign: any = await db.getCampaignById(input.campaignId);
+    if (!campaign) {
+      return { content: [{ type: "text" as const, text: `Campanha ${input.campaignId} nao encontrada.` }], isError: true };
+    }
+    const project: any = await db.getProjectById(campaign.projectId);
+    if (!project || project.userId !== userId) {
+      return { content: [{ type: "text" as const, text: `Campanha ${input.campaignId} nao pertence a este usuario.` }], isError: true };
+    }
+
+    const metaCampaignId = String(campaign.metaCampaignId || "").trim();
+    if (!metaCampaignId) {
+      return {
+        content: [{ type: "text" as const, text: `Campanha ${input.campaignId} ainda nao tem metaCampaignId salvo. Publique primeiro ou recrie uma versao.` }],
+        structuredContent: { errorType: "missing_meta_campaign_id", campaignId: input.campaignId },
+        isError: true,
+      };
+    }
+
+    let caller;
+    try {
+      caller = await getCaller();
+    } catch (error: any) {
+      return { content: [{ type: "text" as const, text: `Falha ao preparar contexto interno: ${error?.message || "erro desconhecido"}` }], isError: true };
+    }
+
+    const results: Array<{ action: string; success: boolean; error?: string; metaId?: string }> = [];
+    let resolvedAdSetId = input.adSetId || String(campaign.metaAdSetId || "").trim();
+
+    const needsAdSet =
+      input.dailyBudget !== undefined ||
+      input.placementMode !== undefined ||
+      input.placements !== undefined ||
+      input.ageMin !== undefined ||
+      input.ageMax !== undefined ||
+      input.locationMode !== undefined ||
+      input.geoCity !== undefined ||
+      input.geoRadius !== undefined ||
+      input.cities !== undefined ||
+      input.regions !== undefined ||
+      input.countries !== undefined;
+
+    if (needsAdSet && !resolvedAdSetId) {
+      try {
+        const details: any = await caller.metaCampaigns.details({ campaignId: metaCampaignId } as any);
+        resolvedAdSetId = String(details?.adSets?.[0]?.id || "").trim();
+      } catch (error: any) {
+        results.push({ action: "resolve_adset", success: false, error: error?.message || "Nao foi possivel buscar ad sets da campanha." });
+      }
+    }
+
+    if (input.status) {
+      try {
+        await caller.metaCampaigns.updateStatus({ campaignId: metaCampaignId, status: input.status } as any);
+        await db.updateCampaign(input.campaignId, {
+          updatedAt: new Date(),
+        } as any).catch(() => {});
+        results.push({ action: "status", success: true, metaId: metaCampaignId });
+      } catch (error: any) {
+        results.push({ action: "status", success: false, error: error?.message || "Erro ao atualizar status.", metaId: metaCampaignId });
+      }
+    }
+
+    if (input.dailyBudget !== undefined) {
+      if (!resolvedAdSetId) {
+        results.push({ action: "budget", success: false, error: "Ad set Meta nao encontrado para atualizar orçamento." });
+      } else {
+        try {
+          await caller.metaCampaigns.updateBudget({ adSetId: resolvedAdSetId, dailyBudget: input.dailyBudget } as any);
+          await db.updateCampaign(input.campaignId, {
+            suggestedBudgetDaily: input.dailyBudget,
+            suggestedBudgetMonthly: Math.round(input.dailyBudget * 30),
+            updatedAt: new Date(),
+          } as any).catch(() => {});
+          results.push({ action: "budget", success: true, metaId: resolvedAdSetId });
+        } catch (error: any) {
+          results.push({ action: "budget", success: false, error: error?.message || "Erro ao atualizar orçamento.", metaId: resolvedAdSetId });
+        }
+      }
+    }
+
+    const shouldUpdateTargeting =
+      input.placementMode !== undefined ||
+      input.placements !== undefined ||
+      input.ageMin !== undefined ||
+      input.ageMax !== undefined ||
+      input.locationMode !== undefined ||
+      input.geoCity !== undefined ||
+      input.geoRadius !== undefined ||
+      input.cities !== undefined ||
+      input.regions !== undefined ||
+      input.countries !== undefined;
+
+    if (shouldUpdateTargeting) {
+      if (!resolvedAdSetId) {
+        results.push({ action: "targeting", success: false, error: "Ad set Meta nao encontrado para atualizar publico/localizacao." });
+      } else {
+        const placements = input.placements ?? [];
+        const placementMode = input.placementMode ?? (placements.length > 0 ? "manual" : "auto");
+        try {
+          await caller.metaCampaigns.updateAdSetPlacements({
+            adSetId: resolvedAdSetId,
+            placements,
+            placementMode,
+            regions: input.regions,
+            countries: input.countries,
+            geoCity: input.geoCity,
+            geoRadius: input.geoRadius,
+            cities: input.cities,
+            ageMin: input.ageMin,
+            ageMax: input.ageMax,
+            locationMode: input.locationMode,
+          } as any);
+          results.push({ action: "targeting", success: true, metaId: resolvedAdSetId });
+        } catch (error: any) {
+          results.push({ action: "targeting", success: false, error: error?.message || "Erro ao atualizar publico/localizacao.", metaId: resolvedAdSetId });
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      return {
+        content: [{ type: "text" as const, text: "Nenhuma alteracao enviada. Informe status, dailyBudget, idade, localizacao ou posicionamentos." }],
+        structuredContent: { campaignId: input.campaignId, metaCampaignId, metaAdSetId: resolvedAdSetId || null, results },
+        isError: true,
+      };
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    const summary = results.map((r) =>
+      r.success ? `OK ${r.action}${r.metaId ? ` (${r.metaId})` : ""}` : `FALHA ${r.action}: ${r.error || "erro desconhecido"}`
+    ).join("\n");
+
+    return {
+      content: [{
+        type: "text" as const,
+        text: `${successCount}/${results.length} ajuste(s) aplicado(s) na campanha Meta ${metaCampaignId}.\n\n${summary}`,
+      }],
+      structuredContent: { campaignId: input.campaignId, metaCampaignId, metaAdSetId: resolvedAdSetId || null, results },
+      isError: successCount !== results.length,
+    };
+  }
+
+  server.registerTool("update_live_meta_campaign", updateLiveMetaCampaignToolConfig, updateLiveMetaCampaignHandler);
+  server.registerTool("MECPROAI.update_live_meta_campaign", {
+    ...updateLiveMetaCampaignToolConfig,
+    title: "Atualizar campanha ativa na Meta (alias MECPROAI)",
+  }, updateLiveMetaCampaignHandler);
+  server.registerTool("mecproai.update_live_meta_campaign", {
+    ...updateLiveMetaCampaignToolConfig,
+    title: "Atualizar campanha ativa na Meta (alias mecproai)",
+  }, updateLiveMetaCampaignHandler);
+
   server.registerTool(
     "publish_campaign",
     {
