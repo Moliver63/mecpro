@@ -561,7 +561,7 @@ function scopeErrorContent(required: McpScope, userScope: McpScope) {
 }
 
 export function createMcpServerForUser(userId: number, scope: McpScope = "publish"): McpServer {
-  const server = new McpServer({ name: "mecproai", version: "1.1.0" });
+  const server = new McpServer({ name: "mecproai", version: "1.2.0" });
 
   async function getCaller() {
     const user = await db.getUserById(userId);
