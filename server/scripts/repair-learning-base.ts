@@ -6,8 +6,10 @@
  * Uso:
  *   npx tsx server/scripts/repair-learning-base.ts
  *   npx tsx server/scripts/repair-learning-base.ts --apply
+ *   npx tsx server/scripts/repair-learning-base.ts --apply --prune-polluted
  *
  * Sem --apply, roda em dry-run e nao altera o banco.
+ * Sem --prune-polluted, preserva linhas ja normalizadas mesmo que antigas.
  */
 
 import * as dotenv from "dotenv";
@@ -18,6 +20,7 @@ dotenv.config({ path: ".env" });
 
 const DB_URL = process.env.DATABASE_URL;
 const APPLY = process.argv.includes("--apply");
+const PRUNE_POLLUTED = process.argv.includes("--prune-polluted");
 
 if (!DB_URL) {
   console.error("DATABASE_URL nao definida no ambiente");
@@ -78,6 +81,18 @@ function weightedAvg(rows: any[], field: string): number {
   return totalSamples > 0 ? Number((total / totalSamples).toFixed(4)) : 0;
 }
 
+function isPollutedLearningRow(row: any): boolean {
+  const score = n(row.avg_score);
+  const samples = n(row.sample_count);
+  const ctr = n(row.avg_ctr);
+  const cpc = n(row.avg_cpc);
+  const roas = n(row.avg_roas);
+
+  if (score >= 95 && ctr <= 0 && roas <= 0) return true;
+  if (samples > 5 && ctr <= 0 && roas <= 0 && cpc <= 0) return true;
+  return false;
+}
+
 async function normalizeColumn(client: any, table: string, column: string) {
   const rows = (await client.query(`SELECT DISTINCT ${column} AS niche FROM ${table}`)).rows;
   let changed = 0;
@@ -102,6 +117,7 @@ async function main() {
   const client = await pool.connect();
   try {
     console.log(APPLY ? "MODO APPLY: alterando banco" : "MODO DRY-RUN: nenhuma alteracao sera feita");
+    console.log(PRUNE_POLLUTED ? "PODA ATIVA: removendo linhas sem metricas uteis e capando score antigo" : "PODA INATIVA: use --prune-polluted para limpar residuos de score/metricas");
 
     await client.query("BEGIN");
 
@@ -185,12 +201,35 @@ async function main() {
     await normalizeColumn(client, "winner_patterns", "niche").catch((e: any) => console.log(`   winner_patterns.niche: pulado (${e.message})`));
     await normalizeColumn(client, "ml_dataset", "feature_niche").catch((e: any) => console.log(`   ml_dataset.feature_niche: pulado (${e.message})`));
 
+    const postRows = (await client.query(`SELECT * FROM learning_base ORDER BY platform, objective, niche`)).rows;
+    const polluted = postRows.filter(isPollutedLearningRow);
+    const capped = postRows.filter((row) => n(row.avg_score) >= 95 && !isPollutedLearningRow(row));
+
+    console.log("\nresiduos historicos:");
+    console.log(`   linhas sem metricas uteis para podar: ${polluted.length}`);
+    console.log(`   linhas com score antigo alto, mas metricas uteis, para capar em 94.99: ${capped.length}`);
+
+    if (APPLY && PRUNE_POLLUTED) {
+      if (polluted.length > 0) {
+        await client.query(`DELETE FROM learning_base WHERE id = ANY($1::int[])`, [polluted.map((row) => row.id)]);
+      }
+      if (capped.length > 0) {
+        await client.query(`UPDATE learning_base SET avg_score = 94.99 WHERE id = ANY($1::int[])`, [capped.map((row) => row.id)]);
+      }
+    }
+
     if (APPLY) {
       await client.query("COMMIT");
       console.log("\nConcluido. Rode check-learning-base.ts novamente para conferir.");
+      if (!PRUNE_POLLUTED && (polluted.length > 0 || capped.length > 0)) {
+        console.log("Para limpar os residuos restantes: npx tsx server/scripts/repair-learning-base.ts --apply --prune-polluted");
+      }
     } else {
       await client.query("ROLLBACK");
       console.log("\nDry-run concluido. Para aplicar: npx tsx server/scripts/repair-learning-base.ts --apply");
+      if (polluted.length > 0 || capped.length > 0) {
+        console.log("Para incluir poda dos residuos: npx tsx server/scripts/repair-learning-base.ts --apply --prune-polluted");
+      }
     }
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});

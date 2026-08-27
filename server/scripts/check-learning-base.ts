@@ -14,7 +14,7 @@
 
 import * as dotenv from "dotenv";
 import { Pool } from "pg";
-import { isValidLearningNiche, normalizeLearningNiche } from "../campaignIntelligenceEngine";
+import { hasUsefulLearningMetrics, isValidLearningNiche, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 
 dotenv.config({ path: ".env" });
 
@@ -106,6 +106,15 @@ async function main() {
         `score=${row.avg_score} ctr=${row.avg_ctr} roas=${row.avg_roas} n=${row.sample_count}`
       );
     }
+
+    const usableRows = (await client.query(`
+      SELECT platform, objective, niche, avg_score, avg_ctr, avg_cpc, avg_roas, sample_count
+      FROM learning_base
+    `)).rows;
+    const ignoredByRuntime = usableRows.filter((row) => !hasUsefulLearningMetrics(row));
+    console.log("\n🧹 Qualidade para uso pelo ML-First:");
+    console.log(`   Linhas aproveitáveis pelo motor: ${usableRows.length - ignoredByRuntime.length}`);
+    console.log(`   Linhas ignoradas por higiene:    ${ignoredByRuntime.length}`);
 
     // ── Checagem extra: existe ALGUM metric_roas real no banco? ────────────
     // Distingue "o fix não pegou" de "não tem dado de ROAS pra pegar ainda"
