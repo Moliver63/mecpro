@@ -14,6 +14,74 @@
 import { log } from "./logger";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// NORMALIZACAO DE APRENDIZADO
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function normalizeLearningNiche(value: unknown): string {
+  const raw = String(value || "").trim();
+  const normalized = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\r\n,;|/]+/g, " ")
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!isValidLearningNiche(normalized)) return "geral";
+
+  if (/\b(imobili[a-z]*|imovel|imoveis|apartamento|cobertura|locacao|aluguel|praia brava)\b/.test(normalized)) {
+    return "imoveis";
+  }
+  if (/\b(doce|doces|brigadeiro|brigadeiros|confeitaria|bolo|bolos|sobremesa|sobremesas|delicias)\b/.test(normalized)) {
+    return "alimentacao";
+  }
+  if (/\b(cosmetico|cosmeticos|beleza|estetica|skin|maquiagem)\b/.test(normalized)) {
+    return "cosmeticos";
+  }
+  if (/\b(academia|musculacao|fitness|treino|personal)\b/.test(normalized)) {
+    return "fitness";
+  }
+  if (/\b(auto|automotivo|eletrica|mecanica|oficina|carro|veiculo)\b/.test(normalized)) {
+    return "automotivo";
+  }
+  if (/\b(politico|politica|eleicao|mandato)\b/.test(normalized)) {
+    return "politico";
+  }
+  if (/\b(marketing|mercado digital|anuncios|trafego pago|infoproduto)\b/.test(normalized)) {
+    return "marketing digital";
+  }
+
+  return normalized.slice(0, 60);
+}
+
+export function isValidLearningNiche(value: unknown): boolean {
+  const text = String(value || "").trim().toLowerCase();
+  if (text.length < 3 || text.length > 80) return false;
+  if (/^(.)\1{7,}$/.test(text)) return false;
+  if (/^[a-f0-9]{20,}$/.test(text.replace(/-/g, ""))) return false;
+  if (/^\d+$/.test(text)) return false;
+  if (/https?:\/\//.test(text)) return false;
+  return /[a-z]/.test(text);
+}
+
+export function hasUsefulLearningMetrics(row: any): boolean {
+  if (!row) return false;
+  const samples = Number(row.sample_count ?? row.samples ?? 0);
+  const score = Number(row.avg_score ?? row.label_score ?? row.score ?? 0);
+  const ctr = Number(row.avg_ctr ?? row.label_ctr ?? row.real_ctr ?? row.metric_ctr ?? 0);
+  const cpc = Number(row.avg_cpc ?? row.label_cpc ?? row.real_cpc ?? row.metric_cpc ?? 0);
+  const roas = Number(row.avg_roas ?? row.label_roas ?? row.real_roas ?? row.metric_roas ?? 0);
+  const niche = row.niche ?? row.feature_niche;
+
+  if (samples > 0 && samples < 3) return false;
+  if (!isValidLearningNiche(niche)) return false;
+  if (score >= 95 && ctr <= 0 && roas <= 0) return false;
+  if (samples > 5 && ctr <= 0 && roas <= 0 && cpc <= 0) return false;
+  return score > 0 || ctr > 0 || cpc > 0 || roas > 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TIPOS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -666,10 +734,11 @@ export function buildMLFeatures(
   params: WinnerParameters,
   score: ScoreBreakdown
 ): Record<string, any> {
+  const niche = normalizeLearningNiche(context.niche || context.segment || "geral");
   return {
     feature_platform:           context.platform,
     feature_objective:          context.objective,
-    feature_niche:              context.niche || "geral",
+    feature_niche:              niche,
     feature_ad_format:          params.adFormat,
     feature_age_range:          `${params.ageMin}-${params.ageMax}`,
     feature_budget_range:       params.budgetRange,

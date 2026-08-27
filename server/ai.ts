@@ -19,6 +19,7 @@ import { inferSubsegment, SUBSEGMENTS } from "../shared/subsegments";
 import { isAbsenceAnswer } from "../shared/pendencyQuestions";
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
+import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -3083,15 +3084,21 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
          WHERE m.feature_platform=$1 AND m.feature_objective=$2
            AND m.feature_niche=$3 AND m.feature_copy_engine=$4
            AND m.label_is_winner=1
+           AND COALESCE(m.label_score, 0) BETWEEN 1 AND 94.999
+           AND (COALESCE(m.label_ctr, 0) > 0 OR COALESCE(m.real_ctr, 0) > 0 OR COALESCE(m.label_cpc, 0) > 0 OR COALESCE(m.real_cpc, 0) > 0 OR COALESCE(m.label_roas, 0) > 0 OR COALESCE(m.real_roas, 0) > 0)
          GROUP BY m.feature_copy_engine
          HAVING COUNT(*) >= 2`,
         [platform, objective, niche, currentEngine]
       );
       const lb = await pool.query(
-        `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
+        `SELECT * FROM learning_base
+         WHERE platform=$1 AND objective=$2 AND niche=$3
+           AND NOT (avg_score >= 95 AND COALESCE(avg_ctr,0) <= 0 AND COALESCE(avg_roas,0) <= 0)
+           AND NOT (sample_count > 5 AND COALESCE(avg_ctr,0) <= 0 AND COALESCE(avg_roas,0) <= 0 AND COALESCE(avg_cpc,0) <= 0)
+         LIMIT 1`,
         [platform, objective, niche]
       );
-      if (lb.rows[0] && lb.rows[0].sample_count >= 3) {
+      if (hasUsefulLearningMetrics(lb.rows[0])) {
         mlData = lb.rows[0];
         // Sobrescreve métricas com dados específicos do engine se disponíveis
         if (lbEngine.rows[0]) {
@@ -3118,6 +3125,8 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
          LEFT JOIN ml_dataset m ON m.campaign_id = wp.campaign_id
          WHERE wp.platform=$1 AND wp.objective=$2 AND wp.niche=$3
            AND wp.status='active'
+           AND wp.score < 95
+           AND (COALESCE(m.real_ctr, 0) > 0 OR COALESCE(m.label_ctr, 0) > 0 OR COALESCE(m.real_cpc, 0) > 0 OR COALESCE(m.label_cpc, 0) > 0)
          ORDER BY
            CASE WHEN m.feature_copy_engine=$4 THEN 0 ELSE 1 END,
            wp.score DESC
@@ -6039,30 +6048,33 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     const { getPool } = await import("./db");
     const pool = await getPool();
     if (pool) {
-      const niche    = (clientProfile as any)?.niche || "geral";
+      const niche    = normalizeLearningNiche((clientProfile as any)?.niche || "geral");
       const platform = input.platform === "both" || input.platform === "all" ? "meta" : input.platform;
-      // Normaliza niche para matching — usa primeira palavra significativa
-      const nicheKey = niche.toLowerCase()
-        .replace(/corretagem.*(im.veis?|imoveis?)/i, "imoveis")
-        .replace(/compra.*venda.*(im.veis?|imoveis?)/i, "imoveis")
-        .split(",")[0].split("\n")[0].trim().slice(0, 50)
+      const nicheKey = normalizeLearningNiche(niche);
 
       // Tenta match exato primeiro, depois match parcial
       let lbRows = await pool.query(
-        `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2 AND niche=$3 LIMIT 1`,
+        `SELECT * FROM learning_base
+         WHERE platform=$1 AND objective=$2 AND niche=$3
+           AND NOT (avg_score >= 95 AND COALESCE(avg_ctr,0) <= 0 AND COALESCE(avg_roas,0) <= 0)
+           AND NOT (sample_count > 5 AND COALESCE(avg_ctr,0) <= 0 AND COALESCE(avg_roas,0) <= 0 AND COALESCE(avg_cpc,0) <= 0)
+         LIMIT 1`,
         [platform, input.objective, nicheKey]
       );
       if (!lbRows.rows[0]) {
         // Fallback: match parcial com ILIKE
         lbRows = await pool.query(
           `SELECT * FROM learning_base WHERE platform=$1 AND objective=$2
-           AND (niche ILIKE $3 OR $3 ILIKE '%' || niche || '%') LIMIT 1`,
+           AND (niche ILIKE $3 OR $3 ILIKE '%' || niche || '%')
+           AND NOT (avg_score >= 95 AND COALESCE(avg_ctr,0) <= 0 AND COALESCE(avg_roas,0) <= 0)
+           AND NOT (sample_count > 5 AND COALESCE(avg_ctr,0) <= 0 AND COALESCE(avg_roas,0) <= 0 AND COALESCE(avg_cpc,0) <= 0)
+           LIMIT 1`,
           [platform, input.objective, `%${nicheKey.split(" ")[0]}%`]
         );
       }
       const rows = lbRows;
 
-      if (rows.rows[0]?.sample_count >= 3) {
+      if (hasUsefulLearningMetrics(rows.rows[0])) {
         mlLearning = rows.rows[0];
         const hasRealMLMetrics = Number(mlLearning.avg_ctr || 0) > 0;
         log.info("ai", "ML learning_base enriquecendo prompt", {
@@ -7284,7 +7296,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
       try { aiResp       = JSON.parse((campaign as any).aiResponse || "{}"); } catch {}
       try { creativesArr = JSON.parse((campaign as any).creatives  || "[]"); } catch {}
 
-      const niche = (clientProfile as any)?.niche || aiResp?.niche || "geral";
+      const niche = normalizeLearningNiche((clientProfile as any)?.niche || aiResp?.niche || "geral");
 
       const context: any = {
         userId, projectId, campaignId,
@@ -8027,15 +8039,17 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
           FROM ml_dataset d
           JOIN campaigns c ON c.id = d.campaign_id
           WHERE d.label_is_winner = 1
-            AND d.feature_niche = $1
-            AND d.feature_platform = $2
-            AND d.feature_copy_engine IN ('gemini', 'groq')
+          AND d.feature_niche = $1
+          AND d.feature_platform = $2
+          AND d.feature_copy_engine IN ('gemini', 'groq')
+          AND COALESCE(d.label_score, 0) BETWEEN 1 AND 94.999
+          AND (COALESCE(d.real_ctr, 0) > 0 OR COALESCE(d.label_ctr, 0) > 0 OR COALESCE(d.real_cpc, 0) > 0 OR COALESCE(d.label_cpc, 0) > 0)
           ORDER BY
             CASE WHEN d.real_ctr IS NOT NULL THEN 0 ELSE 1 END, -- dados reais primeiro
             d.real_ctr DESC NULLS LAST,
             d.label_score DESC
           LIMIT 8
-        `, [(input.campaign as any)?.niche || "", (input.campaign as any)?.platform || "meta"]).catch(() => null);
+        `, [normalizeLearningNiche((input.campaign as any)?.niche || "geral"), (input.campaign as any)?.platform || "meta"]).catch(() => null);
 
         if (winners?.rows?.length) {
           const byEngine: Record<string, any[]> = { gemini: [], groq: [] };

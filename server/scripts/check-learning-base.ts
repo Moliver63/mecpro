@@ -14,6 +14,7 @@
 
 import * as dotenv from "dotenv";
 import { Pool } from "pg";
+import { isValidLearningNiche, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 
 dotenv.config({ path: ".env" });
 
@@ -58,6 +59,25 @@ async function main() {
     console.log(`   avg_score médio geral:       ${o.avg_score_geral}`);
     console.log(`   Linhas com avg_score=100 fixo (sinal do bug antigo): ${o.stuck_at_100}`);
     console.log(`   Linhas com ctr=roas=0 apesar de sample_count>5:      ${o.zerado_com_amostras}`);
+
+    const invalid = await client.query(`
+      SELECT niche, COUNT(*) AS n
+      FROM learning_base
+      GROUP BY niche
+      ORDER BY n DESC
+    `);
+    const invalidNiches = invalid.rows.filter((row) => !isValidLearningNiche(row.niche));
+    const fragmentedGroups = new Map<string, Set<string>>();
+    for (const row of invalid.rows) {
+      const canonical = normalizeLearningNiche(row.niche);
+      if (canonical !== row.niche) {
+        if (!fragmentedGroups.has(canonical)) fragmentedGroups.set(canonical, new Set());
+        fragmentedGroups.get(canonical)!.add(row.niche);
+      }
+    }
+
+    console.log(`   Nichos inválidos/suspeitos:  ${invalidNiches.reduce((sum, row) => sum + Number(row.n), 0)} linhas em ${invalidNiches.length} chaves`);
+    console.log(`   Chaves que seriam normalizadas: ${[...fragmentedGroups.values()].filter((s) => s.size > 0).length}`);
 
     // ── Distribuição por nicho — a pendência conhecida é niche='geral' sempre ──
     const niches = await client.query(`
@@ -115,6 +135,9 @@ async function main() {
     }
     if (Number(o.stuck_at_100) > 0 || Number(o.zerado_com_amostras) > 0) {
       console.log("   ⚠️  Sinais do bug antigo (score=100 fixo ou ctr/roas=0 com amostras) ainda presentes em parte dos dados — não necessariamente ativo agora, pode ser resíduo histórico não limpo.");
+    }
+    if (invalidNiches.length > 0) {
+      console.log("   ⚠️  Existem nichos inválidos/suspeitos. Rode: npx tsx server/scripts/repair-learning-base.ts para simular a limpeza.");
     }
 
   } catch (err) {

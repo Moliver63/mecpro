@@ -16,7 +16,7 @@ import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { siteAnalyticsRouter } from "./siteAnalyticsRouter";
 import { vslRouter } from "./vslRouter";
 import { scoreCreative } from "../creativeScoringEngine";
-import { calculateScore } from "../campaignIntelligenceEngine";
+import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
 import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
@@ -3094,9 +3094,10 @@ const campaignsRouter = router({
 
       // Busca todas as campanhas publicadas pelo MecProAI com metaCampaignId
       const rows = await pool.query(`
-        SELECT c.id, c.name, c."metaCampaignId", c."metaAdId", c.platform, c.objective, c."projectId"
+        SELECT c.id, c.name, c."metaCampaignId", c."metaAdId", c.platform, c.objective, c."projectId", cp.niche
         FROM campaigns c
         JOIN projects p ON p.id = c."projectId"
+        LEFT JOIN client_profiles cp ON cp."projectId" = c."projectId"
         WHERE c."metaCampaignId" IS NOT NULL
           AND c."publishStatus" = 'success'
           AND p."userId" = $1
@@ -3179,9 +3180,11 @@ const campaignsRouter = router({
               name:       camp.name || "",
               platform:   camp.platform || "meta",
               objective:  camp.objective || "traffic",
+              niche:      normalizeLearningNiche(camp.niche || camp.name || "geral"),
             },
             { impressions, clicks, ctr, cpc, cpm, spend, roas, leads: Number(leads), conversions: Number(purchases), reach, frequency }
           );
+          const learningNiche = normalizeLearningNiche(camp.niche || camp.name || "geral");
 
           // Salva métricas na tabela campaign_scores (upsert)
           await pool.query(`
@@ -3202,12 +3205,12 @@ const campaignsRouter = router({
               $9,
               COALESCE(c.platform, 'meta'),
               COALESCE(c.objective, 'traffic'),
-              'geral',
+              $10,
               $2, $3, $4, $5, $6, $7, $8, '2.0'
             FROM campaigns c
             JOIN projects p ON p.id = c."projectId"
             WHERE c.id = $1
-          `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, roas, perfScore.total]);
+          `, [camp.id, impressions, clicks, ctr, cpc, cpm, spend, roas, perfScore.total, learningNiche]);
 
           synced++;
           log.info("sync", "Métricas sincronizadas", {
