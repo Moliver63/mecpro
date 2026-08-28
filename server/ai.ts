@@ -992,7 +992,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "foto apetitosa + velocidade de entrega + preço especial do dia",
     forbidden:  ["agendar visita", "guia grátis", "ebook", "curso", "avaliação"],
     compliance: "Foto real do produto. Preço exato. Álcool: configurar restrição de idade.",
-    nicheKeys:  ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar"],
+    nicheKeys:  ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar", "culin", "doce", "brigadeiro", "sobremesa", "confeitaria", "padaria", "bolo", "salgado"],
   },
   moda_varejo: {
     ctaLeads:   ["Ver nova coleção", "Cadastrar para receber novidades"],
@@ -1020,6 +1020,94 @@ export function detectSegmentFromNiche(niche: string): string {
     if (rules.nicheKeys.some(k => n.includes(k))) return seg;
   }
   return "outro";
+}
+
+function resolveSegmentFromCampaignContext(...parts: Array<unknown>): string {
+  const explicit = String(parts[0] || "").trim();
+  if (explicit && SEGMENT_COPY_RULES[explicit]) return explicit;
+  const text = parts
+    .filter(Boolean)
+    .map((part) => String(part))
+    .join(" ");
+  return detectSegmentFromNiche(text);
+}
+
+type SegmentAlignmentRule = {
+  requiredAny: RegExp[];
+  foreignTerms: RegExp[];
+  fallbackCta: string;
+};
+
+const SEGMENT_ALIGNMENT_RULES: Record<string, SegmentAlignmentRule> = {
+  alimentacao: {
+    requiredAny: [
+      /\b(card[aá]pio|pedido|pedir|delivery|whatsapp)\b/i,
+      /\b(comida|sabor|doce|brigadeiro|sobremesa|confeitaria|bolo|salgado|caixa|encomenda)\b/i,
+    ],
+    foreignTerms: [
+      /\b(im[oó]vel|apartamento|cobertura|triplex|su[ií]te|mobiliad|loca[cç][aã]o|corretor|visita)\b/i,
+      /\b(treino|academia|muscula[cç][aã]o|aula experimental|personal)\b/i,
+      /\b(curso|mentoria|aula gr[aá]tis|certifica[cç][aã]o)\b/i,
+    ],
+    fallbackCta: "Pedir no WhatsApp",
+  },
+  servicos_locais: {
+    requiredAny: [/\b(agendar|marcar|or[cç]amento|hor[aá]rio|whatsapp|atendimento|servi[cç]o)\b/i],
+    foreignTerms: [/\b(frete gr[aá]tis|carrinho|checkout|unidade imobili[aá]ria|su[ií]te)\b/i],
+    fallbackCta: "Solicitar orçamento",
+  },
+  imoveis_venda: {
+    requiredAny: [/\b(im[oó]vel|apartamento|casa|cobertura|terreno|empreendimento|unidade|visita|corretor)\b/i],
+    foreignTerms: [/\b(card[aá]pio|pedido|delivery|brigadeiro|treino|academia|curso|aula gr[aá]tis)\b/i],
+    fallbackCta: "Falar com corretor",
+  },
+  imoveis_locacao: {
+    requiredAny: [/\b(im[oó]vel|apartamento|casa|cobertura|aluguel|loca[cç][aã]o|disponibilidade|visita)\b/i],
+    foreignTerms: [/\b(card[aá]pio|pedido|delivery|brigadeiro|treino|academia|curso|aula gr[aá]tis)\b/i],
+    fallbackCta: "Agendar visita",
+  },
+  saude_estetica: {
+    requiredAny: [/\b(avalia[cç][aã]o|consulta|tratamento|procedimento|cl[ií]nica|especialista|agendar)\b/i],
+    foreignTerms: [/\b(card[aá]pio|delivery|brigadeiro|corretor|su[ií]te|frete gr[aá]tis)\b/i],
+    fallbackCta: "Agendar avaliação",
+  },
+  infoprodutos: {
+    requiredAny: [/\b(curso|aula|treinamento|mentoria|inscri[cç][aã]o|material|vaga|aprender)\b/i],
+    foreignTerms: [/\b(card[aá]pio|delivery|brigadeiro|corretor|su[ií]te|frete gr[aá]tis)\b/i],
+    fallbackCta: "Quero me inscrever",
+  },
+  ecommerce: {
+    requiredAny: [/\b(produto|comprar|oferta|cole[cç][aã]o|pedido|frete|loja|entrega)\b/i],
+    foreignTerms: [/\b(corretor|visita ao im[oó]vel|aula experimental|consulta cl[ií]nica)\b/i],
+    fallbackCta: "Ver oferta",
+  },
+};
+
+function auditCreativeSegmentAlignment(creative: any, segment: string): string[] {
+  const rule = SEGMENT_ALIGNMENT_RULES[segment];
+  if (!rule) return [];
+  const text = [
+    creative?.headline,
+    creative?.description,
+    creative?.shortDescription,
+    creative?.copy,
+    creative?.bodyText,
+    creative?.hook,
+    creative?.pain,
+    creative?.solution,
+    creative?.cta,
+  ].filter(Boolean).join(" ");
+  const issues: string[] = [];
+  if (!rule.requiredAny.some((re) => re.test(text))) {
+    issues.push(`Criativo sem sinais claros do segmento ${segment}`);
+  }
+  const foreignHits = rule.foreignTerms
+    .filter((re) => re.test(text))
+    .map((re) => String(re));
+  if (foreignHits.length) {
+    issues.push(`Criativo parece misturar termos de outro segmento: ${foreignHits.join(", ")}`);
+  }
+  return issues;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -6135,9 +6223,6 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     audienceProfile: input.audienceProfile || null,
   };
 
-  // Segmento modulo 4 -> regras de copy por niche
-  const ctaRule = getSegmentInstruction(input.segment || "", (clientProfile as any)?.niche || "", input.objective);
-
   // ── Módulo 4b — inferOfferType + SUBSEGMENTS ────────────────────────────
   // Antes: as duas funções existiam prontas e testadas (12/12 e 15/15 nos
   // casos de teste documentados), mas nunca eram chamadas em nenhum fluxo
@@ -6147,9 +6232,27 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
   // (input.segment se for uma chave válida de SEGMENT_COPY_RULES, senão
   // detecta a partir do nicho) — não duplica lógica nova, só expõe o mesmo
   // resultado pra alimentar a inferência de subsegmento.
-  const resolvedSegment = input.segment && SEGMENT_COPY_RULES[input.segment]
-    ? input.segment
-    : detectSegmentFromNiche((clientProfile as any)?.niche || "");
+  const resolvedSegment = resolveSegmentFromCampaignContext(
+    input.segment,
+    (clientProfile as any)?.niche,
+    (clientProfile as any)?.productService,
+    (clientProfile as any)?.productName,
+    input.extraContext,
+    input.name,
+  );
+
+  // Segmento modulo 4 -> regras de copy por contexto completo da campanha.
+  const ctaRule = getSegmentInstruction(
+    resolvedSegment,
+    [
+      (clientProfile as any)?.niche,
+      (clientProfile as any)?.productService,
+      (clientProfile as any)?.productName,
+      input.extraContext,
+      input.name,
+    ].filter(Boolean).join(" "),
+    input.objective,
+  );
 
   // Texto-fonte pra inferência: os mesmos campos de texto livre que já vão
   // pro prompt (produto/serviço, dor, proposta de valor, diferenciais,
@@ -6294,6 +6397,8 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
     }
     return `Use o papel visual de cada foto para montar uma narrativa comercial própria do segmento do cliente. Card 1 vende o principal motivo de atenção; cards intermediários sustentam desejo, prova e diferenciais; último card fecha com CTA claro.`;
   })();
+  const segmentPrimaryCta = SEGMENT_ALIGNMENT_RULES[resolvedSegment]?.fallbackCta
+    || (String(input.objective || "").toLowerCase() === "leads" ? "Falar no WhatsApp" : "Ver detalhes");
   const carouselPhotoBrief = input.realImages?.length
     ? `\n========================
 MOTOR DE COPY ROBUSTA — META ADS / CARROSSEL COM FOTOS REAIS
@@ -6318,7 +6423,7 @@ Cada criativo DEVE incluir:
 - description ou shortDescription: complemento curto, max 30 caracteres, específico e diferente do headline.
 - copy/bodyText: texto principal mais completo, 180-450 caracteres, aproveitando dados confirmados.
 - hook: gancho específico, sem clichês.
-- cta: para leads/WhatsApp use "Agendar visita", "Falar no WhatsApp" ou equivalente claro.
+- cta: use um CTA compatível com o segmento. CTA principal sugerido: "${segmentPrimaryCta}".
 
 Checklist obrigatório antes de responder:
 - Cada foto recebeu copy própria?
@@ -6683,65 +6788,171 @@ ${creativeSlotInstructions}
     ].filter(Boolean).map((item) => String(item));
   }
 
-  function carouselFallbackForIndex(index: number, total: number): any {
-    const facts = confirmedOfferFacts().join(". ").toLowerCase();
-    const isRealEstate = /im[oó]v|cobertura|triplex|praia|su[ií]te|mobiliad|loca[cç][aã]o|piscina/.test(facts);
-    const cta = String(input.objective || "").toLowerCase() === "leads" ? "Agendar visita" : "Ver detalhes";
-    const realEstateCards = [
-      {
-        headline: "Piscina privativa no triplex",
-        description: "Lazer com exclusividade",
-        copy: "Comece pelo principal diferencial: uma cobertura triplex na Praia Brava com piscina privativa, mobiliada e pronta para locação anual.\n\nUm imóvel para quem busca privacidade, conforto e uma experiência de alto padrão no litoral.\n\nAgende sua visita.",
-        hook: "Piscina privativa na Praia Brava",
-      },
-      {
-        headline: "Cozinha integrada e vista",
-        description: "Ambiente para receber",
-        copy: "Ambientes integrados valorizam a rotina e os momentos de recepção. A cozinha ampla conversa com a área social e reforça a sensação de espaço do triplex.\n\nSão 190 m² para viver com conforto na Praia Brava.\n\nFale para saber disponibilidade.",
-        hook: "Ambientes amplos para receber",
-      },
-      {
-        headline: "190 m² em três pavimentos",
-        description: "Espaço de verdade",
-        copy: "A planta triplex entrega amplitude e separação inteligente dos ambientes. São 190 m², 3 suítes e mobília completa para uma locação anual de alto padrão.\n\nIdeal para quem quer chegar e morar.\n\nAgende uma visita.",
-        hook: "Triplex com 190 m²",
-      },
-      {
-        headline: "Vista e localização premium",
-        description: "Praia Brava, Itajaí",
-        copy: "A localização na Praia Brava une desejo, praticidade e valorização. A vista e a luz natural reforçam o padrão do imóvel e a experiência de morar perto do mar.\n\nLocação anual por R$ 18.000 + taxas.\n\nConsulte detalhes.",
-        hook: "Praia Brava como endereço",
-      },
-      {
-        headline: "3 suítes para privacidade",
-        description: "Conforto na área íntima",
-        copy: "A área íntima foi pensada para conforto e privacidade. Com 3 suítes, o imóvel acomoda bem rotina, família e visitas sem abrir mão da exclusividade.\n\nCobertura mobiliada e pronta para morar.\n\nFale com a Edu Imóveis.",
-        hook: "3 suítes no alto padrão",
-      },
-      {
-        headline: "Quer conhecer pessoalmente?",
-        description: "Agende sua visita",
-        copy: "Se a proposta combina com o que você procura, o próximo passo é simples: conhecer a cobertura pessoalmente.\n\nCobertura triplex mobiliada, 190 m², 3 suítes, piscina privativa e locação anual na Praia Brava.\n\nChame no WhatsApp e agende sua visita.",
-        hook: "Agende sua visita exclusiva",
-      },
-    ];
-    const genericCards = [
+  function fallbackCardsForSegment(segment: string) {
+    if (segment === "alimentacao") {
+      return [
+        {
+          headline: "Doces para pedir hoje",
+          description: "Sabor e capricho",
+          copy: "Abra o carrossel pelo que mais chama atenção: doces bem apresentados, com variedade e visual pronto para despertar desejo.\n\nIdeal para presentear, servir em eventos ou garantir uma sobremesa especial.\n\nChame no WhatsApp e veja opções.",
+          hook: "Doces que chamam atenção",
+          pain: "Encontrar doces bonitos, confiáveis e fáceis de encomendar.",
+          solution: "Pedido direto, fotos reais e atendimento pelo WhatsApp.",
+          cta: "Pedir no WhatsApp",
+        },
+        {
+          headline: "Variedade na mesma caixa",
+          description: "Opções para todos",
+          copy: "Mostre a variedade antes do preço: sabores diferentes ajudam o cliente a imaginar a caixa chegando na mesa, no presente ou na comemoração.\n\nA escolha fica mais simples quando o visual já mostra o capricho.\n\nPeça o cardápio.",
+          hook: "Uma caixa, vários sabores",
+          pain: "Escolher doces sem saber quais sabores combinam melhor.",
+          solution: "Variedade visual para facilitar a decisão do pedido.",
+          cta: "Ver cardápio",
+        },
+        {
+          headline: "Encomendas com carinho",
+          description: "Feito para ocasião",
+          copy: "Para eventos, lembranças ou uma entrega especial, o que vende é confiança: doces bem montados, acabamento cuidadoso e contato rápido para combinar detalhes.\n\nUse o WhatsApp para consultar disponibilidade.\n\nFaça sua encomenda.",
+          hook: "Encomende para sua ocasião",
+          pain: "Precisar de doces para uma data e não querer arriscar.",
+          solution: "Atendimento direto para combinar sabores, quantidade e entrega.",
+          cta: "Fazer encomenda",
+        },
+      ];
+    }
+    if (segment === "servicos_locais" || segment === "saude_estetica") {
+      return [
+        {
+          headline: "Atendimento perto de você",
+          description: "Agende pelo WhatsApp",
+          copy: "Comece com clareza: mostre o serviço, a região atendida e o próximo passo para marcar sem complicação.\n\nQuem está procurando solução local quer resposta rápida e orientação objetiva.\n\nChame no WhatsApp.",
+          hook: "Atendimento local e direto",
+          pain: "Encontrar um serviço confiável e conseguir horário com facilidade.",
+          solution: "Contato rápido para tirar dúvidas e agendar atendimento.",
+          cta: "Agendar agora",
+        },
+      ];
+    }
+    if (segment === "infoprodutos") {
+      return [
+        {
+          headline: "Aprenda com direção clara",
+          description: "Comece com método",
+          copy: "O primeiro card precisa mostrar a transformação prometida sem exagero: o que a pessoa aprende, por que isso importa e qual é o próximo passo.\n\nUse uma chamada simples para inscrição ou aula.\n\nVeja como começar.",
+          hook: "Aprenda com um caminho claro",
+          pain: "Querer evoluir, mas não saber por onde começar.",
+          solution: "Conteúdo organizado com próximo passo simples.",
+          cta: "Quero me inscrever",
+        },
+      ];
+    }
+    if (segment === "ecommerce" || segment === "moda_varejo") {
+      return [
+        {
+          headline: "Produto em destaque",
+          description: "Veja os detalhes",
+          copy: "Use o visual do produto para abrir o desejo e deixe o texto explicar benefício, uso e caminho de compra.\n\nO cliente precisa entender rápido por que esse item vale o clique.\n\nVeja a oferta.",
+          hook: "Veja o produto em detalhes",
+          pain: "Comprar sem entender bem o benefício do produto.",
+          solution: "Imagem real, informação objetiva e caminho de compra claro.",
+          cta: "Ver oferta",
+        },
+      ];
+    }
+    if (segment === "imoveis_venda" || segment === "imoveis_locacao") {
+      return [
+        {
+          headline: "Piscina privativa no triplex",
+          description: "Lazer com exclusividade",
+          copy: "Comece pelo principal diferencial: uma cobertura triplex na Praia Brava com piscina privativa, mobiliada e pronta para locação anual.\n\nUm imóvel para quem busca privacidade, conforto e uma experiência de alto padrão no litoral.\n\nAgende sua visita.",
+          hook: "Piscina privativa na Praia Brava",
+          pain: "Encontrar um imóvel de alto padrão com dados claros e visita qualificada.",
+          solution: "Dados do imóvel, fotos reais e contato direto para visita.",
+          cta: "Agendar visita",
+        },
+        {
+          headline: "Cozinha integrada e vista",
+          description: "Ambiente para receber",
+          copy: "Ambientes integrados valorizam a rotina e os momentos de recepção. A cozinha ampla conversa com a área social e reforça a sensação de espaço do triplex.\n\nSão 190 m² para viver com conforto na Praia Brava.\n\nFale para saber disponibilidade.",
+          hook: "Ambientes amplos para receber",
+          pain: "Avaliar um imóvel sem entender a experiência dos ambientes.",
+          solution: "Fotos organizadas por cômodo e copy ligada ao uso real.",
+          cta: "Ver disponibilidade",
+        },
+        {
+          headline: "190 m² em três pavimentos",
+          description: "Espaço de verdade",
+          copy: "A planta triplex entrega amplitude e separação inteligente dos ambientes. São 190 m², 3 suítes e mobília completa para uma locação anual de alto padrão.\n\nIdeal para quem quer chegar e morar.\n\nAgende uma visita.",
+          hook: "Triplex com 190 m²",
+          pain: "Comparar imóveis sem dados objetivos de espaço e configuração.",
+          solution: "Características confirmadas apresentadas por card.",
+          cta: "Agendar visita",
+        },
+        {
+          headline: "Vista e localização premium",
+          description: "Praia Brava, Itajaí",
+          copy: "A localização na Praia Brava une desejo, praticidade e valorização. A vista e a luz natural reforçam o padrão do imóvel e a experiência de morar perto do mar.\n\nLocação anual por R$ 18.000 + taxas.\n\nConsulte detalhes.",
+          hook: "Praia Brava como endereço",
+          pain: "Querer morar bem sem abrir mão de localização.",
+          solution: "Localização, vista e condição comercial claras.",
+          cta: "Consultar detalhes",
+        },
+        {
+          headline: "3 suítes para privacidade",
+          description: "Conforto na área íntima",
+          copy: "A área íntima foi pensada para conforto e privacidade. Com 3 suítes, o imóvel acomoda bem rotina, família e visitas sem abrir mão da exclusividade.\n\nCobertura mobiliada e pronta para morar.\n\nFale com a Edu Imóveis.",
+          hook: "3 suítes no alto padrão",
+          pain: "Precisar de conforto sem perder privacidade.",
+          solution: "Configuração de suítes e mobília informadas com clareza.",
+          cta: "Falar no WhatsApp",
+        },
+        {
+          headline: "Quer conhecer pessoalmente?",
+          description: "Agende sua visita",
+          copy: "Se a proposta combina com o que você procura, o próximo passo é simples: conhecer a cobertura pessoalmente.\n\nCobertura triplex mobiliada, 190 m², 3 suítes, piscina privativa e locação anual na Praia Brava.\n\nChame no WhatsApp e agende sua visita.",
+          hook: "Agende sua visita exclusiva",
+          pain: "Gostar do imóvel e precisar confirmar pessoalmente.",
+          solution: "Chamada direta para visita e atendimento.",
+          cta: "Agendar visita",
+        },
+      ];
+    }
+    return [
       {
         headline: "Conheça a proposta",
         description: "Veja os detalhes",
         copy: "Conheça os principais diferenciais desta oferta com informações claras, imagens reais e um próximo passo simples para falar com a equipe.\n\nConfira os detalhes e solicite atendimento.",
         hook: "Veja os diferenciais",
+        pain: "Entender se a oferta faz sentido antes de chamar a equipe.",
+        solution: "Informação objetiva e CTA claro para atendimento.",
+        cta: "Falar com a equipe",
       },
       {
         headline: "Detalhes que importam",
         description: "Informação objetiva",
         copy: "Cada card destaca um ponto concreto da oferta para facilitar a decisão: benefícios, características confirmadas e chamada direta para contato.\n\nFale com a equipe para saber mais.",
         hook: "Informação para decidir",
+        pain: "Comparar opções sem detalhes claros.",
+        solution: "Cards organizados com benefício e próximo passo.",
+        cta: "Ver detalhes",
       },
     ];
+  }
+
+  function carouselFallbackForIndex(index: number, total: number): any {
+    const facts = confirmedOfferFacts().join(". ").toLowerCase();
+    const segment = resolveSegmentFromCampaignContext(
+      resolvedSegment,
+      (clientProfile as any)?.niche,
+      (clientProfile as any)?.productService,
+      (clientProfile as any)?.productName,
+      facts,
+      input.name,
+    );
+    const cards = fallbackCardsForSegment(segment);
     const insight = input.photoInsights?.[index];
     const rolePreferredIndex = (() => {
-      if (!isRealEstate || !insight?.role) return null;
+      if (!(segment === "imoveis_venda" || segment === "imoveis_locacao") || !insight?.role) return null;
       if (insight.role.includes("hero_exterior") || insight.role.includes("amenity")) return 0;
       if (insight.role.includes("gourmet")) return 1;
       if (insight.role.includes("living")) return 2;
@@ -6750,26 +6961,28 @@ ${creativeSlotInstructions}
       if (insight.role.includes("offer")) return 5;
       return null;
     })();
-    const cardIndex = rolePreferredIndex ?? index % (isRealEstate ? realEstateCards.length : genericCards.length);
-    const card = (isRealEstate ? realEstateCards : genericCards)[cardIndex];
+    const cardIndex = rolePreferredIndex ?? index % cards.length;
+    const card = cards[cardIndex];
     const lastLead = String(input.objective || "").toLowerCase() === "leads" && index === total - 1;
+    const cta = lastLead ? card.cta : (card.cta || SEGMENT_ALIGNMENT_RULES[segment]?.fallbackCta || "Ver detalhes");
     return {
       type: lastLead ? "direct_offer" : "social_proof",
       format: "Carrossel",
       orientation: "quadrado_1_1",
-      headline: trimMetaField(lastLead ? "Quer conhecer pessoalmente?" : card.headline, 40),
-      description: trimMetaField(lastLead ? "Agende sua visita" : card.description, 30),
-      shortDescription: trimMetaField(lastLead ? "Agende sua visita" : card.description, 30),
+      headline: trimMetaField(card.headline, 40),
+      description: trimMetaField(card.description, 30),
+      shortDescription: trimMetaField(card.description, 30),
       bodyText: card.copy,
       copy: card.copy,
       cta,
       hook: card.hook,
-      pain: "Encontrar um imóvel de alto padrão com dados claros e visita qualificada.",
-      solution: confirmedOfferFacts().join(". ").slice(0, 240),
+      pain: card.pain,
+      solution: card.solution || confirmedOfferFacts().join(". ").slice(0, 240),
       script: null,
       funnelStage: lastLead ? "BOF" : ["TOF", "MOF", "MOF", "BOF"][index % 4],
       complianceScore: "safe",
       needsReview: false,
+      segmentAlignment: segment,
       photoRole: insight?.role || null,
       photoCopyAngle: insight?.copyAngle || null,
       visualSignals: [
@@ -6796,7 +7009,7 @@ ${creativeSlotInstructions}
       const copy = isWeakGeneratedCopy(creative?.copy || creative?.bodyText) ? fallback.copy : (creative.copy || creative.bodyText);
       const hook = isWeakGeneratedCopy(creative?.hook) ? fallback.hook : creative.hook;
       const isLastLead = String(input.objective || "").toLowerCase() === "leads" && index === targetCount - 1;
-      return {
+      const mergedCreative = {
         ...fallback,
         ...creative,
         format: "Carrossel",
@@ -6812,6 +7025,36 @@ ${creativeSlotInstructions}
         photoRole: fallback.photoRole,
         photoCopyAngle: fallback.photoCopyAngle,
         visualSignals: fallback.visualSignals,
+      };
+      const segment = resolveSegmentFromCampaignContext(
+        resolvedSegment,
+        (clientProfile as any)?.niche,
+        (clientProfile as any)?.productService,
+        (clientProfile as any)?.productName,
+        input.extraContext,
+        input.name,
+      );
+      const alignmentIssues = auditCreativeSegmentAlignment(mergedCreative, segment);
+      if (alignmentIssues.length) {
+        log.warn("ai", "Criativo real desalinhado com segmento — usando fallback do segmento", {
+          index,
+          segment,
+          issues: alignmentIssues,
+          headline: String(mergedCreative.headline || "").slice(0, 50),
+        });
+        return {
+          ...fallback,
+          creativeIndex: index,
+          isFeaturedPhoto: index === 0,
+          segmentAlignment: segment,
+          segmentAlignmentIssues: alignmentIssues,
+          needsReview: false,
+        };
+      }
+      return {
+        ...mergedCreative,
+        segmentAlignment: segment,
+        segmentAlignmentIssues: [],
       };
     });
   }
@@ -6977,7 +7220,11 @@ ${creativeSlotInstructions}
         : "";
 
       // Regras de segmento centralizadas — cobre todos os 10 segmentos
-      const ctaRule = getSegmentInstruction(input.segment || "", p?.niche || "", input.objective);
+      const ctaRule = getSegmentInstruction(
+        resolvedSegment,
+        [p?.niche, p?.productService, p?.productName, input.extraContext, input.name].filter(Boolean).join(" "),
+        input.objective,
+      );
 
       // Ancora do produto (Modulo 1) para alinhamento das copies
       const hasDifferentials = !!p?.productDifferentials && !isAbsenceAnswer(p.productDifferentials);
@@ -7222,7 +7469,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     if (Array.isArray(parsedCreatives) && parsedCreatives.length > 0) {
       const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsedCreatives, {
         objective:      input.objective,
-        segment:        input.segment || input.extraContext || (clientProfile as any)?.niche || input.name,
+        segment:        resolvedSegment,
         productName:    (clientProfile as any)?.productName    || "",
         productService: (clientProfile as any)?.productService || "",
         niche:          (clientProfile as any)?.niche          || "",
@@ -7591,7 +7838,7 @@ CTA: "Simular gratuitamente" / "Abrir conta em 5 min" / "Falar com consultor"`,
   };
 
   // ALIMENTAÇÃO / RESTAURANTE / DELIVERY
-  if (n.match(/restaur|aliment|comida|food|lanche|pizza|sushi|padaria|cafe|deliver/)) return {
+  if (n.match(/restaur|aliment|comida|food|lanche|pizza|sushi|padaria|cafe|deliver|culin|doce|brigadeiro|sobremesa|confeit|bolo|salgado/)) return {
     hooksGuide: `ÂNGULOS OBRIGATÓRIOS para alimentação:
 - Sensorial: descreva a experiência — cheiro, textura, sabor específico
 - Conveniência: "X minutos da nossa cozinha até a sua mesa"
@@ -8244,10 +8491,15 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   }>;
 }) {
   // ── Validação de compliance e segmento nas copies geradas ──────────────────
-  const segment = context?.segment || "";
+  const segment = resolveSegmentFromCampaignContext(
+    context?.segment,
+    context?.niche,
+    context?.productService,
+    context?.productName,
+  );
   const segRule  = (SEGMENT_COPY_RULES as any)[segment];
 
-  function auditCopy(creative: any): { complianceIssues: string[]; forbiddenFound: string[]; hasPlaceholder: boolean } {
+  function auditCopy(creative: any): { complianceIssues: string[]; forbiddenFound: string[]; hasPlaceholder: boolean; segmentAlignmentIssues: string[] } {
     const texts = [creative.headline, creative.copy, creative.hook, creative.cta]
       .filter(Boolean).join(" ").toLowerCase();
     // Meta compliance
@@ -8263,7 +8515,8 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     // Placeholder check — detecta [cidade], {preço}, EMPRESA_AQUI, etc.
     const placeholderRe = /\[[^\]]*?\]|\{[^}]*?\}|placeholder|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i;
     const hasPlaceholder = placeholderRe.test(texts);
-    return { complianceIssues, forbiddenFound, hasPlaceholder };
+    const segmentAlignmentIssues = auditCreativeSegmentAlignment(creative, segment);
+    return { complianceIssues, forbiddenFound, hasPlaceholder, segmentAlignmentIssues };
   }
 
   // Remove placeholders residuais de um texto (sanitização anti-alucinação).
@@ -8312,6 +8565,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       }
       const recs = [
         placeholder ? "REMOVA todos os placeholders como [cidade], {preço}, EMPRESA_AQUI — use texto real ou omita o trecho" : "",
+        ...auditCreativeSegmentAlignment(current, segment),
         (score.recommendations || []).join("; "),
       ].filter(Boolean).join("; ") || "aumente especificidade, urgência e clareza";
       log.info("ai", `Score ${score.finalScore} < ${SCORE_THRESHOLD} — melhorando criativo (tentativa ${attempt}/${MAX_IMPROVE_ATTEMPTS})`, {
@@ -8323,6 +8577,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `RECOMENDAÇÕES: ${recs}\n\n` +
           `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description })}\n\n` +
           `REGRAS ABSOLUTAS:\n` +
+          `- Segmento correto da campanha: ${segment}. Mantenha vocabulário e CTA compatíveis com esse segmento.\n` +
           `- headline: máx 40 caracteres, específica, sem CTA embutido\n` +
           `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
           `- copy: máx 500 caracteres, sem frases repetidas\n` +
@@ -8375,13 +8630,22 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     if (audit.forbiddenFound.length) {
       log.warn("ai", "Copy com palavra proibida do segmento", { segment, forbidden: audit.forbiddenFound });
     }
+    if (audit.segmentAlignmentIssues.length) {
+      log.warn("ai", "Criativo desalinhado com o segmento da campanha", {
+        segment,
+        issues: audit.segmentAlignmentIssues,
+        headline: String(creative.headline || "").slice(0, 50),
+      });
+    }
     return {
       ...creative,
       creativeIndex: creative?.creativeIndex ?? index,
+      segmentAlignment: segment,
+      segmentAlignmentIssues: audit.segmentAlignmentIssues,
       complianceIssues: audit.complianceIssues,
       forbiddenWordsFound: audit.forbiddenFound,
       hasPlaceholder: audit.hasPlaceholder,
-      needsReview: creative.needsReview || audit.hasPlaceholder,
+      needsReview: creative.needsReview || audit.hasPlaceholder || audit.segmentAlignmentIssues.length > 0,
     };
   });
 
