@@ -75,6 +75,7 @@ test("asks food-specific questions for sweets campaign", () => {
 
   assert.notEqual(report.status, "blocked");
   assert.ok(report.questions.some((question) => /sabores|formatos|diferenciais/i.test(question)));
+  assert.ok(!report.questions.some((question) => /imovel|locacao anual|temporada|lancamento/i.test(question)));
 });
 
 test("passes quality gates for ready campaign generation", () => {

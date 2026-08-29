@@ -89,7 +89,7 @@ function buildSegmentIssues(input: CampaignQualityGateInput, clientProfile: any,
   const raw = segmentText(project, clientProfile, input);
   const issues: CampaignBriefingIssue[] = [];
 
-  const isRealEstate = /im[oó]ve|imobili|apartamento|cobertura|sala comercial|loca[cç][aã]o|venda|praia|brava/.test(raw);
+  const isRealEstate = /im[oó]ve|imobili|apartamento|cobertura|sala comercial|casa|terreno|lote|empreendimento|condom[ií]nio|praia brava|rua\s+\d{2,5}/.test(raw);
   const isFood = /doce|brigadeiro|culin[aá]ria|alimenta|confeitaria|bolo|delivery|encomenda|sobremesa/.test(raw);
   const isFitness = /academia|fitness|muscula[cç][aã]o|treino|emagrec|hipertrofia|atividade f[ií]sica/.test(raw);
 
