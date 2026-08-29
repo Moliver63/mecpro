@@ -35,6 +35,21 @@ export interface DecisionRecord {
   data:    string;
 }
 
+export interface OperationalLessonRecord {
+  id: string;
+  module: string;
+  scope: "generation" | "media" | "publish" | "optimization" | "mcp" | "meta" | "quality";
+  segment?: string;
+  objective?: string;
+  trigger: string;
+  lesson: string;
+  source?: string;
+  confidence: number;
+  status: "active" | "archived";
+  updatedAt: string;
+  createdAt: string;
+}
+
 export interface SystemStatus {
   metaAds:      "ok" | "sem_permissao" | "token_expirado" | "desconhecido";
   gemini:       "ok" | "quota_limitada" | "esgotado";
@@ -51,6 +66,7 @@ const KEYS = {
   bugs:     "system_memory_bugs",
   decisions:"system_memory_decisions",
   status:   "system_memory_status",
+  lessons:  "system_memory_operational_lessons",
 } as const;
 
 async function readSetting<T>(key: string, fallback: T): Promise<T> {
@@ -133,6 +149,120 @@ export async function logDecision(decision: Omit<DecisionRecord, "data">): Promi
   await writeSetting(KEYS.decisions, decisions);
 }
 
+// ── API de lições operacionais refináveis ───────────────────────────────────
+
+function normalizeLessonKey(value: unknown): string {
+  return String(value ?? "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function lessonMatches(lesson: OperationalLessonRecord, filters?: {
+  modules?: string[];
+  scopes?: OperationalLessonRecord["scope"][];
+  segment?: string | null;
+  objective?: string | null;
+}): boolean {
+  if (lesson.status !== "active") return false;
+  if (filters?.modules?.length && !filters.modules.includes(lesson.module)) return false;
+  if (filters?.scopes?.length && !filters.scopes.includes(lesson.scope)) return false;
+  const segment = normalizeLessonKey(filters?.segment);
+  const objective = normalizeLessonKey(filters?.objective);
+  if (segment && lesson.segment && normalizeLessonKey(lesson.segment) !== segment) return false;
+  if (objective && lesson.objective && normalizeLessonKey(lesson.objective) !== objective) return false;
+  return true;
+}
+
+export async function refineOperationalLesson(input: {
+  id?: string;
+  module: string;
+  scope: OperationalLessonRecord["scope"];
+  segment?: string;
+  objective?: string;
+  trigger: string;
+  lesson: string;
+  source?: string;
+  confidence?: number;
+  status?: "active" | "archived";
+}): Promise<OperationalLessonRecord> {
+  const lessons = await readSetting<OperationalLessonRecord[]>(KEYS.lessons, []);
+  const now = new Date().toISOString();
+  const id = input.id || [
+    input.module,
+    input.scope,
+    input.segment,
+    input.objective,
+    input.trigger,
+  ].map(normalizeLessonKey).filter(Boolean).join(":");
+  const existing = lessons.findIndex((lesson) => lesson.id === id);
+  const previous = existing >= 0 ? lessons[existing] : null;
+  const record: OperationalLessonRecord = {
+    id,
+    module: input.module,
+    scope: input.scope,
+    segment: input.segment,
+    objective: input.objective,
+    trigger: input.trigger,
+    lesson: input.lesson,
+    source: input.source,
+    confidence: Math.max(0, Math.min(1, Number(input.confidence ?? previous?.confidence ?? 0.7))),
+    status: input.status || previous?.status || "active",
+    createdAt: previous?.createdAt || now,
+    updatedAt: now,
+  };
+
+  if (existing >= 0) lessons[existing] = record;
+  else lessons.push(record);
+
+  const active = lessons.filter((lesson) => lesson.status === "active")
+    .sort((a, b) => b.confidence - a.confidence || b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 120);
+  const archived = lessons.filter((lesson) => lesson.status !== "active").slice(-40);
+  await writeSetting(KEYS.lessons, [...active, ...archived]);
+  log.info("memory", "Licao operacional refinada", { id: record.id, module: record.module, scope: record.scope });
+  return record;
+}
+
+export async function getOperationalLessons(filters?: {
+  modules?: string[];
+  scopes?: OperationalLessonRecord["scope"][];
+  segment?: string | null;
+  objective?: string | null;
+  limit?: number;
+}): Promise<OperationalLessonRecord[]> {
+  const limit = Math.max(1, Math.min(30, Number(filters?.limit || 10)));
+  const lessons = await readSetting<OperationalLessonRecord[]>(KEYS.lessons, []);
+  return lessons
+    .filter((lesson) => lessonMatches(lesson, filters))
+    .sort((a, b) => b.confidence - a.confidence || b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, limit);
+}
+
+export async function buildOperationalLessonsContext(filters?: {
+  modules?: string[];
+  scopes?: OperationalLessonRecord["scope"][];
+  segment?: string | null;
+  objective?: string | null;
+  limit?: number;
+}): Promise<string> {
+  const lessons = await getOperationalLessons(filters);
+  if (!lessons.length) return "";
+  const lines = lessons.map((item, index) => {
+    const scope = [item.module, item.scope, item.segment, item.objective].filter(Boolean).join("/");
+    return `${index + 1}. [${scope}] Quando: ${item.trigger}. Aplicar: ${item.lesson}`;
+  });
+  return [
+    "========================",
+    "LICOES OPERACIONAIS REUTILIZAVEIS",
+    "========================",
+    "Use estas licoes como regras de processo e estrategia. NUNCA trate licoes como fatos da campanha atual.",
+    ...lines,
+  ].join("\n");
+}
+
 // ── API de Status ─────────────────────────────────────────────────────────────
 
 export async function getSystemStatus(): Promise<SystemStatus> {
@@ -172,10 +302,11 @@ export async function onMetaCBClose(): Promise<void> {
  * Uso: const ctx = await buildAIContext(); prompt = `${ctx}\n\n${userPrompt}`;
  */
 export async function buildAIContext(modules?: string[]): Promise<string> {
-  const [bugs, decisions, status] = await Promise.all([
+  const [bugs, decisions, status, lessons] = await Promise.all([
     getBugHistory(),
     readSetting<DecisionRecord[]>(KEYS.decisions, []),
     getSystemStatus(),
+    getOperationalLessons({ modules, limit: 5 }),
   ]);
 
   const openBugs     = bugs.filter(b => !b.resolvido && (!modules || modules.includes(b.module)));
@@ -190,6 +321,9 @@ export async function buildAIContext(modules?: string[]): Promise<string> {
   }
   if (relevantDecs.length > 0) {
     ctx += `Decisões: ${relevantDecs.map(d => `${d.id}:${d.decisao.slice(0,40)}`).join(" | ")}\n`;
+  }
+  if (lessons.length > 0) {
+    ctx += `Lições: ${lessons.map(l => `${l.id}:${l.lesson.slice(0,50)}`).join(" | ")}\n`;
   }
 
   return ctx;
@@ -300,8 +434,53 @@ export async function seedKnownBugs(): Promise<void> {
     await logDecision(decision);
   }
 
+  const knownLessons: Array<Parameters<typeof refineOperationalLesson>[0]> = [
+    {
+      id: "campaign-facts-never-cross-pollinate",
+      module: "campaigns",
+      scope: "generation",
+      trigger: "Ao gerar criativos usando memoria, learning_base ou exemplos vencedores",
+      lesson: "Use exemplos apenas como estrutura persuasiva; nunca copie preco, endereco, metragem, suites, vagas, fotos ou oferta de outra campanha.",
+      source: "incidente Morebem/Edu 2026-08",
+      confidence: 1,
+    },
+    {
+      id: "carousel-requires-cover-and-order",
+      module: "media",
+      scope: "media",
+      trigger: "Quando houver mais de uma imagem ou video para carrossel",
+      lesson: "Confirmar capa/destaque e ordem visual; se o usuario nao escolher, ordenar por impacto comercial, explicacao da oferta, diferenciais e CTA.",
+      source: "auditoria carrossel Meta 2026-08",
+      confidence: 0.95,
+    },
+    {
+      id: "meta-publish-needs-explicit-confirmation",
+      module: "meta",
+      scope: "publish",
+      trigger: "Antes de publicar ou republicar na Meta",
+      lesson: "Exigir confirmacao explicita do usuario e validar destino, orcamento, midias, copy e fact guard antes de qualquer acao com gasto real.",
+      source: "quality gates 2026-08",
+      confidence: 1,
+    },
+    {
+      id: "food-campaign-needs-offer-specifics",
+      module: "creative",
+      scope: "generation",
+      segment: "venda de doces",
+      trigger: "Ao criar campanha de doces, confeitaria ou alimentacao",
+      lesson: "Perguntar sabores, formatos, encomenda/pronta entrega, retirada ou entrega e usar linguagem de desejo visual, variedade e presente.",
+      source: "quality gates 2026-08",
+      confidence: 0.9,
+    },
+  ];
+
+  for (const lesson of knownLessons) {
+    await refineOperationalLesson(lesson);
+  }
+
   log.info("memory", "Seed de memória técnica concluído", {
     bugs: knownBugs.length,
     decisions: knownDecisions.length,
+    lessons: knownLessons.length,
   });
 }

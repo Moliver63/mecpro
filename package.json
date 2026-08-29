@@ -19,6 +19,7 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "seed": "tsx server/scripts/seed-superadmin.ts",
+    "seed:memory": "tsx server/scripts/seed-system-memory.ts",
     "seed:plans": "tsx server/scripts/seed-plans.ts"
   },
   "dependencies": {

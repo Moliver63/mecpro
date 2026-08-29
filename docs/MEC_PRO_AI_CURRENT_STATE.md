@@ -191,6 +191,35 @@ Os dados historicos foram limpos para remover sinais antigos como:
 
 Observacao: ate a ultima auditoria conhecida, `campaign_scores` nao possuia ROAS real maior que zero. Portanto, o motor consegue aprender por CTR, CPC, CPM e sinais de entrega, mas ainda nao aprende ROAS real enquanto esse dado nao for gravado.
 
+## Memoria operacional refinavel
+
+O arquivo `server/systemMemory.ts` agora tambem oferece uma camada de licoes operacionais persistentes, semelhante ao conceito de `/refine`: o modelo em si nao muda, mas o projeto acumula regras, aprendizados e padroes reaproveitaveis como contexto.
+
+Ferramentas MCP:
+
+- `record_operational_lesson`: registra ou refina uma licao ativa.
+- `list_operational_lessons`: lista licoes filtradas por modulo, escopo, segmento ou objetivo.
+
+Essas licoes entram no prompt de `generateCampaign` por `buildOperationalLessonsContext`, sempre com a regra explicita: usar como processo/estrategia, nunca como fato da campanha atual.
+
+Para inicializar as licoes padrao no banco:
+
+```bash
+npm run seed:memory
+```
+
+Exemplos de licoes validas:
+
+- Em carrossel imobiliario, confirmar capa e ordem antes de publicar.
+- Em doces, perguntar sabores, formato de encomenda e regiao de entrega.
+- Se `factValidationStatus=failed`, nunca publicar antes de corrigir copy.
+
+Exemplos que nao devem virar licao geral:
+
+- Um preco especifico de campanha.
+- Um endereco especifico.
+- Uma metragem ou numero de suites de um projeto.
+
 ## Validacoes tecnicas
 
 Comandos recomendados apos alteracoes no motor:

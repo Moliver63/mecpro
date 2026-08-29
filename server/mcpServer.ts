@@ -13,6 +13,7 @@
  * 9. Suporte a formats[] no upload_campaign_images — multi-formato em 1 chamada
  * 10. structuredContent simplificado — menos confusão pro LLM
  * 11. upload_creative_video — vídeo via base64 ou URL pública para Meta Ads
+ * 12. record/list_operational_lessons — memoria refinavel de regras de processo
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -24,6 +25,7 @@ import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./
 import { log } from "./logger";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
+import { getOperationalLessons, refineOperationalLesson } from "./systemMemory";
 
 // ── Cache de imagens por SHA256 (evita upload duplicado) ──────────────────
 const _imageHashCache = new Map<string, { url: string; ts: number }>();
@@ -654,7 +656,7 @@ function scopeErrorContent(required: McpScope, userScope: McpScope) {
 }
 
 export function createMcpServerForUser(userId: number, scope: McpScope = "publish"): McpServer {
-  const server = new McpServer({ name: "mecproai", version: "1.4.0" });
+  const server = new McpServer({ name: "mecproai", version: "1.5.0" });
 
   async function getCaller() {
     const user = await db.getUserById(userId);
@@ -1025,6 +1027,70 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           ...readiness,
           qualityGateReport: gateReport,
         },
+      };
+    }
+  );
+
+  server.registerTool(
+    "record_operational_lesson",
+    {
+      title: "Registrar licao operacional",
+      description:
+        "Registra ou refina uma licao persistente do MecProAI para ser reutilizada em geracao, " +
+        "midia, publicacao, otimizacao, MCP, Meta ou quality gates. Use para bugs reais, regras " +
+        "confirmadas e padroes de campanha. Nao use para salvar fatos especificos de uma campanha como se fossem regra geral.",
+      inputSchema: {
+        id: z.string().optional().describe("ID estavel opcional. Se omitido, o sistema gera um ID pelo modulo/escopo/gatilho."),
+        module: z.string().describe("Modulo afetado, ex: campaigns, creative, media, mcp, meta, quality."),
+        scope: z.enum(["generation", "media", "publish", "optimization", "mcp", "meta", "quality"]).describe("Onde a licao deve ser aplicada."),
+        segment: z.string().optional().describe("Segmento opcional, ex: imoveis, venda de doces, academia."),
+        objective: z.string().optional().describe("Objetivo opcional, ex: leads, sales, traffic."),
+        trigger: z.string().describe("Quando aplicar a licao."),
+        lesson: z.string().describe("Regra/processo a reutilizar. Deve ser uma licao geral, nao um fato privado de campanha."),
+        source: z.string().optional().describe("Origem da licao: campanha, commit, incidente, auditoria ou conversa."),
+        confidence: z.number().min(0).max(1).optional().describe("Confianca de 0 a 1."),
+        status: z.enum(["active", "archived"]).optional(),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
+      const lesson = await refineOperationalLesson(input);
+      return {
+        content: [{
+          type: "text",
+          text: `Licao operacional salva: ${lesson.id}. Ela sera reutilizada como regra de processo, nao como fato de campanha.`,
+        }],
+        structuredContent: lesson,
+      };
+    }
+  );
+
+  server.registerTool(
+    "list_operational_lessons",
+    {
+      title: "Listar licoes operacionais",
+      description:
+        "Lista licoes persistentes que o MecProAI pode reutilizar como contexto de processo. " +
+        "Use antes de alterar fluxos de campanha, criativos, midia, MCP, Meta ou quality gates.",
+      inputSchema: {
+        modules: z.array(z.string()).optional().describe("Filtrar por modulos, ex: campaigns, creative, media."),
+        scopes: z.array(z.enum(["generation", "media", "publish", "optimization", "mcp", "meta", "quality"])).optional(),
+        segment: z.string().optional(),
+        objective: z.string().optional(),
+        limit: z.number().int().min(1).max(30).optional(),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const lessons = await getOperationalLessons(input);
+      return {
+        content: [{
+          type: "text",
+          text: lessons.length
+            ? lessons.map((lesson, index) => `${index + 1}. ${lesson.id} [${lesson.module}/${lesson.scope}] ${lesson.lesson}`).join("\n")
+            : "Nenhuma licao operacional encontrada para esses filtros.",
+        }],
+        structuredContent: { lessons },
       };
     }
   );

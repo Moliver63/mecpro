@@ -21,6 +21,7 @@ import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity } from "./campaignFactGuard";
+import { buildOperationalLessonsContext } from "./systemMemory";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -6271,6 +6272,13 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     segment: resolvedSegment,
   });
   const campaignFactsPrompt = formatCampaignFactsForPrompt(campaignFacts);
+  const operationalLessonsPrompt = await buildOperationalLessonsContext({
+    modules: ["campaigns", "creative", "media", "mcp", "meta", "quality"],
+    scopes: ["generation", "media", "publish", "quality"],
+    segment: resolvedSegment,
+    objective: input.objective,
+    limit: 6,
+  });
 
   // Texto-fonte pra inferência: os mesmos campos de texto livre que já vão
   // pro prompt (produto/serviço, dor, proposta de valor, diferenciais,
@@ -6477,6 +6485,7 @@ ${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile 
 ${ctaRule}
 ${subsegmentInstruction}
 ${campaignFactsPrompt}
+${operationalLessonsPrompt}
 
 CAMPANHA: ${input.name}
 OBJETIVO: ${objectiveLabels[input.objective] || input.objective}
