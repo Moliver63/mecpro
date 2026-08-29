@@ -12,6 +12,7 @@
  * 8. Nova tool upload_image — upload genérico que retorna URL pública
  * 9. Suporte a formats[] no upload_campaign_images — multi-formato em 1 chamada
  * 10. structuredContent simplificado — menos confusão pro LLM
+ * 11. upload_creative_video — vídeo via base64 ou URL pública para Meta Ads
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -101,6 +102,8 @@ function decodeAndValidateImage(imageBase64: string): { ok: boolean; buffer: Buf
 // ── Resolução de fileUrl — trata Google Drive + retry ─────────────────────
 const IMAGE_EXT_RE = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
 const MAX_FILEURL_IMAGE_BYTES = 15 * 1024 * 1024;
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm)(\?.*)?$/i;
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
 function normalizeGoogleDriveUrl(url: string): string {
   const patterns = [
@@ -121,6 +124,81 @@ function looksLikeImage(contentType: string, fileUrl: string): boolean {
     return IMAGE_EXT_RE.test(fileUrl);
   }
   return false;
+}
+
+function looksLikeVideo(contentType: string, fileUrl: string): boolean {
+  if (contentType.startsWith("video/")) return true;
+  if (!contentType || contentType === "application/octet-stream") {
+    return VIDEO_EXT_RE.test(fileUrl);
+  }
+  return false;
+}
+
+function inferVideoMimeType(fileName: string, fallback = "video/mp4"): string {
+  if (/\.mov$/i.test(fileName)) return "video/quicktime";
+  if (/\.webm$/i.test(fileName)) return "video/webm";
+  if (/\.m4v$/i.test(fileName)) return "video/x-m4v";
+  if (/\.mp4$/i.test(fileName)) return "video/mp4";
+  return fallback;
+}
+
+function decodeAndValidateVideo(videoBase64: string): { ok: boolean; buffer: Buffer | null; error: string | null } {
+  const base64Clean = videoBase64.replace(/^data:[a-zA-Z0-9.+/-]+;base64,/, "").trim();
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(base64Clean, "base64");
+  } catch {
+    return { ok: false, buffer: null, error: "Base64 inválido — não foi possível decodificar o vídeo." };
+  }
+  if (buffer.length < 100) return { ok: false, buffer: null, error: "Vídeo vazio ou corrompido." };
+  if (buffer.length > MAX_VIDEO_BYTES) {
+    return { ok: false, buffer: null, error: `Vídeo muito grande (${(buffer.length / 1024 / 1024).toFixed(1)}MB). Máximo aceito: 200MB.` };
+  }
+  return { ok: true, buffer, error: null };
+}
+
+async function fetchVideoBuffer(
+  rawUrl: string,
+  timeoutMs = 30000,
+  retries = 2,
+): Promise<{ ok: true; buffer: Buffer; contentType: string } | { ok: false; error: string }> {
+  const isDrive = /drive\.google\.com/.test(rawUrl);
+  const url = isDrive ? normalizeGoogleDriveUrl(rawUrl) : rawUrl;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    } catch (e: any) {
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+        continue;
+      }
+      return { ok: false, error: `Falha ao baixar o vídeo de fileUrl: ${e?.message || "erro de rede"}.` };
+    }
+    if (!response.ok) {
+      if (attempt < retries && response.status >= 500) {
+        await new Promise(r => setTimeout(r, 1000 * attempt));
+        continue;
+      }
+      return { ok: false, error: `fileUrl retornou status ${response.status} — verifique se a URL do vídeo é pública e acessível.` };
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!looksLikeVideo(contentType, url)) {
+      return { ok: false, error: `fileUrl não aponta pra um vídeo suportado (content-type: ${contentType || "desconhecido"}).` };
+    }
+    if (buffer.byteLength > MAX_VIDEO_BYTES) {
+      return { ok: false, error: "Vídeo baixado de fileUrl excede 200MB — use um vídeo menor." };
+    }
+    if (buffer.byteLength < 100) {
+      return { ok: false, error: "Vídeo baixado de fileUrl está vazio ou corrompido." };
+    }
+    return { ok: true, buffer, contentType };
+  }
+
+  return { ok: false, error: "Todas as tentativas de download do vídeo falharam." };
 }
 
 async function fetchImageBuffer(
@@ -561,7 +639,7 @@ function scopeErrorContent(required: McpScope, userScope: McpScope) {
 }
 
 export function createMcpServerForUser(userId: number, scope: McpScope = "publish"): McpServer {
-  const server = new McpServer({ name: "mecproai", version: "1.2.0" });
+  const server = new McpServer({ name: "mecproai", version: "1.3.0" });
 
   async function getCaller() {
     const user = await db.getUserById(userId);
@@ -1283,6 +1361,162 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       }
     }
   );
+
+  const uploadCreativeVideoToolConfig = {
+    title: "Enviar vídeo manual pra um criativo",
+    description:
+      "Sobe um vídeo para a biblioteca da Meta Ads e vincula o videoId ao criativo " +
+      "da campanha. Use para anúncios em vídeo/Reels/Stories/Feed. Informe videoBase64 " +
+      "OU fileUrl pública HTTPS (nunca os dois). Para arquivos anexados pelo ChatGPT, " +
+      "o cliente precisa enviar os bytes/base64 reais ou uma URL HTTPS pública acessível " +
+      "pelo servidor MecProAI.",
+    inputSchema: {
+      campaignId: z.number().int().positive().describe("ID da campanha (de get_campaign/list_campaigns)."),
+      creativeIndex: z.number().int().min(0).describe("Índice do criativo dentro da campanha (0 = primeiro)."),
+      format: z.enum(["feed", "stories", "square"]).default("feed").describe(
+        "Formato/aspect ratio onde o vídeo será usado: feed (4:5), stories (9:16) ou square (1:1)."
+      ),
+      videoBase64: z.string().optional().describe(
+        "Conteúdo do vídeo em base64 (com ou sem prefixo data:video/...;base64,). Use isso OU fileUrl."
+      ),
+      fileUrl: z.string().url().optional().describe(
+        "URL pública HTTPS de onde baixar o vídeo. Use isso OU videoBase64, não os dois."
+      ),
+      fileName: z.string().default("ad_video.mp4").describe("Nome do arquivo, com extensão (ex: video-cliente.mp4)."),
+      mimeType: z.string().optional().describe("MIME do vídeo. Se omitido, o MecProAI tenta inferir pelo fileName."),
+      videoThumbnailUrl: z.string().url().optional().describe(
+        "URL HTTPS opcional de thumbnail. Se omitido, a publicação tenta obter thumbnail automática da Meta."
+      ),
+      videoThumbnailHash: z.string().optional().describe(
+        "Hash opcional de imagem já enviada para a Meta para usar como thumbnail."
+      ),
+    },
+  };
+
+  const uploadCreativeVideoHandler = async ({
+    campaignId,
+    creativeIndex,
+    format,
+    videoBase64,
+    fileUrl,
+    fileName,
+    mimeType,
+    videoThumbnailUrl,
+    videoThumbnailHash,
+  }: {
+    campaignId: number;
+    creativeIndex: number;
+    format: "feed" | "stories" | "square";
+    videoBase64?: string;
+    fileUrl?: string;
+    fileName: string;
+    mimeType?: string;
+    videoThumbnailUrl?: string;
+    videoThumbnailHash?: string;
+  }) => {
+    if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
+
+    const campaign: any = await db.getCampaignById(campaignId);
+    if (!campaign) {
+      return { content: [{ type: "text" as const, text: `Campanha ${campaignId} não encontrada.` }], isError: true };
+    }
+    const project: any = await db.getProjectById(campaign.projectId);
+    if (!project || project.userId !== userId) {
+      return { content: [{ type: "text" as const, text: `Campanha ${campaignId} não pertence a este usuário.` }], isError: true };
+    }
+
+    const creatives = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
+    if (!creatives[creativeIndex]) {
+      return { content: [{ type: "text" as const, text: `Criativo de índice ${creativeIndex} não existe nessa campanha (ela tem ${creatives.length}).` }], isError: true };
+    }
+
+    if (!videoBase64 && !fileUrl) {
+      return { content: [{ type: "text" as const, text: "Informe videoBase64 ou fileUrl." }], isError: true };
+    }
+    if (videoBase64 && fileUrl) {
+      return { content: [{ type: "text" as const, text: "Informe apenas um: videoBase64 OU fileUrl, não os dois." }], isError: true };
+    }
+
+    let buffer: Buffer;
+    let effectiveMime = mimeType || inferVideoMimeType(fileName || "ad_video.mp4");
+    if (fileUrl) {
+      if (!/^https:\/\//i.test(fileUrl)) {
+        return { content: [{ type: "text" as const, text: "fileUrl precisa ser uma URL HTTPS pública." }], isError: true };
+      }
+      const downloaded = await fetchVideoBuffer(fileUrl, 30000);
+      if (!downloaded.ok) {
+        return { content: [{ type: "text" as const, text: downloaded.error }], isError: true };
+      }
+      buffer = downloaded.buffer;
+      if (!mimeType && downloaded.contentType.startsWith("video/")) {
+        effectiveMime = downloaded.contentType.split(";")[0].trim();
+      }
+    } else {
+      const decoded = decodeAndValidateVideo(videoBase64!);
+      if (!decoded.ok || !decoded.buffer) {
+        return { content: [{ type: "text" as const, text: decoded.error || "Vídeo inválido." }], isError: true };
+      }
+      buffer = decoded.buffer;
+    }
+
+    let caller;
+    try {
+      caller = await getCaller();
+    } catch (e: any) {
+      return { content: [{ type: "text" as const, text: e.message }], isError: true };
+    }
+
+    try {
+      const uploadResult: any = await caller.campaigns.uploadVideoToMeta({
+        videoBase64: buffer.toString("base64"),
+        fileName: fileName || "ad_video.mp4",
+        mimeType: effectiveMime,
+      } as any);
+      const videoId = uploadResult?.videoId;
+      if (!videoId) {
+        return { content: [{ type: "text" as const, text: "Vídeo enviado, mas a Meta não retornou videoId." }], isError: true };
+      }
+
+      const updateResult: any = await caller.campaigns.updateCreativeImage({
+        campaignId,
+        creativeIndex,
+        format,
+        videoId,
+        videoThumbnailUrl,
+        videoThumbnailHash,
+      } as any);
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: `✅ Vídeo do criativo ${creativeIndex} (${format}) enviado para a Meta e vinculado com sucesso.\nvideoId: ${videoId}`,
+        }],
+        structuredContent: {
+          ok: true,
+          videoId,
+          creativeIndex,
+          format,
+          mimeType: effectiveMime,
+          creative: updateResult?.creative ?? null,
+        },
+      };
+    } catch (e: any) {
+      return {
+        content: [{ type: "text" as const, text: `Falha ao enviar/vincular vídeo: ${e.message || "erro desconhecido"}` }],
+        isError: true,
+      };
+    }
+  };
+
+  server.registerTool("upload_creative_video", uploadCreativeVideoToolConfig, uploadCreativeVideoHandler);
+  server.registerTool("MECPROAI.upload_creative_video", {
+    ...uploadCreativeVideoToolConfig,
+    title: "MECPROAI.upload_creative_video",
+  }, uploadCreativeVideoHandler);
+  server.registerTool("mecproai.upload_creative_video", {
+    ...uploadCreativeVideoToolConfig,
+    title: "mecproai.upload_creative_video",
+  }, uploadCreativeVideoHandler);
 
   // ── upload_campaign_images (lote — schema limpo, sem passthrough) ──────
   const uploadCampaignImagesInputSchema = {
