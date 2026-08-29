@@ -20,6 +20,7 @@ import { isAbsenceAnswer } from "../shared/pendencyQuestions";
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
+import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity } from "./campaignFactGuard";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -1855,7 +1856,12 @@ async function _geminiImpl(
 
   // Cache DB persistente — sobrevive a deploys (verifica apenas na 1ª tentativa)
   if (opts.useCache !== false && retryCount === 0 && opts.cacheAs) {
-    const dbKey    = buildCacheKey(prompt, opts.cacheAs);
+    const dbKey    = buildCacheKey(
+      prompt,
+      opts.cacheAs,
+      opts.cacheMeta?.projectId ?? opts._projectId,
+      opts.cacheMeta?.userId ?? opts._userId,
+    );
     const dbCached = await getCachedResponse(dbKey);
     if (dbCached) return dbCached;
   }
@@ -2083,7 +2089,12 @@ async function _geminiImpl(
     setCachedGemini(cacheKey, result);
     // Persiste no cache DB se cacheAs especificado
     if (opts.cacheAs) {
-      const dbKey     = buildCacheKey(prompt, opts.cacheAs);
+      const dbKey     = buildCacheKey(
+        prompt,
+        opts.cacheAs,
+        opts.cacheMeta?.projectId ?? opts._projectId,
+        opts.cacheMeta?.userId ?? opts._userId,
+      );
       const estTokens = Math.round((prompt.length + result.length) / 4);
       setCachedResponse(dbKey, result, opts.cacheAs, opts.cacheMeta, estTokens).catch(() => {});
     }
@@ -6253,6 +6264,13 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     ].filter(Boolean).join(" "),
     input.objective,
   );
+  const campaignFacts = buildCampaignFacts({
+    input,
+    clientProfile: clientProfile as any,
+    campaignName: input.name,
+    segment: resolvedSegment,
+  });
+  const campaignFactsPrompt = formatCampaignFactsForPrompt(campaignFacts);
 
   // Texto-fonte pra inferência: os mesmos campos de texto livre que já vão
   // pro prompt (produto/serviço, dor, proposta de valor, diferenciais,
@@ -6458,6 +6476,7 @@ ${buildPersonasBlock((clientProfile as any)?.personas)}
 ${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile as any).averageTicket}` : ""}
 ${ctaRule}
 ${subsegmentInstruction}
+${campaignFactsPrompt}
 
 CAMPANHA: ${input.name}
 OBJETIVO: ${objectiveLabels[input.objective] || input.objective}
@@ -6860,57 +6879,67 @@ ${creativeSlotInstructions}
       ];
     }
     if (segment === "imoveis_venda" || segment === "imoveis_locacao") {
+      const type = campaignFacts.realEstate.propertyType || "imóvel";
+      const purpose = campaignFacts.realEstate.purpose === "venda" ? "venda" : "locação";
+      const area = campaignFacts.realEstate.areaM2 || "";
+      const price = campaignFacts.realEstate.price || "";
+      const address = campaignFacts.realEstate.address || (clientProfile as any)?.city || "";
+      const featureLine = campaignFacts.realEstate.structuralFeatures.join(", ");
+      const usageLine = campaignFacts.realEstate.usagePossibilities.length
+        ? `Uso possível para ${campaignFacts.realEstate.usagePossibilities.join(", ")}.`
+        : "";
+      const factSummary = campaignFacts.verifiedFacts.map((fact) => fact.replace(/^[^:]+:\s*/, "")).join(", ");
       return [
         {
-          headline: "Piscina privativa no triplex",
-          description: "Lazer com exclusividade",
-          copy: "Comece pelo principal diferencial: uma cobertura triplex na Praia Brava com piscina privativa, mobiliada e pronta para locação anual.\n\nUm imóvel para quem busca privacidade, conforto e uma experiência de alto padrão no litoral.\n\nAgende sua visita.",
-          hook: "Piscina privativa na Praia Brava",
-          pain: "Encontrar um imóvel de alto padrão com dados claros e visita qualificada.",
-          solution: "Dados do imóvel, fotos reais e contato direto para visita.",
+          headline: trimMetaField(`${type} para ${purpose}`, 40),
+          description: trimMetaField(area || "Dados confirmados", 30),
+          copy: `Comece pelo que foi confirmado no briefing: ${type} para ${purpose}${area ? ` com ${area}` : ""}${address ? ` em ${address}` : ""}.\n\n${price ? `${price}${campaignFacts.realEstate.includedFees ? `, ${campaignFacts.realEstate.includedFees}` : ""}.` : "Informações objetivas para avaliar o imóvel com segurança."}\n\nChame para saber detalhes.`,
+          hook: trimMetaField(`${type} com dados claros`, 40),
+          pain: "Avaliar um imóvel sem dados objetivos e confiáveis.",
+          solution: factSummary || "Fatos do briefing atual, sem herdar dados de outro projeto.",
           cta: "Agendar visita",
         },
         {
-          headline: "Cozinha integrada e vista",
-          description: "Ambiente para receber",
-          copy: "Ambientes integrados valorizam a rotina e os momentos de recepção. A cozinha ampla conversa com a área social e reforça a sensação de espaço do triplex.\n\nSão 190 m² para viver com conforto na Praia Brava.\n\nFale para saber disponibilidade.",
-          hook: "Ambientes amplos para receber",
-          pain: "Avaliar um imóvel sem entender a experiência dos ambientes.",
-          solution: "Fotos organizadas por cômodo e copy ligada ao uso real.",
+          headline: trimMetaField(featureLine || "Estrutura do imóvel", 40),
+          description: "Característica real",
+          copy: `${featureLine ? `A estrutura informada no briefing inclui ${featureLine}.` : `Este card destaca a estrutura real do ${type}, sem inventar características.`}\n\n${usageLine || "A copy deve explicar o uso possível apenas quando isso estiver no briefing."}\n\nFale no WhatsApp para confirmar disponibilidade.`,
+          hook: "Estrutura informada no briefing",
+          pain: "Entender se o espaço atende ao uso pretendido.",
+          solution: featureLine || "Características confirmadas no briefing atual.",
           cta: "Ver disponibilidade",
         },
         {
-          headline: "190 m² em três pavimentos",
-          description: "Espaço de verdade",
-          copy: "A planta triplex entrega amplitude e separação inteligente dos ambientes. São 190 m², 3 suítes e mobília completa para uma locação anual de alto padrão.\n\nIdeal para quem quer chegar e morar.\n\nAgende uma visita.",
-          hook: "Triplex com 190 m²",
-          pain: "Comparar imóveis sem dados objetivos de espaço e configuração.",
-          solution: "Características confirmadas apresentadas por card.",
+          headline: trimMetaField(area ? `${area} para seu negócio` : `Conheça o ${type}`, 40),
+          description: trimMetaField(address || "Localização informada", 30),
+          copy: `${area ? `A área informada é ${area}, suficiente para avaliar o encaixe do espaço na rotina profissional.` : `A área só deve aparecer quando estiver confirmada no briefing.`}\n\n${address ? `Endereço informado: ${address}.` : "A localização deve seguir apenas os dados do projeto atual."}\n\nSolicite mais informações.`,
+          hook: area ? `${area} bem aproveitados` : "Veja os dados do imóvel",
+          pain: "Comparar opções sem clareza de área, localização e valor.",
+          solution: "Área, endereço e valor extraídos do briefing atual.",
           cta: "Agendar visita",
         },
         {
-          headline: "Vista e localização premium",
-          description: "Praia Brava, Itajaí",
-          copy: "A localização na Praia Brava une desejo, praticidade e valorização. A vista e a luz natural reforçam o padrão do imóvel e a experiência de morar perto do mar.\n\nLocação anual por R$ 18.000 + taxas.\n\nConsulte detalhes.",
-          hook: "Praia Brava como endereço",
-          pain: "Querer morar bem sem abrir mão de localização.",
-          solution: "Localização, vista e condição comercial claras.",
+          headline: "Condição clara para decidir",
+          description: trimMetaField(price || "Consulte detalhes", 30),
+          copy: `${price ? `Valor informado: ${price}${campaignFacts.realEstate.includedFees ? `, ${campaignFacts.realEstate.includedFees}` : ""}.` : "O valor não deve ser inventado quando não está no briefing."}\n\nA campanha apresenta somente dados confirmados para qualificar melhor o contato.\n\nChame e tire dúvidas.`,
+          hook: "Valor e detalhes claros",
+          pain: "Entrar em contato sem entender condição comercial.",
+          solution: price ? `Condição comercial: ${price}.` : "Condição comercial sem números inventados.",
           cta: "Consultar detalhes",
         },
         {
-          headline: "3 suítes para privacidade",
-          description: "Conforto na área íntima",
-          copy: "A área íntima foi pensada para conforto e privacidade. Com 3 suítes, o imóvel acomoda bem rotina, família e visitas sem abrir mão da exclusividade.\n\nCobertura mobiliada e pronta para morar.\n\nFale com a Edu Imóveis.",
-          hook: "3 suítes no alto padrão",
-          pain: "Precisar de conforto sem perder privacidade.",
-          solution: "Configuração de suítes e mobília informadas com clareza.",
+          headline: "Uso profissional possível",
+          description: "Perfil do interessado",
+          copy: `${usageLine || `O ${type} pode ser apresentado pelo uso indicado no briefing, sem trocar o tipo do imóvel.`}\n\nProfissão ou atividade do público não muda a categoria do imóvel anunciado.\n\nFale para avaliar o espaço.`,
+          hook: "Espaço para uso profissional",
+          pain: "Saber se o imóvel combina com a atividade pretendida.",
+          solution: usageLine || "Distinguir tipo do imóvel de uso possível.",
           cta: "Falar no WhatsApp",
         },
         {
-          headline: "Quer conhecer pessoalmente?",
+          headline: "Quer avaliar pessoalmente?",
           description: "Agende sua visita",
-          copy: "Se a proposta combina com o que você procura, o próximo passo é simples: conhecer a cobertura pessoalmente.\n\nCobertura triplex mobiliada, 190 m², 3 suítes, piscina privativa e locação anual na Praia Brava.\n\nChame no WhatsApp e agende sua visita.",
-          hook: "Agende sua visita exclusiva",
+          copy: `Se os dados combinam com o que você procura, o próximo passo é conhecer o espaço.\n\n${factSummary || `As informações vêm apenas do briefing atual do ${type}.`}\n\nChame no WhatsApp e agende sua visita.`,
+          hook: "Agende para conhecer o espaço",
           pain: "Gostar do imóvel e precisar confirmar pessoalmente.",
           solution: "Chamada direta para visita e atendimento.",
           cta: "Agendar visita",
@@ -7504,6 +7533,36 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     }
   } catch (error: any) {
     log.warn("ai", "Falha ao enriquecer criativos com score/imagem", { error: error?.message });
+  }
+
+  const factValidation = validateCampaignFactIntegrity(JSON.parse(creatives || "[]"), campaignFacts);
+  if (factValidation.status === "failed") {
+    log.error("ai", "FACT_CONFLICT — campanha bloqueada antes de salvar", {
+      projectId: input.projectId,
+      campaignName: input.name,
+      conflicts: factValidation.conflicts.slice(0, 12),
+      verifiedFacts: campaignFacts.verifiedFacts,
+    });
+    const preview = factValidation.conflicts
+      .slice(0, 5)
+      .map((conflict) => `${conflict.field}: ${conflict.value} (${conflict.reason})`)
+      .join("; ");
+    throw new Error(`FACT_CONFLICT: criativos contém informações não confirmadas ou conflitantes. ${preview}`);
+  }
+
+  try {
+    const responseObj = aiResponse ? JSON.parse(aiResponse) : {};
+    aiResponse = JSON.stringify({
+      ...responseObj,
+      factValidation,
+      campaignFacts: {
+        verifiedFacts: campaignFacts.verifiedFacts,
+        allowedInferences: campaignFacts.allowedInferences,
+        forbiddenClaims: campaignFacts.forbiddenClaims,
+      },
+    });
+  } catch {
+    aiResponse = JSON.stringify({ factValidation });
   }
 
   const campaign = await db.createCampaign({

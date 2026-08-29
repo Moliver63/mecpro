@@ -639,7 +639,7 @@ function scopeErrorContent(required: McpScope, userScope: McpScope) {
 }
 
 export function createMcpServerForUser(userId: number, scope: McpScope = "publish"): McpServer {
-  const server = new McpServer({ name: "mecproai", version: "1.3.0" });
+  const server = new McpServer({ name: "mecproai", version: "1.4.0" });
 
   async function getCaller() {
     const user = await db.getUserById(userId);
@@ -1248,12 +1248,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       try {
         const campaign: any = await Promise.race([campaignPromise, timeoutPromise]);
         const elapsed = Date.now() - startTime;
+        const aiResponse = (() => { try { return JSON.parse(campaign.aiResponse || "{}"); } catch { return {}; } })();
         return {
           content: [{ type: "text", text: `Campanha gerada: "${campaign.name || input.name}" (id: ${campaign.id}) no projeto ${project.name}. Tempo total: ${Math.round(elapsed/1000)}s. Ainda não publicada na Meta.` }],
           structuredContent: {
             id: campaign.id,
             name: campaign.name || input.name,
             projectId: input.projectId,
+            factValidation: aiResponse.factValidation || null,
             photoOrder: orderedPhotoInsights.map((photo) => photo.originalIndex),
             featuredPhotoIndex: orderedPhotoInsights[0]?.originalIndex ?? null,
             photoInsights: orderedPhotoInsights,
