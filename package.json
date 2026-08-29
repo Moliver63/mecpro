@@ -13,6 +13,7 @@
     "check:mcp": "tsx --eval \"import('./server/mcpServer.ts').then(() => console.log('mcpServer import ok'))\"",
     "test": "tsx --test client/src/lib/__tests__/placementGuidance.test.ts",
     "test:fact-guard": "tsx --test server/__tests__/campaignFactGuard.test.ts",
+    "test:quality-gates": "tsx --test server/__tests__/campaignQualityGate.test.ts",
     "test:watch": "tsx --test --watch client/src/lib/__tests__/placementGuidance.test.ts",
     "db:push": "drizzle-kit push:pg",
     "db:generate": "drizzle-kit generate",

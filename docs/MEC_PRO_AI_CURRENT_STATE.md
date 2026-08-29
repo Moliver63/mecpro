@@ -86,6 +86,21 @@ O guard deve validar textos em:
 - campos aninhados em `creativeSystemV2`;
 - campos aninhados em `copyBank`.
 
+## Quality gates operacionais
+
+O arquivo `shared/campaignQualityGate.ts` concentra validacoes de prontidao por etapa, inspirado em padroes de agentes com gates antes de acoes criticas.
+
+Ele avalia:
+
+- `generate`: briefing minimo, objetivo, oferta, publico, verba, duracao e perguntas especificas por segmento.
+- `media`: quantidade de midias, carrossel com pelo menos 2 itens, escolha de capa e ordem visual.
+- `publish`: destino final, confirmacao explicita do usuario, criativos suficientes e resultado do fact guard.
+- `optimize`: reservado para auditorias de otimizacao e proximas evolucoes.
+
+O MCP expõe esse diagnostico em `assess_campaign_briefing` e tambem retorna `qualityGateReport` em `generate_campaign`. O `generate_campaign` bloqueia quando o gate de geracao encontra informacoes obrigatorias ausentes.
+
+Regra pratica: antes de pedir para o modelo gerar ou publicar, o cliente MCP deve chamar `assess_campaign_briefing` e usar `qualityGateReport.questions` para perguntar somente o que falta.
+
 ## Gerador de criativos
 
 O gerador deve alinhar os criativos ao segmento da campanha.
@@ -182,6 +197,7 @@ Comandos recomendados apos alteracoes no motor:
 
 ```bash
 npm run test:fact-guard
+npm run test:quality-gates
 npm run check:mcp
 npm run check:server
 ```
@@ -189,6 +205,7 @@ npm run check:server
 Resultados esperados:
 
 - `test:fact-guard`: todos os testes passando.
+- `test:quality-gates`: gates de briefing, midia, publicacao e segmentos passando.
 - `check:mcp`: `mcpServer import ok`.
 - `check:server`: TypeScript sem erros.
 

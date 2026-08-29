@@ -23,6 +23,7 @@ import { appRouter } from "./_core/router";
 import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
+import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 
 // ── Cache de imagens por SHA256 (evita upload duplicado) ──────────────────
 const _imageHashCache = new Map<string, { url: string; ts: number }>();
@@ -72,6 +73,20 @@ function formatBriefingReadinessText(readiness: ReturnType<typeof evaluateCampai
     `Score do briefing: ${readiness.score}/100.`,
     required.length ? `Perguntas obrigatorias:\n${required.join("\n")}` : "",
     recommended.length ? `Perguntas recomendadas:\n${recommended.join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+function formatQualityGateText(report: ReturnType<typeof evaluateCampaignQualityGates>): string {
+  const gates = report.gates.map((gate) => {
+    const questions = gate.questions.length
+      ? `\nPerguntas:\n${gate.questions.map((question, index) => `${index + 1}. ${question}`).join("\n")}`
+      : "";
+    return `- ${gate.title}: ${gate.status}. ${gate.reason}${questions}`;
+  });
+  return [
+    report.summary,
+    `Score dos gates: ${report.score}/100.`,
+    gates.length ? `Gates:\n${gates.join("\n")}` : "",
   ].filter(Boolean).join("\n\n");
 }
 
@@ -964,11 +979,21 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         "engajamento ou reconhecimento.",
       inputSchema: {
         projectId: z.number().int().positive().describe("ID do projeto."),
+        action: z.enum(["generate", "media", "publish", "optimize"]).optional().describe("Acao que voce pretende executar: generate, media, publish ou optimize."),
         objective: z.string().optional().describe("Objetivo: leads, sales, traffic, engagement ou branding."),
         platform: z.string().optional().describe("Plataforma: meta, google, tiktok, both ou all."),
         budget: z.number().optional().describe("Orcamento total em reais."),
         duration: z.number().int().optional().describe("Duracao em dias."),
         extraContext: z.string().optional(),
+        mediaFormat: z.string().optional().describe("Formato pretendido: image, video, carousel/carrossel ou mixed."),
+        destinationUrl: z.string().optional().describe("URL de destino, se houver."),
+        whatsapp: z.string().optional().describe("WhatsApp de atendimento, se houver."),
+        hasLeadForm: z.boolean().optional().describe("Indica se ja existe formulario de lead."),
+        hasImages: z.boolean().optional().describe("Indica se ja existem imagens anexadas/subidas."),
+        hasVideos: z.boolean().optional().describe("Indica se ja existem videos anexados/subidos."),
+        creativesCount: z.number().int().optional().describe("Quantidade de criativos/cards ja gerados."),
+        factValidationStatus: z.enum(["passed", "failed"]).optional().describe("Resultado do fact guard, se ja existir."),
+        metaPublishConfirmed: z.boolean().optional().describe("Use true apenas quando o usuario confirmou publicar na Meta."),
         creativeMode: z.enum(["auto", "upload"]).optional(),
         uploadedImages: z.array(z.string()).optional().describe("URLs publicas das fotos que serao usadas."),
         realPhotosBase64: z.array(z.object({
@@ -993,9 +1018,13 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       }
       const clientProfile = await db.getClientProfile(input.projectId);
       const readiness = evaluateCampaignBriefingReadiness(input, clientProfile);
+      const gateReport = evaluateCampaignQualityGates(input, clientProfile, project);
       return {
-        content: [{ type: "text", text: formatBriefingReadinessText(readiness) }],
-        structuredContent: readiness,
+        content: [{ type: "text", text: `${formatBriefingReadinessText(readiness)}\n\n${formatQualityGateText(gateReport)}` }],
+        structuredContent: {
+          ...readiness,
+          qualityGateReport: gateReport,
+        },
       };
     }
   );
@@ -1084,15 +1113,21 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         input.extraContext || "",
       ].filter(Boolean).join(" ");
       const readiness = evaluateCampaignBriefingReadiness(input, clientProfile);
-      if (readiness.status === "blocked") {
+      const gateReport = evaluateCampaignQualityGates({ ...input, action: "generate" }, clientProfile, project);
+      if (gateReport.status === "blocked") {
         return {
           content: [{
             type: "text",
             text:
               "Antes de gerar a campanha, colete as informações obrigatórias abaixo.\n\n" +
-              formatBriefingReadinessText(readiness),
+              formatBriefingReadinessText(readiness) +
+              "\n\n" +
+              formatQualityGateText(gateReport),
           }],
-          structuredContent: readiness,
+          structuredContent: {
+            ...readiness,
+            qualityGateReport: gateReport,
+          },
           isError: true,
         };
       }
@@ -1256,6 +1291,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             name: campaign.name || input.name,
             projectId: input.projectId,
             factValidation: aiResponse.factValidation || null,
+            qualityGateReport: gateReport,
             photoOrder: orderedPhotoInsights.map((photo) => photo.originalIndex),
             featuredPhotoIndex: orderedPhotoInsights[0]?.originalIndex ?? null,
             photoInsights: orderedPhotoInsights,
