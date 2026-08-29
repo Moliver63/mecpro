@@ -230,9 +230,12 @@ Sempre validar ao modificar fluxos críticos:
 
 Ao analisar o repo MecProAI:
 
-1. Ler `docs/SYSTEM_MEMORY.md` primeiro
-2. Verificar último commit (`git log --oneline -5`)
-3. Identificar arquivos críticos:
+1. Ler `AGENTS.md`
+2. Ler `docs/SYSTEM_MEMORY.md`
+3. Ler `docs/FRAMEWORK_EXCELENCIA.md`
+4. Ler `docs/MEC_PRO_AI_CURRENT_STATE.md`
+5. Verificar último commit (`git log --oneline -5`)
+6. Identificar arquivos críticos:
    - `server/_core/router.ts` — todo o backend tRPC
    - `server/_core/index.ts` — boot e crons
    - `server/ai.ts` — geração de campanhas

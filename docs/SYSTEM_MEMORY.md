@@ -765,9 +765,12 @@ está plugado), item 7 (redesign do `CampaignResult.tsx`/`CampaignBuilder.tsx`).
 ## 💡 Prompt de Início de Sessão (atualizado)
 
 ```
-Antes de qualquer coisa, leia o arquivo docs/SYSTEM_MEMORY.md do repositório
-MecProAI (github.com/Moliver63/mecpro.git) — ele contém o estado técnico
-completo do sistema, bugs resolvidos, regras críticas e pendências.
+Antes de qualquer coisa, leia `AGENTS.md` e a pasta `docs/` do repositório
+MecProAI (github.com/Moliver63/mecpro.git), começando por
+`docs/SYSTEM_MEMORY.md`, `docs/FRAMEWORK_EXCELENCIA.md` e
+`docs/MEC_PRO_AI_CURRENT_STATE.md` — eles contêm o estado técnico completo
+do sistema, bugs resolvidos, regras críticas, pendências e o fluxo atual do
+motor de campanhas.
 
 Stack: React 19 + Vite + TypeScript / Node.js + Express + tRPC / PostgreSQL + Drizzle / Render.com
 Repo local: /home/claude/mecpro (se já clonado na sessão)
