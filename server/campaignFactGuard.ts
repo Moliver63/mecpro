@@ -166,7 +166,7 @@ export function buildCampaignFacts({
   const n = normalizeText(raw);
   const propertyType = detectPropertyType(raw);
   const purpose = detectPurpose(raw);
-  const areaM2 = firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)\b/i]);
+  const areaM2 = firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)(?=\s|[.,;:]|$)/i]);
   const price = firstMatch(raw, [/\bR\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?\b/i]);
   const address = firstMatch(raw, [
     /\b(?:rua|avenida|av\.?|r\.?)\s+[^\n,.]+(?:,\s*(?:n[ºo]\.?\s*)?\d+)?/i,
@@ -256,9 +256,12 @@ function collectTextFields(value: unknown, prefix = "root", out: Array<{ field: 
     return out;
   }
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (/^(headline|description|shortDescription|bodyText|copy|hook|pain|solution|script|text)$/i.test(key)
-      || prefix.includes("creativeSystemV2.copyBank")) {
-      collectTextFields(item, `${prefix}.${key}`, out);
+    const nextPrefix = `${prefix}.${key}`;
+    const isTextField = /^(headline|description|shortDescription|bodyText|copy|hook|pain|solution|script|text)$/i.test(key);
+    const isRelevantContainer = /^(creativeSystemV2|copyBank|hooks|bodies|headlines|ctas|descriptions|creativeVariants|channels|placements)$/i.test(key)
+      || prefix.includes("creativeSystemV2.copyBank");
+    if (isTextField || isRelevantContainer || (item && typeof item === "object")) {
+      collectTextFields(item, nextPrefix, out);
     }
   }
   return out;
@@ -280,7 +283,7 @@ export function validateCampaignFactIntegrity(
       }
     }
 
-    const areas = valuesInText(/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)\b/gi, text);
+    const areas = valuesInText(/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)(?=\s|[.,;:]|$)/gi, text);
     for (const area of areas) {
       if (facts.realEstate.areaM2 && normalizeText(area) !== normalizeText(facts.realEstate.areaM2)) {
         conflicts.push({ field, value: area, reason: `area_conflict_expected_${facts.realEstate.areaM2}` });
