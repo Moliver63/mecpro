@@ -7594,6 +7594,34 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
 
   log.info("ai", "generateCampaign done", { campaignId: (campaign as any).id });
 
+  // ── Fine-tuning dataset — captura não-bloqueante da geração já aprovada
+  // pelo Fact Guard (factValidation.status === "passed" nesse ponto, senão
+  // a função já teria lançado FACT_CONFLICT acima e nunca chegaria aqui).
+  // Apenas registra o exemplo como candidato (status "generated"); NUNCA
+  // aprova/usa para treino sozinho, e uma falha aqui nunca afeta a resposta
+  // desta função. Ver server/fineTuningService.ts.
+  setImmediate(async () => {
+    try {
+      const { captureExample } = await import("./fineTuningService");
+      await captureExample({
+        projectId: input.projectId,
+        campaignId: (campaign as any).id,
+        segment: resolvedSegment,
+        taskType: "campaign_creatives",
+        inputContext: {
+          objective: input.objective,
+          platform: input.platform,
+          niche: (clientProfile as any)?.niche,
+          extraContext: input.extraContext,
+        },
+        originalOutput: creatives,
+        modelSource: getCopyEngine(),
+      });
+    } catch (e: any) {
+      log.warn("fine-tuning", "captureExample falhou (não crítico)", { error: e?.message?.slice(0, 200) });
+    }
+  });
+
   // ── Score ML automático — roda em background sem bloquear resposta ────────
   setImmediate(async () => {
     try {
