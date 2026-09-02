@@ -115,6 +115,35 @@ export async function captureExample(
   return saved ?? null;
 }
 
+/** Busca um exemplo por id (uso interno de routers/ownership checks). */
+export async function getExampleById(id: number): Promise<FineTuningExample | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [example] = await db
+    .select()
+    .from(fineTuningExamples)
+    .where(eq(fineTuningExamples.id, id))
+    .limit(1);
+  return example ?? null;
+}
+
+/** Lista exemplos de um projeto (dono da campanha revisando gerações). */
+export async function listExamplesByProject(
+  projectId: number,
+  status?: FineTuningExample["status"],
+): Promise<FineTuningExample[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(fineTuningExamples.projectId, projectId)];
+  if (status) conditions.push(eq(fineTuningExamples.status, status));
+  return db
+    .select()
+    .from(fineTuningExamples)
+    .where(and(...conditions))
+    .orderBy(desc(fineTuningExamples.createdAt))
+    .limit(200);
+}
+
 // ── 2. Validação factual (reaproveita o Fact Guard existente) ───────────
 
 /**
