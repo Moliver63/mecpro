@@ -1,6 +1,6 @@
 import {
   pgTable, pgEnum, serial, text, varchar, integer,
-  timestamp, boolean, real
+  timestamp, boolean, real, jsonb
 } from "drizzle-orm/pg-core";
 
 // ============ ENUMS ============
@@ -484,3 +484,48 @@ export const mcpIdempotencyKeys = pgTable("mcp_idempotency_keys", {
 
 export type McpIdempotencyKey = typeof mcpIdempotencyKeys.$inferSelect;
 export type InsertMcpIdempotencyKey = typeof mcpIdempotencyKeys.$inferInsert;
+
+// ── Fine-Tuning Dataset (infraestrutura de coleta — NÃO dispara treino) ───
+// Exemplos candidatos a dataset de fine-tuning, extraídos de gerações já
+// validadas pelo Fact Guard/Quality Gate e com feedback humano.
+// REGRA: nenhuma geração entra aqui sozinha. Só migra para "approved",
+// "corrected" ou "high_performer" via ação humana (FineTuningService) —
+// nunca automaticamente a partir de uma resposta da IA.
+export const fineTuningStatusEnum = pgEnum("fine_tuning_status", [
+  "generated",                    // capturado, ainda não avaliado
+  "corrected",                    // usuário editou o output
+  "approved",                     // usuário aprovou sem alterar
+  "rejected",                     // usuário rejeitou
+  "high_performer",               // promovido por métrica real de performance
+  "dataset_rejected_fact_guard",  // bloqueado por conflito factual
+]);
+
+export const fineTuningExamples = pgTable("fine_tuning_examples", {
+  id:                   serial("id").primaryKey(),
+  projectId:            integer("project_id").notNull(),
+  campaignId:           integer("campaign_id"),
+  segment:              varchar("segment", { length: 50 }),
+  taskType:             varchar("task_type", { length: 50 }).notNull(), // "copy" | "headline" | "hook" | ...
+
+  inputContext:         jsonb("input_context").notNull(),   // briefing/contexto usado na geração
+  originalOutput:       text("original_output").notNull(),  // saída bruta da IA
+  correctedOutput:      text("corrected_output"),            // saída após correção humana
+  approvedOutput:       text("approved_output"),             // saída final aprovada (o que de fato vira exemplo)
+
+  status:               fineTuningStatusEnum("status").default("generated").notNull(),
+  errorType:            varchar("error_type", { length: 60 }), // ex: "factual_hallucination"
+
+  factGuardPassed:      boolean("fact_guard_passed"),
+  qualityGatePassed:    boolean("quality_gate_passed"),
+
+  performanceMetrics:   jsonb("performance_metrics"), // { ctr, cpc, cpm, cpl, cpa, roas, conversions, leads }
+  trainingQualityScore: real("training_quality_score").default(0),
+
+  modelSource:          varchar("model_source", { length: 50 }), // ex: "gemini-2.5-flash"
+
+  createdAt:            timestamp("created_at").defaultNow().notNull(),
+  updatedAt:            timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type FineTuningExample = typeof fineTuningExamples.$inferSelect;
+export type InsertFineTuningExample = typeof fineTuningExamples.$inferInsert;
