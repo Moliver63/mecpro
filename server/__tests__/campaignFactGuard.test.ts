@@ -5,6 +5,7 @@ import {
   formatCampaignFactsForPrompt,
   validateCampaignFactIntegrity,
 } from "../campaignFactGuard";
+import { equivalentCanonicalFact, normalizeCanonicalFact } from "../factNormalizer";
 
 const morebemInput = {
   name: "Morebem Imoveis - Sala Comercial Rua 902",
@@ -26,6 +27,15 @@ const previousEduCampaignPattern = {
   copy: "Cobertura triplex na Praia Brava, 3 suites e locacao anual de alto padrao.",
   cta: "Agendar visita",
 };
+
+test("normalizes universal fact units canonically", () => {
+  assert.equal(normalizeCanonicalFact("area_m2", "cinquenta metros quadrados"), "50 m2");
+  assert.equal(normalizeCanonicalFact("money_brl", "R$ 5.000,00"), "5000 brl");
+  assert.equal(normalizeCanonicalFact("duration_min", "1 hora"), "60 min");
+  assert.equal(normalizeCanonicalFact("volume_ml", "0,5 L"), "500 ml");
+  assert.equal(normalizeCanonicalFact("weight_kg", "30 toneladas"), "30000 kg");
+  assert.ok(equivalentCanonicalFact("money_brl", "R$5.000", "5 mil reais"));
+});
 
 test("blocks Morebem creative contaminated with Edu triplex facts", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
@@ -94,7 +104,7 @@ test("accepts equivalent area formats without weakening numeric guard", () => {
     {
       headline: "Sala com 50M²",
       description: "50 metros quadrados",
-      copy: "Espaco comercial com 50m2 para atendimento profissional.",
+      copy: "Espaco comercial com 50m2 e cinquenta metros quadrados para atendimento profissional.",
     },
   ], facts);
   const conflictValidation = validateCampaignFactIntegrity([
@@ -109,6 +119,40 @@ test("accepts equivalent area formats without weakening numeric guard", () => {
   assert.equal(validation.conflicts.length, 0);
   assert.equal(conflictValidation.status, "failed");
   assert.ok(conflictValidation.conflicts.some((conflict) => conflict.reason === "area_conflict_expected_50 m²"));
+});
+
+test("accepts bedroom synonyms while blocking different counts", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Apartamento familiar",
+      extraContext: "Apartamento para locacao com 3 quartos, 2 banheiros e 1 vaga.",
+    },
+    clientProfile: {
+      companyName: "Morebem Imoveis",
+      niche: "imoveis para locacao",
+    },
+  });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "3 dormitorios para familia",
+      description: "2 banheiros e uma vaga",
+      copy: "Imovel com tres dormitórios, dois banheiros e 1 vaga para locacao.",
+    },
+  ], facts);
+  const conflictValidation = validateCampaignFactIntegrity([
+    {
+      headline: "4 dormitorios",
+      description: "3 banheiros",
+      copy: "Apartamento com duas vagas.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+  assert.equal(validation.conflicts.length, 0);
+  assert.equal(conflictValidation.status, "failed");
+  assert.ok(conflictValidation.conflicts.some((conflict) => conflict.reason === "bedrooms_conflict_expected_3 quartos"));
+  assert.ok(conflictValidation.conflicts.some((conflict) => conflict.reason === "bathrooms_conflict_expected_2 banheiros"));
+  assert.ok(conflictValidation.conflicts.some((conflict) => conflict.reason === "parking_spots_conflict_expected_1 vaga"));
 });
 
 test("accepts equivalent rent price formats without confusing media budget", () => {

@@ -1,3 +1,11 @@
+import {
+  compactText,
+  equivalentCanonicalFact,
+  normalizeAreaValue,
+  normalizeMoneyValue,
+  normalizeText,
+} from "./factNormalizer";
+
 type FactSource = Record<string, unknown>;
 
 export type CampaignFactConflict = {
@@ -34,67 +42,17 @@ export type CampaignFactValidation = {
   conflicts: CampaignFactConflict[];
 };
 
-function normalizeText(value: unknown): string {
-  return String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function normalizeAreaValue(value: unknown): string {
-  const raw = normalizeText(value)
-    .replace(/m²/g, "m2")
-    .replace(/\bmetros?\s+quadrados?\b/g, "m2");
-  const match = raw.match(/\b(\d{1,4}(?:[,.]\d+)?)\s*m2\b/);
-  if (!match) return "";
-  const numeric = match[1].replace(",", ".");
-  const parsed = Number(numeric);
-  return Number.isFinite(parsed) ? `${parsed} m2` : `${numeric} m2`;
-}
-
-function normalizeMoneyValue(value: unknown): string {
-  const raw = normalizeText(value);
-  const explicitCurrency = raw.match(/\br\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\b/);
-  if (explicitCurrency) {
-    const integer = explicitCurrency[1].replace(/\./g, "");
-    const decimal = (explicitCurrency[2] || "").padEnd(2, "0").slice(0, 2);
-    const parsed = Number(`${integer}.${decimal || "00"}`);
-    return Number.isFinite(parsed) ? `${parsed} brl` : "";
-  }
-
-  const thousandText = raw.match(/\b(\d{1,3}(?:[,.]\d+)?)\s*mil(?:\s+reais)?\b/);
-  if (thousandText) {
-    const parsed = Number(thousandText[1].replace(",", ".")) * 1000;
-    return Number.isFinite(parsed) ? `${parsed} brl` : "";
-  }
-
-  const contextualNumber = raw.match(/\b(?:valor|preco|aluguel|locacao|mensal|mensais|por)\D{0,20}(\d{4,6})(?:,(\d{1,2}))?\b/);
-  if (contextualNumber) {
-    const parsed = Number(`${contextualNumber[1]}.${(contextualNumber[2] || "").padEnd(2, "0").slice(0, 2) || "00"}`);
-    return Number.isFinite(parsed) ? `${parsed} brl` : "";
-  }
-
-  return "";
-}
-
 function equivalentFactValue(key: keyof ReturnType<typeof extractRealEstateFacts>, left: string, right: string): boolean {
   if (key === "areaM2") {
-    const normalizedLeft = normalizeAreaValue(left);
-    const normalizedRight = normalizeAreaValue(right);
-    return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+    return equivalentCanonicalFact("area_m2", left, right);
   }
   if (key === "price") {
-    const normalizedLeft = normalizeMoneyValue(left);
-    const normalizedRight = normalizeMoneyValue(right);
-    return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+    return equivalentCanonicalFact("money_brl", left, right);
+  }
+  if (["bedrooms", "suites", "bathrooms", "parkingSpots"].includes(key)) {
+    return equivalentCanonicalFact("count", left, right);
   }
   return normalizeText(left) === normalizeText(right);
-}
-
-function compactText(value: unknown): string {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
 function unique(values: string[]): string[] {
@@ -168,7 +126,13 @@ function detectIncludedFees(raw: string): string | undefined {
   return undefined;
 }
 
-const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|\d{1,3}(?:[,.]\d+)?\s*mil(?:\s+reais)?|(?:valor|pre[cç]o|aluguel|loca[cç][aã]o|mensal|mensais|por)\D{0,20}\d{4,6}(?:,\d{1,2})?)\b/i;
+const numberWordPattern = "(?:\\d+|um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez|cinquenta)";
+const areaPattern = new RegExp(`\\b(?:\\d{1,4}(?:[,.]\\d+)?|${numberWordPattern})\\s*(?:m(?:2|²)|metros?\\s+quadrados?)(?=\\s|[.,;:]|$)`, "i");
+const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?\s*reais|\d{1,3}(?:[,.]\d+)?\s*mil(?:\s+reais)?|(?:valor|pre[cç]o|aluguel|loca[cç][aã]o|mensal|mensais|por)\D{0,20}\d{4,6}(?:,\d{1,2})?)\b/i;
+const bedroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+(?:quartos?|dormit[oó]rios?)\\b`, "i");
+const suitesPattern = new RegExp(`\\b${numberWordPattern}\\s+su[ií]tes?\\b`, "i");
+const bathroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+banheiros?\\b`, "i");
+const parkingSpotsPattern = new RegExp(`\\b${numberWordPattern}\\s+vagas?\\b`, "i");
 
 function buildForbiddenClaims(raw: string, propertyType?: string): string[] {
   const n = normalizeText(raw);
@@ -220,7 +184,7 @@ function extractRealEstateFacts(raw: string) {
   return {
     purpose: detectPurpose(raw),
     propertyType,
-    areaM2: firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*(?:m(?:2|²)|metros?\s+quadrados?)(?=\s|[.,;:]|$)/i]),
+    areaM2: firstMatch(raw, [areaPattern]),
     price: firstMatch(raw, [moneyPattern]),
     address: firstMatch(raw, [
       /\b(?:rua|avenida|av\.?|r\.?)\s+[^\n,.]+(?:,\s*(?:n[ºo]\.?\s*)?\d+)?/i,
@@ -229,10 +193,10 @@ function extractRealEstateFacts(raw: string) {
       /\b\d+\s+pavimentos?\b/i,
       /\b(?:dois|duas|tres|três|quatro)\s+pavimentos?\b/i,
     ]),
-    suites: firstMatch(raw, [/\b\d+\s+su[ií]tes?\b/i]),
-    bedrooms: firstMatch(raw, [/\b\d+\s+(?:quartos?|dormit[oó]rios?)\b/i]),
-    bathrooms: firstMatch(raw, [/\b\d+\s+banheiros?\b/i]),
-    parkingSpots: firstMatch(raw, [/\b\d+\s+vagas?\b/i]),
+    suites: firstMatch(raw, [suitesPattern]),
+    bedrooms: firstMatch(raw, [bedroomsPattern]),
+    bathrooms: firstMatch(raw, [bathroomsPattern]),
+    parkingSpots: firstMatch(raw, [parkingSpotsPattern]),
     includedFees: detectIncludedFees(raw),
     furnished: has(raw, /\bmobiliad[ao]\b/i) ? "mobiliado" : undefined,
   };
@@ -405,7 +369,7 @@ export function validateCampaignFactIntegrity(
       }
     }
 
-    const areas = valuesInText(/\b\d{1,4}(?:[,.]\d+)?\s*(?:m(?:2|²)|metros?\s+quadrados?)(?=\s|[.,;:]|$)/gi, text);
+    const areas = valuesInText(new RegExp(areaPattern.source, "gi"), text);
     for (const area of areas) {
       if (facts.realEstate.areaM2 && normalizeAreaValue(area) !== normalizeAreaValue(facts.realEstate.areaM2)) {
         conflicts.push({ field, value: area, reason: `area_conflict_expected_${facts.realEstate.areaM2}` });
@@ -416,6 +380,26 @@ export function validateCampaignFactIntegrity(
     for (const price of prices) {
       if (facts.realEstate.price && normalizeMoneyValue(price) !== normalizeMoneyValue(facts.realEstate.price)) {
         conflicts.push({ field, value: price, reason: `price_conflict_expected_${facts.realEstate.price}` });
+      }
+    }
+
+    const countFactChecks: Array<[
+      "bedrooms" | "suites" | "bathrooms" | "parkingSpots",
+      RegExp,
+      string,
+    ]> = [
+      ["bedrooms", bedroomsPattern, "bedrooms_conflict_expected"],
+      ["suites", suitesPattern, "suites_conflict_expected"],
+      ["bathrooms", bathroomsPattern, "bathrooms_conflict_expected"],
+      ["parkingSpots", parkingSpotsPattern, "parking_spots_conflict_expected"],
+    ];
+    for (const [factKey, pattern, reasonPrefix] of countFactChecks) {
+      const expected = facts.realEstate[factKey];
+      if (!expected) continue;
+      for (const value of valuesInText(new RegExp(pattern.source, "gi"), text)) {
+        if (!equivalentCanonicalFact("count", value, expected)) {
+          conflicts.push({ field, value, reason: `${reasonPrefix}_${expected}` });
+        }
       }
     }
 
