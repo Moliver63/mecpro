@@ -67,6 +67,16 @@ function sourceText(input: FactSource, profile: FactSource): string {
   return [
     input?.["name"],
     input?.["extraContext"],
+    input?.["productName"],
+    input?.["productService"],
+    input?.["productPrice"],
+    input?.["productDifferentials"],
+    input?.["productProofPoints"],
+    input?.["uniqueValueProposition"],
+    input?.["mainPain"],
+    input?.["mainObjections"],
+    input?.["targetAudience"],
+    input?.["city"],
     profile?.["companyName"],
     profile?.["niche"],
     profile?.["productName"],
@@ -153,6 +163,64 @@ function buildForbiddenClaims(raw: string, propertyType?: string): string[] {
   return unique(forbidden);
 }
 
+function extractRealEstateFacts(raw: string) {
+  const propertyType = detectPropertyType(raw);
+  return {
+    purpose: detectPurpose(raw),
+    propertyType,
+    areaM2: firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)(?=\s|[.,;:]|$)/i]),
+    price: firstMatch(raw, [/\bR\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?\b/i]),
+    address: firstMatch(raw, [
+      /\b(?:rua|avenida|av\.?|r\.?)\s+[^\n,.]+(?:,\s*(?:n[ºo]\.?\s*)?\d+)?/i,
+    ]),
+    floors: firstMatch(raw, [
+      /\b\d+\s+pavimentos?\b/i,
+      /\b(?:dois|duas|tres|três|quatro)\s+pavimentos?\b/i,
+    ]),
+    suites: firstMatch(raw, [/\b\d+\s+su[ií]tes?\b/i]),
+    bedrooms: firstMatch(raw, [/\b\d+\s+(?:quartos?|dormit[oó]rios?)\b/i]),
+    bathrooms: firstMatch(raw, [/\b\d+\s+banheiros?\b/i]),
+    parkingSpots: firstMatch(raw, [/\b\d+\s+vagas?\b/i]),
+    includedFees: detectIncludedFees(raw),
+    furnished: has(raw, /\bmobiliad[ao]\b/i) ? "mobiliado" : undefined,
+  };
+}
+
+function preferCurrentFact(current?: string, inherited?: string): string | undefined {
+  return current || inherited;
+}
+
+function collectStaleInheritedClaims(
+  current: ReturnType<typeof extractRealEstateFacts>,
+  inherited: ReturnType<typeof extractRealEstateFacts>,
+): string[] {
+  const stale: string[] = [];
+  const keys = [
+    "propertyType",
+    "purpose",
+    "areaM2",
+    "price",
+    "address",
+    "floors",
+    "suites",
+    "bedrooms",
+    "bathrooms",
+    "parkingSpots",
+    "includedFees",
+    "furnished",
+  ] as const;
+
+  for (const key of keys) {
+    const currentValue = current[key];
+    const inheritedValue = inherited[key];
+    if (currentValue && inheritedValue && normalizeText(currentValue) !== normalizeText(inheritedValue)) {
+      stale.push(inheritedValue);
+    }
+  }
+
+  return unique(stale);
+}
+
 export function buildCampaignFacts({
   input,
   clientProfile,
@@ -162,25 +230,24 @@ export function buildCampaignFacts({
   campaignName?: string;
   segment?: string;
 }): CampaignFacts {
+  const currentRaw = sourceText(input, {});
+  const inheritedRaw = sourceText({}, clientProfile);
   const raw = sourceText(input, clientProfile);
   const n = normalizeText(raw);
-  const propertyType = detectPropertyType(raw);
-  const purpose = detectPurpose(raw);
-  const areaM2 = firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)(?=\s|[.,;:]|$)/i]);
-  const price = firstMatch(raw, [/\bR\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?\b/i]);
-  const address = firstMatch(raw, [
-    /\b(?:rua|avenida|av\.?|r\.?)\s+[^\n,.]+(?:,\s*(?:n[ºo]\.?\s*)?\d+)?/i,
-  ]);
-  const floors = firstMatch(raw, [
-    /\b\d+\s+pavimentos?\b/i,
-    /\b(?:dois|duas|tres|três|quatro)\s+pavimentos?\b/i,
-  ]);
-  const suites = firstMatch(raw, [/\b\d+\s+su[ií]tes?\b/i]);
-  const bedrooms = firstMatch(raw, [/\b\d+\s+(?:quartos?|dormit[oó]rios?)\b/i]);
-  const bathrooms = firstMatch(raw, [/\b\d+\s+banheiros?\b/i]);
-  const parkingSpots = firstMatch(raw, [/\b\d+\s+vagas?\b/i]);
-  const includedFees = detectIncludedFees(raw);
-  const furnished = has(raw, /\bmobiliad[ao]\b/i) ? "mobiliado" : undefined;
+  const currentFacts = extractRealEstateFacts(currentRaw);
+  const inheritedFacts = extractRealEstateFacts(inheritedRaw);
+  const propertyType = preferCurrentFact(currentFacts.propertyType, inheritedFacts.propertyType);
+  const purpose = preferCurrentFact(currentFacts.purpose, inheritedFacts.purpose);
+  const areaM2 = preferCurrentFact(currentFacts.areaM2, inheritedFacts.areaM2);
+  const price = preferCurrentFact(currentFacts.price, inheritedFacts.price);
+  const address = preferCurrentFact(currentFacts.address, inheritedFacts.address);
+  const floors = preferCurrentFact(currentFacts.floors, inheritedFacts.floors);
+  const suites = preferCurrentFact(currentFacts.suites, inheritedFacts.suites);
+  const bedrooms = preferCurrentFact(currentFacts.bedrooms, inheritedFacts.bedrooms);
+  const bathrooms = preferCurrentFact(currentFacts.bathrooms, inheritedFacts.bathrooms);
+  const parkingSpots = preferCurrentFact(currentFacts.parkingSpots, inheritedFacts.parkingSpots);
+  const includedFees = preferCurrentFact(currentFacts.includedFees, inheritedFacts.includedFees);
+  const furnished = preferCurrentFact(currentFacts.furnished, inheritedFacts.furnished);
 
   const structuralFeatures = unique([
     has(raw, /ar[- ]condicionado/i) ? firstMatch(raw, [/\b(?:dois|duas|2)\s+aparelhos? de ar[- ]condicionado\b/i]) || "ar-condicionado" : "",
@@ -217,7 +284,10 @@ export function buildCampaignFacts({
   return {
     verifiedFacts,
     allowedInferences,
-    forbiddenClaims: buildForbiddenClaims(raw, propertyType),
+    forbiddenClaims: unique([
+      ...buildForbiddenClaims(currentRaw || raw, propertyType),
+      ...collectStaleInheritedClaims(currentFacts, inheritedFacts),
+    ]),
     realEstate: {
       purpose,
       propertyType,

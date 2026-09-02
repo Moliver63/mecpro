@@ -116,13 +116,13 @@ function buildCarouselFallback(idx: number, total: number, objective: string, cr
     return { name: "Ambientes integrados", description: "Para receber bem" };
   }
   if (/sala|living|escada|triplex/.test(raw)) {
-    return { name: "Triplex amplo", description: "190 m² privativos" };
+    return { name: "Ambiente principal", description: "Veja os detalhes" };
   }
   if (/vista|mar|praia brava/.test(raw)) {
     return { name: "Vista na Praia Brava", description: "Localização premium" };
   }
   if (/suíte|suite|quarto|dormitório|dormitorio/.test(raw)) {
-    return { name: "3 suítes espaçosas", description: "Conforto e privacidade" };
+    return { name: "Ambiente privativo", description: "Conforto e privacidade" };
   }
   if (/closet|mobiliad|pronta/.test(raw)) {
     return { name: "Mobiliada e pronta", description: "Locação anual" };

@@ -63,6 +63,31 @@ test("passes clean Morebem sala comercial facts", () => {
   assert.equal(validation.conflicts.length, 0);
 });
 
+test("current briefing area overrides stale inherited profile area", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Morebem Imoveis - Sala Comercial Rua 902",
+      extraContext: "Sala comercial para locacao com area confirmada de 50 m².",
+    },
+    clientProfile: {
+      companyName: "Morebem Imoveis",
+      niche: "imoveis",
+      productService: "Cobertura triplex na Praia Brava com 190 m² e 3 suites.",
+    },
+  });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Sala comercial para locacao",
+      description: "50 m²",
+      copy: "Sala comercial com 50 m² para profissionais que precisam de um espaco objetivo.",
+    },
+  ], facts);
+
+  assert.equal(facts.realEstate.areaM2, "50 m²");
+  assert.ok(facts.forbiddenClaims.some((claim) => normalizeForTest(claim) === "190 m2"));
+  assert.equal(validation.status, "passed");
+});
+
 test("blocks contaminated creativeSystemV2 copy bank text", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   const validation = validateCampaignFactIntegrity([
@@ -81,6 +106,14 @@ test("blocks contaminated creativeSystemV2 copy bank text", () => {
   assert.equal(validation.status, "failed");
   assert.ok(validation.conflicts.some((conflict) => conflict.field.includes("creativeSystemV2.copyBank")));
 });
+
+function normalizeForTest(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace("m²", "m2")
+    .toLowerCase();
+}
 
 test("facts prompt exposes verified facts and forbidden claims", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
