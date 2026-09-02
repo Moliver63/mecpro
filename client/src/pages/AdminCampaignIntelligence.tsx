@@ -7,7 +7,7 @@ import { toast } from "sonner";
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS
 // ─────────────────────────────────────────────────────────────────────────────
-type TabMain = "dashboard" | "campaigns" | "ranking" | "patterns" | "learning" | "ml" | "compare" | "insights" | "ai";
+type TabMain = "dashboard" | "campaigns" | "ranking" | "patterns" | "learning" | "ml" | "compare" | "insights" | "ai" | "finetuning";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS VISUAIS
@@ -815,6 +815,118 @@ function TabML() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ABA DATASET DE FINE-TUNING
+// ─────────────────────────────────────────────────────────────────────────────
+function TabFineTuning() {
+  const query = trpc.fineTuning.inspectorSummary.useQuery(undefined, { retry: false });
+  const data  = query?.data;
+
+  const exportMutation = trpc.fineTuning.exportDataset.useMutation({
+    onSuccess: (result: any) => {
+      const blob = new Blob([result.content], { type: "application/jsonl" });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href = url;
+      a.download = `mecproai-finetuning-dataset-${new Date().toISOString().slice(0, 10)}.jsonl`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`◎ ${result.exampleCount} exemplos exportados`);
+    },
+    onError: (e: any) => toast.error(`✕ ${e.message}`),
+  });
+
+  if (query?.isError) return (
+    <EmptyState icon="🧪" title="Dataset de fine-tuning vazio" sub="Rode a migration migration_fine_tuning_examples.sql e gere campanhas para começar a coletar exemplos." />
+  );
+  if (query?.isLoading) return <Loader />;
+
+  const total = data?.total || 0;
+  const availableForTraining = data?.availableForTraining || 0;
+
+  return (
+    <div>
+      <SectionHeader title="🧪 Dataset de Fine-Tuning" sub="Exemplos capturados, validados pelo Fact Guard e aprovados por feedback humano — nunca dispara treino sozinho" />
+
+      {/* Banner status */}
+      <div style={{ background: "linear-gradient(135deg,#0f172a,#1e293b)", borderRadius: 18, padding: 24, color: "white", marginBottom: 24 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>
+              {availableForTraining >= 50 ? "◎ Dataset pronto para exportar" : "📊 Coletando e revisando exemplos"}
+            </div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+              {availableForTraining} de {total} exemplos aprovados e liberados pelo Fact Guard.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 20 }}>
+            {[
+              { l: "Total",        v: total },
+              { l: "Aprovados",    v: data?.approved || 0 },
+              { l: "Corrigidos",   v: data?.corrected || 0 },
+              { l: "Rejeitados",   v: data?.rejected || 0 },
+              { l: "Bloq. Fact Guard", v: data?.blockedByFactGuard || 0 },
+              { l: "Score médio",  v: data?.averageScore || 0 },
+            ].map((s) => (
+              <div key={s.l} style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 24, fontWeight: 900 }}>{s.v}</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", textTransform: "uppercase" }}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Distribuição por segmento/taskType */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, padding: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", marginBottom: 14 }}>Por segmento</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {Object.entries(data?.bySegment || {}).map(([seg, count]) => (
+              <span key={seg} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, background: "#eff6ff", color: "#1d4ed8", fontWeight: 600 }}>
+                {seg}: {count as number}
+              </span>
+            ))}
+            {Object.keys(data?.bySegment || {}).length === 0 && (
+              <span style={{ fontSize: 12, color: "#94a3b8" }}>Nenhum exemplo com segmento ainda.</span>
+            )}
+          </div>
+        </div>
+        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, padding: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", marginBottom: 14 }}>Por tipo de tarefa</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {Object.entries(data?.byTaskType || {}).map(([tt, count]) => (
+              <span key={tt} style={{ fontSize: 11, padding: "4px 10px", borderRadius: 20, background: "#f0fdf4", color: "#166534", fontWeight: 600 }}>
+                {tt}: {count as number}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Export */}
+      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, padding: 24 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>Exportar dataset</div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+          Gera um arquivo .jsonl com os exemplos aprovados/corrigidos/high_performer que já passaram no Fact Guard.
+          Não envia nada para nenhum provedor externo — apenas baixa o arquivo para inspeção manual.
+        </div>
+        <button
+          onClick={() => exportMutation.mutate({})}
+          disabled={exportMutation.isPending || availableForTraining === 0}
+          style={{
+            background: exportMutation.isPending || availableForTraining === 0 ? "#f1f5f9" : "linear-gradient(135deg,#16a34a,#15803d)",
+            color: exportMutation.isPending || availableForTraining === 0 ? "#94a3b8" : "white",
+            fontWeight: 800, fontSize: 13, border: "none", borderRadius: 10,
+            padding: "10px 20px", cursor: availableForTraining === 0 ? "not-allowed" : "pointer",
+          }}>
+          {exportMutation.isPending ? "⏳ Exportando..." : `⬇ Exportar ${availableForTraining} exemplos (.jsonl)`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ABA COMPARAR CAMPANHAS
 // ─────────────────────────────────────────────────────────────────────────────
 function TabInsights() {
@@ -1584,6 +1696,7 @@ export default function AdminCampaignIntelligence() {
     { key: "patterns",  icon: "🔍", label: "Padrões"    },
     { key: "learning",  icon: "🧠", label: "Aprendizado" },
     { key: "ml",        icon: "🔬", label: "Dataset ML"  },
+    { key: "finetuning",icon: "🧪", label: "Fine-Tuning"  },
     { key: "ai",        icon: "⚡", label: "Gerenciar IA" },
   ];
 
@@ -1694,6 +1807,7 @@ export default function AdminCampaignIntelligence() {
           <TabLearning />
         </ErrorBoundary>
       )}
+        {activeTab === "finetuning" && <TabFineTuning />}
         {activeTab === "ai"       && <TabAIManager />}
         {activeTab === "ml"       && (
         <ErrorBoundary fallback={<div style={{padding:24,textAlign:"center",color:"#ef4444"}}>⚠️ Erro ao carregar Dataset ML. <button onClick={() => window.location.reload()} style={{color:"#3b82f6",background:"none",border:"none",cursor:"pointer",textDecoration:"underline"}}>Recarregar</button></div>}>
