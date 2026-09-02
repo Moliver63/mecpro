@@ -88,6 +88,29 @@ test("current briefing area overrides stale inherited profile area", () => {
   assert.equal(validation.status, "passed");
 });
 
+test("accepts equivalent area formats without weakening numeric guard", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Sala com 50M²",
+      description: "50 metros quadrados",
+      copy: "Espaco comercial com 50m2 para atendimento profissional.",
+    },
+  ], facts);
+  const conflictValidation = validateCampaignFactIntegrity([
+    {
+      headline: "Sala com 190M²",
+      description: "190 metros quadrados",
+      copy: "Espaco comercial com metragem maior.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+  assert.equal(validation.conflicts.length, 0);
+  assert.equal(conflictValidation.status, "failed");
+  assert.ok(conflictValidation.conflicts.some((conflict) => conflict.reason === "area_conflict_expected_50 m²"));
+});
+
 test("blocks contaminated creativeSystemV2 copy bank text", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   const validation = validateCampaignFactIntegrity([

@@ -43,6 +43,26 @@ function normalizeText(value: unknown): string {
     .toLowerCase();
 }
 
+function normalizeAreaValue(value: unknown): string {
+  const raw = normalizeText(value)
+    .replace(/m²/g, "m2")
+    .replace(/\bmetros?\s+quadrados?\b/g, "m2");
+  const match = raw.match(/\b(\d{1,4}(?:[,.]\d+)?)\s*m2\b/);
+  if (!match) return "";
+  const numeric = match[1].replace(",", ".");
+  const parsed = Number(numeric);
+  return Number.isFinite(parsed) ? `${parsed} m2` : `${numeric} m2`;
+}
+
+function equivalentFactValue(key: keyof ReturnType<typeof extractRealEstateFacts>, left: string, right: string): boolean {
+  if (key === "areaM2") {
+    const normalizedLeft = normalizeAreaValue(left);
+    const normalizedRight = normalizeAreaValue(right);
+    return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+  }
+  return normalizeText(left) === normalizeText(right);
+}
+
 function compactText(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -168,7 +188,7 @@ function extractRealEstateFacts(raw: string) {
   return {
     purpose: detectPurpose(raw),
     propertyType,
-    areaM2: firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)(?=\s|[.,;:]|$)/i]),
+    areaM2: firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*(?:m(?:2|²)|metros?\s+quadrados?)(?=\s|[.,;:]|$)/i]),
     price: firstMatch(raw, [/\bR\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?\b/i]),
     address: firstMatch(raw, [
       /\b(?:rua|avenida|av\.?|r\.?)\s+[^\n,.]+(?:,\s*(?:n[ºo]\.?\s*)?\d+)?/i,
@@ -213,7 +233,7 @@ function collectStaleInheritedClaims(
   for (const key of keys) {
     const currentValue = current[key];
     const inheritedValue = inherited[key];
-    if (currentValue && inheritedValue && normalizeText(currentValue) !== normalizeText(inheritedValue)) {
+    if (currentValue && inheritedValue && !equivalentFactValue(key, currentValue, inheritedValue)) {
       stale.push(inheritedValue);
     }
   }
@@ -353,9 +373,9 @@ export function validateCampaignFactIntegrity(
       }
     }
 
-    const areas = valuesInText(/\b\d{1,4}(?:[,.]\d+)?\s*m(?:2|²)(?=\s|[.,;:]|$)/gi, text);
+    const areas = valuesInText(/\b\d{1,4}(?:[,.]\d+)?\s*(?:m(?:2|²)|metros?\s+quadrados?)(?=\s|[.,;:]|$)/gi, text);
     for (const area of areas) {
-      if (facts.realEstate.areaM2 && normalizeText(area) !== normalizeText(facts.realEstate.areaM2)) {
+      if (facts.realEstate.areaM2 && normalizeAreaValue(area) !== normalizeAreaValue(facts.realEstate.areaM2)) {
         conflicts.push({ field, value: area, reason: `area_conflict_expected_${facts.realEstate.areaM2}` });
       }
     }
