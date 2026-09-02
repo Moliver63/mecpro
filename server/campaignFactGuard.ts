@@ -54,10 +54,40 @@ function normalizeAreaValue(value: unknown): string {
   return Number.isFinite(parsed) ? `${parsed} m2` : `${numeric} m2`;
 }
 
+function normalizeMoneyValue(value: unknown): string {
+  const raw = normalizeText(value);
+  const explicitCurrency = raw.match(/\br\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\b/);
+  if (explicitCurrency) {
+    const integer = explicitCurrency[1].replace(/\./g, "");
+    const decimal = (explicitCurrency[2] || "").padEnd(2, "0").slice(0, 2);
+    const parsed = Number(`${integer}.${decimal || "00"}`);
+    return Number.isFinite(parsed) ? `${parsed} brl` : "";
+  }
+
+  const thousandText = raw.match(/\b(\d{1,3}(?:[,.]\d+)?)\s*mil(?:\s+reais)?\b/);
+  if (thousandText) {
+    const parsed = Number(thousandText[1].replace(",", ".")) * 1000;
+    return Number.isFinite(parsed) ? `${parsed} brl` : "";
+  }
+
+  const contextualNumber = raw.match(/\b(?:valor|preco|aluguel|locacao|mensal|mensais|por)\D{0,20}(\d{4,6})(?:,(\d{1,2}))?\b/);
+  if (contextualNumber) {
+    const parsed = Number(`${contextualNumber[1]}.${(contextualNumber[2] || "").padEnd(2, "0").slice(0, 2) || "00"}`);
+    return Number.isFinite(parsed) ? `${parsed} brl` : "";
+  }
+
+  return "";
+}
+
 function equivalentFactValue(key: keyof ReturnType<typeof extractRealEstateFacts>, left: string, right: string): boolean {
   if (key === "areaM2") {
     const normalizedLeft = normalizeAreaValue(left);
     const normalizedRight = normalizeAreaValue(right);
+    return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+  }
+  if (key === "price") {
+    const normalizedLeft = normalizeMoneyValue(left);
+    const normalizedRight = normalizeMoneyValue(right);
     return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
   }
   return normalizeText(left) === normalizeText(right);
@@ -138,6 +168,8 @@ function detectIncludedFees(raw: string): string | undefined {
   return undefined;
 }
 
+const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|\d{1,3}(?:[,.]\d+)?\s*mil(?:\s+reais)?|(?:valor|pre[cç]o|aluguel|loca[cç][aã]o|mensal|mensais|por)\D{0,20}\d{4,6}(?:,\d{1,2})?)\b/i;
+
 function buildForbiddenClaims(raw: string, propertyType?: string): string[] {
   const n = normalizeText(raw);
   const candidates = [
@@ -189,7 +221,7 @@ function extractRealEstateFacts(raw: string) {
     purpose: detectPurpose(raw),
     propertyType,
     areaM2: firstMatch(raw, [/\b\d{1,4}(?:[,.]\d+)?\s*(?:m(?:2|²)|metros?\s+quadrados?)(?=\s|[.,;:]|$)/i]),
-    price: firstMatch(raw, [/\bR\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?\b/i]),
+    price: firstMatch(raw, [moneyPattern]),
     address: firstMatch(raw, [
       /\b(?:rua|avenida|av\.?|r\.?)\s+[^\n,.]+(?:,\s*(?:n[ºo]\.?\s*)?\d+)?/i,
     ]),
@@ -380,9 +412,9 @@ export function validateCampaignFactIntegrity(
       }
     }
 
-    const prices = valuesInText(/\bR\$\s*\d{1,3}(?:\.\d{3})*(?:,\d{2})?\b/gi, text);
+    const prices = valuesInText(new RegExp(moneyPattern.source, "gi"), text);
     for (const price of prices) {
-      if (facts.realEstate.price && normalizeText(price) !== normalizeText(facts.realEstate.price)) {
+      if (facts.realEstate.price && normalizeMoneyValue(price) !== normalizeMoneyValue(facts.realEstate.price)) {
         conflicts.push({ field, value: price, reason: `price_conflict_expected_${facts.realEstate.price}` });
       }
     }

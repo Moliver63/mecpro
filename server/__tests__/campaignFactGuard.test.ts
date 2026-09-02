@@ -111,6 +111,29 @@ test("accepts equivalent area formats without weakening numeric guard", () => {
   assert.ok(conflictValidation.conflicts.some((conflict) => conflict.reason === "area_conflict_expected_50 m²"));
 });
 
+test("accepts equivalent rent price formats without confusing media budget", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Locacao por R$5.000",
+      description: "R$ 5.000,00 mensais",
+      copy: "Sala comercial com aluguel de 5 mil reais. Valor 5000 para locacao mensal.",
+    },
+  ], facts);
+  const budgetConflict = validateCampaignFactIntegrity([
+    {
+      headline: "Locacao por R$ 180",
+      description: "Orcamento menor",
+      copy: "Sala comercial com valor de R$ 180 mensais.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+  assert.equal(validation.conflicts.length, 0);
+  assert.equal(budgetConflict.status, "failed");
+  assert.ok(budgetConflict.conflicts.some((conflict) => conflict.reason === "price_conflict_expected_R$ 5.000"));
+});
+
 test("blocks contaminated creativeSystemV2 copy bank text", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   const validation = validateCampaignFactIntegrity([
