@@ -11,6 +11,7 @@ import Layout from "@/components/layout/Layout";
 import CampaignAudit from "@/components/CampaignAudit";
 import PublishValidator, { validateForPublish } from "@/components/PublishValidator";
 import PixelPanel from "@/components/PixelPanel";
+import FineTuningFeedback from "@/components/FineTuningFeedback";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
 import { toast } from "sonner";
@@ -1955,6 +1956,7 @@ export default function CampaignResult() {
             <button className="btn btn-sm btn-ghost" onClick={() => setLocation(`/projects/${projectId}/campaign`)} style={{ paddingLeft: 0 }}>← Módulo 4</button>
           </div>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(18px, 4vw, 26px)", fontWeight: 800, color: "var(--black)", marginBottom: 4 }}>{c.name}</h1>
+          <FineTuningFeedback campaignId={c.id} projectId={projectId} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 11, fontWeight: 700, background: "var(--green-xl)", color: "var(--green-dk)", padding: "3px 10px", borderRadius: 6 }}>{c.objective}</span>
             <span style={{ fontSize: 11, fontWeight: 700, background: "#eff6ff", color: "#1e40af", padding: "3px 10px", borderRadius: 6 }}>{c.platform}</span>
