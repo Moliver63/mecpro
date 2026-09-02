@@ -53,6 +53,39 @@ test("blocks carousel when there are not enough media items", () => {
   assert.ok(report.questions.some((question) => /pelo menos 2/i.test(question)));
 });
 
+test("blocks repeated carousel cards without usable media", () => {
+  const repeatedCreatives = Array.from({ length: 5 }, () => ({
+    headline: "Espaco Comercial 50m2 - Rua 902",
+    copy: "Otimize sua operacao em 50 m2 estrategicamente localizados na Rua 902. Ideal para negocios que buscam eficiencia e visibilidade.",
+    imageUrl: "https://example.com/placeholder.jpg",
+  }));
+  const report = evaluateCampaignQualityGates(
+    {
+      action: "generate",
+      objective: "leads",
+      platform: "meta",
+      budget: 675,
+      duration: 30,
+      mediaFormat: "carousel",
+      creatives: repeatedCreatives,
+      creativesCount: repeatedCreatives.length,
+      factValidationStatus: "passed",
+      extraContext: "Locacao de sala comercial de 50 m2 na Rua 902, nº 144 por R$ 5.000 mensais, tudo incluso",
+    },
+    {
+      ...baseProfile,
+      productService: "Locacao de sala comercial de 50 m2 na Rua 902, nº 144 por R$ 5.000 mensais, tudo incluso",
+      uniqueValueProposition: "Sala pronta para atendimento profissional",
+      productDifferentials: "Dois aparelhos de ar-condicionado, pe-direito alto e estrutura para massoterapia",
+    },
+    { name: "Morebem - sala comercial" },
+  );
+
+  assert.equal(report.status, "blocked");
+  assert.ok(report.questions.some((question) => /headlines e copies realmente diferentes/i.test(question)));
+  assert.ok(report.questions.some((question) => /imagem ou video real/i.test(question)));
+});
+
 test("asks food-specific questions for sweets campaign", () => {
   const report = evaluateCampaignQualityGates(
     {

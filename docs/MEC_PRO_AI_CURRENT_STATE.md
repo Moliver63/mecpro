@@ -94,6 +94,8 @@ Atualizacao 2026-09-02: a validacao de preco tambem compara valor canonico em BR
 
 Atualizacao 2026-09-02: foi criada uma camada reutilizavel de normalizacao canonica em `server/factNormalizer.ts`. Ela ja cobre area, dinheiro, contagem, duracao, volume e peso (`50 m2`, `BRL 5000`, `60 min`, `500 ml`, `30000 kg`). O Fact Guard imobiliario usa essa camada para area, preco, quartos/dormitorios, suites, banheiros e vagas. A evolucao correta para novos segmentos e ligar seus fatos criticos a essa camada, evitando comparacao literal de texto.
 
+Atualizacao 2026-09-02: endereco tambem virou fato canonico. Formatos como `Rua 902, nº 144`, `Rua 902, 144`, `Rua 902 n 144` e `R. 902 nº 144` representam o mesmo endereco confirmado. Se a copy trouxer outro numero ou outra rua, o Fact Guard bloqueia. Se a copy usar so a rua confirmada sem numero, isso e tratado como forma menos especifica, nao como conflito.
+
 ## Quality gates operacionais
 
 O arquivo `shared/campaignQualityGate.ts` concentra validacoes de prontidao por etapa, inspirado em padroes de agentes com gates antes de acoes criticas.
@@ -104,6 +106,8 @@ Ele avalia:
 - `media`: quantidade de midias, carrossel com pelo menos 2 itens, escolha de capa e ordem visual.
 - `publish`: destino final, confirmacao explicita do usuario, criativos suficientes e resultado do fact guard.
 - `optimize`: reservado para auditorias de otimizacao e proximas evolucoes.
+
+Atualizacao 2026-09-02: quando o gate recebe os criativos gerados, carrossel passa a exigir variedade real de cards. Headlines/copies repetidas entre varios cards bloqueiam a campanha antes de salvar/publicar. O gate tambem bloqueia cards de carrossel sem imagem/video real associado quando nao ha `mediaUrls`/fotos suficientes, evitando placeholder visual ou perda de imagens na Meta.
 
 O MCP expõe esse diagnostico em `assess_campaign_briefing` e tambem retorna `qualityGateReport` em `generate_campaign`. O `generate_campaign` bloqueia quando o gate de geracao encontra informacoes obrigatorias ausentes.
 
@@ -122,6 +126,8 @@ Exemplos:
 O sistema nao deve inserir frases genericas como `ultimas unidades`, `seguranca 24h`, `valores sob consulta`, `4 vagas` ou `alto padrao` sem fonte no briefing.
 
 Fallbacks de carrossel tambem nao podem conter fatos especificos hardcoded. Titulos como `3 suites espacosas` ou descricoes como `190 m2 privativos` so podem aparecer quando esses dados vierem do briefing atual.
+
+Em carrossel, cada card precisa ter um angulo proprio. Repetir a mesma headline/copy em 3+ cards, como `Espaco Comercial 50m2 - Rua 902` em todos os cards, e bug de montagem criativa e deve ser bloqueado pelo quality gate. Claims como `fase final`, `processo avancado`, `condicao especial` e `por tempo limitado` so podem aparecer quando estiverem confirmados no briefing atual.
 
 ## Ordem de fotos em carrossel
 

@@ -994,6 +994,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         hasImages: z.boolean().optional().describe("Indica se ja existem imagens anexadas/subidas."),
         hasVideos: z.boolean().optional().describe("Indica se ja existem videos anexados/subidos."),
         creativesCount: z.number().int().optional().describe("Quantidade de criativos/cards ja gerados."),
+        creatives: z.array(z.any()).optional().describe("Criativos/cards ja gerados para auditar repeticao de headline, copy e midia antes da publicacao."),
+        mediaUrls: z.array(z.string()).optional().describe("URLs de imagens/videos reais associados aos cards."),
         factValidationStatus: z.enum(["passed", "failed"]).optional().describe("Resultado do fact guard, se ja existir."),
         metaPublishConfirmed: z.boolean().optional().describe("Use true apenas quando o usuario confirmou publicar na Meta."),
         creativeMode: z.enum(["auto", "upload"]).optional(),

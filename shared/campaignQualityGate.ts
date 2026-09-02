@@ -18,6 +18,8 @@ export interface CampaignQualityGateInput extends CampaignBriefingInput {
   hasImages?: boolean | null;
   hasVideos?: boolean | null;
   creativesCount?: number | null;
+  creatives?: unknown[] | null;
+  mediaUrls?: string[] | null;
   factValidationStatus?: "passed" | "failed" | null;
   metaPublishConfirmed?: boolean | null;
 }
@@ -46,6 +48,126 @@ export interface CampaignQualityGateReport {
 
 function text(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function normalizedText(value: unknown): string {
+  return text(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function getCreativeField(creative: unknown, fields: string[]): string {
+  if (!creative || typeof creative !== "object") return "";
+  const record = creative as Record<string, unknown>;
+  for (const field of fields) {
+    const value = text(record[field]);
+    if (value) return value;
+  }
+  return "";
+}
+
+function isPlaceholderMediaUrl(value: unknown): boolean {
+  const url = normalizedText(value);
+  return !!url && /(?:placeholder|placehold|dummy|mock|skeleton|blank|example\.com|sem-imagem|no-image)/i.test(url);
+}
+
+function creativeHasUsableMedia(creative: unknown): boolean {
+  if (!creative || typeof creative !== "object") return false;
+  const record = creative as Record<string, any>;
+  const directMedia = [
+    record.imageUrl,
+    record.feedImageUrl,
+    record.storyImageUrl,
+    record.squareImageUrl,
+    record.videoUrl,
+    record.feedVideoId,
+    record.storyVideoId,
+    record.squareVideoId,
+    record.imageHash,
+    record.feedImageHash,
+    record.storyImageHash,
+    record.squareImageHash,
+  ].map(text).filter(Boolean);
+  if (directMedia.some((item) => !isPlaceholderMediaUrl(item))) return true;
+
+  const publishMedia = record.publishMedia || record.creativeSystemV2?.legacyProjection?.publishMedia;
+  if (publishMedia && typeof publishMedia === "object") {
+    const urls = [
+      publishMedia.imageUrl,
+      publishMedia.videoId,
+      ...(Array.isArray(publishMedia.imageUrls) ? publishMedia.imageUrls : []),
+      ...(Array.isArray(publishMedia.imageHashes) ? publishMedia.imageHashes : []),
+    ].map(text).filter(Boolean);
+    if (urls.some((item) => !isPlaceholderMediaUrl(item))) return true;
+  }
+
+  const assets = record.creativeSystemV2?.media?.assets;
+  if (Array.isArray(assets)) {
+    return assets.some((asset) => {
+      if (!asset || typeof asset !== "object") return false;
+      const url = text((asset as Record<string, unknown>).url || (asset as Record<string, unknown>).previewUrl);
+      return !!url && !isPlaceholderMediaUrl(url);
+    });
+  }
+
+  return false;
+}
+
+function addCarouselCreativeIssues(
+  input: CampaignQualityGateInput,
+  mediaFormat: string,
+  publishRequired: CampaignBriefingIssue[],
+) {
+  if (!["carousel", "carrossel"].includes(mediaFormat)) return;
+  const creatives = Array.isArray(input.creatives) ? input.creatives : [];
+  if (creatives.length < 2) return;
+
+  const headlineSignatures = new Set<string>();
+  const bodySignatures = new Set<string>();
+  const cardSignatures = new Set<string>();
+  let missingMedia = 0;
+
+  for (const creative of creatives) {
+    const headline = normalizedText(getCreativeField(creative, ["headline", "title", "name"]));
+    const body = normalizedText(getCreativeField(creative, ["copy", "bodyText", "description", "shortDescription"]));
+    if (headline) headlineSignatures.add(headline);
+    if (body) bodySignatures.add(body.slice(0, 220));
+    if (headline || body) cardSignatures.add(`${headline}|${body.slice(0, 220)}`);
+    if (!creativeHasUsableMedia(creative)) missingMedia++;
+  }
+
+  const expectedVariety = Math.min(creatives.length, 5);
+  if (cardSignatures.size < expectedVariety || headlineSignatures.size < Math.min(expectedVariety, 3)) {
+    addSyntheticIssue(
+      publishRequired,
+      "carousel_unique_creatives",
+      "required",
+      "Regenere o carrossel com headlines e copies realmente diferentes para cada card.",
+      "Carrossel com cards repetidos reduz performance e indica falha de montagem criativa.",
+    );
+  }
+
+  if (bodySignatures.size < Math.min(expectedVariety, 3)) {
+    addSyntheticIssue(
+      publishRequired,
+      "carousel_unique_copies",
+      "required",
+      "Cada card do carrossel precisa ter uma copy propria, com angulo e beneficio especificos.",
+      "Copies repetidas fazem o carrossel parecer duplicado e enfraquecem a narrativa.",
+    );
+  }
+
+  const externalMediaCount = (input.mediaUrls?.length || 0) + (input.uploadedImages?.length || 0) + (input.realPhotosBase64?.length || 0);
+  if (missingMedia > 0 && externalMediaCount < creatives.length) {
+    addSyntheticIssue(
+      publishRequired,
+      "carousel_real_media",
+      "required",
+      "Associe uma imagem ou video real a cada card antes de publicar o carrossel.",
+      "Card sem midia real pode virar placeholder visual ou perder imagens na Meta.",
+    );
+  }
 }
 
 function hasDestination(input: CampaignQualityGateInput, clientProfile: any): boolean {
@@ -170,9 +292,10 @@ export function evaluateCampaignQualityGates(
   const mediaCount =
     (input.uploadedImages?.length || 0) +
     (input.realPhotosBase64?.length || 0) +
+    (input.mediaUrls?.length || 0) +
     (input.hasImages ? 1 : 0) +
     (input.hasVideos ? 1 : 0);
-  const creativeCount = Number(input.creativesCount || 0);
+  const creativeCount = Math.max(Number(input.creativesCount || 0), Array.isArray(input.creatives) ? input.creatives.length : 0);
 
   const generationRequired = [...readiness.requiredMissing, ...segmentIssues.filter((issue) => issue.severity === "required")];
   const generationRecommended = [...readiness.recommendedMissing, ...segmentIssues.filter((issue) => issue.severity === "recommended")];
@@ -215,6 +338,7 @@ export function evaluateCampaignQualityGates(
   if (creativeCount > 0 && creativeCount < 2 && ["carousel", "carrossel"].includes(mediaFormat)) {
     addSyntheticIssue(publishRequired, "carousel_creatives", "required", "O carrossel precisa ter pelo menos 2 criativos validos antes de publicar.", "Meta e performance exigem cards suficientes para carrossel.");
   }
+  addCarouselCreativeIssues(input, mediaFormat, publishRequired);
   if (action === "publish" && !input.metaPublishConfirmed) {
     addSyntheticIssue(publishRequired, "publish_confirmation", "required", "Confirma publicar ou republicar esta campanha na Meta?", "Publicacao na Meta tem efeito externo e pode gastar verba real.");
   }

@@ -22,6 +22,7 @@ import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageForma
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity } from "./campaignFactGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
+import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -7559,11 +7560,39 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     throw new Error(`FACT_CONFLICT: criativos contém informações não confirmadas ou conflitantes. ${preview}`);
   }
 
+  const parsedForQualityGate = (() => {
+    try { return JSON.parse(creatives || "[]"); } catch { return []; }
+  })();
+  const postGenerationGate = evaluateCampaignQualityGates({
+    ...input,
+    action: "generate",
+    mediaFormat: input.mediaFormat || ((input.realImages?.length || 0) > 1 ? "carousel" : input.mediaFormat),
+    creatives: Array.isArray(parsedForQualityGate) ? parsedForQualityGate : [],
+    creativesCount: Array.isArray(parsedForQualityGate) ? parsedForQualityGate.length : 0,
+    mediaUrls: input.realImages || [],
+    hasImages: (input.realImages?.length || 0) > 0,
+    factValidationStatus: factValidation.status,
+  }, clientProfile, { name: input.name });
+  if (postGenerationGate.status === "blocked") {
+    const blocking = postGenerationGate.blockedGates
+      .flatMap((gate) => gate.blockingIssues)
+      .slice(0, 6)
+      .map((issue) => `${issue.field}: ${issue.reason}`)
+      .join("; ");
+    log.error("ai", "QUALITY_GATE_CONFLICT — campanha bloqueada antes de salvar", {
+      projectId: input.projectId,
+      campaignName: input.name,
+      blocking,
+    });
+    throw new Error(`QUALITY_GATE_CONFLICT: criativos insuficientes para salvar campanha. ${blocking}`);
+  }
+
   try {
     const responseObj = aiResponse ? JSON.parse(aiResponse) : {};
     aiResponse = JSON.stringify({
       ...responseObj,
       factValidation,
+      postGenerationQualityGate: postGenerationGate,
       campaignFacts: {
         verifiedFacts: campaignFacts.verifiedFacts,
         allowedInferences: campaignFacts.allowedInferences,

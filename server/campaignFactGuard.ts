@@ -2,6 +2,7 @@ import {
   compactText,
   equivalentCanonicalFact,
   normalizeAreaValue,
+  normalizeAddressValue,
   normalizeMoneyValue,
   normalizeText,
 } from "./factNormalizer";
@@ -48,6 +49,9 @@ function equivalentFactValue(key: keyof ReturnType<typeof extractRealEstateFacts
   }
   if (key === "price") {
     return equivalentCanonicalFact("money_brl", left, right);
+  }
+  if (key === "address") {
+    return equivalentCanonicalFact("address_br", left, right);
   }
   if (["bedrooms", "suites", "bathrooms", "parkingSpots"].includes(key)) {
     return equivalentCanonicalFact("count", left, right);
@@ -129,6 +133,7 @@ function detectIncludedFees(raw: string): string | undefined {
 const numberWordPattern = "(?:\\d+|um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez|cinquenta)";
 const areaPattern = new RegExp(`\\b(?:\\d{1,4}(?:[,.]\\d+)?|${numberWordPattern})\\s*(?:m(?:2|²)|metros?\\s+quadrados?)(?=\\s|[.,;:]|$)`, "i");
 const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?\s*reais|\d{1,3}(?:[,.]\d+)?\s*mil(?:\s+reais)?|(?:valor|pre[cç]o|aluguel|loca[cç][aã]o|mensal|mensais|por)\D{0,20}\d{4,6}(?:,\d{1,2})?)\b/i;
+const addressPattern = /\b(?:rua|avenida|av\.?|r\.?)\s+[a-z0-9]+(?:[\s,]+(?:n[ºo]\.?\s*)?\d{1,6})?\b/i;
 const bedroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+(?:quartos?|dormit[oó]rios?)\\b`, "i");
 const suitesPattern = new RegExp(`\\b${numberWordPattern}\\s+su[ií]tes?\\b`, "i");
 const bathroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+banheiros?\\b`, "i");
@@ -154,6 +159,14 @@ function buildForbiddenClaims(raw: string, propertyType?: string): string[] {
     "últimas unidades",
     "seguranca 24h",
     "segurança 24h",
+    "fase final",
+    "processo avancado",
+    "processo avançado",
+    "condicao especial",
+    "condição especial",
+    "por tempo limitado",
+    "nao perder esta chance",
+    "não perder esta chance",
   ];
   const forbidden = candidates.filter((claim) => !n.includes(normalizeText(claim)));
 
@@ -187,7 +200,7 @@ function extractRealEstateFacts(raw: string) {
     areaM2: firstMatch(raw, [areaPattern]),
     price: firstMatch(raw, [moneyPattern]),
     address: firstMatch(raw, [
-      /\b(?:rua|avenida|av\.?|r\.?)\s+[^\n,.]+(?:,\s*(?:n[ºo]\.?\s*)?\d+)?/i,
+      addressPattern,
     ]),
     floors: firstMatch(raw, [
       /\b\d+\s+pavimentos?\b/i,
@@ -380,6 +393,16 @@ export function validateCampaignFactIntegrity(
     for (const price of prices) {
       if (facts.realEstate.price && normalizeMoneyValue(price) !== normalizeMoneyValue(facts.realEstate.price)) {
         conflicts.push({ field, value: price, reason: `price_conflict_expected_${facts.realEstate.price}` });
+      }
+    }
+
+    const addresses = valuesInText(new RegExp(addressPattern.source, "gi"), text);
+    for (const address of addresses) {
+      if (facts.realEstate.address && !equivalentCanonicalFact("address_br", address, facts.realEstate.address)) {
+        conflicts.push({ field, value: address, reason: `address_conflict_expected_${facts.realEstate.address}` });
+      }
+      if (!facts.realEstate.address && normalizeAddressValue(address)) {
+        conflicts.push({ field, value: address, reason: "address_not_confirmed_in_current_briefing" });
       }
     }
 

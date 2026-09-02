@@ -31,10 +31,13 @@ const previousEduCampaignPattern = {
 test("normalizes universal fact units canonically", () => {
   assert.equal(normalizeCanonicalFact("area_m2", "cinquenta metros quadrados"), "50 m2");
   assert.equal(normalizeCanonicalFact("money_brl", "R$ 5.000,00"), "5000 brl");
+  assert.equal(normalizeCanonicalFact("address_br", "Rua 902, nº 144"), "rua 902 144");
   assert.equal(normalizeCanonicalFact("duration_min", "1 hora"), "60 min");
   assert.equal(normalizeCanonicalFact("volume_ml", "0,5 L"), "500 ml");
   assert.equal(normalizeCanonicalFact("weight_kg", "30 toneladas"), "30000 kg");
   assert.ok(equivalentCanonicalFact("money_brl", "R$5.000", "5 mil reais"));
+  assert.ok(equivalentCanonicalFact("address_br", "Rua 902, nº 144", "R. 902 n 144"));
+  assert.ok(equivalentCanonicalFact("address_br", "Rua 902", "Rua 902, 144"));
 });
 
 test("blocks Morebem creative contaminated with Edu triplex facts", () => {
@@ -176,6 +179,44 @@ test("accepts equivalent rent price formats without confusing media budget", () 
   assert.equal(validation.conflicts.length, 0);
   assert.equal(budgetConflict.status, "failed");
   assert.ok(budgetConflict.conflicts.some((conflict) => conflict.reason === "price_conflict_expected_R$ 5.000"));
+});
+
+test("accepts confirmed address variants and blocks different street numbers", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Rua 902, n 144",
+      description: "R. 902 nº 144",
+      copy: "Sala comercial na Rua 902, 144 em Balneario Camboriu.",
+    },
+  ], facts);
+  const conflictValidation = validateCampaignFactIntegrity([
+    {
+      headline: "Rua 902, n 999",
+      description: "Endereco comercial",
+      copy: "Sala comercial na Rua 902, 999.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+  assert.equal(validation.conflicts.length, 0);
+  assert.equal(conflictValidation.status, "failed");
+  assert.ok(conflictValidation.conflicts.some((conflict) => conflict.reason === "address_conflict_expected_Rua 902, nº 144"));
+});
+
+test("blocks unconfirmed urgency claims from generated real estate copy", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Sala comercial Rua 902",
+      description: "50 m² para locacao",
+      copy: "Oportunidade em fase final de negociação. Unidades com características similares em processo avançado. Agende para não perder esta chance.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((conflict) => /fase final/i.test(conflict.value)));
+  assert.ok(validation.conflicts.some((conflict) => /processo/i.test(conflict.value)));
 });
 
 test("blocks contaminated creativeSystemV2 copy bank text", () => {
