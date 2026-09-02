@@ -7115,6 +7115,178 @@ ${creativeSlotInstructions}
     });
   }
 
+  const carouselVarietySignature = (value: unknown) => normalizeCopyText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  function carouselHasWeakVariety(items: any[]): boolean {
+    if (!Array.isArray(items) || items.length < 3) return false;
+    const expectedVariety = Math.min(items.length, 5);
+    const headlineSignatures = new Set<string>();
+    const bodySignatures = new Set<string>();
+    const cardSignatures = new Set<string>();
+
+    for (const item of items) {
+      const headline = carouselVarietySignature(item?.headline || item?.title || item?.name);
+      const body = carouselVarietySignature(item?.copy || item?.bodyText || item?.description || item?.shortDescription);
+      if (headline) headlineSignatures.add(headline);
+      if (body) bodySignatures.add(body.slice(0, 220));
+      if (headline || body) cardSignatures.add(`${headline}|${body.slice(0, 220)}`);
+    }
+
+    return cardSignatures.size < expectedVariety
+      || headlineSignatures.size < Math.min(expectedVariety, 3)
+      || bodySignatures.size < Math.min(expectedVariety, 3);
+  }
+
+  function buildConfirmedCarouselAngles(total: number): any[] {
+    const segment = resolveSegmentFromCampaignContext(
+      resolvedSegment,
+      (clientProfile as any)?.niche,
+      (clientProfile as any)?.productService,
+      (clientProfile as any)?.productName,
+      input.extraContext,
+      input.name,
+    );
+    if (!(segment === "imoveis_venda" || segment === "imoveis_locacao")) {
+      const baseCards = fallbackCardsForSegment(segment);
+      const angleLabels = [
+        "Oferta principal",
+        "Variedade e escolha",
+        "Como funciona",
+        "Diferencial real",
+        "Proximo passo",
+        "Atendimento direto",
+      ];
+      return Array.from({ length: Math.max(total, 1) }, (_, index) => {
+        const base = baseCards[index % Math.max(baseCards.length, 1)] || fallbackCardsForSegment("geral")[0];
+        const label = angleLabels[index] || `Ponto ${index + 1}`;
+        return {
+          ...base,
+          headline: trimMetaField(index < baseCards.length ? base.headline : label, 40),
+          description: trimMetaField(index < baseCards.length ? base.description : "Card distinto", 30),
+          copy: `${label}: ${base.copy}`,
+          hook: trimMetaField(`${label} da campanha`, 80),
+          solution: trimMetaField(base.solution || label, 220),
+        };
+      });
+    }
+
+    const type = campaignFacts.realEstate.propertyType || "imóvel";
+    const purpose = campaignFacts.realEstate.purpose === "venda" ? "venda" : "locação";
+    const area = campaignFacts.realEstate.areaM2 || "";
+    const price = campaignFacts.realEstate.price || "";
+    const address = campaignFacts.realEstate.address || (clientProfile as any)?.city || "";
+    const featureLine = campaignFacts.realEstate.structuralFeatures.join(", ");
+    const includedFees = campaignFacts.realEstate.includedFees || "";
+    const broadUse = isGenericCommercialRoom
+      ? "Uso profissional amplo, sem definir atividade especifica que nao esteja no briefing."
+      : campaignFacts.realEstate.usagePossibilities.length
+        ? `Uso indicado: ${campaignFacts.realEstate.usagePossibilities.join(", ")}.`
+        : "Uso apresentado apenas conforme os dados confirmados.";
+    const visitCta = String(input.objective || "").toLowerCase() === "leads" ? "Agendar visita" : "Ver detalhes";
+    const factTail = "Todos os pontos seguem o briefing atual, sem herdar dados de campanhas anteriores.";
+
+    const angles = [
+      {
+        headline: trimMetaField(`${type} para ${purpose}`, 40),
+        description: trimMetaField(area || "Dados claros", 30),
+        copy: `Card de abertura: ${type} para ${purpose}${area ? ` com ${area}` : ""}${address ? ` em ${address}` : ""}.\n\n${price ? `Valor informado: ${price}${includedFees ? `, ${includedFees}` : ""}.` : "Condição comercial apresentada sem números inventados."}\n\n${visitCta} pelo WhatsApp.`,
+        hook: "Dados principais do imovel",
+        pain: "Entender rapidamente se o imovel combina com a busca.",
+        solution: "Resumo com tipo, finalidade, area, localizacao e valor confirmados.",
+        cta: visitCta,
+      },
+      {
+        headline: trimMetaField(address ? "Localização informada" : "Região confirmada", 40),
+        description: trimMetaField(address || "Veja a região", 30),
+        copy: `Este card destaca a localização sem acrescentar promessas externas.\n\n${address ? `Endereço informado no briefing: ${address}.` : "A região deve aparecer somente quando estiver confirmada no briefing."}\n\nChame para confirmar disponibilidade e combinar a visita.`,
+        hook: "Localizacao para decidir",
+        pain: "Comparar opcoes sem saber exatamente onde fica.",
+        solution: address || "Localizacao baseada somente no briefing atual.",
+        cta: "Confirmar localização",
+      },
+      {
+        headline: trimMetaField(featureLine || "Estrutura confirmada", 40),
+        description: "Detalhes reais",
+        copy: `Aqui a narrativa muda para a estrutura do espaço.\n\n${featureLine ? `O briefing confirma: ${featureLine}.` : `Sem estrutura adicional confirmada, o texto permanece objetivo sobre o ${type}.`}\n\n${factTail}`,
+        hook: "Estrutura do espaco",
+        pain: "Evitar expectativas criadas por detalhes nao confirmados.",
+        solution: featureLine || "Descricao limitada aos fatos disponiveis.",
+        cta: "Ver estrutura",
+      },
+      {
+        headline: "Condição para decidir",
+        description: trimMetaField(price || "Sem valor inventado", 30),
+        copy: `Este card foca na decisão comercial.\n\n${price ? `Valor confirmado: ${price}${includedFees ? `, ${includedFees}` : ""}.` : "Quando o valor nao esta confirmado, a campanha nao inventa preço."}\n\nFale no WhatsApp para tirar dúvidas antes de agendar.`,
+        hook: "Condicao comercial clara",
+        pain: "Receber lead curioso por falta de informacao basica.",
+        solution: price ? `Preco canônico: ${price}.` : "Sem preco inventado.",
+        cta: "Tirar dúvidas",
+      },
+      {
+        headline: isGenericCommercialRoom ? "Uso profissional amplo" : "Uso conforme briefing",
+        description: "Sem especializar",
+        copy: `Este card qualifica o interesse pelo uso do espaço.\n\n${broadUse}\n\nA campanha nao transforma tipo de imovel em atividade especifica sem confirmacao literal.`,
+        hook: "Uso alinhado ao briefing",
+        pain: "Atrair publico errado por uma especializacao inventada.",
+        solution: broadUse,
+        cta: "Avaliar o espaço",
+      },
+      {
+        headline: "Agende para conhecer",
+        description: "Próximo passo",
+        copy: `Fechamento do carrossel: se os dados fazem sentido, o próximo passo é conhecer o espaço.\n\n${area || price || address ? [area, price, address].filter(Boolean).join(" | ") : factTail}\n\nChame no WhatsApp e combine o atendimento.`,
+        hook: "Proximo passo claro",
+        pain: "Gostar da oferta e nao saber como avançar.",
+        solution: "CTA direto para conversa e visita.",
+        cta: "Chamar no WhatsApp",
+      },
+    ];
+
+    return Array.from({ length: total }, (_, index) => angles[index % angles.length]);
+  }
+
+  function repairRepeatedCarouselCreatives(items: any[]): any[] {
+    const shouldRepairCarousel = Array.isArray(items)
+      && items.length >= 3
+      && ((input.realImages?.length || 0) > 1 || /carousel|carrossel/i.test(String(input.mediaFormat || "")));
+    if (!shouldRepairCarousel || !carouselHasWeakVariety(items)) return items;
+
+    const angles = buildConfirmedCarouselAngles(items.length);
+    log.warn("ai", "Carrossel repetido detectado — reescrevendo cards com angulos confirmados", {
+      projectId: input.projectId,
+      campaignName: input.name,
+      cards: items.length,
+    });
+
+    return items.map((creative, index) => {
+      const angle = angles[index] || carouselFallbackForIndex(index, items.length);
+      const copy = trimMetaField(angle.copy, 900);
+      return {
+        ...creative,
+        type: creative?.type || (index === items.length - 1 ? "direct_offer" : "social_proof"),
+        format: "Carrossel",
+        headline: trimMetaField(angle.headline, 40),
+        description: trimMetaField(angle.description, 30),
+        shortDescription: trimMetaField(angle.description, 30),
+        copy,
+        bodyText: copy,
+        hook: trimMetaField(angle.hook, 80),
+        pain: trimMetaField(angle.pain, 160),
+        solution: trimMetaField(angle.solution, 220),
+        cta: index === items.length - 1 ? (angle.cta || "Chamar no WhatsApp") : (angle.cta || creative?.cta || "Ver detalhes"),
+        creativeIndex: index,
+        isFeaturedPhoto: index === 0,
+        source: creative?.source ? `${creative.source}_variety_repaired` : "carousel_variety_repaired",
+      };
+    });
+  }
+
   // Eco mode: pula toda a geração via LLM e usa motor híbrido diretamente
   if (!shouldUseLLM("high")) {
     log.info("ai", "generateCampaign: ecoMode HIGH — usando buildCampaignFromAds diretamente", {
@@ -7533,7 +7705,8 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
         realImages:     input.realImages,          // fotos reais do cliente (modo upload)
         photoInsights:  input.photoInsights,
       });
-      const creativesWithV2 = enrichedCreatives.map((rawCreative: any) => {
+      const variedCreatives = repairRepeatedCarouselCreatives(enrichedCreatives);
+      const creativesWithV2 = variedCreatives.map((rawCreative: any) => {
         let creative = rawCreative as CampaignCreative;
         creative = syncCreativeTextToV2(creative);
         if (creative.feedImageUrl || creative.feedImageHash) {
