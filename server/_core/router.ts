@@ -15,6 +15,7 @@ import { executarConsulta, consultarProcessoPorCNJ } from "../consultaService";
 import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { siteAnalyticsRouter } from "./siteAnalyticsRouter";
 import { vslRouter } from "./vslRouter";
+import { fineTuningRouter } from "./fineTuningRouter";
 import { scoreCreative } from "../creativeScoringEngine";
 import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
@@ -13898,6 +13899,7 @@ export const appRouter = router({
   notifications: notificationsRouter,
   consultas: consultasRouter,
   academy: academyRouter,
+  fineTuning: fineTuningRouter,
   intelligence:   adminIntelligenceRouter,
   siteAnalytics:  siteAnalyticsRouter,
   vsl:            vslRouter,   // ← ADICIONAR ESTA LINHA
