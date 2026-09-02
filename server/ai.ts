@@ -5990,13 +5990,10 @@ export async function generateCampaign(input: {
     qualityScore?: number | null;
     isFeatured?: boolean;
   }>;
-  realImageInsights?: Array<{ url: string; summary: string; score: number | null; status: string }>;
   // (sessão 34, 13/08) — rótulos do Google Vision extraídos das fotos reais
   // (ex: "piscina", "varanda"), já deduplicados e limitados a poucos itens
   // pelo chamador. Usado como sinal visual SUTIL na copy — nunca como fato
-  // confirmado (ver ressalva no prompt abaixo). Deliberadamente mais enxuto
-  // que realImageInsights (que carrega o resumo textual completo por foto e
-  // sobrecarregaria o prompt se usado direto).
+  // confirmado (ver ressalva no prompt abaixo).
   visualLabels?: string[];
   numCreatives?: number;  // quantidade de criativos a gerar (2-10) — default: 1 por foto real, ou 4 se não houver fotos
 }) {
@@ -7251,6 +7248,52 @@ ${creativeSlotInstructions}
     return Array.from({ length: total }, (_, index) => angles[index % angles.length]);
   }
 
+  function visualLeadForCarouselCard(creative: any, index: number): string {
+    const insight = input.photoInsights?.[index];
+    const role = normalizeCopyText(creative?.photoRole || insight?.role);
+    const angle = normalizeCopyText(creative?.photoCopyAngle || insight?.copyAngle);
+    const signals = [
+      ...(Array.isArray(creative?.visualSignals) ? creative.visualSignals : []),
+      ...(Array.isArray(insight?.labels) ? insight.labels : []),
+      ...(Array.isArray(insight?.objects) ? insight.objects : []),
+    ].map(normalizeCopyText).filter(Boolean);
+    const visualText = [role, angle, signals.slice(0, 3).join(", ")].filter(Boolean).join(" ");
+    if (!visualText) return "";
+
+    const lower = visualText.toLowerCase();
+    if (/food|dessert|sweet|brigadeiro|doce|bolo|chocolate|sabores|variedade|caixa|embalagem|pedido|cardapio/.test(lower)) {
+      if (/card|logo|telefone|whatsapp|instagram|texto|contato/.test(lower)) {
+        return "A foto funciona como prova de marca e contato, então este card fecha a narrativa com pedido direto.";
+      }
+      if (/variedade|sabores|sortido|mix|assorted/.test(lower)) {
+        return "A foto destaca variedade visual, ideal para vender escolha, sabor e vontade de pedir.";
+      }
+      return "A foto abre desejo pelo visual dos produtos e sustenta uma chamada simples para encomenda.";
+    }
+    if (/gym|fitness|academia|treino|equipamento|musculacao|peso/.test(lower)) {
+      if (/equipamento|machine|aparelho|peso/.test(lower)) {
+        return "A foto destaca estrutura de treino, então este card valoriza suporte para a rotina do aluno.";
+      }
+      return "A foto mostra o ambiente de treino e ajuda a conectar energia, constancia e próximo passo.";
+    }
+    if (/kitchen|cozinha|gourmet|mesa|dining|countertop/.test(lower)) {
+      return "A foto destaca um ambiente de uso diário, bom para conectar visual do espaço e decisão de visita.";
+    }
+    if (/living|sala|sofa|escada|interior|room|lounge/.test(lower)) {
+      return "A foto apresenta um ambiente de convivência, útil para mostrar o espaço antes dos dados comerciais.";
+    }
+    if (/bed|bedroom|quarto|suite|cama|closet|wardrobe|cabide|espelho/.test(lower)) {
+      return "A foto traz detalhes internos do imóvel e ajuda o lead a imaginar a visita com mais clareza.";
+    }
+    if (/pool|piscina|varanda|vista|balcony|terrace|fachada|exterior|building|sky/.test(lower)) {
+      return "A foto tem impacto visual forte, então este card abre desejo com informações objetivas.";
+    }
+    if (/card|logo|telefone|whatsapp|instagram|texto|contato|marca/.test(lower)) {
+      return "A foto traz informação visual de oferta ou contato, boa para reforçar o próximo passo.";
+    }
+    return "A foto real orienta o ângulo deste card e sustenta uma mensagem objetiva para avançar a conversa.";
+  }
+
   function repairRepeatedCarouselCreatives(items: any[]): any[] {
     const shouldRepairCarousel = Array.isArray(items)
       && items.length >= 3
@@ -7266,7 +7309,8 @@ ${creativeSlotInstructions}
 
     return items.map((creative, index) => {
       const angle = angles[index] || carouselFallbackForIndex(index, items.length);
-      const copy = trimMetaField(angle.copy, 900);
+      const visualLead = visualLeadForCarouselCard(creative, index);
+      const copy = trimMetaField(visualLead ? `${visualLead}\n\n${angle.copy}` : angle.copy, 900);
       return {
         ...creative,
         type: creative?.type || (index === items.length - 1 ? "direct_offer" : "social_proof"),

@@ -3057,8 +3057,20 @@ const campaignsRouter = router({
         realImages:   (input.creativeMode === "upload" && Array.isArray(input.uploadedImages) && input.uploadedImages.length > 0)
                         ? input.uploadedImages
                         : undefined,
-        realImageInsights: (input.creativeMode === "upload" && Array.isArray(input.imageInsights))
-                        ? input.imageInsights.filter((i: any) => i.status === "done")
+        photoInsights: (input.creativeMode === "upload" && Array.isArray(input.imageInsights))
+                        ? input.imageInsights
+                            .filter((i: any) => i.status === "done")
+                            .map((insight: any, index: number) => ({
+                              url: insight.url,
+                              originalIndex: index,
+                              role: "uploaded_visual_context",
+                              copyAngle: insight.summary || "foto real enviada pelo cliente",
+                              labels: insight.summary ? [insight.summary] : [],
+                              objects: [],
+                              hasText: /texto na imagem:/i.test(String(insight.summary || "")),
+                              qualityScore: insight.score ?? null,
+                              isFeatured: index === 0,
+                            }))
                         : undefined,
         numCreatives: input.numCreatives,
       } as any);
