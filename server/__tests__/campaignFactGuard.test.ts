@@ -219,6 +219,44 @@ test("blocks unconfirmed urgency claims from generated real estate copy", () => 
   assert.ok(validation.conflicts.some((conflict) => /processo/i.test(conflict.value)));
 });
 
+test("blocks unconfirmed commercial room specializations", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Consultorio pronto",
+      description: "Salao ou estudio",
+      copy: "Use como clínica, escritório ou consultório para atender clientes.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((conflict) => normalizeForTest(conflict.value) === "consultorio"));
+  assert.ok(validation.conflicts.some((conflict) => normalizeForTest(conflict.value) === "clinica"));
+  assert.ok(validation.conflicts.some((conflict) => normalizeForTest(conflict.value) === "escritorio"));
+  assert.ok(validation.conflicts.some((conflict) => normalizeForTest(conflict.value) === "salao"));
+  assert.ok(validation.conflicts.some((conflict) => normalizeForTest(conflict.value) === "estudio"));
+});
+
+test("allows commercial room specialization when explicitly confirmed", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      ...morebemInput,
+      extraContext: `${morebemInput.extraContext} Uso confirmado: consultorio para atendimento profissional.`,
+    },
+    clientProfile: morebemProfile,
+  });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Consultorio na Rua 902",
+      description: "50 m² para atender",
+      copy: "Sala comercial com uso confirmado para consultorio, com 50 m² e valor de R$ 5.000 mensais.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+  assert.equal(validation.conflicts.length, 0);
+});
+
 test("blocks contaminated creativeSystemV2 copy bank text", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   const validation = validateCampaignFactIntegrity([

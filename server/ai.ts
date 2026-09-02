@@ -6272,6 +6272,17 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     campaignName: input.name,
     segment: resolvedSegment,
   });
+  const isGenericCommercialRoom =
+    campaignFacts.realEstate.propertyType === "sala comercial"
+    && !/\b(consult[oó]rio|cl[ií]nica|escrit[oó]rio|sal[aã]o|studio|est[uú]dio)\b/i.test([
+      (clientProfile as any)?.productService,
+      (clientProfile as any)?.productDifferentials,
+      (clientProfile as any)?.uniqueValueProposition,
+      input.extraContext,
+    ].filter(Boolean).join(" "));
+  const commercialRoomGenericUsageRule = isGenericCommercialRoom
+    ? "\nREGRA PARA SALA COMERCIAL AMPLA: o briefing nao confirmou consultorio, clinica, escritorio, salao, studio ou outra operacao especifica. Use somente termos amplos como atividade profissional, negocio, operacao, atendimento profissional, rotina profissional ou espaco comercial. Nao cite exemplos de segmentos como se fossem o uso do imovel."
+    : "";
   const campaignFactsPrompt = formatCampaignFactsForPrompt(campaignFacts);
   const operationalLessonsPrompt = await buildOperationalLessonsContext({
     modules: ["campaigns", "creative", "media", "mcp", "meta", "quality"],
@@ -6405,6 +6416,9 @@ ${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxi
     ].filter(Boolean).join(" ").toLowerCase();
 
     if (/im[oó]v|imobili|apartamento|cobertura|loca[cç][aã]o|aluguel|condom/i.test(segmentText)) {
+      if (isGenericCommercialRoom) {
+        return `Para sala comercial ampla, transforme os dados confirmados em argumentos comerciais sem especializar o uso: fale em espaco comercial, atividade profissional, rotina do negocio, atendimento profissional, localizacao, metragem, valor e diferenciais reais. Nao use consultorio, clinica, escritorio, salao, studio ou outra operacao especifica sem confirmacao literal no briefing.`;
+      }
       return `Para imóveis, transforme ambientes em argumentos comerciais: destaque localização, metragem, suítes, mobília, lazer, vista, valor, disponibilidade e CTA de visita apenas quando esses dados estiverem confirmados no briefing. Se a foto mostrar piscina, cozinha, sala, suíte, closet, fachada ou vista, conecte o ambiente a uma razão concreta para o lead chamar no WhatsApp ou preencher formulário.`;
     }
     if (/aliment|food|delivery|restaurante|doce|bolo|brigadeiro|confeito|doceria|sobremesa/i.test(segmentText)) {
@@ -6486,6 +6500,7 @@ ${(clientProfile as any)?.averageTicket ? `- Ticket médio: R$ ${(clientProfile 
 ${ctaRule}
 ${subsegmentInstruction}
 ${campaignFactsPrompt}
+${commercialRoomGenericUsageRule}
 ${operationalLessonsPrompt}
 
 CAMPANHA: ${input.name}
@@ -6895,7 +6910,9 @@ ${creativeSlotInstructions}
       const price = campaignFacts.realEstate.price || "";
       const address = campaignFacts.realEstate.address || (clientProfile as any)?.city || "";
       const featureLine = campaignFacts.realEstate.structuralFeatures.join(", ");
-      const usageLine = campaignFacts.realEstate.usagePossibilities.length
+      const usageLine = isGenericCommercialRoom
+        ? "Uso possível para atividade profissional, operação do negócio ou atendimento profissional."
+        : campaignFacts.realEstate.usagePossibilities.length
         ? `Uso possível para ${campaignFacts.realEstate.usagePossibilities.join(", ")}.`
         : "";
       const factSummary = campaignFacts.verifiedFacts.map((fact) => fact.replace(/^[^:]+:\s*/, "")).join(", ");
@@ -6939,7 +6956,7 @@ ${creativeSlotInstructions}
         {
           headline: "Uso profissional possível",
           description: "Perfil do interessado",
-          copy: `${usageLine || `O ${type} pode ser apresentado pelo uso indicado no briefing, sem trocar o tipo do imóvel.`}\n\nProfissão ou atividade do público não muda a categoria do imóvel anunciado.\n\nFale para avaliar o espaço.`,
+          copy: `${usageLine || `O ${type} pode ser apresentado pelo uso indicado no briefing, sem trocar o tipo do imóvel.`}\n\nProfissão ou atividade do público não muda a categoria do imóvel anunciado. Não especialize como consultório, clínica, escritório ou salão sem confirmação literal.\n\nFale para avaliar o espaço.`,
           hook: "Espaço para uso profissional",
           pain: "Saber se o imóvel combina com a atividade pretendida.",
           solution: usageLine || "Distinguir tipo do imóvel de uso possível.",

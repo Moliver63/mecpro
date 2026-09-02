@@ -96,6 +96,8 @@ Atualizacao 2026-09-02: foi criada uma camada reutilizavel de normalizacao canon
 
 Atualizacao 2026-09-02: endereco tambem virou fato canonico. Formatos como `Rua 902, nº 144`, `Rua 902, 144`, `Rua 902 n 144` e `R. 902 nº 144` representam o mesmo endereco confirmado. Se a copy trouxer outro numero ou outra rua, o Fact Guard bloqueia. Se a copy usar so a rua confirmada sem numero, isso e tratado como forma menos especifica, nao como conflito.
 
+Atualizacao 2026-09-02: sala comercial ampla nao autoriza especializacao inventada. Se o briefing disser apenas `sala comercial`, `atividade profissional`, `negocio`, `espaco comercial` ou publico amplo, o gerador deve evitar `consultorio`, `clinica`, `escritorio`, `salao`, `studio/estudio` e termos semelhantes. Esses termos so podem aparecer quando o briefing atual confirmar literalmente o uso.
+
 ## Quality gates operacionais
 
 O arquivo `shared/campaignQualityGate.ts` concentra validacoes de prontidao por etapa, inspirado em padroes de agentes com gates antes de acoes criticas.
@@ -128,6 +130,8 @@ O sistema nao deve inserir frases genericas como `ultimas unidades`, `seguranca 
 Fallbacks de carrossel tambem nao podem conter fatos especificos hardcoded. Titulos como `3 suites espacosas` ou descricoes como `190 m2 privativos` so podem aparecer quando esses dados vierem do briefing atual.
 
 Em carrossel, cada card precisa ter um angulo proprio. Repetir a mesma headline/copy em 3+ cards, como `Espaco Comercial 50m2 - Rua 902` em todos os cards, e bug de montagem criativa e deve ser bloqueado pelo quality gate. Claims como `fase final`, `processo avancado`, `condicao especial` e `por tempo limitado` so podem aparecer quando estiverem confirmados no briefing atual.
+
+Para sala comercial de uso amplo, os criativos devem usar linguagem neutra: `atividade profissional`, `rotina profissional`, `operacao`, `negocio`, `atendimento profissional` e `espaco comercial`. Nao transformar publico-alvo possivel em tipo de operacao especifica sem confirmacao.
 
 ## Ordem de fotos em carrossel
 

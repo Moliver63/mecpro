@@ -185,6 +185,13 @@ function buildForbiddenClaims(raw: string, propertyType?: string): string[] {
       "clínica",
       "consultorio",
       "consultório",
+      "escritorio",
+      "escritório",
+      "salao",
+      "salão",
+      "studio",
+      "estudio",
+      "estúdio",
     ]) {
       if (!n.includes(normalizeText(claim))) forbidden.push(claim);
     }
@@ -307,7 +314,7 @@ export function buildCampaignFacts({
 
   const allowedInferences = unique([
     usagePossibilities.length ? `Uso possivel: ${usagePossibilities.join(", ")}` : "",
-    propertyType === "sala comercial" ? "Pode falar em uso profissional, mas nao pode trocar o tipo do imovel por clinica ou consultorio." : "",
+    propertyType === "sala comercial" ? "Pode falar em uso profissional amplo, atividade profissional, negocio ou espaco comercial, mas nao pode trocar o tipo do imovel por clinica, consultorio, escritorio, salao ou studio sem confirmacao literal." : "",
   ]);
 
   return {
