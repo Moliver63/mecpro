@@ -2175,6 +2175,11 @@ async function main() {
                   const dLeads     = (day.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
                   const dPurchases = (day.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
                   const dPurchaseValue = Number((day.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
+                  // Conversa de WhatsApp iniciada — mesmo sinal já lido no sync
+                  // principal de router.ts (achado 03/09), faltava aqui também.
+                  const dWaConversations = (day.actions || []).find(
+                    (a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d",
+                  )?.value || 0;
                   const dSpend = Number(day.spend || 0);
                   const dRoas = dSpend > 0
                     ? (dPurchaseValue > 0 ? dPurchaseValue / dSpend : (Number(dPurchases) * AVG_CONVERSION_VALUE) / dSpend)
@@ -2194,6 +2199,7 @@ async function main() {
                     purchases:   Number(dPurchases),
                     purchaseValue: dPurchaseValue,
                     roas:        dRoas,
+                    waConversations: Number(dWaConversations),
                   });
                 }
                 totalMetricsDaysSynced += dailyData.data.length;
