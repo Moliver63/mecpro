@@ -518,6 +518,26 @@ export function validateCampaignFactIntegrity(
         });
       }
     }
+
+    // Inversão de finalidade — mesmo tipo de bug do tipo de imóvel, mas em
+    // "purpose" (locação/venda/temporada), que era capturado e citado no
+    // prompt mas nunca validado. Anúncio de locação virar linguagem de
+    // venda (ou vice-versa) é erro factual grave — pode enganar o
+    // consumidor sobre a natureza real da oferta.
+    if (facts.realEstate.purpose === "locacao") {
+      const salePattern = /\b(a venda|vende-se|financiamento|financie|compre (?:agora|j[aá])|entrada \+ parcelas|parcele em)\b/i;
+      const match = text.match(salePattern);
+      if (match?.[0]) {
+        conflicts.push({ field, value: compactText(match[0]), reason: "purpose_conflict_expected_locacao" });
+      }
+    }
+    if (facts.realEstate.purpose === "venda") {
+      const rentPattern = /\b(alugue (?:agora|j[aá])|para alugar|loca[cç][aã]o mensal|valor do aluguel|aluguel mensal)\b/i;
+      const match = text.match(rentPattern);
+      if (match?.[0]) {
+        conflicts.push({ field, value: compactText(match[0]), reason: "purpose_conflict_expected_venda" });
+      }
+    }
   }
 
   return {
