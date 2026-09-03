@@ -2729,14 +2729,27 @@ export default function CampaignResult() {
                       </div>
                     </div>
                     <div style={{ marginTop: 14 }}>
-                      {(() => { const P = AdPreviewPanel as any; return <P
-                        creative={{ ...cr, format: creativeFormat === "stories" ? "stories" : creativeFormat === "square" ? "image" : "image" }}
-                        platform={(campaign as any)?.platform || "meta"}
-                        objective={(campaign as any)?.objective}
-                        clientName={(clientProfile as any)?.companyName}
-                        creativeImageDataUrl={creativeImage || undefined}
-                        mediaPreview={creativeImage && !creativeImage.startsWith("data:") ? creativeImage : undefined}
-                      />; })()}
+                      {(() => {
+                        const P = AdPreviewPanel as any;
+                        // Achado real (auditoria 03/09): antes só ia uma mediaPreview
+                        // genérica, igual pra todo placement dentro do widget — trocar
+                        // de Feed pra Story não trocava a foto. Repassa as 3 URLs reais
+                        // já existentes no criativo (feedImageUrl/storyImageUrl/
+                        // squareImageUrl, geradas em server/ai.ts) pra cada placement
+                        // mostrar sua própria imagem quando ela existir.
+                        const asRealUrl = (u?: string) => (u && !u.startsWith("data:") ? u : undefined);
+                        return <P
+                          creative={{ ...cr, format: creativeFormat === "stories" ? "stories" : creativeFormat === "square" ? "image" : "image" }}
+                          platform={(campaign as any)?.platform || "meta"}
+                          objective={(campaign as any)?.objective}
+                          clientName={(clientProfile as any)?.companyName}
+                          creativeImageDataUrl={creativeImage || undefined}
+                          mediaPreview={creativeImage && !creativeImage.startsWith("data:") ? creativeImage : undefined}
+                          feedImageUrl={asRealUrl(cr.feedImageUrl)}
+                          storyImageUrl={asRealUrl(cr.storyImageUrl)}
+                          squareImageUrl={asRealUrl(cr.squareImageUrl)}
+                        />;
+                      })()}
                     </div>
                   </>
                 )}
