@@ -276,23 +276,28 @@ export interface CampaignMetricsDailyRow {
   ctr: number; cpc: number; cpm: number;
   reach: number; frequency: number;
   leads: number; purchases: number; purchaseValue: number; roas: number;
+  // Conversas de WhatsApp iniciadas (onsite_conversion.messaging_conversation_started_7d).
+  // Separado de `leads` de propósito — são sinais de conversão diferentes,
+  // somar os dois no mesmo campo esconderia qual canal converteu.
+  waConversations: number;
 }
 export async function upsertCampaignMetricsDaily(row: CampaignMetricsDailyRow): Promise<void> {
   const pool = await getPool();
   if (!pool) return;
   await pool.query(
     `INSERT INTO campaign_metrics
-       ("campaignId", date, impressions, clicks, spend, ctr, cpc, cpm, reach, frequency, leads, purchases, "purchaseValue", roas, "updatedAt")
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, NOW())
+       ("campaignId", date, impressions, clicks, spend, ctr, cpc, cpm, reach, frequency, leads, purchases, "purchaseValue", roas, "waConversations", "updatedAt")
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, NOW())
      ON CONFLICT ("campaignId", date) DO UPDATE SET
        impressions = EXCLUDED.impressions, clicks = EXCLUDED.clicks, spend = EXCLUDED.spend,
        ctr = EXCLUDED.ctr, cpc = EXCLUDED.cpc, cpm = EXCLUDED.cpm,
        reach = EXCLUDED.reach, frequency = EXCLUDED.frequency,
        leads = EXCLUDED.leads, purchases = EXCLUDED.purchases,
        "purchaseValue" = EXCLUDED."purchaseValue", roas = EXCLUDED.roas,
+       "waConversations" = EXCLUDED."waConversations",
        "updatedAt" = NOW()`,
     [row.campaignId, row.date, row.impressions, row.clicks, row.spend, row.ctr, row.cpc, row.cpm,
-     row.reach, row.frequency, row.leads, row.purchases, row.purchaseValue, row.roas]
+     row.reach, row.frequency, row.leads, row.purchases, row.purchaseValue, row.roas, row.waConversations]
   );
 }
 export async function getCampaignMetricsDaily(campaignId: number, days = 30): Promise<any[]> {
