@@ -3397,6 +3397,13 @@ const campaignsRouter = router({
                 const dLeads     = (day.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
                 const dPurchases = (day.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
                 const dPurchaseValue = Number((day.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
+                // Conversa de WhatsApp iniciada — sinal de conversão separado de "lead".
+                // Achado real (auditoria 03/09): campanhas de Clique-para-WhatsApp
+                // apareciam com leads=0 mesmo convertendo bem, porque esse action_type
+                // nunca era lido aqui (só na pontuação de media-budget, em outro lugar).
+                const dWaConversations = (day.actions || []).find(
+                  (a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d",
+                )?.value || 0;
                 const dSpend = Number(day.spend || 0);
                 const dRoas = dSpend > 0
                   ? (dPurchaseValue > 0 ? dPurchaseValue / dSpend : (Number(dPurchases) * AVG_CONVERSION_VALUE) / dSpend)
@@ -3416,6 +3423,7 @@ const campaignsRouter = router({
                   purchases:   Number(dPurchases),
                   purchaseValue: dPurchaseValue,
                   roas:        dRoas,
+                  waConversations: Number(dWaConversations),
                 });
               }
               log.info("sync", "campaign_metrics diário atualizado", { campaignId: camp.id, dias: dailyData.data.length });
