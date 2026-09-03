@@ -74,7 +74,18 @@ function compactAdText(value: unknown): string {
 
 function limitMetaText(value: unknown, max: number): string {
   const text = compactAdText(value);
-  return text.length > max ? text.slice(0, max).trim() : text;
+  if (text.length <= max) return text;
+  // Trunca no último espaço antes do limite, evitando cortar palavra ao
+  // meio (achado real: "Transforme sua vida com Locação de UMA s" — corte
+  // cego no meio de "sala"). Só cai pro corte por caractere quando a
+  // palavra isolada já ultrapassa metade do limite (senão sobraria pouco
+  // ou nada de texto).
+  const truncated = text.slice(0, max);
+  const lastSpace = truncated.lastIndexOf(" ");
+  if (lastSpace >= Math.floor(max * 0.5)) {
+    return truncated.slice(0, lastSpace).trim();
+  }
+  return truncated.trim();
 }
 
 function isWeakCarouselText(value: unknown): boolean {
@@ -4945,7 +4956,7 @@ const campaignsRouter = router({
             .map((c: any) => String(c.headline || c.title || "").trim())
             .filter(Boolean)
             .slice(0, 5)
-            .map((text: string) => ({ text: text.slice(0, 40) }));
+            .map((text: string) => ({ text: limitMetaText(text, 40) }));
 
           const dynamicImages = resolvedImageHash
             ? [{ hash: resolvedImageHash }]
