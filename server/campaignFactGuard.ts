@@ -75,9 +75,23 @@ function unique(values: string[]): string[] {
 }
 
 function firstMatch(text: string, patterns: RegExp[]): string | undefined {
+  // Prefere o match mais completo (mais longo) entre TODAS as ocorrências
+  // do padrão no texto combinado — não literalmente a primeira que aparece.
+  // Achado real (auditoria 03/09, regressão do teste "accepts confirmed
+  // address variants"): o texto combinado começa pelo campo `name` da
+  // campanha (ex: "...Rua 902", sem número) e só depois vem o briefing
+  // completo (ex: "Rua 902, nº 144"). A primeira ocorrência vencia mesmo
+  // sendo menos específica, fazendo o Fact Guard esperar o endereço errado
+  // (mais curto) e nunca bloquear divergência de número de rua de verdade.
   for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match?.[0]) return compactText(match[0]);
+    const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+    const matches = [...text.matchAll(new RegExp(pattern.source, flags))]
+      .map((m) => m[0])
+      .filter(Boolean);
+    if (matches.length > 0) {
+      const longest = matches.reduce((best, current) => (current.length > best.length ? current : best));
+      return compactText(longest);
+    }
   }
   return undefined;
 }
