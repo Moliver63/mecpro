@@ -498,6 +498,26 @@ export function validateCampaignFactIntegrity(
         });
       }
     }
+
+    // Checagem inversa — achado real (auditoria 03/09, campanha "Cobertura
+    // Triplex Praia Brava | Locação Residencial"): um dos 9 criativos saiu
+    // como "Espaço Comercial 190m² em Itajaí" / "Otimize seu negócio" /
+    // "imóvel comercial" para um imóvel RESIDENCIAL. A checagem acima só
+    // cobria sala comercial → não pode virar apartamento/cobertura/triplex;
+    // faltava o sentido contrário: apartamento/cobertura/triplex/casa → não
+    // pode virar copy de imóvel comercial.
+    const residentialPropertyTypes = ["apartamento", "cobertura", "triplex", "casa"];
+    if (residentialPropertyTypes.includes(facts.realEstate.propertyType || "")) {
+      const commercialFramingPattern = /\b(sala comercial|im[oó]vel comercial|espa[cç]o comercial|ponto comercial|loja comercial|escrit[oó]rio|seu neg[oó]cio)\b/i;
+      const match = text.match(commercialFramingPattern);
+      if (match?.[0]) {
+        conflicts.push({
+          field,
+          value: compactText(match[0]),
+          reason: `property_type_conflict_expected_${facts.realEstate.propertyType}`,
+        });
+      }
+    }
   }
 
   return {
