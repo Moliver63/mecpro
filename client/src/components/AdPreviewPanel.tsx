@@ -37,7 +37,16 @@ interface Props {
   platform:     string;
   objective?:   string;
   clientName?:  string;
-  mediaPreview?: string; // URL de imagem/vídeo uploadada
+  mediaPreview?: string; // URL genérica de fallback (compat, usada quando não há imagem específica por formato)
+  // Achado real (auditoria 03/09, vídeo do usuário): o seletor de
+  // "Preview por Placement" trocava só a moldura/proporção — a foto
+  // exibida era sempre a mesma (mediaPreview) em todo placement, mesmo
+  // quando já existiam feedImageUrl/storyImageUrl/squareImageUrl
+  // distintos no criativo (server/ai.ts já gera esses 3 campos). Ao
+  // trocar de Feed pra Story dentro do widget, a imagem nunca mudava.
+  feedImageUrl?:   string;
+  storyImageUrl?:  string;
+  squareImageUrl?: string;
   primaryColor?: string; // cor da marca (opcional)
 }
 
@@ -474,7 +483,8 @@ function GoogleDisplayPreview({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdPreviewPanel({
-  creative, platform, objective, clientName, mediaPreview, primaryColor,
+  creative, platform, objective, clientName, mediaPreview,
+  feedImageUrl, storyImageUrl, squareImageUrl, primaryColor,
 }: Props) {
   const [activePreview, setActivePreview] = useState<PreviewPlacement>("ig_feed");
   const [showAll, setShowAll] = useState(false);
@@ -494,7 +504,15 @@ export default function AdPreviewPanel({
   if (!activeConfig || relevantPlacements.length === 0) return null;
 
   const renderPreview = (config: PlacementPreviewConfig) => {
-    const props = { config, creative, clientName, mediaPreview, primaryColor };
+    // Escolhe a imagem certa para ESTE placement específico, com fallback
+    // pra mediaPreview genérica só quando não há imagem dedicada — antes
+    // isso não existia e todo placement usava a mesma mediaPreview fixa.
+    const placementImage = config.hasStory
+      ? (storyImageUrl || mediaPreview)
+      : config.ratio === "1:1"
+        ? (squareImageUrl || mediaPreview)
+        : (feedImageUrl || mediaPreview);
+    const props = { config, creative, clientName, mediaPreview: placementImage, primaryColor };
     if (config.id === "google_display" || config.id === "google_search") {
       return <GoogleDisplayPreview {...props} />;
     }
