@@ -19,6 +19,11 @@ export type CampaignFacts = {
   verifiedFacts: string[];
   allowedInferences: string[];
   forbiddenClaims: string[];
+  // Texto normalizado de productProofPoints (briefing atual + perfil do
+  // cliente) — usado para checar se uma alegacao de prova social na copy
+  // (numero de clientes, avaliacao, depoimento) tem lastro real informado
+  // pelo cliente, em qualquer nicho (nao so imoveis).
+  socialProofRaw: string;
   realEstate: {
     purpose?: string;
     propertyType?: string;
@@ -257,6 +262,35 @@ function collectStaleInheritedClaims(
   return unique(stale);
 }
 
+// ── Prova social não verificada (regra estrutural, funciona pra qualquer nicho) ──
+// Cobre o que o Fact Guard historicamente não pegava: alegações de número de
+// clientes/alunos/pacientes, avaliação em estrelas, "depoimentos reais" etc,
+// quando o cliente não informou nada equivalente em productProofPoints.
+// Achado real (auditoria 03/09): campanha da Gra Kau Delícias (confeitaria)
+// publicou "Milhares de clientes já mudaram de vida" sem nenhuma base no
+// briefing — passou pelo Fact Guard porque ele só validava fatos de imóvel.
+const socialProofClaimPatterns: RegExp[] = [
+  // quantidade de clientes/alunos/pacientes/pedidos/vendas/famílias
+  new RegExp(`\b(?:\d[\d.,]*|${numberWordPattern}|milhares?|centenas?|dezenas?)\s+(?:de\s+)?(clientes?|alunos?|pacientes?|pedidos?|vendas?|fam[ií]lias?|unidades?\s+vendidas?|projetos?\s+entregues?|casos?\s+de\s+sucesso)\b`, "i"),
+  // "mais de X anos/clientes/unidades..."
+  /\bmais\s+de\s+\d[\d.,]*\s*(anos?|clientes?|alunos?|pacientes?|unidades?|vendas?)\b/i,
+  // avaliação em estrelas / nota
+  /\b(?:\d(?:[.,]\d)?\s*(?:estrelas?|\/\s*5)|nota\s*(?:m[aá]xima|\d(?:[.,]\d)?))\b/i,
+  // linguagem de depoimento genérico sem citação real
+  /\bdepoimentos?\s+(?:reais?|de\s+clientes?|de\s+quem\s+j[aá])\b/i,
+  // superlativo de resultado sem número específico do cliente
+  /\bmilhares\s+de\s+(?:pessoas|clientes)\s+j[aá]\b/i,
+];
+
+function detectSocialProofClaims(text: string): string[] {
+  const found: string[] = [];
+  for (const pattern of socialProofClaimPatterns) {
+    const match = text.match(pattern);
+    if (match?.[0]) found.push(compactText(match[0]));
+  }
+  return unique(found);
+}
+
 export function buildCampaignFacts({
   input,
   clientProfile,
@@ -270,6 +304,14 @@ export function buildCampaignFacts({
   const inheritedRaw = sourceText({}, clientProfile);
   const raw = sourceText(input, clientProfile);
   const n = normalizeText(raw);
+  const socialProofRaw = normalizeText(
+    compactText(
+      [input?.["productProofPoints"], clientProfile?.["productProofPoints"]]
+        .map(compactText)
+        .filter(Boolean)
+        .join(". "),
+    ),
+  );
   const currentFacts = extractRealEstateFacts(currentRaw);
   const inheritedFacts = extractRealEstateFacts(inheritedRaw);
   const propertyType = preferCurrentFact(currentFacts.propertyType, inheritedFacts.propertyType);
@@ -324,6 +366,7 @@ export function buildCampaignFacts({
       ...buildForbiddenClaims(currentRaw || raw, propertyType),
       ...collectStaleInheritedClaims(currentFacts, inheritedFacts),
     ]),
+    socialProofRaw,
     realEstate: {
       purpose,
       propertyType,
@@ -386,6 +429,19 @@ export function validateCampaignFactIntegrity(
     for (const claim of facts.forbiddenClaims) {
       if (n.includes(normalizeText(claim))) {
         conflicts.push({ field, value: claim, reason: "forbidden_claim_not_in_current_briefing" });
+      }
+    }
+
+    // Prova social não verificada — regra estrutural, aplica a qualquer nicho
+    // (não só imóveis). Uma alegação quantificada de clientes/avaliação/
+    // depoimento só passa se o núcleo do texto também aparecer em
+    // productProofPoints (facts.socialProofRaw). Sem prova cadastrada pelo
+    // cliente, qualquer alegação desse tipo é bloqueada por padrão.
+    for (const claim of detectSocialProofClaims(text)) {
+      const claimNormalized = normalizeText(claim);
+      const substantiated = facts.socialProofRaw.length > 0 && facts.socialProofRaw.includes(claimNormalized);
+      if (!substantiated) {
+        conflicts.push({ field, value: claim, reason: "unverified_social_proof_claim" });
       }
     }
 
