@@ -118,8 +118,8 @@ function buildCarouselFallback(idx: number, total: number, objective: string, cr
   if (/sala|living|escada|triplex/.test(raw)) {
     return { name: "Ambiente principal", description: "Veja os detalhes" };
   }
-  if (/vista|mar|praia brava/.test(raw)) {
-    return { name: "Vista na Praia Brava", description: "Localização premium" };
+  if (/vista panor[âa]mica|vista para o mar|vista deslumbrante/.test(raw)) {
+    return { name: "Vista privilegiada", description: "Localização premium" };
   }
   if (/suíte|suite|quarto|dormitório|dormitorio/.test(raw)) {
     return { name: "Ambiente privativo", description: "Conforto e privacidade" };
@@ -127,7 +127,13 @@ function buildCarouselFallback(idx: number, total: number, objective: string, cr
   if (/closet|mobiliad|pronta/.test(raw)) {
     return { name: "Mobiliada e pronta", description: "Locação anual" };
   }
-  return { name: "Cobertura Triplex", description: "Praia Brava" };
+  // Fallback genérico — NUNCA cite imóvel, bairro ou cliente específico aqui.
+  // Este é o catch-all que roda quando nada acima bateu, então precisa
+  // funcionar pra qualquer nicho (imóveis, alimentação, B2B, etc.) sem
+  // vazar dado de um cliente pra campanha de outro (achado real: sessão
+  // de auditoria de 03/09 — Morebem e outras campanhas podiam cair aqui
+  // e mostrar "Cobertura Triplex / Praia Brava", que é do imóvel da Edu).
+  return { name: "Conheça os detalhes", description: "Saiba mais agora" };
 }
 
 function getCreativeMediaForCarouselAudit(c: any) {
