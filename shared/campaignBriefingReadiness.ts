@@ -167,8 +167,13 @@ export function evaluateCampaignBriefingReadiness(
     }
   }
 
-  if (objective === "traffic" && !hasAny(clientProfile, ["websiteUrl"])) {
-    addIssue(issues, "traffic_url", "required", "Qual URL da pagina que deve receber o trafego?", "Campanha de trafego sem URL nao tem destino principal.");
+  // Achado real (auditoria 03/09): trafego era o unico dos 3 objetivos que
+  // NAO usava hasCampaignDestination() — so aceitava websiteUrl, ignorando
+  // whatsapp/phone/redes sociais ja confirmados. Isso travava o gate pedindo
+  // URL pra sempre mesmo com WhatsApp confirmado, numa campanha de trafego
+  // direcionado a WhatsApp (formato padrao e valido no Meta Ads).
+  if (objective === "traffic" && !hasCampaignDestination(clientProfile)) {
+    addIssue(issues, "traffic_url", "required", "Qual URL da pagina, ou WhatsApp/telefone, deve receber o trafego?", "Campanha de trafego sem destino confirmado (URL, WhatsApp ou telefone) nao tem para onde direcionar o clique.");
   }
 
   if (objective === "engagement" && !hasUsableSocialLinks(clientProfile?.socialLinks)) {
