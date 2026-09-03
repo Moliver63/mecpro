@@ -130,6 +130,101 @@ function buildCarouselFallback(idx: number, total: number, objective: string, cr
   return { name: "Cobertura Triplex", description: "Praia Brava" };
 }
 
+function getCreativeMediaForCarouselAudit(c: any) {
+  return {
+    hash: c?.feedImageHash || c?.imageHash || c?.metaImageHash,
+    url: c?.feedImageUrl || c?.imageUrl || c?.mediaUrl,
+  };
+}
+
+function orderedCreativesForPublishCarousel(creatives: any[]): any[] {
+  return creatives
+    .map((creative, index) => ({ creative, index }))
+    .sort((a, b) => {
+      const aFeatured = a.creative?.isFeaturedPhoto === true ? 0 : 1;
+      const bFeatured = b.creative?.isFeaturedPhoto === true ? 0 : 1;
+      if (aFeatured !== bFeatured) return aFeatured - bFeatured;
+      const aOriginal = Number.isFinite(Number(a.creative?.photoOriginalIndex)) ? Number(a.creative.photoOriginalIndex) : Number.MAX_SAFE_INTEGER;
+      const bOriginal = Number.isFinite(Number(b.creative?.photoOriginalIndex)) ? Number(b.creative.photoOriginalIndex) : Number.MAX_SAFE_INTEGER;
+      if (aOriginal !== bOriginal) return aOriginal - bOriginal;
+      return a.index - b.index;
+    })
+    .map((item) => item.creative);
+}
+
+function auditPublishCarouselCreatives(creatives: any[], expectedCards?: number) {
+  const ordered = orderedCreativesForPublishCarousel(Array.isArray(creatives) ? creatives : []);
+  const mediaCreatives = ordered.filter((creative) => {
+    const media = getCreativeMediaForCarouselAudit(creative);
+    return media.hash || media.url;
+  });
+  const sourceCreatives = (mediaCreatives.length >= 2 ? mediaCreatives : ordered)
+    .slice(0, Math.min(Math.max(expectedCards || ordered.length, 0), 10));
+
+  if (sourceCreatives.length < 2) {
+    return { ok: true, issues: [] as string[], orderedCreatives: sourceCreatives };
+  }
+
+  const issues: string[] = [];
+  const seenHeadlines = new Map<string, number>();
+  const seenDescriptions = new Map<string, number>();
+  const seenBodies = new Map<string, number>();
+  const normalize = (value: unknown) => compactAdText(value).toLowerCase();
+
+  sourceCreatives.forEach((creative, index) => {
+    const card = index + 1;
+    const headline = normalize(creative?.headline || creative?.title || creative?.name);
+    const description = normalize(creative?.description || creative?.shortDescription);
+    const body = normalize(creative?.copy || creative?.bodyText || creative?.primaryText || creative?.text);
+    const bodySignature = body.slice(0, 220);
+
+    if (headline.length < 8) issues.push(`Card ${card}: headline ausente ou curta demais.`);
+    if (description.length < 4) issues.push(`Card ${card}: description/shortDescription ausente ou curta demais.`);
+    if (body.length < 80) issues.push(`Card ${card}: copy/bodyText principal curto demais para carrossel.`);
+
+    const previousHeadline = headline ? seenHeadlines.get(headline) : undefined;
+    if (previousHeadline !== undefined) issues.push(`Card ${card}: headline repetida do card ${previousHeadline + 1}.`);
+    if (headline) seenHeadlines.set(headline, index);
+
+    const previousDescription = description ? seenDescriptions.get(description) : undefined;
+    if (previousDescription !== undefined) issues.push(`Card ${card}: description repetida do card ${previousDescription + 1}.`);
+    if (description) seenDescriptions.set(description, index);
+
+    const previousBody = bodySignature ? seenBodies.get(bodySignature) : undefined;
+    if (previousBody !== undefined) issues.push(`Card ${card}: copy principal repetida do card ${previousBody + 1}.`);
+    if (bodySignature) seenBodies.set(bodySignature, index);
+  });
+
+  return { ok: issues.length === 0, issues, orderedCreatives: sourceCreatives };
+}
+
+function auditMetaCarouselAttachments(childAttachments: any[]) {
+  if (!Array.isArray(childAttachments) || childAttachments.length < 2) return [] as string[];
+  const issues: string[] = [];
+  const seenNames = new Map<string, number>();
+  const seenDescriptions = new Map<string, number>();
+  const normalize = (value: unknown) => compactAdText(value).toLowerCase();
+
+  childAttachments.forEach((cardData, index) => {
+    const card = index + 1;
+    const name = normalize(cardData?.name);
+    const description = normalize(cardData?.description);
+
+    if (isWeakCarouselText(name)) issues.push(`Card ${card}: headline final fraca ou curta demais.`);
+    if (isWeakCarouselText(description)) issues.push(`Card ${card}: description final fraca ou curta demais.`);
+
+    const previousName = name ? seenNames.get(name) : undefined;
+    if (previousName !== undefined) issues.push(`Card ${card}: headline final repetida do card ${previousName + 1}.`);
+    if (name) seenNames.set(name, index);
+
+    const previousDescription = description ? seenDescriptions.get(description) : undefined;
+    if (previousDescription !== undefined) issues.push(`Card ${card}: description final repetida do card ${previousDescription + 1}.`);
+    if (description) seenDescriptions.set(description, index);
+  });
+
+  return issues;
+}
+
 // -- TikTok Ads API helper ----------------------------------------------------
 async function tikTokPost<T>(path: string, body: unknown, accessToken: string): Promise<T> {
   const url = `https://business-api.tiktok.com/open_api/v1.3/${path}`;
@@ -4898,6 +4993,18 @@ const campaignsRouter = router({
           // Cada card usa um criativo diferente: headline + descrição próprios
           // Mapeamento: card idx → creative idx (rotativo se mais cards que criativos)
           const items = carouselHashes || carouselUrls || [];
+          const sourceCopyAudit = auditPublishCarouselCreatives(creativeList, items.length);
+          if (!sourceCopyAudit.ok) {
+            const message =
+              "Publicação bloqueada pela auditoria de carrossel: há cards com copy fraca, curta ou repetida. " +
+              "Regenere ou atualize os criativos antes de publicar na Meta.\n\n" +
+              sourceCopyAudit.issues.map((issue) => `- ${issue}`).join("\n");
+            log.warn("meta", "Publicação Meta bloqueada por auditoria de carrossel fonte", {
+              campaignId: input.campaignId,
+              issues: sourceCopyAudit.issues,
+            });
+            throw new TRPCError({ code: "BAD_REQUEST", message });
+          }
 
           // Mapeia cada card para o copy do criativo correspondente.
           // Quando há MAIS fotos que criativos (ex: 10 fotos, 4 criativos),
@@ -4993,6 +5100,18 @@ const campaignsRouter = router({
                 : { picture:    item }),
             };
           });
+          const attachmentIssues = auditMetaCarouselAttachments(child_attachments);
+          if (attachmentIssues.length) {
+            const message =
+              "Publicação bloqueada pela auditoria final de carrossel: os cards que seriam enviados à Meta ficaram fracos ou repetidos. " +
+              "Regenere ou atualize os criativos antes de publicar.\n\n" +
+              attachmentIssues.map((issue) => `- ${issue}`).join("\n");
+            log.warn("meta", "Publicação Meta bloqueada por auditoria final de child_attachments", {
+              campaignId: input.campaignId,
+              issues: attachmentIssues,
+            });
+            throw new TRPCError({ code: "BAD_REQUEST", message });
+          }
 
           log.info("meta", "Carrossel cards mapeados com copies individuais", {
             cards: child_attachments.length,

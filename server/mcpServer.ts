@@ -2487,7 +2487,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       if (!copyAudit.ok) {
         const message =
           "Publicação bloqueada pela auditoria de carrossel: há cards com copy fraca, curta ou repetida. " +
-          "Regere ou atualize os criativos antes de publicar na Meta.\n\n" +
+          "Regenere ou atualize os criativos antes de publicar na Meta.\n\n" +
           copyAudit.issues.map((issue) => `- ${issue}`).join("\n");
         await db.failMcpIdempotencyKey(idempotencyRecordId, message);
         return {
