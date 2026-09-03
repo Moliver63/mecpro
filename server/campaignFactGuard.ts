@@ -24,6 +24,12 @@ export type CampaignFacts = {
   // (numero de clientes, avaliacao, depoimento) tem lastro real informado
   // pelo cliente, em qualquer nicho (nao so imoveis).
   socialProofRaw: string;
+  // Preço do produto/serviço declarado pelo cliente (productPrice), fora do
+  // contexto imobiliário — cobre qualquer nicho (confeitaria, B2B, e-commerce
+  // etc). Achado real (auditoria 03/09): o Fact Guard só valida price dentro
+  // de facts.realEstate, então uma campanha de outro nicho com preço errado
+  // na copy nunca era pega estruturalmente.
+  genericProductPrice?: string;
   realEstate: {
     purpose?: string;
     propertyType?: string;
@@ -312,6 +318,7 @@ export function buildCampaignFacts({
         .join(". "),
     ),
   );
+  const genericProductPrice = compactText(input?.["productPrice"] || clientProfile?.["productPrice"] || "") || undefined;
   const currentFacts = extractRealEstateFacts(currentRaw);
   const inheritedFacts = extractRealEstateFacts(inheritedRaw);
   const propertyType = preferCurrentFact(currentFacts.propertyType, inheritedFacts.propertyType);
@@ -367,6 +374,7 @@ export function buildCampaignFacts({
       ...collectStaleInheritedClaims(currentFacts, inheritedFacts),
     ]),
     socialProofRaw,
+    genericProductPrice,
     realEstate: {
       purpose,
       propertyType,
@@ -453,9 +461,13 @@ export function validateCampaignFactIntegrity(
     }
 
     const prices = valuesInText(new RegExp(moneyPattern.source, "gi"), text);
+    // Preço esperado: prioriza o fato imobiliário estruturado; se não houver
+    // (nicho não-imóvel), cai pro productPrice genérico do cliente. Mesma
+    // checagem, duas fontes possíveis — funciona pra qualquer segmento.
+    const expectedPrice = facts.realEstate.price || facts.genericProductPrice;
     for (const price of prices) {
-      if (facts.realEstate.price && normalizeMoneyValue(price) !== normalizeMoneyValue(facts.realEstate.price)) {
-        conflicts.push({ field, value: price, reason: `price_conflict_expected_${facts.realEstate.price}` });
+      if (expectedPrice && normalizeMoneyValue(price) !== normalizeMoneyValue(expectedPrice)) {
+        conflicts.push({ field, value: price, reason: `price_conflict_expected_${expectedPrice}` });
       }
     }
 
