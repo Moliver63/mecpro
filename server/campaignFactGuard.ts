@@ -192,6 +192,18 @@ const parkingSpotsPattern = new RegExp(`\\b${numberWordPattern}\\s+vagas?\\b`, "
 
 function buildForbiddenClaims(raw: string, propertyType?: string): string[] {
   const n = normalizeText(raw);
+  // Achado real (auditoria 03/09, teste ao vivo): esta lista é GLOBAL —
+  // aplica pra qualquer projeto da plataforma, não só a quem ela pertence
+  // originalmente (Edu/Praia Brava). Ela misturava fatos genuinamente
+  // específicos daquele imóvel (190 m², praia brava, r$ 18.000 — fazem
+  // sentido bloquear se vazarem pra outro cliente) com FRASES GENÉRICAS de
+  // copy publicitária ("por tempo limitado", "condição especial", "fase
+  // final", "não perder esta chance") que qualquer campanha de qualquer
+  // cliente pode legitimamente usar. Isso bloqueava geração nova só por
+  // reusar linguagem comum de urgência — reproduzido ao vivo bloqueando
+  // "por tempo limitado" numa campanha de teste sem nenhuma relação com
+  // Praia Brava. Removidas as frases genéricas; mantidos só os fatos
+  // realmente específicos daquele imóvel.
   const candidates = [
     "190 m2",
     "190 m²",
@@ -201,23 +213,17 @@ function buildForbiddenClaims(raw: string, propertyType?: string): string[] {
     "triplex",
     "3 suites",
     "3 suítes",
-    "alto padrao",
-    "alto padrão",
     "praia brava",
     "r$ 18.000",
     "4 vagas",
-    "ultimas unidades",
-    "últimas unidades",
     "seguranca 24h",
     "segurança 24h",
+    // Estas duas ficam — têm teste dedicado garantindo o comportamento
+    // (bloquear alegação de urgência/progresso sem base, não é sobre
+    // vazamento de fato de outro imóvel).
     "fase final",
     "processo avancado",
     "processo avançado",
-    "condicao especial",
-    "condição especial",
-    "por tempo limitado",
-    "nao perder esta chance",
-    "não perder esta chance",
   ];
   const forbidden = candidates.filter((claim) => !n.includes(normalizeText(claim)));
 
