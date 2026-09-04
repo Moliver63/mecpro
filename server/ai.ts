@@ -3010,11 +3010,16 @@ function buildBaseTemplate(
     emotional: {
       imoveis:  { h: `O lar que você sempre sonhou está aqui`, b: `${vars.empresa} transforma o sonho da casa própria em realidade.`, c: "Conhecer agora" },
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
-      default:  { h: `Transforme sua vida com ${vars.produto}`, b: `Milhares de clientes já mudaram de vida com ${vars.empresa}.`, c: "Quero mudar" },
+      // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
+      // e estatisticas fabricadas (nao vem de nenhum dado real do cliente)
+      // — pior ainda, esse fallback roda no ecoMode, que pula o Fact Guard
+      // inteiro (ver generateCampaign, branch "ecoMode HIGH"), entao essas
+      // alegacoes inventadas iam pro ar sem checagem nenhuma.
+      default:  { h: `Transforme sua vida com ${vars.produto}`, b: `${vars.empresa} pode ser o próximo passo da sua mudança.`, c: "Quero mudar" },
     },
     rational: {
-      imoveis:  { h: `${vars.produto}: rentabilidade comprovada`, b: `Valorização média de 15% ao ano. Dados reais de ${vars.empresa}.`, c: "Ver análise" },
-      servico:  { h: `Resultado garantido ou dinheiro de volta`, b: `${vars.empresa} com taxa de satisfação de 98% comprovada.`, c: "Ver resultados" },
+      imoveis:  { h: `${vars.produto}: decisão consciente`, b: `Conheça os detalhes e dados reais de ${vars.empresa}.`, c: "Ver análise" },
+      servico:  { h: `Resultado que você pode conferir`, b: `${vars.empresa} com atendimento avaliado pelos próprios clientes.`, c: "Ver resultados" },
       default:  { h: `Dados reais: ${vars.produto} funciona`, b: `${vars.empresa} — resultados mensuráveis em 30 dias.`, c: "Ver dados" },
     },
     premium: {
