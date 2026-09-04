@@ -100,6 +100,30 @@ function has(text: string, pattern: RegExp): boolean {
   return pattern.test(text);
 }
 
+// Achado real (auditoria 03/09, teste ao vivo reproduzido): has() casa
+// substring sem olhar negação. Texto "não é sala comercial nem imóvel à
+// venda" continha os dois literais "sala comercial" e "venda" — ambos
+// batiam e venciam sobre o valor real ("apartamento"/"locação"), porque
+// detectPropertyType/detectPurpose checam "sala comercial" e "venda"
+// ANTES de "apartamento"/"locação" e retornam no primeiro match, cego
+// pra negação. Isso virou bloqueio ativo de campanha legítima depois das
+// checagens de inversão adicionadas hoje — antes só distorcia o prompt.
+// hasPositive ignora qualquer match precedido de negação nas ~25 chars
+// anteriores.
+const NEGATION_WORDS = /\b(n[aã]o|nunca|sem\s+ser|jamais)\b/i;
+function hasPositive(text: string, pattern: RegExp): boolean {
+  const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
+  const re = new RegExp(pattern.source, flags);
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const start = Math.max(0, match.index - 25);
+    const before = text.slice(start, match.index);
+    if (!NEGATION_WORDS.test(before)) return true;
+    if (match.index === re.lastIndex) re.lastIndex++; // evita loop infinito em match vazio
+  }
+  return false;
+}
+
 function sourceText(input: FactSource, profile: FactSource): string {
   return [
     input?.["name"],
@@ -130,21 +154,23 @@ function sourceText(input: FactSource, profile: FactSource): string {
 }
 
 function detectPropertyType(raw: string): string | undefined {
-  if (has(raw, /\bsala comercial\b/i)) return "sala comercial";
-  if (has(raw, /\bcobertura\b/i)) return "cobertura";
-  if (has(raw, /\btriplex\b/i)) return "triplex";
-  if (has(raw, /\bapartamento\b/i)) return "apartamento";
-  if (has(raw, /\bcasa\b/i)) return "casa";
-  if (has(raw, /\bterreno\b/i)) return "terreno";
-  if (has(raw, /\bimovel comercial\b/i)) return "imovel comercial";
-  if (has(raw, /\bimovel\b/i)) return "imovel";
+  if (hasPositive(raw, /\bsala comercial\b/i)) return "sala comercial";
+  if (hasPositive(raw, /\bcobertura\b/i)) return "cobertura";
+  if (hasPositive(raw, /\btriplex\b/i)) return "triplex";
+  if (hasPositive(raw, /\bapartamento\b/i)) return "apartamento";
+  if (hasPositive(raw, /\bcasa\b/i)) return "casa";
+  if (hasPositive(raw, /\bterreno\b/i)) return "terreno";
+  if (hasPositive(raw, /\bimovel comercial\b/i)) return "imovel comercial";
+  if (hasPositive(raw, /\bimovel\b/i)) return "imovel";
   return undefined;
 }
 
 function detectPurpose(raw: string): string | undefined {
-  if (has(raw, /\b(locacao|aluguel|alugar|locar)\b/i)) return "locacao";
-  if (has(raw, /\b(venda|comprar|financiamento|a venda|vende-se)\b/i)) return "venda";
-  if (has(raw, /\btemporada|diaria|airbnb\b/i)) return "temporada";
+  // "loca[cç][aã]o" (não só "locacao" sem acento) — achado real: a versão
+  // sem acento nunca batia com o jeito real que "locação" é escrito.
+  if (hasPositive(raw, /\b(loca[cç][aã]o|aluguel|alugar|locar)\b/i)) return "locacao";
+  if (hasPositive(raw, /\b(venda|comprar|financiamento|a\s+venda|vende-se)\b/i)) return "venda";
+  if (hasPositive(raw, /\btemporada|di[aá]ria|airbnb\b/i)) return "temporada";
   return undefined;
 }
 
@@ -291,15 +317,22 @@ function collectStaleInheritedClaims(
 // briefing — passou pelo Fact Guard porque ele só validava fatos de imóvel.
 const socialProofClaimPatterns: RegExp[] = [
   // quantidade de clientes/alunos/pacientes/pedidos/vendas/famílias
-  new RegExp(`\b(?:\d[\d.,]*|${numberWordPattern}|milhares?|centenas?|dezenas?)\s+(?:de\s+)?(clientes?|alunos?|pacientes?|pedidos?|vendas?|fam[ií]lias?|unidades?\s+vendidas?|projetos?\s+entregues?|casos?\s+de\s+sucesso)\b`, "i"),
+  // Achado real (auditoria 03/09, teste ao vivo): \\d \\s \\b (com escape
+  // duplo) sao obrigatorios dentro de template literal — com escape simples
+  // (\d \s \b) o JS interpreta a string ANTES do RegExp existir: \d e \s
+  // perdem a barra (viram "d" e "s" literais) e \b vira um caractere de
+  // backspace de verdade. O regex ficava montado errado e nunca casava nada.
+  new RegExp(`\\b(?:\\d[\\d.,]*|${numberWordPattern}|milhares?|centenas?|dezenas?)\\s+(?:de\\s+)?(clientes?|alunos?|pacientes?|pedidos?|vendas?|fam[ií]lias?|unidades?\\s+vendidas?|projetos?\\s+entregues?|casos?\\s+de\\s+sucesso)\\b`, "i"),
   // "mais de X anos/clientes/unidades..."
   /\bmais\s+de\s+\d[\d.,]*\s*(anos?|clientes?|alunos?|pacientes?|unidades?|vendas?)\b/i,
   // avaliação em estrelas / nota
   /\b(?:\d(?:[.,]\d)?\s*(?:estrelas?|\/\s*5)|nota\s*(?:m[aá]xima|\d(?:[.,]\d)?))\b/i,
   // linguagem de depoimento genérico sem citação real
-  /\bdepoimentos?\s+(?:reais?|de\s+clientes?|de\s+quem\s+j[aá])\b/i,
+  // \b logo apos vogal acentuada falha silenciosamente em JS (á nao conta
+  // como "letra" pro \b nativo) — troca por lookahead que trata á-ÿ como letra.
+  /\bdepoimentos?\s+(?:reais?|de\s+clientes?|de\s+quem\s+j[aá])(?=[^a-zà-ÿA-ZÀ-Ÿ]|$)/i,
   // superlativo de resultado sem número específico do cliente
-  /\bmilhares\s+de\s+(?:pessoas|clientes)\s+j[aá]\b/i,
+  /\bmilhares\s+de\s+(?:pessoas|clientes)\s+j[aá](?=[^a-zà-ÿA-ZÀ-Ÿ]|$)/i,
 ];
 
 function detectSocialProofClaims(text: string): string[] {
@@ -551,14 +584,14 @@ export function validateCampaignFactIntegrity(
     // venda (ou vice-versa) é erro factual grave — pode enganar o
     // consumidor sobre a natureza real da oferta.
     if (facts.realEstate.purpose === "locacao") {
-      const salePattern = /\b(a venda|vende-se|financiamento|financie|compre (?:agora|j[aá])|entrada \+ parcelas|parcele em)\b/i;
+      const salePattern = /\b(a venda|vende-se|financiamento|financie|compre (?:agora|j[aá])|entrada \+ parcelas|parcele em)(?=[^a-zà-ÿA-ZÀ-Ÿ]|$)/i;
       const match = text.match(salePattern);
       if (match?.[0]) {
         conflicts.push({ field, value: compactText(match[0]), reason: "purpose_conflict_expected_locacao" });
       }
     }
     if (facts.realEstate.purpose === "venda") {
-      const rentPattern = /\b(alugue (?:agora|j[aá])|para alugar|loca[cç][aã]o mensal|valor do aluguel|aluguel mensal)\b/i;
+      const rentPattern = /\b(alugue (?:agora|j[aá])|para alugar|loca[cç][aã]o mensal|valor do aluguel|aluguel mensal)(?=[^a-zà-ÿA-ZÀ-Ÿ]|$)/i;
       const match = text.match(rentPattern);
       if (match?.[0]) {
         conflicts.push({ field, value: compactText(match[0]), reason: "purpose_conflict_expected_venda" });
