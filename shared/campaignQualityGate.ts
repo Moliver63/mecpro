@@ -212,8 +212,19 @@ function buildSegmentIssues(input: CampaignQualityGateInput, clientProfile: any,
   const issues: CampaignBriefingIssue[] = [];
 
   const isRealEstate = /im[oó]ve|imobili|apartamento|cobertura|sala comercial|casa|terreno|lote|empreendimento|condom[ií]nio|praia brava|rua\s+\d{2,5}/.test(raw);
-  const isFood = /doce|brigadeiro|culin[aá]ria|alimenta|confeitaria|bolo|delivery|encomenda|sobremesa/.test(raw);
-  const isFitness = /academia|fitness|muscula[cç][aã]o|treino|emagrec|hipertrofia|atividade f[ií]sica/.test(raw);
+  // Achado real (auditoria 03/09, teste reproduzido): "academia" e "delivery"
+  // sao palavras ambiguas — aparecem soltas em anuncio de imovel como
+  // AMENIDADE ("condominio com piscina e academia") ou como referencia de
+  // localizacao ("perto de restaurantes com delivery"), sem que o negocio
+  // seja de fato fitness ou alimentacao. Isso fazia a pergunta de
+  // "emagrecimento, hipertrofia..." vazar pra dentro de uma campanha de
+  // apartamento. Como os 3 segmentos praticamente nunca coexistem no mesmo
+  // negocio, isRealEstate (o sinal mais forte e especifico aqui) tem
+  // prioridade e desativa a deteccao dos outros dois quando bate.
+  const isFoodRaw = /doce|brigadeiro|culin[aá]ria|alimenta|confeitaria|bolo|delivery|encomenda|sobremesa/.test(raw);
+  const isFitnessRaw = /academia|fitness|muscula[cç][aã]o|treino|emagrec|hipertrofia|atividade f[ií]sica/.test(raw);
+  const isFood = isFoodRaw && !isRealEstate;
+  const isFitness = isFitnessRaw && !isRealEstate && !isFood;
 
   if (isRealEstate) {
     const source = [
