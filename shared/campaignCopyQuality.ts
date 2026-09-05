@@ -32,6 +32,21 @@ export function hasInternalCopyLanguage(value: unknown): boolean {
   ].some((pattern) => pattern.test(text));
 }
 
+/**
+ * True when a hook is redundant with its headline — same text once spaces,
+ * case and trivial trailing punctuation are ignored. Used to avoid showing
+ * the same line twice in the UI (achado real, campanha 747: "Headline e
+ * hook idênticos, exibidos repetidamente na interface"). This only hides
+ * the duplicate visually; it never invents a new hook to fill the gap.
+ */
+export function isRedundantHookText(headline: unknown, hook: unknown): boolean {
+  const normalize = (value: unknown) =>
+    normalizeCopyText(value).toLowerCase().replace(/[.!?…]+$/g, "").trim();
+  const h = normalize(headline);
+  const k = normalize(hook);
+  return h.length > 0 && h === k;
+}
+
 export function isWeakGeneratedCopy(value: unknown, field: "headline" | "description" | "hook" | "copy" = "copy"): boolean {
   const text = normalizeCopyText(value);
   const minimum = { headline: 8, description: 4, hook: 8, copy: 20 }[field];

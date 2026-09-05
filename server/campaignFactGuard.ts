@@ -24,6 +24,12 @@ export type CampaignFacts = {
   // (numero de clientes, avaliacao, depoimento) tem lastro real informado
   // pelo cliente, em qualquer nicho (nao so imoveis).
   socialProofRaw: string;
+  // Texto normalizado de TODO o briefing atual + perfil do cliente — usado
+  // para checar se uma alegacao de escassez/exclusividade ("ultima unidade",
+  // "alto padrao") tem lastro real no que o cliente informou, em qualquer
+  // nicho. Mais amplo que socialProofRaw (que so olha productProofPoints)
+  // porque escassez/exclusividade pode vir de qualquer campo do briefing.
+  confirmedClaimsRaw: string;
   // Preço do produto/serviço declarado pelo cliente (productPrice), fora do
   // contexto imobiliário — cobre qualquer nicho (confeitaria, B2B, e-commerce
   // etc). Achado real (auditoria 03/09): o Fact Guard só valida price dentro
@@ -350,6 +356,65 @@ function detectSocialProofClaims(text: string): string[] {
   return unique(found);
 }
 
+// ── Escassez/exclusividade não comprovada (regra estrutural, qualquer nicho) ──
+// Achado real (campanha 747, sala comercial para locacao): "Ultima unidade
+// disponivel" e alegacoes de "alto padrao"/exclusividade apareceram sem
+// nenhuma base no briefing. Cobre singular e plural. Nao e proibicao cega:
+// se o proprio cliente confirmou a condicao (ex.: "restam 2 unidades",
+// "acabamento alto padrao" no productDifferentials/extraContext), o termo
+// aparece em facts.confirmedClaimsRaw e a alegacao passa.
+const scarcityOrExclusivityClaimPatterns: RegExp[] = [
+  // \b antes de vogal acentuada falha silenciosamente em JS (mesmo bug já
+  // documentado nesta base para "já" em detectSocialProofClaims) — troca
+  // por lookbehind/lookahead que tratam á-ÿ como letra.
+  /(?<![a-zà-ÿA-ZÀ-Ÿ])[uú]ltimas?\s+unidades?(?:\s+dispon[ií]ve(?:l|is))?(?=[^a-zà-ÿA-ZÀ-Ÿ]|$)/i,
+  /\bs[oó]\s+restam?\s+(?:\d+|poucas?|algumas?)\s+unidades?\b/i,
+  /\bunidades?\s+limitadas?\b/i,
+  /\bvagas?\s+limitadas?\b/i,
+  /\besgotando\b/i,
+  /\bexclusiv[oa]s?\b/i,
+  /\balto\s+padr[aã]o\b/i,
+  /\bsofisticad[oa]s?\b/i,
+  /\bselet[oa]s?\b/i,
+  /(?<![a-zà-ÿA-ZÀ-Ÿ])[uú]nico\s+no\s+mercado(?=[^a-zà-ÿA-ZÀ-Ÿ]|$)/i,
+];
+
+function detectScarcityOrExclusivityClaims(text: string): string[] {
+  const found: string[] = [];
+  for (const pattern of scarcityOrExclusivityClaimPatterns) {
+    const match = text.match(pattern);
+    if (match?.[0]) found.push(compactText(match[0]));
+  }
+  return unique(found);
+}
+
+// ── Linguagem de compra/moradia propria (regra estrutural, so imoveis) ──
+// Achado real (campanha 747): sala comercial para LOCACAO recebeu "O lar que
+// voce sempre sonhou esta aqui" e "transforma o sonho da casa propria em
+// realidade" — mensagens que so fazem sentido para VENDA residencial. Essas
+// frases nao sao proibidas de forma cega: seguem bloqueadas apenas quando a
+// finalidade nao e venda ou o imovel e comercial (ver uso em
+// validateCampaignFactIntegrity).
+const homeownershipClaimPatterns: RegExp[] = [
+  /\bcasa\s+pr[oó]pria\b/i,
+  /\bsonho\s+da\s+casa\s+pr[oó]pria\b/i,
+  /\bo\s+lar\s+que\s+voc[eê]\s+sempre\s+sonhou\b/i,
+  /\bseu\s+lar\b/i,
+  /\bconquiste\s+sua\s+casa\b/i,
+  /\bseja\s+dono\b/i,
+  /\btorne-?se\s+propriet[aá]rio\b/i,
+  /\badquira\s+seu\s+im[oó]vel\b/i,
+];
+
+function detectHomeownershipClaims(text: string): string[] {
+  const found: string[] = [];
+  for (const pattern of homeownershipClaimPatterns) {
+    const match = text.match(pattern);
+    if (match?.[0]) found.push(compactText(match[0]));
+  }
+  return unique(found);
+}
+
 export function buildCampaignFacts({
   input,
   clientProfile,
@@ -427,6 +492,7 @@ export function buildCampaignFacts({
       ...collectStaleInheritedClaims(currentFacts, inheritedFacts),
     ]),
     socialProofRaw,
+    confirmedClaimsRaw: n,
     genericProductPrice,
     realEstate: {
       purpose,
@@ -503,6 +569,36 @@ export function validateCampaignFactIntegrity(
       const substantiated = facts.socialProofRaw.length > 0 && facts.socialProofRaw.includes(claimNormalized);
       if (!substantiated) {
         conflicts.push({ field, value: claim, reason: "unverified_social_proof_claim" });
+      }
+    }
+
+    // Escassez/exclusividade não comprovada — regra estrutural, qualquer
+    // nicho. Achado real (campanha 747): "Última unidade disponível" e
+    // "alto padrão" sem nenhuma base no briefing. Só passa se o próprio
+    // cliente confirmou a condição em algum campo do briefing atual/perfil
+    // (facts.confirmedClaimsRaw) — não é proibição cega.
+    for (const claim of detectScarcityOrExclusivityClaims(text)) {
+      const claimNormalized = normalizeText(claim);
+      const substantiated = facts.confirmedClaimsRaw.length > 0 && facts.confirmedClaimsRaw.includes(claimNormalized);
+      if (!substantiated) {
+        conflicts.push({ field, value: claim, reason: "unverified_scarcity_or_exclusivity_claim" });
+      }
+    }
+
+    // Linguagem de compra/moradia própria — só faz sentido para VENDA de
+    // imóvel residencial. Achado real (campanha 747): sala comercial para
+    // LOCAÇÃO recebeu "o lar que você sempre sonhou"/"sonho da casa
+    // própria". Quando a finalidade é venda de um imóvel não-comercial,
+    // essa linguagem é apropriada e não é bloqueada.
+    const purposeConfirmedForOwnership = facts.realEstate.purpose === "venda"
+      && facts.realEstate.propertyType !== "sala comercial";
+    if (!purposeConfirmedForOwnership) {
+      for (const claim of detectHomeownershipClaims(text)) {
+        conflicts.push({
+          field,
+          value: claim,
+          reason: `homeownership_claim_conflict_expected_${facts.realEstate.purpose || "purpose_not_confirmed"}`,
+        });
       }
     }
 

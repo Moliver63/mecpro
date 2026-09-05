@@ -4,7 +4,7 @@ import { buildCampaignFacts, validateCampaignFactIntegrity } from "../campaignFa
 import { buildRealEstateCarouselAngles } from "../carouselCopy";
 import { classifyCampaignPhoto } from "../campaignPhotoClassification";
 import { detectSegmentFromNiche } from "../../shared/segmentConfig";
-import { getCarouselEditorialIssues, getCreativeEditorialIssues, hasInternalCopyLanguage, isWeakGeneratedCopy, trimCopyField } from "../../shared/campaignCopyQuality";
+import { getCarouselEditorialIssues, getCreativeEditorialIssues, hasInternalCopyLanguage, isWeakGeneratedCopy, trimCopyField, isRedundantHookText } from "../../shared/campaignCopyQuality";
 import { evaluateCampaignQualityGates } from "../../shared/campaignQualityGate";
 import { syncCreativeTextToV2 } from "../../shared/campaignCreative.sync";
 
@@ -139,4 +139,26 @@ test("business context keeps a property bedroom or kitchen in the property narra
 test("fashion and food still use their own visual classification", () => {
   assert.equal(classifyCampaignPhoto({ labels: ["Dress"] }, 0, 4).role, "look_hero");
   assert.equal(classifyCampaignPhoto({ labels: ["Chocolate", "Box"] }, 0, 4, "doceria").role, "package_proof");
+});
+
+// ── Achado real (campanha 747): "Headline e hook idênticos, exibidos
+// repetidamente na interface". buildRealEstateCarouselAngles usava
+// hook = headline literalmente; corrigido para usar a primeira frase do
+// corpo do card (um gancho próprio, não uma repetição).
+test("carousel angles never repeat the headline verbatim as the hook", () => {
+  const cards = buildRealEstateCarouselAngles(facts, profile.city);
+  assert.equal(cards.length, 10);
+  for (const card of cards) {
+    assert.ok(card.hook.length > 0);
+    assert.ok(!isRedundantHookText(card.headline, card.hook),
+      `hook igual à headline: "${card.headline}" / "${card.hook}"`);
+  }
+});
+
+test("isRedundantHookText ignores spacing, case and trailing punctuation", () => {
+  assert.equal(isRedundantHookText("Sala comercial", "sala comercial"), true);
+  assert.equal(isRedundantHookText("Sala comercial", "Sala comercial."), true);
+  assert.equal(isRedundantHookText("Sala comercial  ", " sala comercial"), true);
+  assert.equal(isRedundantHookText("Sala comercial", "Agende sua visita"), false);
+  assert.equal(isRedundantHookText("", ""), false);
 });

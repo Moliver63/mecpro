@@ -20,7 +20,7 @@ import { isAbsenceAnswer } from "../shared/pendencyQuestions";
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
-import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity } from "./campaignFactGuard";
+import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFactGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 import { detectRealEstateSegment } from "../shared/segmentConfig";
@@ -2998,7 +2998,7 @@ Regra: não mude o tom, apenas torne mais natural e persuasivo. Máx 10 palavras
 }
 
 // ── Templates base por nicho (fallback quando banco vazio) ───────────────────
-function buildBaseTemplate(
+export function buildBaseTemplate(
   niche: string, tone: string, vars: Record<string, string>
 ): { headline: string; body: string; cta: string } {
   const isImoveis  = /imov|imobi|apart|casa/i.test(niche);
@@ -3006,29 +3006,38 @@ function buildBaseTemplate(
   const isTech     = /tech|software|app|saas|digital/i.test(niche);
 
   type HBC = { h: string; b: string; c: string };
+  // Achado real (campanha 747): os templates "imoveis" abaixo inventavam
+  // escassez ("Última unidade disponível"), moradia/compra própria ("O lar
+  // que você sempre sonhou", "sonho da casa própria") e exclusividade/alto
+  // padrão sem nenhuma base no briefing — para QUALQUER imóvel, incluindo
+  // sala comercial para locação. Corrigido (campo 2026-09-05): removidas as
+  // alegações não verificáveis; o Fact Guard (server/campaignFactGuard.ts)
+  // roda depois da geração para os dois motores (eco e LLM) e bloquearia
+  // essas frases mesmo que voltassem aqui — mas o texto correto já nasce
+  // neutro. Para segmento imobiliário identificado, buildCampaignFromAds usa
+  // buildRealEstateCarouselAngles (server/carouselCopy.ts) com fatos
+  // canônicos em vez destes templates; eles ficam como fallback só para o
+  // endpoint standalone hybridGenerate, que não tem acesso a campaignFacts.
   const bases: Record<string, Record<string, HBC>> = {
     urgent: {
-      imoveis:  { h: `Última unidade disponível — ${vars.produto}`, b: `Oportunidade única em ${vars.empresa}. Reserve agora antes que acabe.`, c: "Reservar agora" },
+      imoveis:  { h: `Conheça ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Fale agora para saber disponibilidade e condições.`, c: "Falar agora" },
       servico:  { h: `Agenda quase cheia — ${vars.produto}`, b: `Poucos horários disponíveis esta semana em ${vars.empresa}.`, c: "Garantir vaga" },
       default:  { h: `Oferta por tempo limitado — ${vars.produto}`, b: `${vars.empresa} com condições especiais só hoje.`, c: "Aproveitar agora" },
     },
     emotional: {
-      imoveis:  { h: `O lar que você sempre sonhou está aqui`, b: `${vars.empresa} transforma o sonho da casa própria em realidade.`, c: "Conhecer agora" },
+      imoveis:  { h: `Conheça de perto ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Agende uma visita e veja se combina com você.`, c: "Agendar visita" },
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
       // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
-      // e estatisticas fabricadas (nao vem de nenhum dado real do cliente)
-      // — pior ainda, esse fallback roda no ecoMode, que pula o Fact Guard
-      // inteiro (ver generateCampaign, branch "ecoMode HIGH"), entao essas
-      // alegacoes inventadas iam pro ar sem checagem nenhuma.
+      // e estatisticas fabricadas (nao vem de nenhum dado real do cliente).
       default:  { h: `Transforme sua vida com ${vars.produto}`, b: `${vars.empresa} pode ser o próximo passo da sua mudança.`, c: "Quero mudar" },
     },
     rational: {
-      imoveis:  { h: `${vars.produto}: decisão consciente`, b: `Conheça os detalhes e dados reais de ${vars.empresa}.`, c: "Ver análise" },
+      imoveis:  { h: `${vars.produto}: avalie os detalhes`, b: `Conheça os detalhes de ${vars.empresa} e tire suas dúvidas.`, c: "Ver detalhes" },
       servico:  { h: `Resultado que você pode conferir`, b: `${vars.empresa} com atendimento avaliado pelos próprios clientes.`, c: "Ver resultados" },
       default:  { h: `Dados reais: ${vars.produto} funciona`, b: `${vars.empresa} — resultados mensuráveis em 30 dias.`, c: "Ver dados" },
     },
     premium: {
-      imoveis:  { h: `Exclusivo: ${vars.produto} para quem exige o melhor`, b: `${vars.empresa} — alto padrão com atendimento consultivo personalizado.`, c: "Solicitar proposta" },
+      imoveis:  { h: `${vars.produto} com atendimento consultivo`, b: `${vars.empresa} oferece atendimento personalizado para apresentar ${vars.produto}.`, c: "Solicitar atendimento" },
       servico:  { h: `Experiência premium em ${vars.produto}`, b: `Atendimento VIP em ${vars.empresa}. Seleto por natureza.`, c: "Agendar VIP" },
       default:  { h: `${vars.produto} — nível executivo`, b: `${vars.empresa} para quem não aceita menos que o melhor.`, c: "Quero o premium" },
     },
@@ -3155,11 +3164,45 @@ function parseHtmlIntoAds(html: string, competitorId: number, websiteUrl: string
 }
 
 // ── Gera campanha a partir dos ads coletados — sem LLM ──────────────────────
-async function buildCampaignFromAds(projectId: number, objective: string, clientProfile: any, ads: any[], opts?: { desiredCreatives?: number }): Promise<any> {
+export async function buildCampaignFromAds(
+  projectId: number,
+  objective: string,
+  clientProfile: any,
+  ads: any[],
+  opts?: {
+    desiredCreatives?: number;
+    // Orçamento e duração REALMENTE solicitados pelo cliente (input.budget/
+    // input.duration do briefing atual). Achado real (campanha 747): antes
+    // deste campo existir, esta função usava só clientProfile.monthlyBudget
+    // (ou 1500 fixo), ignorando o valor que o cliente efetivamente enviou
+    // para esta campanha — nunca substituir silenciosamente por outro valor.
+    requestedBudget?: number;
+    campaignDurationDays?: number;
+    // Faixa etária REALMENTE solicitada (input.ageMin/ageMax). Sem isso, o
+    // público exibido/salvo usava uma faixa fixa (25-50 anos) mesmo quando
+    // o cliente pedia outra (ex.: aberto 30-60 anos).
+    ageMin?: number;
+    ageMax?: number;
+    // Quando o segmento é imobiliário e os fatos canônicos já foram
+    // extraídos (buildCampaignFacts, no fluxo principal de generateCampaign),
+    // usa o mesmo gerador fact-safe do caminho com IA (buildRealEstateCarou-
+    // selAngles) em vez do template genérico por tom — nunca cria um segundo
+    // conjunto de regras de copy imobiliária independente.
+    isRealEstate?: boolean;
+    campaignFacts?: CampaignFacts;
+  },
+): Promise<any> {
   const niche   = clientProfile?.niche || "negócios";
   const company = clientProfile?.companyName || "sua empresa";
   const product = clientProfile?.productService || "seu produto";
-  const budget  = clientProfile?.monthlyBudget || 1500;
+  // Prioridade: orçamento pedido nesta campanha > orçamento cadastrado no
+  // perfil do cliente > default. Nunca inventa nem arredonda pra cima sem
+  // avisar — ver comentário de `opts.requestedBudget` acima.
+  const budget  = opts?.requestedBudget ?? clientProfile?.monthlyBudget ?? 1500;
+  const campaignDurationDays = opts?.campaignDurationDays && opts.campaignDurationDays > 0 ? opts.campaignDurationDays : 30;
+  const ageMin = opts?.ageMin ?? 18;
+  const ageMax = opts?.ageMax ?? 65;
+  const audienceLabel = `${ageMin}-${ageMax} anos`;
   const platform = clientProfile?.platform || "meta";
 
   const formats = ads.reduce((acc:any,a:any)=>{acc[a.adType||"image"]=(acc[a.adType||"image"]||0)+1;return acc;},{});
@@ -3263,9 +3306,20 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
 
   const tones: Array<"urgent"|"emotional"|"rational"|"premium"> = ["urgent","emotional","rational","premium"];
   const desiredCreatives = Math.min(Math.max(Math.round(opts?.desiredCreatives || 4), 2), 10);
-  const hybrid  = await hybridGenerateAds({niche,clientName:company,product,tones,useLLMRefine:false,count:desiredCreatives});
-  const budgets: Record<string,number> = {leads:40,sales:50,traffic:30,engagement:25,branding:20};
-  const total   = budgets[objective]||30;
+
+  // Segmento imobiliário: usa o mesmo gerador fact-safe do caminho com IA
+  // (server/carouselCopy.ts + fatos canônicos do Fact Guard) em vez do
+  // motor genérico hybridGenerateAds/buildBaseTemplate — que não distingue
+  // venda/locação nem imóvel comercial/residencial e por isso já produziu
+  // "casa própria"/"última unidade" para uma sala comercial em locação
+  // (campanha 747). Fora de imóveis, mantém o motor híbrido original.
+  const isRealEstateCampaign = !!(opts?.isRealEstate && opts?.campaignFacts);
+  const realEstateAngles = isRealEstateCampaign
+    ? buildRealEstateCarouselAngles(opts!.campaignFacts!, (clientProfile as any)?.city || "").slice(0, desiredCreatives)
+    : null;
+  const hybrid = realEstateAngles
+    ? null
+    : await hybridGenerateAds({ niche, clientName: company, product, tones, useLLMRefine: false, count: desiredCreatives });
 
   // Métricas: usa learning_base se disponível, senão estimativas por nicho
   const isImoveis = /imov|imobi|apart|casa/i.test(niche);
@@ -3326,24 +3380,55 @@ async function buildCampaignFromAds(projectId: number, objective: string, client
     mlSamples:  mlData?.sample_count || 0,
   };
 
+  const typeCycle = ["direct_offer","emotional","social_proof","educational","direct_offer","storytelling","social_proof","direct_offer","educational","direct_offer"];
+  const funnelStageCycle = ["TOF","MOF","MOF","BOF","BOF","TOF","MOF","BOF","TOF","BOF"];
+
+  const creatives = realEstateAngles
+    ? realEstateAngles.map((angle, i) => ({
+        type: typeCycle[i % typeCycle.length],
+        format: "Carrossel", orientation: "vertical_9_16",
+        headline: angle.headline, bodyText: angle.copy, copy: angle.copy,
+        cta: angle.cta,
+        hook: angle.hook, pain: angle.pain, solution: angle.solution,
+        funnelStage: funnelStageCycle[i % funnelStageCycle.length], complianceScore: "safe",
+        targetAudience: audienceLabel, platforms: ["meta"],
+        budget: Math.round(budget / desiredCreatives), duration: campaignDurationDays,
+        tone: "rational", source: "hybrid_real_estate",
+      }))
+    : hybrid!.ads.map((ad, i) => {
+        // Hook precisa ser distinto da headline (achado real, campanha 747:
+        // "headline e hook idênticos, exibidos repetidamente na interface").
+        const bodyFirstSentence = String(ad.body || "").split(/[.!?](?:\s|$)/)[0]?.trim();
+        return {
+          type: typeCycle[i % typeCycle.length],
+          format: topFmt === "video" ? "Video 15s" : "Imagem Feed", orientation: "vertical_9_16",
+          headline: ad.headline, bodyText: ad.body, copy: ad.body,
+          cta: ad.cta && !segRulesHybrid?.forbidden?.some((f: string) => ad.cta?.toLowerCase().includes(f.toLowerCase()))
+            ? ad.cta
+            : segCtas[i % segCtas.length] || topCta,
+          hook: bodyFirstSentence && bodyFirstSentence.toLowerCase() !== ad.headline.toLowerCase() ? bodyFirstSentence : ad.headline,
+          pain: "Dificuldade em encontrar solução", solution: `${company} — ${product}`,
+          funnelStage: funnelStageCycle[i % funnelStageCycle.length], complianceScore: "safe",
+          targetAudience: audienceLabel, platforms: ["meta"],
+          budget: Math.round(budget / desiredCreatives), duration: campaignDurationDays,
+          tone: ad.tone, source: "hybrid",
+        };
+      });
+
   return {
     strategy: `Campanha ${objective} — análise de ${ads.length} anúncios de concorrentes. Formato dominante: ${topFmt}. CTAs mais usados: ${realCtas.join(", ")||topCta}. ${avgActivity}% dos anúncios dos concorrentes estão ativos — mercado ${avgActivity > 60 ? "aquecido" : "moderado"}.`,
+    // Divisão fixa 40/35/25 (soma 100%) — achado real (campanha 747): antes
+    // multiplicava por `total`, um número de orçamento por objetivo (ex.:
+    // 40 para "leads"), não por 100; o resultado real observado foi
+    // 16%+14%+10%=40% em vez de 100%. "Lookalike" também foi removido do
+    // texto do público frio porque nenhuma lookalike audience é de fato
+    // configurada aqui — a faixa etária usa o que o cliente pediu.
     adSets:[
-      { name:"Público Frio",    audience:`Lookalike 1-3%, 25-50 anos, ${niche}`, budget:`${Math.round(total*0.4)}%`, objective:"Alcance",       funnelStage:"TOF" },
-      { name:"Público Morno",   audience:"Visitantes 30 dias",                   budget:`${Math.round(total*0.35)}%`,objective:"Consideração",   funnelStage:"MOF" },
-      { name:"Remarketing Hot", audience:"Engajamento 7 dias",                   budget:`${Math.round(total*0.25)}%`,objective:"Conversão",      funnelStage:"BOF" },
+      { name:"Público Frio",    audience:`Público amplo, ${audienceLabel}, ${niche}`, budget:"40%", objective:"Alcance",       funnelStage:"TOF" },
+      { name:"Público Morno",   audience:"Visitantes 30 dias",                        budget:"35%", objective:"Consideração", funnelStage:"MOF" },
+      { name:"Remarketing Hot", audience:"Engajamento 7 dias",                        budget:"25%", objective:"Conversão",     funnelStage:"BOF" },
     ],
-    creatives: hybrid.ads.map((ad,i)=>({
-      type:["direct_offer","emotional","social_proof","educational","direct_offer","storytelling","social_proof","direct_offer","educational","direct_offer"][i % 10],
-      format:topFmt==="video"?"Video 15s":"Imagem Feed", orientation:"vertical_9_16",
-      headline:ad.headline, bodyText:ad.body, copy:ad.body,
-      cta: ad.cta && !segRulesHybrid?.forbidden?.some((f:string) => ad.cta?.toLowerCase().includes(f.toLowerCase()))
-        ? ad.cta
-        : segCtas[i % segCtas.length] || topCta,
-      hook:ad.headline, pain:"Dificuldade em encontrar solução", solution:`${company} — ${product}`,
-      funnelStage:["TOF","MOF","MOF","BOF","BOF","TOF","MOF","BOF","TOF","BOF"][i % 10], complianceScore:"safe",
-      targetAudience:`25-50 anos, ${niche}`, platforms:["meta"], budget:Math.round(total/desiredCreatives), duration:7, tone:ad.tone, source:"hybrid",
-    })),
+    creatives,
     conversionFunnel,
     executionPlan,
     metrics,
@@ -6058,24 +6143,43 @@ export async function generateCampaign(input: {
     allAds.push(...ads.map((a: any) => ({ ...a, competitorName: (comp as any).name })));
   }
 
-  // Garante orçamento mínimo viável para Meta: R$5,11/dia por adSet.
-  // Padrão de 4 adSets (TOF/MOF/BOF/SCALE) → mínimo R$5,11×4×30×1,1 ≈ R$675/mês.
+  // Piso real de viabilidade do Meta: ~R$5,11/dia por ad set.
+  // Achado real (campanha 747): esta função SUBSTITUÍA silenciosamente o
+  // orçamento pedido pelo cliente (R$180 para 30 dias = R$6/dia) por
+  // R$675/mês sempre que ficava abaixo do piso — sem avisar o cliente e
+  // assumindo 4 ad sets fixos quando a estrutura real gerada (ver
+  // buildCampaignFromAds/funnelByObjective) usa 3 (ou 2 em "traffic"). Isso
+  // também deixava o próprio prompt da IA com números contraditórios
+  // ("R$180/mês (R$23/dia)"). Regra corrigida: o orçamento solicitado é
+  // sempre o valor canônico salvo e usado no prompt/estratégia/criativos —
+  // nunca ajustado aqui. A viabilidade real (baseada na contagem de ad sets
+  // efetivamente gerada) vira só um dado informativo (budgetViability,
+  // anexado ao aiResponse mais abaixo) e uma pendência de PUBLICAÇÃO em
+  // shared/campaignQualityGate.ts, nunca uma reescrita automática do valor.
   const META_MIN_DAILY_PER_ADSET = 5.11;
-  const EXPECTED_ADSETS = 4; // padrão do funil gerado
+  const DEFAULT_ADSETS_FOR_VIABILITY = 3; // estrutura real (Frio/Morno/Remarketing)
   const campaignDurationDays = input.duration && input.duration > 0 ? input.duration : 30;
-  const MIN_VIABLE_MONTHLY = Math.ceil(META_MIN_DAILY_PER_ADSET * EXPECTED_ADSETS * campaignDurationDays * 1.1);
-
-  let effectiveBudget = input.budget;
-  if (effectiveBudget < MIN_VIABLE_MONTHLY) {
-    log.warn("ai", "Orçamento abaixo do mínimo viável Meta — ajustado automaticamente", {
-      informado: input.budget,
-      ajustado: MIN_VIABLE_MONTHLY,
-      adSets: EXPECTED_ADSETS,
+  const requestedBudget = input.budget;
+  const budgetDaily = Math.round(requestedBudget / campaignDurationDays);
+  const recommendedMinimumMonthly = Math.ceil(META_MIN_DAILY_PER_ADSET * DEFAULT_ADSETS_FOR_VIABILITY * campaignDurationDays * 1.1);
+  const recommendedMinimumDaily = Math.ceil(META_MIN_DAILY_PER_ADSET * DEFAULT_ADSETS_FOR_VIABILITY * 1.1);
+  const meetsMetaBudgetMinimum = requestedBudget >= recommendedMinimumMonthly;
+  if (!meetsMetaBudgetMinimum) {
+    log.warn("ai", "Orçamento solicitado abaixo do mínimo recomendado pela Meta — mantido como pedido, sinalizado para o cliente decidir", {
+      solicitado: requestedBudget,
+      recomendadoMinimo: recommendedMinimumMonthly,
+      adSetsConsiderados: DEFAULT_ADSETS_FOR_VIABILITY,
     });
-    effectiveBudget = MIN_VIABLE_MONTHLY;
   }
-
-  const budgetDaily = Math.round(effectiveBudget / campaignDurationDays);
+  const budgetViability = {
+    requestedBudget,
+    requestedDailyBudget: budgetDaily,
+    campaignDurationDays,
+    adSetsConsidered: DEFAULT_ADSETS_FOR_VIABILITY,
+    recommendedMinimumMonthly,
+    recommendedMinimumDaily,
+    meetsMetaBudgetMinimum,
+  };
 
   // Helper: personas block para o prompt
   function buildPersonasBlock(personasJson: string | null | undefined): string {
@@ -7151,6 +7255,12 @@ ${creativeSlotInstructions}
     try {
       const hybrid = await buildCampaignFromAds(input.projectId, input.objective, clientProfile, allAds, {
         desiredCreatives: effectiveNumCreatives,
+        requestedBudget: input.budget,
+        campaignDurationDays,
+        ageMin: input.ageMin,
+        ageMax: input.ageMax,
+        isRealEstate,
+        campaignFacts: isRealEstate ? campaignFacts : undefined,
       });
       strategy         = hybrid.strategy;
       adSets           = JSON.stringify(hybrid.adSets);
@@ -7492,6 +7602,12 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
           ]);
           const hybrid = await buildCampaignFromAds(input.projectId, input.objective, profile, scrapedAds, {
             desiredCreatives: effectiveNumCreatives,
+            requestedBudget: input.budget,
+            campaignDurationDays,
+            ageMin: input.ageMin,
+            ageMax: input.ageMax,
+            isRealEstate,
+            campaignFacts: isRealEstate ? campaignFacts : undefined,
           });
           strategy         = hybrid.strategy;
           adSets           = JSON.stringify(hybrid.adSets);
@@ -7626,6 +7742,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
       ...responseObj,
       factValidation,
       postGenerationQualityGate: postGenerationGate,
+      budgetViability,
       campaignFacts: {
         verifiedFacts: campaignFacts.verifiedFacts,
         allowedInferences: campaignFacts.allowedInferences,
@@ -7642,7 +7759,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     objective: input.objective as any,
     platform: input.platform,
     suggestedBudgetDaily: budgetDaily,
-    suggestedBudgetMonthly: effectiveBudget,
+    suggestedBudgetMonthly: requestedBudget,
     durationDays: input.duration,
     strategy,
     adSets,

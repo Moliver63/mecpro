@@ -15,6 +15,7 @@
     "test:fact-guard": "tsx --test server/__tests__/campaignFactGuard.test.ts",
     "test:quality-gates": "tsx --test server/__tests__/campaignQualityGate.test.ts",
     "test:carousel-copy": "tsx --test server/__tests__/carouselCopy.test.ts",
+    "test:hybrid-engine": "tsx --test server/__tests__/hybridCampaignEngine.test.ts",
     "test:watch": "tsx --test --watch client/src/lib/__tests__/placementGuidance.test.ts",
     "db:push": "drizzle-kit push:pg",
     "db:generate": "drizzle-kit generate",

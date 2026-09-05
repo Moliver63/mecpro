@@ -85,13 +85,20 @@ export function buildRealEstateCarouselAngles(facts: CampaignFacts, city = ""): 
       copy: ["Vamos combinar sua visita?", capitalize(summary) + ".", offer, "Conheça o espaço de perto e avalie se ele atende ao que você procura.", visit],
     },
   ];
-  return rows.map((row) => ({
-    headline: trimCopyField(row.headline, 40),
-    description: trimCopyField(row.description, 30),
-    copy: normalizeCopyText(row.copy.filter(Boolean).join(" ")),
-    hook: row.headline,
-    pain: commercial ? "Encontrar um espaço adequado à rotina profissional." : "Encontrar um imóvel adequado aos seus planos.",
-    solution: normalizeCopyText(capitalize(summary) + ". " + offer),
-    cta: "Agendar visita",
-  }));
+  return rows.map((row) => {
+    // Hook precisa ser distinto da headline (achado real, campanha 747:
+    // "headline e hook idênticos, exibidos repetidamente na interface").
+    // Usa a primeira frase do corpo do card, que já foi escrita como um
+    // gancho de abertura próprio, em vez de repetir a headline.
+    const firstLine = row.copy.filter(Boolean)[0] || row.headline;
+    return {
+      headline: trimCopyField(row.headline, 40),
+      description: trimCopyField(row.description, 30),
+      copy: normalizeCopyText(row.copy.filter(Boolean).join(" ")),
+      hook: trimCopyField(firstLine, 80),
+      pain: commercial ? "Encontrar um espaço adequado à rotina profissional." : "Encontrar um imóvel adequado aos seus planos.",
+      solution: normalizeCopyText(capitalize(summary) + ". " + offer),
+      cta: "Agendar visita",
+    };
+  });
 }
