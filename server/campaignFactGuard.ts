@@ -697,6 +697,21 @@ export function validateCampaignFactIntegrity(
       }
     }
 
+    // Achado real (relato de Michel): "como se trata de sala comercial e
+    // não um apto" — as checagens de bedrooms/suites abaixo só disparavam
+    // quando um número já estava confirmado no briefing (ex.: "2 quartos"
+    // virando "3 quartos" na copy). Se NENHUM quarto/suíte foi mencionado —
+    // o caso normal de uma sala comercial, que não tem quartos — a IA
+    // podia inventar "3 quartos" ou "2 suítes" do zero e nada bloqueava,
+    // porque `expected` nunca existia pra comparar contra. "Quarto"/
+    // "dormitório"/"suíte" são conceitos puramente residenciais: não fazem
+    // sentido arquitetônico numa sala comercial, então a alegação é
+    // bloqueada mesmo sem nenhum número confirmado — não é uma checagem de
+    // CONTAGEM errada, é uma checagem de CARACTERÍSTICA que não deveria
+    // existir pra esse tipo de imóvel.
+    const commercialPropertyTypes = ["sala comercial", "imovel comercial"];
+    const isCommercialProperty = commercialPropertyTypes.includes(facts.realEstate.propertyType || "");
+
     const countFactChecks: Array<[
       "bedrooms" | "suites" | "bathrooms" | "parkingSpots",
       RegExp,
@@ -709,10 +724,16 @@ export function validateCampaignFactIntegrity(
     ];
     for (const [factKey, pattern, reasonPrefix] of countFactChecks) {
       const expected = facts.realEstate[factKey];
-      if (!expected) continue;
-      for (const value of valuesInText(new RegExp(pattern.source, "gi"), text)) {
-        if (!equivalentCanonicalFact("count", value, expected)) {
-          conflicts.push({ field, value, reason: `${reasonPrefix}_${expected}` });
+      const matches = valuesInText(new RegExp(pattern.source, "gi"), text);
+      if (expected) {
+        for (const value of matches) {
+          if (!equivalentCanonicalFact("count", value, expected)) {
+            conflicts.push({ field, value, reason: `${reasonPrefix}_${expected}` });
+          }
+        }
+      } else if (isCommercialProperty && (factKey === "bedrooms" || factKey === "suites")) {
+        for (const value of matches) {
+          conflicts.push({ field, value, reason: "residential_feature_claim_conflict_commercial_property" });
         }
       }
     }

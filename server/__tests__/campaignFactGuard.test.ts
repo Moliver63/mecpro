@@ -257,6 +257,50 @@ test("allows commercial room specialization when explicitly confirmed", () => {
   assert.equal(validation.conflicts.length, 0);
 });
 
+// ── Achado real (relato de Michel, campanha de sala comercial): "como se
+// trata de sala comercial e não um apto" — quartos/suítes nunca foram
+// mencionados no briefing (sala comercial não tem esses cômodos), mas
+// nada bloqueava a IA de inventar "3 quartos"/"2 suítes" do zero, porque
+// a checagem de contagem só disparava quando já havia um número
+// CONFIRMADO pra comparar contra. Corrigido: quarto/suíte são bloqueados
+// em imóvel comercial mesmo sem nenhum número confirmado, porque não
+// fazem sentido arquitetônico nesse tipo de imóvel — diferente de
+// banheiro/vaga, que continuam permitidos (controle negativo abaixo).
+test("blocks invented bedrooms/suites for a commercial room, even with no count confirmed to compare against", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Sala com 3 quartos e 2 suítes", copy: "Espaço perfeito com 3 quartos e 2 suítes para sua família." },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((c) => c.reason === "residential_feature_claim_conflict_commercial_property" && /quartos/i.test(c.value)));
+  assert.ok(validation.conflicts.some((c) => c.reason === "residential_feature_claim_conflict_commercial_property" && /su[ií]tes/i.test(c.value)));
+});
+
+test("does not block bathrooms or parking spots for a commercial room (those are plausible, not proibição cega)", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Sala comercial", extraContext: "Locação de sala comercial de 50 m², com 1 banheiro e 2 vagas de garagem." },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Sala com 1 banheiro e 2 vagas", copy: "Conheça o espaço e agende sua visita." },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});
+
+test("still allows bedrooms for an actual residential property", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Apartamento Centro", extraContext: "Venda de apartamento de 70 m², 2 quartos, 1 vaga, no Centro." },
+    clientProfile: { companyName: "Teste", niche: "imoveis residenciais para venda" },
+  });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Apartamento com 2 quartos", copy: "Confira este apartamento com 2 quartos no Centro." },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});
+
 test("blocks contaminated creativeSystemV2 copy bank text", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   const validation = validateCampaignFactIntegrity([
