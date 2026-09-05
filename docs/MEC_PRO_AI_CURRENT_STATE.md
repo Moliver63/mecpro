@@ -322,3 +322,13 @@ No commit `c859431`, o Render confirmou:
 - `check:mcp`: importacao do MCP OK.
 
 Ainda deve ser conferido o resultado completo de `npm run check:server` sempre que houver alteracao posterior.
+
+### Quartos/suítes inventados em imóvel comercial (branch fix/commercial-property-residential-features, PR pendente de revisao)
+
+Achado real, relatado por Michel: "como se trata de sala comercial e não um apto" — preocupacao de que caracteristicas puramente residenciais (quarto/dormitorio/suite) pudessem vazar pra copy de um imovel comercial sem nada bloquear.
+
+Causa raiz confirmada: as checagens de contagem em server/campaignFactGuard.ts (bedrooms/suites/bathrooms/parkingSpots) so disparavam quando um numero ja estava CONFIRMADO no briefing pra comparar contra (`if (!expected) continue`). Numa sala comercial, quartos/suites nunca sao mencionados (nao existem nesse tipo de imovel) — entao `expected` nunca existia, e a checagem inteira era pulada. A IA podia inventar "3 quartos"/"2 suites" do zero pra uma sala comercial sem nenhum bloqueio estrutural (havia so uma rede de seguranca generica de nivel de palavra, ja existente, que cobre parte mas nao o padrao numerico especifico).
+
+Corrigido: quando o tipo de imovel e comercial (sala comercial, imovel comercial) e quarto/suite aparece na copy SEM nenhum numero confirmado, a alegacao e bloqueada (`residential_feature_claim_conflict_commercial_property`) — nao e proibicao cega: banheiro e vaga continuam permitidos sem confirmacao (sao plausiveis em imovel comercial), e quartos continuam liberados normalmente pra imovel residencial de verdade.
+
+Testes: +3 em campaignFactGuard.test.ts (bloqueia quartos/suites inventados em comercial; nao bloqueia banheiro/vaga em comercial; continua permitindo quartos em residencial). Validado: test:fact-guard 23/23, as outras 4 suites sem regressao (52/52). check:server sem erro novo de TypeScript.
