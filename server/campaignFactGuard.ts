@@ -30,6 +30,12 @@ export type CampaignFacts = {
   // nicho. Mais amplo que socialProofRaw (que so olha productProofPoints)
   // porque escassez/exclusividade pode vir de qualquer campo do briefing.
   confirmedClaimsRaw: string;
+  // Cláusulas curtas extraídas literalmente do briefing/perfil — o que o
+  // cliente disse que o produto/serviço TEM (característica), não o que
+  // isso PRODUZ (benefício). Ex.: "dois aparelhos de ar-condicionado" é uma
+  // característica; "economia de energia" só é válido se o cliente também
+  // afirmou esse efeito — ver detectUnconfirmedBenefitClaims.
+  confirmedCharacteristics: string[];
   // Preço do produto/serviço declarado pelo cliente (productPrice), fora do
   // contexto imobiliário — cobre qualquer nicho (confeitaria, B2B, e-commerce
   // etc). Achado real (auditoria 03/09): o Fact Guard só valida price dentro
@@ -415,6 +421,48 @@ function detectHomeownershipClaims(text: string): string[] {
   return unique(found);
 }
 
+// ── Característica não comprova benefício (regra estrutural, qualquer nicho) ──
+// Pedido explícito do cliente: "dois aparelhos de ar-condicionado" não
+// comprova "economia de energia". Uma característica confirmada (o que o
+// produto/serviço TEM) não autoriza sozinha uma alegação de benefício (o
+// EFEITO que isso produz) — o benefício só passa se o próprio cliente
+// também afirmou o efeito, não apenas a característica. Mesmo mecanismo de
+// gate por confirmedClaimsRaw já usado para escassez/exclusividade; a lista
+// cobre alegações de benefício comuns a vários nichos (energia, vendas,
+// saúde, produtividade, autoestima), não é exaustiva por natureza.
+const unconfirmedBenefitClaimPatterns: RegExp[] = [
+  /\beconomia\s+de\s+energia\b/i,
+  /\beconomiz[ae]\s+(?:na\s+conta\s+de\s+)?energia\b/i,
+  /\baumenta\s+(?:a\s+|sua\s+)?produtividade\b/i,
+  /\baumenta\s+(?:as\s+)?suas?\s+vendas\b/i,
+  /\bmelhora\s+(?:a\s+)?sua\s+sa[uú]de\b/i,
+  /\bresultados?\s+garantidos?\b/i,
+  /\bmelhora\s+(?:a\s+)?qualidade\s+de\s+vida\b/i,
+  /\baumenta\s+(?:a\s+)?autoestima\b/i,
+  /\breduz\s+(?:seus?\s+)?custos?\b/i,
+];
+
+function detectUnconfirmedBenefitClaims(text: string): string[] {
+  const found: string[] = [];
+  for (const pattern of unconfirmedBenefitClaimPatterns) {
+    const match = text.match(pattern);
+    if (match?.[0]) found.push(compactText(match[0]));
+  }
+  return unique(found);
+}
+
+// Divide um texto livre (productDifferentials/extraContext) em cláusulas
+// curtas — usadas como "características confirmadas" (o que o cliente
+// literalmente disse que o produto/serviço TEM), sem inferir efeito.
+function extractConfirmedCharacteristics(text: string): string[] {
+  return unique(
+    text
+      .split(/[.;\n]|,\s+(?=[A-ZÀ-Ý])/)
+      .map((clause) => clause.trim())
+      .filter((clause) => clause.length >= 8 && clause.length <= 140),
+  );
+}
+
 export function buildCampaignFacts({
   input,
   clientProfile,
@@ -437,6 +485,11 @@ export function buildCampaignFacts({
     ),
   );
   const genericProductPrice = compactText(input?.["productPrice"] || clientProfile?.["productPrice"] || "") || undefined;
+  // Características vêm do briefing ATUAL + perfil (raw completo), não só
+  // do currentRaw isolado — um diferencial cadastrado uma vez no perfil do
+  // cliente (productDifferentials) continua sendo uma característica real
+  // dele, mesmo que não repetida em toda campanha nova.
+  const confirmedCharacteristics = extractConfirmedCharacteristics(raw);
   const currentFacts = extractRealEstateFacts(currentRaw);
   const inheritedFacts = extractRealEstateFacts(inheritedRaw);
   const propertyType = preferCurrentFact(currentFacts.propertyType, inheritedFacts.propertyType);
@@ -493,6 +546,7 @@ export function buildCampaignFacts({
     ]),
     socialProofRaw,
     confirmedClaimsRaw: n,
+    confirmedCharacteristics,
     genericProductPrice,
     realEstate: {
       purpose,
@@ -582,6 +636,19 @@ export function validateCampaignFactIntegrity(
       const substantiated = facts.confirmedClaimsRaw.length > 0 && facts.confirmedClaimsRaw.includes(claimNormalized);
       if (!substantiated) {
         conflicts.push({ field, value: claim, reason: "unverified_scarcity_or_exclusivity_claim" });
+      }
+    }
+
+    // Característica não comprova benefício — regra estrutural, qualquer
+    // nicho. Pedido explícito: "dois aparelhos de ar-condicionado" não
+    // comprova "economia de energia". Uma alegação de benefício só passa se
+    // o próprio cliente também afirmou o EFEITO (não apenas a
+    // característica) em algum campo do briefing atual/perfil.
+    for (const claim of detectUnconfirmedBenefitClaims(text)) {
+      const claimNormalized = normalizeText(claim);
+      const substantiated = facts.confirmedClaimsRaw.length > 0 && facts.confirmedClaimsRaw.includes(claimNormalized);
+      if (!substantiated) {
+        conflicts.push({ field, value: claim, reason: "unverified_benefit_claim" });
       }
     }
 
