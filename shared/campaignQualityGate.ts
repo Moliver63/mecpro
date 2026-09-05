@@ -23,6 +23,11 @@ export interface CampaignQualityGateInput extends CampaignBriefingInput {
   mediaUrls?: string[] | null;
   factValidationStatus?: "passed" | "failed" | null;
   metaPublishConfirmed?: boolean | null;
+  // Viabilidade real do orçamento pedido vs. piso da Meta por ad set — ver
+  // server/ai.ts (budgetViability). Só vira pendência de PUBLICAÇÃO, nunca
+  // bloqueia geração/rascunho: o orçamento pedido pelo cliente nunca é
+  // substituído automaticamente por este gate.
+  adSetsCount?: number | null;
 }
 
 export interface CampaignQualityGate {
@@ -359,6 +364,28 @@ export function evaluateCampaignQualityGates(
     addSyntheticIssue(publishRequired, "creative_editorial_quality", "required",
       "Reescreva os textos para o interessado, com argumentos próprios e sem orientações internas.",
       editorialIssues.join(" "));
+  }
+  if (action === "publish") {
+    // Achado real (campanha 747): o orçamento pedido pelo cliente (R$180
+    // para 30 dias) era substituído silenciosamente por um piso interno
+    // (R$675/mês) sem aviso. Corrigido: o valor pedido nunca é reescrito;
+    // esta checagem só sinaliza a incompatibilidade real com o piso da
+    // Meta por ad set ANTES de publicar, deixando a decisão explícita para
+    // quem confirma a publicação (aumentar orçamento, reduzir ad sets ou
+    // publicar mesmo assim).
+    const META_MIN_DAILY_PER_ADSET = 5.11;
+    const requestedBudget = Number(input.budget) || 0;
+    const durationDays = Number(input.duration) > 0 ? Number(input.duration) : 30;
+    const adSetsCount = Number(input.adSetsCount) > 0 ? Number(input.adSetsCount) : 3;
+    if (requestedBudget > 0) {
+      const requestedDaily = requestedBudget / durationDays;
+      const recommendedMinimumDaily = META_MIN_DAILY_PER_ADSET * adSetsCount;
+      if (requestedDaily < recommendedMinimumDaily) {
+        addSyntheticIssue(publishRequired, "budget_viability", "required",
+          `O orcamento pedido (R$${requestedDaily.toFixed(2)}/dia) fica abaixo do minimo recomendado pela Meta para ${adSetsCount} conjunto(s) de anuncios (R$${recommendedMinimumDaily.toFixed(2)}/dia). Confirme se deseja publicar assim mesmo, aumentar o orcamento ou reduzir o numero de conjuntos.`,
+          "Orcamento abaixo do minimo por conjunto pode impedir entrega na Meta ou ser rejeitado na publicacao — o valor pedido nao foi alterado automaticamente.");
+      }
+    }
   }
   if (action === "publish" && !input.metaPublishConfirmed) {
     addSyntheticIssue(publishRequired, "publish_confirmation", "required", "Confirma publicar ou republicar esta campanha na Meta?", "Publicacao na Meta tem efeito externo e pode gastar verba real.");

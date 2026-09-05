@@ -30,6 +30,7 @@ import {
   type PlacementGuidanceStatus,
   type PlacementType as GuidancePlacementType,
 } from "@/lib/placementGuidance";
+import { isRedundantHookText } from "../../../shared/campaignCopyQuality";
 
 const BR_STATE_OPTIONS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 const COUNTRY_OPTIONS = [
@@ -2664,7 +2665,7 @@ export default function CampaignResult() {
                             ✏️ Editar texto
                           </button>
                         </div>
-                        {cr.hook && <p style={{ fontSize: 11, color: "#7c3aed", fontStyle: "italic", marginBottom: 4 }}>🎣 Hook: "{cr.hook}"</p>}
+                        {cr.hook && !isRedundantHookText(cr.headline, cr.hook) && <p style={{ fontSize: 11, color: "#7c3aed", fontStyle: "italic", marginBottom: 4 }}>🎣 Hook: "{cr.hook}"</p>}
                         {cr.headline && <p style={{ fontSize: 12, color: "var(--navy)", fontWeight: 600, marginBottom: 3 }}>"{cr.headline}"</p>}
                         {cr.copy && <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5, marginBottom: 8 }}>{cr.copy}</p>}
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>

@@ -294,3 +294,78 @@ test("facts prompt exposes verified facts and forbidden claims", () => {
   assert.match(prompt, /triplex/i);
   assert.match(prompt, /consultorio/i);
 });
+
+// ── Achado real (campanha 747): sala comercial p/ locacao recebeu "O lar
+// que voce sempre sonhou esta aqui", "sonho da casa propria" e "ultima
+// unidade disponivel" — nenhuma dessas alegacoes tinha base no briefing, e
+// a finalidade era LOCACAO de imovel COMERCIAL, nao venda residencial.
+test("blocks homeownership language for a commercial room in locacao (campanha 747)", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "O lar que você sempre sonhou está aqui",
+      copy: "Morebem Imóveis transforma o sonho da casa própria em realidade.",
+      hook: "Seu lar ideal",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((c) => /homeownership_claim/.test(c.reason)));
+});
+
+test("blocks unverified scarcity and exclusivity claims (singular and plural)", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Última unidade disponível", copy: "Fale agora." },
+    { headline: "Últimas unidades", copy: "Fale agora." },
+    { headline: "Acabamento alto padrão", copy: "Espaço exclusivo para sua atividade." },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  const reasons = validation.conflicts.map((c) => c.reason);
+  assert.ok(reasons.every((r) => r === "unverified_scarcity_or_exclusivity_claim"));
+  assert.ok(validation.conflicts.some((c) => /última unidade/i.test(c.value)));
+  assert.ok(validation.conflicts.some((c) => /últimas unidades/i.test(c.value)));
+  assert.ok(validation.conflicts.some((c) => /alto padrão/i.test(c.value)));
+  assert.ok(validation.conflicts.some((c) => /exclusivo/i.test(c.value)));
+});
+
+test("allows scarcity claim when the client actually confirmed it in the briefing", () => {
+  const confirmedProfile = {
+    ...morebemProfile,
+    productDifferentials: "Restam poucas unidades disponíveis no prédio.",
+  };
+  const confirmedInput = {
+    ...morebemInput,
+    extraContext: morebemInput.extraContext + " Restam poucas unidades disponíveis no prédio.",
+  };
+  const facts = buildCampaignFacts({ input: confirmedInput, clientProfile: confirmedProfile });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Restam poucas unidades", copy: "Fale agora e agende sua visita." },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});
+
+test("allows homeownership language for a residential sale (does not over-block)", () => {
+  const vendaInput = {
+    name: "Apartamento à venda Centro",
+    objective: "leads",
+    platform: "meta",
+    extraContext: "Venda de apartamento de 70 m² no Centro, 2 quartos, 1 vaga. Valor: R$ 350.000.",
+  };
+  const vendaProfile = {
+    companyName: "Nova Casa Imóveis",
+    niche: "imoveis residenciais para venda",
+    productService: "apartamento à venda",
+  };
+  const facts = buildCampaignFacts({ input: vendaInput, clientProfile: vendaProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Conquiste sua casa própria",
+      copy: "O lar que você sempre sonhou está aqui. Fale conosco e agende sua visita.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});

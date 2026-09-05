@@ -138,3 +138,53 @@ test("passes quality gates for ready campaign generation", () => {
   assert.equal(report.status, "passed");
   assert.equal(report.blockedGates.length, 0);
 });
+
+// ── Achado real (campanha 747): R$180 pedidos para 30 dias (R$6/dia) viravam
+// R$675/mes SEM avisar o cliente. Corrigido: o valor pedido nunca e
+// reescrito; a incompatibilidade com o piso da Meta vira pendencia apenas
+// no estagio de PUBLICACAO, nunca um bloqueio da geracao do rascunho.
+test("flags budget below Meta's per-ad-set minimum only at publish, never at generate", () => {
+  const lowBudgetInput = {
+    objective: "leads",
+    platform: "meta",
+    budget: 180,
+    duration: 30,
+    mediaFormat: "carousel",
+    uploadedImages: ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+    creativesCount: 2,
+    factValidationStatus: "passed" as const,
+    metaPublishConfirmed: true,
+  };
+
+  const generateReport = evaluateCampaignQualityGates({ ...lowBudgetInput, action: "generate" }, baseProfile, { name: "teste" });
+  assert.notEqual(generateReport.status, "blocked");
+  assert.ok(!generateReport.questions.some((q) => /minimo recomendado pela meta/i.test(q)));
+
+  const publishReport = evaluateCampaignQualityGates({ ...lowBudgetInput, action: "publish" }, baseProfile, { name: "teste" });
+  assert.equal(publishReport.status, "blocked");
+  assert.ok(publishReport.questions.some((q) => /minimo recomendado pela meta/i.test(q)));
+  // R$180/30 dias = R$6/dia — nunca reescrito para R$675 nem qualquer outro valor.
+  assert.ok(publishReport.questions.some((q) => /R\$6\.00\/dia|R\$6,00\/dia/.test(q)));
+});
+
+test("does not flag budget viability when the requested daily amount already covers the ad sets", () => {
+  const report = evaluateCampaignQualityGates(
+    {
+      action: "publish",
+      objective: "leads",
+      platform: "meta",
+      budget: 900,
+      duration: 30,
+      mediaFormat: "carousel",
+      uploadedImages: ["https://example.com/1.jpg", "https://example.com/2.jpg"],
+      creativesCount: 2,
+      factValidationStatus: "passed",
+      metaPublishConfirmed: true,
+      adSetsCount: 3,
+    },
+    baseProfile,
+    { name: "teste" },
+  );
+
+  assert.ok(!report.questions.some((q) => /minimo recomendado pela meta/i.test(q)));
+});

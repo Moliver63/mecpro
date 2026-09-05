@@ -929,6 +929,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         mediaUrls: z.array(z.string()).optional().describe("URLs de imagens/videos reais associados aos cards."),
         factValidationStatus: z.enum(["passed", "failed"]).optional().describe("Resultado do fact guard, se ja existir."),
         metaPublishConfirmed: z.boolean().optional().describe("Use true apenas quando o usuario confirmou publicar na Meta."),
+        adSetsCount: z.number().int().min(1).max(10).optional().describe("Numero real de conjuntos de anuncios da campanha gerada, para checar o orcamento pedido contra o minimo por conjunto da Meta antes de publicar. Se omitido, assume 3 (estrutura padrao Frio/Morno/Remarketing)."),
         creativeMode: z.enum(["auto", "upload"]).optional(),
         uploadedImages: z.array(z.string()).optional().describe("URLs publicas das fotos que serao usadas."),
         realPhotosBase64: z.array(z.object({

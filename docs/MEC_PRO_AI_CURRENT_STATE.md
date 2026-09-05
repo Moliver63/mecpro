@@ -151,6 +151,16 @@ shared/campaignCopyQuality.ts audita linguagem interna em campos publicos e no b
 
 Regressoes: npm run test:carousel-copy, junto de test:fact-guard e test:quality-gates. Em ambientes que nao permitem o socket IPC do CLI tsx, os mesmos testes podem rodar com node --import tsx --test server/__tests__/carouselCopy.test.ts. Testes locais nao equivalem a uma nova geracao validada em producao.
 
+### Correcao do motor eco/hibrido e orcamento/publico (branch fix/real-estate-hybrid-copy-audience-budget, PR pendente de revisao)
+
+Achado real (campanha 747, sala comercial para locacao): o motor eco (buildCampaignFromAds em server/ai.ts, usado quando shouldUseLLM("high") e falso) gerava copy pelo template generico buildBaseTemplate, que nao distingue venda/locacao nem residencial/comercial — produzindo "o lar que voce sempre sonhou", "sonho da casa propria" e "ultima unidade disponivel" para uma sala comercial em locacao. Corrigido: quando o segmento e imobiliario e os fatos canonicos ja foram extraidos (buildCampaignFacts), buildCampaignFromAds agora usa buildRealEstateCarouselAngles (server/carouselCopy.ts), o mesmo gerador fact-safe do caminho com IA — nunca um segundo conjunto de regras.
+
+O Fact Guard (server/campaignFactGuard.ts) ganhou dois detectores estruturais que faltavam, validos para os dois motores (eco e LLM) porque a validacao pos-geracao e compartilhada: detectScarcityOrExclusivityClaims (ultima(s) unidade(s), alto padrao, exclusivo etc., singular e plural) e detectHomeownershipClaims (casa propria, o lar que voce sempre sonhou etc., bloqueado a menos que a finalidade seja venda de imovel nao-comercial). Nenhum dos dois e proibicao cega: passam quando o proprio cliente confirmou a condicao no briefing (facts.confirmedClaimsRaw).
+
+Tambem corrigidos, todos com causa raiz identificada em server/ai.ts: (1) o hook do carrossel (server/carouselCopy.ts e buildCampaignFromAds) era literalmente igual a headline — agora usa a primeira frase do corpo do card; CampaignResult.tsx tambem deixa de exibir o hook quando e redundante com a headline (isRedundantHookText em shared/campaignCopyQuality.ts); (2) a divisao de orcamento entre ad sets multiplicava por uma variavel que nao era 100 (era um numero de orcamento por objetivo), resultando em somas como 16%+14%+10%=40% em vez de 100% — corrigido para 40/35/25 fixos; (3) o publico exibido/salvo usava "25-50 anos" fixo e alegava "Lookalike 1-3%" sem nenhuma lookalike de fato configurada — agora usa ageMin/ageMax realmente pedidos; (4) o orcamento pedido (ex.: R$180 para 30 dias) era substituido silenciosamente por um piso interno da Meta (~R$675/mes, calculado com 4 ad sets fixos quando a estrutura real usa 3) sem avisar o cliente — o valor pedido nunca e mais reescrito; a incompatibilidade com o piso real vira uma pendencia synthetic apenas no estagio de PUBLICACAO (shared/campaignQualityGate.ts, action "publish"), nunca um bloqueio da geracao do rascunho.
+
+Regressoes: npm run test:hybrid-engine (novo), alem de test:carousel-copy, test:fact-guard e test:quality-gates ja existentes. Validado localmente: npm run check:server sem nenhum erro novo de TypeScript (37 pre-existentes, identicos antes/depois).
+
 ## Ordem de fotos em carrossel
 
 Quando houver multiplas fotos, o sistema deve pedir ou permitir escolher a foto de destaque.
