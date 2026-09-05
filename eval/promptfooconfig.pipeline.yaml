@@ -1,0 +1,101 @@
+# Regressão de PIPELINE COMPLETO do MecProAI — não testa o modelo cru,
+# testa o resultado depois de passar pelos seus próprios validadores
+# (Fact Guard + auditoria editorial), do mesmo jeito que roda em produção.
+#
+# Rodar com: npm run eval:pipeline
+# Requer NODE_OPTIONS=--import=tsx (já configurado no script) porque o
+# provider importa arquivos .ts do próprio projeto diretamente.
+#
+# IMPORTANTE: os casos abaixo com "achado real" reproduzem bugs
+# efetivamente encontrados e corrigidos. O caso da campanha 746 é
+# REPRESENTATIVO da classe de bug (linguagem interna vazando no card
+# público) — não é a reconstrução literal do briefing original, que não
+# está documentado nesta base; se Michel tiver o texto real, deve
+# substituir os vars abaixo por ele.
+
+description: "MecProAI — regressão de pipeline completo (Fact Guard + editorial)"
+
+prompts:
+  - "Gerar campanha: {{clientProfile.companyName}} — {{input.name}}"
+
+providers:
+  - id: "file://providers/pipelineProvider.ts"
+    label: "MecProAI pipeline (motor eco/imobiliário)"
+
+defaultTest:
+  assert:
+    - type: "javascript"
+      value: "file://assertions/factGuard.ts"
+    - type: "javascript"
+      value: "file://assertions/editorial.ts"
+
+tests:
+  - description: >
+      Campanha 747 — sala comercial p/ locação, Rua 902 nº 144.
+      Achado real: "o lar que você sempre sonhou", "sonho da casa própria",
+      "última unidade disponível", alegações de exclusividade/alto padrão
+      sem prova, hook idêntico à headline, público "25-50 anos" e orçamento
+      "R$675/mês" apesar de R$180/30 dias pedidos.
+    vars:
+      objective: leads
+      isRealEstate: true
+      segment: imoveis_locacao
+      desiredCreatives: 4
+      requestedBudget: 180
+      campaignDurationDays: 30
+      ageMin: 30
+      ageMax: 60
+      clientProfile:
+        companyName: "Morebem Imóveis"
+        niche: "Imobiliária"
+        city: "Balneário Camboriú"
+        productService: "Locação de sala comercial de 50 m² na Rua 902, nº 144 por R$ 5.000 mensais, tudo incluso."
+        productDifferentials: "Dois aparelhos de ar-condicionado, pé-direito alto."
+      input:
+        name: "Sala comercial Rua 902"
+        objective: leads
+        extraContext: "Locação de sala comercial de 50 m² na Rua 902, nº 144 por R$ 5.000 mensais, tudo incluso. Dois aparelhos de ar-condicionado, pé-direito alto."
+    assert:
+      - type: "javascript"
+        value: |
+          const parsed = typeof output === "string" ? JSON.parse(output) : output;
+          const texts = (parsed.creatives || []).map(c => `${c.headline} ${c.copy || c.bodyText || ""}`).join(" ");
+          const hasHomeownership = /casa própria|o lar que você sempre sonhou/i.test(texts);
+          return { pass: !hasHomeownership, score: hasHomeownership ? 0 : 1, reason: hasHomeownership ? "Linguagem de moradia própria vazou para sala comercial em locação" : "Sem linguagem de moradia própria" };
+      - type: "javascript"
+        value: |
+          const parsed = typeof output === "string" ? JSON.parse(output) : output;
+          const audiences = (parsed.creatives || []).map(c => c.targetAudience || "");
+          const wrongAge = audiences.some(a => /25-50/.test(a));
+          return { pass: !wrongAge, score: wrongAge ? 0 : 1, reason: wrongAge ? "Público fixo 25-50 anos em vez dos 30-60 pedidos" : "Público correto (30-60 anos)" };
+      - type: "javascript"
+        value: |
+          const parsed = typeof output === "string" ? JSON.parse(output) : output;
+          const sum = (parsed.adSets || []).reduce((acc, s) => acc + parseInt(s.budget, 10), 0);
+          return { pass: sum === 100, score: sum === 100 ? 1 : 0, reason: `Soma dos ad sets: ${sum}% (esperado 100%)` };
+
+  - description: >
+      Classe de bug da campanha 746 (REPRESENTATIVO, não o briefing literal
+      original) — linguagem interna/operacional vazando no card público do
+      carrossel, ex.: "A foto real orienta o ângulo deste card", "O briefing
+      confirma...". Corrigido no commit 6b40111 via auditoria editorial
+      plugada nos 3 pontos de publicação (gate de geração, tRPC e MCP).
+    vars:
+      objective: leads
+      isRealEstate: true
+      segment: imoveis_venda
+      desiredCreatives: 4
+      requestedBudget: 900
+      campaignDurationDays: 30
+      ageMin: 25
+      ageMax: 55
+      clientProfile:
+        companyName: "Nova Casa Imóveis"
+        niche: "imoveis residenciais para venda"
+        city: "Itajaí"
+        productService: "Venda de apartamento de 70 m², 2 quartos, 1 vaga, no Centro."
+        productDifferentials: "Sacada com vista para o mar, próximo ao comércio local."
+      input:
+        name: "Apartamento Centro Itajaí"
+        objective: leads
+        extraContext: "Venda de apartamento de 70 m², 2 quartos, 1 vaga, no Centro de Itajaí. Valor R$ 380.000. Sacada com vista para o mar."

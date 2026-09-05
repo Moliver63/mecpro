@@ -1,0 +1,60 @@
+# Comparação de MODELO CRU — mesmo prompt, sem nenhum validador do MecProAI
+# por trás (nem Fact Guard, nem auditoria editorial). Serve pra responder
+# "qual modelo escreve melhor de raiz", não "qual pipeline entrega copy
+# segura" (isso é o promptfooconfig.pipeline.yaml).
+#
+# O prompt usado aqui (eval/prompts/copyImobiliaria.txt) é uma versão
+# SIMPLIFICADA e representativa das regras do MecProAI — não é o prompt
+# literal de produção usado em server/ai.ts, que é bem mais longo e
+# específico. Serve pra comparar capacidade geral de seguir instrução e
+# evitar alegação inventada, não pra prever o resultado exato em produção.
+#
+# Requer as chaves de API no ambiente: GEMINI_API_KEY (ou GOOGLE_API_KEY,
+# conforme o provider do promptfoo) e DEEPSEEK_API_KEY. Rodar com:
+#   npm run eval:rawmodel
+# NUNCA commitar essas chaves — usar variável de ambiente/secret do CI.
+
+description: "MecProAI — comparação de modelo cru: Gemini vs DeepSeek"
+
+prompts:
+  - "file://prompts/copyImobiliaria.txt"
+
+providers:
+  - id: "google:gemini-2.5-flash"
+    label: "Gemini 2.5 Flash (cru)"
+  - id: "openai:chat:deepseek-chat"
+    label: "DeepSeek Chat (cru)"
+    config:
+      apiBaseUrl: "https://api.deepseek.com"
+      apiKeyEnvar: "DEEPSEEK_API_KEY"
+
+defaultTest:
+  assert:
+    - type: "contains-json"
+    - type: "not-icontains"
+      value: "última unidade"
+    - type: "not-icontains"
+      value: "alto padrão"
+
+tests:
+  - description: "Sala comercial para locação — não pode usar linguagem de moradia própria"
+    vars:
+      oferta: "Sala comercial de 50 m² na Rua 902, nº 144, Balneário Camboriú, por R$ 5.000 mensais, tudo incluso. Dois aparelhos de ar-condicionado, pé-direito alto."
+      finalidade: "locação"
+      tipo_imovel: "comercial"
+    assert:
+      - type: "not-icontains"
+        value: "casa própria"
+      - type: "not-icontains"
+        value: "o lar que você sempre sonhou"
+      - type: "llm-rubric"
+        value: "A copy é clara e específica sobre o espaço comercial oferecido (Rua 902, 50m², R$5.000/mês), não inventa nenhum dado que não está na oferta, e não usa linguagem de moradia residencial."
+
+  - description: "Apartamento à venda — moradia própria é apropriado aqui, não deve ser penalizado"
+    vars:
+      oferta: "Apartamento de 70 m², 2 quartos, 1 vaga, no Centro de Itajaí, por R$ 380.000."
+      finalidade: "venda"
+      tipo_imovel: "residencial"
+    assert:
+      - type: "llm-rubric"
+        value: "A copy é clara, específica sobre o apartamento (70m², 2 quartos, Centro de Itajaí, R$380.000), não inventa nenhum dado que não está na oferta, e o tom de conquista/moradia própria (se usado) é apropriado para venda residencial."
