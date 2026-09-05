@@ -161,6 +161,20 @@ Tambem corrigidos, todos com causa raiz identificada em server/ai.ts: (1) o hook
 
 Regressoes: npm run test:hybrid-engine (novo), alem de test:carousel-copy, test:fact-guard e test:quality-gates ja existentes. Validado localmente: npm run check:server sem nenhum erro novo de TypeScript (37 pre-existentes, identicos antes/depois).
 
+### Fase 1 da fundacao de planejamento de copy compartilhado (branch feat/offer-planning-foundation, PR pendente de revisao)
+
+Pedido: ter uma etapa de planejamento e revisao de copy compartilhada por TODOS os motores (IA, eco, templates, fallback), que usa os dados especificos da oferta pra escolher argumentos — nao um prompt isolado por caminho. Esta e a Fase 1 apenas: a ficha da oferta generalizada e o planejador de sequencia de argumentos. NAO religa ainda os 4 caminhos de geracao (isso e Fase 2, mudanca maior que toca ai.ts nos 4 pontos de geracao e e mais arriscada de validar de uma vez).
+
+O que foi feito:
+
+1. **Caracteristica != beneficio** (server/campaignFactGuard.ts): novo campo `confirmedCharacteristics` no CampaignFacts (clausulas curtas extraidas literalmente do briefing — o que o cliente disse que o produto TEM) e novo detector `detectUnconfirmedBenefitClaims` (economia de energia, aumenta produtividade/vendas, melhora saude, resultados garantidos etc.) — bloqueado a menos que o proprio cliente tambem tenha afirmado o EFEITO, nao so a caracteristica (mesmo gate por confirmedClaimsRaw ja usado pra escassez/exclusividade). Ex.: "dois aparelhos de ar-condicionado" nao autoriza sozinho "economia de energia" na copy.
+
+2. **shared/offerPlanning.ts** (novo arquivo): `ARGUMENT_SEQUENCES`, uma tabela declarativa por segmento (reaproveita as chaves de shared/segmentConfig.ts — imoveis_venda, imoveis_locacao, saude_estetica, servicos_locais, alimentacao, ecommerce, infoprodutos, moda_varejo, b2b, outro — sem criar uma segunda taxonomia). `planCopyArguments(segmento, disponibilidade)` filtra a sequencia "ideal" removendo qualquer argumento (prova_social, beneficio_comprovado, localizacao, condicoes, diferencial_comprovado, estrutura_ou_ingredientes) cujo requisito nao esta confirmado nos fatos da campanha, em vez de inventar o dado que falta; produto_ou_espaco e cta_step nunca saem (sao estruturais). `buildArgumentAvailability(facts)` cruza isso com o CampaignFacts real.
+
+Ainda nao feito (Fase 2, proxima): unificar o pipeline plan→draft→review→repair→sync→validate nos 4 caminhos de geracao (hoje cada um gera copy do seu jeito; so o caminho imobiliario dos dois motores principais usa o mesmo gerador fact-safe, corrigido na frente anterior). Tambem nao feito: aprendizado a partir de resultados reais por tipo de oferta (depende de dado que a plataforma ainda nao coleta — qualidade de lead, nao so cliques).
+
+Testes: novo server/__tests__/offerPlanning.test.ts (7 testes) + 3 novos em campaignFactGuard.test.ts (caracteristica extraida como clausula literal, beneficio nao confirmado bloqueado mesmo com caracteristica relacionada, beneficio permitido quando o proprio cliente afirma o efeito). Validado: test:fact-guard 20/20, test:offer-planning 7/7, mais as suites existentes sem regressao (test:quality-gates 7/7, test:carousel-copy 13/13, test:hybrid-engine 5/5) — 52/52 no total. check:server sem erro novo de TypeScript.
+
 ## Ordem de fotos em carrossel
 
 Quando houver multiplas fotos, o sistema deve pedir ou permitir escolher a foto de destaque.

@@ -369,3 +369,38 @@ test("allows homeownership language for a residential sale (does not over-block)
 
   assert.equal(validation.status, "passed");
 });
+
+// ── Característica não comprova benefício (pedido explícito do cliente):
+// "dois aparelhos de ar-condicionado" (característica, já no briefing da
+// Morebem) não comprova "economia de energia" (benefício/efeito).
+test("extracts confirmed characteristics as literal clauses, not inferred effects", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  assert.ok(facts.confirmedCharacteristics.some((c) => /ar-condicionado/i.test(c)));
+  assert.ok(!facts.confirmedCharacteristics.some((c) => /economia de energia/i.test(c)));
+});
+
+test("blocks a benefit claim not confirmed by the client, even when a related characteristic exists", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    {
+      headline: "Sala com ar-condicionado",
+      copy: "Aproveite a economia de energia deste espaço e agende sua visita.",
+    },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((c) => c.reason === "unverified_benefit_claim" && /economia de energia/i.test(c.value)));
+});
+
+test("allows a benefit claim when the client explicitly stated the effect, not just the characteristic", () => {
+  const confirmedInput = {
+    ...morebemInput,
+    extraContext: morebemInput.extraContext + " Ar-condicionado inverter, com economia de energia comprovada.",
+  };
+  const facts = buildCampaignFacts({ input: confirmedInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Sala com ar-condicionado inverter", copy: "Economia de energia comprovada. Agende sua visita." },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});
