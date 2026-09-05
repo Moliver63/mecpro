@@ -17,6 +17,9 @@
     "test:carousel-copy": "tsx --test server/__tests__/carouselCopy.test.ts",
     "test:hybrid-engine": "tsx --test server/__tests__/hybridCampaignEngine.test.ts",
     "test:offer-planning": "tsx --test server/__tests__/offerPlanning.test.ts",
+    "eval:pipeline": "cross-env NODE_OPTIONS=--import=tsx promptfoo eval -c eval/promptfooconfig.pipeline.yaml",
+    "eval:rawmodel": "promptfoo eval -c eval/promptfooconfig.rawmodel.yaml",
+    "eval:view": "promptfoo view",
     "test:watch": "tsx --test --watch client/src/lib/__tests__/placementGuidance.test.ts",
     "db:push": "drizzle-kit push:pg",
     "db:generate": "drizzle-kit generate",
@@ -28,6 +31,7 @@
   "dependencies": {
     "@google-analytics/data": "^6.1.0",
     "@hookform/resolvers": "^5.2.2",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.10",
@@ -81,15 +85,14 @@
     "react-hook-form": "^7.64.0",
     "recharts": "^2.15.2",
     "resend": "^3.2.0",
-    "svix": "^1.99.1",
     "sonner": "^2.0.7",
     "stripe": "^14.21.0",
     "superjson": "^1.13.3",
+    "svix": "^1.99.1",
     "tailwind-merge": "^3.3.1",
     "tsx": "^4.19.1",
     "wouter": "^3.3.5",
-    "zod": "^3.25.0",
-    "@modelcontextprotocol/sdk": "^1.30.0"
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.15",
@@ -110,6 +113,7 @@
     "drizzle-kit": "^0.20.0",
     "esbuild": "^0.20.0",
     "postcss": "^8.4.35",
+    "promptfoo": "^0.122.2",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.4.0",
     "vite": "^5.4.21"

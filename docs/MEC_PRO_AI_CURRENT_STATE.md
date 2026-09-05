@@ -173,6 +173,18 @@ O que foi feito:
 
 Ainda nao feito (Fase 2, proxima): unificar o pipeline plan→draft→review→repair→sync→validate nos 4 caminhos de geracao (hoje cada um gera copy do seu jeito; so o caminho imobiliario dos dois motores principais usa o mesmo gerador fact-safe, corrigido na frente anterior). Tambem nao feito: aprendizado a partir de resultados reais por tipo de oferta (depende de dado que a plataforma ainda nao coleta — qualidade de lead, nao so cliques).
 
+### Harness de avaliação com Promptfoo (branch feat/promptfoo-evals, PR pendente de revisao)
+
+Adicionado promptfoo (^0.122.2) como devDependency, em uma pasta eval/ separada — NAO roda em producao, NAO esta em nenhum caminho de geracao real, e' so ferramenta de teste/comparacao fora do servidor. Nota: a OpenAI comprou o Promptfoo em marco de 2026; continua MIT/open source.
+
+Dois configs, propositalmente separados (medem coisas diferentes):
+
+1. **eval/promptfooconfig.pipeline.yaml** — regressao de PIPELINE COMPLETO. O provider customizado (eval/providers/pipelineProvider.ts) chama buildCampaignFromAds/buildCampaignFacts REAIS (nao mock), e as asserções (eval/assertions/factGuard.ts, editorial.ts) reaplicam validateCampaignFactIntegrity e getCarouselEditorialIssues REAIS — nenhuma regra duplicada, o eval so mede o que o proprio MecProAI ja decide. Casos: campanha 747 (sala comercial locacao, replica o achado real completo — casa propria/ultima unidade/25-50 anos/R$675) e um caso representativo da classe de bug da campanha 746 (linguagem interna vazando no card, nao e a reconstrucao literal do briefing original que nao esta documentado). Rodei de verdade (sem mock): 2/2 passando, cada asserção com motivo especifico (nao e um "passa por acidente"). Roda com `npm run eval:pipeline` (usa NODE_OPTIONS=--import=tsx porque o provider importa .ts do projeto direto).
+
+2. **eval/promptfooconfig.rawmodel.yaml** — comparacao de MODELO CRU (Gemini vs DeepSeek via provider openai-compatible), sem nenhum validador do MecProAI por tras. Serve pra decidir qual modelo escreve melhor de raiz, nao qual pipeline entrega copy segura (isso e o outro config). Prompt simplificado (eval/prompts/copyImobiliaria.txt), NAO e o prompt literal de producao. Nao rodei de verdade — precisa de GEMINI_API_KEY/DEEPSEEK_API_KEY no ambiente, que nao tenho; a config esta pronta e validada sintaticamente, falta so a chave pra rodar.
+
+Pendencia de operacao (nao resolvida, so documentada): rodar eval:rawmodel com frequencia consome cota real de API; recomendado usar uma chave/orcamento separado da rotacao de producao do Gemini, e rodar sob demanda (antes de mudar prompt/pipeline), nao em todo commit.
+
 Testes: novo server/__tests__/offerPlanning.test.ts (7 testes) + 3 novos em campaignFactGuard.test.ts (caracteristica extraida como clausula literal, beneficio nao confirmado bloqueado mesmo com caracteristica relacionada, beneficio permitido quando o proprio cliente afirma o efeito). Validado: test:fact-guard 20/20, test:offer-planning 7/7, mais as suites existentes sem regressao (test:quality-gates 7/7, test:carousel-copy 13/13, test:hybrid-engine 5/5) — 52/52 no total. check:server sem erro novo de TypeScript.
 
 ## Ordem de fotos em carrossel
