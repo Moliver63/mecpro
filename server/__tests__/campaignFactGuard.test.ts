@@ -76,6 +76,45 @@ test("passes clean Morebem sala comercial facts", () => {
   assert.equal(validation.conflicts.length, 0);
 });
 
+// ── Achado real: o gerador colocou 191 m² onde deveria constar 50 m².
+// Causa raiz: firstMatch() preferia o match MAIS LONGO entre todas as
+// ocorrências de um padrão no texto — certo para endereço (mais longo =
+// mais completo), errado para fatos puramente numéricos (mais longo só
+// significa mais dígitos, sem relação com estar certo). Um briefing que
+// menciona a área da unidade E a área total do prédio/condomínio no mesmo
+// texto sempre escolhia o número de mais dígitos, mesmo sendo o errado.
+test("does not confuse the unit's area with a larger area mentioned in the same briefing", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Sala comercial de 50 m² em um edifício com área total construída de 191 m², bem localizado.",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.equal(facts.realEstate.areaM2, "50 m²");
+
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Sala de 191 m²", copy: "Confira este espaço de 191 m²." },
+  ], facts);
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((c) => c.reason.startsWith("area_conflict_expected_50")));
+});
+
+test("still prefers the current briefing's area over a larger number left over in the client profile", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Locação de sala comercial de 50 m², tudo incluso.",
+    },
+    clientProfile: {
+      companyName: "Teste",
+      niche: "imoveis comerciais para locacao",
+      productDifferentials: "Nosso maior empreendimento já teve unidades de até 191 m².",
+    },
+  });
+  assert.equal(facts.realEstate.areaM2, "50 m²");
+});
+
 test("current briefing area overrides stale inherited profile area", () => {
   const facts = buildCampaignFacts({
     input: {

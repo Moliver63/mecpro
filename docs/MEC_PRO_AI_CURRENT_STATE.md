@@ -173,6 +173,16 @@ O que foi feito:
 
 Ainda nao feito (Fase 2, proxima): unificar o pipeline plan→draft→review→repair→sync→validate nos 4 caminhos de geracao (hoje cada um gera copy do seu jeito; so o caminho imobiliario dos dois motores principais usa o mesmo gerador fact-safe, corrigido na frente anterior). Tambem nao feito: aprendizado a partir de resultados reais por tipo de oferta (depende de dado que a plataforma ainda nao coleta — qualidade de lead, nao so cliques).
 
+### Bug de extração "mais longo vence" confundindo área/preço com outro número no mesmo texto (branch fix/area-price-longest-match-bug, PR pendente de revisao)
+
+Achado real, reportado por Michel na conferência manual: o gerador colocou 191 m² onde deveria constar 50 m². Causa raiz confirmada e reproduzida ao vivo em server/campaignFactGuard.ts: firstMatch() escolhia o match MAIS LONGO entre todas as ocorrências de um padrão no texto combinado (briefing atual + perfil do cliente) — comportamento introduzido de proposito para corrigir um bug de ENDEREÇO (onde uma string mais longa e genuinamente mais especifica, ex: "Rua 902, nº 144" > "Rua 902"), mas aplicado indiscriminadamente tambem a area, preço, andares, suites, quartos, banheiros e vagas — onde "mais longo" so significa "mais digitos", sem nenhuma relacao com estar correto. Um briefing que menciona a area da unidade (50 m²) E a area total do predio/condominio (191 m²) no mesmo texto sempre escolhia 191 m², so por ter mais caracteres.
+
+Corrigido: firstMatch() ganhou um parametro opcional preferLongest (default false = primeira ocorrencia, correto pra fatos numericos). So o call site de ENDERECO passa { preferLongest: true } explicitamente, preservando o comportamento correto ja testado (endereco mais completo vence). Area, preço, andares, suites, quartos, banheiros e vagas passam a usar a primeira ocorrencia.
+
+Reproduzido ao vivo antes e depois da correcao (dois cenarios: duas metragens no mesmo campo do briefing atual; e metragem errada residual no perfil do cliente com briefing atual correto) — confirmado que a correcao resolve os dois. Mesma classe de bug pode ter afetado preço da mesma forma (mesma funcao, mesmo padrao "mais longo vence"), mas nao foi reportado/reproduzido especificamente — vale ficar atento.
+
+Testes: +2 em campaignFactGuard.test.ts (area nao confundida com area maior no mesmo briefing; area do briefing atual ainda prevalece sobre residuo maior no perfil). Validado: test:fact-guard 22/22 (o teste existente que depende do comportamento "mais longo vence" pra ENDEREÇO continua passando, sem alteracao de comportamento nesse campo), as outras 4 suites sem regressao (52/52 no total antes desta frente). check:server sem erro novo de TypeScript.
+
 ### Harness de avaliação com Promptfoo (branch feat/promptfoo-evals, PR pendente de revisao)
 
 Adicionado promptfoo (^0.122.2) como devDependency, em uma pasta eval/ separada — NAO roda em producao, NAO esta em nenhum caminho de geracao real, e' so ferramenta de teste/comparacao fora do servidor. Nota: a OpenAI comprou o Promptfoo em marco de 2026; continua MIT/open source.

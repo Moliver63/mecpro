@@ -86,23 +86,35 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map(compactText).filter(Boolean))];
 }
 
-function firstMatch(text: string, patterns: RegExp[]): string | undefined {
-  // Prefere o match mais completo (mais longo) entre TODAS as ocorrências
-  // do padrão no texto combinado — não literalmente a primeira que aparece.
-  // Achado real (auditoria 03/09, regressão do teste "accepts confirmed
-  // address variants"): o texto combinado começa pelo campo `name` da
-  // campanha (ex: "...Rua 902", sem número) e só depois vem o briefing
-  // completo (ex: "Rua 902, nº 144"). A primeira ocorrência vencia mesmo
-  // sendo menos específica, fazendo o Fact Guard esperar o endereço errado
-  // (mais curto) e nunca bloquear divergência de número de rua de verdade.
+function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: boolean }): string | undefined {
+  // preferLongest=true: usa o match mais completo (mais longo) entre TODAS
+  // as ocorrências — correto para ENDEREÇO, onde uma string mais longa é
+  // genuinamente mais específica (ex: "Rua 902, nº 144" > "Rua 902").
+  // Achado real (auditoria 03/09): o texto combinado começa pelo campo
+  // `name` da campanha (ex: "...Rua 902", sem número) e só depois vem o
+  // briefing completo (ex: "Rua 902, nº 144"); a primeira ocorrência vencia
+  // mesmo sendo menos específica.
+  //
+  // preferLongest=false (padrão): usa a PRIMEIRA ocorrência. Correto para
+  // qualquer fato puramente numérico (área, preço, andares, suítes,
+  // quartos, banheiros, vagas) — aqui "mais longo" não significa "mais
+  // completo", significa só "mais dígitos", sem nenhuma relação com estar
+  // certo. Achado real: um briefing mencionando a área da unidade (50 m²)
+  // E a área total do prédio/condomínio (191 m²) no mesmo texto fazia o
+  // Fact Guard escolher 191 m² sempre, só por ter mais caracteres — mesmo
+  // sendo o dado errado. Reproduzido ao vivo e corrigido aqui.
+  const preferLongest = opts?.preferLongest ?? false;
   for (const pattern of patterns) {
     const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
     const matches = [...text.matchAll(new RegExp(pattern.source, flags))]
       .map((m) => m[0])
       .filter(Boolean);
     if (matches.length > 0) {
-      const longest = matches.reduce((best, current) => (current.length > best.length ? current : best));
-      return compactText(longest);
+      if (preferLongest) {
+        const longest = matches.reduce((best, current) => (current.length > best.length ? current : best));
+        return compactText(longest);
+      }
+      return compactText(matches[0]);
     }
   }
   return undefined;
@@ -277,7 +289,7 @@ function extractRealEstateFacts(raw: string) {
     price: firstMatch(raw, [moneyPattern]),
     address: firstMatch(raw, [
       addressPattern,
-    ]),
+    ], { preferLongest: true }),
     floors: firstMatch(raw, [
       /\b\d+\s+pavimentos?\b/i,
       /\b(?:dois|duas|tres|três|quatro)\s+pavimentos?\b/i,
