@@ -5,6 +5,7 @@ import {
   evaluateCampaignBriefingReadiness,
   normalizeCampaignObjective,
 } from "./campaignBriefingReadiness";
+import { getCarouselEditorialIssues, getCreativeEditorialIssues } from "./campaignCopyQuality";
 
 export type CampaignQualityGateStage = "generate" | "media" | "publish" | "optimize";
 export type CampaignQualityGateStatus = "passed" | "needs_info" | "blocked";
@@ -350,6 +351,15 @@ export function evaluateCampaignQualityGates(
     addSyntheticIssue(publishRequired, "carousel_creatives", "required", "O carrossel precisa ter pelo menos 2 criativos validos antes de publicar.", "Meta e performance exigem cards suficientes para carrossel.");
   }
   addCarouselCreativeIssues(input, mediaFormat, publishRequired);
+  const creatives = Array.isArray(input.creatives) ? input.creatives : [];
+  const editorialIssues = ["carousel", "carrossel"].includes(mediaFormat)
+    ? getCarouselEditorialIssues(creatives)
+    : creatives.flatMap(getCreativeEditorialIssues);
+  if (editorialIssues.length) {
+    addSyntheticIssue(publishRequired, "creative_editorial_quality", "required",
+      "Reescreva os textos para o interessado, com argumentos próprios e sem orientações internas.",
+      editorialIssues.join(" "));
+  }
   if (action === "publish" && !input.metaPublishConfirmed) {
     addSyntheticIssue(publishRequired, "publish_confirmation", "required", "Confirma publicar ou republicar esta campanha na Meta?", "Publicacao na Meta tem efeito externo e pode gastar verba real.");
   }

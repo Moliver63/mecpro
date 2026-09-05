@@ -23,6 +23,9 @@ import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignInte
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity } from "./campaignFactGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
+import { detectRealEstateSegment } from "../shared/segmentConfig";
+import { normalizeCopyText, trimCopyField as trimMetaField, isWeakGeneratedCopy, getCarouselEditorialIssues } from "../shared/campaignCopyQuality";
+import { buildRealEstateCarouselAngles } from "./carouselCopy";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -1018,6 +1021,8 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
 // Detecta segmento pelo nicho (usado quando segment não é passado explicitamente)
 export function detectSegmentFromNiche(niche: string): string {
   if (!niche) return "outro";
+  const realEstate = detectRealEstateSegment(niche);
+  if (realEstate) return realEstate;
   const n = niche.toLowerCase();
   for (const [seg, rules] of Object.entries(SEGMENT_COPY_RULES)) {
     if (rules.nicheKeys.some(k => n.includes(k))) return seg;
@@ -6247,7 +6252,7 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
   // (input.segment se for uma chave válida de SEGMENT_COPY_RULES, senão
   // detecta a partir do nicho) — não duplica lógica nova, só expõe o mesmo
   // resultado pra alimentar a inferência de subsegmento.
-  const resolvedSegment = resolveSegmentFromCampaignContext(
+  const initialSegment = resolveSegmentFromCampaignContext(
     input.segment,
     (clientProfile as any)?.niche,
     (clientProfile as any)?.productService,
@@ -6256,24 +6261,21 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     input.name,
   );
 
-  // Segmento modulo 4 -> regras de copy por contexto completo da campanha.
-  const ctaRule = getSegmentInstruction(
-    resolvedSegment,
-    [
-      (clientProfile as any)?.niche,
-      (clientProfile as any)?.productService,
-      (clientProfile as any)?.productName,
-      input.extraContext,
-      input.name,
-    ].filter(Boolean).join(" "),
-    input.objective,
-  );
   const campaignFacts = buildCampaignFacts({
     input,
     clientProfile: clientProfile as any,
     campaignName: input.name,
-    segment: resolvedSegment,
+    segment: initialSegment,
   });
+  const isRealEstate = initialSegment.startsWith("imoveis_") || !!campaignFacts.realEstate.propertyType;
+  const resolvedSegment = isRealEstate && ["locacao", "temporada"].includes(campaignFacts.realEstate.purpose || "")
+    ? "imoveis_locacao"
+    : isRealEstate && campaignFacts.realEstate.purpose === "venda" ? "imoveis_venda" : initialSegment;
+  const ctaRule = getSegmentInstruction(
+    resolvedSegment,
+    [(clientProfile as any)?.niche, (clientProfile as any)?.productService, input.extraContext, input.name].filter(Boolean).join(" "),
+    input.objective,
+  );
   const isGenericCommercialRoom =
     campaignFacts.realEstate.propertyType === "sala comercial"
     && !/\b(consult[oó]rio|cl[ií]nica|escrit[oó]rio|sal[aã]o|studio|est[uú]dio)\b/i.test([
@@ -6810,19 +6812,6 @@ ${creativeSlotInstructions}
     return s;
   }
 
-  const normalizeCopyText = (value: unknown) => String(value || "").replace(/\s+/g, " ").trim();
-  const isWeakGeneratedCopy = (value: unknown) => {
-    const text = normalizeCopyText(value).toLowerCase();
-    if (!text || text.length < 20) return true;
-    return /^(saiba mais|confira|veja detalhes|oportunidade|não perca|nao perca|venha conhecer|clique aqui)$/i.test(text)
-      || /milhares de clientes|resultados mensuráveis|mudaram de vida|oportunidade única|ultimas unidades disponíveis|últimas unidades disponíveis|sinta a transformação/i.test(text);
-  };
-
-  const trimMetaField = (value: unknown, max: number) => {
-    const text = normalizeCopyText(value);
-    return text.length > max ? text.slice(0, max).trim() : text;
-  };
-
   function confirmedOfferFacts(): string[] {
     const p = clientProfile as any;
     return [
@@ -6906,74 +6895,7 @@ ${creativeSlotInstructions}
       ];
     }
     if (segment === "imoveis_venda" || segment === "imoveis_locacao") {
-      const type = campaignFacts.realEstate.propertyType || "imóvel";
-      const purpose = campaignFacts.realEstate.purpose === "venda" ? "venda" : "locação";
-      const area = campaignFacts.realEstate.areaM2 || "";
-      const price = campaignFacts.realEstate.price || "";
-      const address = campaignFacts.realEstate.address || (clientProfile as any)?.city || "";
-      const featureLine = campaignFacts.realEstate.structuralFeatures.join(", ");
-      const usageLine = isGenericCommercialRoom
-        ? "Uso possível para atividade profissional, operação do negócio ou atendimento profissional."
-        : campaignFacts.realEstate.usagePossibilities.length
-        ? `Uso possível para ${campaignFacts.realEstate.usagePossibilities.join(", ")}.`
-        : "";
-      const factSummary = campaignFacts.verifiedFacts.map((fact) => fact.replace(/^[^:]+:\s*/, "")).join(", ");
-      return [
-        {
-          headline: trimMetaField(`${type} para ${purpose}`, 40),
-          description: trimMetaField(area || "Dados confirmados", 30),
-          copy: `Comece pelo que foi confirmado no briefing: ${type} para ${purpose}${area ? ` com ${area}` : ""}${address ? ` em ${address}` : ""}.\n\n${price ? `${price}${campaignFacts.realEstate.includedFees ? `, ${campaignFacts.realEstate.includedFees}` : ""}.` : "Informações objetivas para avaliar o imóvel com segurança."}\n\nChame para saber detalhes.`,
-          hook: trimMetaField(`${type} com dados claros`, 40),
-          pain: "Avaliar um imóvel sem dados objetivos e confiáveis.",
-          solution: factSummary || "Fatos do briefing atual, sem herdar dados de outro projeto.",
-          cta: "Agendar visita",
-        },
-        {
-          headline: trimMetaField(featureLine || "Estrutura do imóvel", 40),
-          description: "Característica real",
-          copy: `${featureLine ? `A estrutura informada no briefing inclui ${featureLine}.` : `Este card destaca a estrutura real do ${type}, sem inventar características.`}\n\n${usageLine || "A copy deve explicar o uso possível apenas quando isso estiver no briefing."}\n\nFale no WhatsApp para confirmar disponibilidade.`,
-          hook: "Estrutura informada no briefing",
-          pain: "Entender se o espaço atende ao uso pretendido.",
-          solution: featureLine || "Características confirmadas no briefing atual.",
-          cta: "Ver disponibilidade",
-        },
-        {
-          headline: trimMetaField(area ? `${area} para seu negócio` : `Conheça o ${type}`, 40),
-          description: trimMetaField(address || "Localização informada", 30),
-          copy: `${area ? `A área informada é ${area}, suficiente para avaliar o encaixe do espaço na rotina profissional.` : `A área só deve aparecer quando estiver confirmada no briefing.`}\n\n${address ? `Endereço informado: ${address}.` : "A localização deve seguir apenas os dados do projeto atual."}\n\nSolicite mais informações.`,
-          hook: area ? `${area} bem aproveitados` : "Veja os dados do imóvel",
-          pain: "Comparar opções sem clareza de área, localização e valor.",
-          solution: "Área, endereço e valor extraídos do briefing atual.",
-          cta: "Agendar visita",
-        },
-        {
-          headline: "Condição clara para decidir",
-          description: trimMetaField(price || "Consulte detalhes", 30),
-          copy: `${price ? `Valor informado: ${price}${campaignFacts.realEstate.includedFees ? `, ${campaignFacts.realEstate.includedFees}` : ""}.` : "O valor não deve ser inventado quando não está no briefing."}\n\nA campanha apresenta somente dados confirmados para qualificar melhor o contato.\n\nChame e tire dúvidas.`,
-          hook: "Valor e detalhes claros",
-          pain: "Entrar em contato sem entender condição comercial.",
-          solution: price ? `Condição comercial: ${price}.` : "Condição comercial sem números inventados.",
-          cta: "Consultar detalhes",
-        },
-        {
-          headline: "Uso profissional possível",
-          description: "Perfil do interessado",
-          copy: `${usageLine || `O ${type} pode ser apresentado pelo uso indicado no briefing, sem trocar o tipo do imóvel.`}\n\nProfissão ou atividade do público não muda a categoria do imóvel anunciado. Não especialize como consultório, clínica, escritório ou salão sem confirmação literal.\n\nFale para avaliar o espaço.`,
-          hook: "Espaço para uso profissional",
-          pain: "Saber se o imóvel combina com a atividade pretendida.",
-          solution: usageLine || "Distinguir tipo do imóvel de uso possível.",
-          cta: "Falar no WhatsApp",
-        },
-        {
-          headline: "Quer avaliar pessoalmente?",
-          description: "Agende sua visita",
-          copy: `Se os dados combinam com o que você procura, o próximo passo é conhecer o espaço.\n\n${factSummary || `As informações vêm apenas do briefing atual do ${type}.`}\n\nChame no WhatsApp e agende sua visita.`,
-          hook: "Agende para conhecer o espaço",
-          pain: "Gostar do imóvel e precisar confirmar pessoalmente.",
-          solution: "Chamada direta para visita e atendimento.",
-          cta: "Agendar visita",
-        },
-      ];
+      return buildRealEstateCarouselAngles(campaignFacts, (clientProfile as any)?.city || "");
     }
     return [
       {
@@ -7009,17 +6931,19 @@ ${creativeSlotInstructions}
     );
     const cards = fallbackCardsForSegment(segment);
     const insight = input.photoInsights?.[index];
-    const rolePreferredIndex = (() => {
-      if (!(segment === "imoveis_venda" || segment === "imoveis_locacao") || !insight?.role) return null;
-      if (insight.role.includes("hero_exterior") || insight.role.includes("amenity")) return 0;
-      if (insight.role.includes("gourmet")) return 1;
-      if (insight.role.includes("living")) return 2;
-      if (insight.role.includes("suite")) return 4;
-      if (insight.role.includes("detail")) return 2;
-      if (insight.role.includes("offer")) return 5;
-      return null;
-    })();
-    const cardIndex = rolePreferredIndex ?? index % cards.length;
+    const used = new Set<number>();
+    let cardIndex = index % cards.length;
+    for (let photoIndex = 0; photoIndex <= index; photoIndex++) {
+      const role = input.photoInsights?.[photoIndex]?.role || "";
+      const preferred = photoIndex === 0 ? 0
+        : /offer/.test(role) ? 3
+        : /detail|gourmet/.test(role) ? 2
+        : /living|suite/.test(role) ? 4
+        : photoIndex % cards.length;
+      const available = cards.map((_, cardIndex) => cardIndex).filter((cardIndex) => !used.has(cardIndex));
+      cardIndex = available.includes(preferred) ? preferred : (available[0] ?? photoIndex % cards.length);
+      used.add(cardIndex);
+    }
     const card = cards[cardIndex];
     const lastLead = String(input.objective || "").toLowerCase() === "leads" && index === total - 1;
     const cta = lastLead ? card.cta : (card.cta || SEGMENT_ALIGNMENT_RULES[segment]?.fallbackCta || "Ver detalhes");
@@ -7060,24 +6984,25 @@ ${creativeSlotInstructions}
     if (!input.realImages?.length) return normalized;
     return normalized.map((creative, index) => {
       const fallback = carouselFallbackForIndex(index, targetCount);
-      const headline = isWeakGeneratedCopy(creative?.headline) ? fallback.headline : creative.headline;
-      const description = isWeakGeneratedCopy(creative?.description || creative?.shortDescription)
+      const headline = isWeakGeneratedCopy(creative?.headline, "headline") ? fallback.headline : creative.headline;
+      const description = isWeakGeneratedCopy(creative?.description || creative?.shortDescription, "description")
         ? fallback.description
         : (creative.description || creative.shortDescription);
-      const copy = isWeakGeneratedCopy(creative?.copy || creative?.bodyText) ? fallback.copy : (creative.copy || creative.bodyText);
-      const hook = isWeakGeneratedCopy(creative?.hook) ? fallback.hook : creative.hook;
+      const replaceCopy = isWeakGeneratedCopy(creative?.copy || creative?.bodyText);
+      const copy = replaceCopy ? fallback.copy : (creative.copy || creative.bodyText);
+      const hook = isWeakGeneratedCopy(creative?.hook, "hook") ? fallback.hook : creative.hook;
       const isLastLead = String(input.objective || "").toLowerCase() === "leads" && index === targetCount - 1;
       const mergedCreative = {
         ...fallback,
         ...creative,
         format: "Carrossel",
-        headline: trimMetaField(isLastLead ? fallback.headline : headline, 40),
-        description: trimMetaField(isLastLead ? fallback.description : description, 30),
-        shortDescription: trimMetaField(isLastLead ? fallback.description : description, 30),
+        headline: trimMetaField(headline, 40),
+        description: trimMetaField(description, 30),
+        shortDescription: trimMetaField(description, 30),
         copy,
         bodyText: copy,
         hook,
-        cta: isLastLead ? "Agendar visita" : (creative?.cta || fallback.cta),
+        cta: isLastLead || replaceCopy ? fallback.cta : (creative?.cta || fallback.cta),
         creativeIndex: index,
         isFeaturedPhoto: index === 0,
         photoRole: fallback.photoRole,
@@ -7126,7 +7051,7 @@ ${creativeSlotInstructions}
     .trim();
 
   function carouselHasWeakVariety(items: any[]): boolean {
-    if (!Array.isArray(items) || items.length < 3) return false;
+    if (!Array.isArray(items) || items.length < 2) return false;
     const expectedVariety = Math.min(items.length, 5);
     const headlineSignatures = new Set<string>();
     const bodySignatures = new Set<string>();
@@ -7178,132 +7103,14 @@ ${creativeSlotInstructions}
       });
     }
 
-    const type = campaignFacts.realEstate.propertyType || "imóvel";
-    const purpose = campaignFacts.realEstate.purpose === "venda" ? "venda" : "locação";
-    const area = campaignFacts.realEstate.areaM2 || "";
-    const price = campaignFacts.realEstate.price || "";
-    const address = campaignFacts.realEstate.address || (clientProfile as any)?.city || "";
-    const featureLine = campaignFacts.realEstate.structuralFeatures.join(", ");
-    const includedFees = campaignFacts.realEstate.includedFees || "";
-    const broadUse = isGenericCommercialRoom
-      ? "Uso profissional amplo, sem definir atividade especifica que nao esteja no briefing."
-      : campaignFacts.realEstate.usagePossibilities.length
-        ? `Uso indicado: ${campaignFacts.realEstate.usagePossibilities.join(", ")}.`
-        : "Uso apresentado apenas conforme os dados confirmados.";
-    const visitCta = String(input.objective || "").toLowerCase() === "leads" ? "Agendar visita" : "Ver detalhes";
-    const factTail = "Todos os pontos seguem o briefing atual, sem herdar dados de campanhas anteriores.";
-
-    const angles = [
-      {
-        headline: trimMetaField(`${type} para ${purpose}`, 40),
-        description: trimMetaField(area || "Dados claros", 30),
-        copy: `Card de abertura: ${type} para ${purpose}${area ? ` com ${area}` : ""}${address ? ` em ${address}` : ""}.\n\n${price ? `Valor informado: ${price}${includedFees ? `, ${includedFees}` : ""}.` : "Condição comercial apresentada sem números inventados."}\n\n${visitCta} pelo WhatsApp.`,
-        hook: "Dados principais do imovel",
-        pain: "Entender rapidamente se o imovel combina com a busca.",
-        solution: "Resumo com tipo, finalidade, area, localizacao e valor confirmados.",
-        cta: visitCta,
-      },
-      {
-        headline: trimMetaField(address ? "Localização informada" : "Região confirmada", 40),
-        description: trimMetaField(address || "Veja a região", 30),
-        copy: `Este card destaca a localização sem acrescentar promessas externas.\n\n${address ? `Endereço informado no briefing: ${address}.` : "A região deve aparecer somente quando estiver confirmada no briefing."}\n\nChame para confirmar disponibilidade e combinar a visita.`,
-        hook: "Localizacao para decidir",
-        pain: "Comparar opcoes sem saber exatamente onde fica.",
-        solution: address || "Localizacao baseada somente no briefing atual.",
-        cta: "Confirmar localização",
-      },
-      {
-        headline: trimMetaField(featureLine || "Estrutura confirmada", 40),
-        description: "Detalhes reais",
-        copy: `Aqui a narrativa muda para a estrutura do espaço.\n\n${featureLine ? `O briefing confirma: ${featureLine}.` : `Sem estrutura adicional confirmada, o texto permanece objetivo sobre o ${type}.`}\n\n${factTail}`,
-        hook: "Estrutura do espaco",
-        pain: "Evitar expectativas criadas por detalhes nao confirmados.",
-        solution: featureLine || "Descricao limitada aos fatos disponiveis.",
-        cta: "Ver estrutura",
-      },
-      {
-        headline: "Condição para decidir",
-        description: trimMetaField(price || "Sem valor inventado", 30),
-        copy: `Este card foca na decisão comercial.\n\n${price ? `Valor confirmado: ${price}${includedFees ? `, ${includedFees}` : ""}.` : "Quando o valor nao esta confirmado, a campanha nao inventa preço."}\n\nFale no WhatsApp para tirar dúvidas antes de agendar.`,
-        hook: "Condicao comercial clara",
-        pain: "Receber lead curioso por falta de informacao basica.",
-        solution: price ? `Preco canônico: ${price}.` : "Sem preco inventado.",
-        cta: "Tirar dúvidas",
-      },
-      {
-        headline: isGenericCommercialRoom ? "Uso profissional amplo" : "Uso conforme briefing",
-        description: "Sem especializar",
-        copy: `Este card qualifica o interesse pelo uso do espaço.\n\n${broadUse}\n\nA campanha nao transforma tipo de imovel em atividade especifica sem confirmacao literal.`,
-        hook: "Uso alinhado ao briefing",
-        pain: "Atrair publico errado por uma especializacao inventada.",
-        solution: broadUse,
-        cta: "Avaliar o espaço",
-      },
-      {
-        headline: "Agende para conhecer",
-        description: "Próximo passo",
-        copy: `Fechamento do carrossel: se os dados fazem sentido, o próximo passo é conhecer o espaço.\n\n${area || price || address ? [area, price, address].filter(Boolean).join(" | ") : factTail}\n\nChame no WhatsApp e combine o atendimento.`,
-        hook: "Proximo passo claro",
-        pain: "Gostar da oferta e nao saber como avançar.",
-        solution: "CTA direto para conversa e visita.",
-        cta: "Chamar no WhatsApp",
-      },
-    ];
-
-    return Array.from({ length: total }, (_, index) => angles[index % angles.length]);
-  }
-
-  function visualLeadForCarouselCard(creative: any, index: number): string {
-    const insight = input.photoInsights?.[index];
-    const role = normalizeCopyText(creative?.photoRole || insight?.role);
-    const angle = normalizeCopyText(creative?.photoCopyAngle || insight?.copyAngle);
-    const signals = [
-      ...(Array.isArray(creative?.visualSignals) ? creative.visualSignals : []),
-      ...(Array.isArray(insight?.labels) ? insight.labels : []),
-      ...(Array.isArray(insight?.objects) ? insight.objects : []),
-    ].map(normalizeCopyText).filter(Boolean);
-    const visualText = [role, angle, signals.slice(0, 3).join(", ")].filter(Boolean).join(" ");
-    if (!visualText) return "";
-
-    const lower = visualText.toLowerCase();
-    if (/food|dessert|sweet|brigadeiro|doce|bolo|chocolate|sabores|variedade|caixa|embalagem|pedido|cardapio/.test(lower)) {
-      if (/card|logo|telefone|whatsapp|instagram|texto|contato/.test(lower)) {
-        return "A foto funciona como prova de marca e contato, então este card fecha a narrativa com pedido direto.";
-      }
-      if (/variedade|sabores|sortido|mix|assorted/.test(lower)) {
-        return "A foto destaca variedade visual, ideal para vender escolha, sabor e vontade de pedir.";
-      }
-      return "A foto abre desejo pelo visual dos produtos e sustenta uma chamada simples para encomenda.";
-    }
-    if (/gym|fitness|academia|treino|equipamento|musculacao|peso/.test(lower)) {
-      if (/equipamento|machine|aparelho|peso/.test(lower)) {
-        return "A foto destaca estrutura de treino, então este card valoriza suporte para a rotina do aluno.";
-      }
-      return "A foto mostra o ambiente de treino e ajuda a conectar energia, constancia e próximo passo.";
-    }
-    if (/kitchen|cozinha|gourmet|mesa|dining|countertop/.test(lower)) {
-      return "A foto destaca um ambiente de uso diário, bom para conectar visual do espaço e decisão de visita.";
-    }
-    if (/living|sala|sofa|escada|interior|room|lounge/.test(lower)) {
-      return "A foto apresenta um ambiente de convivência, útil para mostrar o espaço antes dos dados comerciais.";
-    }
-    if (/bed|bedroom|quarto|suite|cama|closet|wardrobe|cabide|espelho/.test(lower)) {
-      return "A foto traz detalhes internos do imóvel e ajuda o lead a imaginar a visita com mais clareza.";
-    }
-    if (/pool|piscina|varanda|vista|balcony|terrace|fachada|exterior|building|sky/.test(lower)) {
-      return "A foto tem impacto visual forte, então este card abre desejo com informações objetivas.";
-    }
-    if (/card|logo|telefone|whatsapp|instagram|texto|contato|marca/.test(lower)) {
-      return "A foto traz informação visual de oferta ou contato, boa para reforçar o próximo passo.";
-    }
-    return "A foto real orienta o ângulo deste card e sustenta uma mensagem objetiva para avançar a conversa.";
+    return buildRealEstateCarouselAngles(campaignFacts, (clientProfile as any)?.city || "").slice(0, total);
   }
 
   function repairRepeatedCarouselCreatives(items: any[]): any[] {
     const shouldRepairCarousel = Array.isArray(items)
-      && items.length >= 3
+      && items.length >= 2
       && ((input.realImages?.length || 0) > 1 || /carousel|carrossel/i.test(String(input.mediaFormat || "")));
-    if (!shouldRepairCarousel || !carouselHasWeakVariety(items)) return items;
+    if (!shouldRepairCarousel || (!carouselHasWeakVariety(items) && !getCarouselEditorialIssues(items).length)) return items;
 
     const angles = buildConfirmedCarouselAngles(items.length);
     log.warn("ai", "Carrossel repetido detectado — reescrevendo cards com angulos confirmados", {
@@ -7314,8 +7121,7 @@ ${creativeSlotInstructions}
 
     return items.map((creative, index) => {
       const angle = angles[index] || carouselFallbackForIndex(index, items.length);
-      const visualLead = visualLeadForCarouselCard(creative, index);
-      const copy = trimMetaField(visualLead ? `${visualLead}\n\n${angle.copy}` : angle.copy, 900);
+      const copy = trimMetaField(angle.copy, 900);
       return {
         ...creative,
         type: creative?.type || (index === items.length - 1 ? "direct_offer" : "social_proof"),
@@ -7336,8 +7142,9 @@ ${creativeSlotInstructions}
     });
   }
 
-  // Eco mode: pula toda a geração via LLM e usa motor híbrido diretamente
-  if (!shouldUseLLM("high")) {
+  // Eco mode shares final validation, without adding paid AI calls.
+  const useEcoEngine = !shouldUseLLM("high");
+  if (useEcoEngine) {
     log.info("ai", "generateCampaign: ecoMode HIGH — usando buildCampaignFromAds diretamente", {
       projectId: input.projectId, adsCount: allAds.length,
     });
@@ -7356,31 +7163,9 @@ ${creativeSlotInstructions}
       log.warn("ai", "buildCampaignFromAds falhou no ecoMode", { error: ecoErr.message });
       // Não interrompe — deixa cair no try/catch principal abaixo
     }
-    if (strategy) {
-      // ecoMode: campanha ainda não existe no banco — criar aqui com todos os campos
-      const ecoCapaign = await db.createCampaign({
-        projectId: input.projectId,
-        name:      input.name,
-        objective: input.objective as any,
-        platform:  input.platform,
-        suggestedBudgetDaily:   budgetDaily,
-        suggestedBudgetMonthly: effectiveBudget,
-        durationDays:    input.duration,
-        strategy,
-        adSets,
-        creatives,
-        conversionFunnel,
-        executionPlan,
-        aiPromptUsed: "hybrid_eco",
-        aiResponse,
-        status: "draft",
-      } as any);
-      const ecoCampaignId = (ecoCapaign as any).id;
-      log.info("ai", "generateCampaign done (ecoMode)", { campaignId: ecoCampaignId });
-      return ecoCapaign;
-    }
   }
 
+  if (!strategy) {
   try {
     // ── Engine de copy selecionado pelo painel Admin ──────────────────────
     const copyEngine = getCopyEngine();
@@ -7733,6 +7518,8 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     }
   }
 
+  }
+
   try {
     const parsedCreativesRaw = JSON.parse(creatives || "[]");
     const parsedCreatives = normalizeRealPhotoCreatives(parsedCreativesRaw);
@@ -7753,6 +7540,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
         city:           (clientProfile as any)?.city           || "",
         realImages:     input.realImages,          // fotos reais do cliente (modo upload)
         photoInsights:  input.photoInsights,
+        skipAIGeneration: useEcoEngine,
       });
       const variedCreatives = repairRepeatedCarouselCreatives(enrichedCreatives);
       const creativesWithV2 = variedCreatives.map((rawCreative: any) => {
@@ -7776,7 +7564,13 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
             imageHash: creative.squareImageHash ?? null,
           });
         }
-        return creative;
+        const finalScore = scoreCreative(creative);
+        return {
+          ...creative,
+          ...finalScore,
+          needsReview: finalScore.finalScore < 75 || !!creative.hasPlaceholder
+            || (Array.isArray(creative.segmentAlignmentIssues) && creative.segmentAlignmentIssues.length > 0),
+        };
       });
       creatives = JSON.stringify(creativesWithV2);
     }
@@ -8844,6 +8638,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   productService?: string;
   niche?: string;
   city?: string;
+  skipAIGeneration?: boolean;
   realImages?: string[];  // fotos reais do cliente — quando presentes, substituem FLUX
   photoInsights?: Array<{
     role?: string;
@@ -8982,7 +8777,9 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   }
 
   const rawList = Array.isArray(creatives) ? creatives : [];
-  const improvedList = await Promise.all(rawList.map((cr, i) => improveCreativeIfWeak(cr, i)));
+  const improvedList = context.skipAIGeneration
+    ? rawList
+    : await Promise.all(rawList.map((cr, i) => improveCreativeIfWeak(cr, i)));
 
   const scored = improvedList.map((creative, index) => {
     // Placeholders já foram tratados no gate (regeneração + strip como último recurso).
@@ -9044,6 +8841,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     return scored; // ← pula toda a geração FLUX
   }
 
+  if (context.skipAIGeneration) return scored;
   const config = resolveImageProviderConfig();
   const diagnostics = getImageGenerationDiagnostics(config.provider);
 

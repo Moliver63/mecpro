@@ -540,8 +540,20 @@ export function getSegmentCopy(value: string): SegmentCopy {
 }
 
 /** Detecta segmento automaticamente pelo nicho do cliente */
+export function detectRealEstateSegment(value: string): string | null {
+  const text = String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const property = /\b(imoveis(?:_venda|_locacao)?|imovel|imobiliari[ao]s?|apartamento|cobertura|sala comercial|casa|terreno|condominio)\b/.test(text);
+  if (!property) return null;
+  // Broad property words must not win over the explicit rental purpose.
+  return /\b(locacao|aluguel|alugar|locar|temporada|airbnb)\b|imoveis_locacao/.test(text)
+    ? "imoveis_locacao"
+    : "imoveis_venda";
+}
+
 export function detectSegmentFromNiche(niche: string): string {
   if (!niche) return "outro";
+  const realEstate = detectRealEstateSegment(niche);
+  if (realEstate) return realEstate;
   const n = niche.toLowerCase();
   for (const [key, def] of Object.entries(SEGMENT_CONFIG)) {
     if (def.detection.nicheKeys.some(k => n.includes(k))) return key;

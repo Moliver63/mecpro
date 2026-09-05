@@ -139,6 +139,18 @@ Atualizacao 2026-09-02: a reparacao de carrossel repetido agora tambem usa os si
 
 Para sala comercial de uso amplo, os criativos devem usar linguagem neutra: `atividade profissional`, `rotina profissional`, `operacao`, `negocio`, `atendimento profissional` e `espaco comercial`. Nao transformar publico-alvo possivel em tipo de operacao especifica sem confirmacao.
 
+### Correcao editorial de 2026-09-05
+
+O fallback imobiliario e a reparacao de variedade compartilham server/carouselCopy.ts, com textos finais para o interessado e ate dez angulos distintos. A causa das copys de bastidores era deterministica: os templates continham frases como "O briefing confirma" e a reparacao adicionava uma explicacao sobre a foto antes de todos os textos. Orientacoes de criacao permanecem nos prompts/metadados, nunca no texto publico. Os fatos continuam vindo do Fact Guard; ausencia de finalidade, valor, metragem ou estrutura nao autoriza preencher esses dados.
+
+Titulos curtos validos e descricoes factuais, como "Sala climatizada" e "50 m²", nao devem ser descartados pelo limite minimo de texto principal. O corte de campos respeita palavras, precos e unidades, sem encerrar uma palavra no meio. A ultima foto tambem preserva uma headline valida. Fotos com o mesmo papel visual recebem angulos disponiveis diferentes, sem trocar suas midias.
+
+A finalidade canonica do briefing atual prevalece sobre um segmento herdado de venda. A deteccao compartilhada prioriza locacao quando ha sinal imobiliario. server/campaignPhotoClassification.ts separa a cena visual do contexto do negocio: "lookalike" nao e moda, "carrossel" nao e automotivo e uma cozinha ou quarto de imovel nao muda o nicho da campanha.
+
+shared/campaignCopyQuality.ts audita linguagem interna em campos publicos e no banco V2, alem de aberturas longas repetidas. O gate final de geracao e as duas entradas de publicacao do carrossel (MCP e tRPC) usam essa auditoria. O modo economico passa pela mesma normalizacao e validacao final sem adicionar chamadas de IA. A pontuacao e recalculada depois da reparacao para refletir o texto salvo.
+
+Regressoes: npm run test:carousel-copy, junto de test:fact-guard e test:quality-gates. Em ambientes que nao permitem o socket IPC do CLI tsx, os mesmos testes podem rodar com node --import tsx --test server/__tests__/carouselCopy.test.ts. Testes locais nao equivalem a uma nova geracao validada em producao.
+
 ## Ordem de fotos em carrossel
 
 Quando houver multiplas fotos, o sistema deve pedir ou permitir escolher a foto de destaque.

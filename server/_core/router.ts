@@ -17,6 +17,7 @@ import { siteAnalyticsRouter } from "./siteAnalyticsRouter";
 import { vslRouter } from "./vslRouter";
 import { fineTuningRouter } from "./fineTuningRouter";
 import { scoreCreative } from "../creativeScoringEngine";
+import { getCarouselEditorialIssues } from "../../shared/campaignCopyQuality";
 import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
 import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
@@ -182,7 +183,7 @@ function auditPublishCarouselCreatives(creatives: any[], expectedCards?: number)
     return { ok: true, issues: [] as string[], orderedCreatives: sourceCreatives };
   }
 
-  const issues: string[] = [];
+  const issues: string[] = getCarouselEditorialIssues(sourceCreatives);
   const seenHeadlines = new Map<string, number>();
   const seenDescriptions = new Map<string, number>();
   const seenBodies = new Map<string, number>();
