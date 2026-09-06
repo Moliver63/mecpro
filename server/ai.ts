@@ -1043,10 +1043,10 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
       { headline: "Moto 0km — Financiamento facilitado", description: "Yamaha XYZ: entrada a partir de R$ 2.000.", cta: "Simular financiamento" },
     ],
     fallback: { headline: "{empresa} — {nichoLabel} com procedência", copy: "Conheça nossos veículos e serviços de {nichoLabel}. Atendimento especializado.", cta: "Falar com vendedor" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-55 anos interessados em ${nichoLabel}`, adSets: [
-      { name: "TOF — Interesse em veículos", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Interesse em carros, motos e ${nichoLabel}, 25-55 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do estoque", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-55 anos`, cta: "Agendar visita" },
-      { name: "BOF — Interessados em financiamento", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Interessados em financiamento de veículos, 25-55 anos`, cta: "Simular financiamento" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: "25-55 anos interessados em {nichoLabel}", adSets: [
+      { name: "TOF — Interesse em veículos", funnelStage: "topo", objective: "awareness", budget: 20, audience: "Interesse em carros, motos e {nichoLabel}, 25-55 anos", cta: "Saber mais" },
+      { name: "MOF — Visitantes do estoque", funnelStage: "meio", objective: "consideration", budget: 15, audience: "Visitantes do site de {nichoLabel}, 25-55 anos", cta: "Agendar visita" },
+      { name: "BOF — Interessados em financiamento", funnelStage: "fundo", objective: "conversion", budget: 15, audience: "Interessados em financiamento de veículos, 25-55 anos", cta: "Simular financiamento" },
     ]},
   },
 
@@ -1061,10 +1061,10 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
       { headline: "Revestimento importado — Acabamento premium", description: "Cerâmica XYZ: porcelanatos e pisos para projetos de alto padrão.", cta: "Falar com especialista" },
     ],
     fallback: { headline: "{empresa} — {nichoLabel} com entrega rápida", copy: "Conheça nossos materiais de {nichoLabel}. Orçamento sem compromisso.", cta: "Consultar preço" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `30-60 anos interessados em ${nichoLabel}`, adSets: [
-      { name: "TOF — Profissionais da construção", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Pedreiros, arquitetos e engenheiros, 30-60 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do showroom", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 30-60 anos`, cta: "Fazer orçamento" },
-      { name: "BOF — Orçamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que solicitaram orçamento de ${nichoLabel}, 30-60 anos`, cta: "Falar com especialista" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: "30-60 anos interessados em {nichoLabel}", adSets: [
+      { name: "TOF — Profissionais da construção", funnelStage: "topo", objective: "awareness", budget: 20, audience: "Pedreiros, arquitetos e engenheiros, 30-60 anos", cta: "Saber mais" },
+      { name: "MOF — Visitantes do showroom", funnelStage: "meio", objective: "consideration", budget: 15, audience: "Visitantes do site de {nichoLabel}, 30-60 anos", cta: "Fazer orçamento" },
+      { name: "BOF — Orçamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: "Pessoas que solicitaram orçamento de {nichoLabel}, 30-60 anos", cta: "Falar com especialista" },
     ]},
   },
 
@@ -1079,10 +1079,10 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
       { headline: "Pré-Enem — Aprovação garantida", description: "Curso XYZ: 95% de aprovação nos vestibulares.", cta: "Saber mais sobre o curso" },
     ],
     fallback: { headline: "{empresa} — {nichoLabel} com metodologia diferenciada", copy: "Conheça nossos cursos de {nichoLabel}. Aulas com professores qualificados.", cta: "Falar com coordenador" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-50 anos (pais) e 16-25 anos (alunos)`, adSets: [
-      { name: "TOF — Pais em busca de educação", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Pais de crianças e adolescentes, 30-50 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-50 anos`, cta: "Agendar visita" },
-      { name: "BOF — Matrículas pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pais que iniciaram matrícula de ${nichoLabel}, 30-50 anos`, cta: "Falar com coordenador" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: "25-50 anos (pais) e 16-25 anos (alunos)", adSets: [
+      { name: "TOF — Pais em busca de educação", funnelStage: "topo", objective: "awareness", budget: 20, audience: "Pais de crianças e adolescentes, 30-50 anos", cta: "Saber mais" },
+      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: "Visitantes do site de {nichoLabel}, 25-50 anos", cta: "Agendar visita" },
+      { name: "BOF — Matrículas pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: "Pais que iniciaram matrícula de {nichoLabel}, 30-50 anos", cta: "Falar com coordenador" },
     ]},
   },
 
@@ -1097,10 +1097,10 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
       { headline: "Decoração de festa infantil — Temas exclusivos", description: "Decoração XYZ: projetos personalizados para festas de 1 a 10 anos.", cta: "Ver portfolio" },
     ],
     fallback: { headline: "{empresa} — {nichoLabel} para momentos especiais", copy: "Conheça nossos serviços de {nichoLabel}. Orçamento personalizado.", cta: "Solicitar orçamento" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-45 anos (noivos/aniversariantes)`, adSets: [
-      { name: "TOF — Noivos e aniversariantes", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Noivos e pais de debutantes, 25-45 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do portfolio", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-45 anos`, cta: "Ver portfolio" },
-      { name: "BOF — Orçamentos solicitados", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que solicitaram orçamento de ${nichoLabel}, 25-45 anos`, cta: "Solicitar orçamento" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: "25-45 anos (noivos/aniversariantes)", adSets: [
+      { name: "TOF — Noivos e aniversariantes", funnelStage: "topo", objective: "awareness", budget: 20, audience: "Noivos e pais de debutantes, 25-45 anos", cta: "Saber mais" },
+      { name: "MOF — Visitantes do portfolio", funnelStage: "meio", objective: "consideration", budget: 15, audience: "Visitantes do site de {nichoLabel}, 25-45 anos", cta: "Ver portfolio" },
+      { name: "BOF — Orçamentos solicitados", funnelStage: "fundo", objective: "conversion", budget: 15, audience: "Pessoas que solicitaram orçamento de {nichoLabel}, 25-45 anos", cta: "Solicitar orçamento" },
     ]},
   },
 
@@ -1115,10 +1115,10 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
       { headline: "Tour gastronômico — Sabores de Itajaí", description: "Tour XYZ: 5 paradas em restaurantes típicos da região.", cta: "Falar com consultor" },
     ],
     fallback: { headline: "{empresa} — {nichoLabel} com experiência única", copy: "Conheça nossas opções de {nichoLabel}. Reserve com antecedência.", cta: "Ver disponibilidade" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-55 anos interessados em ${nichoLabel}`, adSets: [
-      { name: "TOF — Viajantes em planejamento", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Interesse em viagem e turismo, 25-55 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-55 anos`, cta: "Ver disponibilidade" },
-      { name: "BOF — Reservas iniciadas", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que iniciaram reserva de ${nichoLabel}, 25-55 anos`, cta: "Reservar agora" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: "25-55 anos interessados em {nichoLabel}", adSets: [
+      { name: "TOF — Viajantes em planejamento", funnelStage: "topo", objective: "awareness", budget: 20, audience: "Interesse em viagem e turismo, 25-55 anos", cta: "Saber mais" },
+      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: "Visitantes do site de {nichoLabel}, 25-55 anos", cta: "Ver disponibilidade" },
+      { name: "BOF — Reservas iniciadas", funnelStage: "fundo", objective: "conversion", budget: 15, audience: "Pessoas que iniciaram reserva de {nichoLabel}, 25-55 anos", cta: "Reservar agora" },
     ]},
   },
 
@@ -1133,10 +1133,10 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
       { headline: "Veterinário 24h — Atendimento de emergência", description: "Clínica XYZ: plantão veterinário todos os dias da semana.", cta: "Falar com veterinário" },
     ],
     fallback: { headline: "{empresa} — {nichoLabel} com amor e cuidado", copy: "Conheça nossos serviços de {nichoLabel}. Seu pet em boas mãos.", cta: "Agendar serviço" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-50 anos (tutores de pets)`, adSets: [
-      { name: "TOF — Tutores de pets", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Tutores de cães e gatos, 25-50 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-50 anos`, cta: "Agendar serviço" },
-      { name: "BOF — Agendamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Tutores que iniciaram agendamento de ${nichoLabel}, 25-50 anos`, cta: "Confirmar agendamento" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: "25-50 anos (tutores de pets)", adSets: [
+      { name: "TOF — Tutores de pets", funnelStage: "topo", objective: "awareness", budget: 20, audience: "Tutores de cães e gatos, 25-50 anos", cta: "Saber mais" },
+      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: "Visitantes do site de {nichoLabel}, 25-50 anos", cta: "Agendar serviço" },
+      { name: "BOF — Agendamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: "Tutores que iniciaram agendamento de {nichoLabel}, 25-50 anos", cta: "Confirmar agendamento" },
     ]},
   },
 };
