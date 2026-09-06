@@ -141,7 +141,7 @@ export const SEGMENT_CONFIG: Record<string, SegmentDefinition> = {
       qualifyingOptions:   ["Morar", "Investir", "Morar e Investir"],
     },
     detection: {
-      nicheKeys:    ["imob", "corret", "imóvel", "imovel", "apartamento", "casa", "terreno", "lote"],
+      nicheKeys:    ["imob", "corretor", "corretag", "imóvel", "imovel", "apartamento", "casa", "terreno", "lote"],
       promptContext: `Segmento: Imóveis para VENDA.
 COPIES: Desperte desejo pelo imóvel — localização, m², diferenciais, condições de pagamento.
 CTAs OBRIGATÓRIOS: "Agendar visita" | "Quero saber as condições" | "Falar com corretor"
