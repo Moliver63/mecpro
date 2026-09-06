@@ -558,21 +558,30 @@ export function buildCampaignFacts({
   // só por a palavra aparecer no texto.
   const extractStructuralFeatures = (text: string) => unique([
     hasPositive(text, /ar[- ]condicionado/i) ? firstMatch(text, [/\b(?:dois|duas|2)\s+aparelhos? de ar[- ]condicionado\b/i]) || "ar-condicionado" : "",
-    hasPositive(text, /pe[- ]direito alto|pé[- ]direito alto/i) ? "pe-direito alto" : "",
+    hasPositive(text, /pe[- ]direito alto|pé[- ]direito alto/i) ? "pé-direito alto" : "",
     hasPositive(text, /massoterapia/i) ? "estrutura para massoterapia" : "",
   ]);
   const currentStructuralFeatures = extractStructuralFeatures(currentRaw);
   const inheritedStructuralFeatures = extractStructuralFeatures(inheritedRaw);
   const structuralFeatures = currentStructuralFeatures.length > 0 ? currentStructuralFeatures : inheritedStructuralFeatures;
 
-  const extractUsagePossibilities = (text: string) => unique([
-    hasPositive(text, /profissionais? de sa[uú]de/i) ? "profissionais de saude" : "",
-    hasPositive(text, /est[eé]tica/i) ? "estetica" : "",
-    hasPositive(text, /bem-estar|bem estar/i) ? "bem-estar" : "",
+  // Achado real (campanha #752, relato de Michel): mesmo depois da
+  // correcao do item 3 (massoterapia), "estetica" continuou direcionando
+  // 2 anuncios, contrariando a orientacao de divulgacao ampla. Causa:
+  // targetAudience e um campo PERSISTENTE do perfil do cliente (nao
+  // re-digitado a cada campanha) — "profissionais de saude, estetica e
+  // bem-estar" ficou la de uma campanha antiga. Como o briefing atual
+  // (mais enxuto) nao menciona NENHUM uso/publico, a regra "atual vence,
+  // com fallback pro perfil" (certa pra estrutura FISICA, que e estavel)
+  // caia de volta pro perfil antigo — mas enquadramento de publico e
+  // decisao EDITORIAL por campanha, nao um fato fisico do imovel. Por
+  // isso usagePossibilities NAO usa fallback: reflete só o que o
+  // briefing ATUAL confirma, nunca o perfil.
+  const usagePossibilities = unique([
+    hasPositive(currentRaw, /profissionais? de sa[uú]de/i) ? "profissionais de saúde" : "",
+    hasPositive(currentRaw, /est[eé]tica/i) ? "estética" : "",
+    hasPositive(currentRaw, /bem-estar|bem estar/i) ? "bem-estar" : "",
   ]);
-  const currentUsagePossibilities = extractUsagePossibilities(currentRaw);
-  const inheritedUsagePossibilities = extractUsagePossibilities(inheritedRaw);
-  const usagePossibilities = currentUsagePossibilities.length > 0 ? currentUsagePossibilities : inheritedUsagePossibilities;
 
   const verifiedFacts = unique([
     purpose ? `Finalidade: ${purpose}` : "",
