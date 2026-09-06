@@ -515,10 +515,10 @@ COMPLIANCE: Sem resultado garantido. Use 'pode', 'ajuda a'.`,
         "mecânica", "mecanica", "autoelétrica", "autoeletrica", "funilaria", "pintura",
         "pneu", "oficina mecânica", "auto peças", "autopeças", "carros usados"
       ],
-      promptContext: "Segmento: VEÍCULOS e automotivo.
+      promptContext: `Segmento: VEÍCULOS e automotivo.
 COPIES: Condição do veículo, preço, financiamento, garantia, diferenciais, revisão, manutenção.
 CTAs OBRIGATÓRIOS: "Agendar visita" | "Falar com vendedor" | "Simular financiamento"
-CTAs PROIBIDOS: "agendar consulta", "aula grátis", "download"",
+CTAs PROIBIDOS: "agendar consulta", "aula grátis", "download"`,
     },
     copy: {
       headline: "🚗 {produto} — {diferencial}",
@@ -560,10 +560,10 @@ CTAs PROIBIDOS: "agendar consulta", "aula grátis", "download"",
         "depot", "home center", "reforma", "pedreiro", "arquiteto", "engenheiro",
         "construtora", "gesso", "drywall", "azulejo", "cerâmica", "ceramica"
       ],
-      promptContext: "Segmento: MATERIAL DE CONSTRUÇÃO e reforma.
+      promptContext: `Segmento: MATERIAL DE CONSTRUÇÃO e reforma.
 COPIES: Qualidade do material, preço, entrega, prazo, atendimento técnico, variedade.
 CTAs OBRIGATÓRIOS: "Fazer orçamento" | "Consultar preço" | "Falar com especialista"
-CTAs PROIBIDOS: "agendar visita" (a menos que seja showroom), "aula grátis"",
+CTAs PROIBIDOS: "agendar visita" (a menos que seja showroom), "aula grátis"`,
     },
     copy: {
       headline: "🧱 {produto} — {diferencial}",
@@ -605,10 +605,10 @@ CTAs PROIBIDOS: "agendar visita" (a menos que seja showroom), "aula grátis"",
         "berçário", "bercario", "creche", "ensino", "educação", "educacao",
         "professor particular", "tutor", "intercâmbio", "intercambio"
       ],
-      promptContext: "Segmento: EDUCAÇÃO presencial.
+      promptContext: `Segmento: EDUCAÇÃO presencial.
 COPIES: Metodologia, corpo docente, infraestrutura, resultados de alunos, valores, diferenciais pedagógicos.
 CTAs OBRIGATÓRIOS: "Agendar visita" | "Saber mais sobre o curso" | "Falar com coordenador"
-CTAs PROIBIDOS: "comprar agora", "frete grátis"",
+CTAs PROIBIDOS: "comprar agora", "frete grátis"`,
     },
     copy: {
       headline: "📚 {produto} — {diferencial}",
@@ -649,10 +649,10 @@ CTAs PROIBIDOS: "comprar agora", "frete grátis"",
         "cerimonial", "fotografia", "filmagem", "noiva", "noivo", "festa de 15",
         "festa infantil", "chá de bebê", "chá de cozinha", "formatura"
       ],
-      promptContext: "Segmento: EVENTOS e festas.
+      promptContext: `Segmento: EVENTOS e festas.
 COPIES: Experiência, personalização, portfolio, depoimentos de noivos/aniversariantes, pacotes, diferenciais.
 CTAs OBRIGATÓRIOS: "Agendar visita" | "Ver portfolio" | "Solicitar orçamento"
-CTAs PROIBIDOS: "comprar agora"",
+CTAs PROIBIDOS: "comprar agora"`,
     },
     copy: {
       headline: "🎉 {produto} — {diferencial}",
@@ -693,10 +693,10 @@ CTAs PROIBIDOS: "comprar agora"",
         "pacote turistico", "hospedagem", "quarto", "diária", "diaria",
         "praia", "montanha", "serra", "cachoeira", "ecoturismo", "cruzeiro"
       ],
-      promptContext: "Segmento: TURISMO e hotelaria.
+      promptContext: `Segmento: TURISMO e hotelaria.
 COPIES: Experiência, localização, diferenciais, pacotes, temporada, avaliações de hóspedes.
 CTAs OBRIGATÓRIOS: "Reservar agora" | "Ver disponibilidade" | "Falar com consultor"
-CTAs PROIBIDOS: "comprar agora" (a menos que seja pacote), "agendar consulta"",
+CTAs PROIBIDOS: "comprar agora" (a menos que seja pacote), "agendar consulta"`,
     },
     copy: {
       headline: "🏖️ {produto} — {diferencial}",
@@ -737,10 +737,10 @@ CTAs PROIBIDOS: "comprar agora" (a menos que seja pacote), "agendar consulta"",
         "clínica veterinária", "clinica veterinaria", "cuidado animal",
         "hotel para cachorro", "creche canina", "passeador de cães"
       ],
-      promptContext: "Segmento: PET — cuidados com animais.
+      promptContext: `Segmento: PET — cuidados com animais.
 COPIES: Bem-estar do pet, qualidade do serviço, ambiente seguro, produtos especializados, amor aos animais.
 CTAs OBRIGATÓRIOS: "Agendar banho e tosa" | "Falar com veterinário" | "Ver produtos"
-CTAs PROIBIDOS: "comprar agora" (a menos que seja loja de produtos), "aula grátis"",
+CTAs PROIBIDOS: "comprar agora" (a menos que seja loja de produtos), "aula grátis"`,
     },
     copy: {
       headline: "🐾 {produto} — {diferencial}",
