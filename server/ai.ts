@@ -23,7 +23,7 @@ import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignInte
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
-import { detectRealEstateSegment } from "../shared/segmentConfig";
+import { detectRealEstateSegment, matchesNicheKeyword } from "../shared/segmentConfig";
 import { normalizeCopyText, trimCopyField as trimMetaField, isWeakGeneratedCopy, getCarouselEditorialIssues } from "../shared/campaignCopyQuality";
 import { buildRealEstateCarouselAngles } from "./carouselCopy";
 
@@ -1013,7 +1013,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "foto apetitosa + velocidade de entrega + preço especial do dia",
     forbidden:  ["agendar visita", "guia grátis", "ebook", "curso", "avaliação"],
     compliance: "Foto real do produto. Preço exato. Álcool: configurar restrição de idade.",
-    nicheKeys:  ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar", "culin", "doce", "brigadeiro", "sobremesa", "confeitaria", "padaria", "bolo", "salgado", "encomendas", "presentes"],
+    nicheKeys:  ["restaurante", "alimentação", "alimentacao", "alimentício", "alimenticio", "alimentar", "delivery", "lanche", "comida", "gastronomia", "bar", "culinária", "culinaria", "pizza", "pizzaria", "doce", "doceria", "brigadeiro", "sobremesa", "confeitaria", "confeiteiro", "confeiteira", "padaria", "bolo", "salgado", "encomendas", "presentes"],
   },
   moda_varejo: {
     ctaLeads:   ["Ver nova coleção", "Cadastrar para receber novidades"],
@@ -1095,7 +1095,7 @@ export function detectSegmentFromNiche(niche: string): string {
   if (realEstate) return realEstate;
   const n = niche.toLowerCase();
   for (const [seg, rules] of Object.entries(SEGMENT_COPY_RULES)) {
-    if (rules.nicheKeys.some(k => n.includes(k))) return seg;
+    if (rules.nicheKeys.some(k => matchesNicheKeyword(n, k))) return seg;
   }
   return "outro";
 }
@@ -2582,7 +2582,7 @@ function mockResponse(prompt: string): string {
         headline: "Oferta especial — consulte disponibilidade",
         copy: `Conheça nossos serviços de ${nichoLabel}. Entre em contato para mais informações.`,
         bodyText: `Conheça nossos serviços de ${nichoLabel}. Entre em contato para mais informações.`,
-        hook: "Vagas disponíveis para ${nichoLabel}",
+        hook: `Vagas disponíveis para ${nichoLabel}`,
         pain: "Risco de perder a oportunidade",
         solution: "Ação imediata com garantia de satisfação",
         cta: "Aproveitar Agora", funnelStage: "BOF", complianceScore: "safe",
@@ -3099,7 +3099,7 @@ export function buildBaseTemplate(
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
       // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
       // e estatisticas fabricadas (nao vem de nenhum dado real do cliente).
-      default:  { h: `${vars.produto} — feito com cuidado para você`, b: `${vars.empresa} — ${nichoLabel} com qualidade. Entre em contato.`, c: "Quero mudar" },
+      default:  { h: `${vars.produto} — feito com cuidado para você`, b: `${vars.empresa} — ${niche} com qualidade. Entre em contato.`, c: "Quero mudar" },
     },
     rational: {
       imoveis:  { h: `${vars.produto}: avalie os detalhes`, b: `Conheça os detalhes de ${vars.empresa} e tire suas dúvidas.`, c: "Ver detalhes" },

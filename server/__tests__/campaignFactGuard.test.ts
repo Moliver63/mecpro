@@ -701,3 +701,85 @@ test("address extraction handles multi-word street names with articles (das/dos/
   });
   assert.equal(facts.genericAddress, "Avenida do Contorno, 500");
 });
+
+// ── Achado real (relato de Michel, confeitaria Gra Kau Delícias, campanha
+// #754): "acentuação correta" no briefing batia com a nicheKey "corret" de
+// imóveis (substring de "correta"/"correto"), desviando a campanha inteira
+// pro gerador de imóveis. Depois disso, o orçamento de mídia ("R$ 1.500")
+// virava preço do produto, e o validador aprovava porque os dois lados
+// citavam o mesmo número — o errado.
+test("does not misroute a confectionery briefing to real estate just because it contains the word 'correta'", () => {
+  const initialSegment = detectSegmentFromNiche("Confeitaria");
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Gra Kau Delícias",
+      extraContext: "Confeitaria + docinhos por encomenda. Precisamos de acentuação correta nos textos. Orçamento de mídia: R$ 1.500 para o mês.",
+    },
+    clientProfile: { companyName: "Gra Kau Delícias", niche: "Confeitaria" },
+  });
+
+  assert.equal(initialSegment, "alimentacao");
+  assert.equal(resolveIsRealEstate(initialSegment, facts), false);
+  assert.equal(facts.realEstate.price, undefined);
+  assert.equal(facts.genericProductPrice, undefined);
+});
+
+// ── Achado real, encontrado nesta mesma correção: "buffet de casamento"
+// batia com a nicheKey "casa" de imóveis (substring de "casamento") — a
+// mesma classe de bug do "corret"/"correta", só que num segmento diferente.
+test("does not misroute an events briefing to real estate just because it contains the word 'casamento'", () => {
+  assert.equal(detectSegmentFromNiche("buffet de casamento"), "eventos");
+});
+
+test("blocks a price mentioned in the copy when nothing was confirmed as the product's price", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Gra Kau Delícias",
+      extraContext: "Confeitaria + docinhos por encomenda. Orçamento de mídia: R$ 1.500 para o mês.",
+    },
+    clientProfile: { companyName: "Gra Kau Delícias", niche: "Confeitaria" },
+  });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Peça já!", copy: "Confeitaria Gra Kau — docinhos por R$ 1.500?" },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((c) => c.reason === "price_not_confirmed_in_current_briefing"));
+});
+
+test("still allows a price mentioned in the copy when it matches the confirmed product price", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Gra Kau Delícias", extraContext: "Confeitaria + docinhos por encomenda." },
+    clientProfile: { companyName: "Gra Kau Delícias", niche: "Confeitaria", productPrice: "R$ 5,00 a unidade" },
+  });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Peça já!", copy: "Docinhos por R$ 5,00 a unidade." },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});
+
+// ── Achado real: uma correção de "orçamento vira preço" foi feita numa
+// função paralela, sem herdar a proteção contra negação já existente em
+// firstMatch — reabrindo o bug da campanha #749 pra preço. Consolidado
+// numa função só.
+test("budget-context exclusion and negation protection both apply to price, together", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Sala comercial para locação. Orçamento de mídia: R$ 1.500. Não usar R$ 18.000 — o valor correto é R$ 5.000 mensais.",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.equal(facts.realEstate.price, "R$ 5.000");
+});
+
+// ── Achado real: com limite de palavra estrito, "encomenda" (singular)
+// parou de bater com a chave "encomendas" (plural) — plural/singular é
+// variação legítima, corrigido pra tolerar isso sem reabrir a brecha de
+// substring livre.
+test("niche keyword matching tolerates singular/plural variation", () => {
+  assert.equal(detectSegmentFromNiche("brigadeiros por encomenda"), "alimentacao");
+  assert.equal(detectSegmentFromNiche("Doceria"), "alimentacao");
+  assert.equal(detectSegmentFromNiche("pizzaria"), "alimentacao");
+});

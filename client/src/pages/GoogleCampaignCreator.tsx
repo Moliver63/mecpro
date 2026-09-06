@@ -110,14 +110,9 @@ function buildAdsFromCreatives(creatives: any[], finalUrl: string, campaignType:
       ? hookRaw.slice(0, 90)
       : `${ctaLabel} e descubra como podemos ajudar.`.slice(0, 90);
 
-    const imgUrl = campaignType === "DISPLAY"
-      ? (cr.feedImageUrl || cr.squareImageUrl || cr.imageUrl || "")
-      : "";
-
     return {
       headlines:    [h1, h2, h3].map(h => h.slice(0, 30)).filter(Boolean),
       descriptions: [d1, d2].map(d => d.slice(0, 90)).filter(Boolean),
-      imagePath:    imgUrl || undefined,
       finalUrl,
       // Asset visual — usado em Display/PMax
       imagePath: cr.feedImageUrl || cr.storyImageUrl || cr.imageUrl || "",
