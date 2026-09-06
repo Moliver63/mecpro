@@ -86,6 +86,13 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map(compactText).filter(Boolean))];
 }
 
+// Achado real (auditoria 03/09, teste ao vivo reproduzido): matches de
+// texto cegos pra negação viram bug duas vezes nesta base — primeiro em
+// detectPropertyType/detectPurpose (hasPositive), depois em firstMatch
+// (achado da campanha #749: "não inventar 190/191 m²" virou 191 m² no
+// anúncio). Uma constante só, reaproveitada nos dois lugares.
+const NEGATION_WORDS = /\b(n[aã]o|nunca|sem\s+ser|jamais)\b/i;
+
 function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: boolean }): string | undefined {
   // preferLongest=true: usa o match mais completo (mais longo) entre TODAS
   // as ocorrências — correto para ENDEREÇO, onde uma string mais longa é
@@ -106,15 +113,31 @@ function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: b
   const preferLongest = opts?.preferLongest ?? false;
   for (const pattern of patterns) {
     const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
-    const matches = [...text.matchAll(new RegExp(pattern.source, flags))]
-      .map((m) => m[0])
-      .filter(Boolean);
-    if (matches.length > 0) {
+    const re = new RegExp(pattern.source, flags);
+    // Achado real (campanha #749, relato de Michel): o briefing dizia "não
+    // inventar 190/191 m² — a área correta é 50 m²" e o sistema colocou
+    // 191 m² no anúncio. Causa: firstMatch() extraía QUALQUER ocorrência do
+    // padrão no texto, cego para negação — mesmo mecanismo de bug que
+    // hasPositive() já resolve para propertyType/purpose (achado anterior,
+    // texto "não é sala comercial nem à venda"). Reaproveita a MESMA
+    // NEGATION_WORDS: um match cujos ~25 caracteres anteriores contêm
+    // "não"/"nunca"/"jamais"/"sem ser" é descartado, não é candidato.
+    const candidates: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      const start = Math.max(0, m.index - 25);
+      const before = text.slice(start, m.index);
+      if (!NEGATION_WORDS.test(before)) {
+        candidates.push(m[0]);
+      }
+      if (m.index === re.lastIndex) re.lastIndex++; // evita loop infinito em match vazio
+    }
+    if (candidates.length > 0) {
       if (preferLongest) {
-        const longest = matches.reduce((best, current) => (current.length > best.length ? current : best));
+        const longest = candidates.reduce((best, current) => (current.length > best.length ? current : best));
         return compactText(longest);
       }
-      return compactText(matches[0]);
+      return compactText(candidates[0]);
     }
   }
   return undefined;
@@ -133,8 +156,7 @@ function has(text: string, pattern: RegExp): boolean {
 // pra negação. Isso virou bloqueio ativo de campanha legítima depois das
 // checagens de inversão adicionadas hoje — antes só distorcia o prompt.
 // hasPositive ignora qualquer match precedido de negação nas ~25 chars
-// anteriores.
-const NEGATION_WORDS = /\b(n[aã]o|nunca|sem\s+ser|jamais)\b/i;
+// anteriores. (NEGATION_WORDS definida acima, reaproveitada por firstMatch.)
 function hasPositive(text: string, pattern: RegExp): boolean {
   const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
   const re = new RegExp(pattern.source, flags);
@@ -517,16 +539,40 @@ export function buildCampaignFacts({
   const includedFees = preferCurrentFact(currentFacts.includedFees, inheritedFacts.includedFees);
   const furnished = preferCurrentFact(currentFacts.furnished, inheritedFacts.furnished);
 
-  const structuralFeatures = unique([
-    has(raw, /ar[- ]condicionado/i) ? firstMatch(raw, [/\b(?:dois|duas|2)\s+aparelhos? de ar[- ]condicionado\b/i]) || "ar-condicionado" : "",
-    has(raw, /pe[- ]direito alto|pé[- ]direito alto/i) ? "pe-direito alto" : "",
-    has(raw, /massoterapia/i) ? "estrutura para massoterapia" : "",
+  // Achado real (relato de Michel, campanhas #750/#751): "estrutura para
+  // massoterapia" continuou aparecendo mesmo com a orientação editorial
+  // atual sendo divulgar a sala pra públicos diversos. Causa: ao contrário
+  // de TODOS os fatos escalares acima (que usam preferCurrentFact — o
+  // briefing ATUAL sempre vence sobre o perfil antigo), estruturas/usos
+  // eram extraídos do `raw` combinado (atual + perfil) sem nenhuma
+  // prioridade — uma menção antiga no perfil do cliente virava
+  // característica confirmada pra sempre, em toda campanha futura, mesmo
+  // que o briefing atual não a repita. Corrigido com o mesmo padrão:
+  // se o briefing ATUAL confirma pelo menos uma característica/uso, só
+  // essas contam (o perfil antigo não entra); só cai pro perfil quando o
+  // briefing atual não confirma NENHUMA.
+  //
+  // Também usa hasPositive (não has) — mesma classe de bug da negação
+  // achada em firstMatch (campanha #749): um briefing dizendo "não é mais
+  // massoterapia, é pra público amplo" não deve confirmar "massoterapia"
+  // só por a palavra aparecer no texto.
+  const extractStructuralFeatures = (text: string) => unique([
+    hasPositive(text, /ar[- ]condicionado/i) ? firstMatch(text, [/\b(?:dois|duas|2)\s+aparelhos? de ar[- ]condicionado\b/i]) || "ar-condicionado" : "",
+    hasPositive(text, /pe[- ]direito alto|pé[- ]direito alto/i) ? "pe-direito alto" : "",
+    hasPositive(text, /massoterapia/i) ? "estrutura para massoterapia" : "",
   ]);
-  const usagePossibilities = unique([
-    has(n, /profissionais? de saude/) ? "profissionais de saude" : "",
-    has(n, /estetica/) ? "estetica" : "",
-    has(n, /bem-estar|bem estar/) ? "bem-estar" : "",
+  const currentStructuralFeatures = extractStructuralFeatures(currentRaw);
+  const inheritedStructuralFeatures = extractStructuralFeatures(inheritedRaw);
+  const structuralFeatures = currentStructuralFeatures.length > 0 ? currentStructuralFeatures : inheritedStructuralFeatures;
+
+  const extractUsagePossibilities = (text: string) => unique([
+    hasPositive(text, /profissionais? de sa[uú]de/i) ? "profissionais de saude" : "",
+    hasPositive(text, /est[eé]tica/i) ? "estetica" : "",
+    hasPositive(text, /bem-estar|bem estar/i) ? "bem-estar" : "",
   ]);
+  const currentUsagePossibilities = extractUsagePossibilities(currentRaw);
+  const inheritedUsagePossibilities = extractUsagePossibilities(inheritedRaw);
+  const usagePossibilities = currentUsagePossibilities.length > 0 ? currentUsagePossibilities : inheritedUsagePossibilities;
 
   const verifiedFacts = unique([
     purpose ? `Finalidade: ${purpose}` : "",
@@ -709,6 +755,21 @@ export function validateCampaignFactIntegrity(
       }
     }
 
+    // Achado real (relato de Michel): "como se trata de sala comercial e
+    // não um apto" — as checagens de bedrooms/suites abaixo só disparavam
+    // quando um número já estava confirmado no briefing (ex.: "2 quartos"
+    // virando "3 quartos" na copy). Se NENHUM quarto/suíte foi mencionado —
+    // o caso normal de uma sala comercial, que não tem quartos — a IA
+    // podia inventar "3 quartos" ou "2 suítes" do zero e nada bloqueava,
+    // porque `expected` nunca existia pra comparar contra. "Quarto"/
+    // "dormitório"/"suíte" são conceitos puramente residenciais: não fazem
+    // sentido arquitetônico numa sala comercial, então a alegação é
+    // bloqueada mesmo sem nenhum número confirmado — não é uma checagem de
+    // CONTAGEM errada, é uma checagem de CARACTERÍSTICA que não deveria
+    // existir pra esse tipo de imóvel.
+    const commercialPropertyTypes = ["sala comercial", "imovel comercial"];
+    const isCommercialProperty = commercialPropertyTypes.includes(facts.realEstate.propertyType || "");
+
     const countFactChecks: Array<[
       "bedrooms" | "suites" | "bathrooms" | "parkingSpots",
       RegExp,
@@ -721,10 +782,16 @@ export function validateCampaignFactIntegrity(
     ];
     for (const [factKey, pattern, reasonPrefix] of countFactChecks) {
       const expected = facts.realEstate[factKey];
-      if (!expected) continue;
-      for (const value of valuesInText(new RegExp(pattern.source, "gi"), text)) {
-        if (!equivalentCanonicalFact("count", value, expected)) {
-          conflicts.push({ field, value, reason: `${reasonPrefix}_${expected}` });
+      const matches = valuesInText(new RegExp(pattern.source, "gi"), text);
+      if (expected) {
+        for (const value of matches) {
+          if (!equivalentCanonicalFact("count", value, expected)) {
+            conflicts.push({ field, value, reason: `${reasonPrefix}_${expected}` });
+          }
+        }
+      } else if (isCommercialProperty && (factKey === "bedrooms" || factKey === "suites")) {
+        for (const value of matches) {
+          conflicts.push({ field, value, reason: "residential_feature_claim_conflict_commercial_property" });
         }
       }
     }
