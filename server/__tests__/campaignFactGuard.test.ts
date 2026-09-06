@@ -76,6 +76,72 @@ test("passes clean Morebem sala comercial facts", () => {
   assert.equal(validation.conflicts.length, 0);
 });
 
+// ── Achado real: o gerador colocou 191 m² onde deveria constar 50 m².
+// Causa raiz: firstMatch() preferia o match MAIS LONGO entre todas as
+// ocorrências de um padrão no texto — certo para endereço (mais longo =
+// mais completo), errado para fatos puramente numéricos (mais longo só
+// significa mais dígitos, sem relação com estar certo). Um briefing que
+// menciona a área da unidade E a área total do prédio/condomínio no mesmo
+// texto sempre escolhia o número de mais dígitos, mesmo sendo o errado.
+test("does not confuse the unit's area with a larger area mentioned in the same briefing", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Sala comercial de 50 m² em um edifício com área total construída de 191 m², bem localizado.",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.equal(facts.realEstate.areaM2, "50 m²");
+
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Sala de 191 m²", copy: "Confira este espaço de 191 m²." },
+  ], facts);
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((c) => c.reason.startsWith("area_conflict_expected_50")));
+});
+
+test("still prefers the current briefing's area over a larger number left over in the client profile", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Locação de sala comercial de 50 m², tudo incluso.",
+    },
+    clientProfile: {
+      companyName: "Teste",
+      niche: "imoveis comerciais para locacao",
+      productDifferentials: "Nosso maior empreendimento já teve unidades de até 191 m².",
+    },
+  });
+  assert.equal(facts.realEstate.areaM2, "50 m²");
+});
+
+// ── Achado real (campanha #749, relato de Michel): o briefing dizia "não
+// inventar 190/191 m² — a área correta é apenas 50 m²" e o sistema colocou
+// 191 m² no anúncio. Causa: firstMatch() extrai QUALQUER ocorrência do
+// padrão no texto, cego para negação — mesma classe de bug que
+// hasPositive() já resolve para propertyType/purpose.
+test("does not extract a number from inside an explicit prohibition in the briefing", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Locação de sala comercial. Não inventar 190/191 m² — a área correta é apenas 50 m².",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.equal(facts.realEstate.areaM2, "50 m²");
+});
+
+test("does not extract a negated price as the confirmed value", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Sala comercial para locação. Não usar R$ 18.000 — o valor correto é R$ 5.000 mensais.",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.equal(facts.realEstate.price, "R$ 5.000");
+});
+
 test("current briefing area overrides stale inherited profile area", () => {
   const facts = buildCampaignFacts({
     input: {
@@ -421,6 +487,52 @@ test("extracts confirmed characteristics as literal clauses, not inferred effect
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   assert.ok(facts.confirmedCharacteristics.some((c) => /ar-condicionado/i.test(c)));
   assert.ok(!facts.confirmedCharacteristics.some((c) => /economia de energia/i.test(c)));
+});
+
+// ── Achado real (relato de Michel, campanhas #750/#751): "estrutura para
+// massoterapia" continuou aparecendo mesmo com um briefing mais enxuto,
+// direcionado a divulgar a sala pra públicos diversos. Causa: ao contrário
+// de todo o resto (que usa "briefing atual vence sobre perfil antigo"),
+// estruturas/usos eram extraídos do texto combinado sem prioridade — uma
+// menção antiga no perfil do cliente virava característica confirmada pra
+// sempre, mesmo quando o briefing atual não a repete.
+test("does not keep surfacing a specialization from the client's old profile once the current briefing stops mentioning it", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial Rua 902",
+      extraContext: "Locação de sala comercial de 50 m² na Rua 902, nº 144 por R$ 5.000 mensais. Dois aparelhos de ar-condicionado, pé-direito alto.",
+    },
+    clientProfile: {
+      companyName: "Morebem Imóveis",
+      niche: "imoveis comerciais para locacao",
+      productDifferentials: "Estrutura atualmente montada para massoterapia.",
+    },
+  });
+  assert.deepEqual(facts.realEstate.structuralFeatures, ["Dois aparelhos de ar-condicionado", "pe-direito alto"]);
+});
+
+test("still surfaces a specialization from the profile when the current briefing mentions nothing structural at all", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Sala comercial Rua 902", extraContext: "Locação de sala comercial na Rua 902, nº 144." },
+    clientProfile: {
+      companyName: "Morebem Imóveis",
+      niche: "imoveis comerciais para locacao",
+      productDifferentials: "Estrutura atualmente montada para massoterapia.",
+    },
+  });
+  assert.ok(facts.realEstate.structuralFeatures.some((f) => /massoterapia/i.test(f)));
+});
+
+test("does not confirm a specialization mentioned only inside a negation in the current briefing", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial Rua 902",
+      extraContext: "Locação de sala comercial de 50 m². Não é mais para massoterapia — divulgar para públicos diversos.",
+    },
+    clientProfile: { companyName: "Morebem Imóveis", niche: "imoveis comerciais para locacao" },
+  });
+  assert.ok(!facts.realEstate.structuralFeatures.some((f) => /massoterapia/i.test(f)));
+  assert.ok(!facts.realEstate.usagePossibilities.some((u) => /massoterapia/i.test(u)));
 });
 
 test("blocks a benefit claim not confirmed by the client, even when a related characteristic exists", () => {

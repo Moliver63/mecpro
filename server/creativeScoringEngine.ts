@@ -92,6 +92,23 @@ function normalize(text: string): string {
     .toLowerCase();
 }
 
+// Achado real (relato de Michel): o validador acusou "cura" num anúncio
+// que só tinha "procura" — "cura" é substring literal de "procura", e a
+// checagem original usava String.includes(), que casa QUALQUER substring,
+// sem olhar se é a palavra inteira. O mesmo texto ("O que você procura...")
+// é gerado de verdade por buildRealEstateCarouselAngles (carouselCopy.ts),
+// então isso penalizava campanhas reais sem nenhum termo de risco de
+// verdade. Corrigido: cada termo vira uma regex com \b nas duas pontas —
+// "cura" some de "procura"/"escura"/"obscuro" mas continua pegando "cura"
+// como palavra isolada.
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function containsTerm(normalizedText: string, term: string): boolean {
+  const escaped = escapeRegExp(normalize(term));
+  return new RegExp(`\\b${escaped}\\b`, "i").test(normalizedText);
+}
+
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
 }
@@ -165,7 +182,7 @@ export function scoreCreative(creative: any): CreativeScoreResult {
   if (/\b(clique aqui|saiba mais apenas|solucao completa|melhor do mercado)\b/i.test(normalized)) clarity -= 12;
 
   let urgency = 25; // base 25: copy sem urgência explícita ainda é funcional
-  const urgencyHits = URGENCY_TERMS.filter((term) => normalized.includes(normalize(term))).length;
+  const urgencyHits = URGENCY_TERMS.filter((term) => containsTerm(normalized, term)).length;
   urgency += urgencyHits * 15; // cada termo de urgência vale mais
   if (/\bhoje\b.*\bdesconto\b/i.test(normalized)) urgency += 10;
   if (/\bagend[ea]\b|\bcontat[eo]\b|\bwhatsapp\b/i.test(normalized)) urgency += 8; // CTA de ação direta
@@ -185,11 +202,11 @@ export function scoreCreative(creative: any): CreativeScoreResult {
 
   let complianceRisk: ComplianceRisk = "Baixo";
   let compliancePenalty = 0;
-  if (HIGH_RISK_TERMS.some((term) => normalized.includes(normalize(term)))) {
+  if (HIGH_RISK_TERMS.some((term) => containsTerm(normalized, term))) {
     complianceRisk = "Alto";
     compliancePenalty = 18;
   } else if (
-    MEDIUM_RISK_TERMS.some((term) => normalized.includes(normalize(term))) ||
+    MEDIUM_RISK_TERMS.some((term) => containsTerm(normalized, term)) ||
     /\b[A-ZÁÉÍÓÚÇ]{6,}\b/.test(combined) ||
     /!!!/.test(combined)
   ) {

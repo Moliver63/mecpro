@@ -12,7 +12,11 @@ export interface CarouselCopyAngle {
 }
 
 /** Finished ad messages: operational instructions belong in prompts, never here. */
-export function buildRealEstateCarouselAngles(facts: CampaignFacts, city = ""): CarouselCopyAngle[] {
+export function buildRealEstateCarouselAngles(
+  facts: CampaignFacts,
+  city = "",
+  opts?: { rotate?: number },
+): CarouselCopyAngle[] {
   const estate = facts.realEstate;
   const type = estate.propertyType || "imóvel";
   const commercial = type === "sala comercial";
@@ -85,7 +89,20 @@ export function buildRealEstateCarouselAngles(facts: CampaignFacts, city = ""): 
       copy: ["Vamos combinar sua visita?", capitalize(summary) + ".", offer, "Conheça o espaço de perto e avalie se ele atende ao que você procura.", visit],
     },
   ];
-  return rows.map((row) => {
+
+  // Achado real (relato de Michel, campanhas #750/#751): regenerar uma
+  // campanha imobiliária com os mesmos fatos sempre devolvia os MESMOS 4
+  // cards, na mesma ordem — apesar da instrução de "novos títulos" —
+  // porque esta função é pura (mesmos fatos = mesma saída, sempre). É
+  // consequência de a copy ter deixado de vir de um motor genérico com
+  // variação por tom (que inventava fatos) pra vir só destes 10 ângulos
+  // fact-safe. `rotate` gira o ponto de partida entre os 10 ângulos —
+  // todos igualmente seguros/factuais — sem alterar nenhum fato do
+  // conteúdo, só a seleção/ordem, pra dar variedade real entre tentativas.
+  const rotate = ((opts?.rotate ?? 0) % rows.length + rows.length) % rows.length;
+  const rotatedRows = rotate > 0 ? [...rows.slice(rotate), ...rows.slice(0, rotate)] : rows;
+
+  return rotatedRows.map((row) => {
     // Hook precisa ser distinto da headline (achado real, campanha 747:
     // "headline e hook idênticos, exibidos repetidamente na interface").
     // Usa a primeira frase do corpo do card, que já foi escrita como um

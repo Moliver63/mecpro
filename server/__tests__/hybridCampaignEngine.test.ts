@@ -32,6 +32,9 @@ const requestedAgeMin = 30;
 const requestedAgeMax = 60;
 
 test("real estate segment routes through buildRealEstateCarouselAngles, not the generic hybrid templates", async () => {
+  // regenerationSeed fixo: sem isso, o teste seria não-determinístico por
+  // causa da rotação de variedade entre regenerações (achado real,
+  // campanhas #750/#751 — ver server/carouselCopy.ts).
   const result = await buildCampaignFromAds(101, "leads", commercialRentalProfile, [], {
     desiredCreatives: 4,
     requestedBudget,
@@ -40,9 +43,10 @@ test("real estate segment routes through buildRealEstateCarouselAngles, not the 
     ageMax: requestedAgeMax,
     isRealEstate: true,
     campaignFacts: commercialRentalFacts,
+    regenerationSeed: 0,
   });
 
-  const expectedAngles = buildRealEstateCarouselAngles(commercialRentalFacts, commercialRentalProfile.city).slice(0, 4);
+  const expectedAngles = buildRealEstateCarouselAngles(commercialRentalFacts, commercialRentalProfile.city, { rotate: 0 }).slice(0, 4);
   assert.deepEqual(result.creatives.map((c: any) => c.headline), expectedAngles.map((a) => a.headline));
   assert.deepEqual(result.creatives.map((c: any) => c.hook), expectedAngles.map((a) => a.hook));
 
@@ -50,6 +54,28 @@ test("real estate segment routes through buildRealEstateCarouselAngles, not the 
   // inventadas (achado real, campanha 747).
   const validation = validateCampaignFactIntegrity(result.creatives, commercialRentalFacts);
   assert.equal(validation.status, "passed", JSON.stringify(validation.conflicts));
+});
+
+test("regenerating with a different seed gives different angles without inventing any facts (campanhas #750/#751)", async () => {
+  const attemptA = await buildCampaignFromAds(101, "leads", commercialRentalProfile, [], {
+    desiredCreatives: 4, requestedBudget, campaignDurationDays: requestedDuration,
+    ageMin: requestedAgeMin, ageMax: requestedAgeMax, isRealEstate: true,
+    campaignFacts: commercialRentalFacts, regenerationSeed: 0,
+  });
+  const attemptB = await buildCampaignFromAds(101, "leads", commercialRentalProfile, [], {
+    desiredCreatives: 4, requestedBudget, campaignDurationDays: requestedDuration,
+    ageMin: requestedAgeMin, ageMax: requestedAgeMax, isRealEstate: true,
+    campaignFacts: commercialRentalFacts, regenerationSeed: 3,
+  });
+
+  assert.notDeepEqual(
+    attemptA.creatives.map((c: any) => c.headline),
+    attemptB.creatives.map((c: any) => c.headline),
+  );
+  // Variedade nunca pode custar segurança factual — os dois continuam
+  // passando pelo mesmo Fact Guard.
+  assert.equal(validateCampaignFactIntegrity(attemptA.creatives, commercialRentalFacts).status, "passed");
+  assert.equal(validateCampaignFactIntegrity(attemptB.creatives, commercialRentalFacts).status, "passed");
 });
 
 test("preserves the requested audience and budget instead of hardcoded defaults", async () => {

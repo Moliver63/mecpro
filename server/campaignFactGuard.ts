@@ -86,23 +86,58 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map(compactText).filter(Boolean))];
 }
 
-function firstMatch(text: string, patterns: RegExp[]): string | undefined {
-  // Prefere o match mais completo (mais longo) entre TODAS as ocorrências
-  // do padrão no texto combinado — não literalmente a primeira que aparece.
-  // Achado real (auditoria 03/09, regressão do teste "accepts confirmed
-  // address variants"): o texto combinado começa pelo campo `name` da
-  // campanha (ex: "...Rua 902", sem número) e só depois vem o briefing
-  // completo (ex: "Rua 902, nº 144"). A primeira ocorrência vencia mesmo
-  // sendo menos específica, fazendo o Fact Guard esperar o endereço errado
-  // (mais curto) e nunca bloquear divergência de número de rua de verdade.
+// Achado real (auditoria 03/09, teste ao vivo reproduzido): matches de
+// texto cegos pra negação viram bug duas vezes nesta base — primeiro em
+// detectPropertyType/detectPurpose (hasPositive), depois em firstMatch
+// (achado da campanha #749: "não inventar 190/191 m²" virou 191 m² no
+// anúncio). Uma constante só, reaproveitada nos dois lugares.
+const NEGATION_WORDS = /\b(n[aã]o|nunca|sem\s+ser|jamais)\b/i;
+
+function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: boolean }): string | undefined {
+  // preferLongest=true: usa o match mais completo (mais longo) entre TODAS
+  // as ocorrências — correto para ENDEREÇO, onde uma string mais longa é
+  // genuinamente mais específica (ex: "Rua 902, nº 144" > "Rua 902").
+  // Achado real (auditoria 03/09): o texto combinado começa pelo campo
+  // `name` da campanha (ex: "...Rua 902", sem número) e só depois vem o
+  // briefing completo (ex: "Rua 902, nº 144"); a primeira ocorrência vencia
+  // mesmo sendo menos específica.
+  //
+  // preferLongest=false (padrão): usa a PRIMEIRA ocorrência. Correto para
+  // qualquer fato puramente numérico (área, preço, andares, suítes,
+  // quartos, banheiros, vagas) — aqui "mais longo" não significa "mais
+  // completo", significa só "mais dígitos", sem nenhuma relação com estar
+  // certo. Achado real: um briefing mencionando a área da unidade (50 m²)
+  // E a área total do prédio/condomínio (191 m²) no mesmo texto fazia o
+  // Fact Guard escolher 191 m² sempre, só por ter mais caracteres — mesmo
+  // sendo o dado errado. Reproduzido ao vivo e corrigido aqui.
+  const preferLongest = opts?.preferLongest ?? false;
   for (const pattern of patterns) {
     const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
-    const matches = [...text.matchAll(new RegExp(pattern.source, flags))]
-      .map((m) => m[0])
-      .filter(Boolean);
-    if (matches.length > 0) {
-      const longest = matches.reduce((best, current) => (current.length > best.length ? current : best));
-      return compactText(longest);
+    const re = new RegExp(pattern.source, flags);
+    // Achado real (campanha #749, relato de Michel): o briefing dizia "não
+    // inventar 190/191 m² — a área correta é 50 m²" e o sistema colocou
+    // 191 m² no anúncio. Causa: firstMatch() extraía QUALQUER ocorrência do
+    // padrão no texto, cego para negação — mesmo mecanismo de bug que
+    // hasPositive() já resolve para propertyType/purpose (achado anterior,
+    // texto "não é sala comercial nem à venda"). Reaproveita a MESMA
+    // NEGATION_WORDS: um match cujos ~25 caracteres anteriores contêm
+    // "não"/"nunca"/"jamais"/"sem ser" é descartado, não é candidato.
+    const candidates: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      const start = Math.max(0, m.index - 25);
+      const before = text.slice(start, m.index);
+      if (!NEGATION_WORDS.test(before)) {
+        candidates.push(m[0]);
+      }
+      if (m.index === re.lastIndex) re.lastIndex++; // evita loop infinito em match vazio
+    }
+    if (candidates.length > 0) {
+      if (preferLongest) {
+        const longest = candidates.reduce((best, current) => (current.length > best.length ? current : best));
+        return compactText(longest);
+      }
+      return compactText(candidates[0]);
     }
   }
   return undefined;
@@ -121,8 +156,7 @@ function has(text: string, pattern: RegExp): boolean {
 // pra negação. Isso virou bloqueio ativo de campanha legítima depois das
 // checagens de inversão adicionadas hoje — antes só distorcia o prompt.
 // hasPositive ignora qualquer match precedido de negação nas ~25 chars
-// anteriores.
-const NEGATION_WORDS = /\b(n[aã]o|nunca|sem\s+ser|jamais)\b/i;
+// anteriores. (NEGATION_WORDS definida acima, reaproveitada por firstMatch.)
 function hasPositive(text: string, pattern: RegExp): boolean {
   const flags = pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g";
   const re = new RegExp(pattern.source, flags);
@@ -277,7 +311,7 @@ function extractRealEstateFacts(raw: string) {
     price: firstMatch(raw, [moneyPattern]),
     address: firstMatch(raw, [
       addressPattern,
-    ]),
+    ], { preferLongest: true }),
     floors: firstMatch(raw, [
       /\b\d+\s+pavimentos?\b/i,
       /\b(?:dois|duas|tres|três|quatro)\s+pavimentos?\b/i,
@@ -505,16 +539,40 @@ export function buildCampaignFacts({
   const includedFees = preferCurrentFact(currentFacts.includedFees, inheritedFacts.includedFees);
   const furnished = preferCurrentFact(currentFacts.furnished, inheritedFacts.furnished);
 
-  const structuralFeatures = unique([
-    has(raw, /ar[- ]condicionado/i) ? firstMatch(raw, [/\b(?:dois|duas|2)\s+aparelhos? de ar[- ]condicionado\b/i]) || "ar-condicionado" : "",
-    has(raw, /pe[- ]direito alto|pé[- ]direito alto/i) ? "pe-direito alto" : "",
-    has(raw, /massoterapia/i) ? "estrutura para massoterapia" : "",
+  // Achado real (relato de Michel, campanhas #750/#751): "estrutura para
+  // massoterapia" continuou aparecendo mesmo com a orientação editorial
+  // atual sendo divulgar a sala pra públicos diversos. Causa: ao contrário
+  // de TODOS os fatos escalares acima (que usam preferCurrentFact — o
+  // briefing ATUAL sempre vence sobre o perfil antigo), estruturas/usos
+  // eram extraídos do `raw` combinado (atual + perfil) sem nenhuma
+  // prioridade — uma menção antiga no perfil do cliente virava
+  // característica confirmada pra sempre, em toda campanha futura, mesmo
+  // que o briefing atual não a repita. Corrigido com o mesmo padrão:
+  // se o briefing ATUAL confirma pelo menos uma característica/uso, só
+  // essas contam (o perfil antigo não entra); só cai pro perfil quando o
+  // briefing atual não confirma NENHUMA.
+  //
+  // Também usa hasPositive (não has) — mesma classe de bug da negação
+  // achada em firstMatch (campanha #749): um briefing dizendo "não é mais
+  // massoterapia, é pra público amplo" não deve confirmar "massoterapia"
+  // só por a palavra aparecer no texto.
+  const extractStructuralFeatures = (text: string) => unique([
+    hasPositive(text, /ar[- ]condicionado/i) ? firstMatch(text, [/\b(?:dois|duas|2)\s+aparelhos? de ar[- ]condicionado\b/i]) || "ar-condicionado" : "",
+    hasPositive(text, /pe[- ]direito alto|pé[- ]direito alto/i) ? "pe-direito alto" : "",
+    hasPositive(text, /massoterapia/i) ? "estrutura para massoterapia" : "",
   ]);
-  const usagePossibilities = unique([
-    has(n, /profissionais? de saude/) ? "profissionais de saude" : "",
-    has(n, /estetica/) ? "estetica" : "",
-    has(n, /bem-estar|bem estar/) ? "bem-estar" : "",
+  const currentStructuralFeatures = extractStructuralFeatures(currentRaw);
+  const inheritedStructuralFeatures = extractStructuralFeatures(inheritedRaw);
+  const structuralFeatures = currentStructuralFeatures.length > 0 ? currentStructuralFeatures : inheritedStructuralFeatures;
+
+  const extractUsagePossibilities = (text: string) => unique([
+    hasPositive(text, /profissionais? de sa[uú]de/i) ? "profissionais de saude" : "",
+    hasPositive(text, /est[eé]tica/i) ? "estetica" : "",
+    hasPositive(text, /bem-estar|bem estar/i) ? "bem-estar" : "",
   ]);
+  const currentUsagePossibilities = extractUsagePossibilities(currentRaw);
+  const inheritedUsagePossibilities = extractUsagePossibilities(inheritedRaw);
+  const usagePossibilities = currentUsagePossibilities.length > 0 ? currentUsagePossibilities : inheritedUsagePossibilities;
 
   const verifiedFacts = unique([
     purpose ? `Finalidade: ${purpose}` : "",
