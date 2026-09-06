@@ -98,6 +98,28 @@ function unique(values: string[]): string[] {
 // anúncio). Uma constante só, reaproveitada nos dois lugares.
 const NEGATION_WORDS = /\b(n[aã]o|nunca|sem\s+ser|jamais)\b/i;
 
+// Achado real (auditoria 06/09): o moneyPattern casa com qualquer valor
+// monetário no texto, incluindo "Orçamento de mídia: R$ 1.500". Isso faz
+// o orçamento de campanha virar preço do imóvel no anúncio.
+const BUDGET_CONTEXT_PATTERN = /\b(or[cç]amento\s+de\s+m[íi]dia|budget\s+de\s+m[íi]dia|investimento\s+em\s+m[íi]dia|or[cç]amento\s+total|budget\s+total|investimento\s+total|or[cç]amento\s+de\s+campanha|budget\s+de\s+campanha)\b/i;
+
+function isBudgetContext(text: string, matchIndex: number): boolean {
+  const windowStart = Math.max(0, matchIndex - 100);
+  const window = text.slice(windowStart, matchIndex);
+  return BUDGET_CONTEXT_PATTERN.test(window);
+}
+
+function firstMoneyMatchExcludingBudget(text: string, pattern: RegExp): string | undefined {
+  let match: RegExpExecArray | null;
+  const clone = new RegExp(pattern.source, pattern.flags);
+  while ((match = clone.exec(text)) !== null) {
+    if (!isBudgetContext(text, match.index)) {
+      return match[0];
+    }
+  }
+  return undefined;
+}
+
 function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: boolean }): string | undefined {
   // preferLongest=true: usa o match mais completo (mais longo) entre TODAS
   // as ocorrências — correto para ENDEREÇO, onde uma string mais longa é
@@ -320,7 +342,7 @@ function extractRealEstateFacts(raw: string) {
     purpose: detectPurpose(raw),
     propertyType,
     areaM2: firstMatch(raw, [areaPattern]),
-    price: firstMatch(raw, [moneyPattern]),
+    price: firstMoneyMatchExcludingBudget(raw, moneyPattern),
     address: firstMatch(raw, [
       addressPattern,
     ], { preferLongest: true }),
