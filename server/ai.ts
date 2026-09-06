@@ -1013,7 +1013,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "foto apetitosa + velocidade de entrega + preço especial do dia",
     forbidden:  ["agendar visita", "guia grátis", "ebook", "curso", "avaliação"],
     compliance: "Foto real do produto. Preço exato. Álcool: configurar restrição de idade.",
-    nicheKeys:  ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar", "culin", "doce", "brigadeiro", "sobremesa", "confeitaria", "padaria", "bolo", "salgado"],
+    nicheKeys:  ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar", "culin", "doce", "brigadeiro", "sobremesa", "confeitaria", "padaria", "bolo", "salgado", "encomendas", "presentes"],
   },
   moda_varejo: {
     ctaLeads:   ["Ver nova coleção", "Cadastrar para receber novidades"],
