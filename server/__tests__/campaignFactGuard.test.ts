@@ -4,8 +4,10 @@ import {
   buildCampaignFacts,
   formatCampaignFactsForPrompt,
   validateCampaignFactIntegrity,
+  resolveIsRealEstate,
 } from "../campaignFactGuard";
 import { equivalentCanonicalFact, normalizeCanonicalFact } from "../factNormalizer";
+import { detectSegmentFromNiche } from "../../shared/segmentConfig";
 
 const morebemInput = {
   name: "Morebem Imoveis - Sala Comercial Rua 902",
@@ -608,4 +610,55 @@ test("allows a benefit claim when the client explicitly stated the effect, not j
   ], facts);
 
   assert.equal(validation.status, "passed");
+});
+
+// ── Achado real (Gra Kau Delícias, campanha #754): uma confeitaria com
+// "entrega em casa" no briefing foi desviada pro gerador de imóveis,
+// produzindo "Imóvel"/"Agendar visita" pra brigadeiro. Causa: propertyType
+// virava "casa" só por essa frase comum (não indica imóvel nenhum), sem
+// nenhum outro fato imobiliário confirmado, e isso sozinho bastava pra
+// isRealEstate virar true.
+test("a single ambiguous property-type word without corroborating facts is not treated as real estate", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Gra Kau Delícias",
+      extraContext: "Brigadeiros e docinhos artesanais. Fazemos entrega em casa na região de Balneário Camboriú.",
+    },
+    clientProfile: { companyName: "Gra Kau Delícias", niche: "Confeitaria" },
+  });
+  assert.equal(facts.realEstate.propertyType, "casa");
+  assert.equal(resolveIsRealEstate("outro", facts), false);
+});
+
+test("still treats it as real estate when the property-type word is corroborated by area, purpose or address", () => {
+  const factsWithArea = buildCampaignFacts({
+    input: { name: "Casa à venda", extraContext: "Casa de 120 m², sem endereço definido ainda." },
+    clientProfile: { companyName: "Imobiliária X", niche: "imoveis" },
+  });
+  assert.equal(resolveIsRealEstate("outro", factsWithArea), true);
+
+  const factsWithPurpose = buildCampaignFacts({
+    input: { name: "Casa para alugar", extraContext: "Casa disponível para locação, valor a combinar." },
+    clientProfile: { companyName: "Imobiliária X", niche: "imoveis" },
+  });
+  assert.equal(resolveIsRealEstate("outro", factsWithPurpose), true);
+
+  const factsWithAddress = buildCampaignFacts({
+    input: { name: "Casa", extraContext: "Casa na Rua das Flores, nº 45." },
+    clientProfile: { companyName: "Imobiliária X", niche: "imoveis" },
+  });
+  assert.equal(resolveIsRealEstate("outro", factsWithAddress), true);
+});
+
+test("segment already classified as imoveis_* is always treated as real estate, regardless of facts", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Projeto novo", extraContext: "Detalhes a confirmar." },
+    clientProfile: { companyName: "Imobiliária X", niche: "imoveis para locacao" },
+  });
+  assert.equal(resolveIsRealEstate("imoveis_locacao", facts), true);
+});
+
+test("confeitaria niche now classifies as alimentacao instead of falling into the generic bucket", () => {
+  assert.equal(detectSegmentFromNiche("Confeitaria"), "alimentacao");
+  assert.equal(detectSegmentFromNiche("Doceria"), "alimentacao");
 });

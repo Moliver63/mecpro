@@ -20,7 +20,7 @@ import { isAbsenceAnswer } from "../shared/pendencyQuestions";
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
-import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFactGuard";
+import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 import { detectRealEstateSegment } from "../shared/segmentConfig";
@@ -6395,7 +6395,9 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     campaignName: input.name,
     segment: initialSegment,
   });
-  const isRealEstate = initialSegment.startsWith("imoveis_") || !!campaignFacts.realEstate.propertyType;
+  // Achado real (Gra Kau Delícias, campanha #754): ver resolveIsRealEstate
+  // em server/campaignFactGuard.ts pra causa raiz e correção completas.
+  const isRealEstate = resolveIsRealEstate(initialSegment, campaignFacts);
   const resolvedSegment = isRealEstate && ["locacao", "temporada"].includes(campaignFacts.realEstate.purpose || "")
     ? "imoveis_locacao"
     : isRealEstate && campaignFacts.realEstate.purpose === "venda" ? "imoveis_venda" : initialSegment;

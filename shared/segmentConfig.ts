@@ -400,7 +400,12 @@ COMPLIANCE CRÍTICO: Meta bane anúncios de saúde com before/after.`,
       qualifyingOptions:   ["Delivery", "Retirada no local", "Reserva para jantar"],
     },
     detection: {
-      nicheKeys:    ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar", "pizz"],
+      // Achado real (Gra Kau Delícias, campanha #754): "confeitaria" não
+      // batia com nenhuma palavra-chave existente e caía no fallback
+      // "outro" — o que, junto com o bug do isRealEstate acima, contribuiu
+      // pro desvio pro gerador de imóveis. Ampliado pra cobrir confeitaria/
+      // doceria/padaria, que são alimentacao mas não usam essas palavras.
+      nicheKeys:    ["restaurante", "aliment", "delivery", "lanche", "comida", "gastronomia", "bar", "pizz", "confeit", "doce", "docinho", "padaria", "confeitaria", "bolo", "brigadeiro", "cafeteria", "hamburgueria"],
       promptContext: `Segmento: ALIMENTAÇÃO E DELIVERY.
 COPIES: Apelo visual + velocidade + preço especial do dia.
 CTAs OBRIGATÓRIOS: "Pedir agora" | "Ver cardápio" | "Pedir no WhatsApp"
