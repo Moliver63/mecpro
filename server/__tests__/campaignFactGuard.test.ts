@@ -508,7 +508,7 @@ test("does not keep surfacing a specialization from the client's old profile onc
       productDifferentials: "Estrutura atualmente montada para massoterapia.",
     },
   });
-  assert.deepEqual(facts.realEstate.structuralFeatures, ["Dois aparelhos de ar-condicionado", "pe-direito alto"]);
+  assert.deepEqual(facts.realEstate.structuralFeatures, ["Dois aparelhos de ar-condicionado", "pé-direito alto"]);
 });
 
 test("still surfaces a specialization from the profile when the current briefing mentions nothing structural at all", () => {
@@ -533,6 +533,55 @@ test("does not confirm a specialization mentioned only inside a negation in the 
   });
   assert.ok(!facts.realEstate.structuralFeatures.some((f) => /massoterapia/i.test(f)));
   assert.ok(!facts.realEstate.usagePossibilities.some((u) => /massoterapia/i.test(u)));
+});
+
+// ── Achado real (campanha #752, relato de Michel): mesmo depois da
+// correção da massoterapia, "estética" continuou direcionando anúncios,
+// contrariando a orientação de divulgação ampla. Causa: targetAudience é
+// um campo PERSISTENTE do perfil do cliente (não repetido a cada
+// campanha) — diferente de structuralFeatures (fato físico, estável),
+// enquadramento de público é decisão editorial POR CAMPANHA e não deve
+// cair de volta pro perfil quando o briefing atual não menciona nenhum.
+test("usage/audience framing never falls back to the client's persistent profile, only structural facts do", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial Rua 902",
+      extraContext: "Locação de sala comercial de 50 m² na Rua 902, nº 144 por R$ 5.000 mensais. Dois aparelhos de ar-condicionado, pé-direito alto.",
+    },
+    clientProfile: {
+      companyName: "Morebem Imóveis",
+      niche: "imoveis comerciais para locacao",
+      targetAudience: "profissionais de saude, estetica e bem-estar",
+    },
+  });
+  assert.deepEqual(facts.realEstate.usagePossibilities, []);
+  assert.deepEqual(facts.realEstate.structuralFeatures, ["Dois aparelhos de ar-condicionado", "pé-direito alto"]);
+});
+
+test("usage/audience framing still confirms when the current briefing itself states it", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial Rua 902",
+      extraContext: "Locação de sala comercial de 50 m². Ideal para profissionais de estética.",
+    },
+    clientProfile: { companyName: "Morebem Imóveis", niche: "imoveis comerciais para locacao" },
+  });
+  assert.deepEqual(facts.realEstate.usagePossibilities, ["estética"]);
+});
+
+// ── Achado real (campanha #752): as saídas "pe-direito alto" e "estetica"
+// nunca tinham acento, mesmo o texto original tendo sido escrito com
+// acento — o literal de saída era hardcoded sem acento.
+test("structural features and usage possibilities are output with correct accents", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Sala comercial de 50 m², pé-direito alto, ideal para estética.",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.ok(facts.realEstate.structuralFeatures.includes("pé-direito alto"));
+  assert.ok(facts.realEstate.usagePossibilities.includes("estética"));
 });
 
 test("blocks a benefit claim not confirmed by the client, even when a related characteristic exists", () => {
