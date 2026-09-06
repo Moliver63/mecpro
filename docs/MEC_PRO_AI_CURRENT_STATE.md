@@ -392,3 +392,25 @@ No caminho, achado um bug pre-existente na propria regex de endereco (nao introd
 Testes: +2 em campaignFactGuard.test.ts (endereco validado fora de imoveis, com bloqueio de endereco errado e aceite do correto; extracao funcionando com nome de rua multi-palavra e artigo). Validado: test:fact-guard 39/39, as demais 5 suites sem regressao (incluindo os testes existentes de endereco de imoveis, que continuam passando sem alteracao de comportamento) — 76/76 no total. check:server sem erro novo de TypeScript.
 
 Limitacao que continua a mesma: isso cobre a camada de VALIDACAO (bloquear fato errado), nao de GERACAO — fora de imoveis ainda nao existe um gerador fact-safe dedicado como buildRealEstateCarouselAngles. Isso e a Fase 2 do offerPlanning.ts, ainda pendente.
+
+### Correcoes remanescentes apos commits paralelos direto no GitHub (branch fix/remaining-crashes-and-price-negation, PR pendente de revisao)
+
+Enquanto uma frente anterior desta sessao investigava o deploy quebrado e a cascata de crashes dos 6 segmentos novos (veiculos, construcao, educacao, eventos, turismo, pet), Michel fez 6 commits direto na main resolvendo boa parte dos mesmos problemas em paralelo (sintaxe, estrutura dos 6 segmentos, nicheKeys de alimentacao). O PR anterior desta sessao ficou obsoleto. Reavaliado o que ainda faltava contra o estado atual da main e corrigido:
+
+1. **Crash de runtime confirmado pelo proprio check:server (CORRIGIDO).** `nichoLabel` usado dentro de buildBaseTemplate (server/ai.ts) sem existir nesse escopo — `error TS2304: Cannot find name 'nichoLabel'`. Trocado pelo parametro `niche` que de fato existe na funcao. Achada e corrigida junto uma segunda ocorrencia (string com aspas duplas que nunca interpolava `${nichoLabel}` de verdade).
+
+2. **Chave 'imagePath' duplicada (CORRIGIDO).** Ainda presente em GoogleCampaignCreator.tsx apos os commits paralelos — removida a logica morta (imgUrl especifico de Display nunca era usado).
+
+3. **"buffet de casamento" ainda virava imovel (CORRIGIDO na raiz).** Mesma classe de bug do "corret"/"correta" relatado por Michel, encontrada de novo: "casa" (nicheKey de imoveis) e substring de "casamento". Corrigido com `matchesNicheKeyword()` (shared/segmentConfig.ts, limite de palavra nos dois lados), reaproveitada nos dois sistemas de segmento duplicados desta base (server/ai.ts e shared/segmentConfig.ts). A funcao tolera plural/singular (`encomenda`/`encomendas`) pra nao reabrir o problema oposto.
+
+4. **Radicais truncados de alimentacao expandidos (CORRIGIDO).** Limite de palavra estrito quebrou "aliment"→alimentacao, "confeit"→confeitaria, "doce"→doceria, "pizz"→pizzaria (todos paravam de bater com a forma completa). Expandidos pras formas completas nos dois arquivos.
+
+5. **Regressao de negacao em preco, de novo (CORRIGIDO).** A correcao de "orcamento vira preco" continuava numa funcao paralela (`firstMoneyMatchExcludingBudget`) sem a protecao contra negacao ja existente em `firstMatch` — reproduzido ao vivo: "nao usar R$18.000 — o correto e R$5.000" ainda extraia R$18.000. Consolidado de novo numa funcao so.
+
+6. **price_not_confirmed_in_current_briefing (CORRIGIDO).** Ainda faltava o equivalente pra preco do que ja existia pra endereco.
+
+7. **shared/segmentConfig.ts com os 6 segmentos novos em formato incompativel (CORRIGIDO por reescrita, nao remocao desta vez).** Ainda tinham o campo `copy` no formato errado (headline singular em vez de headlines[]). Da vez anterior a correcao removeu essas entradas por completo — mas isso quebrou detectSegmentFromNiche NESTE arquivo especificamente pros 6 nichos (confirmado por teste: "buffet de casamento" voltou a "outro"). Desta vez, reescritas no formato correto (value/label/icon/desc/copy/ui/detection completos), reaproveitando os mesmos CTAs/hookDirective/compliance ja definidos na versao de server/ai.ts — nao um terceiro conjunto de regras, so o mesmo conteudo no formato que este arquivo exige.
+
+8. **Erro de tipo em offerPlanning.ts (CORRIGIDO).** Mesmo ajuste de narrowing da frente anterior, reaplicado (`hasExperience` extraido antes do `.every()` que causava o narrowing indevido do TypeScript).
+
+Testes: novo server/__tests__/newSegments.test.ts (21 testes — inclui checagem de que os DOIS sistemas de segmento concordam pros 6 nichos novos). +6 em campaignFactGuard.test.ts. Validado: test:fact-guard 45/45, test:new-segments 21/21, as demais 5 suites sem regressao — 103/103 no total. npm run build confirmado passando, sem nenhum warning de chave duplicada. check:server: 37 erros, todos pre-existentes ja documentados, zero novo (confirmado que os erros de nichoLabel/offerPlanning/segmentConfig sumiram da lista).
