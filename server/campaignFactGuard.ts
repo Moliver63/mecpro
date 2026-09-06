@@ -42,6 +42,11 @@ export type CampaignFacts = {
   // de facts.realEstate, então uma campanha de outro nicho com preço errado
   // na copy nunca era pega estruturalmente.
   genericProductPrice?: string;
+  // Mesmo padrão de genericProductPrice, mas para endereço — qualquer
+  // nicho, não só imóveis. Achado real (campanha #754): confeitaria/outros
+  // negócios com endereço errado na copy não eram pegos por nada, já que
+  // a checagem de endereço só existia dentro de facts.realEstate.
+  genericAddress?: string;
   realEstate: {
     purpose?: string;
     propertyType?: string;
@@ -230,7 +235,14 @@ function detectIncludedFees(raw: string): string | undefined {
 const numberWordPattern = "(?:\\d+|um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez|cinquenta)";
 const areaPattern = new RegExp(`\\b(?:\\d{1,4}(?:[,.]\\d+)?|${numberWordPattern})\\s*(?:m(?:2|²)|metros?\\s+quadrados?)(?=\\s|[.,;:]|$)`, "i");
 const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?\s*reais|\d{1,3}(?:[,.]\d+)?\s*mil(?:\s+reais)?|(?:valor|pre[cç]o|aluguel|loca[cç][aã]o|mensal|mensais|por)\D{0,20}\d{4,6}(?:,\d{1,2})?)\b/i;
-const addressPattern = /\b(?:rua|avenida|av\.?|r\.?)\s+[a-z0-9]+(?:[\s,]+(?:n[ºo]\.?\s*)?\d{1,6})?\b/i;
+// Achado real (campanha #754, ao generalizar endereço pra fora de
+// imóveis): a regex antiga só capturava UMA palavra depois de "rua"/
+// "avenida" — "Rua das Palmeiras, 200" virava só "Rua das", perdendo o
+// nome de fato. Passava despercebido porque os fixtures de imóveis
+// sempre usaram nome de rua numérico ("Rua 902"), nunca um nome com
+// artigo (das/dos/da/do) e mais de uma palavra. Corrigida pra aceitar
+// até 3 palavras antes do número final, com ou sem artigo.
+const addressPattern = /\b(?:rua|avenida|av\.?|r\.?)\s+(?:d[aoe]s?\s+)?(?:[a-zà-ÿ]+\s+){0,3}[a-zà-ÿ0-9]+(?:[\s,]+(?:n[ºo]\.?\s*)?\d{1,6})?\b/i;
 const bedroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+(?:quartos?|dormit[oó]rios?)\\b`, "i");
 const suitesPattern = new RegExp(`\\b${numberWordPattern}\\s+su[ií]tes?\\b`, "i");
 const bathroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+banheiros?\\b`, "i");
@@ -519,6 +531,18 @@ export function buildCampaignFacts({
     ),
   );
   const genericProductPrice = compactText(input?.["productPrice"] || clientProfile?.["productPrice"] || "") || undefined;
+  // Endereco generico (qualquer nicho, nao so imoveis) — pedido explicito:
+  // "previr outros segmentos tambem". Achado real (campanha #754,
+  // confeitaria): so preco ja tinha fallback generico (genericProductPrice);
+  // endereco so era checado dentro de facts.realEstate, entao um negocio
+  // fora de imoveis com endereco errado no anuncio nao era pego por nada.
+  // addressPattern (linha ~233) ja e generico (so casa "rua/av. + nome",
+  // nao tem vocabulario imobiliario) — so faltava extrair fora do bloco
+  // realEstate. Mesmo padrao current-vence-sobre-inherited dos demais fatos.
+  const genericAddress = preferCurrentFact(
+    firstMatch(currentRaw, [addressPattern], { preferLongest: true }),
+    firstMatch(inheritedRaw, [addressPattern], { preferLongest: true }),
+  );
   // Características vêm do briefing ATUAL + perfil (raw completo), não só
   // do currentRaw isolado — um diferencial cadastrado uma vez no perfil do
   // cliente (productDifferentials) continua sendo uma característica real
@@ -615,6 +639,7 @@ export function buildCampaignFacts({
     confirmedClaimsRaw: n,
     confirmedCharacteristics,
     genericProductPrice,
+    genericAddress,
     realEstate: {
       purpose,
       propertyType,
@@ -777,11 +802,12 @@ export function validateCampaignFactIntegrity(
     }
 
     const addresses = valuesInText(new RegExp(addressPattern.source, "gi"), text);
+    const expectedAddress = facts.realEstate.address || facts.genericAddress;
     for (const address of addresses) {
-      if (facts.realEstate.address && !equivalentCanonicalFact("address_br", address, facts.realEstate.address)) {
-        conflicts.push({ field, value: address, reason: `address_conflict_expected_${facts.realEstate.address}` });
+      if (expectedAddress && !equivalentCanonicalFact("address_br", address, expectedAddress)) {
+        conflicts.push({ field, value: address, reason: `address_conflict_expected_${expectedAddress}` });
       }
-      if (!facts.realEstate.address && normalizeAddressValue(address)) {
+      if (!expectedAddress && normalizeAddressValue(address)) {
         conflicts.push({ field, value: address, reason: "address_not_confirmed_in_current_briefing" });
       }
     }

@@ -662,3 +662,42 @@ test("confeitaria niche now classifies as alimentacao instead of falling into th
   assert.equal(detectSegmentFromNiche("Confeitaria"), "alimentacao");
   assert.equal(detectSegmentFromNiche("Doceria"), "alimentacao");
 });
+
+// ── Generalização de endereço pra fora de imóveis (pedido explícito:
+// "prever outros segmentos também"). Achado real (campanha #754): só
+// preço já tinha fallback genérico (genericProductPrice); endereço só
+// era checado dentro de facts.realEstate — um negócio fora de imóveis
+// com endereço errado no anúncio não era pego por nada.
+test("validates address for non-real-estate businesses too (generic fallback like price already has)", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Gra Kau Delícias",
+      extraContext: "Confeitaria artesanal na Rua das Palmeiras, 200. Brigadeiros e docinhos.",
+    },
+    clientProfile: { companyName: "Gra Kau Delícias", niche: "Confeitaria" },
+  });
+  assert.equal(facts.genericAddress, "Rua das Palmeiras, 200");
+
+  const wrongAddress = validateCampaignFactIntegrity([
+    { headline: "Visite-nos", copy: "Estamos na Rua das Acácias, 500. Venha provar nossos doces." },
+  ], facts);
+  assert.equal(wrongAddress.status, "failed");
+  assert.ok(wrongAddress.conflicts.some((c) => c.reason.startsWith("address_conflict_expected_")));
+
+  const rightAddress = validateCampaignFactIntegrity([
+    { headline: "Visite-nos", copy: "Estamos na Rua das Palmeiras, 200. Venha provar nossos doces." },
+  ], facts);
+  assert.equal(rightAddress.status, "passed");
+});
+
+// ── Achado real: a regex de endereço só capturava UMA palavra depois de
+// "rua"/"avenida" — "Rua das Palmeiras" virava só "Rua das", perdendo o
+// nome de fato. Passava despercebido porque os fixtures de imóveis
+// sempre usaram nome de rua numérico ("Rua 902").
+test("address extraction handles multi-word street names with articles (das/dos/da/do)", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Loja", extraContext: "Avenida do Contorno, 500, próximo ao centro." },
+    clientProfile: { companyName: "Teste", niche: "moda" },
+  });
+  assert.equal(facts.genericAddress, "Avenida do Contorno, 500");
+});
