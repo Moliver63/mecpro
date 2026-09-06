@@ -2477,17 +2477,17 @@ function mockResponse(prompt: string): string {
     adSets: [
       {
         name: "TOF — Público Frio",
-        audience: "Lookalike 1-3% baseado em clientes, 25-45 anos",
+        audience: "Lookalike 1-3% baseado em clientes, 25-50 anos",
         budget: "40%", objective: "Awareness / Alcance",
         placements: ["feed", "stories", "reels"],
-        duration: "14 dias",
+        duration: "30 dias",
       },
       {
         name: "MOF — Engajados e Visitantes",
         audience: "Visitantes do site (30 dias) + Engajadores da página (60 dias)",
         budget: "35%", objective: "Consideração / Tráfego",
         placements: ["feed", "stories"],
-        duration: "14 dias",
+        duration: "30 dias",
       },
       {
         name: "BOF — Remarketing Quente",
@@ -2500,14 +2500,14 @@ function mockResponse(prompt: string): string {
     creatives: [
       {
         type: "direct_offer", format: "Vídeo 15s", orientation: "vertical_9_16",
-        headline: `Descubra por que centenas escolhem ${nichoLabel}`,
-        copy: `Resultados reais, sem enrolação. Veja como nossos clientes transformaram sua situação com ${nichoLabel}. Comece hoje mesmo.`,
-        bodyText: `Resultados reais, sem enrolação. Veja como nossos clientes transformaram sua situação com ${nichoLabel}. Comece hoje mesmo.`,
+        headline: `Conheça nossos serviços de ${nichoLabel}`,
+        copy: `Conheça nossos serviços de ${nichoLabel}. Atendimento dedicado e qualidade comprovada.`,
+        bodyText: `Conheça nossos serviços de ${nichoLabel}. Atendimento dedicado e qualidade comprovada.`,
         hook: `Você ainda não sabe disso sobre ${nichoLabel}?`,
         pain: "Tempo e dinheiro desperdiçados sem resultado concreto",
-        solution: `Método comprovado em ${nichoLabel} com suporte completo`,
+        solution: `Serviços de ${nichoLabel} com atendimento dedicado`,
         cta: "Saiba Mais", funnelStage: "TOF", complianceScore: "safe",
-        targetAudience: `25-45 anos interessados em ${nichoLabel}`,
+        targetAudience: `25-50 anos interessados em ${nichoLabel}`,
         platforms: ["meta"], budget: 50, duration: 7,
       },
       {
@@ -2515,9 +2515,9 @@ function mockResponse(prompt: string): string {
         headline: "Veja o que nossos clientes dizem",
         copy: `Conheça nossos serviços de ${nichoLabel}. Atendimento dedicado e qualidade comprovada.`,
         bodyText: `Conheça nossos serviços de ${nichoLabel}. Atendimento dedicado e qualidade comprovada.`,
-        hook: "Antes e depois: confira os resultados reais",
+        hook: "Conheça nossos serviços e faça sua encomenda",
         pain: "Dificuldade em encontrar uma solução confiável",
-        solution: "Provas sociais e depoimentos verificados",
+        solution: "Atendimento personalizado e qualidade comprovada",
         cta: "Ver Depoimentos", funnelStage: "MOF", complianceScore: "safe",
         targetAudience: `Engajados com ${nichoLabel}, 28-50 anos`,
         platforms: ["meta"], budget: 40, duration: 14,
@@ -5825,7 +5825,7 @@ function _staticMockAds(name: string, rawNiche: string): any[] {
       { adType: "image",    headline: `${name}: Combo especial com 20% de desconto`,           bodyText: "Válido até domingo. Retire ou receba em casa.",                              cta: "Pegar oferta",      daysAgo: 3  },
     ],
     fitness: [
-      { adType: "video",    headline: `${name}: -10kg em 90 dias com método comprovado`,       bodyText: "Treino personalizado + nutrição. Mais de 800 alunos transformados.",         cta: "Começar agora",     daysAgo: 15 },
+      { adType: "video",    headline: `${name}: Treino personalizado para seus objetivos`,       bodyText: "Treino personalizado + nutrição. Consulte nossos planos.",         cta: "Começar agora",     daysAgo: 15 },
       { adType: "image",    headline: `${name}: Primeira semana grátis`,                       bodyText: "Sem fidelidade. Cancele quando quiser. Venha conhecer.",                     cta: "Agendar aula",      daysAgo: 5  },
       { adType: "carousel", headline: `${name}: Estrutura completa para seu treino`,           bodyText: "Musculação, cardio, funcional e mais. Tudo em um lugar.",                    cta: "Conhecer",          daysAgo: 20 },
       { adType: "video",    headline: `${name}: Resultados reais de alunos reais`,             bodyText: "Veja as transformações dos nossos alunos em 3 meses.",                       cta: "Ver histórias",     daysAgo: 30 },
