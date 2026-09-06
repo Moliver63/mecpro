@@ -2513,8 +2513,8 @@ function mockResponse(prompt: string): string {
       {
         type: "social_proof", format: "Carrossel", orientation: "feed_1_1",
         headline: "Veja o que nossos clientes dizem",
-        copy: `+500 clientes satisfeitos com nossos serviços de ${nichoLabel}. Resultados reais, histórias verdadeiras.`,
-        bodyText: `+500 clientes satisfeitos com nossos serviços de ${nichoLabel}. Resultados reais, histórias verdadeiras.`,
+        copy: `Conheça nossos serviços de ${nichoLabel}. Atendimento dedicado e qualidade comprovada.`,
+        bodyText: `Conheça nossos serviços de ${nichoLabel}. Atendimento dedicado e qualidade comprovada.`,
         hook: "Antes e depois: confira os resultados reais",
         pain: "Dificuldade em encontrar uma solução confiável",
         solution: "Provas sociais e depoimentos verificados",
@@ -2524,10 +2524,10 @@ function mockResponse(prompt: string): string {
       },
       {
         type: "urgency_offer", format: "Imagem estática", orientation: "feed_4_5",
-        headline: "Oferta especial — vagas limitadas",
-        copy: `Não perca essa oportunidade em ${nichoLabel}. Condições especiais disponíveis apenas para quem agir agora.`,
-        bodyText: `Não perca essa oportunidade em ${nichoLabel}. Condições especiais disponíveis apenas para quem agir agora.`,
-        hook: "Últimas vagas com condições especiais",
+        headline: "Oferta especial — consulte disponibilidade",
+        copy: `Conheça nossos serviços de ${nichoLabel}. Entre em contato para mais informações.`,
+        bodyText: `Conheça nossos serviços de ${nichoLabel}. Entre em contato para mais informações.`,
+        hook: "Vagas disponíveis para ${nichoLabel}",
         pain: "Risco de perder a oportunidade",
         solution: "Ação imediata com garantia de satisfação",
         cta: "Aproveitar Agora", funnelStage: "BOF", complianceScore: "safe",
@@ -3037,14 +3037,14 @@ export function buildBaseTemplate(
     urgent: {
       imoveis:  { h: `Conheça ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Fale agora para saber disponibilidade e condições.`, c: "Falar agora" },
       servico:  { h: `Agenda quase cheia — ${vars.produto}`, b: `Poucos horários disponíveis esta semana em ${vars.empresa}.`, c: "Garantir vaga" },
-      default:  { h: `Oferta por tempo limitado — ${vars.produto}`, b: `${vars.empresa} com condições especiais só hoje.`, c: "Aproveitar agora" },
+      default:  { h: `${vars.produto} — disponível para encomenda`, b: `${vars.empresa} — atendimento personalizado. Fale conosco para mais informações.`, c: "Aproveitar agora" },
     },
     emotional: {
       imoveis:  { h: `Conheça de perto ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Agende uma visita e veja se combina com você.`, c: "Agendar visita" },
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
       // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
       // e estatisticas fabricadas (nao vem de nenhum dado real do cliente).
-      default:  { h: `Transforme sua vida com ${vars.produto}`, b: `${vars.empresa} pode ser o próximo passo da sua mudança.`, c: "Quero mudar" },
+      default:  { h: `${vars.produto} — feito com cuidado para você`, b: `${vars.empresa} — ${nichoLabel} com qualidade. Entre em contato.`, c: "Quero mudar" },
     },
     rational: {
       imoveis:  { h: `${vars.produto}: avalie os detalhes`, b: `Conheça os detalhes de ${vars.empresa} e tire suas dúvidas.`, c: "Ver detalhes" },
@@ -5810,7 +5810,7 @@ function _staticMockAds(name: string, rawNiche: string): any[] {
       { adType: "image",    headline: `${name}: Frete grátis para todo o Brasil`,             bodyText: "Compre hoje, receba amanhã em capitais. Parcele em até 10x.",                cta: "Comprar agora",     daysAgo: 3  },
       { adType: "carousel", headline: `${name}: Coleção nova chegou`,                          bodyText: "Mais de 200 novidades. Preços de lançamento por 48h.",                       cta: "Ver coleção",       daysAgo: 7  },
       { adType: "video",    headline: `${name}: Mais de 4.500 avaliações 5 estrelas`,          bodyText: "Veja por que é o favorito dos clientes.",                                    cta: "Ver produto",       daysAgo: 18 },
-      { adType: "image",    headline: `${name}: Desconto relâmpago — só hoje`,                 bodyText: "Até 50% off em produtos selecionados. Estoque limitado.",                    cta: "Aproveitar",        daysAgo: 4  },
+      { adType: "image",    headline: `${name}: Encomende com antecedência`,                 bodyText: "Até 50% off em produtos selecionados. Estoque limitado.",                    cta: "Consultar",        daysAgo: 4  },
     ],
     financeiro: [
       { adType: "video",    headline: `${name}: Seu dinheiro rendendo mais`,                   bodyText: "Rentabilidade acima do CDI. Zero taxa de administração. Resgate diário.",    cta: "Simular agora",     daysAgo: 10 },
@@ -5851,7 +5851,7 @@ function _staticMockAds(name: string, rawNiche: string): any[] {
     turismo: [
       { adType: "carousel", headline: `${name}: Pacotes incríveis com tudo incluído`,          bodyText: "Voos, hotel e passeios. Parcele em até 12x sem juros.",                      cta: "Ver pacotes",       daysAgo: 8  },
       { adType: "video",    headline: `${name}: A viagem dos seus sonhos pelo melhor preço`,   bodyText: "Mais de 10.000 viajantes satisfeitos. Nacionais e internacionais.",           cta: "Quero viajar",      daysAgo: 18 },
-      { adType: "image",    headline: `${name}: Promoção relâmpago — 48h`,                     bodyText: "Passagens + hotel com até 40% de desconto. Só hoje.",                        cta: "Garantir agora",    daysAgo: 3  },
+      { adType: "image",    headline: `${name}: Reserve com antecedência`,                     bodyText: "Passagens + hotel com condições especiais. Consulte disponibilidade.",                        cta: "Garantir agora",    daysAgo: 3  },
       { adType: "video",    headline: `${name}: Lua de mel inesquecível`,                      bodyText: "Roteiros exclusivos para casais. Resorts e experiências únicas.",             cta: "Planejar viagem",   daysAgo: 30 },
     ],
     tech: [
@@ -5862,7 +5862,7 @@ function _staticMockAds(name: string, rawNiche: string): any[] {
     ],
     generico: [
       { adType: "video",    headline: `${name}: A solução que você procurava`,                 bodyText: "Descubra como centenas de clientes transformaram seus resultados.",           cta: "Saiba mais",        daysAgo: 45 },
-      { adType: "image",    headline: `${name}: Oferta por tempo limitado`,                    bodyText: "Condições especiais para novos clientes. Vagas limitadas.",                  cta: "Aproveitar",        daysAgo: 12 },
+      { adType: "image",    headline: `${name}: Consulte disponibilidade`,                    bodyText: "Informe-se sobre condições para novos clientes. Consulte vagas disponíveis.",                  cta: "Consultar",        daysAgo: 12 },
       { adType: "carousel", headline: `${name}: 5 razões para nos escolher`,                   bodyText: "Qualidade, atendimento, resultado, suporte e preço justo.",                  cta: "Conhecer",          daysAgo: 67 },
       { adType: "video",    headline: `${name}: Depoimentos reais de clientes`,                bodyText: "Veja o que nossos clientes falam sobre os resultados obtidos.",               cta: "Ver depoimentos",   daysAgo: 8  },
       { adType: "image",    headline: `${name}: Comece hoje mesmo`,                            bodyText: "Processo simples e rápido. Suporte completo desde o primeiro dia.",           cta: "Começar agora",     daysAgo: 23 },
