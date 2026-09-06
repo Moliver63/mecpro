@@ -115,6 +115,33 @@ test("still prefers the current briefing's area over a larger number left over i
   assert.equal(facts.realEstate.areaM2, "50 m²");
 });
 
+// ── Achado real (campanha #749, relato de Michel): o briefing dizia "não
+// inventar 190/191 m² — a área correta é apenas 50 m²" e o sistema colocou
+// 191 m² no anúncio. Causa: firstMatch() extrai QUALQUER ocorrência do
+// padrão no texto, cego para negação — mesma classe de bug que
+// hasPositive() já resolve para propertyType/purpose.
+test("does not extract a number from inside an explicit prohibition in the briefing", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Locação de sala comercial. Não inventar 190/191 m² — a área correta é apenas 50 m².",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.equal(facts.realEstate.areaM2, "50 m²");
+});
+
+test("does not extract a negated price as the confirmed value", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial",
+      extraContext: "Sala comercial para locação. Não usar R$ 18.000 — o valor correto é R$ 5.000 mensais.",
+    },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  assert.equal(facts.realEstate.price, "R$ 5.000");
+});
+
 test("current briefing area overrides stale inherited profile area", () => {
   const facts = buildCampaignFacts({
     input: {
@@ -296,6 +323,50 @@ test("allows commercial room specialization when explicitly confirmed", () => {
   assert.equal(validation.conflicts.length, 0);
 });
 
+// ── Achado real (relato de Michel, campanha de sala comercial): "como se
+// trata de sala comercial e não um apto" — quartos/suítes nunca foram
+// mencionados no briefing (sala comercial não tem esses cômodos), mas
+// nada bloqueava a IA de inventar "3 quartos"/"2 suítes" do zero, porque
+// a checagem de contagem só disparava quando já havia um número
+// CONFIRMADO pra comparar contra. Corrigido: quarto/suíte são bloqueados
+// em imóvel comercial mesmo sem nenhum número confirmado, porque não
+// fazem sentido arquitetônico nesse tipo de imóvel — diferente de
+// banheiro/vaga, que continuam permitidos (controle negativo abaixo).
+test("blocks invented bedrooms/suites for a commercial room, even with no count confirmed to compare against", () => {
+  const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Sala com 3 quartos e 2 suítes", copy: "Espaço perfeito com 3 quartos e 2 suítes para sua família." },
+  ], facts);
+
+  assert.equal(validation.status, "failed");
+  assert.ok(validation.conflicts.some((c) => c.reason === "residential_feature_claim_conflict_commercial_property" && /quartos/i.test(c.value)));
+  assert.ok(validation.conflicts.some((c) => c.reason === "residential_feature_claim_conflict_commercial_property" && /su[ií]tes/i.test(c.value)));
+});
+
+test("does not block bathrooms or parking spots for a commercial room (those are plausible, not proibição cega)", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Sala comercial", extraContext: "Locação de sala comercial de 50 m², com 1 banheiro e 2 vagas de garagem." },
+    clientProfile: { companyName: "Teste", niche: "imoveis comerciais para locacao" },
+  });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Sala com 1 banheiro e 2 vagas", copy: "Conheça o espaço e agende sua visita." },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});
+
+test("still allows bedrooms for an actual residential property", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Apartamento Centro", extraContext: "Venda de apartamento de 70 m², 2 quartos, 1 vaga, no Centro." },
+    clientProfile: { companyName: "Teste", niche: "imoveis residenciais para venda" },
+  });
+  const validation = validateCampaignFactIntegrity([
+    { headline: "Apartamento com 2 quartos", copy: "Confira este apartamento com 2 quartos no Centro." },
+  ], facts);
+
+  assert.equal(validation.status, "passed");
+});
+
 test("blocks contaminated creativeSystemV2 copy bank text", () => {
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   const validation = validateCampaignFactIntegrity([
@@ -416,6 +487,52 @@ test("extracts confirmed characteristics as literal clauses, not inferred effect
   const facts = buildCampaignFacts({ input: morebemInput, clientProfile: morebemProfile });
   assert.ok(facts.confirmedCharacteristics.some((c) => /ar-condicionado/i.test(c)));
   assert.ok(!facts.confirmedCharacteristics.some((c) => /economia de energia/i.test(c)));
+});
+
+// ── Achado real (relato de Michel, campanhas #750/#751): "estrutura para
+// massoterapia" continuou aparecendo mesmo com um briefing mais enxuto,
+// direcionado a divulgar a sala pra públicos diversos. Causa: ao contrário
+// de todo o resto (que usa "briefing atual vence sobre perfil antigo"),
+// estruturas/usos eram extraídos do texto combinado sem prioridade — uma
+// menção antiga no perfil do cliente virava característica confirmada pra
+// sempre, mesmo quando o briefing atual não a repete.
+test("does not keep surfacing a specialization from the client's old profile once the current briefing stops mentioning it", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial Rua 902",
+      extraContext: "Locação de sala comercial de 50 m² na Rua 902, nº 144 por R$ 5.000 mensais. Dois aparelhos de ar-condicionado, pé-direito alto.",
+    },
+    clientProfile: {
+      companyName: "Morebem Imóveis",
+      niche: "imoveis comerciais para locacao",
+      productDifferentials: "Estrutura atualmente montada para massoterapia.",
+    },
+  });
+  assert.deepEqual(facts.realEstate.structuralFeatures, ["Dois aparelhos de ar-condicionado", "pe-direito alto"]);
+});
+
+test("still surfaces a specialization from the profile when the current briefing mentions nothing structural at all", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Sala comercial Rua 902", extraContext: "Locação de sala comercial na Rua 902, nº 144." },
+    clientProfile: {
+      companyName: "Morebem Imóveis",
+      niche: "imoveis comerciais para locacao",
+      productDifferentials: "Estrutura atualmente montada para massoterapia.",
+    },
+  });
+  assert.ok(facts.realEstate.structuralFeatures.some((f) => /massoterapia/i.test(f)));
+});
+
+test("does not confirm a specialization mentioned only inside a negation in the current briefing", () => {
+  const facts = buildCampaignFacts({
+    input: {
+      name: "Sala comercial Rua 902",
+      extraContext: "Locação de sala comercial de 50 m². Não é mais para massoterapia — divulgar para públicos diversos.",
+    },
+    clientProfile: { companyName: "Morebem Imóveis", niche: "imoveis comerciais para locacao" },
+  });
+  assert.ok(!facts.realEstate.structuralFeatures.some((f) => /massoterapia/i.test(f)));
+  assert.ok(!facts.realEstate.usagePossibilities.some((u) => /massoterapia/i.test(u)));
 });
 
 test("blocks a benefit claim not confirmed by the client, even when a related characteristic exists", () => {

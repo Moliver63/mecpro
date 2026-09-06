@@ -633,6 +633,21 @@ export const META_POLICY_RULES_2026 = [
   "   OUTCOME_SALES: pixel de conversão obrigatório para melhor performance.",
 ].join("\n");
 
+// Achado real (relato de Michel): o validador acusou "cura" num anúncio
+// que só tinha "procura" ("O que você procura..." — texto real gerado por
+// buildRealEstateCarouselAngles em carouselCopy.ts). "cura" é substring
+// literal de "procura"/"escura", e a checagem original usava
+// String.includes(), que casa qualquer substring. Mesmo fix aplicado em
+// creativeScoringEngine.ts: cada termo vira \bterm\b (limite de palavra
+// nos dois lados). Nota: isso deixa de casar formas com sufixo colado
+// (ex.: "garantidos" não bate mais com "garantido") — se isso importar
+// pra algum termo específico, o certo é adicionar a forma flexionada como
+// item separado na lista, não voltar pra substring solta.
+function containsComplianceTerm(lowerText: string, term: string): boolean {
+  const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`, "i").test(lowerText);
+}
+
 // ── Validador de compliance ───────────────────────────────────────────────
 export function validateMetaCompliance(text: string): {
   score: "safe" | "warning" | "danger";
@@ -644,13 +659,13 @@ export function validateMetaCompliance(text: string): {
   const suggestions: string[] = [];
 
   for (const word of META_PROHIBITED_WORDS) {
-    if (lower.includes(word.toLowerCase())) {
+    if (containsComplianceTerm(lower, word)) {
       issues.push(`Palavra/frase proibida pela Meta: "${word}"`);
       suggestions.push(`Substitua "${word}" por linguagem de benefício real`);
     }
   }
   for (const word of META_SENSITIVE_WORDS) {
-    if (lower.includes(word.toLowerCase())) {
+    if (containsComplianceTerm(lower, word)) {
       suggestions.push(`Termo sensível: "${word}" — pode requerer revisão manual da Meta`);
     }
   }
@@ -3190,6 +3205,14 @@ export async function buildCampaignFromAds(
     // conjunto de regras de copy imobiliária independente.
     isRealEstate?: boolean;
     campaignFacts?: CampaignFacts;
+    // Achado real (campanhas #750/#751): regenerar com os mesmos fatos
+    // sempre devolvia os mesmos 4 cards. Um valor diferente aqui (ex.: o
+    // número de tentativas já feitas para este projeto) faz o gerador girar
+    // para outro subconjunto dos 10 ângulos, sem alterar nenhum fato. Sem
+    // valor explícito, usa o relógio — ainda dá variedade real entre
+    // cliques de "regenerar", só não garante nunca repetir um ângulo já
+    // visto (isso exigiria guardar histórico por projeto).
+    regenerationSeed?: number;
   },
 ): Promise<any> {
   const niche   = clientProfile?.niche || "negócios";
@@ -3314,8 +3337,9 @@ export async function buildCampaignFromAds(
   // "casa própria"/"última unidade" para uma sala comercial em locação
   // (campanha 747). Fora de imóveis, mantém o motor híbrido original.
   const isRealEstateCampaign = !!(opts?.isRealEstate && opts?.campaignFacts);
+  const rotationSeed = opts?.regenerationSeed ?? Math.floor(Date.now() / 1000);
   const realEstateAngles = isRealEstateCampaign
-    ? buildRealEstateCarouselAngles(opts!.campaignFacts!, (clientProfile as any)?.city || "").slice(0, desiredCreatives)
+    ? buildRealEstateCarouselAngles(opts!.campaignFacts!, (clientProfile as any)?.city || "", { rotate: rotationSeed }).slice(0, desiredCreatives)
     : null;
   const hybrid = realEstateAngles
     ? null
@@ -3403,7 +3427,7 @@ export async function buildCampaignFromAds(
           type: typeCycle[i % typeCycle.length],
           format: topFmt === "video" ? "Video 15s" : "Imagem Feed", orientation: "vertical_9_16",
           headline: ad.headline, bodyText: ad.body, copy: ad.body,
-          cta: ad.cta && !segRulesHybrid?.forbidden?.some((f: string) => ad.cta?.toLowerCase().includes(f.toLowerCase()))
+          cta: ad.cta && !segRulesHybrid?.forbidden?.some((f: string) => containsComplianceTerm(ad.cta?.toLowerCase() || "", f))
             ? ad.cta
             : segCtas[i % segCtas.length] || topCta,
           hook: bodyFirstSentence && bodyFirstSentence.toLowerCase() !== ad.headline.toLowerCase() ? bodyFirstSentence : ad.headline,
@@ -8785,7 +8809,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     const forbiddenFound: string[] = [];
     if (segRule?.forbidden) {
       for (const fw of segRule.forbidden) {
-        if (texts.includes(fw.toLowerCase())) forbiddenFound.push(fw);
+        if (containsComplianceTerm(texts, fw)) forbiddenFound.push(fw);
       }
     }
     // Placeholder check — detecta [cidade], {preço}, EMPRESA_AQUI, etc.

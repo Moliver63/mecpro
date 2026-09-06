@@ -20,6 +20,7 @@
     "eval:pipeline": "cross-env NODE_OPTIONS=--import=tsx promptfoo eval -c eval/promptfooconfig.pipeline.yaml",
     "eval:rawmodel": "promptfoo eval -c eval/promptfooconfig.rawmodel.yaml",
     "eval:view": "promptfoo view",
+    "test:creative-scoring": "tsx --test server/__tests__/creativeScoringEngine.test.ts",
     "test:watch": "tsx --test --watch client/src/lib/__tests__/placementGuidance.test.ts",
     "db:push": "drizzle-kit push:pg",
     "db:generate": "drizzle-kit generate",
