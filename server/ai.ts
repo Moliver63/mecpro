@@ -965,7 +965,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "dor de não ter o imóvel ideal / sonho de ter imóvel próprio",
     forbidden:  ["guia grátis", "ebook", "baixar", "download", "material gratuito", "curso", "aula"],
     compliance: "Sem claims de valorização garantida. Sem 'melhor preço' sem comprovação.",
-    nicheKeys:  ["imob", "corret", "imóvel", "imovel", "apartamento", "casa", "terreno", "lote"],
+    nicheKeys:  ["imob", "corretor", "corretag", "imóvel", "imovel", "apartamento", "casa", "terreno", "lote"],
   },
   imoveis_locacao: {
     ctaLeads:   ["Ver disponibilidade", "Agendar visita", "Consultar valores", "Quero alugar"],
