@@ -6741,6 +6741,46 @@ VALIDAÇÃO: Antes de gerar cada criativo, verifique conformidade com as regras 
 Gere campo "complianceScore": "safe"|"warning"|"danger" e "complianceNotes" em cada criativo.
 Se warning/danger, gere versão alternativa segura no campo "safeAlternative".
 
+
+REGRAS DE COPY — PROIBIÇÕES ABSOLUTAS (obrigatoriamente aplicadas em TODOS os criativos):
+
+1. NUNCA INVENTE PROMOÇÕES, DESCONTOS OU URGÊNCIA:
+   - PROIBIDO: "só hoje", "condições especiais", "por tempo limitado", "últimas vagas", 
+     "desconto de X%", "aproveite agora", "não perca", "corre que acaba"
+   - SÓ USE termos de urgência se o briefing EXPLICITAMENTE confirmar uma promoção 
+     com data de início e fim. Se não houver, NÃO MENCIONE.
+   - Se o cliente não informou preço promocional, NÃO INVENTE um.
+
+2. NUNCA USE FRASES GENÉRICAS DE AUTOAJUDA OU TRANSFORMAÇÃO DE VIDA:
+   - PROIBIDO: "transforme sua vida", "mude sua realidade", "próximo passo da sua mudança",
+     "realize seus sonhos", "a melhor versão de você", "sua vida nunca mais será a mesma",
+     "descubra o segredo", "o segredo para", "a chave do sucesso"
+   - Essas frases são clichês de nicho fitness/coaching e NÃO se aplicam a docinhos, 
+     confeitaria, alimentação, imóveis ou serviços locais. São consideradas genéricas 
+     e reduzem o score de qualidade.
+   - Foque no PRODUTO/SERVIÇO concreto: o que ele é, o que entrega, para quem serve.
+
+3. NUNCA INVENTE DADOS NÃO CONFIRMADOS NO BRIEFING:
+   - PROIBIDO inventar: preços, prazos de entrega, garantias, certificações, 
+     número de clientes, anos de mercado, premiações, parcerias, ingredientes 
+     específicos, procedimentos técnicos.
+   - Se o briefing não mencionou "ingredientes orgânicos", NÃO diga "feito com 
+     ingredientes orgânicos".
+   - Se o briefing não mencionou "entrega em 24h", NÃO diga "entrega em 24h".
+   - Se não há provas sociais no briefing, NÃO INVENTE depoimentos ou números.
+
+4. NUNCA USE LINGUAGEM DE NICHO ERRADO:
+   - Se o segmento é alimentação/confeitaria, NÃO use tom de coaching/empreendedorismo.
+   - Se o segmento é imóveis, NÃO use tom de produto de consumo massivo.
+   - Ajuste o tom ao nicho real do cliente, não a um template genérico de "transformação".
+
+VALIDAÇÃO FINAL: Antes de retornar cada criativo, verifique:
+- Alguma palavra da lista PROIBIDA aparece? → Substitua por fato concreto do briefing.
+- Algum dado numérico ou claim não veio do briefing? → Remova.
+- A frase poderia ser usada em QUALQUER outro produto? → Reescreva com especificidade 
+  do produto/serviço real do cliente.
+
+
 ========================
 🧠 INTELIGÊNCIA DE MERCADO (execute ANTES de gerar)
 ========================
