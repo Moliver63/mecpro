@@ -106,10 +106,11 @@ export function planCopyArguments(
     return !!availability[requirement];
   });
 
+  const hasExperience = filtered.includes("experiencia");
   const hasStructuralOnly = filtered.every((role) => role === "produto_ou_espaco" || role === "cta_step");
-  if (hasStructuralOnly && !filtered.includes("experiencia")) {
+  if (hasStructuralOnly && !hasExperience) {
     const ctaIndex = filtered.indexOf("cta_step");
-    const withExperience = [...filtered];
+    const withExperience: ArgumentRole[] = [...filtered];
     withExperience.splice(ctaIndex === -1 ? withExperience.length : ctaIndex, 0, "experiencia");
     return withExperience;
   }

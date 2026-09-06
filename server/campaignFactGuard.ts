@@ -98,29 +98,20 @@ function unique(values: string[]): string[] {
 // anúncio). Uma constante só, reaproveitada nos dois lugares.
 const NEGATION_WORDS = /\b(n[aã]o|nunca|sem\s+ser|jamais)\b/i;
 
-// Achado real (auditoria 06/09): o moneyPattern casa com qualquer valor
-// monetário no texto, incluindo "Orçamento de mídia: R$ 1.500". Isso faz
-// o orçamento de campanha virar preço do imóvel no anúncio.
+// Achado real (auditoria 06/09, relato de Michel — campanha de confeitaria
+// com verba de mídia): moneyPattern casava com "Orçamento de mídia: R$
+// 1.500" igual casaria com o preço do produto — orçamento de campanha
+// virava preço da oferta no anúncio, e o validador aprovava porque os
+// dois lados citavam o mesmo número (o errado). Corrigido AQUI, dentro de
+// firstMatch — não numa função paralela: uma tentativa anterior (commit
+// 5dd05c1) criou firstMoneyMatchExcludingBudget() separada, que resolvia
+// orçamento mas não herdava a proteção contra negação já existente aqui,
+// reabrindo o bug da campanha #749 pra preço (reproduzido: "não usar
+// R$18.000 — o valor correto é R$5.000" voltou a extrair R$18.000).
+// Uma função só, duas proteções.
 const BUDGET_CONTEXT_PATTERN = /\b(or[cç]amento\s+de\s+m[íi]dia|budget\s+de\s+m[íi]dia|investimento\s+em\s+m[íi]dia|or[cç]amento\s+total|budget\s+total|investimento\s+total|or[cç]amento\s+de\s+campanha|budget\s+de\s+campanha)\b/i;
 
-function isBudgetContext(text: string, matchIndex: number): boolean {
-  const windowStart = Math.max(0, matchIndex - 100);
-  const window = text.slice(windowStart, matchIndex);
-  return BUDGET_CONTEXT_PATTERN.test(window);
-}
-
-function firstMoneyMatchExcludingBudget(text: string, pattern: RegExp): string | undefined {
-  let match: RegExpExecArray | null;
-  const clone = new RegExp(pattern.source, pattern.flags);
-  while ((match = clone.exec(text)) !== null) {
-    if (!isBudgetContext(text, match.index)) {
-      return match[0];
-    }
-  }
-  return undefined;
-}
-
-function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: boolean }): string | undefined {
+function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: boolean; excludeContext?: RegExp }): string | undefined {
   // preferLongest=true: usa o match mais completo (mais longo) entre TODAS
   // as ocorrências — correto para ENDEREÇO, onde uma string mais longa é
   // genuinamente mais específica (ex: "Rua 902, nº 144" > "Rua 902").
@@ -152,9 +143,28 @@ function firstMatch(text: string, patterns: RegExp[], opts?: { preferLongest?: b
     const candidates: string[] = [];
     let m: RegExpExecArray | null;
     while ((m = re.exec(text))) {
-      const start = Math.max(0, m.index - 25);
-      const before = text.slice(start, m.index);
-      if (!NEGATION_WORDS.test(before)) {
+      const negationWindowStart = Math.max(0, m.index - 25);
+      const negationWindow = text.slice(negationWindowStart, m.index);
+      const isNegated = NEGATION_WORDS.test(negationWindow);
+      const contextWindowStart = Math.max(0, m.index - 100);
+      let contextWindow = text.slice(contextWindowStart, m.index);
+      // Restringe à MESMA frase: corta tudo antes do último ponto final/
+      // exclamação/interrogação/quebra de linha dentro da janela. Achado
+      // real: uma janela fixa de 100 caracteres fazia "Orçamento de mídia:
+      // R$ 1.500" numa frase excluir também um preço legítimo mencionado
+      // numa frase SEGUINTE do mesmo parágrafo, só por ainda caber dentro
+      // dos 100 caracteres.
+      const lastSentenceBreak = Math.max(
+        contextWindow.lastIndexOf("."),
+        contextWindow.lastIndexOf("!"),
+        contextWindow.lastIndexOf("?"),
+        contextWindow.lastIndexOf("\n"),
+      );
+      if (lastSentenceBreak !== -1) {
+        contextWindow = contextWindow.slice(lastSentenceBreak + 1);
+      }
+      const isExcludedByContext = opts?.excludeContext ? opts.excludeContext.test(contextWindow) : false;
+      if (!isNegated && !isExcludedByContext) {
         candidates.push(m[0]);
       }
       if (m.index === re.lastIndex) re.lastIndex++; // evita loop infinito em match vazio
@@ -342,7 +352,7 @@ function extractRealEstateFacts(raw: string) {
     purpose: detectPurpose(raw),
     propertyType,
     areaM2: firstMatch(raw, [areaPattern]),
-    price: firstMoneyMatchExcludingBudget(raw, moneyPattern),
+    price: firstMatch(raw, [moneyPattern], { excludeContext: BUDGET_CONTEXT_PATTERN }),
     address: firstMatch(raw, [
       addressPattern,
     ], { preferLongest: true }),
@@ -820,6 +830,15 @@ export function validateCampaignFactIntegrity(
     for (const price of prices) {
       if (expectedPrice && normalizeMoneyValue(price) !== normalizeMoneyValue(expectedPrice)) {
         conflicts.push({ field, value: price, reason: `price_conflict_expected_${expectedPrice}` });
+      }
+      // Achado real (relato de Michel, confeitaria + verba de mídia): sem
+      // nenhum preço confirmado em lugar nenhum, um valor mencionado na
+      // copy passava sem checagem nenhuma — inclusive um valor que já
+      // tinha sido corretamente excluído da extração por ser orçamento de
+      // mídia, não preço do produto. Mesmo padrão já usado pra endereço
+      // (address_not_confirmed_in_current_briefing).
+      if (!expectedPrice) {
+        conflicts.push({ field, value: price, reason: "price_not_confirmed_in_current_briefing" });
       }
     }
 

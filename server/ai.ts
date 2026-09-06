@@ -23,7 +23,7 @@ import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignInte
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
-import { detectRealEstateSegment } from "../shared/segmentConfig";
+import { detectRealEstateSegment, matchesNicheKeyword } from "../shared/segmentConfig";
 import { normalizeCopyText, trimCopyField as trimMetaField, isWeakGeneratedCopy, getCarouselEditorialIssues } from "../shared/campaignCopyQuality";
 import { buildRealEstateCarouselAngles } from "./carouselCopy";
 
@@ -1033,112 +1033,148 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
   },
 
   veiculos: {
+    ctaLeads:   ["Agendar visita", "Falar com vendedor", "Simular financiamento"],
+    ctaSales:   ["Agendar visita", "Falar com vendedor", "Simular financiamento"],
+    copyHook:   "necessidade de um veículo confiável / sonho do carro ou moto ideal",
+    forbidden:  ["agendar consulta", "aula grátis", "download"],
+    compliance: "Preço e condições de financiamento sujeitos a análise de crédito. Não afirmar aprovação garantida.",
+    nicheKeys:  ["carro", "automóvel", "automovel", "veículo", "veiculo", "moto", "caminhão", "caminhao", "frota", "seminovo", "0km", "concessionária", "concessionaria", "revenda", "mecânica", "mecanica", "autoelétrica", "autoeletrica", "funilaria", "pintura", "pneu", "oficina mecânica", "auto peças", "autopeças", "carros usados"],
     detection: {
       nicheKeys: ["carro", "automóvel", "automovel", "veículo", "veiculo", "moto", "caminhão", "caminhao", "frota", "seminovo", "0km", "concessionária", "concessionaria", "revenda", "mecânica", "mecanica", "autoelétrica", "autoeletrica", "funilaria", "pintura", "pneu", "oficina mecânica", "auto peças", "autopeças", "carros usados"],
       promptContext: `Segmento: VEÍCULOS e automotivo. COPIES: Condição do veículo, preço, financiamento, garantia, diferenciais, revisão, manutenção. CTAs OBRIGATÓRIOS: "Agendar visita" | "Falar com vendedor" | "Simular financiamento" CTAs PROIBIDOS: "agendar consulta", "aula grátis", "download"`,
     },
-    copy: { headline: `🚗 ${produto} — ${diferencial}`, description: `${empresa}: ${nichoLabel} com qualidade e procedência.`, cta: "Agendar visita" },
+    copy: { headline: `🚗 {produto} — {diferencial}`, description: `{empresa}: {nichoLabel} com qualidade e procedência.`, cta: "Agendar visita" },
     examples: [
       { headline: "Hilux 2020 — 45.000 km, revisada", description: "Concessionária XYZ: seminovos com garantia de 1 ano.", cta: "Agendar visita" },
       { headline: "Moto 0km — Financiamento facilitado", description: "Yamaha XYZ: entrada a partir de R$ 2.000.", cta: "Simular financiamento" },
     ],
-    fallback: { headline: `${empresa} — ${nichoLabel} com procedência`, copy: `Conheça nossos veículos e serviços de ${nichoLabel}. Atendimento especializado.`, cta: "Falar com vendedor" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-55 anos interessados em ${nichoLabel}`, adSets: [
-      { name: "TOF — Interesse em veículos", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Interesse em carros, motos e ${nichoLabel}, 25-55 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do estoque", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-55 anos`, cta: "Agendar visita" },
+    fallback: { headline: `{empresa} — {nichoLabel} com procedência`, copy: `Conheça nossos veículos e serviços de {nichoLabel}. Atendimento especializado.`, cta: "Falar com vendedor" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-55 anos interessados em {nichoLabel}`, adSets: [
+      { name: "TOF — Interesse em veículos", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Interesse em carros, motos e {nichoLabel}, 25-55 anos`, cta: "Saber mais" },
+      { name: "MOF — Visitantes do estoque", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de {nichoLabel}, 25-55 anos`, cta: "Agendar visita" },
       { name: "BOF — Interessados em financiamento", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Interessados em financiamento de veículos, 25-55 anos`, cta: "Simular financiamento" },
     ]},
-  },
+  } as any,
 
   construcao: {
+    ctaLeads:   ["Fazer orçamento", "Consultar preço", "Falar com especialista"],
+    ctaSales:   ["Fazer orçamento", "Consultar preço", "Falar com especialista"],
+    copyHook:   "necessidade de material de qualidade sem estourar o orçamento da obra",
+    forbidden:  ["agendar visita", "aula grátis"],
+    compliance: "Preços sujeitos a disponibilidade de estoque. Não prometer prazo de entrega sem confirmação.",
+    nicheKeys:  ["construção", "construcao", "material", "obra", "cimento", "tijolo", "telha", "madeira", "ferragem", "elétrica", "eletrica", "hidráulica", "hidraulica", "acabamento", "revestimento", "piso", "porcelanato", "tinta", "ferramenta", "depot", "home center", "reforma", "pedreiro", "arquiteto", "engenheiro", "construtora", "gesso", "drywall", "azulejo", "cerâmica", "ceramica"],
     detection: {
       nicheKeys: ["construção", "construcao", "material", "obra", "cimento", "tijolo", "telha", "madeira", "ferragem", "elétrica", "eletrica", "hidráulica", "hidraulica", "acabamento", "revestimento", "piso", "porcelanato", "tinta", "ferramenta", "depot", "home center", "reforma", "pedreiro", "arquiteto", "engenheiro", "construtora", "gesso", "drywall", "azulejo", "cerâmica", "ceramica"],
       promptContext: `Segmento: MATERIAL DE CONSTRUÇÃO e reforma. COPIES: Qualidade do material, preço, entrega, prazo, atendimento técnico, variedade. CTAs OBRIGATÓRIOS: "Fazer orçamento" | "Consultar preço" | "Falar com especialista" CTAs PROIBIDOS: "agendar visita" (a menos que seja showroom), "aula grátis"`,
     },
-    copy: { headline: `🧱 ${produto} — ${diferencial}`, description: `${empresa}: ${nichoLabel} com preço justo e entrega rápida.`, cta: "Fazer orçamento" },
+    copy: { headline: `🧱 {produto} — {diferencial}`, description: `{empresa}: {nichoLabel} com preço justo e entrega rápida.`, cta: "Fazer orçamento" },
     examples: [
       { headline: "Cimento 50kg — Melhor preço da região", description: "Depot XYZ: entrega em 24h para obras em Itajaí.", cta: "Fazer orçamento" },
       { headline: "Revestimento importado — Acabamento premium", description: "Cerâmica XYZ: porcelanatos e pisos para projetos de alto padrão.", cta: "Falar com especialista" },
     ],
-    fallback: { headline: `${empresa} — ${nichoLabel} com entrega rápida`, copy: `Conheça nossos materiais de ${nichoLabel}. Orçamento sem compromisso.`, cta: "Consultar preço" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `30-60 anos interessados em ${nichoLabel}`, adSets: [
+    fallback: { headline: `{empresa} — {nichoLabel} com entrega rápida`, copy: `Conheça nossos materiais de {nichoLabel}. Orçamento sem compromisso.`, cta: "Consultar preço" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: `30-60 anos interessados em {nichoLabel}`, adSets: [
       { name: "TOF — Profissionais da construção", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Pedreiros, arquitetos e engenheiros, 30-60 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do showroom", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 30-60 anos`, cta: "Fazer orçamento" },
-      { name: "BOF — Orçamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que solicitaram orçamento de ${nichoLabel}, 30-60 anos`, cta: "Falar com especialista" },
+      { name: "MOF — Visitantes do showroom", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de {nichoLabel}, 30-60 anos`, cta: "Fazer orçamento" },
+      { name: "BOF — Orçamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que solicitaram orçamento de {nichoLabel}, 30-60 anos`, cta: "Falar com especialista" },
     ]},
-  },
+  } as any,
 
   educacao: {
+    ctaLeads:   ["Agendar visita", "Saber mais sobre o curso", "Falar com coordenador"],
+    ctaSales:   ["Agendar visita", "Saber mais sobre o curso", "Falar com coordenador"],
+    copyHook:   "desejo dos pais por uma educação de qualidade para os filhos",
+    forbidden:  ["comprar agora", "frete grátis"],
+    compliance: "Sem promessa de aprovação garantida sem dado real de resultado da própria instituição.",
+    nicheKeys:  ["escola", "faculdade", "universidade", "curso presencial", "aula particular", "reforço", "reforco", "idioma", "inglês", "ingles", "espanhol", "preparatório", "preparatorio", "enem", "vestibular", "colegio", "colégio", "berçário", "bercario", "creche", "ensino", "educação", "educacao", "professor particular", "tutor", "intercâmbio", "intercambio"],
     detection: {
       nicheKeys: ["escola", "faculdade", "universidade", "curso presencial", "aula particular", "reforço", "reforco", "idioma", "inglês", "ingles", "espanhol", "preparatório", "preparatorio", "enem", "vestibular", "colegio", "colégio", "berçário", "bercario", "creche", "ensino", "educação", "educacao", "professor particular", "tutor", "intercâmbio", "intercambio"],
       promptContext: `Segmento: EDUCAÇÃO presencial. COPIES: Metodologia, corpo docente, infraestrutura, resultados de alunos, valores, diferenciais pedagógicos. CTAs OBRIGATÓRIOS: "Agendar visita" | "Saber mais sobre o curso" | "Falar com coordenador" CTAs PROIBIDOS: "comprar agora", "frete grátis"`,
     },
-    copy: { headline: `📚 ${produto} — ${diferencial}`, description: `${empresa}: ${nichoLabel} com metodologia comprovada.`, cta: "Agendar visita" },
+    copy: { headline: `📚 {produto} — {diferencial}`, description: `{empresa}: {nichoLabel} com metodologia comprovada.`, cta: "Agendar visita" },
     examples: [
       { headline: "Inglês para crianças — Aulas lúdicas", description: "Escola XYZ: método natural de aprendizado para crianças de 4 a 10 anos.", cta: "Agendar visita" },
       { headline: "Pré-Enem — Aprovação garantida", description: "Curso XYZ: 95% de aprovação nos vestibulares.", cta: "Saber mais sobre o curso" },
     ],
-    fallback: { headline: `${empresa} — ${nichoLabel} com metodologia diferenciada`, copy: `Conheça nossos cursos de ${nichoLabel}. Aulas com professores qualificados.`, cta: "Falar com coordenador" },
+    fallback: { headline: `{empresa} — {nichoLabel} com metodologia diferenciada`, copy: `Conheça nossos cursos de {nichoLabel}. Aulas com professores qualificados.`, cta: "Falar com coordenador" },
     strategy: { duration: "30 dias", budget: 50, targetAudience: `25-50 anos (pais) e 16-25 anos (alunos)`, adSets: [
       { name: "TOF — Pais em busca de educação", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Pais de crianças e adolescentes, 30-50 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-50 anos`, cta: "Agendar visita" },
-      { name: "BOF — Matrículas pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pais que iniciaram matrícula de ${nichoLabel}, 30-50 anos`, cta: "Falar com coordenador" },
+      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de {nichoLabel}, 25-50 anos`, cta: "Agendar visita" },
+      { name: "BOF — Matrículas pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pais que iniciaram matrícula de {nichoLabel}, 30-50 anos`, cta: "Falar com coordenador" },
     ]},
-  },
+  } as any,
 
   eventos: {
+    ctaLeads:   ["Agendar visita", "Ver portfolio", "Solicitar orçamento"],
+    ctaSales:   ["Agendar visita", "Ver portfolio", "Solicitar orçamento"],
+    copyHook:   "medo de um evento sair errado / desejo de um momento inesquecível",
+    forbidden:  ["comprar agora"],
+    compliance: "Sem promessa de disponibilidade sem confirmação da agenda real.",
+    nicheKeys:  ["festa", "casamento", "debutante", "aniversário", "aniversario", "evento", "buffet", "decoração", "decoracao", "dj", "som", "iluminação", "iluminacao", "cerimonial", "fotografia", "filmagem", "noiva", "noivo", "festa de 15", "festa infantil", "chá de bebê", "chá de cozinha", "formatura"],
     detection: {
       nicheKeys: ["festa", "casamento", "debutante", "aniversário", "aniversario", "evento", "buffet", "decoração", "decoracao", "dj", "som", "iluminação", "iluminacao", "cerimonial", "fotografia", "filmagem", "noiva", "noivo", "festa de 15", "festa infantil", "chá de bebê", "chá de cozinha", "formatura"],
       promptContext: `Segmento: EVENTOS e festas. COPIES: Experiência, personalização, portfolio, depoimentos de noivos/aniversariantes, pacotes, diferenciais. CTAs OBRIGATÓRIOS: "Agendar visita" | "Ver portfolio" | "Solicitar orçamento" CTAs PROIBIDOS: "comprar agora"`,
     },
-    copy: { headline: `🎉 ${produto} — ${diferencial}`, description: `${empresa}: ${nichoLabel} para momentos inesquecíveis.`, cta: "Solicitar orçamento" },
+    copy: { headline: `🎉 {produto} — {diferencial}`, description: `{empresa}: {nichoLabel} para momentos inesquecíveis.`, cta: "Solicitar orçamento" },
     examples: [
       { headline: "Buffet de casamento — Menu degustação grátis", description: "Buffet XYZ: gastronomia premium para até 300 convidados.", cta: "Agendar visita" },
       { headline: "Decoração de festa infantil — Temas exclusivos", description: "Decoração XYZ: projetos personalizados para festas de 1 a 10 anos.", cta: "Ver portfolio" },
     ],
-    fallback: { headline: `${empresa} — ${nichoLabel} para momentos especiais`, copy: `Conheça nossos serviços de ${nichoLabel}. Orçamento personalizado.`, cta: "Solicitar orçamento" },
+    fallback: { headline: `{empresa} — {nichoLabel} para momentos especiais`, copy: `Conheça nossos serviços de {nichoLabel}. Orçamento personalizado.`, cta: "Solicitar orçamento" },
     strategy: { duration: "30 dias", budget: 50, targetAudience: `25-45 anos (noivos/aniversariantes)`, adSets: [
       { name: "TOF — Noivos e aniversariantes", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Noivos e pais de debutantes, 25-45 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do portfolio", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-45 anos`, cta: "Ver portfolio" },
-      { name: "BOF — Orçamentos solicitados", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que solicitaram orçamento de ${nichoLabel}, 25-45 anos`, cta: "Solicitar orçamento" },
+      { name: "MOF — Visitantes do portfolio", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de {nichoLabel}, 25-45 anos`, cta: "Ver portfolio" },
+      { name: "BOF — Orçamentos solicitados", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que solicitaram orçamento de {nichoLabel}, 25-45 anos`, cta: "Solicitar orçamento" },
     ]},
-  },
+  } as any,
 
   turismo: {
+    ctaLeads:   ["Reservar agora", "Ver disponibilidade", "Falar com consultor"],
+    ctaSales:   ["Reservar agora", "Ver disponibilidade", "Falar com consultor"],
+    copyHook:   "desejo de descanso e experiências únicas em viagem",
+    forbidden:  ["comprar agora", "agendar consulta"],
+    compliance: "Preços e disponibilidade sujeitos a temporada e confirmação direta.",
+    nicheKeys:  ["hotel", "pousada", "hostel", "turismo", "viagem", "passeio", "tour", "resort", "agência de viagens", "agencia de viagens", "pacote turístico", "pacote turistico", "hospedagem", "quarto", "diária", "diaria", "praia", "montanha", "serra", "cachoeira", "ecoturismo", "cruzeiro"],
     detection: {
       nicheKeys: ["hotel", "pousada", "hostel", "turismo", "viagem", "passeio", "tour", "resort", "agência de viagens", "agencia de viagens", "pacote turístico", "pacote turistico", "hospedagem", "quarto", "diária", "diaria", "praia", "montanha", "serra", "cachoeira", "ecoturismo", "cruzeiro"],
       promptContext: `Segmento: TURISMO e hotelaria. COPIES: Experiência, localização, diferenciais, pacotes, temporada, avaliações de hóspedes. CTAs OBRIGATÓRIOS: "Reservar agora" | "Ver disponibilidade" | "Falar com consultor" CTAs PROIBIDOS: "comprar agora" (a menos que seja pacote), "agendar consulta"`,
     },
-    copy: { headline: `🏖️ ${produto} — ${diferencial}`, description: `${empresa}: ${nichoLabel} com vista privilegiada.`, cta: "Ver disponibilidade" },
+    copy: { headline: `🏖️ {produto} — {diferencial}`, description: `{empresa}: {nichoLabel} com vista privilegiada.`, cta: "Ver disponibilidade" },
     examples: [
       { headline: "Pousada na Praia Brava — Vista para o mar", description: "Pousada XYZ: café da manhã regional e atendimento personalizado.", cta: "Reservar agora" },
       { headline: "Tour gastronômico — Sabores de Itajaí", description: "Tour XYZ: 5 paradas em restaurantes típicos da região.", cta: "Falar com consultor" },
     ],
-    fallback: { headline: `${empresa} — ${nichoLabel} com experiência única`, copy: `Conheça nossas opções de ${nichoLabel}. Reserve com antecedência.`, cta: "Ver disponibilidade" },
-    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-55 anos interessados em ${nichoLabel}`, adSets: [
+    fallback: { headline: `{empresa} — {nichoLabel} com experiência única`, copy: `Conheça nossas opções de {nichoLabel}. Reserve com antecedência.`, cta: "Ver disponibilidade" },
+    strategy: { duration: "30 dias", budget: 50, targetAudience: `25-55 anos interessados em {nichoLabel}`, adSets: [
       { name: "TOF — Viajantes em planejamento", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Interesse em viagem e turismo, 25-55 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-55 anos`, cta: "Ver disponibilidade" },
-      { name: "BOF — Reservas iniciadas", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que iniciaram reserva de ${nichoLabel}, 25-55 anos`, cta: "Reservar agora" },
+      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de {nichoLabel}, 25-55 anos`, cta: "Ver disponibilidade" },
+      { name: "BOF — Reservas iniciadas", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Pessoas que iniciaram reserva de {nichoLabel}, 25-55 anos`, cta: "Reservar agora" },
     ]},
-  },
+  } as any,
 
   pet: {
+    ctaLeads:   ["Agendar banho e tosa", "Falar com veterinário", "Ver produtos"],
+    ctaSales:   ["Agendar banho e tosa", "Falar com veterinário", "Ver produtos"],
+    copyHook:   "amor e preocupação com o bem-estar do pet",
+    forbidden:  ["comprar agora", "aula grátis"],
+    compliance: "Sem promessa de diagnóstico ou cura de condições de saúde animal sem avaliação veterinária.",
+    nicheKeys:  ["pet", "animal", "cachorro", "gato", "veterinário", "veterinario", "petshop", "ração", "racao", "adestramento", "banho e tosa", "clínica veterinária", "clinica veterinaria", "cuidado animal", "hotel para cachorro", "creche canina", "passeador de cães"],
     detection: {
       nicheKeys: ["pet", "animal", "cachorro", "gato", "veterinário", "veterinario", "petshop", "ração", "racao", "adestramento", "banho e tosa", "clínica veterinária", "clinica veterinaria", "cuidado animal", "hotel para cachorro", "creche canina", "passeador de cães"],
       promptContext: `Segmento: PET — cuidados com animais. COPIES: Bem-estar do pet, qualidade do serviço, ambiente seguro, produtos especializados, amor aos animais. CTAs OBRIGATÓRIOS: "Agendar banho e tosa" | "Falar com veterinário" | "Ver produtos" CTAs PROIBIDOS: "comprar agora" (a menos que seja loja de produtos), "aula grátis"`,
     },
-    copy: { headline: `🐾 ${produto} — ${diferencial}`, description: `${empresa}: ${nichoLabel} com carinho e profissionalismo.`, cta: "Agendar serviço" },
+    copy: { headline: `🐾 {produto} — {diferencial}`, description: `{empresa}: {nichoLabel} com carinho e profissionalismo.`, cta: "Agendar serviço" },
     examples: [
       { headline: "Banho e tosa — Seu pet merece o melhor", description: "Petshop XYZ: produtos hipoalergênicos e ambiente climatizado.", cta: "Agendar banho e tosa" },
       { headline: "Veterinário 24h — Atendimento de emergência", description: "Clínica XYZ: plantão veterinário todos os dias da semana.", cta: "Falar com veterinário" },
     ],
-    fallback: { headline: `${empresa} — ${nichoLabel} com amor e cuidado`, copy: `Conheça nossos serviços de ${nichoLabel}. Seu pet em boas mãos.`, cta: "Agendar serviço" },
+    fallback: { headline: `{empresa} — {nichoLabel} com amor e cuidado`, copy: `Conheça nossos serviços de {nichoLabel}. Seu pet em boas mãos.`, cta: "Agendar serviço" },
     strategy: { duration: "30 dias", budget: 50, targetAudience: `25-50 anos (tutores de pets)`, adSets: [
       { name: "TOF — Tutores de pets", funnelStage: "topo", objective: "awareness", budget: 20, audience: `Tutores de cães e gatos, 25-50 anos`, cta: "Saber mais" },
-      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de ${nichoLabel}, 25-50 anos`, cta: "Agendar serviço" },
-      { name: "BOF — Agendamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Tutores que iniciaram agendamento de ${nichoLabel}, 25-50 anos`, cta: "Confirmar agendamento" },
+      { name: "MOF — Visitantes do site", funnelStage: "meio", objective: "consideration", budget: 15, audience: `Visitantes do site de {nichoLabel}, 25-50 anos`, cta: "Agendar serviço" },
+      { name: "BOF — Agendamentos pendentes", funnelStage: "fundo", objective: "conversion", budget: 15, audience: `Tutores que iniciaram agendamento de {nichoLabel}, 25-50 anos`, cta: "Confirmar agendamento" },
     ]},
-  },
+  } as any,
 };
 
 // Detecta segmento pelo nicho (usado quando segment não é passado explicitamente)
@@ -1148,7 +1184,7 @@ export function detectSegmentFromNiche(niche: string): string {
   if (realEstate) return realEstate;
   const n = niche.toLowerCase();
   for (const [seg, rules] of Object.entries(SEGMENT_COPY_RULES)) {
-    if (rules.nicheKeys.some(k => n.includes(k))) return seg;
+    if (rules.nicheKeys.some(k => matchesNicheKeyword(n, k))) return seg;
   }
   return "outro";
 }
@@ -2635,7 +2671,7 @@ function mockResponse(prompt: string): string {
         headline: "Oferta especial — consulte disponibilidade",
         copy: `Conheça nossos serviços de ${nichoLabel}. Entre em contato para mais informações.`,
         bodyText: `Conheça nossos serviços de ${nichoLabel}. Entre em contato para mais informações.`,
-        hook: "Vagas disponíveis para ${nichoLabel}",
+        hook: `Vagas disponíveis para ${nichoLabel}`,
         pain: "Risco de perder a oportunidade",
         solution: "Ação imediata com garantia de satisfação",
         cta: "Aproveitar Agora", funnelStage: "BOF", complianceScore: "safe",
@@ -3152,7 +3188,7 @@ export function buildBaseTemplate(
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
       // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
       // e estatisticas fabricadas (nao vem de nenhum dado real do cliente).
-      default:  { h: `${vars.produto} — feito com cuidado para você`, b: `${vars.empresa} — ${nichoLabel} com qualidade. Entre em contato.`, c: "Quero mudar" },
+      default:  { h: `${vars.produto} — feito com cuidado para você`, b: `${vars.empresa} — ${niche} com qualidade. Entre em contato.`, c: "Quero mudar" },
     },
     rational: {
       imoveis:  { h: `${vars.produto}: avalie os detalhes`, b: `Conheça os detalhes de ${vars.empresa} e tire suas dúvidas.`, c: "Ver detalhes" },
