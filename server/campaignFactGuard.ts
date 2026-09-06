@@ -664,6 +664,28 @@ function collectTextFields(value: unknown, prefix = "root", out: Array<{ field: 
   return out;
 }
 
+// Achado real (Gra Kau Delícias, campanha #754): "entrega em casa" numa
+// confeitaria bastava pra propertyType virar "casa" (detectPropertyType é
+// cego pro sentido — "casa" no dia a dia quase sempre é "para casa"/"em
+// casa", não uma casa à venda) e a campanha inteira era desviada pro
+// gerador de imóveis (buildRealEstateCarouselAngles) sem NENHUM outro
+// sinal de imóvel — sem área, sem finalidade, sem endereço — produzindo
+// "Imóvel"/"Agendar visita" pra brigadeiro. Corrigido: propertyType
+// sozinho não basta mais como sinal de imóvel — precisa de pelo menos
+// mais um fato tipicamente imobiliário (área, finalidade locação/venda/
+// temporada ou endereço) confirmado junto. Vale pra QUALQUER segmento,
+// não é uma lista de nichos a manter — o gate fica mais rigoroso, não
+// mais abrangente.
+export function resolveIsRealEstate(initialSegment: string, facts: CampaignFacts): boolean {
+  if (initialSegment.startsWith("imoveis_")) return true;
+  const hasCorroboratingSignal = !!(
+    facts.realEstate.areaM2 ||
+    facts.realEstate.purpose ||
+    facts.realEstate.address
+  );
+  return !!facts.realEstate.propertyType && hasCorroboratingSignal;
+}
+
 export function validateCampaignFactIntegrity(
   creatives: unknown[],
   facts: CampaignFacts,
