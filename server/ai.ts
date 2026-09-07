@@ -23,7 +23,7 @@ import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignInte
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
-import { detectRealEstateSegment, matchesNicheKeyword } from "../shared/segmentConfig";
+import { detectRealEstateSegment, matchesNicheKeyword, pickMostSpecificSegmentMatch } from "../shared/segmentConfig";
 import { normalizeCopyText, trimCopyField as trimMetaField, isWeakGeneratedCopy, getCarouselEditorialIssues } from "../shared/campaignCopyQuality";
 import { buildRealEstateCarouselAngles } from "./carouselCopy";
 
@@ -973,7 +973,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "disponibilidade imediata / facilidade de mudança / localização ideal",
     forbidden:  ["guia grátis", "ebook", "baixar", "download", "comprar", "financiar"],
     compliance: "Não discriminar por raça, família, religião. Fotos reais do imóvel.",
-    nicheKeys:  ["locaç", "alugu", "aluguel", "temporada", "airbnb"],
+    nicheKeys:  ["locação", "locacao", "aluguel", "alugar", "alugando", "locar", "locando", "temporada", "airbnb"],
   },
   ecommerce: {
     ctaLeads:   ["Cadastrar e ganhar desconto", "Quero receber ofertas", "Entrar na lista VIP"],
@@ -981,7 +981,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "produto + preço + frete grátis + prazo de entrega rápido",
     forbidden:  ["agendar visita", "falar com corretor", "avaliação gratuita", "guia"],
     compliance: "Preço exato. Desconto real. Fotos reais do produto.",
-    nicheKeys:  ["ecommerce", "loja", "produto", "varejo", "e-commerce"],
+    nicheKeys:  ["ecommerce", "loja", "produto", "varejo", "e-commerce", "shopify"],
   },
   servicos_locais: {
     ctaLeads:   ["Agendar agora", "Ligar agora", "Ver horários disponíveis", "Reservar meu horário", "Quero marcar"],
@@ -1013,7 +1013,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "foto apetitosa + velocidade de entrega + preço especial do dia",
     forbidden:  ["agendar visita", "guia grátis", "ebook", "curso", "avaliação"],
     compliance: "Foto real do produto. Preço exato. Álcool: configurar restrição de idade.",
-    nicheKeys:  ["restaurante", "alimentação", "alimentacao", "alimentício", "alimenticio", "alimentar", "delivery", "lanche", "comida", "gastronomia", "bar", "culinária", "culinaria", "pizza", "pizzaria", "doce", "doceria", "brigadeiro", "sobremesa", "confeitaria", "confeiteiro", "confeiteira", "padaria", "bolo", "salgado", "encomendas", "presentes"],
+    nicheKeys:  ["restaurante", "alimentação", "alimentacao", "alimentício", "alimenticio", "alimentar", "delivery", "lanche", "comida", "gastronomia", "bar", "culinária", "culinaria", "pizza", "pizzaria", "confeiteiro", "confeiteira", "doce", "doceria", "docinho", "padaria", "confeitaria", "bolo", "brigadeiro", "sobremesa", "salgado", "encomendas", "presentes", "cafeteria", "hamburgueria"],
   },
   moda_varejo: {
     ctaLeads:   ["Ver nova coleção", "Cadastrar para receber novidades"],
@@ -1029,7 +1029,7 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     copyHook:   "ROI específico + problema que resolve + credibilidade com número de clientes",
     forbidden:  ["comprar agora", "frete grátis", "entrega rápida", "guia para iniciantes"],
     compliance: "Sem promessas de resultado garantido. Use 'pode', 'ajuda a', 'contribui para'.",
-    nicheKeys:  ["b2b", "empresa", "saas", "software", "tecnologia", "gestão", "gestao"],
+    nicheKeys:  ["b2b", "empresa", "saas", "software", "tecnologia", "gestão", "gestao", "corporativo"],
   },
 
 
@@ -1094,10 +1094,10 @@ export function detectSegmentFromNiche(niche: string): string {
   const realEstate = detectRealEstateSegment(niche);
   if (realEstate) return realEstate;
   const n = niche.toLowerCase();
-  for (const [seg, rules] of Object.entries(SEGMENT_COPY_RULES)) {
-    if (rules.nicheKeys.some(k => matchesNicheKeyword(n, k))) return seg;
-  }
-  return "outro";
+  const entries: Array<[string, string[]]> = Object.entries(SEGMENT_COPY_RULES).map(
+    ([seg, rules]) => [seg, rules.nicheKeys],
+  );
+  return pickMostSpecificSegmentMatch(n, entries) ?? "outro";
 }
 
 function resolveSegmentFromCampaignContext(...parts: Array<unknown>): string {
@@ -7054,7 +7054,7 @@ ${creativeSlotInstructions}
         {
           headline: "Doces para pedir hoje",
           description: "Sabor e capricho",
-          copy: "Abra o carrossel pelo que mais chama atenção: doces bem apresentados, com variedade e visual pronto para despertar desejo.\n\nIdeal para presentear, servir em eventos ou garantir uma sobremesa especial.\n\nChame no WhatsApp e veja opções.",
+          copy: "Doces bem apresentados, com variedade e visual pronto para despertar desejo.\n\nIdeal para presentear, servir em eventos ou garantir uma sobremesa especial.\n\nChame no WhatsApp e veja opções.",
           hook: "Doces que chamam atenção",
           pain: "Encontrar doces bonitos, confiáveis e fáceis de encomendar.",
           solution: "Pedido direto, fotos reais e atendimento pelo WhatsApp.",
@@ -7063,7 +7063,7 @@ ${creativeSlotInstructions}
         {
           headline: "Variedade na mesma caixa",
           description: "Opções para todos",
-          copy: "Mostre a variedade antes do preço: sabores diferentes ajudam o cliente a imaginar a caixa chegando na mesa, no presente ou na comemoração.\n\nA escolha fica mais simples quando o visual já mostra o capricho.\n\nPeça o cardápio.",
+          copy: "Sabores diferentes na mesma caixa, para você imaginar chegando na mesa, no presente ou na comemoração.\n\nA escolha fica mais simples quando o capricho já aparece no visual.\n\nPeça o cardápio.",
           hook: "Uma caixa, vários sabores",
           pain: "Escolher doces sem saber quais sabores combinam melhor.",
           solution: "Variedade visual para facilitar a decisão do pedido.",
@@ -7072,7 +7072,7 @@ ${creativeSlotInstructions}
         {
           headline: "Encomendas com carinho",
           description: "Feito para ocasião",
-          copy: "Para eventos, lembranças ou uma entrega especial, o que vende é confiança: doces bem montados, acabamento cuidadoso e contato rápido para combinar detalhes.\n\nUse o WhatsApp para consultar disponibilidade.\n\nFaça sua encomenda.",
+          copy: "Para eventos, lembranças ou uma entrega especial, o que conta é confiança: doces bem montados, acabamento cuidadoso e contato rápido pra combinar os detalhes.\n\nUse o WhatsApp para consultar disponibilidade.\n\nFaça sua encomenda.",
           hook: "Encomende para sua ocasião",
           pain: "Precisar de doces para uma data e não querer arriscar.",
           solution: "Atendimento direto para combinar sabores, quantidade e entrega.",
@@ -7085,7 +7085,7 @@ ${creativeSlotInstructions}
         {
           headline: "Atendimento perto de você",
           description: "Agende pelo WhatsApp",
-          copy: "Comece com clareza: mostre o serviço, a região atendida e o próximo passo para marcar sem complicação.\n\nQuem está procurando solução local quer resposta rápida e orientação objetiva.\n\nChame no WhatsApp.",
+          copy: "Serviço com informação clara: o que oferecemos, a região atendida e como marcar sem complicação.\n\nResposta rápida e orientação objetiva para quem está procurando solução local.\n\nChame no WhatsApp.",
           hook: "Atendimento local e direto",
           pain: "Encontrar um serviço confiável e conseguir horário com facilidade.",
           solution: "Contato rápido para tirar dúvidas e agendar atendimento.",
@@ -7098,7 +7098,7 @@ ${creativeSlotInstructions}
         {
           headline: "Aprenda com direção clara",
           description: "Comece com método",
-          copy: "O primeiro card precisa mostrar a transformação prometida sem exagero: o que a pessoa aprende, por que isso importa e qual é o próximo passo.\n\nUse uma chamada simples para inscrição ou aula.\n\nVeja como começar.",
+          copy: "A transformação que você busca, sem exagero: o que você aprende, por que isso importa e qual é o próximo passo.\n\nInscreva-se ou agende uma aula.\n\nVeja como começar.",
           hook: "Aprenda com um caminho claro",
           pain: "Querer evoluir, mas não saber por onde começar.",
           solution: "Conteúdo organizado com próximo passo simples.",
@@ -7111,7 +7111,7 @@ ${creativeSlotInstructions}
         {
           headline: "Produto em destaque",
           description: "Veja os detalhes",
-          copy: "Use o visual do produto para abrir o desejo e deixe o texto explicar benefício, uso e caminho de compra.\n\nO cliente precisa entender rápido por que esse item vale o clique.\n\nVeja a oferta.",
+          copy: "O produto que você precisa, com benefício, uso e caminho de compra claros.\n\nEntenda rápido por que vale a pena — e garanta o seu.\n\nVeja a oferta.",
           hook: "Veja o produto em detalhes",
           pain: "Comprar sem entender bem o benefício do produto.",
           solution: "Imagem real, informação objetiva e caminho de compra claro.",
@@ -7135,7 +7135,7 @@ ${creativeSlotInstructions}
       {
         headline: "Detalhes que importam",
         description: "Informação objetiva",
-        copy: "Cada card destaca um ponto concreto da oferta para facilitar a decisão: benefícios, características confirmadas e chamada direta para contato.\n\nFale com a equipe para saber mais.",
+        copy: "Cada card com um ponto concreto da oferta para facilitar sua decisão: benefícios, características confirmadas e um caminho direto de contato.\n\nFale com a equipe para saber mais.",
         hook: "Informação para decidir",
         pain: "Comparar opções sem detalhes claros.",
         solution: "Cards organizados com benefício e próximo passo.",

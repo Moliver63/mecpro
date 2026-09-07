@@ -185,7 +185,7 @@ COMPLIANCE: Sem valorização garantida. Sem "melhor preço" sem comprovação.`
       qualifyingOptions:   ["Moradia longa duração", "Temporada / Airbnb", "Comercial / Escritório"],
     },
     detection: {
-      nicheKeys:    ["locaç", "alugu", "aluguel", "temporada", "airbnb", "alugar"],
+      nicheKeys:    ["locação", "locacao", "aluguel", "alugar", "alugando", "locar", "locando", "temporada", "airbnb"],
       promptContext: `Segmento: Imóveis para LOCAÇÃO/ALUGUEL.
 COPIES: Disponibilidade imediata, valor do aluguel, localização e facilidades incluídas.
 CTAs OBRIGATÓRIOS: "Ver disponibilidade" | "Agendar visita" | "Consultar valores"
@@ -405,7 +405,7 @@ COMPLIANCE CRÍTICO: Meta bane anúncios de saúde com before/after.`,
       // "outro" — o que, junto com o bug do isRealEstate acima, contribuiu
       // pro desvio pro gerador de imóveis. Ampliado pra cobrir confeitaria/
       // doceria/padaria, que são alimentacao mas não usam essas palavras.
-      nicheKeys:    ["restaurante", "alimentação", "alimentacao", "alimentício", "alimenticio", "alimentar", "delivery", "lanche", "comida", "gastronomia", "bar", "pizza", "pizzaria", "confeiteiro", "confeiteira", "doce", "doceria", "docinho", "padaria", "confeitaria", "bolo", "brigadeiro", "encomendas", "presentes", "cafeteria", "hamburgueria"],
+      nicheKeys:    ["restaurante", "alimentação", "alimentacao", "alimentício", "alimenticio", "alimentar", "delivery", "lanche", "comida", "gastronomia", "bar", "culinária", "culinaria", "pizza", "pizzaria", "confeiteiro", "confeiteira", "doce", "doceria", "docinho", "padaria", "confeitaria", "bolo", "brigadeiro", "sobremesa", "salgado", "encomendas", "presentes", "cafeteria", "hamburgueria"],
       promptContext: `Segmento: ALIMENTAÇÃO E DELIVERY.
 COPIES: Apelo visual + velocidade + preço especial do dia.
 CTAs OBRIGATÓRIOS: "Pedir agora" | "Ver cardápio" | "Pedir no WhatsApp"
@@ -686,10 +686,18 @@ export function getSegmentCopy(value: string): SegmentCopy {
 /** Detecta segmento automaticamente pelo nicho do cliente */
 export function detectRealEstateSegment(value: string): string | null {
   const text = String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const property = /\b(imoveis(?:_venda|_locacao)?|imovel|imobiliari[ao]s?|apartamento|cobertura|sala comercial|casa|terreno|condominio)\b/.test(text);
+  // Achado real (Gra Kau Delícias, campanha #761, encontrado ao testar a
+  // correção de especificidade): "apartamentos" (plural) não batia com
+  // \bapartamento\b (só singular) — "Aluguel de apartamentos" caía no
+  // fallback de nicheKeys genérico, onde "apartamento" (tipo do imóvel,
+  // palavra mais longa) vencia "aluguel" (finalidade, palavra mais curta)
+  // pelo critério de especificidade, dando imoveis_venda em vez de
+  // imoveis_locacao — errado. Corrigido tolerando plural aqui, que é o
+  // check mais específico e deveria capturar o caso primeiro.
+  const property = /\b(imoveis(?:_venda|_locacao)?|imove(?:l|is)|imobiliari[ao]s?|apartamentos?|coberturas?|sala(?:s)? comerci(?:al|ais)|casas?|terrenos?|condominios?)\b/.test(text);
   if (!property) return null;
   // Broad property words must not win over the explicit rental purpose.
-  return /\b(locacao|aluguel|alugar|locar|temporada|airbnb)\b|imoveis_locacao/.test(text)
+  return /\b(locacao|aluguel|alugueis|alugar|alugando|locar|locando|temporada|airbnb)\b|imoveis_locacao/.test(text)
     ? "imoveis_locacao"
     : "imoveis_venda";
 }
@@ -716,15 +724,43 @@ export function matchesNicheKeyword(normalizedText: string, key: string): boolea
   return new RegExp(`\\b${escaped}s?\\b`, "i").test(normalizedText);
 }
 
+// Achado real (Gra Kau Delícias, campanha #761): "Loja de doces e
+// brigadeiros" classificava como "ecommerce" em vez de "alimentacao" —
+// "loja" é uma nicheKey genérica de ecommerce que bate em QUALQUER
+// comércio (confeitaria, moda, material de construção também "são uma
+// loja"), e o primeiro segmento verificado na ordem do objeto vencia,
+// mesmo quando um termo bem mais específico ("doces"/"brigadeiro") de
+// outro segmento também batia no mesmo texto. Corrigido: em vez de
+// devolver o primeiro segmento cuja nicheKey bate, escaneia TODOS os
+// segmentos e devolve o que bateu com a palavra-chave MAIS ESPECÍFICA
+// (mais longa) — "confeitaria"/"brigadeiro" (mais específicas) vencem
+// "loja"/"produto" (genéricas o suficiente pra descrever qualquer
+// comércio). Reaproveitada nos dois sistemas de segmento desta base.
+export function pickMostSpecificSegmentMatch(
+  normalizedText: string,
+  entries: Array<[string, string[]]>,
+): string | null {
+  let best: { segment: string; keyLength: number } | null = null;
+  for (const [segment, nicheKeys] of entries) {
+    for (const key of nicheKeys) {
+      if (!matchesNicheKeyword(normalizedText, key)) continue;
+      if (!best || key.length > best.keyLength) {
+        best = { segment, keyLength: key.length };
+      }
+    }
+  }
+  return best?.segment ?? null;
+}
+
 export function detectSegmentFromNiche(niche: string): string {
   if (!niche) return "outro";
   const realEstate = detectRealEstateSegment(niche);
   if (realEstate) return realEstate;
   const n = niche.toLowerCase();
-  for (const [key, def] of Object.entries(SEGMENT_CONFIG)) {
-    if (def.detection.nicheKeys.some(k => matchesNicheKeyword(n, k))) return key;
-  }
-  return "outro";
+  const entries: Array<[string, string[]]> = Object.entries(SEGMENT_CONFIG).map(
+    ([key, def]) => [key, def.detection.nicheKeys],
+  );
+  return pickMostSpecificSegmentMatch(n, entries) ?? "outro";
 }
 
 /** Monta o bloco de instrução para o prompt da IA */

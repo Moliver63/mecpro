@@ -8,6 +8,7 @@ import {
 } from "../campaignFactGuard";
 import { equivalentCanonicalFact, normalizeCanonicalFact } from "../factNormalizer";
 import { detectSegmentFromNiche } from "../../shared/segmentConfig";
+import { detectSegmentFromNiche as aiDetectSegmentFromNiche } from "../ai";
 
 const morebemInput = {
   name: "Morebem Imoveis - Sala Comercial Rua 902",
@@ -782,4 +783,37 @@ test("niche keyword matching tolerates singular/plural variation", () => {
   assert.equal(detectSegmentFromNiche("brigadeiros por encomenda"), "alimentacao");
   assert.equal(detectSegmentFromNiche("Doceria"), "alimentacao");
   assert.equal(detectSegmentFromNiche("pizzaria"), "alimentacao");
+});
+
+// ── Achado real (Gra Kau Delícias, campanha #761): "Loja de doces e
+// brigadeiros" classificava como "ecommerce" em vez de "alimentacao" —
+// "loja" é uma nicheKey genérica que bate em qualquer comércio, e o
+// primeiro segmento verificado na ordem do objeto vencia mesmo quando um
+// termo bem mais específico de outro segmento também batia no mesmo texto.
+test("prefers the most specific matching keyword over a generic one that happens to be checked first", () => {
+  assert.equal(detectSegmentFromNiche("Loja de doces e brigadeiros"), "alimentacao");
+  assert.equal(detectSegmentFromNiche("Loja de docinhos"), "alimentacao");
+  // Controle: uma loja sem nenhum termo mais específico continua "ecommerce".
+  assert.equal(detectSegmentFromNiche("Loja de produtos variados"), "ecommerce");
+});
+
+// ── Achado real (mesma correção): as nicheKeys de alimentacao tinham
+// divergido silenciosamente entre server/ai.ts e shared/segmentConfig.ts
+// (ex.: "docinho" só existia num dos dois) — cada sistema respondia
+// diferente pro mesmo nicho. Unificadas numa lista só, reaproveitada nos
+// dois lugares.
+test("both segment systems agree on the same niche classification", () => {
+  const cases = ["Loja de docinhos", "Confeitaria", "buffet de casamento", "imobiliária"];
+  for (const niche of cases) {
+    assert.equal(aiDetectSegmentFromNiche(niche), detectSegmentFromNiche(niche), `divergência para "${niche}"`);
+  }
+});
+
+// ── Achado real (mesma correção): "locaç"/"alugu" eram radicais truncados
+// que, depois do limite de palavra estrito, pararam de bater com QUALQUER
+// coisa (nem "locação" nem "aluguel" nem "alugar" mais funcionavam).
+// Corrigido pras formas completas.
+test("locacao/aluguel niche keywords still match after switching to whole-word matching", () => {
+  assert.equal(aiDetectSegmentFromNiche("Imobiliária especializada em locação"), "imoveis_locacao");
+  assert.equal(aiDetectSegmentFromNiche("Aluguel de apartamentos"), "imoveis_locacao");
 });

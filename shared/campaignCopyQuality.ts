@@ -29,6 +29,15 @@ export function hasInternalCopyLanguage(value: unknown): boolean {
     /\b(?:aqui a narrativa|a copy deve|o texto permanece|a campanha (?:apresenta somente|nao transforma))\b/,
     /\ba foto (?:real )?(?:orienta|funciona como|abre desejo|destaca variedade|tem impacto|traz informacao)\b/,
     /\b(?:sem herdar dados|sem numeros inventados|sem valor inventado|sem acrescentar promessas externas)\b/,
+    // Achado real (Gra Kau Delícias, campanha #761): fallback escrito como
+    // instrução pra um redator em vez de copy de fato ("Use o visual do
+    // produto para abrir o desejo...", "O cliente precisa entender rápido
+    // por que..."). Padrão geral: frase imperativa em 2ª/3ª pessoa dando
+    // orientação de COMO escrever o anúncio, não o próprio anúncio.
+    /\buse (?:o|a|uma|este|esta)\s+\w+\s+para\s+(?:abrir|explicar|mostrar|destacar)\b/,
+    /\bo cliente precisa entender\b/,
+    /\b(?:mostre|destaque|explique)\s+(?:o|a|os|as)\s+(?:servico|beneficio|diferencial|produto|transformacao)\b.*:/,
+    /\bdeixe o texto\b/,
   ].some((pattern) => pattern.test(text));
 }
 
