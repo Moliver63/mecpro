@@ -273,7 +273,7 @@ const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|(?:\d{
 // sempre usaram nome de rua numérico ("Rua 902"), nunca um nome com
 // artigo (das/dos/da/do) e mais de uma palavra. Corrigida pra aceitar
 // até 3 palavras antes do número final, com ou sem artigo.
-const addressPattern = /\b(?:rua|avenida|av\.?|r\.?)\s+(?:d[aoe]s?\s+)?(?:[a-zà-ÿ]+\s+){0,3}[a-zà-ÿ0-9]+(?:[\s,]+(?:n[ºo]\.?\s*)?\d{1,6})?\b/i;
+const addressPattern = /\b(?:rua|avenida|av\.?|r\.?)\s+(?:d[aoe]s?\s+)?(?:[a-zà-ÿ]+\s+){0,3}[a-zà-ÿ0-9]+(?:[\s,]+(?:(?:n(?:[ºo])?|numero|num)\.?\s*)?\d{1,6})?\b/i;
 const bedroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+(?:quartos?|dormit[oó]rios?)\\b`, "i");
 const suitesPattern = new RegExp(`\\b${numberWordPattern}\\s+su[ií]tes?\\b`, "i");
 const bathroomsPattern = new RegExp(`\\b${numberWordPattern}\\s+banheiros?\\b`, "i");

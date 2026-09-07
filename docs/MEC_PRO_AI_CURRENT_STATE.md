@@ -113,6 +113,8 @@ Atualizacao 2026-09-02: quando o gate recebe os criativos gerados, carrossel pas
 
 Atualizacao 2026-09-03: o caminho real de publicacao `campaigns.publishToMeta` tambem audita carrossel antes de chamar a API da Meta. A trava valida os criativos fonte e os `child_attachments` finais, bloqueando headline/description/copy curta ou repetida. Isso fecha a diferenca entre publicacao via MCP e publicacao pelo botao do Campaign Builder.
 
+Atualizacao 2026-09-07: o gate de midia de carrossel tambem conta imagens/videos ja anexados aos criativos gerados (`feedImageUrl`, `storyImageUrl`, `squareImageUrl`, hashes, videos e assets do `creativeSystemV2`). Isso evita bloquear falsamente campanhas com imagens geradas/re-hospedadas quando nao houve upload manual do usuario. A regra continua bloqueando carrossel sem midia real por card.
+
 O MCP expõe esse diagnostico em `assess_campaign_briefing` e tambem retorna `qualityGateReport` em `generate_campaign`. O `generate_campaign` bloqueia quando o gate de geracao encontra informacoes obrigatorias ausentes.
 
 Regra pratica: antes de pedir para o modelo gerar ou publicar, o cliente MCP deve chamar `assess_campaign_briefing` e usar `qualityGateReport.questions` para perguntar somente o que falta.
@@ -136,6 +138,8 @@ Em carrossel, cada card precisa ter um angulo proprio. Repetir a mesma headline/
 Atualizacao 2026-09-02: antes do Quality Gate final, o `generateCampaign` aplica uma reparacao deterministica quando detecta carrossel repetido. Para imoveis, ele reescreve os cards com angulos distintos e seguros: abertura com dados principais, localizacao, estrutura, condicao comercial, uso alinhado ao briefing e CTA. Para outros segmentos, ele tambem distribui angulos diferentes ate 5 cards. A reparacao preserva as midias e usa apenas fatos confirmados; se ainda houver conflito ou repeticao, o Fact Guard/Quality Gate continua bloqueando.
 
 Atualizacao 2026-09-02: a reparacao de carrossel repetido agora tambem usa os sinais visuais de cada foto (`photoRole`, `photoCopyAngle`, `visualSignals`) para abrir a copy do card com um angulo compatível com a imagem. O Campaign Builder interno deve repassar `imageInsights` como `photoInsights`, que e o campo lido pelo `generateCampaign`.
+
+Atualizacao 2026-09-07: o payload do Cloudflare Workers AI para FLUX deve enviar somente campos aceitos pelo modelo. Instrucao negativa contra texto/logos fica embutida no `prompt`; nao usar `negative_prompt`, pois o endpoint rejeita propriedades extras e derruba para fallback desnecessariamente.
 
 Para sala comercial de uso amplo, os criativos devem usar linguagem neutra: `atividade profissional`, `rotina profissional`, `operacao`, `negocio`, `atendimento profissional` e `espaco comercial`. Nao transformar publico-alvo possivel em tipo de operacao especifica sem confirmacao.
 

@@ -120,6 +120,11 @@ function creativeHasUsableMedia(creative: unknown): boolean {
   return false;
 }
 
+function countCreativesWithUsableMedia(creatives: unknown): number {
+  if (!Array.isArray(creatives)) return 0;
+  return creatives.filter((creative) => creativeHasUsableMedia(creative)).length;
+}
+
 function addCarouselCreativeIssues(
   input: CampaignQualityGateInput,
   mediaFormat: string,
@@ -306,12 +311,14 @@ export function evaluateCampaignQualityGates(
   const readiness = evaluateCampaignBriefingReadiness(input, clientProfile);
   const objective = normalizeCampaignObjective(input.objective || clientProfile?.campaignObjective);
   const segmentIssues = buildSegmentIssues(input, clientProfile, project);
-  const mediaCount =
+  const explicitMediaCount =
     (input.uploadedImages?.length || 0) +
     (input.realPhotosBase64?.length || 0) +
     (input.mediaUrls?.length || 0) +
     (input.hasImages ? 1 : 0) +
     (input.hasVideos ? 1 : 0);
+  const creativeMediaCount = countCreativesWithUsableMedia(input.creatives);
+  const mediaCount = Math.max(explicitMediaCount, creativeMediaCount);
   const creativeCount = Math.max(Number(input.creativesCount || 0), Array.isArray(input.creatives) ? input.creatives.length : 0);
 
   const generationRequired = [...readiness.requiredMissing, ...segmentIssues.filter((issue) => issue.severity === "required")];

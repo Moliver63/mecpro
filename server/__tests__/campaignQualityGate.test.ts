@@ -53,6 +53,53 @@ test("blocks carousel when there are not enough media items", () => {
   assert.ok(report.questions.some((question) => /pelo menos 2/i.test(question)));
 });
 
+test("counts generated creative media for carousel readiness", () => {
+  const generatedCreatives = [
+    {
+      headline: "Sala Comercial 50m2",
+      copy: "Apresente sua atividade profissional em uma sala comercial bem localizada, com metragem confirmada e estrutura pronta para atendimento.",
+      feedImageUrl: "https://res.cloudinary.com/demo/image/upload/card-1.jpg",
+    },
+    {
+      headline: "Rua 902 para atender",
+      copy: "Use a localizacao na Rua 902 como ponto de apoio para clientes que precisam chegar com facilidade e encontrar seu negocio com clareza.",
+      feedImageUrl: "https://res.cloudinary.com/demo/image/upload/card-2.jpg",
+    },
+    {
+      headline: "Locacao com valor claro",
+      copy: "Destaque a locacao mensal de R$ 5.000 para qualificar interessados antes do contato e reduzir conversas fora do perfil.",
+      feedImageUrl: "https://res.cloudinary.com/demo/image/upload/card-3.jpg",
+    },
+  ];
+  const report = evaluateCampaignQualityGates(
+    {
+      action: "generate",
+      objective: "leads",
+      platform: "meta",
+      budget: 300,
+      duration: 10,
+      mediaFormat: "carousel",
+      creatives: generatedCreatives,
+      creativesCount: generatedCreatives.length,
+      factValidationStatus: "passed",
+      extraContext: "Locacao de sala comercial de 50 m2 na Rua 902 por R$ 5.000 mensais, tudo incluso",
+    },
+    {
+      ...baseProfile,
+      uniqueValueProposition: "Sala pronta para atendimento profissional",
+      productDifferentials: "Dois aparelhos de ar-condicionado e estrutura para atendimento",
+      mainPain: "Profissionais precisam de sala bem localizada",
+      desiredTransformation: "Atender clientes em uma sala pronta e bem localizada",
+      mainObjections: "Valor mensal e estrutura inclusa",
+      productPrice: "R$ 5.000 mensais, tudo incluso",
+    },
+    { name: "Morebem - sala comercial" },
+  );
+
+  assert.notEqual(report.status, "blocked");
+  assert.ok(!report.questions.some((question) => /pelo menos 2 imagens/i.test(question)));
+});
+
 test("blocks repeated carousel cards without usable media", () => {
   const repeatedCreatives = Array.from({ length: 5 }, () => ({
     headline: "Espaco Comercial 50m2 - Rua 902",

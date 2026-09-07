@@ -925,6 +925,15 @@ async function imageHasHallucinatedText(buffer: Buffer): Promise<boolean> {
 }
 
 // ── Cloudflare Workers AI ─────────────────────────────────────────────────
+const CF_NO_TEXT_INSTRUCTION =
+  "No text, words, letters, numbers, typography, watermark, logo, caption, label, readable sign, or overlay text.";
+
+function buildCloudflarePrompt(prompt: string, maxLength = 1900): string {
+  const suffix = `\n\n${CF_NO_TEXT_INSTRUCTION}`;
+  const base = String(prompt || "").trim();
+  return `${base.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
+}
+
 // Versão que retorna Buffer (para RAG check antes de upload)
 async function generateWithCloudflareBuffer(
   prompt: string,
@@ -935,13 +944,12 @@ async function generateWithCloudflareBuffer(
   try {
     const dim = FORMAT_DIMENSIONS[format];
     const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_IMAGE_MODEL}`;
-    const safePrompt = prompt.slice(0, 1900);
+    const safePrompt = buildCloudflarePrompt(prompt);
     const res = await fetch(url, {
       method:  "POST",
       headers: { "Authorization": `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: safePrompt,
-        negative_prompt: "text, words, letters, numbers, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, overlay text, printed text, handwriting, speech bubble, banner, poster text, advertising text, any readable text, titles, subtitles, text overlay, lower third text, corrupted text, garbled text, fake text, nonsense text",
         width:  Math.min(dim.width,  1024),
         height: Math.min(dim.height, 1024),
         num_steps: 8,
@@ -985,7 +993,7 @@ async function generateWithCloudflare(
     const dim = FORMAT_DIMENSIONS[format];
     const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_IMAGE_MODEL}`;
 
-    const safePrompt = prompt.slice(0, 1900); // Cloudflare FLUX limit: 2048 chars on /prompt path
+    const safePrompt = buildCloudflarePrompt(prompt); // Cloudflare FLUX limit: 2048 chars on /prompt path
     const res = await fetch(url, {
       method:  "POST",
       headers: {
@@ -994,7 +1002,6 @@ async function generateWithCloudflare(
       },
       body:   JSON.stringify({
         prompt: safePrompt,
-        negative_prompt: "text, words, letters, numbers, typography, watermark, logo, sign, label, caption, title, heading, font, writing, inscription, subtitle, overlay text, printed text, handwriting, speech bubble, banner, poster text, advertising text, any readable text",
         width:  Math.min(dim.width,  1024),
         height: Math.min(dim.height, 1024),
         num_steps: 8,        // mais passos = maior qualidade e melhor aderência ao prompt
