@@ -24,7 +24,14 @@ import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactI
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 import { detectRealEstateSegment, matchesNicheKeyword, pickMostSpecificSegmentMatch } from "../shared/segmentConfig";
-import { normalizeCopyText, trimCopyField as trimMetaField, isWeakGeneratedCopy, getCarouselEditorialIssues } from "../shared/campaignCopyQuality";
+import {
+  normalizeCopyText,
+  trimCopyField as trimMetaField,
+  isWeakGeneratedCopy,
+  getCarouselEditorialIssues,
+  getCreativeEditorialIssues,
+  isRedundantHookText,
+} from "../shared/campaignCopyQuality";
 import { buildRealEstateCarouselAngles } from "./carouselCopy";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
@@ -3072,6 +3079,8 @@ export function buildBaseTemplate(
   niche: string, tone: string, vars: Record<string, string>
 ): { headline: string; body: string; cta: string } {
   const isImoveis  = /imov|imobi|apart|casa/i.test(niche);
+  const segment = detectSegmentFromNiche([niche, vars.produto, vars.empresa].filter(Boolean).join(" "));
+  const isFood = segment === "alimentacao";
   const isServico  = /clinica|saude|beleza|estetica|restaurante/i.test(niche);
   const isTech     = /tech|software|app|saas|digital/i.test(niche);
 
@@ -3091,11 +3100,13 @@ export function buildBaseTemplate(
   const bases: Record<string, Record<string, HBC>> = {
     urgent: {
       imoveis:  { h: `Conheça ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Fale agora para saber disponibilidade e condições.`, c: "Falar agora" },
+      alimentacao: { h: `${vars.produto} para pedir hoje`, b: `${vars.empresa} prepara ${vars.produto} com capricho para encomendas, presentes e momentos especiais. Chame no WhatsApp e veja as opções disponíveis.`, c: "Pedir no WhatsApp" },
       servico:  { h: `Agenda quase cheia — ${vars.produto}`, b: `Poucos horários disponíveis esta semana em ${vars.empresa}.`, c: "Garantir vaga" },
       default:  { h: `${vars.produto} — disponível para encomenda`, b: `${vars.empresa} — atendimento personalizado. Fale conosco para mais informações.`, c: "Aproveitar agora" },
     },
     emotional: {
       imoveis:  { h: `Conheça de perto ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Agende uma visita e veja se combina com você.`, c: "Agendar visita" },
+      alimentacao: { h: `${vars.produto} com carinho`, b: `Tem ocasião que pede um doce bonito, gostoso e bem apresentado. ${vars.empresa} ajuda você a escolher ${vars.produto} para presentear, comemorar ou servir.`, c: "Ver cardápio" },
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
       // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
       // e estatisticas fabricadas (nao vem de nenhum dado real do cliente).
@@ -3103,17 +3114,19 @@ export function buildBaseTemplate(
     },
     rational: {
       imoveis:  { h: `${vars.produto}: avalie os detalhes`, b: `Conheça os detalhes de ${vars.empresa} e tire suas dúvidas.`, c: "Ver detalhes" },
+      alimentacao: { h: `Variedade de ${vars.produto}`, b: `Escolha sabores, quantidades e formato do pedido com atendimento direto. ${vars.empresa} facilita a encomenda para você combinar tudo pelo WhatsApp.`, c: "Consultar opções" },
       servico:  { h: `Resultado que você pode conferir`, b: `${vars.empresa} com atendimento avaliado pelos próprios clientes.`, c: "Ver resultados" },
       default:  { h: `Dados reais: ${vars.produto} funciona`, b: `${vars.empresa} — resultados mensuráveis em 30 dias.`, c: "Ver dados" },
     },
     premium: {
       imoveis:  { h: `${vars.produto} com atendimento consultivo`, b: `${vars.empresa} oferece atendimento personalizado para apresentar ${vars.produto}.`, c: "Solicitar atendimento" },
+      alimentacao: { h: `${vars.produto} bem apresentados`, b: `A apresentação também faz parte da experiência. ${vars.empresa} entrega ${vars.produto} com cuidado visual para festas, lembranças e encomendas especiais.`, c: "Fazer encomenda" },
       servico:  { h: `Experiência premium em ${vars.produto}`, b: `Atendimento VIP em ${vars.empresa}. Seleto por natureza.`, c: "Agendar VIP" },
       default:  { h: `${vars.produto} — nível executivo`, b: `${vars.empresa} para quem não aceita menos que o melhor.`, c: "Quero o premium" },
     },
   };
 
-  const category = isImoveis ? "imoveis" : isServico ? "servico" : "default";
+  const category = isImoveis ? "imoveis" : isFood ? "alimentacao" : isServico ? "servico" : "default";
   const tpl = bases[tone]?.[category] || bases["rational"]["default"];
   return { headline: tpl.h, body: tpl.b, cta: tpl.c };
 }
@@ -7353,6 +7366,14 @@ ${creativeSlotInstructions}
     if (!shouldRepairCarousel || (!carouselHasWeakVariety(items) && !getCarouselEditorialIssues(items).length)) return items;
 
     const angles = buildConfirmedCarouselAngles(items.length);
+    const headlineCounts = new Map<string, number>();
+    const bodyCounts = new Map<string, number>();
+    for (const item of items) {
+      const headline = carouselVarietySignature(item?.headline || item?.title || item?.name);
+      const body = carouselVarietySignature(item?.copy || item?.bodyText || item?.description || item?.shortDescription).slice(0, 220);
+      if (headline) headlineCounts.set(headline, (headlineCounts.get(headline) || 0) + 1);
+      if (body) bodyCounts.set(body, (bodyCounts.get(body) || 0) + 1);
+    }
     log.warn("ai", "Carrossel repetido detectado — reescrevendo cards com angulos confirmados", {
       projectId: input.projectId,
       campaignName: input.name,
@@ -7361,23 +7382,37 @@ ${creativeSlotInstructions}
 
     return items.map((creative, index) => {
       const angle = angles[index] || carouselFallbackForIndex(index, items.length);
-      const copy = trimMetaField(angle.copy, 900);
+      const currentHeadline = creative?.headline || creative?.title || creative?.name;
+      const currentDescription = creative?.description || creative?.shortDescription;
+      const currentCopy = creative?.copy || creative?.bodyText;
+      const currentHook = creative?.hook;
+      const headlineSig = carouselVarietySignature(currentHeadline);
+      const bodySig = carouselVarietySignature(currentCopy || currentDescription).slice(0, 220);
+      const editorialIssues = getCreativeEditorialIssues(creative);
+      const replaceHeadline = isWeakGeneratedCopy(currentHeadline, "headline") || (headlineSig && (headlineCounts.get(headlineSig) || 0) > 1);
+      const replaceDescription = isWeakGeneratedCopy(currentDescription, "description");
+      const replaceCopy = isWeakGeneratedCopy(currentCopy) || (bodySig && (bodyCounts.get(bodySig) || 0) > 1) || editorialIssues.length > 0;
+      const replaceHook = isWeakGeneratedCopy(currentHook, "hook") || isRedundantHookText(currentHeadline, currentHook);
+      const copy = trimMetaField(replaceCopy ? angle.copy : currentCopy, 900);
+      const repaired = replaceHeadline || replaceDescription || replaceCopy || replaceHook;
       return {
         ...creative,
         type: creative?.type || (index === items.length - 1 ? "direct_offer" : "social_proof"),
         format: "Carrossel",
-        headline: trimMetaField(angle.headline, 40),
-        description: trimMetaField(angle.description, 30),
-        shortDescription: trimMetaField(angle.description, 30),
+        headline: trimMetaField(replaceHeadline ? angle.headline : currentHeadline, 40),
+        description: trimMetaField(replaceDescription ? angle.description : currentDescription, 30),
+        shortDescription: trimMetaField(replaceDescription ? angle.description : currentDescription, 30),
         copy,
         bodyText: copy,
-        hook: trimMetaField(angle.hook, 80),
-        pain: trimMetaField(angle.pain, 160),
-        solution: trimMetaField(angle.solution, 220),
+        hook: trimMetaField(replaceHook ? angle.hook : currentHook, 80),
+        pain: trimMetaField(creative?.pain || angle.pain, 160),
+        solution: trimMetaField(creative?.solution || angle.solution, 220),
         cta: index === items.length - 1 ? (angle.cta || "Chamar no WhatsApp") : (angle.cta || creative?.cta || "Ver detalhes"),
         creativeIndex: index,
         isFeaturedPhoto: index === 0,
-        source: creative?.source ? `${creative.source}_variety_repaired` : "carousel_variety_repaired",
+        source: repaired
+          ? (creative?.source ? `${creative.source}_variety_repaired` : "carousel_variety_repaired")
+          : creative?.source,
       };
     });
   }

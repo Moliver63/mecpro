@@ -141,6 +141,8 @@ Atualizacao 2026-09-02: a reparacao de carrossel repetido agora tambem usa os si
 
 Atualizacao 2026-09-07: o payload do Cloudflare Workers AI para FLUX deve enviar somente campos aceitos pelo modelo. Instrucao negativa contra texto/logos fica embutida no `prompt`; nao usar `negative_prompt`, pois o endpoint rejeita propriedades extras e derruba para fallback desnecessariamente.
 
+Atualizacao 2026-09-07: quando todos os LLMs falham e o motor hibrido assume, `Confeitaria`, `doceria`, `brigadeiro`, `docinhos` e demais nichos de alimentacao devem usar templates alimentacao-especificos, nao o fallback generico `default`. O reparador de variedade de carrossel tambem deve preservar campos bons e unicos vindos do Gemini/Groq/padroes reais, substituindo apenas headline/copy/hook/description fracos, repetidos ou com linguagem interna.
+
 Para sala comercial de uso amplo, os criativos devem usar linguagem neutra: `atividade profissional`, `rotina profissional`, `operacao`, `negocio`, `atendimento profissional` e `espaco comercial`. Nao transformar publico-alvo possivel em tipo de operacao especifica sem confirmacao.
 
 ### Correcao editorial de 2026-09-05

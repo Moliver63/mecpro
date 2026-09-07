@@ -140,6 +140,27 @@ test("non-real-estate hybrid creatives never repeat the headline as the hook", a
   }
 });
 
+test("confectionery hybrid fallback stays food-specific when LLMs are unavailable", async () => {
+  const result = await buildCampaignFromAds(97, "leads", {
+    companyName: "Gra Kau Delícias",
+    niche: "Confeitaria",
+    productService: "Brigadeiros e docinhos por encomenda",
+  }, [], {
+    desiredCreatives: 4,
+    requestedBudget: 1500,
+    campaignDurationDays: 30,
+    ageMin: 18,
+    ageMax: 65,
+  });
+
+  assert.equal(result.creatives.length, 4);
+  for (const creative of result.creatives) {
+    const text = `${creative.headline} ${creative.copy} ${creative.cta}`;
+    assert.match(text, /doce|brigadeiro|docinho|sabor|encomenda|card[aá]pio|whatsapp|pedido/i);
+    assert.doesNotMatch(text, /dados reais|resultados mensur[aá]veis|quero mudar|agendar visita|im[oó]vel/i);
+  }
+});
+
 // ── buildBaseTemplate (fallback do endpoint standalone hybridGenerate, sem
 // acesso a campaignFacts) — defesa em profundidade contra as mesmas
 // alegações não verificadas encontradas na campanha 747.
