@@ -1038,6 +1038,14 @@ export const SEGMENT_COPY_RULES: Record<string, SegmentRule> = {
     compliance: "Sem promessas de resultado garantido. Use 'pode', 'ajuda a', 'contribui para'.",
     nicheKeys:  ["b2b", "empresa", "saas", "software", "tecnologia", "gestão", "gestao", "corporativo"],
   },
+  financeiro: {
+    ctaLeads:   ["Falar com especialista", "Solicitar análise", "Receber orientação", "Entender o método", "Tirar dúvidas"],
+    ctaSales:   ["Conhecer o método", "Solicitar proposta", "Falar com consultor"],
+    copyHook:   "educação financeira + clareza + próximo passo sem promessa de ganho",
+    forbidden:  ["renda garantida", "retorno garantido", "lucro garantido", "multiplicar dinheiro", "fique rico", "sem risco", "ganho certo", "patrimônio garantido"],
+    compliance: "Sem promessas de retorno, lucro, renda, enriquecimento ou investimento sem risco. Use linguagem educativa e deixe claro que resultados dependem do perfil e das decisões do cliente.",
+    nicheKeys:  ["financeiro", "finanças", "financas", "educação financeira", "educacao financeira", "investimento", "investimentos", "investidor", "dinheiro", "patrimônio", "patrimonio", "renda", "planejamento financeiro", "consultoria financeira", "mercado financeiro", "método 10x", "metodo 10x"],
+  },
 
 
   veiculos: {
@@ -1165,6 +1173,55 @@ const SEGMENT_ALIGNMENT_RULES: Record<string, SegmentAlignmentRule> = {
     requiredAny: [/\b(produto|comprar|oferta|cole[cç][aã]o|pedido|frete|loja|entrega)\b/i],
     foreignTerms: [/\b(corretor|visita ao im[oó]vel|aula experimental|consulta cl[ií]nica)\b/i],
     fallbackCta: "Ver oferta",
+  },
+  moda_varejo: {
+    requiredAny: [/\b(cole[cç][aã]o|look|estilo|pe[cç]a|roupa|cal[cç]ado|acess[oó]rio|loja|comprar)\b/i],
+    foreignTerms: [/\b(corretor|su[ií]te|brigadeiro|card[aá]pio|treino|consulta cl[ií]nica)\b/i],
+    fallbackCta: "Ver coleção",
+  },
+  b2b: {
+    requiredAny: [/\b(empresa|neg[oó]cio|opera[cç][aã]o|equipe|gest[aã]o|demo|especialista|proposta)\b/i],
+    foreignTerms: [/\b(card[aá]pio|brigadeiro|su[ií]te|agendar visita|frete gr[aá]tis|petshop)\b/i],
+    fallbackCta: "Falar com especialista",
+  },
+  financeiro: {
+    requiredAny: [/\b(financeir|finan[cç]as|dinheiro|investiment|planejamento|m[eé]todo|orienta[cç][aã]o|an[aá]lise|consultor|especialista)\b/i],
+    foreignTerms: [
+      /\b(card[aá]pio|brigadeiro|docinho|delivery|pedido|frete gr[aá]tis)\b/i,
+      /\b(im[oó]vel|apartamento|cobertura|su[ií]te|aluguel|loca[cç][aã]o|corretor|visita)\b/i,
+      /\b(treino|academia|muscula[cç][aã]o|petshop|banho e tosa)\b/i,
+    ],
+    fallbackCta: "Receber orientação",
+  },
+  veiculos: {
+    requiredAny: [/\b(ve[ií]culo|carro|moto|seminovo|0km|financiamento|vendedor|estoque|oficina|revis[aã]o)\b/i],
+    foreignTerms: [/\b(card[aá]pio|brigadeiro|su[ií]te|consulta cl[ií]nica|aula gr[aá]tis)\b/i],
+    fallbackCta: "Falar com vendedor",
+  },
+  construcao: {
+    requiredAny: [/\b(obra|constru[cç][aã]o|material|reforma|or[cç]amento|estoque|entrega|t[eé]cnico|cat[aá]logo)\b/i],
+    foreignTerms: [/\b(card[aá]pio|brigadeiro|corretor|su[ií]te|treino|consulta cl[ií]nica)\b/i],
+    fallbackCta: "Fazer orçamento",
+  },
+  educacao: {
+    requiredAny: [/\b(educa[cç][aã]o|curso|aula|matr[ií]cula|ensino|metodologia|coordenador|turma|aprender)\b/i],
+    foreignTerms: [/\b(card[aá]pio|brigadeiro|corretor|su[ií]te|frete gr[aá]tis|banho e tosa)\b/i],
+    fallbackCta: "Saber mais",
+  },
+  eventos: {
+    requiredAny: [/\b(evento|festa|casamento|buffet|decora[cç][aã]o|data|pacote|cerimonial|or[cç]amento)\b/i],
+    foreignTerms: [/\b(corretor|su[ií]te|treino|consulta cl[ií]nica|frete gr[aá]tis|investimento garantido)\b/i],
+    fallbackCta: "Solicitar orçamento",
+  },
+  turismo: {
+    requiredAny: [/\b(turismo|viagem|hotel|pousada|reserva|hospedagem|di[aá]ria|pacote|disponibilidade)\b/i],
+    foreignTerms: [/\b(card[aá]pio|brigadeiro|corretor|su[ií]te|treino|consulta cl[ií]nica)\b/i],
+    fallbackCta: "Ver disponibilidade",
+  },
+  pet: {
+    requiredAny: [/\b(pet|animal|cachorro|gato|veterin[aá]rio|banho e tosa|petshop|ra[cç][aã]o|consulta)\b/i],
+    foreignTerms: [/\b(card[aá]pio|brigadeiro|corretor|su[ií]te|aula gr[aá]tis|investimento)\b/i],
+    fallbackCta: "Agendar atendimento",
   },
 };
 
@@ -3101,12 +3158,14 @@ export function buildBaseTemplate(
     urgent: {
       imoveis:  { h: `Conheça ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Fale agora para saber disponibilidade e condições.`, c: "Falar agora" },
       alimentacao: { h: `Pedir docinhos da ${vars.empresa}`, b: `${vars.empresa} prepara ${vars.produto} com capricho para encomendas, presentes e momentos especiais. Chame no WhatsApp e veja as opções disponíveis.`, c: "Pedir no WhatsApp" },
+      financeiro: { h: `Entenda ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto} com uma conversa objetiva sobre organização financeira, sem promessa de resultado financeiro.`, c: "Receber orientação" },
       servico:  { h: `Agenda quase cheia — ${vars.produto}`, b: `Poucos horários disponíveis esta semana em ${vars.empresa}.`, c: "Garantir vaga" },
       default:  { h: `${vars.produto} — disponível para encomenda`, b: `${vars.empresa} — atendimento personalizado. Fale conosco para mais informações.`, c: "Aproveitar agora" },
     },
     emotional: {
       imoveis:  { h: `Conheça de perto ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Agende uma visita e veja se combina com você.`, c: "Agendar visita" },
       alimentacao: { h: `Presente doce da ${vars.empresa}`, b: `Tem ocasião que pede um doce bonito, gostoso e bem apresentado. ${vars.empresa} ajuda você a escolher ${vars.produto} para presentear, comemorar ou servir.`, c: "Ver cardápio" },
+      financeiro: { h: `Mais clareza financeira`, b: `Decisões financeiras pedem calma, contexto e orientação. ${vars.empresa} mostra como ${vars.produto} pode ajudar você a organizar o próximo passo.`, c: "Tirar dúvidas" },
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
       // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
       // e estatisticas fabricadas (nao vem de nenhum dado real do cliente).
@@ -3115,18 +3174,20 @@ export function buildBaseTemplate(
     rational: {
       imoveis:  { h: `${vars.produto}: avalie os detalhes`, b: `Conheça os detalhes de ${vars.empresa} e tire suas dúvidas.`, c: "Ver detalhes" },
       alimentacao: { h: `Sabores para montar sua caixa`, b: `Escolha sabores, quantidades e formato do pedido com atendimento direto. ${vars.empresa} facilita a encomenda para você combinar tudo pelo WhatsApp.`, c: "Consultar opções" },
+      financeiro: { h: `${vars.produto}: entenda a proposta`, b: `Conheça a proposta, tire dúvidas e avalie se o método faz sentido para seu momento financeiro. Sem promessa de ganho financeiro.`, c: "Solicitar análise" },
       servico:  { h: `Resultado que você pode conferir`, b: `${vars.empresa} com atendimento avaliado pelos próprios clientes.`, c: "Ver resultados" },
       default:  { h: `Dados reais: ${vars.produto} funciona`, b: `${vars.empresa} — resultados mensuráveis em 30 dias.`, c: "Ver dados" },
     },
     premium: {
       imoveis:  { h: `${vars.produto} com atendimento consultivo`, b: `${vars.empresa} oferece atendimento personalizado para apresentar ${vars.produto}.`, c: "Solicitar atendimento" },
       alimentacao: { h: `Doces bem apresentados`, b: `A apresentação também faz parte da experiência. ${vars.empresa} entrega ${vars.produto} com cuidado visual para festas, lembranças e encomendas especiais.`, c: "Fazer encomenda" },
+      financeiro: { h: `Orientação financeira personalizada`, b: `${vars.empresa} oferece uma conversa consultiva sobre ${vars.produto}, com foco em clareza, perfil e tomada de decisão responsável.`, c: "Falar com consultor" },
       servico:  { h: `Experiência premium em ${vars.produto}`, b: `Atendimento VIP em ${vars.empresa}. Seleto por natureza.`, c: "Agendar VIP" },
       default:  { h: `${vars.produto} — nível executivo`, b: `${vars.empresa} para quem não aceita menos que o melhor.`, c: "Quero o premium" },
     },
   };
 
-  const category = isImoveis ? "imoveis" : isFood ? "alimentacao" : isServico ? "servico" : "default";
+  const category = isImoveis ? "imoveis" : isFood ? "alimentacao" : segment === "financeiro" ? "financeiro" : isServico ? "servico" : "default";
   const tpl = bases[tone]?.[category] || bases["rational"]["default"];
   return { headline: tpl.h, body: tpl.b, cta: tpl.c };
 }
@@ -7153,6 +7214,49 @@ ${creativeSlotInstructions}
           pain: "Querer evoluir, mas não saber por onde começar.",
           solution: "Conteúdo organizado com próximo passo simples.",
           cta: "Quero me inscrever",
+        },
+      ];
+    }
+    if (segment === "financeiro") {
+      const p = clientProfile as any;
+      const company = trimMetaField(p?.companyName || input.name || "a equipe", 28);
+      const product = trimMetaField(p?.productService || p?.productName || "método financeiro", 34);
+      return [
+        {
+          headline: trimMetaField(`Entenda ${product}`, 40),
+          description: "Sem promessa fácil",
+          copy: `${company} apresenta ${product} com foco em clareza, organização e tomada de decisão responsável.\n\nA proposta é conversar sobre seu momento, tirar dúvidas e mostrar o caminho do método sem transformar resultado em certeza.\n\nSolicite orientação pelo WhatsApp.`,
+          hook: "Clareza antes da decisão",
+          pain: "Querer organizar a vida financeira sem cair em promessa fácil.",
+          solution: "Orientação objetiva para entender o método e avaliar se faz sentido para o seu perfil.",
+          cta: "Receber orientação",
+        },
+        {
+          headline: "Organize o próximo passo",
+          description: "Conversa objetiva",
+          copy: "Antes de tomar uma decisão financeira, vale entender cenário, objetivo e risco.\n\nEste card apresenta o método como um caminho de aprendizado e organização, não como promessa de retorno.\n\nFale com a equipe.",
+          hook: "Planejamento com contexto",
+          pain: "Ter vontade de avançar, mas faltar critério para decidir.",
+          solution: "Uma conversa para alinhar expectativas e explicar como o método funciona.",
+          cta: "Solicitar análise",
+        },
+        {
+          headline: "Método com transparência",
+          description: "Avalie com calma",
+          copy: "Campanhas financeiras precisam ser claras: cada pessoa tem um perfil, um contexto e uma tolerância a risco.\n\nConheça a proposta, veja os pontos principais e tire dúvidas antes de seguir.\n\nChame no WhatsApp.",
+          hook: "Educação financeira responsável",
+          pain: "Receber promessas exageradas e não saber em quem confiar.",
+          solution: "Copy educativa, direta e alinhada às regras de anúncios financeiros.",
+          cta: "Tirar dúvidas",
+        },
+        {
+          headline: "Fale sobre o Método 10X",
+          description: "Tire suas dúvidas",
+          copy: "Se o Método 10X chamou sua atenção, o próximo passo é entender a proposta com transparência.\n\nA equipe explica como funciona, para quem faz sentido e quais informações você precisa avaliar.\n\nReceba orientação.",
+          hook: "Próximo passo com orientação",
+          pain: "Gostar da ideia, mas precisar de mais informação antes de decidir.",
+          solution: "Atendimento consultivo para explicar a oferta sem exageros.",
+          cta: "Falar com especialista",
         },
       ];
     }

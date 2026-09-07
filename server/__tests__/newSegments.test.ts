@@ -20,8 +20,8 @@ test("detectSegmentFromNiche does not throw for any niche, including ones that d
   assert.doesNotThrow(() => sharedDetectSegmentFromNiche("qualquer coisa sem correspondência"));
 });
 
-const newSegments = ["veiculos", "construcao", "educacao", "eventos", "turismo", "pet"];
-for (const seg of newSegments) {
+const coveredSegments = ["veiculos", "construcao", "educacao", "eventos", "turismo", "pet", "financeiro"];
+for (const seg of coveredSegments) {
   test(`getSegmentInstruction does not throw for the '${seg}' segment`, () => {
     assert.doesNotThrow(() => getSegmentInstruction(seg, seg, "leads"));
     const result = getSegmentInstruction(seg, seg, "leads");
@@ -59,10 +59,18 @@ test("niches for the new segments route correctly via detectSegmentFromNiche (bo
     ["buffet de casamento", "eventos"],
     ["pousada na praia", "turismo"],
     ["petshop", "pet"],
+    ["Método 10X educação financeira", "financeiro"],
+    ["consultoria de investimentos", "financeiro"],
   ];
   for (const [niche, expected] of cases) {
     assert.equal(detectSegmentFromNiche(niche), expected, `ai.ts: "${niche}"`);
     assert.equal(sharedDetectSegmentFromNiche(niche), expected, `shared/segmentConfig.ts: "${niche}"`);
+  }
+});
+
+test("every shared segment except outro has a local copy rule", () => {
+  for (const seg of Object.keys(SEGMENT_CONFIG).filter((seg) => seg !== "outro")) {
+    assert.ok((SEGMENT_COPY_RULES as any)[seg], `SEGMENT_COPY_RULES deveria cobrir '${seg}'`);
   }
 });
 

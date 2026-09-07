@@ -163,6 +163,30 @@ test("confectionery hybrid fallback stays food-specific when LLMs are unavailabl
   }
 });
 
+test("financial hybrid fallback stays segment-specific and avoids earnings promises", async () => {
+  const result = await buildCampaignFromAds(98, "leads", {
+    companyName: "Método 10X",
+    niche: "Educação financeira",
+    productService: "Método 10X para organização financeira e investimentos",
+  }, [], {
+    desiredCreatives: 4,
+    requestedBudget: 3000,
+    campaignDurationDays: 30,
+    ageMin: 25,
+    ageMax: 60,
+  });
+
+  assert.equal(result.creatives.length, 4);
+  assert.equal(new Set(result.creatives.map((creative: any) => creative.headline)).size, 4);
+  for (const creative of result.creatives) {
+    const text = `${creative.headline} ${creative.copy} ${creative.cta}`;
+    assert.match(text, /financeir|m[eé]todo|orienta[cç][aã]o|an[aá]lise|especialista|decis[aã]o|perfil/i);
+    assert.doesNotMatch(text, /dados reais|resultados mensur[aá]veis|quero mudar|doces|brigadeiro|im[oó]vel|agendar visita/i);
+    assert.doesNotMatch(text, /renda garantida|retorno garantido|lucro garantido|multiplicar dinheiro|fique rico|sem risco|patrim[oô]nio garantido/i);
+    assert.doesNotMatch(creative.headline, /Conheça a proposta|Detalhes que importam/i);
+  }
+});
+
 // ── buildBaseTemplate (fallback do endpoint standalone hybridGenerate, sem
 // acesso a campaignFacts) — defesa em profundidade contra as mesmas
 // alegações não verificadas encontradas na campanha 747.
@@ -174,5 +198,15 @@ test("buildBaseTemplate real estate templates no longer invent scarcity or homeo
     assert.doesNotMatch(combined, /última unidade|últimas unidades/i, `tom ${tone}: ${combined}`);
     assert.doesNotMatch(combined, /casa própria|o lar que você sempre sonhou/i, `tom ${tone}: ${combined}`);
     assert.doesNotMatch(combined, /exclusivo|alto padrão/i, `tom ${tone}: ${combined}`);
+  }
+});
+
+test("buildBaseTemplate financial templates avoid generic proof and guaranteed return claims", () => {
+  const vars = { empresa: "Método 10X", produto: "educação financeira", publico: "25-60 anos" };
+  for (const tone of ["urgent", "emotional", "rational", "premium"] as const) {
+    const tpl = buildBaseTemplate("educação financeira e investimentos", tone, vars);
+    const combined = `${tpl.headline} ${tpl.body} ${tpl.cta}`;
+    assert.match(combined, /financeir|m[eé]todo|orienta[cç][aã]o|an[aá]lise|decis[aã]o|perfil|lucro|retorno/i, `tom ${tone}: ${combined}`);
+    assert.doesNotMatch(combined, /dados reais|resultados mensur[aá]veis|funciona|renda garantida|retorno garantido|lucro garantido|multiplicar dinheiro|fique rico|sem risco|patrim[oô]nio garantido/i, `tom ${tone}: ${combined}`);
   }
 });

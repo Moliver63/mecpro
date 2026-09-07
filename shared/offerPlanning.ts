@@ -68,6 +68,7 @@ export const ARGUMENT_SEQUENCES: Record<string, ArgumentRole[]> = {
   alimentacao:      ["produto_ou_espaco", "estrutura_ou_ingredientes", "experiencia", "cta_step"],
   ecommerce:        ["produto_ou_espaco", "beneficio_comprovado", "condicoes", "cta_step"],
   infoprodutos:     ["necessidade", "produto_ou_espaco", "prova_social", "cta_step"],
+  financeiro:       ["necessidade", "produto_ou_espaco", "experiencia", "cta_step"],
   moda_varejo:      ["produto_ou_espaco", "experiencia", "condicoes", "cta_step"],
   b2b:              ["necessidade", "produto_ou_espaco", "diferencial_comprovado", "cta_step"],
   outro:            ["produto_ou_espaco", "beneficio_comprovado", "condicoes", "cta_step"],

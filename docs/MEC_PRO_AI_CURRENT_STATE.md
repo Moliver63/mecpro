@@ -145,6 +145,8 @@ Atualizacao 2026-09-07: quando todos os LLMs falham e o motor hibrido assume, `C
 
 Atualizacao 2026-09-07: os titulos de alimentacao precisam colocar o angulo antes do produto/empresa. Quando o produto e longo (`Brigadeiros e docinhos por encomenda`), comecar todos os titulos pelo produto faz o corte de 40 caracteres transformar cards diferentes em titulos iguais; isso ativa o reparador e troca a copy por fallback. O teste de GraKau garante quatro headlines unicas e proibe os titulos fixos `Doces para pedir hoje` e `Variedade na mesma caixa`.
 
+Atualizacao 2026-09-07: financeiro virou segmento de primeira classe na taxonomia de copy (`server/ai.ts` e `shared/segmentConfig.ts`). Achado real na campanha #769 / Metodo 10X: educacao financeira caia em fallback generico quando o reparador de variedade entrava, gerando `hybrid_variety_repaired` com textos sem aderencia ao segmento. Corrigido com nicheKeys financeiros, regras de compliance, alinhamento de segmento, templates base e fallback de carrossel especifico. A copy financeira deve falar de metodo, clareza, organizacao, perfil, analise e orientacao; nao deve prometer renda, lucro, retorno, patrimonio garantido, multiplicar dinheiro ou investimento sem risco. Evitar ate frases negativas que repitam literalmente a promessa proibida dentro do texto publico.
+
 Para sala comercial de uso amplo, os criativos devem usar linguagem neutra: `atividade profissional`, `rotina profissional`, `operacao`, `negocio`, `atendimento profissional` e `espaco comercial`. Nao transformar publico-alvo possivel em tipo de operacao especifica sem confirmacao.
 
 ### Correcao editorial de 2026-09-05

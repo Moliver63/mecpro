@@ -640,6 +640,39 @@ COMPLIANCE: Sem resultado garantido. Use 'pode', 'ajuda a'.`,
     },
   },
 
+  financeiro: {
+    value: "financeiro",
+    label: "Financeiro",
+    icon:  "💰",
+    desc:  "Educação financeira, consultoria, investimentos e planejamento",
+    copy: {
+      headlines: ["Entenda o método", "Organize seu próximo passo", "Orientação financeira clara"],
+      shortCopies: ["Conheça a proposta com clareza, sem transformar resultado financeiro em certeza. Fale com um especialista."],
+      ctaLeads: ["Falar com especialista", "Solicitar análise", "Receber orientação", "Entender o método"],
+      ctaSales: ["Conhecer o método", "Solicitar proposta", "Falar com consultor"],
+      hookDirective: "clareza financeira + método + orientação responsável + próximo passo sem promessa de ganho",
+      forbidden: ["renda garantida", "retorno garantido", "lucro garantido", "multiplicar dinheiro", "fique rico", "sem risco", "ganho certo", "patrimônio garantido"],
+      compliance: "Sem promessas de retorno, lucro, renda, enriquecimento ou investimento sem risco. Use linguagem educativa e responsável.",
+    },
+    ui: {
+      objective: "leads",
+      platform: "meta",
+      budget: 100,
+      duration: 30,
+      qualifyingQuestion: "Qual é seu objetivo hoje?",
+      qualifyingOptions: ["Organizar finanças", "Entender o método", "Falar com especialista", "Tirar dúvidas"],
+    },
+    detection: {
+      nicheKeys: ["financeiro", "finanças", "financas", "educação financeira", "educacao financeira", "investimento", "investimentos", "investidor", "dinheiro", "patrimônio", "patrimonio", "renda", "planejamento financeiro", "consultoria financeira", "mercado financeiro", "método 10x", "metodo 10x"],
+      promptContext: `Segmento: FINANCEIRO.
+COPIES: educação financeira, clareza, método, orientação e próximo passo responsável.
+CTAs OBRIGATÓRIOS: "Falar com especialista" | "Solicitar análise" | "Receber orientação"
+PROIBIDO ABSOLUTO: prometer retorno, lucro, renda, multiplicar dinheiro, patrimônio garantido, enriquecimento rápido ou investimento sem risco.
+LINGUAGEM: "entenda a proposta", "avalie se faz sentido para seu perfil", "tire dúvidas", "organize o próximo passo".
+COMPLIANCE: resultados dependem de perfil, contexto e decisões do cliente; não use garantia financeira.`,
+    },
+  },
+
   outro: {
     value: "outro",
     label: "Outro segmento",
@@ -792,5 +825,6 @@ export const SEGMENT_TO_NICHE: Record<string, string> = {
   alimentacao:     "alimentacao",
   moda_varejo:     "moda",
   b2b:             "b2b",
+  financeiro:      "financeiro",
   outro:           "geral",
 };
