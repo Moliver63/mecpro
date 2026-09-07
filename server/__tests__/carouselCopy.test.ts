@@ -110,6 +110,24 @@ test("keeps operational metadata separate from clean public copy", () => {
   assert.equal(hasInternalCopyLanguage("Consulte nosso cardápio e faça seu pedido."), false);
 });
 
+// ── Achado real (Gra Kau Delícias, campanha #761): o fallback de
+// ecommerce/moda_varejo estava escrito como instrução pra um redator, não
+// como copy de verdade — "Use o visual do produto para abrir o desejo...
+// O cliente precisa entender rápido por que esse item vale o clique."
+// Corrigido o texto na origem (server/ai.ts) e reforçado o detector como
+// rede de segurança pra qualquer ocorrência futura parecida.
+test("rejects meta-instructional copy telling a copywriter how to write the ad, not the ad itself", () => {
+  const bad = [
+    "Use o visual do produto para abrir o desejo e deixe o texto explicar benefício, uso e caminho de compra.",
+    "O primeiro card precisa mostrar a transformação prometida sem exagero.",
+    "O cliente precisa entender rápido por que esse item vale o clique.",
+  ];
+  assert.ok(bad.every(hasInternalCopyLanguage));
+  // Controle negativo: a copy real que substituiu esses textos não deve disparar.
+  const good = "O produto que você precisa, com benefício, uso e caminho de compra claros. Entenda rápido por que vale a pena — e garanta o seu.";
+  assert.equal(hasInternalCopyLanguage(good), false);
+});
+
 test("blocks identical long openings even when the card titles and endings differ", () => {
   const cards = Array.from({ length: 4 }, (_, index) => ({
     headline: "Uma chamada diferente " + index,
