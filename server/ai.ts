@@ -3100,13 +3100,13 @@ export function buildBaseTemplate(
   const bases: Record<string, Record<string, HBC>> = {
     urgent: {
       imoveis:  { h: `Conheça ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Fale agora para saber disponibilidade e condições.`, c: "Falar agora" },
-      alimentacao: { h: `${vars.produto} para pedir hoje`, b: `${vars.empresa} prepara ${vars.produto} com capricho para encomendas, presentes e momentos especiais. Chame no WhatsApp e veja as opções disponíveis.`, c: "Pedir no WhatsApp" },
+      alimentacao: { h: `Pedir docinhos da ${vars.empresa}`, b: `${vars.empresa} prepara ${vars.produto} com capricho para encomendas, presentes e momentos especiais. Chame no WhatsApp e veja as opções disponíveis.`, c: "Pedir no WhatsApp" },
       servico:  { h: `Agenda quase cheia — ${vars.produto}`, b: `Poucos horários disponíveis esta semana em ${vars.empresa}.`, c: "Garantir vaga" },
       default:  { h: `${vars.produto} — disponível para encomenda`, b: `${vars.empresa} — atendimento personalizado. Fale conosco para mais informações.`, c: "Aproveitar agora" },
     },
     emotional: {
       imoveis:  { h: `Conheça de perto ${vars.produto}`, b: `${vars.empresa} apresenta ${vars.produto}. Agende uma visita e veja se combina com você.`, c: "Agendar visita" },
-      alimentacao: { h: `${vars.produto} com carinho`, b: `Tem ocasião que pede um doce bonito, gostoso e bem apresentado. ${vars.empresa} ajuda você a escolher ${vars.produto} para presentear, comemorar ou servir.`, c: "Ver cardápio" },
+      alimentacao: { h: `Presente doce da ${vars.empresa}`, b: `Tem ocasião que pede um doce bonito, gostoso e bem apresentado. ${vars.empresa} ajuda você a escolher ${vars.produto} para presentear, comemorar ou servir.`, c: "Ver cardápio" },
       servico:  { h: `Cuide de quem você ama com ${vars.produto}`, b: `${vars.empresa} — porque você merece o melhor cuidado.`, c: "Agendar consulta" },
       // Achado real (auditoria 03/09): os 3 templates abaixo tinham numeros
       // e estatisticas fabricadas (nao vem de nenhum dado real do cliente).
@@ -3114,13 +3114,13 @@ export function buildBaseTemplate(
     },
     rational: {
       imoveis:  { h: `${vars.produto}: avalie os detalhes`, b: `Conheça os detalhes de ${vars.empresa} e tire suas dúvidas.`, c: "Ver detalhes" },
-      alimentacao: { h: `Variedade de ${vars.produto}`, b: `Escolha sabores, quantidades e formato do pedido com atendimento direto. ${vars.empresa} facilita a encomenda para você combinar tudo pelo WhatsApp.`, c: "Consultar opções" },
+      alimentacao: { h: `Sabores para montar sua caixa`, b: `Escolha sabores, quantidades e formato do pedido com atendimento direto. ${vars.empresa} facilita a encomenda para você combinar tudo pelo WhatsApp.`, c: "Consultar opções" },
       servico:  { h: `Resultado que você pode conferir`, b: `${vars.empresa} com atendimento avaliado pelos próprios clientes.`, c: "Ver resultados" },
       default:  { h: `Dados reais: ${vars.produto} funciona`, b: `${vars.empresa} — resultados mensuráveis em 30 dias.`, c: "Ver dados" },
     },
     premium: {
       imoveis:  { h: `${vars.produto} com atendimento consultivo`, b: `${vars.empresa} oferece atendimento personalizado para apresentar ${vars.produto}.`, c: "Solicitar atendimento" },
-      alimentacao: { h: `${vars.produto} bem apresentados`, b: `A apresentação também faz parte da experiência. ${vars.empresa} entrega ${vars.produto} com cuidado visual para festas, lembranças e encomendas especiais.`, c: "Fazer encomenda" },
+      alimentacao: { h: `Doces bem apresentados`, b: `A apresentação também faz parte da experiência. ${vars.empresa} entrega ${vars.produto} com cuidado visual para festas, lembranças e encomendas especiais.`, c: "Fazer encomenda" },
       servico:  { h: `Experiência premium em ${vars.produto}`, b: `Atendimento VIP em ${vars.empresa}. Seleto por natureza.`, c: "Agendar VIP" },
       default:  { h: `${vars.produto} — nível executivo`, b: `${vars.empresa} para quem não aceita menos que o melhor.`, c: "Quero o premium" },
     },
@@ -7097,18 +7097,21 @@ ${creativeSlotInstructions}
 
   function fallbackCardsForSegment(segment: string) {
     if (segment === "alimentacao") {
+      const p = clientProfile as any;
+      const company = trimMetaField(p?.companyName || input.name || "a doceria", 28);
+      const product = trimMetaField(p?.productService || p?.productName || "doces por encomenda", 32);
       return [
         {
-          headline: "Doces para pedir hoje",
+          headline: trimMetaField(`Pedir ${product}`, 40),
           description: "Sabor e capricho",
-          copy: "Doces bem apresentados, com variedade e visual pronto para despertar desejo.\n\nIdeal para presentear, servir em eventos ou garantir uma sobremesa especial.\n\nChame no WhatsApp e veja opções.",
-          hook: "Doces que chamam atenção",
+          copy: `${company} prepara ${product} com capricho, variedade e visual pronto para despertar desejo.\n\nIdeal para presentear, servir em eventos ou garantir uma sobremesa especial.\n\nChame no WhatsApp e veja opções.`,
+          hook: `${company}: doces sob encomenda`,
           pain: "Encontrar doces bonitos, confiáveis e fáceis de encomendar.",
-          solution: "Pedido direto, fotos reais e atendimento pelo WhatsApp.",
+          solution: `${company} facilita o pedido direto com fotos reais e atendimento pelo WhatsApp.`,
           cta: "Pedir no WhatsApp",
         },
         {
-          headline: "Variedade na mesma caixa",
+          headline: "Sabores para montar sua caixa",
           description: "Opções para todos",
           copy: "Sabores diferentes na mesma caixa, para você imaginar chegando na mesa, no presente ou na comemoração.\n\nA escolha fica mais simples quando o capricho já aparece no visual.\n\nPeça o cardápio.",
           hook: "Uma caixa, vários sabores",
@@ -7117,9 +7120,9 @@ ${creativeSlotInstructions}
           cta: "Ver cardápio",
         },
         {
-          headline: "Encomendas com carinho",
+          headline: trimMetaField(`Encomendas ${company}`, 40),
           description: "Feito para ocasião",
-          copy: "Para eventos, lembranças ou uma entrega especial, o que conta é confiança: doces bem montados, acabamento cuidadoso e contato rápido pra combinar os detalhes.\n\nUse o WhatsApp para consultar disponibilidade.\n\nFaça sua encomenda.",
+          copy: `Para eventos, lembranças ou uma entrega especial, o que conta é confiança: doces bem montados, acabamento cuidadoso e contato rápido pra combinar os detalhes.\n\nUse o WhatsApp da ${company} para consultar disponibilidade.\n\nFaça sua encomenda.`,
           hook: "Encomende para sua ocasião",
           pain: "Precisar de doces para uma data e não querer arriscar.",
           solution: "Atendimento direto para combinar sabores, quantidade e entrega.",

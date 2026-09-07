@@ -154,10 +154,12 @@ test("confectionery hybrid fallback stays food-specific when LLMs are unavailabl
   });
 
   assert.equal(result.creatives.length, 4);
+  assert.equal(new Set(result.creatives.map((creative: any) => creative.headline)).size, 4);
   for (const creative of result.creatives) {
     const text = `${creative.headline} ${creative.copy} ${creative.cta}`;
     assert.match(text, /doce|brigadeiro|docinho|sabor|encomenda|card[aá]pio|whatsapp|pedido/i);
     assert.doesNotMatch(text, /dados reais|resultados mensur[aá]veis|quero mudar|agendar visita|im[oó]vel/i);
+    assert.doesNotMatch(creative.headline, /Doces para pedir hoje|Variedade na mesma caixa/i);
   }
 });
 
