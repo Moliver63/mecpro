@@ -6143,6 +6143,40 @@ Gere 3 personas detalhadas e específicas. Responda APENAS em JSON:
 }
 
 // ── Módulo 4: Gerar campanha ──
+// Achado real (Gra Kau Delícias, campanha #762): headline/description já
+// distinguiam card com conteúdo real (index < baseCards.length) de card
+// "extra" além do conjunto disponível (usa o rótulo genérico de ângulo) —
+// mas copy/hook não seguiam a mesma regra e SEMPRE levavam o rótulo
+// interno de organização ("Oferta principal: ", "Variedade e escolha da
+// campanha"), mesmo quando já existia copy/hook reais e prontos pra
+// aquele card. O rótulo é uma etiqueta de organização interna, não texto
+// pensado pro cliente final ler. Função pura de nível de módulo (não
+// pode ficar dentro de generateCampaign — export só é válido no topo do
+// arquivo) pra dar pra testar isolada.
+export function applyAngleLabelsToFallbackCards(baseCards: any[], total: number): any[] {
+  const angleLabels = [
+    "Oferta principal",
+    "Variedade e escolha",
+    "Como funciona",
+    "Diferencial real",
+    "Proximo passo",
+    "Atendimento direto",
+  ];
+  return Array.from({ length: Math.max(total, 1) }, (_, index) => {
+    const base = baseCards[index % Math.max(baseCards.length, 1)] || baseCards[0];
+    const label = angleLabels[index] || `Ponto ${index + 1}`;
+    const hasRealCard = index < baseCards.length;
+    return {
+      ...base,
+      headline: trimMetaField(hasRealCard ? base.headline : label, 40),
+      description: trimMetaField(hasRealCard ? base.description : "Card distinto", 30),
+      copy: hasRealCard ? base.copy : `${label}: ${base.copy}`,
+      hook: hasRealCard ? base.hook : trimMetaField(`${label} da campanha`, 80),
+      solution: trimMetaField(base.solution || label, 220),
+    };
+  });
+}
+
 export async function generateCampaign(input: {
   projectId: number; userId?: number; name: string; objective: string;
   platform: string; budget: number; duration: number; extraContext?: string;
@@ -7306,26 +7340,7 @@ ${creativeSlotInstructions}
     );
     if (!(segment === "imoveis_venda" || segment === "imoveis_locacao")) {
       const baseCards = fallbackCardsForSegment(segment);
-      const angleLabels = [
-        "Oferta principal",
-        "Variedade e escolha",
-        "Como funciona",
-        "Diferencial real",
-        "Proximo passo",
-        "Atendimento direto",
-      ];
-      return Array.from({ length: Math.max(total, 1) }, (_, index) => {
-        const base = baseCards[index % Math.max(baseCards.length, 1)] || fallbackCardsForSegment("geral")[0];
-        const label = angleLabels[index] || `Ponto ${index + 1}`;
-        return {
-          ...base,
-          headline: trimMetaField(index < baseCards.length ? base.headline : label, 40),
-          description: trimMetaField(index < baseCards.length ? base.description : "Card distinto", 30),
-          copy: `${label}: ${base.copy}`,
-          hook: trimMetaField(`${label} da campanha`, 80),
-          solution: trimMetaField(base.solution || label, 220),
-        };
-      });
+      return applyAngleLabelsToFallbackCards(baseCards, total);
     }
 
     return buildRealEstateCarouselAngles(campaignFacts, (clientProfile as any)?.city || "").slice(0, total);

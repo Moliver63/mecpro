@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { detectSegmentFromNiche, getSegmentInstruction, SEGMENT_COPY_RULES } from "../ai";
+import { detectSegmentFromNiche, getSegmentInstruction, SEGMENT_COPY_RULES, applyAngleLabelsToFallbackCards } from "../ai";
 import { detectSegmentFromNiche as sharedDetectSegmentFromNiche, SEGMENT_CONFIG } from "../../shared/segmentConfig";
 
 // ── Achado real (deploy quebrado, 06/09): 6 segmentos novos adicionados a
@@ -64,4 +64,47 @@ test("niches for the new segments route correctly via detectSegmentFromNiche (bo
     assert.equal(detectSegmentFromNiche(niche), expected, `ai.ts: "${niche}"`);
     assert.equal(sharedDetectSegmentFromNiche(niche), expected, `shared/segmentConfig.ts: "${niche}"`);
   }
+});
+
+// ── Achado real (Gra Kau Delícias, campanha #762): mesmo com o segmento
+// certo (alimentacao) e a copy de fallback já corrigida, um rótulo interno
+// de organização de ângulo ("Oferta principal:", "Variedade e escolha")
+// era prefixado em TODO card, mesmo quando o card já tinha hook/copy reais
+// prontos — headline/description já tinham a checagem certa
+// (index < baseCards.length), copy/hook não seguiam a mesma regra.
+test("applyAngleLabelsToFallbackCards preserves the real hook/copy when a real base card exists", () => {
+  const baseCards = [
+    { headline: "Doces para pedir hoje", description: "Sabor e capricho", copy: "Copy real do card 1.", hook: "Hook real 1", solution: "Solução 1" },
+    { headline: "Variedade na mesma caixa", description: "Opções para todos", copy: "Copy real do card 2.", hook: "Hook real 2", solution: "Solução 2" },
+    { headline: "Encomendas com carinho", description: "Feito para ocasião", copy: "Copy real do card 3.", hook: "Hook real 3", solution: "Solução 3" },
+  ];
+
+  // Campanha #762: 2 fotos, dentro do conjunto de 3 cards reais disponíveis.
+  const result = applyAngleLabelsToFallbackCards(baseCards, 2);
+  assert.equal(result[0].headline, "Doces para pedir hoje");
+  assert.equal(result[0].hook, "Hook real 1");
+  assert.equal(result[0].copy, "Copy real do card 1.");
+  assert.equal(result[1].headline, "Variedade na mesma caixa");
+  assert.equal(result[1].hook, "Hook real 2");
+  assert.equal(result[1].copy, "Copy real do card 2.");
+
+  // Nenhum rótulo de organização interna ("Oferta principal:", "da campanha")
+  // deve aparecer quando existe conteúdo real pronto pro card.
+  for (const card of result) {
+    assert.ok(!/oferta principal|variedade e escolha|da campanha/i.test(card.hook));
+    assert.ok(!/^oferta principal:|^variedade e escolha:/i.test(card.copy));
+  }
+});
+
+test("applyAngleLabelsToFallbackCards still uses the generic label for cards beyond the real set", () => {
+  const baseCards = [
+    { headline: "Card real", description: "Desc real", copy: "Copy real.", hook: "Hook real", solution: "Solução real" },
+  ];
+  // Pede 3 cards, só existe 1 real — os outros 2 são "extras".
+  const result = applyAngleLabelsToFallbackCards(baseCards, 3);
+  assert.equal(result[0].headline, "Card real");
+  assert.equal(result[0].hook, "Hook real");
+  assert.equal(result[1].headline, "Variedade e escolha");
+  assert.equal(result[1].hook, "Variedade e escolha da campanha");
+  assert.ok(result[1].copy.startsWith("Variedade e escolha: "));
 });
