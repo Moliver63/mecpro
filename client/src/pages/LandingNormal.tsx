@@ -74,6 +74,7 @@ const FAQS = [
   { q:"Posso cancelar quando quiser?",        a:"Sim, sem fidelidade. Cancele a qualquer momento direto no painel, sem burocracia e sem multa." },
   { q:"Integra com Meta Ads e Google Ads?",   a:"Sim! Integracao nativa com Meta, Google e TikTok Ads. Publique campanhas com 1 clique." },
   { q:"Tem plano gratuito?",                  a:"Sim! Crie sua conta gratuitamente em menos de 2 minutos. Sem cartao de credito necessario." },
+  { q:"Posso montar a campanha pelo chat?",   a:"Sim. Abra o assistente no canto da tela e conte sobre o seu negocio — a IA coleta o briefing e gera a campanha com o mesmo motor da plataforma." },
 ];
 
 const LD = {
@@ -248,6 +249,21 @@ export default function LandingNormal() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* CHAT CTA — montar campanha conversando com a IA */}
+        <section className="lpad" style={{maxWidth:1080,margin:"0 auto",padding:"80px 24px 0"}}>
+          <div style={{background:DARK,borderRadius:20,padding:"48px 44px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:32,flexWrap:"wrap"}}>
+            <div style={{maxWidth:520}}>
+              <span style={{display:"inline-block",background:GREEN,color:"#fff",fontSize:11,fontWeight:700,padding:"3px 12px",borderRadius:99,marginBottom:14}}>Novo - Assistente de Campanhas</span>
+              <h2 style={{fontSize:"clamp(22px,3vw,34px)",fontWeight:800,letterSpacing:"-1px",color:"#fff",marginBottom:10,lineHeight:1.2}}>Monte sua campanha conversando</h2>
+              <p style={{fontSize:14,color:"rgba(255,255,255,.55)",lineHeight:1.7,margin:0}}>Conte sobre o seu negocio no chat e a IA monta a campanha completa — objetivo, orcamento, copy e ad sets — usando o mesmo motor da plataforma.</p>
+            </div>
+            <button onClick={()=>window.dispatchEvent(new Event("mecpro:open-chat"))} className="lbtn"
+              style={{background:"linear-gradient(135deg,#4ade1a,#15803d)",color:"#fff",border:"none",borderRadius:10,padding:"14px 32px",fontSize:15,fontWeight:700,flexShrink:0,boxShadow:"0 4px 16px rgba(74,222,26,.35)"}}>
+              Abrir chat e montar campanha
+            </button>
           </div>
         </section>
 
