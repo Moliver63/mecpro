@@ -35,6 +35,7 @@ Atualizacao 2026-09-08: o resultado da campanha passa a ter um fluxo mais claro 
 - `Gerar nova imagem`: usa o pipeline existente de `server/imageGeneration.ts`, com provedores reais quando configurados e fallback controlado.
 - `Aprimorar foto`: aplica transformacoes Cloudinary na foto ja hospedada, ajustando qualidade, formato e corte para Feed, Stories/Reels ou Square.
 - `Gerar video`: usa `JSON2VIDEO_API_KEY` para transformar a imagem do criativo em video curto com movimento, texto e CTA.
+- `Gerar video local`: quando `VIDEO_PROVIDER=local_wangp` e `LOCAL_WANGP_ENABLED=true`, o MecProAI envia um job para um worker local WanGP/Wan2GP em `LOCAL_WANGP_URL`. Se o worker falhar e `JSON2VIDEO_API_KEY` estiver configurado, o fluxo cai para JSON2Video.
 - `Upload foto/video`: continua permitindo usar arquivo real do cliente e associar ao criativo antes de publicar.
 
 Chaves operacionais:
@@ -45,6 +46,10 @@ Chaves operacionais:
 - `PIXABAY_API_KEY`: habilita busca de imagens CC0/comerciais por segmento.
 - `GOOGLE_API_KEY` + `GOOGLE_CSE_ID`: fallback de imagens via Google Custom Search com filtro de direitos.
 - `JSON2VIDEO_API_KEY`: habilita geracao de video a partir de imagem.
+- `VIDEO_PROVIDER`: `json2video` por padrao; pode ser `local_wangp` para usar um worker local.
+- `LOCAL_WANGP_ENABLED`: deve ser `true` para permitir chamadas ao worker local.
+- `LOCAL_WANGP_URL`: URL do worker local, por exemplo `http://127.0.0.1:7860`; em producao web, prefira arquitetura de worker que puxa jobs ou tunnel seguro, pois o Render nao acessa o localhost do PC do usuario.
+- `LOCAL_WANGP_SHARED_SECRET`: segredo opcional enviado como Bearer token para o worker local.
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`: habilitam upload, re-hospedagem e aprimoramento.
 
 Regra pratica: geracao ou aprimoramento nunca deve publicar automaticamente. A midia precisa continuar passando pelos gates de campanha, Fact Guard/Quality Gate e confirmacao explicita antes da Meta.

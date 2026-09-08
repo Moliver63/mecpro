@@ -2615,7 +2615,7 @@ export default function CampaignResult() {
                               <span style={{ fontWeight: 800, color: "#0f172a" }}>Media Studio</span>
                               <span>{mediaStudioStatus.capabilities?.generateImage ? "Imagem OK" : "Imagem limitada"}</span>
                               <span>{mediaStudioStatus.capabilities?.enhanceImage ? "Aprimorar OK" : "Aprimorar exige Cloudinary"}</span>
-                              <span>{mediaStudioStatus.capabilities?.generateVideo ? "Vídeo OK" : "Vídeo exige JSON2VIDEO_API_KEY"}</span>
+                              <span>{mediaStudioStatus.capabilities?.generateVideo ? `Vídeo OK (${mediaStudioStatus.videoProvider || "provider"})` : "Vídeo exige JSON2VIDEO_API_KEY ou WanGP local"}</span>
                             </div>
                           </div>
                         )}

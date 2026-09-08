@@ -580,9 +580,15 @@ export type ImageGenerationDiagnostics = {
     googleImages: boolean;
     pollinations: boolean;
     json2video: boolean;
+    localWangp: boolean;
     cloudinary: boolean;
   };
+  videoProvider: "json2video" | "local_wangp" | "none";
 };
+
+function envFlag(name: string): boolean {
+  return /^(1|true|yes|on)$/i.test(String(process.env[name] || "").trim());
+}
 
 export function getImageGenerationDiagnostics(providerInput?: string): ImageGenerationDiagnostics {
   const provider = String(providerInput || process.env.IMAGE_PROVIDER || "mock").toLowerCase();
@@ -598,6 +604,15 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   const hasGoogleImages = !!String(process.env.GOOGLE_API_KEY || "").trim()
     && !!String(process.env.GOOGLE_CSE_ID || "").trim();
   const hasJson2Video = !!String(process.env.JSON2VIDEO_API_KEY || "").trim();
+  const localWangpEnabled = envFlag("LOCAL_WANGP_ENABLED");
+  const localWangpUrl = String(process.env.LOCAL_WANGP_URL || "").trim();
+  const localWangpReady = localWangpEnabled && /^https?:\/\//i.test(localWangpUrl);
+  const videoProviderInput = String(process.env.VIDEO_PROVIDER || "").trim().toLowerCase();
+  const videoProvider = localWangpReady && videoProviderInput === "local_wangp"
+    ? "local_wangp"
+    : hasJson2Video
+    ? "json2video"
+    : "none";
   const storageReady = !!(
     String(process.env.CLOUDINARY_CLOUD_NAME || "").trim()
     && String(process.env.CLOUDINARY_API_KEY || "").trim()
@@ -640,6 +655,9 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   if (!hasJson2Video) {
     warnings.push("Defina JSON2VIDEO_API_KEY para habilitar geração real de vídeo a partir de imagem.");
   }
+  if (videoProviderInput === "local_wangp" && !localWangpReady) {
+    warnings.push("VIDEO_PROVIDER=local_wangp exige LOCAL_WANGP_ENABLED=true e LOCAL_WANGP_URL com http(s).");
+  }
   if (!storageReady) {
     warnings.push("Cloudinary ausente: upload, re-hospedagem e aprimoramento ficam limitados.");
   }
@@ -654,7 +672,7 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
     provider: normalizedProvider,
     storageReady,
     enhancementReady: storageReady,
-    videoReady: hasJson2Video,
+    videoReady: hasJson2Video || localWangpReady,
     sourceSearchReady: hasPixabay || hasGoogleImages,
     fallbackReady: true,
     providers: {
@@ -666,8 +684,10 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
       googleImages: hasGoogleImages,
       pollinations: true,
       json2video: hasJson2Video,
+      localWangp: localWangpReady,
       cloudinary: storageReady,
     },
+    videoProvider,
     canGenerateRealImages:
       !exhausted
       && (
@@ -1730,6 +1750,69 @@ export async function generateAdImage(
 // ─────────────────────────────────────────────────────────────
 const J2V_API_KEY = process.env.JSON2VIDEO_API_KEY || "";
 
+async function generateVideoWithLocalWangp(
+  imageUrl: string,
+  headline: string,
+  cta: string,
+  format: "feed" | "stories" | "square",
+  voiceText?: string,
+): Promise<string | null> {
+  if (!envFlag("LOCAL_WANGP_ENABLED")) return null;
+
+  const baseUrl = String(process.env.LOCAL_WANGP_URL || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(baseUrl)) {
+    log.warn("video-generation", "Local WanGP configurado sem LOCAL_WANGP_URL http(s)");
+    return null;
+  }
+
+  const endpoint = `${baseUrl}/api/generate-video`;
+  const secret = String(process.env.LOCAL_WANGP_SHARED_SECRET || "").trim();
+
+  try {
+    log.info("video-generation", "Local WanGP: enviando job", { format, endpoint: endpoint.replace(baseUrl, "[local-worker]") });
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(secret ? { Authorization: `Bearer ${secret}` } : {}),
+      },
+      body: JSON.stringify({
+        source: "mecproai",
+        imageUrl,
+        headline,
+        cta,
+        format,
+        durationSeconds: 6,
+        voiceText: voiceText ? voiceText.slice(0, 300) : undefined,
+      }),
+      signal: AbortSignal.timeout(180000),
+    });
+
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      log.warn("video-generation", "Local WanGP HTTP erro", {
+        status: res.status,
+        error: String(data?.error || data?.message || "").slice(0, 120),
+      });
+      return null;
+    }
+
+    const videoUrl = data?.videoUrl || data?.url || data?.outputUrl || data?.result?.videoUrl;
+    if (typeof videoUrl === "string" && /^https?:\/\//i.test(videoUrl)) {
+      log.info("video-generation", "Local WanGP pronto", { format, videoUrl: videoUrl.slice(0, 60) });
+      return videoUrl;
+    }
+
+    log.warn("video-generation", "Local WanGP respondeu sem URL pública de vídeo", {
+      keys: Object.keys(data || {}).slice(0, 8).join(","),
+    });
+  } catch (err: any) {
+    log.warn("video-generation", "Local WanGP indisponível", { error: err?.message?.slice(0, 100) });
+  }
+
+  return null;
+}
+
 export async function generateVideoFromImage(
   imageUrl:  string,
   headline:  string,
@@ -1737,8 +1820,19 @@ export async function generateVideoFromImage(
   format:    "feed" | "stories" | "square",
   voiceText?: string,   // texto para narração (hook + copy)
 ): Promise<string | null> {
+  const preferredVideoProvider = String(process.env.VIDEO_PROVIDER || "json2video").trim().toLowerCase();
+  if (preferredVideoProvider === "local_wangp") {
+    const localVideoUrl = await generateVideoWithLocalWangp(imageUrl, headline, cta, format, voiceText);
+    if (localVideoUrl) return localVideoUrl;
+    log.warn("video-generation", "Local WanGP falhou/indisponível — tentando JSON2Video fallback");
+  }
+
   if (!J2V_API_KEY) {
-    log.warn("video-generation", "JSON2VIDEO_API_KEY não configurado");
+    log.warn("video-generation", "Nenhum provedor de vídeo disponível", {
+      preferredVideoProvider,
+      hasLocalWangp: envFlag("LOCAL_WANGP_ENABLED") && !!process.env.LOCAL_WANGP_URL,
+      hasJson2Video: false,
+    });
     return null;
   }
 

@@ -2962,9 +2962,11 @@ const campaignsRouter = router({
 
       if (!videoUrl) throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
-        message: process.env.JSON2VIDEO_API_KEY
+        message: process.env.VIDEO_PROVIDER === "local_wangp"
+          ? "Worker local WanGP indisponível ou sem URL pública de vídeo. Verifique LOCAL_WANGP_URL/LOCAL_WANGP_ENABLED ou configure JSON2VIDEO_API_KEY como fallback."
+          : process.env.JSON2VIDEO_API_KEY
           ? "JSON2Video falhou ao renderizar. Tente novamente em alguns segundos."
-          : "Configure JSON2VIDEO_API_KEY no Render para gerar vídeos.",
+          : "Configure JSON2VIDEO_API_KEY ou VIDEO_PROVIDER=local_wangp para gerar vídeos.",
       });
 
       // Salva videoUrl no criativo
@@ -2991,6 +2993,11 @@ const campaignsRouter = router({
           enhanceImage: diagnostics.enhancementReady,
           generateVideo: diagnostics.videoReady,
           uploadToMeta: true,
+        },
+        localWorker: {
+          enabled: /^(1|true|yes|on)$/i.test(String(process.env.LOCAL_WANGP_ENABLED || "").trim()),
+          configured: !!String(process.env.LOCAL_WANGP_URL || "").trim(),
+          providerSelected: process.env.VIDEO_PROVIDER === "local_wangp",
         },
       };
     }),
