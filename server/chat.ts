@@ -1,0 +1,524 @@
+/**
+ * server/chat.ts — Assistente de Campanhas do MecProAI (via chat)
+ *
+ * Adaptado do agente de chat do LogPro (function calling + cadeia de fallback)
+ * para o domínio de campanhas de marketing:
+ *
+ * - A IA conversa com o usuário e coleta o briefing (objetivo, orçamento,
+ *   duração, plataforma, nicho, público, região) em vez de um formulário.
+ * - Quando tem o essencial, chama a FERRAMENTA `gerar_campanha`, que por sua
+ *   vez chama exatamente o mesmo motor de geração usado pela interface e pelo
+ *   MCP (server/ai.ts → generateCampaign). A IA nunca "inventa" uma campanha.
+ * - Cadeia de fallback: Gemini (pool de chaves GEMINI_API_KEY..5) → Groq →
+ *   resposta local de indisponibilidade.
+ *
+ * REGRA DE OURO (mesma do LogPro): o agente NUNCA inventa número de
+ * performance, preço ou resultado — toda ação real sai da ferramenta.
+ *
+ * Stateless: o cliente reenvia o histórico a cada turno (máx. 16 mensagens).
+ * Nada é persistido no banco neste módulo.
+ */
+
+import { Router } from "express";
+import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
+import Groq from "groq-sdk";
+import { jwtVerify } from "jose";
+import * as db from "./db";
+import { log } from "./logger";
+
+export const chatRouter = Router();
+
+const MODELO_GEMINI = process.env.GEMINI_CHAT_MODEL ?? "gemini-flash-latest";
+const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "llama-3.3-70b-versatile";
+
+/** Quantas mensagens do histórico são reenviadas por turno (custo/latência). */
+const MAX_MENSAGENS_HISTORICO = 16;
+
+/** Timeout da geração de campanha dentro de uma chamada de ferramenta. */
+const TIMEOUT_GERACAO_MS = 110_000;
+
+// ── Pool de chaves Gemini (mesmo padrão de env do resto do MecProAI) ──────
+// Sem circuit breaker externo: cooldown simples em memória por chave quando
+// a cota diária esgota (não resolve com retry curto).
+const COOLDOWN_COTA_MS = 3 * 60 * 60_000; // 3h, janela conservadora
+const _chavesEsgotadas = new Map<string, number>();
+
+function poolChavesGemini(): string[] {
+  const chaves = [process.env.GEMINI_API_KEY];
+  for (let i = 2; i <= 5; i++) chaves.push(process.env[`GEMINI_API_KEY${i}` as keyof NodeJS.ProcessEnv] as string | undefined);
+  return chaves.filter((k): k is string => !!k && k.trim().length > 0);
+}
+
+function proximaChaveGemini(): string | null {
+  const agora = Date.now();
+  for (const chave of poolChavesGemini()) {
+    const ate = _chavesEsgotadas.get(chave) || 0;
+    if (ate < agora) return chave;
+  }
+  return null;
+}
+
+// ── Rate limit simples em memória (20 msg/min por usuário) ────────────────
+const _rateMap = new Map<number, { count: number; resetAt: number }>();
+const RATE_LIMITE = 20;
+const RATE_JANELA_MS = 60_000;
+
+function rateLimitOk(userId: number): boolean {
+  const agora = Date.now();
+  const atual = _rateMap.get(userId);
+  if (!atual || atual.resetAt < agora) {
+    _rateMap.set(userId, { count: 1, resetAt: agora + RATE_JANELA_MS });
+    return true;
+  }
+  if (atual.count >= RATE_LIMITE) return false;
+  atual.count += 1;
+  return true;
+}
+
+// ── Auth: JWT em cookie (mesmo padrão das outras rotas REST) ──────────────
+async function authChat(req: any, res: any, next: () => void) {
+  try {
+    const token = req.cookies?.token || (req.headers.authorization || "").replace("Bearer ", "").trim();
+    if (!token) return res.status(401).json({ erro: "login_required", mensagem: "Faça login para conversar com o assistente." });
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
+    const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null as any }));
+    if (!payload?.userId) return res.status(401).json({ erro: "login_required", mensagem: "Faça login para continuar." });
+    req.chatUserId = Number(payload.userId);
+    if (!rateLimitOk(req.chatUserId)) {
+      return res.status(429).json({ erro: "rate_limit", mensagem: "Muitas mensagens em pouco tempo. Aguarde um minuto." });
+    }
+    next();
+  } catch {
+    return res.status(401).json({ erro: "login_required", mensagem: "Sessão inválida. Faça login novamente." });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface MensagemChat {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CampanhaGerada {
+  id: number;
+  name: string;
+  projectId: number;
+  url: string;
+}
+
+interface RespostaChat {
+  resposta: string;
+  campanha: CampanhaGerada | null;
+  modo: "assistente" | "local";
+}
+
+const SYSTEM_PROMPT = `Você é o assistente de criação de campanhas do MecProAI, uma plataforma de marketing com IA.
+
+Sua função é ajudar o usuário a montar o briefing de uma campanha de anúncios através de conversa, em vez de um formulário. Você é um coletor de dados direto e educado — nunca um vendedor de resultado, e nunca inventa número de performance.
+
+Colete, nesta ordem de prioridade (só peça o que ainda não souber):
+1. Nome do cliente/negócio (projectName) — pra vincular ou criar o projeto.
+2. Objetivo da campanha: leads, sales (vendas), traffic (tráfego), branding ou engagement.
+3. Plataforma: meta, google ou tiktok. Se o usuário não souber, sugira meta.
+4. Orçamento total em reais (budget).
+5. Duração em dias (durationDays).
+6. Nicho/segmento e o que vende (productService) — melhora muito a copy.
+7. Cidade/região de atendimento e público-alvo (idade mínima/máxima se souber).
+8. Formato de mídia: image, video, carousel ou mixed. Se não souber, use image.
+
+Quando tiver os itens 1 a 5 no mínimo (e idealmente 6), chame a ferramenta gerar_campanha. Não peça confirmação antes — chame direto. Se faltar item obrigatório, pergunte só o que falta.
+
+Situações que você precisa saber lidar:
+- Usuário descreve o negócio de forma solta ("tenho uma loja de roupa em BC"): extraia nicho, cidade e proposta de valor do que ele escreveu e confirme em UMA frase antes de gerar.
+- Pergunta fora do escopo (clima, notícia, política): responda educadamente que você só ajuda a montar campanhas de marketing, e redirecione.
+- Usuário manda vários dados de uma vez: agradeça, confirme o entendimento resumido e chame gerar_campanha se estiver completo.
+- Depois de gerar: resuma em 1-2 frases diretas (nome da campanha, objetivo, orçamento/dia aproximado) e diga que os detalhes completos estão no link que aparece na tela. NÃO prometa resultado ("vai vender muito") — só entregue a campanha criada.
+- Se a ferramenta retornar erro (falta campo, limite do plano): repasse a mensagem do erro ao usuário de forma clara e continue a conversa coletando o que falta.
+
+Regras que valem sempre:
+- Você NUNCA promete resultado, estima ROAS/CPL/CTR ou cita número de performance por conta própria.
+- Tom: direto, sem enrolação, português do Brasil. Sem "olá! ficarei feliz em ajudar" — vai direto ao ponto.
+- Uma pergunta por vez sempre que possível — não interrogue o usuário com 8 perguntas de uma vez.`;
+
+// ── Ferramenta: gerar_campanha ────────────────────────────────────────────
+const PARAMETROS_GERAR_CAMPANHA = {
+  type: "object",
+  properties: {
+    projectName: { type: "string", description: "Nome do cliente/negócio. Usado pra encontrar ou criar o projeto." },
+    objective: { type: "string", enum: ["leads", "sales", "traffic", "branding", "engagement"], description: "Objetivo da campanha." },
+    platform: { type: "string", enum: ["meta", "google", "tiktok"], description: "Plataforma de anúncios." },
+    budget: { type: "number", description: "Orçamento total em reais." },
+    durationDays: { type: "number", description: "Duração em dias." },
+    name: { type: "string", description: "Nome da campanha. Se omitido, monte um a partir do negócio + objetivo." },
+    niche: { type: "string", description: "Nicho/segmento de mercado." },
+    productService: { type: "string", description: "O que o negócio vende." },
+    targetAudience: { type: "string", description: "Público-alvo em texto livre." },
+    city: { type: "string", description: "Cidade/região de atendimento." },
+    ageMin: { type: "number", description: "Idade mínima do público (13-65)." },
+    ageMax: { type: "number", description: "Idade máxima do público (18-65)." },
+    mediaFormat: { type: "string", enum: ["image", "video", "carousel", "mixed"], description: "Formato de mídia." },
+    whatsapp: { type: "string", description: "WhatsApp de atendimento, se houver." },
+    destinationUrl: { type: "string", description: "URL de destino dos anúncios, se houver." },
+  },
+  required: ["objective", "platform", "budget", "durationDays"],
+};
+
+const DESCRICAO_GERAR_CAMPANHA =
+  "Gera a campanha de marketing com IA usando o motor oficial do MecProAI (mesmo da interface). " +
+  "Só chame quando tiver no mínimo: nome do cliente/negócio (projectName), objective, platform, budget e durationDays. " +
+  "Cria o projeto automaticamente se o cliente ainda não existir. Retorna o id e o link da campanha criada.";
+
+const declaracoesGemini: FunctionDeclaration[] = [
+  { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parametersJsonSchema: PARAMETROS_GERAR_CAMPANHA },
+];
+
+const ferramentasGroq = [
+  {
+    type: "function" as const,
+    function: { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parameters: PARAMETROS_GERAR_CAMPANHA as Record<string, unknown> },
+  },
+];
+
+// ── Execução real da ferramenta (chama o motor existente) ─────────────────
+async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
+  try {
+    const objective = String(args.objective || "").toLowerCase();
+    const platform = String(args.platform || "meta").toLowerCase();
+    const budget = Number(args.budget);
+    const duration = Math.round(Number(args.durationDays));
+    const projectName = String(args.projectName || "").trim();
+
+    if (!["leads", "sales", "traffic", "branding", "engagement"].includes(objective)) {
+      return { ok: false, erro: `Objetivo inválido: "${objective}". Use leads, sales, traffic, branding ou engagement.` };
+    }
+    if (!Number.isFinite(budget) || budget <= 0) return { ok: false, erro: "Orçamento inválido — confirme o valor em reais com o usuário." };
+    if (!Number.isFinite(duration) || duration <= 0) return { ok: false, erro: "Duração inválida — confirme a duração em dias com o usuário." };
+
+    // 1. Resolve o projeto (encontra por nome ou cria)
+    let projectId: number;
+    if (projectName) {
+      const projects = (await db.getProjectsByUserId(userId)) as any[];
+      const alvo = projectName.toLowerCase();
+      const existente = projects.find((p) => String(p.name || "").trim().toLowerCase() === alvo);
+      if (existente) {
+        projectId = existente.id;
+      } else {
+        const limite = await db.checkPlanLimit(userId, "projects");
+        if (!limite.allowed) return { ok: false, erro: `Não foi possível criar o projeto: ${limite.reason}` };
+        const criado: any = await db.createProject({ name: projectName, userId } as any);
+        projectId = criado.id;
+      }
+    } else {
+      const projects = (await db.getProjectsByUserId(userId)) as any[];
+      if (projects.length === 1) {
+        projectId = projects[0].id;
+      } else {
+        return { ok: false, erro: "Preciso saber o nome do cliente/negócio pra vincular a campanha a um projeto." };
+      }
+    }
+
+    // 2. Preenche perfil do cliente quando trouxe dados novos (best effort)
+    try {
+      const perfilAtual: any = await db.getClientProfile(projectId);
+      if (!perfilAtual && (args.niche || args.productService || args.targetAudience)) {
+        await db.upsertClientProfile({
+          projectId,
+          companyName: projectName || undefined,
+          niche: args.niche ? String(args.niche) : undefined,
+          productService: args.productService ? String(args.productService) : undefined,
+          targetAudience: args.targetAudience ? String(args.targetAudience) : undefined,
+        } as any);
+      }
+    } catch {
+      // Perfil é enriquecimento — falha não bloqueia a geração
+    }
+
+    // 3. Limite do plano
+    const limiteCampanhas = await db.checkPlanLimit(userId, "campaigns", { projectId } as any);
+    if (!limiteCampanhas.allowed) return { ok: false, erro: `Não foi possível gerar: ${limiteCampanhas.reason}` };
+
+    // 4. Monta contexto e gera com o motor oficial
+    const name = String(args.name || "").trim() ||
+      `${projectName || "Campanha"} — ${objective === "sales" ? "Vendas" : objective === "leads" ? "Leads" : objective}`;
+
+    const extraContext = [
+      args.niche ? `Nicho: ${args.niche}` : "",
+      args.productService ? `Produto/serviço: ${args.productService}` : "",
+      args.targetAudience ? `Público-alvo: ${args.targetAudience}` : "",
+      args.city ? `Região de atendimento: ${args.city}` : "",
+      args.whatsapp ? `WhatsApp: ${args.whatsapp}` : "",
+      args.destinationUrl ? `URL de destino: ${args.destinationUrl}` : "",
+    ].filter(Boolean).join(". ");
+
+    const { generateCampaign } = await import("./ai");
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), TIMEOUT_GERACAO_MS)
+    );
+
+    const campaign: any = await Promise.race([
+      generateCampaign({
+        projectId,
+        userId,
+        name,
+        objective,
+        platform,
+        budget,
+        duration,
+        extraContext: extraContext || undefined,
+        ageMin: Number.isFinite(Number(args.ageMin)) ? Number(args.ageMin) : undefined,
+        ageMax: Number.isFinite(Number(args.ageMax)) ? Number(args.ageMax) : undefined,
+        locationMode: args.city ? "raio" : undefined,
+        geoCity: args.city ? String(args.city) : undefined,
+        geoRadius: 25,
+        mediaFormat: args.mediaFormat ? String(args.mediaFormat) : "image",
+      } as any),
+      timeout,
+    ]);
+
+    const campanha: CampanhaGerada = {
+      id: campaign.id,
+      name: campaign.name || name,
+      projectId,
+      url: `/projects/${projectId}/campaign/result/${campaign.id}`,
+    };
+    log.info("chat", "campanha gerada via chat", { userId, campaignId: campanha.id, projectId });
+    return { ok: true, campanha };
+  } catch (e: any) {
+    const msg = e?.message === "timeout"
+      ? "A geração está demorando mais que o esperado. Ela pode ter sido criada mesmo assim — peça pro usuário conferir a lista de campanhas do projeto em alguns segundos."
+      : `Falha ao gerar a campanha: ${e?.message || "erro desconhecido"}.`;
+    log.warn("chat", "gerar_campanha falhou", { userId, erro: e?.message });
+    return { ok: false, erro: msg };
+  }
+}
+
+// ── Helpers de erro ───────────────────────────────────────────────────────
+function aguardar(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function erroEhTemporario(erro: unknown): boolean {
+  const texto = String((erro as { message?: string })?.message ?? erro);
+  return (
+    texto.includes("503") ||
+    texto.includes("429") ||
+    texto.includes("UNAVAILABLE") ||
+    texto.includes("high demand") ||
+    texto.includes("rate limit")
+  );
+}
+
+function erroEhCotaDiariaEsgotada(erro: unknown): boolean {
+  const texto = String((erro as { message?: string })?.message ?? erro);
+  return texto.includes("RESOURCE_EXHAUSTED") || texto.includes("exceeded your current quota");
+}
+
+/* ---------------- Provedor 1: Gemini (com pool de chaves) ---------------- */
+
+async function chamarGeminiComRetry(historico: Content[], tentativas = 4): Promise<GenerateContentResponse> {
+  let ultimoErro: unknown;
+  for (let i = 0; i < tentativas; i++) {
+    const chave = proximaChaveGemini();
+    if (!chave) {
+      throw ultimoErro ?? new Error("Nenhuma chave Gemini disponível no momento (cotas esgotadas).");
+    }
+    try {
+      const cliente = new GoogleGenAI({ apiKey: chave });
+      return await cliente.models.generateContent({
+        model: MODELO_GEMINI,
+        contents: historico,
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          tools: [{ functionDeclarations: declaracoesGemini }],
+          toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
+        },
+      });
+    } catch (erro) {
+      ultimoErro = erro;
+      if (erroEhCotaDiariaEsgotada(erro)) {
+        // Cota dessa chave esgotada — marca cooldown e tenta a próxima já na
+        // iteração seguinte (cota não resolve com backoff curto).
+        _chavesEsgotadas.set(chave, Date.now() + COOLDOWN_COTA_MS);
+        continue;
+      }
+      if (!erroEhTemporario(erro) || i === tentativas - 1) throw erro;
+      await aguardar(1200 * (i + 1));
+    }
+  }
+  throw ultimoErro;
+}
+
+async function tentarComGemini(mensagens: MensagemChat[], userId: number): Promise<RespostaChat> {
+  const historico: Content[] = mensagens.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  let campanha: CampanhaGerada | null = null;
+  let textoFinal = "";
+
+  for (let passo = 0; passo < 4; passo++) {
+    const resposta = await chamarGeminiComRetry(historico);
+    if (resposta.text) textoFinal = resposta.text;
+
+    const chamada = resposta.functionCalls?.[0];
+    if (!chamada) break;
+
+    historico.push({ role: "model", parts: [{ functionCall: { name: chamada.name, args: chamada.args } }] });
+
+    if (chamada.name === "gerar_campanha") {
+      const resultado = await executarGeracaoCampanha((chamada.args as Record<string, unknown>) || {}, userId);
+      if (resultado.ok) campanha = resultado.campanha;
+      historico.push({
+        role: "user",
+        parts: [{
+          functionResponse: {
+            name: "gerar_campanha",
+            response: resultado.ok
+              ? { campanha: resultado.campanha }
+              : { erro: resultado.erro },
+          },
+        }],
+      });
+      continue;
+    }
+
+    // Ferramenta desconhecida — devolve erro pra IA se corrigir
+    historico.push({
+      role: "user",
+      parts: [{ functionResponse: { name: chamada.name, response: { erro: "Ferramenta desconhecida." } } }],
+    });
+  }
+
+  return { resposta: textoFinal, campanha, modo: "assistente" };
+}
+
+/* ---------------- Provedor 2: Groq (fallback) ---------------- */
+
+async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletionMessageParam[], tentativas = 2) {
+  let ultimoErro: unknown;
+  for (let i = 0; i < tentativas; i++) {
+    try {
+      return await groq.chat.completions.create({
+        model: MODELO_GROQ,
+        messages: historico,
+        tools: ferramentasGroq,
+        tool_choice: "auto",
+        temperature: 0.3,
+      });
+    } catch (erro) {
+      ultimoErro = erro;
+      if (!erroEhTemporario(erro) || i === tentativas - 1) throw erro;
+      await aguardar(1200 * (i + 1));
+    }
+  }
+  throw ultimoErro;
+}
+
+async function tentarComGroq(mensagens: MensagemChat[], userId: number): Promise<RespostaChat> {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+  const historico: Groq.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...mensagens.map((m) => ({ role: m.role, content: m.content }) as Groq.Chat.ChatCompletionMessageParam),
+  ];
+
+  let campanha: CampanhaGerada | null = null;
+  let textoFinal = "";
+
+  for (let passo = 0; passo < 4; passo++) {
+    const resposta = await chamarGroqComRetry(groq, historico);
+    const msg = resposta.choices[0].message;
+    if (msg.content) textoFinal = msg.content;
+
+    const chamada = msg.tool_calls?.[0];
+    if (!chamada) break;
+
+    historico.push(msg);
+
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(chamada.function.arguments);
+    } catch {
+      // args inválido — handler abaixo trata
+    }
+
+    if (chamada.function.name === "gerar_campanha") {
+      const resultado = await executarGeracaoCampanha(args, userId);
+      if (resultado.ok) campanha = resultado.campanha;
+      historico.push({
+        role: "tool",
+        tool_call_id: chamada.id,
+        content: JSON.stringify(resultado.ok ? { campanha: resultado.campanha } : { erro: resultado.erro }),
+      });
+      continue;
+    }
+
+    historico.push({
+      role: "tool",
+      tool_call_id: chamada.id,
+      content: JSON.stringify({ erro: "Ferramenta desconhecida." }),
+    });
+  }
+
+  return { resposta: textoFinal, campanha, modo: "assistente" };
+}
+
+/* ---------------- Provedor 3: resposta local (sem IA) ---------------- */
+
+function responderLocal(): RespostaChat {
+  return {
+    resposta:
+      "No momento estou com a IA temporariamente indisponível (todas as chaves em cooldown). " +
+      "Tente novamente em alguns minutos — ou monte a campanha direto pela tela de campanhas, que funciona sempre.",
+    campanha: null,
+    modo: "local",
+  };
+}
+
+/* ---------------- Rotas ---------------- */
+
+// GET /api/chat/status — diagnóstico leve (sem citar fornecedor)
+chatRouter.get("/status", (_req, res) => {
+  const geminiOk = poolChavesGemini().length > 0;
+  const groqOk = !!process.env.GROQ_API_KEY;
+  res.json({
+    disponivel: geminiOk || groqOk,
+    modo: geminiOk || groqOk ? "assistente" : "local",
+  });
+});
+
+chatRouter.post("/", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const recebidas: MensagemChat[] = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
+  if (recebidas.length === 0) {
+    return res.status(400).json({ erro: "Nenhuma mensagem enviada." });
+  }
+
+  // Mantém só as últimas trocas — o histórico inteiro é reenviado a cada
+  // turno, e briefing de campanha não precisa de contexto longo.
+  const mensagens = recebidas
+    .filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
+    .slice(-MAX_MENSAGENS_HISTORICO);
+
+  if (proximaChaveGemini()) {
+    try {
+      const resultado = await tentarComGemini(mensagens, userId);
+      return res.json(resultado);
+    } catch (erro) {
+      log.warn("chat", "Gemini indisponível, tentando Groq", { erro: (erro as any)?.message });
+    }
+  }
+
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const resultado = await tentarComGroq(mensagens, userId);
+      return res.json(resultado);
+    } catch (erro) {
+      log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: (erro as any)?.message });
+    }
+  }
+
+  return res.json(responderLocal());
+});
