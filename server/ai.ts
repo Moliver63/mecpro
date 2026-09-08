@@ -15,8 +15,10 @@ type MetaFetchResult = {
 import * as db from "./db";
 import type { CampaignCreative } from "../shared/campaignCreative.schema";
 import { syncCreativeTextToV2, syncCreativeImageToV2 } from "../shared/campaignCreative.sync";
-import { inferSubsegment, SUBSEGMENTS } from "../shared/subsegments";
 import { isAbsenceAnswer } from "../shared/pendencyQuestions";
+import { resolveCampaignProfile } from "./campaignProfile";
+import { deriveNicheFromProfile, nicheToHumanLabel } from "./nicheResolver";
+// inferSubsegment, SUBSEGMENTS, inferOfferType: Migrados para campaignProfile.ts
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
@@ -6794,36 +6796,36 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     limit: 6,
   });
 
-  // Texto-fonte pra inferência: os mesmos campos de texto livre que já vão
-  // pro prompt (produto/serviço, dor, proposta de valor, diferenciais,
-  // contexto extra do usuário) — nada novo é pedido ao cliente.
-  const offerInferenceText = [
-    (clientProfile as any)?.productService,
-    (clientProfile as any)?.mainPain,
-    (clientProfile as any)?.uniqueValueProposition,
-    (clientProfile as any)?.productDifferentials,
-    input.extraContext,
-  ].filter(Boolean).join(". ");
-
-  const offerType = inferOfferType(offerInferenceText, resolvedSegment);
-  const subsegment = inferSubsegment(offerInferenceText, resolvedSegment);
-  const matchedSub = subsegment.key
-    ? SUBSEGMENTS[resolvedSegment]?.find(s => s.key === subsegment.key)
-    : undefined;
-
-  // Só influencia o prompt se a confiança for alta ou média — sinal fraco
-  // ou ausente mantém o comportamento anterior 100% intacto (sem instrução
-  // extra nenhuma), conforme o critério de aceitação original.
-  const subsegmentInstruction = (matchedSub && subsegment.confidence !== "baixa")
-    ? `\n🎯 SUBSEGMENTO DETECTADO: ${subsegment.label} (confiança ${subsegment.confidence}, sinais: ${subsegment.matched.slice(0, 3).join(", ")})
-${matchedSub.hookOverride ? `- Use como inspiração de HOOK: ${matchedSub.hookOverride}` : ""}
-${matchedSub.ctaOverride ? `- Prefira um destes CTAs (ou variação muito próxima): ${matchedSub.ctaOverride.join(", ")}` : ""}`
-    : "";
-
-  if (subsegment.key) {
-    log.info("ai", "Módulo 4b — subsegmento inferido", {
-      segment: resolvedSegment, offerType: offerType.offerType, offerConfidence: offerType.confidence,
-      subsegmentKey: subsegment.key, subsegmentConfidence: subsegment.confidence,
+  // ── Módulo 4b (PR1+PR2): resolveCampaignProfile + deriveNicheFromProfile ──
+  // PR1: detecção centralizada de segmento + offerType + subsegmento em
+  //      server/campaignProfile.ts. Substitui a lógica inline que existia
+  //      aqui (12/12 e 15/15 testes documentados antes do refator).
+  // PR2: derivação do nicho estruturado para learning_base gravar chave
+  //      real em vez de 'geral' puro.
+  const campaignProfile = resolveCampaignProfile({
+    segment:                 input.segment,
+    extraContext:            input.extraContext,
+    name:                    input.name,
+    clientNiche:             (clientProfile as any)?.niche ?? null,
+    clientProductService:    (clientProfile as any)?.productService ?? null,
+    clientProductName:       (clientProfile as any)?.productName ?? null,
+    clientMainPain:          (clientProfile as any)?.mainPain ?? null,
+    clientUVP:               (clientProfile as any)?.uniqueValueProposition ?? null,
+    clientDifferentials:     (clientProfile as any)?.productDifferentials ?? null,
+    preResolvedSegment:      resolvedSegment,
+    preResolvedFacts:        campaignFacts,
+  });
+  const subsegmentInstruction = campaignProfile.subsegmentInstruction;
+  const derivedNiche           = deriveNicheFromProfile(campaignProfile);
+  const nicheLabel             = nicheToHumanLabel(derivedNiche);
+  if (derivedNiche !== "geral") {
+    log.info("ai", "nicho estruturado derivado (PR2)", {
+      resolvedSegment:       campaignProfile.resolvedSegment,
+      derivedNiche,
+      nicheLabel,
+      offerType:             campaignProfile.offerType,
+      subsegmentKey:         campaignProfile.subsegmentKey,
+      subsegmentConfidence:  campaignProfile.subsegmentConfidence,
     });
   }
 
@@ -8426,7 +8428,15 @@ ON CONFLICT DO NOTHING`,
     }
   });
 
-  return campaign;
+  // PR2: devolve nicho estruturado junto com a campanha. Callers
+  // existentes (adminIntelligenceRouter.updateLearning) usam derivados
+  // desses campos em vez de cair em niche='geral'. saveCampaignToDb
+  // ignora silenciosamente chaves extras (forward-compatible).
+  return {
+    ...campaign,
+    niche: derivedNiche,
+    nicheLabel,
+  };
 }
 
 // ── generateCampaignPart — regenera apenas uma parte da campanha ────────────
