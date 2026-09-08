@@ -561,6 +561,20 @@ app.use(cors({
   credentials: true,
 }));
 
+// ── Assistente de Campanhas via chat ──────────────────────────────────────
+// Import dinâmico de propósito: qualquer erro de inicialização do módulo
+// (deps novas, tipos de SDK) vira 503 isolado em vez de derrubar o servidor.
+// Montado DEPOIS de cookieParser/json e do CORS — o chat precisa de
+// req.cookies, req.body parseado e headers CORS (dev localhost).
+app.use('/api/chat', (req, res, next) => {
+  import('../chat.js')
+    .then(({ chatRouter }) => chatRouter(req, res, next))
+    .catch((err: any) => {
+      log.warn('chat', 'módulo de chat indisponível', { error: err?.message });
+      res.status(503).json({ erro: 'chat_unavailable', mensagem: 'Assistente temporariamente indisponível. Tente novamente em instantes.' });
+    });
+});
+
 // ─── Stripe (inicializado de forma segura) ─────────────────
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' })
