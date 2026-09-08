@@ -3,6 +3,7 @@ import test from "node:test";
 import { buildCampaignFromAds, buildBaseTemplate } from "../ai";
 import { buildCampaignFacts, validateCampaignFactIntegrity } from "../campaignFactGuard";
 import { buildRealEstateCarouselAngles } from "../carouselCopy";
+import { scoreCreative } from "../creativeScoringEngine";
 import { isRedundantHookText } from "../../shared/campaignCopyQuality";
 
 // ── Fixture da campanha 747 (sala comercial p/ locação, Rua 902, nº 144) ──
@@ -180,10 +181,15 @@ test("financial hybrid fallback stays segment-specific and avoids earnings promi
   assert.equal(new Set(result.creatives.map((creative: any) => creative.headline)).size, 4);
   for (const creative of result.creatives) {
     const text = `${creative.headline} ${creative.copy} ${creative.cta}`;
+    const score = scoreCreative(creative);
     assert.match(text, /financeir|m[eé]todo|orienta[cç][aã]o|an[aá]lise|especialista|decis[aã]o|perfil/i);
     assert.doesNotMatch(text, /dados reais|resultados mensur[aá]veis|quero mudar|doces|brigadeiro|im[oó]vel|agendar visita/i);
     assert.doesNotMatch(text, /renda garantida|retorno garantido|lucro garantido|multiplicar dinheiro|fique rico|sem risco|patrim[oô]nio garantido/i);
+    assert.doesNotMatch(text, /Método 10X apresenta Método 10X/i);
     assert.doesNotMatch(creative.headline, /Conheça a proposta|Detalhes que importam/i);
+    assert.equal(creative.needsReview, false);
+    assert.equal(score.complianceRisk, "Baixo");
+    assert.ok(score.finalScore >= 65, `score financeiro baixo demais: ${score.finalScore} em "${creative.headline}"`);
   }
 });
 

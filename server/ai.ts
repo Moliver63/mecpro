@@ -3307,6 +3307,97 @@ function parseHtmlIntoAds(html: string, competitorId: number, websiteUrl: string
   return ads;
 }
 
+function cleanFinancialProductLabel(product: unknown, company: unknown): string {
+  let text = normalizeCopyText(product || "método financeiro");
+  const companyName = normalizeCopyText(company);
+  if (companyName) {
+    const escaped = companyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`^${escaped}\\s+(?:para|de|sobre)?\\s*`, "i"), "").trim();
+  }
+  text = text
+    .replace(/\s+(?:e\s+)?investimentos?\b/gi, "")
+    .replace(/\s+para\s+organiza[cç][aã]o financeira\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (companyName && /^organiza[cç][aã]o financeira$/i.test(text)) {
+    text = companyName;
+  }
+  return text || companyName || "método financeiro";
+}
+
+function buildFinancialCarouselAngles(company: string, product: string, total = 4): Array<{
+  headline: string;
+  description: string;
+  copy: string;
+  hook: string;
+  pain: string;
+  solution: string;
+  cta: string;
+}> {
+  const companyName = trimMetaField(company || "a equipe", 28);
+  const productLabel = trimMetaField(cleanFinancialProductLabel(product, companyName), 28);
+  const cards = [
+    {
+      headline: trimMetaField(`Entenda ${productLabel}`, 40),
+      description: "Clareza antes de decidir",
+      copy: `${companyName} apresenta uma proposta para quem quer organizar decisões financeiras com mais critério. Fale agora pelo WhatsApp, tire dúvidas e veja se o método combina com seu momento.`,
+      hook: `Você quer entender ${productLabel} com clareza?`,
+      pain: "Querer avançar nas finanças sem cair em promessa exagerada.",
+      solution: "Uma conversa objetiva para explicar a proposta e alinhar expectativas.",
+      cta: "Receber orientação",
+    },
+    {
+      headline: "Organize o próximo passo",
+      description: "Perfil e objetivo",
+      copy: `Antes de decidir, vale olhar objetivo, perfil e tolerância a risco. O atendimento do ${companyName} ajuda você a entender o método com linguagem simples. Chame no WhatsApp.`,
+      hook: "Você sabe qual próximo passo financeiro faz sentido para o seu perfil?",
+      pain: "Ter interesse em melhorar a organização financeira, mas faltar direção.",
+      solution: "Orientação consultiva para avaliar cenário, dúvidas e próximos passos.",
+      cta: "Solicitar análise",
+    },
+    {
+      headline: "Método com transparência",
+      description: "Sem exagero",
+      copy: `${companyName} trabalha com educação financeira, disciplina e decisão consciente. Fale agora com a equipe e entenda a proposta antes de assumir qualquer compromisso.`,
+      hook: "Você prefere entender o método antes de decidir?",
+      pain: "Ver anúncios financeiros exagerados e precisar de informação confiável.",
+      solution: "Copy clara, sem promessa absoluta e com atendimento para tirar dúvidas.",
+      cta: "Tirar dúvidas",
+    },
+    {
+      headline: `Fale com ${companyName}`,
+      description: "Atendimento direto",
+      copy: `Converse com ${companyName} para receber as informações principais, entender como o método é conduzido e decidir com calma. O primeiro passo é uma conversa pelo WhatsApp.`,
+      hook: "Você pode falar agora com a equipe e entender a proposta.",
+      pain: "Gostar da ideia, mas precisar confirmar detalhes antes de seguir.",
+      solution: "Contato direto para explicar o método, o formato e o próximo passo.",
+      cta: "Falar com especialista",
+    },
+  ];
+  return Array.from({ length: Math.max(total, 1) }, (_, index) => cards[index % cards.length]);
+}
+
+function isFinanceCreativeSafeWithoutGenericReview(creative: any, finalScore: { finalScore: number; complianceRisk?: string }): boolean {
+  const segment = String(creative?.segmentAlignment || "").toLowerCase();
+  if (segment !== "financeiro") return false;
+  if (finalScore.finalScore < 65 || finalScore.complianceRisk !== "Baixo") return false;
+  if (creative?.hasPlaceholder) return false;
+  if (Array.isArray(creative?.segmentAlignmentIssues) && creative.segmentAlignmentIssues.length > 0) return false;
+  if (getCreativeEditorialIssues(creative).length > 0) return false;
+
+  const text = normalizeCopyText([
+    creative?.headline,
+    creative?.description,
+    creative?.shortDescription,
+    creative?.copy,
+    creative?.bodyText,
+    creative?.hook,
+    creative?.cta,
+  ].filter(Boolean).join(" "));
+  return /\b(financeir|m[eé]todo|perfil|orienta[cç][aã]o|an[aá]lise|whatsapp|especialista)\b/i.test(text)
+    && !/\b(renda garantida|retorno garantido|lucro garantido|multiplicar dinheiro|fique rico|sem risco|ganho certo|patrim[oô]nio garantido)\b/i.test(text);
+}
+
 // ── Gera campanha a partir dos ads coletados — sem LLM ──────────────────────
 export async function buildCampaignFromAds(
   projectId: number,
@@ -3470,8 +3561,13 @@ export async function buildCampaignFromAds(
   const realEstateAngles = isRealEstateCampaign
     ? buildRealEstateCarouselAngles(opts!.campaignFacts!, (clientProfile as any)?.city || "", { rotate: rotationSeed }).slice(0, desiredCreatives)
     : null;
+  const financialAngles = !realEstateAngles && detectedSeg === "financeiro"
+    ? buildFinancialCarouselAngles(company, product, desiredCreatives)
+    : null;
   const hybrid = realEstateAngles
     ? null
+    : financialAngles
+      ? null
     : await hybridGenerateAds({ niche, clientName: company, product, tones, useLLMRefine: false, count: desiredCreatives });
 
   // Métricas: usa learning_base se disponível, senão estimativas por nicho
@@ -3548,6 +3644,20 @@ export async function buildCampaignFromAds(
         budget: Math.round(budget / desiredCreatives), duration: campaignDurationDays,
         tone: "rational", source: "hybrid_real_estate",
       }))
+    : financialAngles
+      ? financialAngles.map((angle, i) => ({
+          type: typeCycle[i % typeCycle.length],
+          format: "Carrossel", orientation: "vertical_9_16",
+          headline: angle.headline, bodyText: angle.copy, copy: angle.copy,
+          cta: angle.cta,
+          hook: angle.hook, pain: angle.pain, solution: angle.solution,
+          funnelStage: funnelStageCycle[i % funnelStageCycle.length], complianceScore: "safe",
+          targetAudience: audienceLabel, platforms: ["meta"],
+          budget: Math.round(budget / desiredCreatives), duration: campaignDurationDays,
+          tone: "rational", source: "hybrid_finance",
+          segmentAlignment: "financeiro",
+          needsReview: false,
+        }))
     : hybrid!.ads.map((ad, i) => {
         // Hook precisa ser distinto da headline (achado real, campanha 747:
         // "headline e hook idênticos, exibidos repetidamente na interface").
@@ -7219,46 +7329,11 @@ ${creativeSlotInstructions}
     }
     if (segment === "financeiro") {
       const p = clientProfile as any;
-      const company = trimMetaField(p?.companyName || input.name || "a equipe", 28);
-      const product = trimMetaField(p?.productService || p?.productName || "método financeiro", 34);
-      return [
-        {
-          headline: trimMetaField(`Entenda ${product}`, 40),
-          description: "Sem promessa fácil",
-          copy: `${company} apresenta ${product} com foco em clareza, organização e tomada de decisão responsável.\n\nA proposta é conversar sobre seu momento, tirar dúvidas e mostrar o caminho do método sem transformar resultado em certeza.\n\nSolicite orientação pelo WhatsApp.`,
-          hook: "Clareza antes da decisão",
-          pain: "Querer organizar a vida financeira sem cair em promessa fácil.",
-          solution: "Orientação objetiva para entender o método e avaliar se faz sentido para o seu perfil.",
-          cta: "Receber orientação",
-        },
-        {
-          headline: "Organize o próximo passo",
-          description: "Conversa objetiva",
-          copy: "Antes de tomar uma decisão financeira, vale entender cenário, objetivo e risco.\n\nEste card apresenta o método como um caminho de aprendizado e organização, não como promessa de retorno.\n\nFale com a equipe.",
-          hook: "Planejamento com contexto",
-          pain: "Ter vontade de avançar, mas faltar critério para decidir.",
-          solution: "Uma conversa para alinhar expectativas e explicar como o método funciona.",
-          cta: "Solicitar análise",
-        },
-        {
-          headline: "Método com transparência",
-          description: "Avalie com calma",
-          copy: "Campanhas financeiras precisam ser claras: cada pessoa tem um perfil, um contexto e uma tolerância a risco.\n\nConheça a proposta, veja os pontos principais e tire dúvidas antes de seguir.\n\nChame no WhatsApp.",
-          hook: "Educação financeira responsável",
-          pain: "Receber promessas exageradas e não saber em quem confiar.",
-          solution: "Copy educativa, direta e alinhada às regras de anúncios financeiros.",
-          cta: "Tirar dúvidas",
-        },
-        {
-          headline: "Fale sobre o Método 10X",
-          description: "Tire suas dúvidas",
-          copy: "Se o Método 10X chamou sua atenção, o próximo passo é entender a proposta com transparência.\n\nA equipe explica como funciona, para quem faz sentido e quais informações você precisa avaliar.\n\nReceba orientação.",
-          hook: "Próximo passo com orientação",
-          pain: "Gostar da ideia, mas precisar de mais informação antes de decidir.",
-          solution: "Atendimento consultivo para explicar a oferta sem exageros.",
-          cta: "Falar com especialista",
-        },
-      ];
+      return buildFinancialCarouselAngles(
+        p?.companyName || input.name || "a equipe",
+        p?.productService || p?.productName || "método financeiro",
+        4,
+      );
     }
     if (segment === "ecommerce" || segment === "moda_varejo") {
       return [
@@ -7959,10 +8034,11 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
           });
         }
         const finalScore = scoreCreative(creative);
+        const financeSafe = isFinanceCreativeSafeWithoutGenericReview(creative, finalScore);
         return {
           ...creative,
           ...finalScore,
-          needsReview: finalScore.finalScore < 75 || !!creative.hasPlaceholder
+          needsReview: (!financeSafe && finalScore.finalScore < 75) || !!creative.hasPlaceholder
             || (Array.isArray(creative.segmentAlignmentIssues) && creative.segmentAlignmentIssues.length > 0),
         };
       });
