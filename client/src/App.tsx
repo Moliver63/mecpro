@@ -134,7 +134,7 @@ import LandingNormal from "@/pages/LandingNormal";
 import ProtectedRoute from "@/components/shared/ProtectedRoute";
 import ErrorBoundary from "@/components/shared/ErrorBoundary";
 import CookieConsent from "@/components/shared/CookieConsent";
-import MECPROAssistantChat from "@/components/shared/MECPROAssistantChat";
+import CampaignChat from "@/components/shared/CampaignChat";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: (count, err: any) => err?.status >= 500 && count < 2 } },
@@ -303,7 +303,7 @@ export default function App() {
             <Route component={NotFound} />
           </Switch>
           <CookieConsent />
-          <MECPROAssistantChat />
+          <CampaignChat />
           <UIConfigLoader />
           <PWAInstallBanner />
           <Toaster richColors position="top-right" />
