@@ -586,6 +586,132 @@ function scopeErrorContent(required: McpScope, userScope: McpScope) {
   };
 }
 
+type AdsConnectionPlatform = "meta" | "google" | "tiktok";
+
+function getAppBaseUrl(): string {
+  return (process.env.APP_URL || "https://www.mecproai.com").replace(/\/+$/, "");
+}
+
+function maskPublicId(value?: unknown): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (raw.length <= 8) return raw;
+  return `${raw.slice(0, 4)}...${raw.slice(-4)}`;
+}
+
+function isActiveIntegration(integration: any): boolean {
+  return !!integration && integration.isActive !== 0;
+}
+
+function buildPlatformConnectionStatus(platform: AdsConnectionPlatform, integration: any) {
+  const appUrl = getAppBaseUrl();
+  const active = isActiveIntegration(integration);
+  const hasAccessToken = !!integration?.accessToken;
+  const hasRefreshToken = !!integration?.refreshToken;
+  const hasToken = hasAccessToken || hasRefreshToken;
+
+  if (platform === "meta") {
+    const hasAppId = !!(integration?.appId || process.env.META_APP_ID || process.env.FACEBOOK_APP_ID);
+    const hasAppSecret = !!(integration?.appSecret || process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET);
+    const hasAdAccount = !!integration?.adAccountId;
+    const configured = hasAppId && hasAppSecret;
+    const readyForPublish = active && hasAccessToken && hasAdAccount;
+    const missing = [
+      !configured ? "META_APP_ID/META_APP_SECRET ou FACEBOOK_APP_ID/FACEBOOK_APP_SECRET" : "",
+      !hasAccessToken ? "OAuth/token Meta do usuario" : "",
+      !hasAdAccount ? "adAccountId da conta de anuncios" : "",
+    ].filter(Boolean);
+    return {
+      platform,
+      label: "Meta Ads",
+      configured,
+      connected: active && hasAccessToken,
+      readyForPublish,
+      connectUrl: `${appUrl}/settings/meta`,
+      savedAccount: maskPublicId(integration?.adAccountId),
+      missing,
+      viaMcp: {
+        canInspectStatus: true,
+        canOpenConnectionScreen: true,
+        canCompleteOAuth: false,
+        canPublishCampaign: readyForPublish,
+        publishTool: "publish_campaign",
+      },
+      note: readyForPublish
+        ? "Meta pronta para publicacao via MCP, respeitando confirmacao explicita do usuario."
+        : "A conexao deve ser concluida na tela de Meta Ads para passar pelo consentimento OAuth/Business Manager.",
+    };
+  }
+
+  if (platform === "google") {
+    const hasClientId = !!(integration?.appId || process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID);
+    const hasClientSecret = !!(integration?.appSecret || process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET);
+    const hasDeveloperToken = !!(integration?.developerToken || process.env.GOOGLE_ADS_DEVELOPER_TOKEN);
+    const hasCustomerId = !!integration?.accountId;
+    const configured = hasClientId && hasClientSecret;
+    const readyForApi = active && hasToken && hasDeveloperToken && hasCustomerId;
+    const missing = [
+      !configured ? "GOOGLE_ADS_CLIENT_ID/GOOGLE_ADS_CLIENT_SECRET ou GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET" : "",
+      !hasDeveloperToken ? "GOOGLE_ADS_DEVELOPER_TOKEN" : "",
+      !hasToken ? "OAuth/refresh_token Google Ads do usuario" : "",
+      !hasCustomerId ? "Customer ID Google Ads" : "",
+    ].filter(Boolean);
+    return {
+      platform,
+      label: "Google Ads",
+      configured,
+      connected: active && hasToken,
+      readyForPublish: false,
+      readyForApi,
+      connectUrl: `${appUrl}/settings/google`,
+      savedAccount: maskPublicId(integration?.accountId),
+      missing,
+      viaMcp: {
+        canInspectStatus: true,
+        canOpenConnectionScreen: true,
+        canCompleteOAuth: false,
+        canPublishCampaign: false,
+        publishTool: null,
+      },
+      note: readyForApi
+        ? "Google Ads esta pronto para consultas/relatorios internos; publicacao por MCP ainda precisa de tool especifica."
+        : "A conexao deve ser concluida na tela de Google Ads para obter refresh_token e selecionar Customer ID.",
+    };
+  }
+
+  const hasClientKey = !!(integration?.appId || process.env.TIKTOK_CLIENT_KEY);
+  const hasClientSecret = !!(integration?.appSecret || process.env.TIKTOK_CLIENT_SECRET);
+  const hasAdvertiserId = !!integration?.accountId;
+  const configured = hasClientKey && hasClientSecret;
+  const readyForApi = active && hasAccessToken && hasAdvertiserId;
+  const missing = [
+    !configured ? "TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET" : "",
+    !hasAccessToken ? "OAuth/token TikTok do usuario" : "",
+    !hasAdvertiserId ? "Advertiser ID TikTok" : "",
+  ].filter(Boolean);
+  return {
+    platform,
+    label: "TikTok Ads",
+    configured,
+    connected: active && hasAccessToken,
+    readyForPublish: false,
+    readyForApi,
+    connectUrl: `${appUrl}/settings/tiktok`,
+    savedAccount: maskPublicId(integration?.accountId),
+    missing,
+    viaMcp: {
+      canInspectStatus: true,
+      canOpenConnectionScreen: true,
+      canCompleteOAuth: false,
+      canPublishCampaign: false,
+      publishTool: null,
+    },
+    note: readyForApi
+      ? "TikTok esta pronto para consultas/relatorios internos; publicacao por MCP ainda precisa de tool especifica."
+      : "A conexao deve ser concluida na tela de TikTok Ads para consentimento e advertiser id.",
+  };
+}
+
 export function createMcpServerForUser(userId: number, scope: McpScope = "publish"): McpServer {
   const server = new McpServer({ name: "mecproai", version: "1.5.0" });
 
@@ -819,6 +945,61 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       }
     }
   );
+
+  const getPlatformConnectionsToolConfig = {
+    title: "Diagnosticar conexoes Meta, Google e TikTok",
+    description:
+      "Audita as conexoes de Meta Ads, Google Ads e TikTok Ads do usuario autenticado " +
+      "sem retornar tokens. Use antes de gerar relatorios, publicar ou tentar conectar " +
+      "uma plataforma via MCP. Retorna o que ja esta configurado, o que falta, quais " +
+      "acoes sao possiveis por MCP e a URL interna do MecProAI para concluir OAuth.",
+    inputSchema: {
+      platforms: z.array(z.enum(["meta", "google", "tiktok"])).optional()
+        .describe("Plataformas a auditar. Padrao: meta, google e tiktok."),
+    },
+  };
+
+  const getPlatformConnectionsHandler = async ({ platforms }: { platforms?: AdsConnectionPlatform[] }) => {
+    const selected = platforms?.length ? platforms : ["meta", "google", "tiktok"] as AdsConnectionPlatform[];
+    const results = await Promise.all(selected.map(async (platform) => {
+      const integration = await db.getApiIntegration(userId, platform).catch(() => null);
+      return buildPlatformConnectionStatus(platform, integration);
+    }));
+
+    const summary = results.map((item) => {
+      const status = item.readyForPublish
+        ? "pronta para publicar via MCP"
+        : item.connected
+          ? "conectada, mas com limite operacional"
+          : item.configured
+            ? "configurada no servidor, aguardando OAuth do usuario"
+            : "nao configurada";
+      const missing = item.missing.length ? ` Faltando: ${item.missing.join(", ")}.` : "";
+      return `- ${item.label}: ${status}.${missing} Abrir: ${item.connectUrl}`;
+    }).join("\n");
+
+    return {
+      content: [{
+        type: "text" as const,
+        text:
+          `Diagnostico de conexoes MCP/Ads:\n${summary}\n\n` +
+          `Observacao: o MCP nao deve capturar senha/token OAuth pelo chat. ` +
+          `Ele pode auditar, orientar e publicar onde ja existe credencial valida; ` +
+          `o consentimento de Meta, Google e TikTok continua na tela segura do MecProAI.`,
+      }],
+      structuredContent: { platforms: results },
+    };
+  };
+
+  server.registerTool("get_platform_connections", getPlatformConnectionsToolConfig, getPlatformConnectionsHandler);
+  server.registerTool("MECPROAI.get_platform_connections", {
+    ...getPlatformConnectionsToolConfig,
+    title: "MECPROAI.get_platform_connections",
+  }, getPlatformConnectionsHandler);
+  server.registerTool("mecproai.get_platform_connections", {
+    ...getPlatformConnectionsToolConfig,
+    title: "mecproai.get_platform_connections",
+  }, getPlatformConnectionsHandler);
 
   // ═══════════════════════════════════════════════════════════════════════
   // FASE 2 — tools de escrita

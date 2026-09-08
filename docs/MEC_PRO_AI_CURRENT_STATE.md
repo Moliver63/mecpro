@@ -54,6 +54,47 @@ Chaves operacionais:
 
 Regra pratica: geracao ou aprimoramento nunca deve publicar automaticamente. A midia precisa continuar passando pelos gates de campanha, Fact Guard/Quality Gate e confirmacao explicita antes da Meta.
 
+## Conexoes Ads via MCP
+
+Atualizacao 2026-09-08: o MCP agora expoe `get_platform_connections` tambem nos aliases `MECPROAI.get_platform_connections` e `mecproai.get_platform_connections`.
+
+A ferramenta audita Meta Ads, Google Ads e TikTok Ads para o usuario autenticado sem retornar tokens ou segredos. Ela informa:
+
+- se as variaveis OAuth da plataforma estao configuradas no servidor;
+- se existe integracao ativa no banco;
+- qual conta publica esta salva, sempre mascarada;
+- o que ainda falta para usar a API;
+- a URL interna do MecProAI para completar a conexao com OAuth.
+
+O MCP nao deve receber senha, app secret ou token OAuth pelo chat. A conexao real continua passando pelas telas seguras do app:
+
+- Meta Ads: `/settings/meta`.
+- Google Ads: `/settings/google`.
+- TikTok Ads: `/settings/tiktok`.
+
+Capacidade atual:
+
+- Meta Ads: quando ha OAuth/token valido e `adAccountId`, o MCP ja consegue publicar campanha com `publish_campaign`, sempre exigindo confirmacao explicita.
+- Google Ads: a base de OAuth/refresh token, `developerToken` e `Customer ID` existe para API e relatorios, mas ainda falta uma tool MCP dedicada para publicar campanhas Google.
+- TikTok Ads: a base de OAuth/token e `Advertiser ID` existe para API e relatorios, mas ainda falta uma tool MCP dedicada para publicar campanhas TikTok.
+
+Regra pratica: antes de tentar relatorio, otimizacao ou publicacao por agente, chamar `get_platform_connections`. Se a plataforma nao estiver pronta, o agente deve orientar o usuario a abrir a URL de conexao retornada, em vez de pedir credenciais no chat.
+
+## Assistente conversacional no app
+
+Atualizacao 2026-09-08: o app usa `CampaignChat` como experiencia estilo ChatGPT e monta o backend em `/api/chat`.
+
+Comportamento atual:
+
+- envia o historico recente da conversa, nao apenas a ultima mensagem;
+- exige usuario autenticado via cookie/header JWT;
+- usa function calling para chamar `gerar_campanha` somente quando o briefing minimo estiver preenchido;
+- a ferramenta `gerar_campanha` chama o mesmo motor oficial usado pela interface e pelo MCP (`generateCampaign`), evitando um segundo gerador paralelo;
+- se o modulo de chat falhar na inicializacao, o servidor responde 503 isolado em `/api/chat` sem derrubar o restante do MecProAI;
+- a interface abre em tela cheia estilo conversa, com auto-scroll, sugestoes iniciais, indicador de digitacao e link para a campanha criada.
+
+Regra pratica: o chat pode coletar briefing e criar rascunhos pelo motor oficial. Publicacao, pausa, alteracao de verba e mudancas em campanhas ativas continuam passando pelas telas/ferramentas oficiais, Fact Guard/Quality Gate e confirmacao explicita.
+
 O sistema nao deve reutilizar fatos de campanhas anteriores. Exemplos, padroes vencedores e memoria podem emprestar estrutura persuasiva, mas nunca metragem, endereco, preco, numero de suites, vagas, fotos, oferta ou caracteristicas especificas de outro projeto.
 
 ## Perguntas minimas por campanha
