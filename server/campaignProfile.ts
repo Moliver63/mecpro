@@ -17,7 +17,7 @@
  * É SÍNCRONA — nenhuma chamada de DB, IA externa ou I/O.
  */
 
-import { log } from "./_core/log";
+import { log } from "./_core/logger";
 import { type OfferInference, type OfferType, inferOfferType } from "./ai";
 import {
   type Subsegment,
