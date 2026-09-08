@@ -1652,6 +1652,7 @@ const competitorsRouter = router({
         process.env.GROQ_API_KEY_05,
         process.env.GROQ_API_KEY_09,
       ].filter(Boolean);
+      const deepSeekConfigured = !!process.env.DEEPSEEK_API_KEY;
 
       // Projetos únicos confirmados manualmente
       // NÃO usar prefixo de chave para detectar projeto — é impreciso
@@ -1714,6 +1715,12 @@ const competitorsRouter = router({
             tokensPerCampaign: 2_800,
             // Groq: limite por chave, não por projeto → escala linearmente
             noteIndependent: true,
+          },
+          deepseek: {
+            configured: deepSeekConfigured,
+            model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
+            role: "fallback operacional OpenAI-compatible",
+            note: "Use DEEPSEEK_API_KEY no Render; a chave nunca deve ser commitada.",
           },
           cloudflare: {
             dailyNeurons:      10_000,
@@ -10941,6 +10948,7 @@ const llmToggleRouter = router({
         principal: mode === "on" ? "IA Categoria A" : "IA Categoria B",
         groqConfigured: !!process.env.GROQ_API_KEY,
         geminiConfigured: !!process.env.GEMINI_API_KEY,
+        deepSeekConfigured: !!process.env.DEEPSEEK_API_KEY,
       };
     }),
 

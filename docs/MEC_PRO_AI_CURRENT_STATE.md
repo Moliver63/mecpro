@@ -16,6 +16,18 @@ O fluxo esperado e:
 6. Publicar ou atualizar a campanha na Meta quando autorizado.
 7. Medir resultados e alimentar a base de aprendizado.
 
+## Fallback LLM DeepSeek
+
+Atualizacao 2026-09-08: o motor `server/ai.ts` aceita DeepSeek como fallback operacional OpenAI-compatible quando Gemini esta sem chave, esgotado ou indisponivel. A chave deve ser cadastrada apenas no ambiente seguro do Render como `DEEPSEEK_API_KEY`; nao deve ser escrita em `.env.example`, documentacao, logs ou commits.
+
+Configuracao:
+
+- `DEEPSEEK_API_KEY`: chave real da DeepSeek, obrigatoria para habilitar o fallback.
+- `DEEPSEEK_MODEL`: opcional, padrao `deepseek-v4-flash`.
+- `DEEPSEEK_BASE_URL`: opcional, padrao `https://api.deepseek.com`.
+
+Ordem pratica de fallback: Gemini saudavel continua sendo a IA principal. Quando ele falha por quota, ausencia de chave ou indisponibilidade, o sistema tenta DeepSeek antes de cair nos provedores economicos/legados e, por ultimo, no mock.
+
 O sistema nao deve reutilizar fatos de campanhas anteriores. Exemplos, padroes vencedores e memoria podem emprestar estrutura persuasiva, mas nunca metragem, endereco, preco, numero de suites, vagas, fotos, oferta ou caracteristicas especificas de outro projeto.
 
 ## Perguntas minimas por campanha

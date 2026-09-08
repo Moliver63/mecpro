@@ -454,6 +454,8 @@ const GEMINI_API_KEY2 = process.env.GEMINI_API_KEY_2;  // chave de fallback (opc
 const GEMINI_API_KEY3 = process.env.GEMINI_API_KEY_3;  // chave adicional (opcional)
 const GEMINI_API_KEY4 = process.env.GEMINI_API_KEY_4;  // chave adicional (opcional)
 const GEMINI_API_KEY5 = process.env.GEMINI_API_KEY_5;  // chave adicional (opcional)
+const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
+const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
 
 // ── Semáforo para limitar chamadas Gemini simultâneas ───────────────────────
 // Evita estourar a quota quando muitas análises rodam ao mesmo tempo
@@ -1927,9 +1929,11 @@ async function _geminiImpl(
     if (allKeys.length > 0 && availableNow.length === 0) {
       log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
     setImmediate(async () => { try { const { errorLog } = await import("./errorTelemetry.js"); errorLog.critical("ai_quota", "QUOTA_EXHAUSTED", "Todas as chaves Gemini esgotadas"); } catch {} });
-      // Tenta fallbacks em ordem: Groq → Genspark → Claude → mock
+      // Tenta fallbacks em ordem: DeepSeek → Groq → Genspark → Claude → mock
       // Comprime prompt para evitar Groq 413
       const _compressedForGroq = _compressPromptLight(prompt, 25000);  // 25k evita 413 no 70b
+      const dsR = await callDeepSeekAPI(prompt, opts.systemInstruction, opts.temperature, opts.maxOutputTokens).catch(() => null);
+      if (dsR) { log.info("ai", "✅ DeepSeek fallback direto OK (quota Gemini)"); return dsR; }
       const groqR = await callGroqAPI(_compressedForGroq, opts.systemInstruction, opts.temperature).catch(() => null);
       if (groqR) { log.info("ai", "✅ Groq fallback direto OK (quota Gemini)"); return groqR; }
       const gsR = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
@@ -2038,7 +2042,9 @@ async function _geminiImpl(
   const keyAttempt = Math.floor(retryCount / GEMINI_MODELS.length);
   const apiKey = getGeminiKey(keyAttempt);
   if (!apiKey) {
-    log.warn("ai", "Nenhuma GEMINI_API_KEY configurada — usando Groq como fallback");
+    log.warn("ai", "Nenhuma GEMINI_API_KEY configurada — usando DeepSeek/Groq como fallback");
+    const deepSeekResult = await callDeepSeekAPI(prompt, opts.systemInstruction, opts.temperature, opts.maxOutputTokens);
+    if (deepSeekResult) return deepSeekResult;
     const groqResult = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature);
     if (groqResult) return groqResult;
     const gsResult2 = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature);
@@ -2116,9 +2122,11 @@ async function _geminiImpl(
       const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
       const stillAvailable = allKeys.filter(k => !_exhaustedKeys.has(k));
       if (stillAvailable.length === 0) {
-        log.warn("ai", "Todas as chaves Gemini esgotadas — abortando cascata, indo direto para Groq");
+        log.warn("ai", "Todas as chaves Gemini esgotadas — abortando cascata, indo direto para DeepSeek/Groq");
         // Pula toda a cascata restante e vai para fallback imediatamente
         const _compressedQ = _compressPromptLight(prompt, 25000);
+        const dsFast = await callDeepSeekAPI(prompt, opts.systemInstruction, opts.temperature, opts.maxOutputTokens).catch(() => null);
+        if (dsFast) { log.info("ai", "✅ DeepSeek fast-fallback OK (todas chaves Gemini esgotadas)"); return dsFast; }
         const groqFast = await callGroqAPI(_compressedQ, opts.systemInstruction, opts.temperature).catch(() => null);
         if (groqFast) { log.info("ai", "✅ Groq fast-fallback OK (todas chaves Gemini esgotadas)"); return groqFast; }
         const gsFast = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
@@ -2157,8 +2165,13 @@ async function _geminiImpl(
         }
       } catch {}
     }
-    log.warn("ai", "Todos os modelos Gemini indisponíveis — tentando Groq (Llama) como fallback");
+    log.warn("ai", "Todos os modelos Gemini indisponíveis — tentando DeepSeek/Groq como fallback");
     try {
+      const deepSeekResult = await callDeepSeekAPI(prompt, opts.systemInstruction, opts.temperature, opts.maxOutputTokens);
+      if (deepSeekResult) {
+        log.info("ai", "✅ DeepSeek API fallback OK");
+        return deepSeekResult;
+      }
       const groqResult = await callGroqAPI(prompt, opts.systemInstruction, opts.temperature);
       if (groqResult) {
         log.info("ai", "✅ Groq API fallback OK");
@@ -2244,6 +2257,83 @@ async function _geminiImpl(
     trackLLMCall(estTokens);
   }
   return result;
+}
+
+// ── DeepSeek API — fallback OpenAI-compatible quando Gemini está indisponível ─
+async function callDeepSeekAPI(
+  prompt: string,
+  systemInstruction?: string,
+  temperature: number = 0.3,
+  maxTokens: number = 8192,
+): Promise<string | null> {
+  const apiKey = (process.env.DEEPSEEK_API_KEY || "").trim();
+  if (!apiKey) {
+    log.info("ai", "DeepSeek API: nenhuma DEEPSEEK_API_KEY configurada — pulando fallback");
+    return null;
+  }
+
+  const model = (process.env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL).trim();
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL || DEEPSEEK_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const compressedPrompt = _compressPromptLight(prompt, 60000);
+
+  try {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        temperature,
+        max_tokens: maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemInstruction || SYSTEM_MECPRO },
+          { role: "user", content: compressedPrompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      log.warn("ai", `DeepSeek HTTP ${res.status}`, { model, preview: errText.slice(0, 150) });
+      return null;
+    }
+
+    const data: any = await res.json().catch(() => null);
+    const text = data?.choices?.[0]?.message?.content?.trim();
+    if (!text) {
+      log.warn("ai", "DeepSeek: resposta vazia", { model });
+      return null;
+    }
+
+    log.info("ai", "DeepSeek API OK", {
+      model,
+      inputTok: data.usage?.prompt_tokens,
+      outputTok: data.usage?.completion_tokens,
+      finishReason: data.choices?.[0]?.finish_reason,
+    });
+    trackLLMCall((data.usage?.prompt_tokens || 0) + (data.usage?.completion_tokens || 0));
+    logTokens({
+      provider: "deepseek",
+      model,
+      endpoint: "deepseek_call",
+      promptTokens: data.usage?.prompt_tokens || estimateTokens(compressedPrompt),
+      completionTokens: data.usage?.completion_tokens || estimateTokens(text),
+      latencyMs: 0,
+      temperature,
+      cacheHit: false,
+      cacheType: "none",
+      copyEngine: getCopyEngine(),
+    });
+
+    return text;
+  } catch (err: any) {
+    log.warn("ai", "DeepSeek API falhou", { model, error: err?.message?.slice(0, 80) });
+    return null;
+  }
 }
 
 // ── Groq API — fallback principal quando Gemini está indisponível ────────────
@@ -4127,6 +4217,11 @@ export function getHealthStatus() {
     groqFallback: {
       configured: !!process.env.GROQ_API_KEY,
       model:      process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+    },
+    deepSeekFallback: {
+      configured: !!process.env.DEEPSEEK_API_KEY,
+      model:      process.env.DEEPSEEK_MODEL || DEEPSEEK_DEFAULT_MODEL,
+      baseUrl:    process.env.DEEPSEEK_BASE_URL || DEEPSEEK_DEFAULT_BASE_URL,
     },
     claudeFallback: {
       configured: !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY),
