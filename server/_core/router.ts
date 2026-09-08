@@ -20,7 +20,7 @@ import { scoreCreative } from "../creativeScoringEngine";
 import { getCarouselEditorialIssues } from "../../shared/campaignCopyQuality";
 import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
-import { generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
+import { buildEnhancedCloudinaryImageUrl, generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
   updateCreativeInputSchema,
   updateCreativeImageInputSchema,
@@ -2981,6 +2981,20 @@ const campaignsRouter = router({
       return { videoUrl };
     }),
 
+  mediaGenerationStatus: protectedProcedure
+    .query(async () => {
+      const diagnostics = getImageGenerationDiagnostics();
+      return {
+        ...diagnostics,
+        capabilities: {
+          generateImage: diagnostics.canGenerateRealImages || diagnostics.fallbackReady,
+          enhanceImage: diagnostics.enhancementReady,
+          generateVideo: diagnostics.videoReady,
+          uploadToMeta: true,
+        },
+      };
+    }),
+
   regenerateCreativeImage: protectedProcedure
     .input(regenerateCreativeImageInputSchema)
     .mutation(async ({ input }) => {
@@ -3035,6 +3049,48 @@ const campaignsRouter = router({
 
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
       return { ok: true, imageUrl, format: input.format, creative: creatives[input.creativeIndex], diagnostics };
+    }),
+
+  enhanceCreativeImage: protectedProcedure
+    .input(z.object({
+      campaignId: z.number().int().positive(),
+      creativeIndex: z.number().int().min(0),
+      format: z.enum(["feed", "stories", "square"]).default("feed"),
+    }))
+    .mutation(async ({ input }) => {
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+
+      const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
+      const creative = creatives[input.creativeIndex] as CampaignCreative | undefined;
+      if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
+
+      const sourceUrl = input.format === "stories"
+        ? ((creative as any).storyImageUrl || (creative as any).feedImageUrl || (creative as any).imageUrl)
+        : input.format === "square"
+        ? ((creative as any).squareImageUrl || (creative as any).feedImageUrl || (creative as any).imageUrl)
+        : ((creative as any).feedImageUrl || (creative as any).imageUrl);
+
+      const enhanced = buildEnhancedCloudinaryImageUrl(sourceUrl || "", input.format);
+      if (!enhanced.url) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: enhanced.reason || "Não foi possível aprimorar a imagem." });
+      }
+
+      if (input.format === "stories") (creative as any).storyImageUrl = enhanced.url;
+      else if (input.format === "square") (creative as any).squareImageUrl = enhanced.url;
+      else (creative as any).feedImageUrl = enhanced.url;
+      (creative as any).imageUpdatedAt = new Date().toISOString();
+      (creative as any).imageProviderUsed = "cloudinary_enhance";
+      (creative as any).imageGenerationReason = enhanced.reason;
+      (creative as any).imageGenerationWarnings = [];
+
+      creatives[input.creativeIndex] = syncCreativeImageToV2(creative, input.format, {
+        imageUrl: enhanced.url,
+        imageHash: null,
+      });
+
+      await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
+      return { ok: true, imageUrl: enhanced.url, format: input.format, reason: enhanced.reason, creative: creatives[input.creativeIndex] };
     }),
 
   // -- Edição manual de conjunto de anúncios --------------------------------

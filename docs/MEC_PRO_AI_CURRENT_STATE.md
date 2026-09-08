@@ -28,6 +28,27 @@ Configuracao:
 
 Ordem pratica de fallback: Gemini saudavel continua sendo a IA principal. Quando ele falha por quota, ausencia de chave ou indisponibilidade, o sistema tenta DeepSeek antes de cair nos provedores economicos/legados e, por ultimo, no mock.
 
+## Creative Media Studio
+
+Atualizacao 2026-09-08: o resultado da campanha passa a ter um fluxo mais claro de midia criativa:
+
+- `Gerar nova imagem`: usa o pipeline existente de `server/imageGeneration.ts`, com provedores reais quando configurados e fallback controlado.
+- `Aprimorar foto`: aplica transformacoes Cloudinary na foto ja hospedada, ajustando qualidade, formato e corte para Feed, Stories/Reels ou Square.
+- `Gerar video`: usa `JSON2VIDEO_API_KEY` para transformar a imagem do criativo em video curto com movimento, texto e CTA.
+- `Upload foto/video`: continua permitindo usar arquivo real do cliente e associar ao criativo antes de publicar.
+
+Chaves operacionais:
+
+- `IMAGE_PROVIDER`: `huggingface`, `genspark`, `heygen` ou `mock`.
+- `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`: habilitam FLUX via Cloudflare Workers AI no pipeline de imagem.
+- `GENSPARK_API_KEY` + `GENSPARK_IMAGE_MODEL`: habilitam geracao de imagem via Genspark quando disponivel.
+- `PIXABAY_API_KEY`: habilita busca de imagens CC0/comerciais por segmento.
+- `GOOGLE_API_KEY` + `GOOGLE_CSE_ID`: fallback de imagens via Google Custom Search com filtro de direitos.
+- `JSON2VIDEO_API_KEY`: habilita geracao de video a partir de imagem.
+- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`: habilitam upload, re-hospedagem e aprimoramento.
+
+Regra pratica: geracao ou aprimoramento nunca deve publicar automaticamente. A midia precisa continuar passando pelos gates de campanha, Fact Guard/Quality Gate e confirmacao explicita antes da Meta.
+
 O sistema nao deve reutilizar fatos de campanhas anteriores. Exemplos, padroes vencedores e memoria podem emprestar estrutura persuasiva, mas nunca metragem, endereco, preco, numero de suites, vagas, fotos, oferta ou caracteristicas especificas de outro projeto.
 
 ## Perguntas minimas por campanha

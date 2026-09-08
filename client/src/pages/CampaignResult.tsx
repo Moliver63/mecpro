@@ -533,6 +533,9 @@ export default function CampaignResult() {
     onError: (e: any) => toast.error(e.message || "Erro ao gerar vídeo"),
   });
 
+  const mediaGenerationStatusQuery = (trpc as any).campaigns?.mediaGenerationStatus?.useQuery?.() ?? { data: null };
+  const mediaStudioStatus = mediaGenerationStatusQuery.data as any;
+
   const regenerateCreativeImageMutation = trpc.campaigns.regenerateCreativeImage.useMutation({
     onSuccess: (data: any) => {
       if (data?.diagnostics?.reason) {
@@ -544,6 +547,18 @@ export default function CampaignResult() {
     },
     onError: (e: any) => toast.error("Erro ao regenerar imagem: " + e.message),
   });
+
+  const enhanceCreativeImageMutation = (trpc as any).campaigns?.enhanceCreativeImage?.useMutation?.({
+    onSuccess: (data: any) => {
+      if (data?.reason) {
+        toast.info(`Imagem mantida: ${data.reason}`);
+      } else {
+        toast.success("Foto aprimorada para o formato do anúncio.");
+      }
+      refetchCampaign?.();
+    },
+    onError: (e: any) => toast.error("Erro ao aprimorar foto: " + (e?.message || "falha desconhecida")),
+  }) ?? { mutate: null, isPending: false };
 
   // ── Foto em destaque/capa (sessão 34, 13/08) ──
   const setFeaturedPhotoMutation = trpc.campaigns.setFeaturedPhoto.useMutation({
@@ -2594,7 +2609,18 @@ export default function CampaignResult() {
                           />
                         </div>
 
-                        {/* Regenerar com IA */}
+                        {mediaStudioStatus && (
+                          <div style={{ marginTop: 6, padding: "6px 8px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0", fontSize: 10, color: "#475569", lineHeight: 1.35 }}>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                              <span style={{ fontWeight: 800, color: "#0f172a" }}>Media Studio</span>
+                              <span>{mediaStudioStatus.capabilities?.generateImage ? "Imagem OK" : "Imagem limitada"}</span>
+                              <span>{mediaStudioStatus.capabilities?.enhanceImage ? "Aprimorar OK" : "Aprimorar exige Cloudinary"}</span>
+                              <span>{mediaStudioStatus.capabilities?.generateVideo ? "Vídeo OK" : "Vídeo exige JSON2VIDEO_API_KEY"}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Ações do Media Studio */}
                         <button
                           onClick={() => regenerateCreativeImageMutation.mutate({ campaignId: id, creativeIndex: i, format: creativeFormat })}
                           disabled={regenerateCreativeImageMutation.isPending}
@@ -2603,8 +2629,23 @@ export default function CampaignResult() {
                             color: regenerateCreativeImageMutation.isPending ? "#4338ca" : "#4f46e5",
                             border: "1px solid #c7d2fe", borderRadius: 8, padding: "7px 0", cursor: regenerateCreativeImageMutation.isPending ? "wait" : "pointer", marginTop: 4,
                             display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-                          {regenerateCreativeImageMutation.isPending ? "⏳ Gerando imagem..." : "✨ Gerar imagem com IA"}
+                          {regenerateCreativeImageMutation.isPending ? "⏳ Gerando imagem..." : "✨ Gerar nova imagem"}
                         </button>
+
+                        {creativeImage && (
+                          <button
+                            onClick={() => enhanceCreativeImageMutation.mutate?.({ campaignId: id, creativeIndex: i, format: creativeFormat })}
+                            disabled={enhanceCreativeImageMutation.isPending || !mediaStudioStatus?.capabilities?.enhanceImage}
+                            title={!mediaStudioStatus?.capabilities?.enhanceImage ? "Configure Cloudinary para aprimorar fotos automaticamente" : "Aplica corte, qualidade automática e melhoria visual via Cloudinary"}
+                            style={{ width: "100%", fontSize: 11, fontWeight: 700,
+                              background: enhanceCreativeImageMutation.isPending ? "#dcfce7" : "#f0fdf4",
+                              color: !mediaStudioStatus?.capabilities?.enhanceImage ? "#94a3b8" : "#15803d",
+                              border: "1px solid #bbf7d0", borderRadius: 8, padding: "7px 0",
+                              cursor: enhanceCreativeImageMutation.isPending || !mediaStudioStatus?.capabilities?.enhanceImage ? "not-allowed" : "pointer", marginTop: 4,
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                            {enhanceCreativeImageMutation.isPending ? "⏳ Aprimorando..." : "◎ Aprimorar foto"}
+                          </button>
+                        )}
 
                         {/* Botão Gerar Vídeo */}
                         {creativeImage && (

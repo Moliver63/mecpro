@@ -565,8 +565,23 @@ export type ImageGenerationDiagnostics = {
   provider: ImageProvider;
   canGenerateRealImages: boolean;
   storageReady: boolean;
+  enhancementReady: boolean;
+  videoReady: boolean;
+  sourceSearchReady: boolean;
+  fallbackReady: boolean;
   reason: string | null;
   warnings: string[];
+  providers: {
+    cloudflare: boolean;
+    genspark: boolean;
+    huggingface: boolean;
+    heygen: boolean;
+    pixabay: boolean;
+    googleImages: boolean;
+    pollinations: boolean;
+    json2video: boolean;
+    cloudinary: boolean;
+  };
 };
 
 export function getImageGenerationDiagnostics(providerInput?: string): ImageGenerationDiagnostics {
@@ -577,6 +592,12 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   const hasHuggingFaceKey = !!String(process.env.HUGGINGFACE_API_KEY || "").trim();
   const hasGensparkKey = !!String(process.env.GENSPARK_API_KEY || "").trim();
   const hasHeygenKey = !!String(process.env.HEYGEN_API_KEY || "").trim();
+  const hasCloudflare = !!String(process.env.CLOUDFLARE_ACCOUNT_ID || "").trim()
+    && !!String(process.env.CLOUDFLARE_API_TOKEN || "").trim();
+  const hasPixabay = !!String(process.env.PIXABAY_API_KEY || "").trim();
+  const hasGoogleImages = !!String(process.env.GOOGLE_API_KEY || "").trim()
+    && !!String(process.env.GOOGLE_CSE_ID || "").trim();
+  const hasJson2Video = !!String(process.env.JSON2VIDEO_API_KEY || "").trim();
   const storageReady = !!(
     String(process.env.CLOUDINARY_CLOUD_NAME || "").trim()
     && String(process.env.CLOUDINARY_API_KEY || "").trim()
@@ -613,6 +634,15 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   if (normalizedProvider === "heygen" && !hasHeygenKey) {
     warnings.push("Defina HEYGEN_API_KEY para habilitar a geração real via HeyGen.");
   }
+  if (!hasCloudflare && !hasGensparkKey && !hasPixabay && !hasGoogleImages) {
+    warnings.push("Sem provedor principal de mídia configurado; o sistema usará Pollinations/mock como fallback.");
+  }
+  if (!hasJson2Video) {
+    warnings.push("Defina JSON2VIDEO_API_KEY para habilitar geração real de vídeo a partir de imagem.");
+  }
+  if (!storageReady) {
+    warnings.push("Cloudinary ausente: upload, re-hospedagem e aprimoramento ficam limitados.");
+  }
 
   // Verifica se o provider está marcado como sem créditos
   const exhausted = isProviderExhausted(normalizedProvider);
@@ -623,16 +653,56 @@ export function getImageGenerationDiagnostics(providerInput?: string): ImageGene
   return {
     provider: normalizedProvider,
     storageReady,
+    enhancementReady: storageReady,
+    videoReady: hasJson2Video,
+    sourceSearchReady: hasPixabay || hasGoogleImages,
+    fallbackReady: true,
+    providers: {
+      cloudflare: hasCloudflare,
+      genspark: hasGensparkKey,
+      huggingface: hasHuggingFaceKey,
+      heygen: hasHeygenKey,
+      pixabay: hasPixabay,
+      googleImages: hasGoogleImages,
+      pollinations: true,
+      json2video: hasJson2Video,
+      cloudinary: storageReady,
+    },
     canGenerateRealImages:
       !exhausted
       && (
         (normalizedProvider === "huggingface" && hasHuggingFaceKey)
         || (normalizedProvider === "genspark" && hasGensparkKey)
         || (normalizedProvider === "heygen" && hasHeygenKey)
+        || hasCloudflare
+        || hasPixabay
+        || hasGoogleImages
       ),
     reason,
     warnings,
   };
+}
+
+export function buildEnhancedCloudinaryImageUrl(
+  imageUrl: string,
+  format: CreativeImageFormat = "feed",
+): { url: string | null; reason: string | null } {
+  const value = String(imageUrl || "").trim();
+  if (!value) return { url: null, reason: "Nenhuma imagem encontrada para aprimorar." };
+  if (!/res\.cloudinary\.com\/.+\/image\/upload\//i.test(value)) {
+    return {
+      url: null,
+      reason: "Aprimoramento automático exige imagem hospedada no Cloudinary. Faça upload/re-hospedagem da foto primeiro.",
+    };
+  }
+
+  const dim = FORMAT_DIMENSIONS[format] || FORMAT_DIMENSIONS.feed;
+  const transform = `f_auto,q_auto:good,e_improve,c_fill,g_auto,w_${dim.width},h_${dim.height}`;
+  const enhancedUrl = value.replace(/\/image\/upload\/(?!.*\be_improve\b)/i, `/image/upload/${transform}/`);
+  if (enhancedUrl === value) {
+    return { url: value, reason: "A imagem já parece ter transformação aplicada." };
+  }
+  return { url: enhancedUrl, reason: null };
 }
 
 export async function uploadImageBufferToCloudinary(buffer: Buffer, fileName: string): Promise<string | null> {
