@@ -25,6 +25,19 @@ import Groq from "groq-sdk";
 import { jwtVerify } from "jose";
 import * as db from "./db";
 import { log } from "./logger";
+// Achado real (log de produção, 09/09): poolChavesGemini() usava
+// require("./ai") — mas este arquivo roda em contexto ESM puro (o
+// próprio arquivo usa import/export no topo, carregado via import()
+// dinâmico em server/_core/index.ts). `require` simplesmente não existe
+// nesse contexto — toda chamada ao chat falhava com "ReferenceError:
+// require is not defined" (unhandledRejection, capturado no log do
+// Render). Corrigido com import estático de verdade: ai.ts já é
+// carregado no processo por vários outros caminhos no boot do servidor
+// (módulos ES são cacheados/singleton), então isso não adiciona nenhum
+// efeito colateral novo, só reaproveita a mesma constante já centralizada
+// lá — sem precisar de require nem de import() dinâmico (que é async,
+// e poolChavesGemini() precisa continuar síncrona pra quem já a chama).
+import { ALL_GEMINI_KEYS } from "./ai";
 
 export const chatRouter = Router();
 
@@ -64,7 +77,6 @@ const _chavesEsgotadas = new Map<string, number>();
 // corretamente em ALL_GEMINI_KEYS (nomes certos, todas as 8) — reaproveita
 // em vez de manter um terceiro pool próprio e divergente.
 function poolChavesGemini(): string[] {
-  const { ALL_GEMINI_KEYS } = require("./ai") as { ALL_GEMINI_KEYS: string[] };
   return ALL_GEMINI_KEYS;
 }
 
