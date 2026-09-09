@@ -23,6 +23,7 @@ import { Router } from "express";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
 import { jwtVerify } from "jose";
+import { ALL_GEMINI_KEYS } from "./ai";
 import * as db from "./db";
 import { log } from "./logger";
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
@@ -639,7 +640,95 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
   return { resposta: textoFinal, campanha, modo: "assistente" };
 }
 
-/* ---------------- Provedor 3: resposta local (sem IA) ---------------- */
+/* ---------------- Provedor 3: DeepSeek (fallback OpenAI-compatible) ---------------- */
+async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
+  const apiKey = (process.env.DEEPSEEK_API_KEY || "").trim();
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY não configurada.");
+
+  const model = (process.env.DEEPSEEK_CHAT_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-chat").trim();
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    temperature: 0.3,
+    max_tokens: 1400,
+  };
+  if (tools?.length) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`DeepSeek HTTP ${res.status}: ${data?.error?.message || "erro desconhecido"}`);
+  }
+  return data;
+}
+
+async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = []): Promise<RespostaChat> {
+  const historico: any[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...mensagens.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+  ];
+
+  let campanha: CampanhaGerada | null = null;
+  let textoFinal = "";
+
+  for (let passo = 0; passo < 4; passo++) {
+    const resposta = await chamarDeepSeekChat(historico, ferramentasGroq);
+    const msg = resposta?.choices?.[0]?.message || {};
+    if (msg.content) textoFinal = String(msg.content);
+
+    const chamada = Array.isArray(msg.tool_calls) ? msg.tool_calls[0] : null;
+    if (!chamada) break;
+
+    historico.push(msg);
+
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(chamada.function?.arguments || "{}");
+    } catch {
+      // args inválido — handler abaixo trata
+    }
+
+    if (chamada.function?.name === "gerar_campanha") {
+      const resultado = await executarGeracaoCampanha(args, userId, attachments);
+      if (resultado.ok) campanha = resultado.campanha;
+      let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
+      if ("campanha" in resultado) {
+        respostaFuncao = { campanha: resultado.campanha };
+      } else {
+        respostaFuncao = { erro: resultado.erro };
+      }
+      historico.push({
+        role: "tool",
+        tool_call_id: chamada.id,
+        content: JSON.stringify(respostaFuncao),
+      });
+      continue;
+    }
+
+    historico.push({
+      role: "tool",
+      tool_call_id: chamada.id,
+      content: JSON.stringify({ erro: "Ferramenta desconhecida." }),
+    });
+  }
+
+  return { resposta: textoFinal, campanha, modo: "assistente" };
+}
+
+/* ---------------- Provedor 4: resposta local (sem IA) ---------------- */
 
 function responderLocal(): RespostaChat {
   return {
@@ -656,10 +745,11 @@ function responderLocal(): RespostaChat {
 // GET /api/chat/status — diagnóstico leve (sem citar fornecedor)
 chatRouter.get("/status", (_req, res) => {
   const geminiOk = poolChavesGemini().length > 0;
+  const deepSeekOk = !!process.env.DEEPSEEK_API_KEY;
   const groqOk = !!process.env.GROQ_API_KEY;
   res.json({
-    disponivel: geminiOk || groqOk,
-    modo: geminiOk || groqOk ? "assistente" : "local",
+    disponivel: geminiOk || deepSeekOk || groqOk,
+    modo: geminiOk || deepSeekOk || groqOk ? "assistente" : "local",
   });
 });
 
@@ -704,7 +794,16 @@ chatRouter.post("/", authChat, async (req: any, res) => {
       const resultado = await tentarComGemini(mensagens, userId, attachments);
       return res.json(resultado);
     } catch (erro) {
-      log.warn("chat", "Gemini indisponível, tentando Groq", { erro: (erro as any)?.message });
+      log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: (erro as any)?.message });
+    }
+  }
+
+  if (process.env.DEEPSEEK_API_KEY) {
+    try {
+      const resultado = await tentarComDeepSeek(mensagens, userId, attachments);
+      return res.json(resultado);
+    } catch (erro) {
+      log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: (erro as any)?.message });
     }
   }
 

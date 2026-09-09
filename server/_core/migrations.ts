@@ -959,6 +959,10 @@ export async function runMigrations(): Promise<void> {
     `).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_metrics_campaign ON campaign_metrics("campaignId")`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_metrics_date ON campaign_metrics(date)`).catch(() => {});
+    await pool.query(`
+      ALTER TABLE campaign_metrics
+        ADD COLUMN IF NOT EXISTS "waConversations" INTEGER NOT NULL DEFAULT 0
+    `).catch(() => {});
 
     // ── campaigns.pauseNotifiedAt — debounce do alerta de campanha pausada ──
     // NULL = não notificado no estado atual. Setado quando o e-mail é

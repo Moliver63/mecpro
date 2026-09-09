@@ -40,18 +40,18 @@ const _effectiveProvider = _imgProvider === 'heygen' ? 'heygen ✅'
   : (!_imgProvider && _hfKey) ? 'huggingface (auto-detectado) ✅'
   : 'mock → SVG inline';
 console.log('[BOOT] IMAGE_PROVIDER (efetivo):', _effectiveProvider);
-console.log('[BOOT] HEYGEN_API_KEY set:', !!_heygenKey, _heygenKey ? '(' + _heygenKey.slice(0,8) + '...)' : '— nao configurada');
-console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? '(' + _hfKey.slice(0,8) + '...)' : '— nao configurada');
+console.log('[BOOT] HEYGEN_API_KEY set:', !!_heygenKey, _heygenKey ? '✅' : '— nao configurada');
+console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? '✅' : '— nao configurada');
 console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET), '(storage para HF)');
 const _j2vKey = (process.env.JSON2VIDEO_API_KEY || '').trim();
-console.log('[BOOT] JSON2VIDEO_API_KEY set (video IA):', !!_j2vKey, _j2vKey ? '(' + _j2vKey.slice(0,8) + '...)' : '❌ nao configurado — adicionar no Render');
+console.log('[BOOT] JSON2VIDEO_API_KEY set (video IA):', !!_j2vKey, _j2vKey ? '✅' : '❌ nao configurado — adicionar no Render');
 const _pixabayKey = process.env.PIXABAY_API_KEY || '';
-console.log('[BOOT] PIXABAY_API_KEY set (imagens CC0):', !!_pixabayKey, _pixabayKey ? '(' + _pixabayKey.slice(0,8) + '...)' : '❌ FALTANDO — adicionar no Render');
+console.log('[BOOT] PIXABAY_API_KEY set (imagens CC0):', !!_pixabayKey, _pixabayKey ? '✅' : '❌ FALTANDO — adicionar no Render');
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude):', !!process.env.ANTHROPIC_API_KEY);
 const _elevenKey  = (process.env.ELEVENLABS_API_KEY || '').trim();
 const _gensparkKey = (process.env.GENSPARK_API_KEY   || '').trim();
-console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey,  _elevenKey  ? '(' + _elevenKey.slice(0,12)  + '...)' : '— nao configurada');
-console.log('[BOOT] GENSPARK_API_KEY set:',   !!_gensparkKey, _gensparkKey ? '(' + _gensparkKey.slice(0,12) + '...)' : '— nao configurada');
+console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey,  _elevenKey  ? '✅' : '— nao configurada');
+console.log('[BOOT] GENSPARK_API_KEY set:',   !!_gensparkKey, _gensparkKey ? '✅' : '— nao configurada');
 console.log('[BOOT] PID:', process.pid);
 
 // ── Diagnóstico de integrações de plataformas ──────────────────────────────
@@ -64,13 +64,13 @@ const _googleAdsSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOO
 const _googleDevToken  = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
 
 console.log('[BOOT] ── Integrações de plataformas ──────────────────────────');
-console.log('[BOOT] META App ID set:',          !!_metaAppId,    _metaAppId    ? '(' + _metaAppId.slice(0,8)   + '...)' : '❌ ausente — OAuth Meta não funcionará');
+console.log('[BOOT] META App ID set:',          !!_metaAppId,    _metaAppId    ? '✅' : '❌ ausente — OAuth Meta não funcionará');
 console.log('[BOOT] META App Secret set:',      !!_metaSecret,   _metaSecret   ? '✅' : '❌ ausente');
-console.log('[BOOT] TikTok Client Key set:',    !!_tikTokKey,    _tikTokKey    ? '(' + _tikTokKey.slice(0,8)   + '...)' : '❌ ausente — OAuth TikTok não funcionará');
+console.log('[BOOT] TikTok Client Key set:',    !!_tikTokKey,    _tikTokKey    ? '✅' : '❌ ausente — OAuth TikTok não funcionará');
 console.log('[BOOT] TikTok Client Secret set:', !!_tikTokSecret, _tikTokSecret ? '✅' : '❌ ausente');
-console.log('[BOOT] Google Ads Client ID set:', !!_googleAdsId,  _googleAdsId  ? '(' + _googleAdsId.slice(0,8) + '...)' : '❌ ausente — OAuth Google Ads não funcionará');
+console.log('[BOOT] Google Ads Client ID set:', !!_googleAdsId,  _googleAdsId  ? '✅' : '❌ ausente — OAuth Google Ads não funcionará');
 console.log('[BOOT] Google Ads Secret set:',    !!_googleAdsSecret, _googleAdsSecret ? '✅' : '❌ ausente');
-console.log('[BOOT] Google Ads Dev Token set:', !!_googleDevToken,  _googleDevToken  ? '(' + _googleDevToken.slice(0,8) + '...)' : '❌ ausente — chamadas Google Ads API não funcionarão');
+console.log('[BOOT] Google Ads Dev Token set:', !!_googleDevToken,  _googleDevToken  ? '✅' : '❌ ausente — chamadas Google Ads API não funcionarão');
 console.log('[BOOT] ──────────────────────────────────────────────────────────');
 
 // ── Sentry — captura erros em produção ──────────────────────────────────────
