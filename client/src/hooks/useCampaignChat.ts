@@ -42,11 +42,13 @@ export const MENSAGEM_INICIAL: ChatMessage = {
 };
 
 export const SUGESTOES = [
-  "Quero uma campanha de leads pro meu negócio",
+  "Quero uma campanha de leads para meu negócio",
   "Tenho uma loja de roupas e quero mais vendas",
-  "Monte uma campanha pra minha clínica odontológica em São Paulo",
+  "Monte uma campanha para minha clínica odontológica em São Paulo",
   "Como vocês definem o orçamento da campanha?",
 ];
+
+export const ASSISTANT_IMAGE = "/mecproai-assistant.jpg";
 
 export function useCampaignChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([MENSAGEM_INICIAL]);

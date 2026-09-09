@@ -18,15 +18,7 @@ export default function ChatHomeView() {
   const chat = useCampaignChat();
 
   return (
-    <div
-      className="rounded-2xl border overflow-hidden"
-      style={{
-        borderColor: "rgba(255,255,255,0.08)",
-        background: "#0d1117",
-        height: "calc(100vh - 200px)",
-        minHeight: "480px",
-      }}
-    >
+    <div className="campaign-chat-home">
       <ChatConversationView
         messages={chat.messages}
         loading={chat.loading}
