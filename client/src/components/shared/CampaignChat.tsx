@@ -188,8 +188,22 @@ export default function CampaignChat() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform"
-        style={{ background: "linear-gradient(135deg, #4ade1a, #15803d)" }}
+        // Achado real (usuário reportou "o chat não aparece" — screenshot
+        // mostrava só o widget de ajuda do WhatsApp, que usa
+        // env(safe-area-inset-bottom) implicitamente por estar centralizado
+        // verticalmente, não perto da base). Esse botão usava só
+        // "bottom-6" (24px fixos), sem levar em conta a barra inferior do
+        // Safari/indicador de home do iPhone — outros elementos fixos na
+        // base deste projeto (client/src/index.css) já usam
+        // env(safe-area-inset-bottom) por esse motivo exato. Sem isso, o
+        // botão ficava posicionado embaixo da barra do navegador,
+        // efetivamente invisível/inacessível em iOS. z-index também
+        // elevado — o widget de ajuda do WhatsApp usa 9999.
+        className="fixed right-6 z-[9990] w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform"
+        style={{
+          background: "linear-gradient(135deg, #4ade1a, #15803d)",
+          bottom: "calc(1.5rem + env(safe-area-inset-bottom, 0px))",
+        }}
         title="Montar campanha no chat"
         aria-label="Abrir assistente de campanhas"
       >
@@ -327,8 +341,14 @@ export default function CampaignChat() {
         </div>
       </main>
 
-      {/* Input fixo no rodapé */}
-      <footer className="shrink-0 px-4 pb-4 pt-2" style={{ background: "#0d1117" }}>
+      {/* Input fixo no rodapé — padding-bottom soma env(safe-area-inset-bottom)
+          pelo mesmo motivo do botão flutuante acima: sem isso, a caixa de
+          texto pode ficar parcialmente atrás da barra inferior do Safari/
+          indicador de home do iPhone. */}
+      <footer
+        className="shrink-0 px-4 pt-2"
+        style={{ background: "#0d1117", paddingBottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+      >
         <div className="max-w-3xl mx-auto">
           <div
             className="flex items-end gap-2 rounded-3xl border px-4 py-2.5"
