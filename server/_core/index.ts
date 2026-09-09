@@ -248,9 +248,16 @@ app.get('/api/health', async (_req, res) => {
 // Testa providers reais com prompts mínimos e mede latência/fallback real
 app.get('/api/health/ai', async (req: any, res: any) => {
   const key = req.query.key as string;
-  // Protege contra acesso público — exige token de diagnóstico
-  if (key !== (process.env.DEBUG_TOKEN || 'mecpro-diag-2026')) {
-    // Sem token: retorna status simplificado (sem dados internos)
+  const debugToken = process.env.DEBUG_TOKEN;
+  // Achado real (auditoria "o que um usuário não autenticado tem acesso",
+  // 08/09): mesmo valor padrão fixo do /api/diag/meta, reutilizado aqui —
+  // com DEBUG_TOKEN não configurado, qualquer um que lesse o código-fonte
+  // público conseguia disparar o modo de diagnóstico completo (testa
+  // provedores reais, queima cota). Corrigido: só entra no modo completo
+  // se DEBUG_TOKEN estiver genuinamente configurado E bater com a key —
+  // nunca aceita o valor padrão adivinhável.
+  if (!debugToken || key !== debugToken) {
+    // Sem token válido: retorna status simplificado (sem dados internos)
     try {
       const ai = await import('../ai.js');
       const hs = (ai as any).getHealthStatus?.() || {};
@@ -446,9 +453,23 @@ app.get('/api/competitors/status', async (req: any, res: any) => {
 });
 
 // ─── Diagnóstico Meta Ads (admin only) ────────────────────
+// Achado real (auditoria "o que um usuário não autenticado tem acesso",
+// 08/09): a checagem caía num valor padrão fixo ('mecpro-diag-2026')
+// quando DEBUG_TOKEN não estava configurado — e esse valor fica visível
+// pra qualquer um que leia o codigo-fonte deste repositorio publico no
+// GitHub. Sem DEBUG_TOKEN configurado no ambiente, esse endpoint expunha
+// email, nome, ID de conta de anuncios e um trecho do token de acesso de
+// TODOS os usuarios com Meta conectado — pra qualquer pessoa na internet,
+// sem login nenhum. Corrigido pra falhar fechado: sem DEBUG_TOKEN
+// configurado, o endpoint fica indisponivel (503), nunca aceita um valor
+// padrao adivinhavel.
 app.get('/api/diag/meta', async (req, res) => {
+  const debugToken = process.env.DEBUG_TOKEN;
+  if (!debugToken) {
+    return res.status(503).json({ error: 'Diagnostico desabilitado: DEBUG_TOKEN nao configurado.' });
+  }
   const key = req.query.key as string;
-  if (key !== (process.env.DEBUG_TOKEN || 'mecpro-diag-2026')) {
+  if (key !== debugToken) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
   try {
@@ -796,7 +817,15 @@ app.get('/api/webhook/asaas/status', async (req: Request, res: Response) => {
 
 // ─── Crédito manual de saldo (admin — resolver webhook falhou) ─────────────────
 app.post('/api/admin/credit-balance', async (req: Request, res: Response) => {
-  const adminSecret = process.env.ADMIN_SECRET || process.env.JWT_SECRET || '';
+  // Achado real (auditoria "o que um usuário não autenticado tem acesso",
+  // 08/09): sem ADMIN_SECRET configurado, esse endpoint caía pra
+  // reaproveitar JWT_SECRET como segredo de admin — o mesmo segredo usado
+  // pra assinar sessão de todo usuário. Se JWT_SECRET vazar por qualquer
+  // outro caminho, isso daria também acesso a creditar saldo pra
+  // qualquer conta. Corrigido pra falhar fechado, sem reaproveitar
+  // segredo de outro sistema.
+  const adminSecret = process.env.ADMIN_SECRET || '';
+  if (!adminSecret) return res.status(503).json({ error: 'ADMIN_SECRET nao configurado.' });
   const auth = (req.headers.authorization || '').replace('Bearer ', '');
   if (!auth || auth !== adminSecret) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -838,7 +867,8 @@ app.post('/api/admin/credit-balance', async (req: Request, res: Response) => {
 
 // ─── Smoke test E2E — valida fluxo completo de recarga ──────────────────────
 app.get('/api/smoke-test/recharge', async (req: Request, res: Response) => {
-  const adminSecret = process.env.ADMIN_SECRET || process.env.JWT_SECRET || '';
+  const adminSecret = process.env.ADMIN_SECRET || '';
+  if (!adminSecret) return res.status(503).json({ error: 'ADMIN_SECRET nao configurado.' });
   const auth = (req.headers.authorization || '').replace('Bearer ', '');
   if (!auth || auth !== adminSecret) return res.status(401).json({ error: 'Unauthorized' });
 
