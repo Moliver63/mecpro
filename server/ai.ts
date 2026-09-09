@@ -456,6 +456,25 @@ const GEMINI_API_KEY2 = process.env.GEMINI_API_KEY_2;  // chave de fallback (opc
 const GEMINI_API_KEY3 = process.env.GEMINI_API_KEY_3;  // chave adicional (opcional)
 const GEMINI_API_KEY4 = process.env.GEMINI_API_KEY_4;  // chave adicional (opcional)
 const GEMINI_API_KEY5 = process.env.GEMINI_API_KEY_5;  // chave adicional (opcional)
+// Achado real (07/09): o ambiente de producao tem GEMINI_API_KEY_07,
+// GEMINI_API_KEY_08 e GEMINI_API_KEY_10 configuradas, mas o codigo so lia
+// ate _5 — 3 chaves prontas pra uso ficavam fora do pool de rotacao,
+// justamente na hora que mais importa (log real: "Todas as chaves Gemini
+// esgotadas — indo direto para fallbacks").
+const GEMINI_API_KEY6 = process.env.GEMINI_API_KEY_07; // chave adicional (opcional)
+const GEMINI_API_KEY7 = process.env.GEMINI_API_KEY_08; // chave adicional (opcional)
+const GEMINI_API_KEY8 = process.env.GEMINI_API_KEY_10; // chave adicional (opcional)
+// Fonte unica do pool de chaves — a lista literal das 5 (agora 8)
+// constantes estava duplicada em varios pontos deste arquivo (cada copia
+// podendo divergir das outras se so uma fosse atualizada — foi assim que
+// as 3 chaves acima ficaram de fora por tanto tempo) E numa terceira
+// copia independente em server/chat.ts (mesma lacuna, chaves _07/_08/_10
+// tambem ausentes ali). Exportada pra chat.ts reaproveitar em vez de
+// manter seu proprio pool incompleto.
+export const ALL_GEMINI_KEYS = [
+  GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5,
+  GEMINI_API_KEY6, GEMINI_API_KEY7, GEMINI_API_KEY8,
+].filter(Boolean) as string[];
 const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
 
@@ -526,7 +545,7 @@ function setCachedGemini(key: string, result: string) {
 }
 
 function getGeminiKey(attempt = 0): string | undefined {
-  const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
+  const allKeys = ALL_GEMINI_KEYS;
   if (allKeys.length === 0) return undefined;
 
   // Limpa chaves que já passaram do tempo de reset
@@ -558,8 +577,7 @@ function markGeminiKeyExhausted(key: string) {
   log.warn("ai", "Gemini key marcada como esgotada", {
     keyPrefix: key.slice(0, 8),
     totalExhausted: _exhaustedKeys.size,
-    availableKeys: [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5]
-      .filter(Boolean)
+    availableKeys: ALL_GEMINI_KEYS
       .filter(k => !_exhaustedKeys.has(k!)).length,
   });
 }
@@ -1926,7 +1944,7 @@ async function _geminiImpl(
   // ── Atalho: se TODAS as chaves Gemini estão esgotadas, vai direto para fallbacks ──
   // Evita desperdiçar 5-8s tentando 5 modelos com chaves que já falharam
   if (retryCount === 0) {
-    const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
+    const allKeys = ALL_GEMINI_KEYS;
     const availableNow = allKeys.filter(k => !_exhaustedKeys.has(k));
     if (allKeys.length > 0 && availableNow.length === 0) {
       log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
@@ -2121,7 +2139,7 @@ async function _geminiImpl(
 
     // Se todas as chaves esgotadas após marcar → pula direto para Groq sem tentar mais modelos
     if (isQuota) {
-      const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
+      const allKeys = ALL_GEMINI_KEYS;
       const stillAvailable = allKeys.filter(k => !_exhaustedKeys.has(k));
       if (stillAvailable.length === 0) {
         log.warn("ai", "Todas as chaves Gemini esgotadas — abortando cascata, indo direto para DeepSeek/Groq");
@@ -2869,7 +2887,7 @@ export function shouldUseLLM(priority: "high" | "medium" | "low" = "medium"): bo
     return priority === "high";
   }
   // Modo normal: sempre usa LLM (exceto se todas as chaves esgotadas)
-  const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean);
+  const allKeys = ALL_GEMINI_KEYS;
   const available = allKeys.filter(k => k && !_exhaustedKeys.has(k));
   return available.length > 0;
 }
@@ -3287,7 +3305,7 @@ export function buildBaseTemplate(
 
 // ── Gemini com Google Search grounding ────────────────────────────────────────
 export async function geminiWithGrounding(prompt: string): Promise<any | null> {
-  const allKeys = [GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5].filter(Boolean) as string[];
+  const allKeys = ALL_GEMINI_KEYS;
   const availableKeys = allKeys.filter(k => !_exhaustedKeys.has(k));
 
   // Se todas as chaves esgotadas, pula Gemini e vai direto para Groq fallback

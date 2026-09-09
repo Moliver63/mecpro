@@ -34,6 +34,15 @@ const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "llama-3.3-70b-versatile";
 /** Quantas mensagens do histórico são reenviadas por turno (custo/latência). */
 const MAX_MENSAGENS_HISTORICO = 16;
 
+// Achado real (auditoria da feature de chat, 08/09): o body parser global
+// (server/_core/index.ts) aceita até 50mb por requisição — um limite
+// pensado pra upload de imagem em outras rotas, não pra texto de chat.
+// Sem checagem própria aqui, uma única mensagem gigante seria encaminhada
+// direto pra API do Gemini/Groq em toda tentativa de retry, queimando
+// custo/cota sem necessidade nenhuma (uma campanha não precisa de uma
+// mensagem de milhares de caracteres pra ser descrita).
+const MAX_CONTEUDO_MENSAGEM = 4000;
+
 /** Timeout da geração de campanha dentro de uma chamada de ferramenta. */
 const TIMEOUT_GERACAO_MS = 110_000;
 
@@ -43,10 +52,18 @@ const TIMEOUT_GERACAO_MS = 110_000;
 const COOLDOWN_COTA_MS = 3 * 60 * 60_000; // 3h, janela conservadora
 const _chavesEsgotadas = new Map<string, number>();
 
+// Achado real (auditoria da feature de chat, 08/09): o pool aqui era
+// próprio e tinha DOIS problemas — (1) lia `GEMINI_API_KEY${i}` (sem
+// underscore) pras chaves 2-5, mas a variável de ambiente real é
+// `GEMINI_API_KEY_2` (com underscore) — ou seja, esse pool NUNCA
+// encontrava as chaves 2 a 5, só a principal, mesmo com 8 chaves
+// configuradas no ambiente; (2) nem chegava a tentar ler as chaves
+// _07/_08/_10 que existem no ambiente. server/ai.ts já centraliza isso
+// corretamente em ALL_GEMINI_KEYS (nomes certos, todas as 8) — reaproveita
+// em vez de manter um terceiro pool próprio e divergente.
 function poolChavesGemini(): string[] {
-  const chaves = [process.env.GEMINI_API_KEY];
-  for (let i = 2; i <= 5; i++) chaves.push(process.env[`GEMINI_API_KEY${i}` as keyof NodeJS.ProcessEnv] as string | undefined);
-  return chaves.filter((k): k is string => !!k && k.trim().length > 0);
+  const { ALL_GEMINI_KEYS } = require("./ai") as { ALL_GEMINI_KEYS: string[] };
+  return ALL_GEMINI_KEYS;
 }
 
 function proximaChaveGemini(): string | null {
@@ -63,8 +80,27 @@ const _rateMap = new Map<number, { count: number; resetAt: number }>();
 const RATE_LIMITE = 20;
 const RATE_JANELA_MS = 60_000;
 
+// Achado real (auditoria da feature de chat, 08/09): _rateMap cresce um
+// registro por usuário único que já mandou mensagem, pra sempre — nenhuma
+// entrada é removida quando a janela expira. Num processo de servidor de
+// longa duração, isso é crescimento de memória sem limite (pequeno por
+// entrada, mas nunca encolhe). Faxina oportunista: a cada N chamadas,
+// remove entradas cuja janela já expirou — sem precisar de um timer
+// próprio com ciclo de vida pra gerenciar.
+let _chamadasDesdeUltimaFaxina = 0;
+const FAXINA_A_CADA_N_CHAMADAS = 200;
+
 function rateLimitOk(userId: number): boolean {
   const agora = Date.now();
+
+  _chamadasDesdeUltimaFaxina++;
+  if (_chamadasDesdeUltimaFaxina >= FAXINA_A_CADA_N_CHAMADAS) {
+    _chamadasDesdeUltimaFaxina = 0;
+    for (const [uid, entrada] of _rateMap) {
+      if (entrada.resetAt < agora) _rateMap.delete(uid);
+    }
+  }
+
   const atual = _rateMap.get(userId);
   if (!atual || atual.resetAt < agora) {
     _rateMap.set(userId, { count: 1, resetAt: agora + RATE_JANELA_MS });
@@ -370,14 +406,26 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number): Promi
     if (chamada.name === "gerar_campanha") {
       const resultado = await executarGeracaoCampanha((chamada.args as Record<string, unknown>) || {}, userId);
       if (resultado.ok) campanha = resultado.campanha;
+      // Achado real (auditoria da feature de chat, 08/09): resultado.ok ?
+      // {campanha} : {erro} disparava TS2339 ("Property 'erro' does not
+      // exist"), mesmo com if/else explícito. Causa raiz encontrada:
+      // tsconfig.server.json tem strict:false (diferente do tsconfig.json
+      // da raiz), e sob strict:false o narrowing por literal booleano
+      // (.ok true/false) não discrimina o union de forma confiável. A
+      // checagem "propriedade" in objeto narrowing funciona mesmo sob
+      // strict:false (testado e confirmado) — trocado por isso.
+      let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
+      if ("campanha" in resultado) {
+        respostaFuncao = { campanha: resultado.campanha };
+      } else {
+        respostaFuncao = { erro: resultado.erro };
+      }
       historico.push({
         role: "user",
         parts: [{
           functionResponse: {
             name: "gerar_campanha",
-            response: resultado.ok
-              ? { campanha: resultado.campanha }
-              : { erro: resultado.erro },
+            response: respostaFuncao,
           },
         }],
       });
@@ -447,10 +495,16 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number): Promise
     if (chamada.function.name === "gerar_campanha") {
       const resultado = await executarGeracaoCampanha(args, userId);
       if (resultado.ok) campanha = resultado.campanha;
+      let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
+      if ("campanha" in resultado) {
+        respostaFuncao = { campanha: resultado.campanha };
+      } else {
+        respostaFuncao = { erro: resultado.erro };
+      }
       historico.push({
         role: "tool",
         tool_call_id: chamada.id,
-        content: JSON.stringify(resultado.ok ? { campanha: resultado.campanha } : { erro: resultado.erro }),
+        content: JSON.stringify(respostaFuncao),
       });
       continue;
     }
@@ -494,6 +548,12 @@ chatRouter.post("/", authChat, async (req: any, res) => {
   const recebidas: MensagemChat[] = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
   if (recebidas.length === 0) {
     return res.status(400).json({ erro: "Nenhuma mensagem enviada." });
+  }
+  const mensagemMuitoLonga = recebidas.some(
+    (m) => typeof m?.content === "string" && m.content.length > MAX_CONTEUDO_MENSAGEM
+  );
+  if (mensagemMuitoLonga) {
+    return res.status(400).json({ erro: `Mensagem muito longa (máximo ${MAX_CONTEUDO_MENSAGEM} caracteres).` });
   }
 
   // Mantém só as últimas trocas — o histórico inteiro é reenviado a cada

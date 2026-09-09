@@ -11,6 +11,14 @@
  */
 
 import type { Subsegment } from "./segmentConfig";
+// Achado real (auditoria da feature de chat, 08/09): campaignProfile.ts
+// tentava importar Subsegment DAQUI (import { type Subsegment } from
+// "../shared/subsegments"), mas esse tipo só é IMPORTADO aqui (de
+// segmentConfig.ts) pra uso interno, nunca reexportado — erro TS2724
+// "has no exported member named 'Subsegment'". Reexportado explicitamente
+// pra quem importa subsegmentos daqui não precisar saber que o tipo
+// base na verdade mora em segmentConfig.ts.
+export type { Subsegment };
 
 export const SUBSEGMENTS: Record<string, Subsegment[]> = {
 

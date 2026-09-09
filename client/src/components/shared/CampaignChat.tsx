@@ -17,16 +17,23 @@ import { useState, useEffect, useRef } from "react";
  *   window.dispatchEvent(new Event("mecpro:open-chat"))
  */
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
 interface CampanhaGerada {
   id: number;
   name: string;
   projectId: number;
   url: string;
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  // Achado real (auditoria da feature de chat, 08/09): o card "✅
+  // Campanha criada" era decidido por "existe alguma campanha? é a
+  // última mensagem?" — depois de qualquer pergunta de acompanhamento
+  // sem gerar campanha nova, o card antigo reaparecia grudado na
+  // resposta errada. Anexado direto na mensagem onde a campanha foi de
+  // fato criada, pra só aparecer ali.
+  campanha?: CampanhaGerada;
 }
 
 interface RespostaChat {
@@ -88,7 +95,6 @@ function AvatarIA() {
 export default function CampaignChat() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([MENSAGEM_INICIAL]);
-  const [campanhas, setCampanhas] = useState<Record<number, CampanhaGerada>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
@@ -110,6 +116,15 @@ export default function CampaignChat() {
   const send = async (textoOverride?: string) => {
     const texto = (textoOverride ?? input).trim();
     if (!texto || loading) return;
+
+    // Achado real (auditoria da feature de chat, 08/09): needsLogin nunca
+    // era resetado depois de setado uma vez — se a sessão expirasse no
+    // meio da conversa, o CTA "Entre na sua conta" ficava colado embaixo
+    // de toda resposta futura pra sempre, mesmo depois do usuário logar
+    // de novo e voltar a conversar com sucesso. Reset otimista aqui: uma
+    // nova tentativa some com o aviso antigo, e ele só volta se a
+    // tentativa nova também levar 401.
+    setNeedsLogin(false);
 
     const historico: ChatMessage[] = [...messages, { role: "user", content: texto }];
     setInput("");
@@ -148,15 +163,12 @@ export default function CampaignChat() {
         return;
       }
 
-      if (data.campanha) {
-        setCampanhas((prev) => ({ ...prev, [data.campanha!.id]: data.campanha! }));
-      }
-
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           content: data.resposta?.trim() || "Pronto! Sua campanha foi gerada.",
+          campanha: data.campanha || undefined,
         },
       ]);
     } catch {
@@ -169,7 +181,6 @@ export default function CampaignChat() {
     }
   };
 
-  const campanhaMaisRecente = Object.values(campanhas).slice(-1)[0];
   const mostrarSugestoes = !loading && messages.length <= 1;
 
   // ── Bolha flutuante (estado fechado) ─────────────────────────────────────
@@ -238,10 +249,14 @@ export default function CampaignChat() {
                 <div className="flex-1 min-w-0 text-sm leading-relaxed" style={{ color: "#e6edf3" }}>
                   <FormatarTexto texto={msg.content} />
 
-                  {/* Card da campanha recém-criada */}
-                  {campanhaMaisRecente && i === messages.length - 1 && (
+                  {/* Card da campanha criada nesta mensagem específica —
+                      anexado direto na mensagem (msg.campanha), não mais
+                      inferido por "é a última mensagem e existe alguma
+                      campanha" (isso fazia o card reaparecer em respostas
+                      de acompanhamento sem relação com a criação). */}
+                  {msg.campanha && (
                     <a
-                      href={campanhaMaisRecente.url}
+                      href={msg.campanha.url}
                       className="mt-3 block px-4 py-3 rounded-2xl border text-sm transition-opacity hover:opacity-90"
                       style={{
                         background: "rgba(74,222,26,0.08)",
@@ -250,7 +265,7 @@ export default function CampaignChat() {
                       }}
                     >
                       <p className="font-semibold text-white">✅ Campanha criada</p>
-                      <p className="mt-1 truncate">{campanhaMaisRecente.name}</p>
+                      <p className="mt-1 truncate">{msg.campanha.name}</p>
                       <p className="mt-2 text-xs font-medium" style={{ color: "#4ade1a" }}>
                         Ver campanha completa →
                       </p>
