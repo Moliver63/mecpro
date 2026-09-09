@@ -59,6 +59,10 @@ export default function CampaignChat() {
         mostrarSugestoes={chat.mostrarSugestoes}
         input={chat.input}
         setInput={chat.setInput}
+        attachments={chat.attachments}
+        addAttachments={chat.addAttachments}
+        removeAttachment={chat.removeAttachment}
+        attachmentError={chat.attachmentError}
         send={chat.send}
         scrollRef={chat.scrollRef}
         fullScreen

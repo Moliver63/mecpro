@@ -22,10 +22,19 @@ export interface CampanhaGerada {
   url: string;
 }
 
+export interface ChatImageAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  dataUrl: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   campanha?: CampanhaGerada;
+  attachments?: ChatImageAttachment[];
 }
 
 interface RespostaChat {
@@ -50,9 +59,24 @@ export const SUGESTOES = [
 
 export const ASSISTANT_IMAGE = "/mecproai-assistant.jpg";
 
+const MAX_CHAT_IMAGES = 10;
+const MAX_CHAT_IMAGE_BYTES = 6 * 1024 * 1024;
+const ACCEPTED_CHAT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Falha ao ler arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function useCampaignChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([MENSAGEM_INICIAL]);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<ChatImageAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
   const [loading, setLoading] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -63,16 +87,60 @@ export function useCampaignChat() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
 
+  const addAttachments = async (files: FileList | File[]) => {
+    setAttachmentError("");
+    const selected = Array.from(files).filter(Boolean);
+    const availableSlots = Math.max(0, MAX_CHAT_IMAGES - attachments.length);
+    const accepted = selected.slice(0, availableSlots);
+
+    if (selected.length > availableSlots) {
+      setAttachmentError(`O chat aceita até ${MAX_CHAT_IMAGES} fotos por campanha.`);
+    }
+
+    const next: ChatImageAttachment[] = [];
+    for (const file of accepted) {
+      if (!ACCEPTED_CHAT_IMAGE_TYPES.has(file.type)) {
+        setAttachmentError("Envie apenas imagens nos formatos JPEG, PNG ou WEBP.");
+        continue;
+      }
+      if (file.size > MAX_CHAT_IMAGE_BYTES) {
+        setAttachmentError(`A foto "${file.name}" excede 6MB. Comprima antes de anexar.`);
+        continue;
+      }
+      const dataUrl = await fileToDataUrl(file);
+      next.push({
+        id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+        fileName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        dataUrl,
+      });
+    }
+
+    if (next.length) setAttachments((prev) => [...prev, ...next].slice(0, MAX_CHAT_IMAGES));
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((item) => item.id !== id));
+  };
+
   const send = async (textoOverride?: string) => {
     const texto = (textoOverride ?? input).trim();
-    if (!texto || loading) return;
+    if ((!texto && attachments.length === 0) || loading) return;
 
     // needsLogin é resetado a cada nova tentativa (reset otimista) — sem
     // isso, o aviso de login ficaria colado pra sempre depois de setado
     // uma vez, mesmo após o usuário logar de novo e voltar a conversar.
     setNeedsLogin(false);
 
-    const historico: ChatMessage[] = [...messages, { role: "user", content: texto }];
+    const userContent = texto || `Use as ${attachments.length} foto(s) anexadas para montar a campanha.`;
+    const anexosDoTurno = attachments;
+    const anexosJaMostrados = new Set(messages.flatMap((m) => m.attachments?.map((file) => file.id) || []));
+    const anexosParaExibir = anexosDoTurno.filter((file) => !anexosJaMostrados.has(file.id));
+    const historico: ChatMessage[] = [
+      ...messages,
+      { role: "user", content: userContent, attachments: anexosParaExibir.length ? anexosParaExibir : undefined },
+    ];
     setInput("");
     setMessages(historico);
     setLoading(true);
@@ -84,6 +152,12 @@ export function useCampaignChat() {
         credentials: "include",
         body: JSON.stringify({
           mensagens: historico.map((m) => ({ role: m.role, content: m.content })),
+          attachments: anexosDoTurno.map((file) => ({
+            fileName: file.fileName,
+            mimeType: file.mimeType,
+            size: file.size,
+            imageBase64: file.dataUrl,
+          })),
         }),
       });
 
@@ -117,6 +191,7 @@ export function useCampaignChat() {
           campanha: data.campanha || undefined,
         },
       ]);
+      if (data.campanha) setAttachments([]);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -129,5 +204,18 @@ export function useCampaignChat() {
 
   const mostrarSugestoes = !loading && messages.length <= 1;
 
-  return { messages, input, setInput, loading, needsLogin, send, mostrarSugestoes, scrollRef };
+  return {
+    messages,
+    input,
+    setInput,
+    attachments,
+    addAttachments,
+    removeAttachment,
+    attachmentError,
+    loading,
+    needsLogin,
+    send,
+    mostrarSugestoes,
+    scrollRef,
+  };
 }

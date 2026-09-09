@@ -42,6 +42,8 @@ const MAX_MENSAGENS_HISTORICO = 16;
 // custo/cota sem necessidade nenhuma (uma campanha não precisa de uma
 // mensagem de milhares de caracteres pra ser descrita).
 const MAX_CONTEUDO_MENSAGEM = 4000;
+const MAX_CHAT_IMAGE_ATTACHMENTS = 10;
+const MAX_CHAT_IMAGE_BYTES = 6 * 1024 * 1024;
 
 /** Timeout da geração de campanha dentro de uma chamada de ferramenta. */
 const TIMEOUT_GERACAO_MS = 110_000;
@@ -136,6 +138,13 @@ export interface MensagemChat {
   content: string;
 }
 
+interface ChatImageAttachment {
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  imageBase64?: string;
+}
+
 export interface CampanhaGerada {
   id: number;
   name: string;
@@ -162,6 +171,7 @@ Colete, nesta ordem de prioridade (só peça o que ainda não souber):
 6. Nicho/segmento e o que vende (productService) — melhora muito a copy.
 7. Cidade/região de atendimento e público-alvo (idade mínima/máxima se souber).
 8. Formato de mídia: image, video, carousel ou mixed. Se não souber, use image.
+9. Se o usuário anexar fotos, use essas fotos reais na campanha. Com 2 ou mais fotos anexadas, prefira formato carousel, a não ser que o usuário peça outro formato.
 
 Quando tiver os itens 1 a 5 no mínimo (e idealmente 6), chame a ferramenta gerar_campanha. Não peça confirmação antes — chame direto. Se faltar item obrigatório, pergunte só o que falta.
 
@@ -169,6 +179,7 @@ Situações que você precisa saber lidar:
 - Usuário descreve o negócio de forma solta ("tenho uma loja de roupa em BC"): extraia nicho, cidade e proposta de valor do que ele escreveu e confirme em UMA frase antes de gerar.
 - Pergunta fora do escopo (clima, notícia, política): responda educadamente que você só ajuda a montar campanhas de marketing, e redirecione.
 - Usuário manda vários dados de uma vez: agradeça, confirme o entendimento resumido e chame gerar_campanha se estiver completo.
+- Usuário anexa fotos: trate como material real da campanha. Não peça URL pública nem base64; o sistema já recebeu os bytes das imagens.
 - Depois de gerar: resuma em 1-2 frases diretas (nome da campanha, objetivo, orçamento/dia aproximado) e diga que os detalhes completos estão no link que aparece na tela. NÃO prometa resultado ("vai vender muito") — só entregue a campanha criada.
 - Se a ferramenta retornar erro (falta campo, limite do plano): repasse a mensagem do erro ao usuário de forma clara e continue a conversa coletando o que falta.
 
@@ -216,8 +227,95 @@ const ferramentasGroq = [
   },
 ];
 
+function base64Payload(value: string): string {
+  return String(value || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
+}
+
+function detectarFormatoImagem(buffer: Buffer): "jpg" | "png" | "webp" | null {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "jpg";
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "png";
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") return "webp";
+  return null;
+}
+
+function sanitizeChatAttachments(raw: unknown): ChatImageAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .slice(0, MAX_CHAT_IMAGE_ATTACHMENTS)
+    .map((item) => {
+      const record = (item && typeof item === "object") ? item as Record<string, unknown> : {};
+      return {
+        fileName: typeof record.fileName === "string" ? record.fileName.slice(0, 160) : undefined,
+        mimeType: typeof record.mimeType === "string" ? record.mimeType.slice(0, 80) : undefined,
+        size: Number.isFinite(Number(record.size)) ? Number(record.size) : undefined,
+        imageBase64: typeof record.imageBase64 === "string" ? record.imageBase64 : undefined,
+      };
+    })
+    .filter((item) => !!item.imageBase64);
+}
+
+async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId: number): Promise<{
+  realImages: string[];
+  photoInsights: Array<Record<string, unknown>>;
+  visualLabels: string[];
+}> {
+  if (!attachments.length) return { realImages: [], photoInsights: [], visualLabels: [] };
+
+  const { uploadBase64ImageToCloudinary } = await import("./imageGeneration");
+  const { analyzeImageWithVision } = await import("./imageRAG");
+  const realImages: string[] = [];
+  const photoInsights: Array<Record<string, unknown>> = [];
+  const visualLabelsSet = new Set<string>();
+
+  for (let i = 0; i < attachments.length; i++) {
+    const photo = attachments[i];
+    const base64 = base64Payload(photo.imageBase64 || "");
+    if (!base64) throw new Error(`Foto ${i + 1} não contém bytes de imagem.`);
+
+    const buffer = Buffer.from(base64, "base64");
+    const detected = detectarFormatoImagem(buffer);
+    if (!detected) throw new Error(`Foto ${i + 1} não é JPEG, PNG ou WEBP válido.`);
+    if (buffer.byteLength > MAX_CHAT_IMAGE_BYTES) throw new Error(`Foto ${i + 1} excede 6MB.`);
+
+    const originalName = photo.fileName || `chat-photo-${i + 1}.${detected}`;
+    const safeName = originalName.replace(/[^\w.\-]+/g, "-").slice(0, 120) || `chat-photo-${i + 1}.${detected}`;
+    const cloudUrl = await uploadBase64ImageToCloudinary(photo.imageBase64 || base64, `chat-${projectId}-${Date.now()}-${i}-${safeName}`);
+    if (!cloudUrl) throw new Error(`Falha ao subir a foto ${i + 1} para o Cloudinary.`);
+
+    let vision: any = null;
+    try {
+      vision = await analyzeImageWithVision(cloudUrl);
+      if (Array.isArray(vision?.labels)) vision.labels.slice(0, 4).forEach((label: string) => visualLabelsSet.add(label));
+      if (Array.isArray(vision?.objects)) vision.objects.slice(0, 3).forEach((object: string) => visualLabelsSet.add(object));
+    } catch (error: any) {
+      log.warn("chat", "analise visual da foto falhou", { projectId, index: i, erro: error?.message });
+    }
+
+    realImages.push(cloudUrl);
+    photoInsights.push({
+      url: cloudUrl,
+      originalIndex: i,
+      fileName: safeName,
+      role: i === 0 ? "featured_photo" : "supporting_photo",
+      copyAngle: vision?.summary || vision?.description || `foto real ${i + 1} enviada pelo usuário`,
+      labels: Array.isArray(vision?.labels) ? vision.labels.slice(0, 8) : [],
+      objects: Array.isArray(vision?.objects) ? vision.objects.slice(0, 5) : [],
+      textFound: vision?.text_found ? String(vision.text_found).slice(0, 160) : undefined,
+      hasText: !!vision?.has_text,
+      qualityScore: typeof vision?.quality_score === "number" ? vision.quality_score : null,
+      isFeatured: i === 0,
+    });
+  }
+
+  return {
+    realImages,
+    photoInsights,
+    visualLabels: Array.from(visualLabelsSet).slice(0, 8),
+  };
+}
+
 // ── Execução real da ferramenta (chama o motor existente) ─────────────────
-async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
+async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = []): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
   try {
     const objective = String(args.objective || "").toLowerCase();
     const platform = String(args.platform || "meta").toLowerCase();
@@ -278,6 +376,9 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
     const name = String(args.name || "").trim() ||
       `${projectName || "Campanha"} — ${objective === "sales" ? "Vendas" : objective === "leads" ? "Leads" : objective}`;
 
+    const preparedMedia = await prepararFotosDoChat(attachments, projectId);
+    const hasChatPhotos = preparedMedia.realImages.length > 0;
+
     const extraContext = [
       args.niche ? `Nicho: ${args.niche}` : "",
       args.productService ? `Produto/serviço: ${args.productService}` : "",
@@ -285,6 +386,7 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
       args.city ? `Região de atendimento: ${args.city}` : "",
       args.whatsapp ? `WhatsApp: ${args.whatsapp}` : "",
       args.destinationUrl ? `URL de destino: ${args.destinationUrl}` : "",
+      hasChatPhotos ? `${preparedMedia.realImages.length} foto(s) real(is) anexada(s) pelo usuário para orientar e montar os criativos.` : "",
     ].filter(Boolean).join(". ");
 
     const { generateCampaign } = await import("./ai");
@@ -307,7 +409,13 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
         locationMode: args.city ? "raio" : undefined,
         geoCity: args.city ? String(args.city) : undefined,
         geoRadius: 25,
-        mediaFormat: args.mediaFormat ? String(args.mediaFormat) : "image",
+        mediaFormat: hasChatPhotos && preparedMedia.realImages.length > 1
+          ? "carousel"
+          : (args.mediaFormat ? String(args.mediaFormat) : "image"),
+        realImages: hasChatPhotos ? preparedMedia.realImages : undefined,
+        photoInsights: hasChatPhotos ? preparedMedia.photoInsights : undefined,
+        visualLabels: preparedMedia.visualLabels.length ? preparedMedia.visualLabels : undefined,
+        numCreatives: hasChatPhotos ? Math.min(preparedMedia.realImages.length, 10) : undefined,
       } as any),
       timeout,
     ]);
@@ -385,7 +493,7 @@ async function chamarGeminiComRetry(historico: Content[], tentativas = 4): Promi
   throw ultimoErro;
 }
 
-async function tentarComGemini(mensagens: MensagemChat[], userId: number): Promise<RespostaChat> {
+async function tentarComGemini(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = []): Promise<RespostaChat> {
   const historico: Content[] = mensagens.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -404,7 +512,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number): Promi
     historico.push({ role: "model", parts: [{ functionCall: { name: chamada.name, args: chamada.args } }] });
 
     if (chamada.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha((chamada.args as Record<string, unknown>) || {}, userId);
+      const resultado = await executarGeracaoCampanha((chamada.args as Record<string, unknown>) || {}, userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
       // Achado real (auditoria da feature de chat, 08/09): resultado.ok ?
       // {campanha} : {erro} disparava TS2339 ("Property 'erro' does not
@@ -464,7 +572,7 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
   throw ultimoErro;
 }
 
-async function tentarComGroq(mensagens: MensagemChat[], userId: number): Promise<RespostaChat> {
+async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = []): Promise<RespostaChat> {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
   const historico: Groq.Chat.ChatCompletionMessageParam[] = [
@@ -493,7 +601,7 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number): Promise
     }
 
     if (chamada.function.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha(args, userId);
+      const resultado = await executarGeracaoCampanha(args, userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
       let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
       if ("campanha" in resultado) {
@@ -546,8 +654,18 @@ chatRouter.get("/status", (_req, res) => {
 chatRouter.post("/", authChat, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const recebidas: MensagemChat[] = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
+  const attachments = sanitizeChatAttachments(req.body?.attachments);
   if (recebidas.length === 0) {
     return res.status(400).json({ erro: "Nenhuma mensagem enviada." });
+  }
+  if (Array.isArray(req.body?.attachments) && req.body.attachments.length > MAX_CHAT_IMAGE_ATTACHMENTS) {
+    return res.status(400).json({ erro: `Envie no máximo ${MAX_CHAT_IMAGE_ATTACHMENTS} fotos por campanha.` });
+  }
+  for (let i = 0; i < attachments.length; i++) {
+    const estimatedBytes = Math.ceil(base64Payload(attachments[i].imageBase64 || "").length * 0.75);
+    if (estimatedBytes > MAX_CHAT_IMAGE_BYTES) {
+      return res.status(400).json({ erro: `Foto ${i + 1} excede 6MB. Comprima antes de enviar.` });
+    }
   }
   const mensagemMuitoLonga = recebidas.some(
     (m) => typeof m?.content === "string" && m.content.length > MAX_CONTEUDO_MENSAGEM
@@ -562,9 +680,16 @@ chatRouter.post("/", authChat, async (req: any, res) => {
     .filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
     .slice(-MAX_MENSAGENS_HISTORICO);
 
+  if (attachments.length && mensagens.length) {
+    const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      lastUser.content += `\n\n[Fotos anexadas no chat: ${attachments.length}. Use estas fotos reais na campanha; a primeira foto anexada é a candidata a destaque se o usuário não escolher outra.]`;
+    }
+  }
+
   if (proximaChaveGemini()) {
     try {
-      const resultado = await tentarComGemini(mensagens, userId);
+      const resultado = await tentarComGemini(mensagens, userId, attachments);
       return res.json(resultado);
     } catch (erro) {
       log.warn("chat", "Gemini indisponível, tentando Groq", { erro: (erro as any)?.message });
@@ -573,7 +698,7 @@ chatRouter.post("/", authChat, async (req: any, res) => {
 
   if (process.env.GROQ_API_KEY) {
     try {
-      const resultado = await tentarComGroq(mensagens, userId);
+      const resultado = await tentarComGroq(mensagens, userId, attachments);
       return res.json(resultado);
     } catch (erro) {
       log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: (erro as any)?.message });
