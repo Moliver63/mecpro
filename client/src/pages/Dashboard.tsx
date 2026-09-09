@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import PixelPanel from "@/components/PixelPanel";
+import ChatHomeView from "@/components/shared/ChatHomeView";
 import { calcCampaignScore } from "@/lib/campaignScore";
 import { toast } from "sonner";
 
@@ -40,6 +41,10 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab]   = useState<"projects" | "campaigns">("projects");
+  // Chat é a visão padrão (pedido explícito: tela inicial no formato
+  // GPT/Claude). O dashboard de estatísticas de sempre continua
+  // disponível pela aba — nada foi removido.
+  const [viewMode, setViewMode] = useState<"chat" | "stats">("chat");
   const [deleting,  setDeleting]    = useState<number | null>(null);
   const [selected,  setSelected]    = useState<Set<number>>(new Set());
   const [confirmDel, setConfirmDel] = useState<number | "bulk" | null>(null);
@@ -110,6 +115,47 @@ export default function Dashboard() {
         .header-chip:hover { transform: translateY(-1px); opacity: 0.85; }
       `}</style>
 
+      {/* ═══ ALTERNÂNCIA CHAT / ESTATÍSTICAS ═══════════════════════════════
+          Chat é a visão padrão da tela inicial (pedido explícito: "chat
+          igual o GPT/Claude"). O dashboard de estatísticas de sempre
+          continua disponível na aba ao lado — nada foi removido, só deixou
+          de ser o que aparece primeiro. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, padding: "clamp(14px,2.5vw,24px) clamp(14px,2vw,20px) 0" }}>
+        <button
+          onClick={() => setViewMode("chat")}
+          className="tab-btn"
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 99,
+            border: viewMode === "chat" ? "1.5px solid var(--blue)" : "1.5px solid var(--border)",
+            background: viewMode === "chat" ? "var(--blue-l)" : "white",
+            color: viewMode === "chat" ? "var(--blue)" : "var(--muted)",
+            fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "var(--font)",
+          }}
+        >
+          💬 Chat
+        </button>
+        <button
+          onClick={() => setViewMode("stats")}
+          className="tab-btn"
+          style={{
+            display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 99,
+            border: viewMode === "stats" ? "1.5px solid var(--blue)" : "1.5px solid var(--border)",
+            background: viewMode === "stats" ? "var(--blue-l)" : "white",
+            color: viewMode === "stats" ? "var(--blue)" : "var(--muted)",
+            fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: "var(--font)",
+          }}
+        >
+          📊 Estatísticas
+        </button>
+      </div>
+
+      {viewMode === "chat" && (
+        <div style={{ padding: "0 clamp(14px,2vw,20px)", paddingBottom: "env(safe-area-inset-bottom,0)" }}>
+          <ChatHomeView />
+        </div>
+      )}
+
+      {viewMode === "stats" && (
       <div style={{ maxWidth: "100%", margin: "0 auto", padding: "clamp(14px,2.5vw,24px) clamp(14px,2vw,20px)", fontFamily: "var(--font)", paddingBottom: "env(safe-area-inset-bottom,0)" }}>
 
         {/* ═══ CABEÇALHO RICO ═══════════════════════════════════════════════════ */}
@@ -449,6 +495,7 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+      )}
 
       {/* Modal confirmação exclusão */}
       {confirmDel !== null && (
