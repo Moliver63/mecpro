@@ -23,7 +23,6 @@ import { Router } from "express";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
 import { jwtVerify } from "jose";
-import { ALL_GEMINI_KEYS } from "./ai";
 import * as db from "./db";
 import { log } from "./logger";
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
@@ -43,7 +42,14 @@ import { ALL_GEMINI_KEYS } from "./ai";
 export const chatRouter = Router();
 
 const MODELO_GEMINI = process.env.GEMINI_CHAT_MODEL ?? "gemini-flash-latest";
-const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "llama-3.3-70b-versatile";
+// Achado real (log de produção, 10/09): "llama-3.3-70b-versatile" — HTTP
+// 404 "does not exist or you do not have access to it". Confirmado via
+// documentação oficial do Groq (console.groq.com/docs/deprecations):
+// modelo descontinuado (anúncio 17/06/2026, desligado 16/08/2026,
+// já passado). Substituído por "openai/gpt-oss-120b" — recomendação
+// oficial do próprio Groq pra esse caso, com suporte confirmado a tool
+// calling (essencial aqui, já que o chat usa `tools`/`tool_choice`).
+const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "openai/gpt-oss-120b";
 
 /** Quantas mensagens do histórico são reenviadas por turno (custo/latência). */
 const MAX_MENSAGENS_HISTORICO = 16;
@@ -471,11 +477,39 @@ function erroEhCotaDiariaEsgotada(erro: unknown): boolean {
   return texto.includes("RESOURCE_EXHAUSTED") || texto.includes("exceeded your current quota");
 }
 
+// Achado real (log de produção, 10/09): uma chave suspensa/sem permissão
+// (PERMISSION_DENIED / CONSUMER_SUSPENDED — ex.: projeto do Google Cloud
+// suspenso) não batia em NENHUM dos dois classificadores acima — nem
+// "temporário" (503/429/UNAVAILABLE), nem "cota esgotada"
+// (RESOURCE_EXHAUSTED) — então caía direto no `throw erro` na PRIMEIRA
+// tentativa, sem nunca tentar as outras chaves do pool (7 chaves nunca
+// chegavam a ser testadas). Uma chave suspensa é tão "essa chave
+// específica não funciona" quanto uma com cota esgotada — a resposta
+// certa é a mesma: marcar essa chave e tentar a próxima do pool, não
+// desistir do provedor inteiro na primeira chave que falhar.
+function erroEhChaveInvalidaOuSuspensa(erro: unknown): boolean {
+  const texto = String((erro as { message?: string })?.message ?? erro);
+  return (
+    texto.includes("PERMISSION_DENIED") ||
+    texto.includes("CONSUMER_SUSPENDED") ||
+    texto.includes("API_KEY_INVALID") ||
+    texto.includes("UNAUTHENTICATED")
+  );
+}
+
 /* ---------------- Provedor 1: Gemini (com pool de chaves) ---------------- */
 
-async function chamarGeminiComRetry(historico: Content[], tentativas = 4): Promise<GenerateContentResponse> {
+async function chamarGeminiComRetry(historico: Content[], tentativas?: number): Promise<GenerateContentResponse> {
+  // Achado real (mesmo log, 10/09): tentativas=4 (padrão anterior) só
+  // cobria metade do pool de 8 chaves — se a chave suspensa/com problema
+  // fosse a primeira testada, ainda havia risco de esgotar as 4
+  // tentativas sem chegar nas chaves boas do fim do pool. Cobre o pool
+  // inteiro numa chamada só; sem custo real pra erro de cota/chave
+  // suspensa (pula pra próxima sem esperar), só pesa em cenário de erro
+  // temporário (503/429) generalizado, que já era um caso degradado antes.
+  const maxTentativas = tentativas ?? Math.max(poolChavesGemini().length, 4);
   let ultimoErro: unknown;
-  for (let i = 0; i < tentativas; i++) {
+  for (let i = 0; i < maxTentativas; i++) {
     const chave = proximaChaveGemini();
     if (!chave) {
       throw ultimoErro ?? new Error("Nenhuma chave Gemini disponível no momento (cotas esgotadas).");
@@ -493,13 +527,14 @@ async function chamarGeminiComRetry(historico: Content[], tentativas = 4): Promi
       });
     } catch (erro) {
       ultimoErro = erro;
-      if (erroEhCotaDiariaEsgotada(erro)) {
-        // Cota dessa chave esgotada — marca cooldown e tenta a próxima já na
-        // iteração seguinte (cota não resolve com backoff curto).
+      if (erroEhCotaDiariaEsgotada(erro) || erroEhChaveInvalidaOuSuspensa(erro)) {
+        // Cota esgotada ou chave suspensa/inválida — marca essa chave
+        // específica e tenta a próxima já na iteração seguinte (nenhum
+        // dos dois casos se resolve com um retry rápido na mesma chave).
         _chavesEsgotadas.set(chave, Date.now() + COOLDOWN_COTA_MS);
         continue;
       }
-      if (!erroEhTemporario(erro) || i === tentativas - 1) throw erro;
+      if (!erroEhTemporario(erro) || i === maxTentativas - 1) throw erro;
       await aguardar(1200 * (i + 1));
     }
   }
