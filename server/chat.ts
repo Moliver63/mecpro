@@ -225,7 +225,7 @@ const PARAMETROS_GERAR_CAMPANHA = {
     ageMax: { type: "number", description: "Idade máxima do público (18-65)." },
     mediaFormat: { type: "string", enum: ["image", "video", "carousel", "mixed"], description: "Formato de mídia." },
     whatsapp: { type: "string", description: "WhatsApp de atendimento, se houver." },
-    destinationUrl: { type: "string", description: "URL de destino dos anúncios, se houver." },
+    destinationUrl: { type: "string", description: "URL de destino dos anúncios. Se não houver, OMITE o campo — nunca envie null." },
   },
   required: ["objective", "platform", "budget", "durationDays"],
 };
@@ -245,6 +245,22 @@ const ferramentasGroq = [
     function: { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parameters: PARAMETROS_GERAR_CAMPANHA as Record<string, unknown> },
   },
 ];
+
+// Achado real (cascata de geração, 10/09): Groq enviava
+// "destinationUrl": null quando o usuário não informava URL, e o
+// schema (string) rejeitava a chamada inteira. Regra: campo opcional
+// ausente deve ser OMITIDO, nunca enviado como null. Este helper
+// remove null/undefined/string vazia/"null" de qualquer arg antes de
+// despachar pro motor — vale pros 3 provedores.
+function limparArgsFerramenta(args: Record<string, unknown>): Record<string, unknown> {
+  const limpo: Record<string, unknown> = {};
+  for (const [chave, valor] of Object.entries(args || {})) {
+    if (valor === null || valor === undefined) continue;
+    if (typeof valor === "string" && (!valor.trim() || valor.trim().toLowerCase() === "null")) continue;
+    limpo[chave] = valor;
+  }
+  return limpo;
+}
 
 function base64Payload(value: string): string {
   return String(value || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
@@ -557,10 +573,21 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
     const chamada = resposta.functionCalls?.[0];
     if (!chamada) break;
 
-    historico.push({ role: "model", parts: [{ functionCall: { name: chamada.name, args: chamada.args } }] });
+    // Achado real (cascata de geração, 10/09): o turno do modelo era
+    // reconstruído manualmente só com { functionCall: { name, args } },
+    // descartando as outras parts do candidato — inclusive a
+    // thought_signature que o Gemini 2.5 exige de volta no histórico
+    // em function calling. Resultado: 400 "function call is missing a
+    // thought_signature". Correção: preservar as parts originais do
+    // SDK (com metadados) e só cair no fallback manual se não houver.
+    const partesDoModelo =
+      resposta.candidates?.[0]?.content?.parts?.length
+        ? resposta.candidates[0].content.parts
+        : [{ functionCall: { ...chamada } }];
+    historico.push({ role: "model", parts: partesDoModelo });
 
     if (chamada.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha((chamada.args as Record<string, unknown>) || {}, userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta((chamada.args as Record<string, unknown>) || {}), userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
       // Achado real (auditoria da feature de chat, 08/09): resultado.ok ?
       // {campanha} : {erro} disparava TS2339 ("Property 'erro' does not
@@ -649,7 +676,7 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
     }
 
     if (chamada.function.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha(args, userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
       let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
       if ("campanha" in resultado) {
@@ -737,7 +764,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
 
     if (chamada.function?.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha(args, userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
       let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
       if ("campanha" in resultado) {
