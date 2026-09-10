@@ -13,8 +13,16 @@ const MODEL_PRICES: Record<string, ModelPrice> = {
   "gemini-1.5-flash":       { input: 0.075,  output: 0.30  },
   "deepseek-v4-flash":      { input: 0.14,   output: 0.28  },
   "deepseek-v4-pro":        { input: 0.435,  output: 0.87  },
-  "llama-3.3-70b-versatile":{ input: 0.059,  output: 0.079 }, // Groq pricing
-  "llama-3.1-8b-instant":   { input: 0.005,  output: 0.008 },
+  // Achado real (10/09): llama-3.3-70b-versatile e llama-3.1-8b-instant
+  // foram descontinuados pelo Groq — mantidos aqui só pra não quebrar
+  // custo retroativo de telemetria já registrada com esses nomes.
+  "llama-3.3-70b-versatile":{ input: 0.059,  output: 0.079 }, // Groq pricing (descontinuado)
+  "llama-3.1-8b-instant":   { input: 0.005,  output: 0.008 }, // Groq pricing (descontinuado)
+  // Substitutos atuais (preço direto Groq — validado via CloudZero/Groq
+  // docs, mas sem 100% de certeza do valor exato mais recente; vale
+  // conferir em console.groq.com/pricing se a precisão do custo importar).
+  "openai/gpt-oss-120b":    { input: 0.15,   output: 0.60  },
+  "openai/gpt-oss-20b":     { input: 0.075,  output: 0.30  },
 };
 
 export function estimateCost(

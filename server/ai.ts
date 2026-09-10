@@ -2411,24 +2411,42 @@ async function callGroqAPI(
     return null;
   }
 
-  // Modelo principal: llama-3.3-70b-versatile (128k ctx)
-  // Fallback interno: llama-3.1-8b-instant (8k ctx — só para prompts curtos)
+  // Achado real (log de produção, 10/09): "llama-3.3-70b-versatile" e
+  // "llama-3.1-8b-instant" foram descontinuados pelo Groq (anúncio
+  // 17/06/2026, desligados em 16/08/2026 — confirmado via
+  // console.groq.com/docs/deprecations). Substituídos pelos modelos
+  // recomendados oficialmente pelo próprio Groq pra essa migração:
+  // openai/gpt-oss-120b (no lugar do 70b) e openai/gpt-oss-20b (no lugar
+  // do 8b) — os dois com suporte confirmado a tool calling e contexto de
+  // 131k tokens (maior que os originais, os limites de caracteres abaixo
+  // continuam válidos/seguros, só ficaram mais conservadores que o
+  // estritamente necessário — não mexidos agora pra não introduzir risco
+  // novo de payload).
+  // Modelo principal: openai/gpt-oss-120b (131k ctx)
+  // Fallback interno: openai/gpt-oss-20b (131k ctx — mantido como segunda opção mais barata)
   const models = [
-    process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
+    process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
   ];
 
   for (const model of models) {
     try {
       // Groq token limits (chars ≈ tokens * 4):
-      // llama-3.3-70b-versatile: 128k ctx → ~100k chars safe
-      // llama-3.1-8b-instant: 8k ctx → ~12k chars safe
+      // openai/gpt-oss-120b: 131k ctx → ~100k chars safe
+      // openai/gpt-oss-20b: 131k ctx → mantido conservador (~12k chars) por causa do limite de payload abaixo, não do contexto
       // O Groq retorna 413 quando o payload JSON excede ~1MB — truncar mais agressivamente
       // Groq API limit: ~1MB request body. JSON wrapping adds ~30% overhead.
-      // 70b: reduce to 25k to avoid 413; 8b: keep at 4k for its 8k ctx limit
-      // 8b: 8k ctx total, ~6k chars safe after JSON wrapping + system prompt overhead
+      // 120b: reduce to 25k to avoid 413; 20b: keep at 4k, mesmo limite de payload de antes
+      // 20b: mantido conservador (~6k chars) após JSON wrapping + system prompt overhead — modelo trocado, limite de payload (não de contexto) continua o mesmo
       // 70b: 128k ctx, limit by Groq API 1MB body → 25k chars
-      const maxChars = model.includes("8b") ? 800 : 25000;
+      // Achado real: model.includes("8b") parava de bater depois da troca
+      // pros modelos gpt-oss (nenhum dos dois nomes novos contém "8b") —
+      // faria maxChars cair sempre em 25000, mesmo pro modelo mais barato/
+      // menor, que deveria continuar com o limite conservador. Invertido
+      // pra checar o modelo GRANDE especificamente ("120b") e só liberar
+      // o limite generoso nesse caso — qualquer nome de modelo
+      // inesperado cai no lado seguro (conservador), não no arriscado.
+      const maxChars = model.includes("120b") ? 25000 : 800;
       const truncatedPrompt = prompt.length > maxChars
         ? prompt.slice(0, maxChars) + "\n[TRUNCADO]"
         : prompt;
@@ -2519,7 +2537,7 @@ async function callGroqAPI(
       // Token telemetry — fire-and-forget
       logTokens({
         provider:         "groq",
-        model:            String(model || "llama-3.3-70b-versatile"),
+        model:            String(model || "openai/gpt-oss-120b"),
         endpoint:         "groq_call",
         promptTokens:     data.usage?.prompt_tokens     || 0,
         completionTokens: data.usage?.completion_tokens || 0,
@@ -4236,7 +4254,7 @@ export function getHealthStatus() {
     },
     groqFallback: {
       configured: !!process.env.GROQ_API_KEY,
-      model:      process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      model:      process.env.GROQ_MODEL || "openai/gpt-oss-120b",
     },
     deepSeekFallback: {
       configured: !!process.env.DEEPSEEK_API_KEY,
