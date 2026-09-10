@@ -189,20 +189,20 @@ def main() -> None:
       });
       try {
         const avisoReparoAnterior = repairWarnings.length
-          ? `\n⚠️ REPARO ANTERIOR DESCARTADO: ${repairWarnings.join(", ")}. Não repita esse erro.\n`
+          ? `\\n⚠️ REPARO ANTERIOR DESCARTADO: ${repairWarnings.join(", ")}. Não repita esse erro.\\n`
           : "";
         const raw = await gemini(
-          `Melhore este criativo de anúncio Meta Ads resolvendo EXATAMENTE os issues listados.\n` +
-          `ISSUES:\n- ${recs}\n\n` +
-          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description })}\n\n` +
-          `REGRAS ABSOLUTAS:\n` +
-          `- Segmento correto da campanha: ${segment}. Mantenha vocabulário e CTA compatíveis com esse segmento.\n` +
-          `- headline: máx 40 caracteres, específica, sem CTA embutido\n` +
-          `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
-          `- copy: máx 500 caracteres, sem frases repetidas\n` +
-          `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
-          `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se um issue pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
-          `- O Fact Guard revalida o resultado e DESCARTA a tentativa inteira se você inventar fato.\n` +
+          `Melhore este criativo de anúncio Meta Ads resolvendo EXATAMENTE os issues listados.\\n` +
+          `ISSUES:\\n- ${recs}\\n\\n` +
+          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description })}\\n\\n` +
+          `REGRAS ABSOLUTAS:\\n` +
+          `- Segmento correto da campanha: ${segment}. Mantenha vocabulário e CTA compatíveis com esse segmento.\\n` +
+          `- headline: máx 40 caracteres, específica, sem CTA embutido\\n` +
+          `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\\n` +
+          `- copy: máx 500 caracteres, sem frases repetidas\\n` +
+          `- Mantenha o mesmo produto/oferta, apenas melhore a execução\\n` +
+          `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se um issue pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\\n` +
+          `- O Fact Guard revalida o resultado e DESCARTA a tentativa inteira se você inventar fato.\\n` +
           avisoReparoAnterior +
           `Retorne APENAS o JSON com os mesmos campos, sem markdown.`,
           { temperature: 0.8, jsonMode: true, maxOutputTokens: 800, _endpoint: "improve_creative" },
