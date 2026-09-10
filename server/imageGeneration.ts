@@ -333,7 +333,7 @@ function getPixabayQuery(
   const typeMod = TYPE_VISUAL[type];
   if (typeMod && creativeIndex % 2 === 1) query = typeMod;
 
-  // Adador de ângulo
+  // Adiciona modificador de ângulo
   const angleMod = ANGLE_VISUAL[angle];
   if (angleMod) query = `${query} ${angleMod.split(" ")[0]}`;
 
