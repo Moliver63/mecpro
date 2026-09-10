@@ -57,7 +57,12 @@ export interface RAGContext {
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
 const THRESHOLDS = {
-  confidence:       0.50,  // Pixabay/Google são CC0 de qualidade — threshold pragmático
+  // Achado real (log de produção, 10/09): imagens buscadas como "wellness
+  // healthy lifestyle active" e "modern bedroom apartment rental" foram
+  // APROVADAS com overall 0.55 pra uma campanha de sala comercial. 0.50
+  // aprovava praticamente qualquer imagem "ok" sem aderência real ao
+  // segmento — elevado pra 0.72 pra exigir correspondência de verdade.
+  confidence:       0.72,
   product_match:    0.40,  // sem embeddings vetoriais reais, matching por keyword é limitado
   campaign_match:   0.40,  // histórico cresce com o tempo
   branding:         0.50,  // sem texto + seguro = aprovado
@@ -262,14 +267,62 @@ function computeScores(
   };
 }
 
+// ── Rejeição semântica por categoria ────────────────────────────────────────
+// Achado real (log de produção, 10/09): o score numérico sozinho NÃO pega
+// erro de CATEGORIA — um quarto residencial bonito tira nota boa em
+// qualidade/branding e era aprovado pra uma sala comercial. Estas regras
+// cruzam o que a campanha É (segmento/nicho/produto) com o que a imagem
+// MOSTRA (labels/objects do Vision) e rejeitam incompatíveis na hora,
+// independente do score.
+const SEMANTIC_CATEGORY_RULES: Array<{
+  when: RegExp;        // casa com segmento/nicho/produto da campanha
+  rejectLabels: RegExp; // casa com labels/objects da imagem
+  reason: string;
+}> = [
+  {
+    // Imóvel COMERCIAL (sala comercial, ponto, loja): nunca imagem de
+    // interior residencial (quarto, sala de estar, cozinha de casa).
+    when: /sala\s*comercial|im[oó]vel\s*comercial|espa[cç]o\s*comercial|ponto\s*comercial|loja\s*comercial/i,
+    rejectLabels: /\b(bedroom|living room|bed|mattress|home interior|residential building|apartment)\b/i,
+    reason: "semantic_mismatch_residential_image_for_commercial_property",
+  },
+  {
+    // Imóvel RESIDENCIAL (casa/apartamento/cobertura): nunca imagem de
+    // ambiente corporativo/empresarial.
+    when: /apartamento|cobertura|triplex|casa\b|residencial/i,
+    rejectLabels: /\b(office building|coworking|conference room|meeting room|corporate)\b/i,
+    reason: "semantic_mismatch_corporate_image_for_residential_property",
+  },
+];
+
 // ── ETAPA 4: Validação e decisão ──────────────────────────────────────────────
 
 function validateAndDecide(
   scores:    ImageRAGResult["scores"],
   vision:    VisionAnalysis,
   imageBytes:number,
+  ctx?:      RAGContext,
 ): { status: ImageRAGResult["validation_status"]; reason: string; rejection: string } {
   const logs: string[] = [];
+
+  // Rejeição semântica por categoria (roda ANTES dos scores — incompatível
+  // de categoria é rejeitado mesmo com score alto)
+  if (ctx) {
+    const campaignText = [ctx.segment, ctx.niche, ctx.productName, ctx.productService].filter(Boolean).join(" ");
+    const imageText = [...vision.labels, ...vision.objects].join(" ");
+    for (const rule of SEMANTIC_CATEGORY_RULES) {
+      if (rule.when.test(campaignText)) {
+        const hit = imageText.match(rule.rejectLabels);
+        if (hit) {
+          return {
+            status: "rejected",
+            reason: "",
+            rejection: `Incompatibilidade semântica de categoria: imagem com "${hit[0]}" rejeitada para esta campanha (${rule.reason})`,
+          };
+        }
+      }
+    }
+  }
 
   // Bloqueios imediatos
   if (!vision.safe) {
@@ -351,7 +404,7 @@ export async function runImageRAG(
   logs.push(`Scores: quality=${scores.quality_score} product=${scores.product_match_score} branding=${scores.branding_score} overall=${scores.overall_score}`);
 
   // ETAPA 4: Decisão
-  const decision = validateAndDecide(scores, visionFallback, imageBytes);
+  const decision = validateAndDecide(scores, visionFallback, imageBytes, ctx);
   logs.push(`Decisão: ${decision.status.toUpperCase()} — ${decision.reason || decision.rejection}`);
 
   // Tags geradas a partir dos labels

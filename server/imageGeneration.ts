@@ -1024,6 +1024,55 @@ function buildCloudflarePrompt(prompt: string, maxLength = 1900): string {
   return `${base.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
 }
 
+// Achado real (cascata de geração, 10/09): o endpoint do FLUX no
+// Cloudflare rejeita propriedades fora do schema do modelo ("invalid
+// input: extra properties") — o body ia SEMPRE com width/height,
+// derrubando a geração em modelos que não aceitam dimensões. Schema por
+// modelo: a lista abaixo marca os que NÃO aceitam width/height; o
+// tamanho final do criativo é normalizado depois, no upload do
+// Cloudinary — dimensão aqui é só hint de geração, nunca requisito.
+const CF_MODELOS_SEM_DIMENSOES = /(@cf\/stabilityai\/|stable-diffusion|dreamshaper|@cf\/lykon\/)/i;
+
+function cloudflareModeloAceitaDimensoes(model: string): boolean {
+  return !CF_MODELOS_SEM_DIMENSOES.test(model);
+}
+
+function montarCorpoCloudflare(prompt: string, format: CreativeImageFormat, comDimensoes: boolean): Record<string, unknown> {
+  const corpo: Record<string, unknown> = {
+    prompt,
+    num_steps: 8, // mais passos = maior qualidade e melhor aderência ao prompt
+  };
+  if (comDimensoes) {
+    const dim = FORMAT_DIMENSIONS[format];
+    corpo.width = Math.min(dim.width, 1024);
+    corpo.height = Math.min(dim.height, 1024);
+  }
+  return corpo;
+}
+
+// POST único pras duas rotas de geração Cloudflare. Se o endpoint
+// responder 400 (schema do modelo rejeitou o body — ex.: dimensões não
+// suportadas), tenta UMA vez de novo sem width/height antes de desistir.
+async function postCloudflare(url: string, prompt: string, format: CreativeImageFormat): Promise<Response> {
+  const headers = { "Authorization": `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" };
+  let res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(montarCorpoCloudflare(prompt, format, cloudflareModeloAceitaDimensoes(CF_IMAGE_MODEL))),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (res.status === 400) {
+    log.warn("image-generation", "Cloudflare 400 — retry sem dimensões", { model: CF_IMAGE_MODEL, format });
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(montarCorpoCloudflare(prompt, format, false)),
+      signal: AbortSignal.timeout(30000),
+    });
+  }
+  return res;
+}
+
 // Versão que retorna Buffer (para RAG check antes de upload)
 async function generateWithCloudflareBuffer(
   prompt: string,
@@ -1032,20 +1081,9 @@ async function generateWithCloudflareBuffer(
   if (!CF_ACCOUNT_ID || !CF_API_TOKEN) return null;
   if (_cfQuotaExhaustedUntil && Date.now() < _cfQuotaExhaustedUntil) return null;
   try {
-    const dim = FORMAT_DIMENSIONS[format];
     const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_IMAGE_MODEL}`;
     const safePrompt = buildCloudflarePrompt(prompt);
-    const res = await fetch(url, {
-      method:  "POST",
-      headers: { "Authorization": `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: safePrompt,
-        width:  Math.min(dim.width,  1024),
-        height: Math.min(dim.height, 1024),
-        num_steps: 8,
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
+    const res = await postCloudflare(url, safePrompt, format);
     if (!res.ok) {
       const err = await res.text().catch(() => "");
       log.warn("image-generation", "Cloudflare erro", { status: res.status, preview: err.slice(0, 100) });
@@ -1080,24 +1118,10 @@ async function generateWithCloudflare(
     return null;
   }
   try {
-    const dim = FORMAT_DIMENSIONS[format];
     const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${CF_IMAGE_MODEL}`;
 
     const safePrompt = buildCloudflarePrompt(prompt); // Cloudflare FLUX limit: 2048 chars on /prompt path
-    const res = await fetch(url, {
-      method:  "POST",
-      headers: {
-        "Authorization": `Bearer ${CF_API_TOKEN}`,
-        "Content-Type":  "application/json",
-      },
-      body:   JSON.stringify({
-        prompt: safePrompt,
-        width:  Math.min(dim.width,  1024),
-        height: Math.min(dim.height, 1024),
-        num_steps: 8,        // mais passos = maior qualidade e melhor aderência ao prompt
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
+    const res = await postCloudflare(url, safePrompt, format);
 
     if (!res.ok) {
       const err = await res.text().catch(() => "");

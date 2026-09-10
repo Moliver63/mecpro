@@ -9,6 +9,23 @@ import {
 
 type FactSource = Record<string, unknown>;
 
+// Achado real (cascata de geração, 10/09): a verba de mídia diária
+// ("R$ 6/dia") vazou pra copy como preço da oferta ("Valor: R$ 6, tudo
+// incluso"). Causa raiz: orçamento de mídia e preço da oferta viviam no
+// mesmo balaio de "fatos" — o gerador não tinha como distinguir. Separação
+// estrutural: CampaignBudget é VERBA DE ANÚNCIOS (nunca fato comercial,
+// só entra aqui pra o validador BLOQUEAR se vazar); OfferFacts é o preço
+// real da oferta (só existe se o cliente informou).
+export type CampaignBudget = {
+  dailyMediaBudget: number;
+  monthlyMediaBudget: number;
+};
+
+export type OfferFacts = {
+  price?: number;
+  priceLabel?: string;
+};
+
 export type CampaignFactConflict = {
   field: string;
   value: string;
@@ -47,6 +64,12 @@ export type CampaignFacts = {
   // negócios com endereço errado na copy não eram pegos por nada, já que
   // a checagem de endereço só existia dentro de facts.realEstate.
   genericAddress?: string;
+  // Verba de mídia da campanha (diária/mensal). NÃO é fato comercial —
+  // nunca entra em verifiedFacts nem vai pro prompt como informação da
+  // oferta. Existe aqui exclusivamente pra validateCampaignFactIntegrity
+  // bloquear a copy que citar a verba como se fosse preço do produto
+  // (budget_as_price_conflict_*).
+  mediaBudget?: CampaignBudget;
   realEstate: {
     purpose?: string;
     propertyType?: string;
@@ -543,11 +566,13 @@ function extractConfirmedCharacteristics(text: string): string[] {
 export function buildCampaignFacts({
   input,
   clientProfile,
+  mediaBudget,
 }: {
   input: FactSource;
   clientProfile: FactSource;
   campaignName?: string;
   segment?: string;
+  mediaBudget?: CampaignBudget;
 }): CampaignFacts {
   const currentRaw = sourceText(input, {});
   const inheritedRaw = sourceText({}, clientProfile);
@@ -671,6 +696,7 @@ export function buildCampaignFacts({
     confirmedCharacteristics,
     genericProductPrice,
     genericAddress,
+    mediaBudget,
     realEstate: {
       purpose,
       propertyType,
@@ -740,6 +766,15 @@ export function resolveIsRealEstate(initialSegment: string, facts: CampaignFacts
     facts.realEstate.address
   );
   return !!facts.realEstate.propertyType && hasCorroboratingSignal;
+}
+
+// Converte um valor monetário livre ("R$ 6", "6 mil reais") em número,
+// reaproveitando o normalizeMoneyValue (rótulo "N brl"). Retorna NaN se
+// não for um valor monetário reconhecível.
+function moneyValueToNumber(value: string): number {
+  const normalized = normalizeMoneyValue(value);
+  const match = normalized.match(/^([\d.]+)\s+brl$/);
+  return match ? Number(match[1]) : NaN;
 }
 
 export function validateCampaignFactIntegrity(
@@ -827,6 +862,23 @@ export function validateCampaignFactIntegrity(
     // checagem, duas fontes possíveis — funciona pra qualquer segmento.
     const expectedPrice = facts.realEstate.price || facts.genericProductPrice;
     for (const price of prices) {
+      // Achado real (cascata de geração, 10/09): a verba de mídia diária
+      // ("R$ 6/dia") vazou pra copy como "Valor: R$ 6, tudo incluso".
+      // Verba de anúncios NUNCA é preço da oferta — se o valor citado casa
+      // com a verba (diária ou mensal) e NÃO casa com o preço confirmado,
+      // é conflito estrutural, mesmo que nenhum preço esperado exista.
+      if (facts.mediaBudget) {
+        const priceNumber = moneyValueToNumber(price);
+        const expectedNumber = expectedPrice ? moneyValueToNumber(expectedPrice) : NaN;
+        const matchesBudget =
+          (Number.isFinite(facts.mediaBudget.dailyMediaBudget) && priceNumber === facts.mediaBudget.dailyMediaBudget) ||
+          (Number.isFinite(facts.mediaBudget.monthlyMediaBudget) && priceNumber === facts.mediaBudget.monthlyMediaBudget);
+        const matchesExpected = Number.isFinite(expectedNumber) && priceNumber === expectedNumber;
+        if (matchesBudget && !matchesExpected) {
+          conflicts.push({ field, value: price, reason: "budget_as_price_conflict_media_budget_is_not_offer_price" });
+          continue;
+        }
+      }
       if (expectedPrice && normalizeMoneyValue(price) !== normalizeMoneyValue(expectedPrice)) {
         conflicts.push({ field, value: price, reason: `price_conflict_expected_${expectedPrice}` });
       }
@@ -960,5 +1012,6 @@ export function formatCampaignFactsForPrompt(facts: CampaignFacts): string {
     facts.allowedInferences.length ? `\nINFERENCIAS PERMITIDAS:\n${facts.allowedInferences.map((fact) => `- ${fact}`).join("\n")}` : "",
     facts.forbiddenClaims.length ? `\nPROIBIDO NESTA CAMPANHA:\n${facts.forbiddenClaims.slice(0, 30).map((claim) => `- ${claim}`).join("\n")}` : "",
     "\nREGRA: padroes vencedores e exemplos podem emprestar estrutura persuasiva, mas nunca fatos, numeros, enderecos, precos, metragem ou caracteristicas de outro projeto.",
+    "\nREGRA ABSOLUTA: use SOMENTE os FATOS VERIFICADOS acima. NUNCA infira nem adicione: clinica, consultorio, numero de vagas, disponibilidade limitada, urgencia, escassez, descontos, equipamentos ou qualquer caracteristica nao fornecida. Se uma informacao nao estiver nos FATOS VERIFICADOS, OMITA — nao substitua por suposicao.",
   ].filter(Boolean).join("\n");
 }
