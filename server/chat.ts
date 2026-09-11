@@ -9,8 +9,8 @@
  * - Quando tem o essencial, chama a FERRAMENTA `gerar_campanha`, que por sua
  *   vez chama exatamente o mesmo motor de geração usado pela interface e pelo
  *   MCP (server/ai.ts → generateCampaign). A IA nunca "inventa" uma campanha.
- * - Cadeia de fallback: Gemini (pool de chaves GEMINI_API_KEY..5) → Groq →
- *   resposta local de indisponibilidade.
+ * - Cadeia de fallback: Gemini (pool de chaves GEMINI_API_KEY) → DeepSeek →
+ *   Groq → resposta local de indisponibilidade.
  *
  * REGRA DE OURO (mesma do LogPro): o agente NUNCA inventa número de
  * performance, preço ou resultado — toda ação real sai da ferramenta.
@@ -22,8 +22,11 @@
 import { Router } from "express";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
+import { confirmedChatContact } from "./chatContact";
+import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
+import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask";
+import { appendGeminiToolTurn } from "./ai-providers/geminiToolTurn";
 import { jwtVerify } from "jose";
-import { ALL_GEMINI_KEYS } from "./ai";
 import * as db from "./db";
 import { log } from "./logger";
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
@@ -44,6 +47,7 @@ export const chatRouter = Router();
 
 const MODELO_GEMINI = process.env.GEMINI_CHAT_MODEL ?? "gemini-flash-latest";
 const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "llama-3.3-70b-versatile";
+const MODELO_DEEPSEEK_CHAT = process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat";
 
 /** Quantas mensagens do histórico são reenviadas por turno (custo/latência). */
 const MAX_MENSAGENS_HISTORICO = 16;
@@ -330,6 +334,14 @@ async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId
 // ── Execução real da ferramenta (chama o motor existente) ─────────────────
 async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = []): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
   try {
+    return await runChatDraftTask(userId, () => gerarRascunhoValidado(args, userId, attachments), TIMEOUT_GERACAO_MS);
+  } catch (error) {
+    return { ok: false, erro: error instanceof Error ? error.message : "Falha ao acompanhar a tarefa." };
+  }
+}
+
+async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = []): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
+  try {
     const objective = String(args.objective || "").toLowerCase();
     const platform = String(args.platform || "meta").toLowerCase();
     const budget = Number(args.budget);
@@ -341,6 +353,23 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
     }
     if (!Number.isFinite(budget) || budget <= 0) return { ok: false, erro: "Orçamento inválido — confirme o valor em reais com o usuário." };
     if (!Number.isFinite(duration) || duration <= 0) return { ok: false, erro: "Duração inválida — confirme a duração em dias com o usuário." };
+
+    const ownedProjects = (await db.getProjectsByUserId(userId)) as any[];
+    const selectedProject = projectName
+      ? ownedProjects.find(p => String(p.name || "").trim().toLowerCase() === projectName.toLowerCase())
+      : ownedProjects.length === 1 ? ownedProjects[0] : undefined;
+    const savedProfile: any = selectedProject ? await db.getClientProfile(selectedProject.id) : null;
+    const confirmedContact = confirmedChatContact(args, savedProfile?.socialLinks);
+    const profile = { ...savedProfile, ...confirmedContact };
+    for (const field of ["niche", "productService", "targetAudience", "whatsapp"]) {
+      if (typeof args[field] === "string" && String(args[field]).trim()) profile[field] = String(args[field]).trim();
+    }
+    if (projectName) profile.companyName = projectName;
+    if (typeof args.destinationUrl === "string" && args.destinationUrl.trim()) profile.websiteUrl = args.destinationUrl.trim();
+    const readiness = evaluateCampaignBriefingReadiness({ objective, platform, budget, duration }, profile);
+    if (readiness.requiredMissing.length) {
+      return { ok: false, erro: `Antes de gerar, confirme com o usuario: ${readiness.requiredMissing.map(issue => issue.question).join(" ")}` };
+    }
 
     // 1. Resolve o projeto (encontra por nome ou cria)
     let projectId: number;
@@ -381,6 +410,10 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
       // Perfil é enriquecimento — falha não bloqueia a geração
     }
 
+    if (Object.keys(confirmedContact).length) {
+      await db.upsertClientProfile({ projectId, ...confirmedContact } as any);
+    }
+
     // 3. Limite do plano
     const limiteCampanhas = await db.checkPlanLimit(userId, "campaigns", { projectId } as any);
     if (!limiteCampanhas.allowed) return { ok: false, erro: `Não foi possível gerar: ${limiteCampanhas.reason}` };
@@ -403,12 +436,7 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
     ].filter(Boolean).join(". ");
 
     const { generateCampaign } = await import("./ai");
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("timeout")), TIMEOUT_GERACAO_MS)
-    );
-
-    const campaign: any = await Promise.race([
-      generateCampaign({
+    const campaign: any = await generateCampaign({
         projectId,
         userId,
         name,
@@ -429,9 +457,7 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
         photoInsights: hasChatPhotos ? preparedMedia.photoInsights : undefined,
         visualLabels: preparedMedia.visualLabels.length ? preparedMedia.visualLabels : undefined,
         numCreatives: hasChatPhotos ? Math.min(preparedMedia.realImages.length, 10) : undefined,
-      } as any),
-      timeout,
-    ]);
+      } as any);
 
     const campanha: CampanhaGerada = {
       id: campaign.id,
@@ -519,45 +545,17 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
     const resposta = await chamarGeminiComRetry(historico);
     if (resposta.text) textoFinal = resposta.text;
 
-    const chamada = resposta.functionCalls?.[0];
-    if (!chamada) break;
-
-    historico.push({ role: "model", parts: [{ functionCall: { name: chamada.name, args: chamada.args } }] });
-
-    if (chamada.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha((chamada.args as Record<string, unknown>) || {}, userId, attachments);
-      if (resultado.ok) campanha = resultado.campanha;
-      // Achado real (auditoria da feature de chat, 08/09): resultado.ok ?
-      // {campanha} : {erro} disparava TS2339 ("Property 'erro' does not
-      // exist"), mesmo com if/else explícito. Causa raiz encontrada:
-      // tsconfig.server.json tem strict:false (diferente do tsconfig.json
-      // da raiz), e sob strict:false o narrowing por literal booleano
-      // (.ok true/false) não discrimina o union de forma confiável. A
-      // checagem "propriedade" in objeto narrowing funciona mesmo sob
-      // strict:false (testado e confirmado) — trocado por isso.
-      let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
+    const handled = await appendGeminiToolTurn(historico, resposta, async (name, args) => {
+      if (name !== "gerar_campanha") return { erro: "Ferramenta desconhecida." };
+      if (campanha) return { campanha };
+      const resultado = await executarGeracaoCampanha(args, userId, attachments);
       if ("campanha" in resultado) {
-        respostaFuncao = { campanha: resultado.campanha };
-      } else {
-        respostaFuncao = { erro: resultado.erro };
+        campanha = resultado.campanha;
+        return { campanha };
       }
-      historico.push({
-        role: "user",
-        parts: [{
-          functionResponse: {
-            name: "gerar_campanha",
-            response: respostaFuncao,
-          },
-        }],
-      });
-      continue;
-    }
-
-    // Ferramenta desconhecida — devolve erro pra IA se corrigir
-    historico.push({
-      role: "user",
-      parts: [{ functionResponse: { name: chamada.name, response: { erro: "Ferramenta desconhecida." } } }],
+      return { erro: resultado.erro };
     });
+    if (!handled) break;
   }
 
   return { resposta: textoFinal, campanha, modo: "assistente" };
@@ -645,7 +643,7 @@ async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
   const apiKey = (process.env.DEEPSEEK_API_KEY || "").trim();
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY não configurada.");
 
-  const model = (process.env.DEEPSEEK_CHAT_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-chat").trim();
+  const model = MODELO_DEEPSEEK_CHAT.trim() || "deepseek-chat";
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
   const body: Record<string, unknown> = {
     model,
@@ -676,6 +674,7 @@ async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
 }
 
 async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = []): Promise<RespostaChat> {
+  log.info("chat", "tentando DeepSeek fallback", { model: MODELO_DEEPSEEK_CHAT });
   const historico: any[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...mensagens.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
@@ -733,8 +732,8 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
 function responderLocal(): RespostaChat {
   return {
     resposta:
-      "No momento estou com a IA temporariamente indisponível (todas as chaves em cooldown). " +
-      "Tente novamente em alguns minutos — ou monte a campanha direto pela tela de campanhas, que funciona sempre.",
+      "No momento os provedores de IA do chat não responderam a tempo. " +
+      "Tente novamente em alguns instantes; se estiver criando uma campanha urgente, a tela de campanhas continua disponível.",
     campanha: null,
     modo: "local",
   };
@@ -753,7 +752,9 @@ chatRouter.get("/status", (_req, res) => {
   });
 });
 
-chatRouter.post("/", authChat, async (req: any, res) => {
+chatRouter.post("/", authChat, (req: any, _res, next) => {
+  chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next);
+}, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const recebidas: MensagemChat[] = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
   const attachments = sanitizeChatAttachments(req.body?.attachments);
