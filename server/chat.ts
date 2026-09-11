@@ -46,8 +46,15 @@ import { ALL_GEMINI_KEYS } from "./ai";
 export const chatRouter = Router();
 
 const MODELO_GEMINI = process.env.GEMINI_CHAT_MODEL ?? "gemini-flash-latest";
-const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "llama-3.3-70b-versatile";
 const MODELO_DEEPSEEK_CHAT = process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat";
+// Achado real (log de produção, 10/09): "llama-3.3-70b-versatile" — HTTP
+// 404 "does not exist or you do not have access to it". Confirmado via
+// documentação oficial do Groq (console.groq.com/docs/deprecations):
+// modelo descontinuado (anúncio 17/06/2026, desligado 16/08/2026,
+// já passado). Substituído por "openai/gpt-oss-120b" — recomendação
+// oficial do próprio Groq pra esse caso, com suporte confirmado a tool
+// calling (essencial aqui, já que o chat usa `tools`/`tool_choice`).
+const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "openai/gpt-oss-120b";
 
 /** Quantas mensagens do histórico são reenviadas por turno (custo/latência). */
 const MAX_MENSAGENS_HISTORICO = 16;
@@ -223,7 +230,7 @@ const PARAMETROS_GERAR_CAMPANHA = {
     ageMax: { type: "number", description: "Idade máxima do público (18-65)." },
     mediaFormat: { type: "string", enum: ["image", "video", "carousel", "mixed"], description: "Formato de mídia." },
     whatsapp: { type: "string", description: "WhatsApp de atendimento, se houver." },
-    destinationUrl: { type: "string", description: "URL de destino dos anúncios, se houver." },
+    destinationUrl: { type: "string", description: "URL de destino dos anúncios. Se não houver, OMITE o campo — nunca envie null." },
   },
   required: ["objective", "platform", "budget", "durationDays"],
 };
@@ -243,6 +250,22 @@ const ferramentasGroq = [
     function: { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parameters: PARAMETROS_GERAR_CAMPANHA as Record<string, unknown> },
   },
 ];
+
+// Achado real (cascata de geração, 10/09): Groq enviava
+// "destinationUrl": null quando o usuário não informava URL, e o
+// schema (string) rejeitava a chamada inteira. Regra: campo opcional
+// ausente deve ser OMITIDO, nunca enviado como null. Este helper
+// remove null/undefined/string vazia/"null" de qualquer arg antes de
+// despachar pro motor — vale pros 3 provedores.
+function limparArgsFerramenta(args: Record<string, unknown>): Record<string, unknown> {
+  const limpo: Record<string, unknown> = {};
+  for (const [chave, valor] of Object.entries(args || {})) {
+    if (valor === null || valor === undefined) continue;
+    if (typeof valor === "string" && (!valor.trim() || valor.trim().toLowerCase() === "null")) continue;
+    limpo[chave] = valor;
+  }
+  return limpo;
+}
 
 function base64Payload(value: string): string {
   return String(value || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
@@ -497,11 +520,39 @@ function erroEhCotaDiariaEsgotada(erro: unknown): boolean {
   return texto.includes("RESOURCE_EXHAUSTED") || texto.includes("exceeded your current quota");
 }
 
+// Achado real (log de produção, 10/09): uma chave suspensa/sem permissão
+// (PERMISSION_DENIED / CONSUMER_SUSPENDED — ex.: projeto do Google Cloud
+// suspenso) não batia em NENHUM dos dois classificadores acima — nem
+// "temporário" (503/429/UNAVAILABLE), nem "cota esgotada"
+// (RESOURCE_EXHAUSTED) — então caía direto no `throw erro` na PRIMEIRA
+// tentativa, sem nunca tentar as outras chaves do pool (7 chaves nunca
+// chegavam a ser testadas). Uma chave suspensa é tão "essa chave
+// específica não funciona" quanto uma com cota esgotada — a resposta
+// certa é a mesma: marcar essa chave e tentar a próxima do pool, não
+// desistir do provedor inteiro na primeira chave que falhar.
+function erroEhChaveInvalidaOuSuspensa(erro: unknown): boolean {
+  const texto = String((erro as { message?: string })?.message ?? erro);
+  return (
+    texto.includes("PERMISSION_DENIED") ||
+    texto.includes("CONSUMER_SUSPENDED") ||
+    texto.includes("API_KEY_INVALID") ||
+    texto.includes("UNAUTHENTICATED")
+  );
+}
+
 /* ---------------- Provedor 1: Gemini (com pool de chaves) ---------------- */
 
-async function chamarGeminiComRetry(historico: Content[], tentativas = 4): Promise<GenerateContentResponse> {
+async function chamarGeminiComRetry(historico: Content[], tentativas?: number): Promise<GenerateContentResponse> {
+  // Achado real (mesmo log, 10/09): tentativas=4 (padrão anterior) só
+  // cobria metade do pool de 8 chaves — se a chave suspensa/com problema
+  // fosse a primeira testada, ainda havia risco de esgotar as 4
+  // tentativas sem chegar nas chaves boas do fim do pool. Cobre o pool
+  // inteiro numa chamada só; sem custo real pra erro de cota/chave
+  // suspensa (pula pra próxima sem esperar), só pesa em cenário de erro
+  // temporário (503/429) generalizado, que já era um caso degradado antes.
+  const maxTentativas = tentativas ?? Math.max(poolChavesGemini().length, 4);
   let ultimoErro: unknown;
-  for (let i = 0; i < tentativas; i++) {
+  for (let i = 0; i < maxTentativas; i++) {
     const chave = proximaChaveGemini();
     if (!chave) {
       throw ultimoErro ?? new Error("Nenhuma chave Gemini disponível no momento (cotas esgotadas).");
@@ -519,13 +570,14 @@ async function chamarGeminiComRetry(historico: Content[], tentativas = 4): Promi
       });
     } catch (erro) {
       ultimoErro = erro;
-      if (erroEhCotaDiariaEsgotada(erro)) {
-        // Cota dessa chave esgotada — marca cooldown e tenta a próxima já na
-        // iteração seguinte (cota não resolve com backoff curto).
+      if (erroEhCotaDiariaEsgotada(erro) || erroEhChaveInvalidaOuSuspensa(erro)) {
+        // Cota esgotada ou chave suspensa/inválida — marca essa chave
+        // específica e tenta a próxima já na iteração seguinte (nenhum
+        // dos dois casos se resolve com um retry rápido na mesma chave).
         _chavesEsgotadas.set(chave, Date.now() + COOLDOWN_COTA_MS);
         continue;
       }
-      if (!erroEhTemporario(erro) || i === tentativas - 1) throw erro;
+      if (!erroEhTemporario(erro) || i === maxTentativas - 1) throw erro;
       await aguardar(1200 * (i + 1));
     }
   }
@@ -548,7 +600,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
     const handled = await appendGeminiToolTurn(historico, resposta, async (name, args) => {
       if (name !== "gerar_campanha") return { erro: "Ferramenta desconhecida." };
       if (campanha) return { campanha };
-      const resultado = await executarGeracaoCampanha(args, userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if ("campanha" in resultado) {
         campanha = resultado.campanha;
         return { campanha };
@@ -612,7 +664,7 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
     }
 
     if (chamada.function.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha(args, userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
       let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
       if ("campanha" in resultado) {
@@ -701,7 +753,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
 
     if (chamada.function?.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha(args, userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
       let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
       if ("campanha" in resultado) {

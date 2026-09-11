@@ -7,6 +7,7 @@
 
 ## 📋 Índice
 
+0. [Cascata de geração — 4 falhas somadas (10/09)](#0-cascata-de-geração--4-falhas-somadas-1009)
 1. [Publicação Meta — destino obrigatório incorreto](#1-publicação-meta--destino-obrigatório-incorreto)
 2. [Upload de imagem — [object Object]](#2-upload-de-imagem--object-object)
 3. [Upload de imagem — t[i] is not a function](#3-upload-de-imagem--ti-is-not-a-function)
@@ -19,6 +20,39 @@
 10. [Símbolos duplicados no ai.ts](#10-símbolos-duplicados-no-aits)
 11. [Gemini quota esgotada](#11-gemini-quota-esgotada)
 12. [Meta Ads Library sem permissão](#12-meta-ads-library-sem-permissão)
+
+---
+
+## 0. Cascata de geração — 4 falhas somadas (10/09)
+
+### ❌ Erro
+Log de produção (10/09) com quatro falhas se somando na geração de campanha:
+1. **Gemini / tool calling**: erro de `thought_signature` ausente nas chamadas de função — quebrava o fluxo principal antes de a IA concluir a campanha.
+2. **Fallback DeepSeek**: HTTP 402 Insufficient Balance (conta sem saldo — não é bug de código; recarregar a conta ou trocar a chave pra reabilitar o fallback).
+3. **Groq / schema**: `destinationUrl` ia como `null`, mas o schema exige string — derrubava o terceiro fallback.
+4. **Cloudflare Images**: body com `width`/`height` pra modelo que não aceita esses campos — vários 400.
+
+Agravante: o Fact Guard segurava "clínica" e "Vagas limitadas" na saída, mas o gerador continuava inventando — e o reparador de criativos falhava em silêncio (score parado em 55–70). O RAG de imagens aprovou overall 0.55 pra imagens de quarto residencial/lifestyle numa campanha de sala comercial.
+
+### 🔍 Causa
+1. O loop Gemini em `server/chat.ts` remontava o turno do modelo só com `{ name, args }`, descartando o `thoughtSignature` que o Gemini 2.5 exige de volta no histórico.
+2. (conta DeepSeek sem saldo — operacional, não código)
+3. Nenhuma sanitização de argumentos opcionais vindos do modelo — `null` explícito passava direto.
+4. Payload único pra todo modelo Cloudflare, sem schema por modelo nem fallback.
+5. Verba de mídia e preço da oferta trafegavam indistintos no briefing/prompt ("R$ 6/dia" virou "Valor: R$ 6, tudo incluso").
+6. Reparador recebia só "melhore a copy" + recomendações genéricas, sem os issues exatos nem revalidação factual.
+7. Threshold do Image RAG em 0.50 + nenhuma checagem de CATEGORIA (score numérico não pega quarto residencial em campanha de sala comercial).
+
+### ✅ Solução
+- `chat.ts`: loop Gemini reenvia as `parts` originais de `candidates[0].content` (preserva `thoughtSignature`); helper `limparArgsFerramenta` remove argumentos `null`/vazios antes de executar a tool (3 provedores); descrição de `destinationUrl` instrui a OMITIR o campo.
+- `imageGeneration.ts`: adapter Cloudflare com schema por modelo (`montarCorpoCloudflare`) + retry único sem `width`/`height` em caso de 400. Tamanho final normalizado no Cloudinary.
+- `campaignFactGuard.ts`: tipos `CampaignBudget`/`OfferFacts`; `mediaBudget` nos fatos (nunca como fato comercial); novo conflito `budget_as_price_conflict` bloqueia criativo que cita a verba como preço; REGRA ABSOLUTA anti-alucinação adicionada ao prompt de fatos.
+- `ai.ts`: prompt principal rotula ORÇAMENTO como VERBA DE MÍDIA com proibição explícita de citar na copy; ciclo de reparo determinístico — validação factual → segmento → score → reparo com issues exatos → revalidação factual (descarta tentativa que introduz fato novo) → score → aceita/rejeita. Aplicado via `scripts/fix_cascata_ai_10_09.py` (arquivo grande demais pra integração — rodar o script aplica e valida).
+- `imageRAG.ts`: threshold `confidence` 0.50 → 0.72; rejeição semântica por categoria (interior residencial rejeitado pra imóvel comercial e vice-versa) antes dos scores.
+
+### ✔️ Validação
+- `tsc --noEmit --skipLibCheck -p tsconfig.server.json`: nenhum erro nos arquivos alterados (único ruído: @types ausentes no ambiente de validação).
+- FACT_CONFLICT **não** foi afrouxado — o reforço é todo ANTES do guard, como orientado.
 
 ---
 
