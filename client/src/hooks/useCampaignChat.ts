@@ -73,6 +73,14 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 export function useCampaignChat() {
+  const sessionId = useRef<string>("");
+  if (!sessionId.current) {
+    try {
+      sessionId.current = sessionStorage.getItem("mecpro-chat-session") || crypto.randomUUID();
+      sessionStorage.setItem("mecpro-chat-session", sessionId.current);
+    } catch { sessionId.current = crypto.randomUUID(); }
+  }
+  const sending = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([MENSAGEM_INICIAL]);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ChatImageAttachment[]>([]);
@@ -126,7 +134,8 @@ export function useCampaignChat() {
 
   const send = async (textoOverride?: string) => {
     const texto = (textoOverride ?? input).trim();
-    if ((!texto && attachments.length === 0) || loading) return;
+    if ((!texto && attachments.length === 0) || sending.current) return;
+    sending.current = true;
 
     // needsLogin é resetado a cada nova tentativa (reset otimista) — sem
     // isso, o aviso de login ficaria colado pra sempre depois de setado
@@ -151,6 +160,7 @@ export function useCampaignChat() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
+          sessionId: sessionId.current,
           mensagens: historico.map((m) => ({ role: m.role, content: m.content })),
           attachments: anexosDoTurno.map((file) => ({
             fileName: file.fileName,
@@ -173,12 +183,12 @@ export function useCampaignChat() {
         return;
       }
 
-      const data = (await res.json()) as Partial<RespostaChat> & { mensagem?: string };
+      const data = (await res.json()) as Partial<RespostaChat> & { mensagem?: string; erro?: string };
 
       if (!res.ok) {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: data.mensagem || "Não consegui processar agora. Tente novamente em instantes." },
+          { role: "assistant", content: data.mensagem || data.erro || "Não consegui processar agora. Tente novamente em instantes." },
         ]);
         return;
       }
@@ -187,7 +197,7 @@ export function useCampaignChat() {
         ...prev,
         {
           role: "assistant",
-          content: data.resposta?.trim() || "Pronto! Sua campanha foi gerada.",
+          content: data.resposta?.trim() || (data.campanha ? `Rascunho criado: ${data.campanha.name} (#${data.campanha.id}).` : "Nao recebi uma resposta conclusiva. Nenhuma criacao foi confirmada nesta resposta."),
           campanha: data.campanha || undefined,
         },
       ]);
@@ -198,6 +208,7 @@ export function useCampaignChat() {
         { role: "assistant", content: "Erro de conexão. Verifique sua internet e tente de novo." },
       ]);
     } finally {
+      sending.current = false;
       setLoading(false);
     }
   };

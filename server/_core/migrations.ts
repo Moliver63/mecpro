@@ -8,6 +8,15 @@ export async function runMigrations(): Promise<void> {
   }
 
   console.log('[migrations] Running migrations...');
+  await pool.query(`CREATE TABLE IF NOT EXISTS chat_briefings (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_id UUID NOT NULL,
+    state JSONB NOT NULL DEFAULT '{"briefing":{}}'::jsonb,
+    lease UUID,
+    busy_until TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, session_id)
+  )`);
 
   // Step 1 – enums
   await pool.query(`

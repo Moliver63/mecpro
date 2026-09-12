@@ -36,7 +36,8 @@ export async function queryChatWorkspace(userId: number, args: Record<string, un
   const project = projects.find(p => p.id === Number(args.projectId));
   if (!project) return { erro: "Projeto nao encontrado na sua conta." };
   const summarize = (c: any) => ({ id: c.id, name: c.name, projectId: project.id, status: c.status,
-    objective: c.objective, url: `/projects/${project.id}/campaign/result/${c.id}` });
+    objective: c.objective, platform: c.platform, budget: c.budget, durationDays: c.duration,
+    url: `/projects/${project.id}/campaign/result/${c.id}` });
   if (args.campaignId != null) {
     const campaign = await store.getCampaignById(Number(args.campaignId));
     if (!campaign || campaign.projectId !== project.id) return { erro: "Campanha nao encontrada neste projeto." };

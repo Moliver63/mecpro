@@ -8,12 +8,14 @@ function FormatarTexto({ texto }: { texto: string }) {
   return (
     <>
       {paragrafos.map((p, i) => {
-        const partes = p.split(/(\*\*[^*]+\*\*)/g).filter((s) => s.length > 0);
+        const partes = p.split(/(\*\*[^*]+\*\*|\/projects\/\d+\/campaign\/result\/\d+)/g).filter((s) => s.length > 0);
         return (
           <p key={i} className="campaign-chat-message-paragraph">
             {partes.map((parte, j) =>
               parte.startsWith("**") && parte.endsWith("**") ? (
                 <strong key={j}>{parte.slice(2, -2)}</strong>
+              ) : /^\/projects\/\d+\/campaign\/result\/\d+$/.test(parte) ? (
+                <a key={j} href={parte}>Ver campanha</a>
               ) : (
                 <span key={j}>{parte}</span>
               )
@@ -142,9 +144,10 @@ export default function ChatConversationView({
       <footer className="campaign-chat-footer">
         {!!attachments.length && (
           <div className="campaign-chat-attachment-tray" aria-label="Fotos anexadas">
-            {attachments.map((file) => (
+            {attachments.map((file, index) => (
               <div key={file.id} className="campaign-chat-attachment">
                 <img src={file.dataUrl} alt={file.fileName} />
+                <span>{index + 1}</span>
                 <button type="button" onClick={() => removeAttachment(file.id)} aria-label={`Remover ${file.fileName}`}>
                   <X size={13} strokeWidth={2.4} />
                 </button>

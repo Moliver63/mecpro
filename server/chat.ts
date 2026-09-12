@@ -20,6 +20,8 @@
  */
 
 import { Router } from "express";
+import { briefingContext, mergeChatBriefing, campaignResultText, generationErrorText, isLastCampaignLinkRequest } from "./chatBriefing";
+import { chatSessionMiddleware } from "./chatSession";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
 import { queryChatWorkspace, selectChatProject } from "./chatWorkspace";
@@ -175,6 +177,8 @@ export interface CampanhaGerada {
   name: string;
   projectId: number;
   url: string;
+  photoCount?: number;
+  coverFileName?: string;
 }
 
 interface RespostaChat {
@@ -184,6 +188,11 @@ interface RespostaChat {
 }
 
 const SYSTEM_PROMPT = `Você é o assistente de criação de campanhas do MecProAI, uma plataforma de marketing com IA.
+
+Antes de perguntar ou gerar, registre os dados novos explicitamente fornecidos pelo usuario em atualizar_briefing. Preserve os demais campos do briefing persistente. Nao pergunte de novo o que ja esta registrado. Uma correcao recente substitui o valor anterior; budget e sempre TOTAL (diario multiplicado pela duracao quando ambos confirmados).
+Nunca invente a causa de uma falha. FACT_CONFLICT e erro tecnico de geracao, nao uma escolha para o usuario aceitar fatos inventados. Nao recomende criar outro projeto para contornar validacao. Nao diga que uma campanha anterior contaminou o resultado sem evidencia da ferramenta.
+As consultas de campanha sao somente leitura e nao importam copies ou fotos. Para usar uma referencia, confirme os dados atuais e registre-os, sem fingir duplicacao automatica. Se o usuario ja pediu uma nova campanha, nao pergunte novamente se deseja abrir ou criar.
+Nunca confirme criacao sem retorno de sucesso da ferramenta. Nunca afirme upload ou capa sem resultado. Para fotos, pergunte qual NUMERO e a capa (1 a N); nao adivinhe qual arquivo mostra a fachada. Nao confirme publicacao: este chat cria apenas rascunhos.
 
 Sua função é ajudar o usuário a montar o briefing de uma campanha de anúncios através de conversa, em vez de um formulário. Você é um coletor de dados direto e educado — nunca um vendedor de resultado, e nunca inventa número de performance.
 
@@ -219,6 +228,8 @@ const PARAMETROS_GERAR_CAMPANHA = {
   type: "object",
   properties: {
     projectId: { type: "integer", description: "ID do projeto existente escolhido pelo usuario, obtido pela consulta." },
+    confirmedFacts: { type: "string", description: "Somente fatos da oferta confirmados pelo usuario nesta conversa: preco, tipo, area, endereco, caracteristicas. Nunca copiar textos promocionais de campanha anterior." },
+    featuredPhotoIndex: { type: "integer", minimum: 0, description: "Indice da capa explicitamente escolhida, comecando em zero. Pergunte o numero da foto se houver duvida." },
     createProject: { type: "boolean", description: "True somente quando o usuario pediu um projeto novo." },
     newCampaign: { type: "boolean", description: "True somente quando o usuario escolheu criar uma campanha nova." },
     projectName: { type: "string", description: "Nome do cliente/negócio. Usado pra encontrar ou criar o projeto." },
@@ -252,13 +263,33 @@ const CONSULTAR_WORKSPACE = {
     projectId: { type: "integer" }, campaignId: { type: "integer" }, offset: { type: "integer", minimum: 0 },
   }, additionalProperties: false },
 };
+const ATUALIZAR_BRIEFING = {
+  name: "atualizar_briefing",
+  description: "Registra SOMENTE campos novos ou corrigidos explicitamente pelo usuario. Nao gera campanha. Retorna briefing acumulado. Nao apague os demais campos.",
+  parameters: { ...PARAMETROS_GERAR_CAMPANHA, required: [] },
+};
+
+async function consultarOuAtualizar(name: string, args: Record<string, unknown>, userId: number) {
+  if (name === ATUALIZAR_BRIEFING.name) {
+    const state = briefingContext.getStore();
+    if (!state) return { erro: "Conversa indisponivel." };
+    if (args.projectId != null || args.createProject === true) {
+      selectChatProject(await db.getProjectsByUserId(userId), args);
+    }
+    state.briefing = mergeChatBriefing(state.briefing, args);
+    return { briefing: state.briefing, instruction: "Pergunte apenas campos ausentes. Nao gere sem escolha explicita de nova campanha." };
+  }
+  return queryChatWorkspace(userId, args, db);
+}
 
 const declaracoesGemini: FunctionDeclaration[] = [
+  { name: ATUALIZAR_BRIEFING.name, description: ATUALIZAR_BRIEFING.description, parametersJsonSchema: ATUALIZAR_BRIEFING.parameters },
   { name: CONSULTAR_WORKSPACE.name, description: CONSULTAR_WORKSPACE.description, parametersJsonSchema: CONSULTAR_WORKSPACE.parameters },
   { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parametersJsonSchema: PARAMETROS_GERAR_CAMPANHA },
 ];
 
 const ferramentasGroq = [
+  { type: "function" as const, function: ATUALIZAR_BRIEFING },
   { type: "function" as const, function: CONSULTAR_WORKSPACE },
   {
     type: "function" as const,
@@ -380,6 +411,12 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
 
 async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = []): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
   try {
+    const state = briefingContext.getStore();
+    args = mergeChatBriefing(state?.briefing || {}, args);
+    if (state) state.briefing = args;
+    if (attachments.length > 1 && (!Number.isInteger(args.featuredPhotoIndex) || Number(args.featuredPhotoIndex) < 0 || Number(args.featuredPhotoIndex) >= attachments.length)) {
+      return { ok: false, erro: `Qual foto sera a capa? Informe o numero de 1 a ${attachments.length}.` };
+    }
     const objective = String(args.objective || "").toLowerCase();
     const platform = String(args.platform || "meta").toLowerCase();
     const budget = Number(args.budget);
@@ -433,6 +470,8 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       }
     }
 
+    if (state) state.briefing = { ...args, projectId, createProject: false };
+
     // 2. Preenche perfil do cliente quando trouxe dados novos (best effort)
     try {
       const perfilAtual: any = await db.getClientProfile(projectId);
@@ -461,10 +500,13 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
     const name = String(args.name || "").trim() ||
       `${projectName || "Campanha"} — ${objective === "sales" ? "Vendas" : objective === "leads" ? "Leads" : objective}`;
 
-    const preparedMedia = await prepararFotosDoChat(attachments, projectId);
+    const orderedAttachments = [...attachments];
+    if (attachments.length > 1) orderedAttachments.unshift(...orderedAttachments.splice(Number(args.featuredPhotoIndex), 1));
+    const preparedMedia = await prepararFotosDoChat(orderedAttachments, projectId);
     const hasChatPhotos = preparedMedia.realImages.length > 0;
 
     const extraContext = [
+      args.confirmedFacts ? `Fatos atuais confirmados pelo usuario: ${args.confirmedFacts}` : "",
       args.niche ? `Nicho: ${args.niche}` : "",
       args.productService ? `Produto/serviço: ${args.productService}` : "",
       args.targetAudience ? `Público-alvo: ${args.targetAudience}` : "",
@@ -503,6 +545,8 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       name: campaign.name || name,
       projectId,
       url: `/projects/${projectId}/campaign/result/${campaign.id}`,
+      photoCount: preparedMedia.realImages.length,
+      coverFileName: orderedAttachments[0]?.fileName,
     };
     log.info("chat", "campanha gerada via chat", { userId, campaignId: campanha.id, projectId });
     return { ok: true, campanha };
@@ -511,7 +555,7 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       ? "A geração está demorando mais que o esperado. Ela pode ter sido criada mesmo assim — peça pro usuário conferir a lista de campanhas do projeto em alguns segundos."
       : `Falha ao gerar a campanha: ${e?.message || "erro desconhecido"}.`;
     log.warn("chat", "gerar_campanha falhou", { userId, erro: e?.message });
-    return { ok: false, erro: msg };
+    return { ok: false, erro: generationErrorText(msg) };
   }
 }
 
@@ -609,22 +653,28 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
   let campanha: CampanhaGerada | null = null;
   let textoFinal = "";
 
+  let generationError = "";
+
   for (let passo = 0; passo < 4; passo++) {
     const resposta = await chamarGeminiComRetry(historico);
     if (resposta.text) textoFinal = resposta.text;
 
     const handled = await appendGeminiToolTurn(historico, resposta, async (name, args) => {
-      if (name === CONSULTAR_WORKSPACE.name) return queryChatWorkspace(userId, limparArgsFerramenta(args), db);
+      if (name === CONSULTAR_WORKSPACE.name || name === ATUALIZAR_BRIEFING.name) return consultarOuAtualizar(name, limparArgsFerramenta(args), userId);
       if (name !== "gerar_campanha") return { erro: "Ferramenta desconhecida." };
       if (campanha) return { campanha };
+      if (generationError) return { erro: generationError };
       const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if ("campanha" in resultado) {
         campanha = resultado.campanha;
         return { campanha };
       }
-      return { erro: resultado.erro };
+      generationError = resultado.erro;
+      return { erro: generationError };
     });
     if (!handled) break;
+    if (campanha) return { resposta: campaignResultText(campanha), campanha, modo: "assistente" };
+    if (generationError) return { resposta: generationError, campanha: null, modo: "assistente" };
   }
 
   return { resposta: textoFinal, campanha, modo: "assistente" };
@@ -681,26 +731,16 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
       // args inválido — handler abaixo trata
     }
 
-    if (chamada.function.name === CONSULTAR_WORKSPACE.name) {
-      const result = await queryChatWorkspace(userId, limparArgsFerramenta(args), db);
+    if (chamada.function.name === CONSULTAR_WORKSPACE.name || chamada.function.name === ATUALIZAR_BRIEFING.name) {
+      const result = await consultarOuAtualizar(chamada.function.name, limparArgsFerramenta(args), userId);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
     if (chamada.function.name === "gerar_campanha") {
       const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
-      let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
-      if ("campanha" in resultado) {
-        respostaFuncao = { campanha: resultado.campanha };
-      } else {
-        respostaFuncao = { erro: resultado.erro };
-      }
-      historico.push({
-        role: "tool",
-        tool_call_id: chamada.id,
-        content: JSON.stringify(respostaFuncao),
-      });
-      continue;
+      if ("campanha" in resultado) return { resposta: campaignResultText(resultado.campanha), campanha: resultado.campanha, modo: "assistente" };
+      return { resposta: resultado.erro, campanha: null, modo: "assistente" };
     }
 
     historico.push({
@@ -776,26 +816,16 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
       // args inválido — handler abaixo trata
     }
 
-    if (chamada.function?.name === CONSULTAR_WORKSPACE.name) {
-      const result = await queryChatWorkspace(userId, limparArgsFerramenta(args), db);
+    if (chamada.function?.name === CONSULTAR_WORKSPACE.name || chamada.function?.name === ATUALIZAR_BRIEFING.name) {
+      const result = await consultarOuAtualizar(chamada.function.name, limparArgsFerramenta(args), userId);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
     if (chamada.function?.name === "gerar_campanha") {
       const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
       if (resultado.ok) campanha = resultado.campanha;
-      let respostaFuncao: { campanha: CampanhaGerada } | { erro: string };
-      if ("campanha" in resultado) {
-        respostaFuncao = { campanha: resultado.campanha };
-      } else {
-        respostaFuncao = { erro: resultado.erro };
-      }
-      historico.push({
-        role: "tool",
-        tool_call_id: chamada.id,
-        content: JSON.stringify(respostaFuncao),
-      });
-      continue;
+      if ("campanha" in resultado) return { resposta: campaignResultText(resultado.campanha), campanha: resultado.campanha, modo: "assistente" };
+      return { resposta: resultado.erro, campanha: null, modo: "assistente" };
     }
 
     historico.push({
@@ -833,10 +863,18 @@ chatRouter.get("/status", (_req, res) => {
   });
 });
 
-chatRouter.post("/", authChat, (req: any, _res, next) => {
+chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => {
   chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next);
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
+  const state = briefingContext.getStore();
+  const finish = (resultado: RespostaChat) => {
+    if (state && resultado.campanha) {
+      state.lastCampaign = resultado.campanha;
+      state.briefing.newCampaign = false;
+    }
+    return res.json(resultado);
+  };
   const recebidas: MensagemChat[] = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
   const attachments = sanitizeChatAttachments(req.body?.attachments);
   if (recebidas.length === 0) {
@@ -863,6 +901,12 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   const mensagens = recebidas
     .filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
     .slice(-MAX_MENSAGENS_HISTORICO);
+  const latestUser = [...mensagens].reverse().find(m => m.role === "user");
+  if (state?.lastCampaign && latestUser && isLastCampaignLinkRequest(latestUser.content)) {
+    const owned = await queryChatWorkspace(userId, { projectId: state.lastCampaign.projectId, campaignId: state.lastCampaign.id }, db);
+    if (!owned.erro) return finish({ resposta: campaignResultText(state.lastCampaign), campanha: state.lastCampaign, modo: "local" });
+  }
+  if (state && Object.keys(state.briefing).length) mensagens.unshift({ role: "user", content: `BRIEFING PERSISTENTE (dados de turnos anteriores; correcao atual prevalece): ${JSON.stringify(state.briefing)}` });
 
   if (attachments.length && mensagens.length) {
     const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
@@ -874,7 +918,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (proximaChaveGemini()) {
     try {
       const resultado = await tentarComGemini(mensagens, userId, attachments);
-      return res.json(resultado);
+      return finish(resultado);
     } catch (erro) {
       log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: (erro as any)?.message });
     }
@@ -883,7 +927,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (process.env.DEEPSEEK_API_KEY) {
     try {
       const resultado = await tentarComDeepSeek(mensagens, userId, attachments);
-      return res.json(resultado);
+      return finish(resultado);
     } catch (erro) {
       log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: (erro as any)?.message });
     }
@@ -892,7 +936,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (process.env.GROQ_API_KEY) {
     try {
       const resultado = await tentarComGroq(mensagens, userId, attachments);
-      return res.json(resultado);
+      return finish(resultado);
     } catch (erro) {
       log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: (erro as any)?.message });
     }
