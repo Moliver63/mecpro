@@ -1,6 +1,7 @@
 import "dotenv/config";
 import crypto from "crypto";
 import { log } from "./logger";
+import { GeminiCredentialHealth, redactProviderSecrets } from "./providerSafety";
 import { logTokens, estimateTokens } from "./tokenTelemetry";
 import { buildCacheKey, getCachedResponse, setCachedResponse, cleanExpiredCache, type CacheMeta } from "./aiCache";
 
@@ -501,6 +502,7 @@ async function withGeminiSemaphore<T>(fn: () => Promise<T>): Promise<T> {
 // ── Rotação inteligente de chaves Gemini ─────────────────────────────────
 // Rastreia chaves com quota esgotada e evita reutilizá-las até reset
 const _exhaustedKeys = new Set<string>();
+const geminiCredentialHealth = new GeminiCredentialHealth();
 const _exhaustedAt   = new Map<string, number>();
 const QUOTA_RESET_MS = 60 * 60 * 1000; // 60 min — evita tentar chave esgotada (quota RPM reseta em ~1min, RPD em 24h mas marcamos 60min para balance entre retry e economia)
 
@@ -545,7 +547,7 @@ function setCachedGemini(key: string, result: string) {
 }
 
 function getGeminiKey(attempt = 0): string | undefined {
-  const allKeys = ALL_GEMINI_KEYS;
+  const allKeys = ALL_GEMINI_KEYS.filter(key => geminiCredentialHealth.available(key));
   if (allKeys.length === 0) return undefined;
 
   // Limpa chaves que já passaram do tempo de reset
@@ -562,9 +564,8 @@ function getGeminiKey(attempt = 0): string | undefined {
   const availableKeys = allKeys.filter(k => !_exhaustedKeys.has(k));
 
   if (availableKeys.length === 0) {
-    // Todas esgotadas — usa a primeira mesmo assim (fallback)
-    log.warn("ai", "Todas as chaves Gemini com quota esgotada — usando chave primária como fallback");
-    return allKeys[0];
+    log.warn("ai", "Nenhuma chave Gemini disponivel; usando outros provedores");
+    return undefined;
   }
 
   return availableKeys[attempt % availableKeys.length];
@@ -1945,7 +1946,9 @@ async function _geminiImpl(
   // Evita desperdiçar 5-8s tentando 5 modelos com chaves que já falharam
   if (retryCount === 0) {
     const allKeys = ALL_GEMINI_KEYS;
-    const availableNow = allKeys.filter(k => !_exhaustedKeys.has(k));
+    // Refresh expired quota cooldowns before deciding whether to skip Gemini.
+    getGeminiKey();
+    const availableNow = allKeys.filter(k => !_exhaustedKeys.has(k) && geminiCredentialHealth.available(k));
     if (allKeys.length > 0 && availableNow.length === 0) {
       log.warn("ai", "Todas as chaves Gemini esgotadas — indo direto para fallbacks sem tentar modelos");
     setImmediate(async () => { try { const { errorLog } = await import("./errorTelemetry.js"); errorLog.critical("ai_quota", "QUOTA_EXHAUSTED", "Todas as chaves Gemini esgotadas"); } catch {} });
@@ -2112,6 +2115,13 @@ async function _geminiImpl(
   });
   const data = await res.json() as any;
 
+  if (data.error && geminiCredentialHealth.reject(apiKey, res.status, data.error)) {
+    log.warn("ai", "Gemini credential rejected; disabling credential and rotating", { status: res.status });
+    // The rejected key is excluded before retrying, bounding retries by pool size.
+    // Call the implementation directly: this request already holds the semaphore.
+    return _geminiImpl(prompt, opts, retryCount);
+  }
+
   // Modelo sobrecarregado ou rate-limit — tenta próximo modelo da cascata
   const errMsg = (data.error?.message || "").toLowerCase();
   const isOverloaded = res.status === 429
@@ -2140,7 +2150,7 @@ async function _geminiImpl(
     // Se todas as chaves esgotadas após marcar → pula direto para Groq sem tentar mais modelos
     if (isQuota) {
       const allKeys = ALL_GEMINI_KEYS;
-      const stillAvailable = allKeys.filter(k => !_exhaustedKeys.has(k));
+      const stillAvailable = allKeys.filter(k => !_exhaustedKeys.has(k) && geminiCredentialHealth.available(k));
       if (stillAvailable.length === 0) {
         log.warn("ai", "Todas as chaves Gemini esgotadas — abortando cascata, indo direto para DeepSeek/Groq");
         // Pula toda a cascata restante e vai para fallback imediatamente
@@ -2172,13 +2182,15 @@ async function _geminiImpl(
       try {
         const retryUrl = `${GEMINI_BASE}/${retryModel}:generateContent`;
         const retryKey = getGeminiKey(keyAttempt + 1); // tenta chave diferente no retry
-        const retryRes = await fetch(`${retryUrl}?key=${retryKey || apiKey}`, {
+        if (!retryKey) throw new Error("No available Gemini credential");
+        const retryRes = await fetch(`${retryUrl}?key=${retryKey}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(AI_TIMEOUTS.geminiFinalRetryMs),
         });
         const retryData = await retryRes.json() as any;
+        if (retryData.error) geminiCredentialHealth.reject(retryKey, retryRes.status, retryData.error);
         if (!retryData.error && retryData.candidates?.[0]?.content?.parts?.[0]?.text) {
           log.info("ai", `Gemini retry 15s OK — ${retryModel}`);
           return retryData.candidates[0].content.parts[0].text;
@@ -2224,7 +2236,7 @@ async function _geminiImpl(
     return mockResponse(prompt);
   }
 
-  if (data.error) throw new Error(data.error.message);
+  if (data.error) throw new Error(redactProviderSecrets(String(data.error.message)));
   const result = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
   // ── Token Telemetry (fire-and-forget) ─────────────────────────────────────

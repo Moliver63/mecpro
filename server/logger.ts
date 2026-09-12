@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { redactProviderSecrets } from "./providerSafety";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOG_DIR = path.resolve(__dirname, "../logs");
@@ -14,7 +15,7 @@ type Level = "INFO" | "WARN" | "ERROR" | "DEBUG" | "AUTH" | "DB" | "EMAIL" | "OA
 function write(level: Level, context: string, message: string, data?: any) {
   const ts = new Date().toISOString();
   const dataStr = data ? " " + JSON.stringify(data, null, 0) : "";
-  const line = `[${ts}] [${level.padEnd(5)}] [${context}] ${message}${dataStr}`;
+  const line = redactProviderSecrets(`[${ts}] [${level.padEnd(5)}] [${context}] ${message}${dataStr}`);
 
   // Console colorido
   const colors: Record<Level, string> = {
