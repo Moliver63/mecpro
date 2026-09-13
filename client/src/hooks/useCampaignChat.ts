@@ -41,6 +41,17 @@ interface RespostaChat {
   resposta: string;
   campanha: CampanhaGerada | null;
   modo: "assistente" | "local";
+  sessionId?: number | null;
+}
+
+export interface ChatSessionResumo {
+  id: number;
+  title: string;
+  lastCampaignId: number | null;
+  lastCampaignName: string | null;
+  lastCampaignUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const MENSAGEM_INICIAL: ChatMessage = {
@@ -58,6 +69,13 @@ export const SUGESTOES = [
 ];
 
 export const ASSISTANT_IMAGE = "/mecproai-assistant.jpg";
+
+// Achado real (pedido de Michel, 13/09): "salvar/excluir chats" + "mostrar
+// a última campanha gerada" + "memória pra não repetir passos" — só o
+// sessionId fica no localStorage (nunca o conteúdo da conversa), pra
+// restaurar automaticamente ao recarregar a página sem guardar dados
+// sensíveis no navegador.
+const CHAVE_SESSAO_LOCAL = "mecpro_chat_session_id";
 
 const MAX_CHAT_IMAGES = 10;
 const MAX_CHAT_IMAGE_BYTES = 6 * 1024 * 1024;
@@ -79,6 +97,9 @@ export function useCampaignChat() {
   const [attachmentError, setAttachmentError] = useState("");
   const [loading, setLoading] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [sessoes, setSessoes] = useState<ChatSessionResumo[]>([]);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Rola pro fim a cada mensagem nova
@@ -86,6 +107,84 @@ export function useCampaignChat() {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, loading]);
+
+  const carregarSessoes = async () => {
+    try {
+      const res = await fetch("/api/chat/sessions", { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSessoes(Array.isArray(data?.sessoes) ? data.sessoes : []);
+    } catch {
+      // silencioso — lista de histórico é conveniência, não bloqueia o chat
+    }
+  };
+
+  const carregarConversa = async (id: number) => {
+    setCarregandoHistorico(true);
+    try {
+      const res = await fetch(`/api/chat/sessions/${id}/messages`, { credentials: "include" });
+      if (!res.ok) {
+        // sessão não existe mais (ex: excluída em outra aba) — começa do zero
+        localStorage.removeItem(CHAVE_SESSAO_LOCAL);
+        setSessionId(null);
+        setMessages([MENSAGEM_INICIAL]);
+        return;
+      }
+      const data = await res.json();
+      const carregadas: ChatMessage[] = (Array.isArray(data?.mensagens) ? data.mensagens : []).map((m: any) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: String(m.content || ""),
+        campanha: m.campanha || undefined,
+      }));
+      setMessages(carregadas.length ? carregadas : [MENSAGEM_INICIAL]);
+      setSessionId(id);
+      localStorage.setItem(CHAVE_SESSAO_LOCAL, String(id));
+    } catch {
+      // conexão falhou — mantém o que já estava na tela
+    } finally {
+      setCarregandoHistorico(false);
+    }
+  };
+
+  const novaConversa = () => {
+    localStorage.removeItem(CHAVE_SESSAO_LOCAL);
+    setSessionId(null);
+    setMessages([MENSAGEM_INICIAL]);
+    setInput("");
+    setAttachments([]);
+    setAttachmentError("");
+    setNeedsLogin(false);
+  };
+
+  const excluirSessao = async (id: number) => {
+    try {
+      const res = await fetch(`/api/chat/sessions/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) return false;
+      setSessoes((prev) => prev.filter((s) => s.id !== id));
+      if (sessionId === id) novaConversa();
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Restaura a conversa automaticamente ao carregar a página — resolve o
+  // "ficar repetindo passos": sem isso, um reload perdia tudo que já tinha
+  // sido conversado/confirmado com o usuário.
+  useEffect(() => {
+    const salva = localStorage.getItem(CHAVE_SESSAO_LOCAL);
+    const id = salva ? Number(salva) : NaN;
+    if (Number.isFinite(id) && id > 0) carregarConversa(id);
+    carregarSessoes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Última campanha gerada pelo usuário via chat, entre todas as
+  // conversas (sessoes já vem ordenada por mais recente primeiro).
+  const sessaoComCampanha = sessoes.find((s) => s.lastCampaignId);
+  const ultimaCampanha = sessaoComCampanha
+    ? { id: sessaoComCampanha.lastCampaignId as number, name: sessaoComCampanha.lastCampaignName as string, url: sessaoComCampanha.lastCampaignUrl || "" }
+    : null;
 
   const addAttachments = async (files: FileList | File[]) => {
     setAttachmentError("");
@@ -152,6 +251,7 @@ export function useCampaignChat() {
         credentials: "include",
         body: JSON.stringify({
           mensagens: historico.map((m) => ({ role: m.role, content: m.content })),
+          sessionId,
           attachments: anexosDoTurno.map((file) => ({
             fileName: file.fileName,
             mimeType: file.mimeType,
@@ -192,6 +292,14 @@ export function useCampaignChat() {
         },
       ]);
       if (data.campanha) setAttachments([]);
+      // Sessão criada/confirmada pelo servidor nesta troca — salva pra
+      // sobreviver a um recarregamento de página, e atualiza a lista
+      // (título/última campanha podem ter mudado nesta troca).
+      if (data.sessionId && data.sessionId !== sessionId) {
+        setSessionId(data.sessionId);
+        localStorage.setItem(CHAVE_SESSAO_LOCAL, String(data.sessionId));
+      }
+      carregarSessoes();
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -217,5 +325,12 @@ export function useCampaignChat() {
     send,
     mostrarSugestoes,
     scrollRef,
+    sessionId,
+    sessoes,
+    carregandoHistorico,
+    ultimaCampanha,
+    novaConversa,
+    carregarConversa,
+    excluirSessao,
   };
 }

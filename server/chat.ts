@@ -831,6 +831,41 @@ function responderLocal(): RespostaChat {
 /* ---------------- Rotas ---------------- */
 
 // GET /api/chat/status — diagnóstico leve (sem citar fornecedor)
+// ── Sessões de chat: listar, carregar histórico, excluir ──────────────────
+// Pedido de Michel (13/09): salvar/excluir chats, mostrar última campanha.
+chatRouter.get("/sessions", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const sessoes = await db.getChatSessionsByUserId(userId).catch(() => []);
+  res.json({ sessoes });
+});
+
+chatRouter.get("/sessions/:id/messages", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const sessionId = Number(req.params.id);
+  if (!Number.isFinite(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ erro: "ID de sessão inválido." });
+  }
+  const sessao = await db.getChatSessionById(sessionId).catch(() => null);
+  if (!sessao || (sessao as any).userId !== userId) {
+    return res.status(404).json({ erro: "Conversa não encontrada." });
+  }
+  const mensagens = await db.getChatMessagesBySessionId(sessionId).catch(() => []);
+  res.json({ sessao, mensagens });
+});
+
+chatRouter.delete("/sessions/:id", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const sessionId = Number(req.params.id);
+  if (!Number.isFinite(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ erro: "ID de sessão inválido." });
+  }
+  const excluiu = await db.deleteChatSession(sessionId, userId).catch(() => false);
+  if (!excluiu) {
+    return res.status(404).json({ erro: "Conversa não encontrada." });
+  }
+  res.json({ ok: true });
+});
+
 chatRouter.get("/status", (_req, res) => {
   const geminiOk = poolChavesGemini().length > 0;
   const deepSeekOk = !!process.env.DEEPSEEK_API_KEY;
@@ -840,6 +875,28 @@ chatRouter.get("/status", (_req, res) => {
     modo: geminiOk || deepSeekOk || groqOk ? "assistente" : "local",
   });
 });
+
+// Persiste a troca (mensagem do usuário + resposta) e responde — usado
+// nos 4 pontos de sucesso do handler abaixo (Gemini/DeepSeek/Groq/local),
+// pra não duplicar a lógica de gravação em cada um.
+async function persistirTrocaEResponder(
+  res: any,
+  sessionId: number | null,
+  ultimaMensagemUsuario: string | undefined,
+  resultado: RespostaChat
+) {
+  if (sessionId) {
+    if (ultimaMensagemUsuario) {
+      await db.appendChatMessage(sessionId, "user", ultimaMensagemUsuario).catch(() => {});
+    }
+    await db.appendChatMessage(sessionId, "assistant", resultado.resposta, resultado.campanha || null).catch(() => {});
+    await db.touchChatSession(sessionId, resultado.campanha ? { id: resultado.campanha.id, name: resultado.campanha.name, url: resultado.campanha.url } : null).catch(() => {});
+    if (ultimaMensagemUsuario) {
+      await db.maybeTitleChatSession(sessionId, ultimaMensagemUsuario).catch(() => {});
+    }
+  }
+  return res.json({ ...resultado, sessionId });
+}
 
 chatRouter.post("/", authChat, (req: any, _res, next) => {
   chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next);
@@ -866,11 +923,36 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
     return res.status(400).json({ erro: `Mensagem muito longa (máximo ${MAX_CONTEUDO_MENSAGEM} caracteres).` });
   }
 
+  // ── Sessão de chat (salvar/restaurar histórico, mostrar última campanha) ──
+  // Achado real (pedido de Michel, 13/09): sem isso, o histórico só
+  // existia no estado local do React — recarregar a página perdia tudo,
+  // e não tinha jeito de listar/excluir conversas anteriores nem ver qual
+  // foi a última campanha gerada.
+  let sessionId: number | null = null;
+  const sessionIdRecebido = Number(req.body?.sessionId);
+  if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
+    const sessaoExistente = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
+    if (sessaoExistente && (sessaoExistente as any).userId === userId) {
+      sessionId = sessionIdRecebido;
+    }
+    // sessionId inválido ou de outro usuário — ignora silenciosamente e
+    // cria uma sessão nova abaixo, em vez de dar erro pro usuário.
+  }
+  if (sessionId === null) {
+    const primeiraMensagem = recebidas.find((m) => m.role === "user")?.content || "Nova conversa";
+    sessionId = await db.createChatSession(userId, primeiraMensagem.slice(0, 80)).catch(() => null as any);
+  }
+
   // Mantém só as últimas trocas — o histórico inteiro é reenviado a cada
   // turno, e briefing de campanha não precisa de contexto longo.
   const mensagens = recebidas
     .filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
     .slice(-MAX_MENSAGENS_HISTORICO);
+
+  // Capturado ANTES da nota interna de anexo de foto ser adicionada
+  // abaixo — essa nota é instrução pra IA, não texto que o usuário
+  // digitou, então não deve ser persistida como se fosse a mensagem dele.
+  const ultimaMensagemUsuario = [...mensagens].reverse().find((m) => m.role === "user")?.content;
 
   if (attachments.length && mensagens.length) {
     const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
@@ -882,7 +964,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (proximaChaveGemini()) {
     try {
       const resultado = await tentarComGemini(mensagens, userId, attachments);
-      return res.json(resultado);
+      return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, resultado);
     } catch (erro) {
       log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
@@ -891,7 +973,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (process.env.DEEPSEEK_API_KEY) {
     try {
       const resultado = await tentarComDeepSeek(mensagens, userId, attachments);
-      return res.json(resultado);
+      return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, resultado);
     } catch (erro) {
       log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
@@ -900,11 +982,11 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (process.env.GROQ_API_KEY) {
     try {
       const resultado = await tentarComGroq(mensagens, userId, attachments);
-      return res.json(resultado);
+      return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, resultado);
     } catch (erro) {
       log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
   }
 
-  return res.json(responderLocal());
+  return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, responderLocal());
 });
