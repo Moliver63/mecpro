@@ -62,8 +62,19 @@ const MODELO_DEEPSEEK_CHAT = process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat";
 // calling (essencial aqui, já que o chat usa `tools`/`tool_choice`).
 const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "openai/gpt-oss-120b";
 
+// Achado real (transcricao real de conversa, 13/09): 16 mensagens nao
+// bastava pro fluxo que o proprio prompt do sistema pede ("uma pergunta
+// por vez"). O briefing completo tem ~9-10 fatos pra coletar (projeto,
+// objetivo, plataforma, orcamento, duracao, nicho, cidade, publico,
+// faixa etaria, formato) — cada um leva 1 pergunta + 1 resposta, ja
+// somando ~18-20 mensagens SO pra coletar o basico, numa conversa bem
+// comportada. Ou seja: o modelo perdia a mensagem onde o projeto foi
+// escolhido logo no comeco antes mesmo de terminar de coletar o resto,
+// e voltava a perguntar coisa ja confirmada. Aumentado com folga
+// suficiente pra cobrir o fluxo inteiro (coleta + alguma clarificacao/
+// retry) sem cortar o inicio da conversa.
 /** Quantas mensagens do histórico são reenviadas por turno (custo/latência). */
-const MAX_MENSAGENS_HISTORICO = 16;
+const MAX_MENSAGENS_HISTORICO = 48;
 
 // Achado real (auditoria da feature de chat, 08/09): o body parser global
 // (server/_core/index.ts) aceita até 50mb por requisição — um limite
@@ -222,7 +233,8 @@ Situações que você precisa saber lidar:
 Regras que valem sempre:
 - Você NUNCA promete resultado, estima ROAS/CPL/CTR ou cita número de performance por conta própria.
 - Tom: direto, sem enrolação, português do Brasil. Sem "olá! ficarei feliz em ajudar" — vai direto ao ponto.
-- Uma pergunta por vez sempre que possível — não interrogue o usuário com 8 perguntas de uma vez.`;
+- Uma pergunta por vez sempre que possível — não interrogue o usuário com 8 perguntas de uma vez.
+- NUNCA inclua colchetes, parênteses ou qualquer texto indicando seu próprio estado interno, como "[aguardando resposta do usuário]", "(aguardando resposta)", "..." de preenchimento, ou qualquer anotação de bastidor. Isso não é uma rubrica de teatro — é uma conversa real. Faça a pergunta e pare aí.`;
 
 // ── Ferramenta: gerar_campanha ────────────────────────────────────────────
 const PARAMETROS_GERAR_CAMPANHA = {
@@ -933,6 +945,23 @@ chatRouter.get("/status", (_req, res) => {
   });
 });
 
+// Achado real (transcricao real de conversa, 13/09): o modelo as vezes
+// inclui anotacao de bastidor tipo "[aguardando resposta do usuario]" ou
+// "...(aguardando sua resposta)" na propria mensagem — nao deveria
+// aparecer nunca (adicionada instrucao explicita proibindo isso no
+// SYSTEM_PROMPT), mas como segunda camada de defesa (mesmo padrao ja
+// usado pra copy de campanha nesta sessao — instrucao no prompt +
+// checagem no codigo, nao confiar so no modelo seguir a instrucao),
+// remove esse tipo de anotacao antes de mostrar/salvar a resposta.
+function sanitizarRespostaChat(texto: string): string {
+  if (!texto) return texto;
+  return texto
+    .replace(/\.{2,}\s*[\[(]\s*aguard[^[\]()]*[\])]/gi, "")
+    .replace(/[\[(]\s*aguard[^[\]()]*[\])]/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 // Persiste a troca (mensagem do usuário + resposta) e responde — usado
 // nos 4 pontos de sucesso do handler abaixo (Gemini/DeepSeek/Groq/local),
 // pra não duplicar a lógica de gravação em cada um.
@@ -942,6 +971,7 @@ async function persistirTrocaEResponder(
   ultimaMensagemUsuario: string | undefined,
   resultado: RespostaChat
 ) {
+  resultado = { ...resultado, resposta: sanitizarRespostaChat(resultado.resposta) };
   if (sessionId) {
     if (ultimaMensagemUsuario) {
       await db.appendChatMessage(sessionId, "user", ultimaMensagemUsuario).catch(() => {});
