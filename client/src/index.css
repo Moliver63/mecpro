@@ -1428,6 +1428,67 @@ tbody tr:last-child td { border-bottom: none; }
   cursor: pointer;
 }
 
+.campaign-chat-video-chip {
+  width: fit-content;
+  max-width: min(820px, 100%);
+  margin: 0 auto 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border2);
+  background: white;
+  box-shadow: var(--shadow-xs);
+  font-size: 12.5px;
+  color: var(--body);
+}
+
+.campaign-chat-video-chip[data-status="done"] {
+  border-color: rgba(52,199,89,0.35);
+  color: #16a34a;
+}
+
+.campaign-chat-video-chip[data-status="error"] {
+  border-color: rgba(255,59,48,0.35);
+  color: var(--red);
+}
+
+.campaign-chat-video-chip span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.campaign-chat-video-chip button {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border: none;
+  border-radius: 50%;
+  background: var(--off);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.campaign-chat-video-chip button:hover {
+  background: var(--border);
+  color: var(--black);
+}
+
+.campaign-chat-spin {
+  animation: campaign-chat-spin-anim 0.9s linear infinite;
+}
+
+@keyframes campaign-chat-spin-anim {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .campaign-chat-composer {
   width: min(820px, 100%);
   margin: 0 auto;

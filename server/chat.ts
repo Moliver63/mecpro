@@ -15,8 +15,10 @@
  * REGRA DE OURO (mesma do LogPro): o agente NUNCA inventa número de
  * performance, preço ou resultado — toda ação real sai da ferramenta.
  *
- * Stateless: o cliente reenvia o histórico a cada turno (máx. 16 mensagens).
- * Nada é persistido no banco neste módulo.
+ * Stateless entre requisições HTTP: cada turno reenvia o histórico
+ * (máx. 16 mensagens). A conversa em si É persistida no banco
+ * (chat_sessions/chat_messages) pra sobreviver a um recarregamento de
+ * página e permitir listar/excluir conversas — ver persistirTrocaEResponder.
  */
 
 import { Router } from "express";
@@ -29,6 +31,8 @@ import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask"
 import { appendGeminiToolTurn } from "./ai-providers/geminiToolTurn";
 import { jwtVerify } from "jose";
 import * as db from "./db";
+import multer from "multer";
+import { uploadVideoBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
 // require("./ai") — mas este arquivo roda em contexto ESM puro (o
@@ -866,6 +870,59 @@ chatRouter.delete("/sessions/:id", authChat, async (req: any, res) => {
   res.json({ ok: true });
 });
 
+// ── Upload de vídeo anexado no chat ────────────────────────────────────────
+// Achado real (pedido de Michel, 13/09): já existe upload de vídeo no
+// MecProAI (/api/meta/upload-video, usado na publicação de campanha),
+// mas ele exige o Meta já conectado (sobe direto pra conta de anúncios
+// do usuário) — no chat, muitas vezes o usuário ainda está no início e
+// nunca conectou nada. Este endpoint é genérico (Cloudinary, igual as
+// fotos), disponível pra qualquer usuário logado independente de ter
+// alguma plataforma de anúncio conectada.
+const uploadVideoMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100mb — suficiente pra clipes curtos de anúncio
+});
+
+const TIPOS_VIDEO_ACEITOS = new Set([
+  "video/mp4",
+  "video/quicktime", // .mov
+  "video/webm",
+  "video/x-msvideo", // .avi
+  "video/x-matroska", // .mkv
+]);
+
+chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
+  uploadVideoMulter.single("file")(req, res, (err: any) => {
+    if (err?.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ erro: "Vídeo muito grande — o limite é 100MB." });
+    }
+    if (err) {
+      return res.status(400).json({ erro: "Não foi possível processar o arquivo enviado." });
+    }
+    next();
+  });
+}, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const file = req.file as { buffer: Buffer; originalname: string; mimetype: string; size: number } | undefined;
+  if (!file) {
+    return res.status(400).json({ erro: "Nenhum arquivo de vídeo enviado." });
+  }
+  if (!TIPOS_VIDEO_ACEITOS.has(file.mimetype)) {
+    return res.status(400).json({ erro: `Formato de vídeo não suportado (${file.mimetype}). Use MP4, MOV, WEBM, AVI ou MKV.` });
+  }
+  try {
+    const videoUrl = await uploadVideoBufferToCloudinary(file.buffer, file.originalname || `chat-video-${Date.now()}.mp4`);
+    if (!videoUrl) {
+      return res.status(502).json({ erro: "Não foi possível salvar o vídeo agora. Tente novamente em instantes." });
+    }
+    log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size });
+    res.json({ videoUrl, fileName: file.originalname });
+  } catch (e: any) {
+    log.warn("chat", "falha no upload de vídeo do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
+    res.status(500).json({ erro: "Erro ao salvar o vídeo. Tente novamente." });
+  }
+});
+
 chatRouter.get("/status", (_req, res) => {
   const geminiOk = poolChavesGemini().length > 0;
   const deepSeekOk = !!process.env.DEEPSEEK_API_KEY;
@@ -958,6 +1015,20 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
     const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
     if (lastUser) {
       lastUser.content += `\n\n[Fotos anexadas no chat: ${attachments.length}. Use estas fotos reais na campanha; a primeira foto anexada é a candidata a destaque se o usuário não escolher outra.]`;
+    }
+  }
+
+  // Achado real (pedido de Michel, 13/09): vídeo anexado no chat (upload
+  // separado via /chat/upload-video — ver endpoint abaixo) chega aqui só
+  // como uma URL, não como base64 dentro da mensagem. Diferente das
+  // fotos, o modelo NÃO consegue "assistir" o vídeo — a nota deixa isso
+  // explícito, pra IA não fingir que viu o conteúdo e inventar detalhes
+  // que não tem como saber.
+  const videoUrlRecebida = typeof req.body?.videoUrl === "string" ? req.body.videoUrl.trim() : "";
+  if (videoUrlRecebida && /^https?:\/\//i.test(videoUrlRecebida) && mensagens.length) {
+    const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      lastUser.content += `\n\n[Vídeo anexado no chat: ${videoUrlRecebida}. Você não consegue assistir o conteúdo do vídeo — apenas confirme que ele foi recebido e, se relevante, mencione que ele pode ser usado como material da campanha. Nunca descreva ou invente o que aparece no vídeo.]`;
     }
   }
 

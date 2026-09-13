@@ -73,6 +73,9 @@ export default function ChatHomeView() {
           addAttachments={chat.addAttachments}
           removeAttachment={chat.removeAttachment}
           attachmentError={chat.attachmentError}
+          videoAttachment={chat.videoAttachment}
+          addVideoAttachment={chat.addVideoAttachment}
+          removeVideoAttachment={chat.removeVideoAttachment}
           send={chat.send}
           scrollRef={chat.scrollRef}
         />

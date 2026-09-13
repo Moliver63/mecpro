@@ -30,6 +30,23 @@ export interface ChatImageAttachment {
   dataUrl: string;
 }
 
+// Achado real (pedido de Michel, 13/09): vídeo não cabe no mesmo modelo
+// das fotos (base64 dentro do JSON da mensagem) — um vídeo de poucos
+// segundos já passa fácil de 20-50mb, o que deixaria a requisição do
+// chat gigante e lenta. Em vez disso, o vídeo é enviado assim que
+// escolhido (upload multipart pra /api/chat/upload-video, que sobe pro
+// Cloudinary) e só a URL resultante entra na mensagem — status rastreia
+// o progresso desse upload separado na interface.
+export interface ChatVideoAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  status: "uploading" | "done" | "error";
+  videoUrl?: string;
+  erro?: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -80,6 +97,9 @@ const CHAVE_SESSAO_LOCAL = "mecpro_chat_session_id";
 const MAX_CHAT_IMAGES = 10;
 const MAX_CHAT_IMAGE_BYTES = 6 * 1024 * 1024;
 const ACCEPTED_CHAT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+const MAX_CHAT_VIDEO_BYTES = 100 * 1024 * 1024; // mesmo limite do servidor (multer)
+const ACCEPTED_CHAT_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska"]);
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -153,6 +173,7 @@ export function useCampaignChat() {
     setInput("");
     setAttachments([]);
     setAttachmentError("");
+    setVideoAttachment(null);
     setNeedsLogin(false);
   };
 
@@ -223,6 +244,39 @@ export function useCampaignChat() {
     setAttachments((prev) => prev.filter((item) => item.id !== id));
   };
 
+  // Um vídeo por vez (diferente das fotos, que aceitam várias) — o upload
+  // já acontece aqui, assim que o arquivo é escolhido, não só quando a
+  // mensagem é enviada.
+  const [videoAttachment, setVideoAttachment] = useState<ChatVideoAttachment | null>(null);
+
+  const addVideoAttachment = async (file: File) => {
+    if (!ACCEPTED_CHAT_VIDEO_TYPES.has(file.type)) {
+      setVideoAttachment({ id: crypto.randomUUID(), fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: "Formato não suportado. Use MP4, MOV, WEBM, AVI ou MKV." });
+      return;
+    }
+    if (file.size > MAX_CHAT_VIDEO_BYTES) {
+      setVideoAttachment({ id: crypto.randomUUID(), fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: "Vídeo muito grande — o limite é 100MB." });
+      return;
+    }
+    const id = crypto.randomUUID();
+    setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "uploading" });
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const res = await fetch("/api/chat/upload-video", { method: "POST", credentials: "include", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.videoUrl) {
+        setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: data?.erro || "Não foi possível enviar o vídeo." });
+        return;
+      }
+      setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "done", videoUrl: data.videoUrl });
+    } catch {
+      setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: "Erro de conexão ao enviar o vídeo." });
+    }
+  };
+
+  const removeVideoAttachment = () => setVideoAttachment(null);
+
   const send = async (textoOverride?: string) => {
     const texto = (textoOverride ?? input).trim();
     if ((!texto && attachments.length === 0) || loading) return;
@@ -258,6 +312,7 @@ export function useCampaignChat() {
             size: file.size,
             imageBase64: file.dataUrl,
           })),
+          videoUrl: videoAttachment?.status === "done" ? videoAttachment.videoUrl : undefined,
         }),
       });
 
@@ -292,6 +347,10 @@ export function useCampaignChat() {
         },
       ]);
       if (data.campanha) setAttachments([]);
+      // Vídeo é anexo de "uma vez só" (diferente de fotos, que podem se
+      // acumular por algumas mensagens até a campanha ser gerada) — já
+      // foi enviado nesta troca, não faz sentido reenviar na próxima.
+      if (videoAttachment?.status === "done") setVideoAttachment(null);
       // Sessão criada/confirmada pelo servidor nesta troca — salva pra
       // sobreviver a um recarregamento de página, e atualiza a lista
       // (título/última campanha podem ter mudado nesta troca).
@@ -320,6 +379,9 @@ export function useCampaignChat() {
     addAttachments,
     removeAttachment,
     attachmentError,
+    videoAttachment,
+    addVideoAttachment,
+    removeVideoAttachment,
     loading,
     needsLogin,
     send,

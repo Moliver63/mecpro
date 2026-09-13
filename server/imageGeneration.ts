@@ -758,6 +758,48 @@ export async function uploadImageBufferToCloudinary(buffer: Buffer, fileName: st
   return data.secure_url as string;
 }
 
+// Achado real (pedido de Michel, 13/09): o chat precisa aceitar vídeo
+// anexado mesmo quando o usuário ainda não conectou o Meta (a rota
+// /api/meta/upload-video exige integração conectada — sem isso, quem
+// ainda está no início da jornada nunca conseguiria anexar vídeo). Esta
+// função sobe pro Cloudinary igual as fotos, mas no endpoint de VÍDEO do
+// Cloudinary (/video/upload — diferente de /image/upload, a API do
+// Cloudinary separa por tipo de recurso), com timeout maior (vídeo
+// demora mais que imagem — mesmo valor já usado no upload de vídeo pro
+// Meta, 120s).
+export async function uploadVideoBufferToCloudinary(buffer: Buffer, fileName: string): Promise<string | null> {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!cloudName || !apiKey || !apiSecret) return null;
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const folder = process.env.CLOUDINARY_FOLDER ? `${process.env.CLOUDINARY_FOLDER}/chat-videos` : "mecpro/chat-videos";
+  const signatureBase = `folder=${folder}&timestamp=${timestamp}${apiSecret}`;
+  const signature = crypto.createHash("sha1").update(signatureBase).digest("hex");
+
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(buffer)]), fileName);
+  form.append("folder", folder);
+  form.append("api_key", apiKey);
+  form.append("timestamp", String(timestamp));
+  form.append("signature", signature);
+
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/video/upload`, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(120000),
+  });
+
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.secure_url) {
+    log.warn("image-generation", "Falha no upload de vídeo Cloudinary", { status: res.status, error: data?.error?.message || null });
+    return null;
+  }
+
+  return data.secure_url as string;
+}
+
 export async function uploadBase64ImageToCloudinary(base64Data: string, fileName: string): Promise<string | null> {
   const base64Clean = String(base64Data || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
   if (!base64Clean) return null;
