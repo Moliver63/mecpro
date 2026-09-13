@@ -42,7 +42,8 @@ import { log } from "./logger";
 // efeito colateral novo, só reaproveita a mesma constante já centralizada
 // lá — sem precisar de require nem de import() dinâmico (que é async,
 // e poolChavesGemini() precisa continuar síncrona pra quem já a chama).
-import { ALL_GEMINI_KEYS } from "./ai";
+import { ALL_GEMINI_KEYS, geminiCredentialHealth } from "./ai";
+import { redactProviderSecrets } from "./providerSafety";
 
 export const chatRouter = Router();
 
@@ -96,6 +97,11 @@ function poolChavesGemini(): string[] {
 function proximaChaveGemini(): string | null {
   const agora = Date.now();
   for (const chave of poolChavesGemini()) {
+    // geminiCredentialHealth (compartilhado com server/ai.ts) já sabe se
+    // essa chave foi rejeitada permanentemente por QUALQUER caminho do
+    // processo — não só pelo chat. _chavesEsgotadas continua só pra
+    // cota temporariamente esgotada (que reseta com o tempo).
+    if (!geminiCredentialHealth.available(chave)) continue;
     const ate = _chavesEsgotadas.get(chave) || 0;
     if (ate < agora) return chave;
   }
@@ -343,7 +349,7 @@ async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId
       if (Array.isArray(vision?.labels)) vision.labels.slice(0, 4).forEach((label: string) => visualLabelsSet.add(label));
       if (Array.isArray(vision?.objects)) vision.objects.slice(0, 3).forEach((object: string) => visualLabelsSet.add(object));
     } catch (error: any) {
-      log.warn("chat", "analise visual da foto falhou", { projectId, index: i, erro: error?.message });
+      log.warn("chat", "analise visual da foto falhou", { projectId, index: i, erro: redactProviderSecrets(String(error?.message ?? "")) });
     }
 
     realImages.push(cloudUrl);
@@ -510,7 +516,7 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
     const msg = e?.message === "timeout"
       ? "A geração está demorando mais que o esperado. Ela pode ter sido criada mesmo assim — peça pro usuário conferir a lista de campanhas do projeto em alguns segundos."
       : `Falha ao gerar a campanha: ${e?.message || "erro desconhecido"}.`;
-    log.warn("chat", "gerar_campanha falhou", { userId, erro: e?.message });
+    log.warn("chat", "gerar_campanha falhou", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
     return { ok: false, erro: msg };
   }
 }
@@ -534,26 +540,6 @@ function erroEhTemporario(erro: unknown): boolean {
 function erroEhCotaDiariaEsgotada(erro: unknown): boolean {
   const texto = String((erro as { message?: string })?.message ?? erro);
   return texto.includes("RESOURCE_EXHAUSTED") || texto.includes("exceeded your current quota");
-}
-
-// Achado real (log de produção, 10/09): uma chave suspensa/sem permissão
-// (PERMISSION_DENIED / CONSUMER_SUSPENDED — ex.: projeto do Google Cloud
-// suspenso) não batia em NENHUM dos dois classificadores acima — nem
-// "temporário" (503/429/UNAVAILABLE), nem "cota esgotada"
-// (RESOURCE_EXHAUSTED) — então caía direto no `throw erro` na PRIMEIRA
-// tentativa, sem nunca tentar as outras chaves do pool (7 chaves nunca
-// chegavam a ser testadas). Uma chave suspensa é tão "essa chave
-// específica não funciona" quanto uma com cota esgotada — a resposta
-// certa é a mesma: marcar essa chave e tentar a próxima do pool, não
-// desistir do provedor inteiro na primeira chave que falhar.
-function erroEhChaveInvalidaOuSuspensa(erro: unknown): boolean {
-  const texto = String((erro as { message?: string })?.message ?? erro);
-  return (
-    texto.includes("PERMISSION_DENIED") ||
-    texto.includes("CONSUMER_SUSPENDED") ||
-    texto.includes("API_KEY_INVALID") ||
-    texto.includes("UNAUTHENTICATED")
-  );
 }
 
 /* ---------------- Provedor 1: Gemini (com pool de chaves) ---------------- */
@@ -586,10 +572,32 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number): 
       });
     } catch (erro) {
       ultimoErro = erro;
-      if (erroEhCotaDiariaEsgotada(erro) || erroEhChaveInvalidaOuSuspensa(erro)) {
-        // Cota esgotada ou chave suspensa/inválida — marca essa chave
-        // específica e tenta a próxima já na iteração seguinte (nenhum
-        // dos dois casos se resolve com um retry rápido na mesma chave).
+      // Achado real (unificação, 13/09): chat.ts tinha seu próprio
+      // classificador de "chave suspensa/inválida" (erroEhChaveInvalidaOu
+      // Suspensa), com cooldown de 3h — mas uma chave suspensa/inválida
+      // não volta a funcionar sozinha depois de 3h, então esse cooldown
+      // não fazia muito sentido. server/ai.ts já tinha uma solução mais
+      // precisa pro mesmo problema: GeminiCredentialHealth, que rejeita a
+      // chave PERMANENTEMENTE (até reiniciar o processo) em vez de um
+      // cooldown temporizado. Unificado: reaproveita a mesma instância
+      // (importada de ./ai) — uma chave rejeitada por QUALQUER caminho do
+      // processo (geração de campanha OU chat) fica conhecida pelos dois,
+      // em vez de cada um descobrir isso de forma independente.
+      // geminiCredentialHealth.reject() espera uma string ou um objeto
+      // plano (é assim que server/ai.ts chama, vindo do corpo já
+      // parseado de um fetch() cru) — passar o objeto Error do SDK
+      // direto faria JSON.stringify(error) virar "{}" (Error não
+      // serializa .message por padrão), perdendo o texto que o regex
+      // interno precisa pra reconhecer CONSUMER_SUSPENDED etc. Extrai a
+      // string primeiro.
+      const mensagemErro = (erro as { message?: string })?.message ?? String(erro);
+      if (geminiCredentialHealth.reject(chave, -1, mensagemErro)) {
+        continue;
+      }
+      if (erroEhCotaDiariaEsgotada(erro)) {
+        // Cota esgotada é diferente de chave suspensa — a chave volta a
+        // funcionar sozinha depois do reset, então cooldown temporizado
+        // continua fazendo sentido só pra esse caso.
         _chavesEsgotadas.set(chave, Date.now() + COOLDOWN_COTA_MS);
         continue;
       }
@@ -876,7 +884,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
       const resultado = await tentarComGemini(mensagens, userId, attachments);
       return res.json(resultado);
     } catch (erro) {
-      log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: (erro as any)?.message });
+      log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
   }
 
@@ -885,7 +893,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
       const resultado = await tentarComDeepSeek(mensagens, userId, attachments);
       return res.json(resultado);
     } catch (erro) {
-      log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: (erro as any)?.message });
+      log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
   }
 
@@ -894,7 +902,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
       const resultado = await tentarComGroq(mensagens, userId, attachments);
       return res.json(resultado);
     } catch (erro) {
-      log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: (erro as any)?.message });
+      log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
   }
 

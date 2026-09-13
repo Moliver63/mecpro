@@ -502,7 +502,12 @@ async function withGeminiSemaphore<T>(fn: () => Promise<T>): Promise<T> {
 // ── Rotação inteligente de chaves Gemini ─────────────────────────────────
 // Rastreia chaves com quota esgotada e evita reutilizá-las até reset
 const _exhaustedKeys = new Set<string>();
-const geminiCredentialHealth = new GeminiCredentialHealth();
+// Exportado — server/chat.ts reaproveita esta MESMA instância (não cria a
+// sua própria) pra que uma chave rejeitada permanentemente por um caminho
+// (geração de campanha principal) também fique conhecida pelo outro
+// (chat), em vez de cada um aprender isso de forma independente e ter
+// que redescobrir com uma chamada de API desperdiçada.
+export const geminiCredentialHealth = new GeminiCredentialHealth();
 const _exhaustedAt   = new Map<string, number>();
 const QUOTA_RESET_MS = 60 * 60 * 1000; // 60 min — evita tentar chave esgotada (quota RPM reseta em ~1min, RPD em 24h mas marcamos 60min para balance entre retry e economia)
 
