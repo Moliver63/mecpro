@@ -529,3 +529,30 @@ export const fineTuningExamples = pgTable("fine_tuning_examples", {
 
 export type FineTuningExample = typeof fineTuningExamples.$inferSelect;
 export type InsertFineTuningExample = typeof fineTuningExamples.$inferInsert;
+
+// ============ CHAT SESSIONS (assistente de campanhas via chat) ============
+export const chatSessions = pgTable("chat_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("userId").notNull(),
+  title: varchar("title", { length: 200 }).default("Nova conversa").notNull(),
+  lastCampaignId: integer("lastCampaignId"),
+  lastCampaignName: varchar("lastCampaignName", { length: 255 }),
+  lastCampaignUrl: text("lastCampaignUrl"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type ChatSession = typeof chatSessions.$inferSelect;
+export type InsertChatSession = typeof chatSessions.$inferInsert;
+
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("sessionId").notNull(),
+  role: varchar("role", { length: 20 }).notNull(),
+  content: text("content").notNull(),
+  campanha: jsonb("campanha"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ChatMessageRow = typeof chatMessages.$inferSelect;
+export type InsertChatMessageRow = typeof chatMessages.$inferInsert;

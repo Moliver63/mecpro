@@ -645,3 +645,52 @@ Michel pediu pra unificar as duas implementacoes paralelas de deteccao de chave 
 **Seguranca, aplicado de passagem (mesmo commit que criou GeminiCredentialHealth tambem tinha `redactProviderSecrets`, nao usado em chat.ts ate agora):** os 5 pontos de log em chat.ts que expunham `erro.message` cru (incluindo o ponto exato que vazou uma API key em texto puro nos logs de producao que Michel colou nesta sessao) agora passam por `redactProviderSecrets()` antes de logar. Testado com o texto real que apareceu vazado — confirma que a chave e mascarada.
 
 Validado: check:server 37/37 (sem erro novo), npm run build confirmado passando, teste dedicado de providerSafety.test.ts passando (3/3), as 7 suites de teste existentes sem regressao (117 testes), compartilhamento de estado entre ai.ts e chat.ts testado isolado (chave rejeitada num "lado" fica indisponivel no outro), redacao de segredo testada com o dado real que vazou.
+
+### Persistencia do chat: salvar/excluir conversas, ultima campanha gerada, memoria entre sessoes (branch feat/chat-session-persistence)
+
+Michel pediu tres coisas relacionadas: (1) salvar/excluir os chats de campanhas, (2) mostrar qual foi a ultima campanha gerada, (3) o chat ter memoria pra nao repetir passos. Ate aqui o chat era inteiramente sem estado no servidor — o historico so existia no estado local do React (`useCampaignChat`), perdido ao recarregar a pagina ou fechar a aba.
+
+**Duas tabelas novas** (migracao raw SQL em `server/_core/migrations.ts`, seguindo exatamente o padrao ja usado no arquivo — `CREATE TABLE IF NOT EXISTS` com `.catch(() => {})`; definicoes espelhadas em `server/schema.ts` via Drizzle, ja que `db.ts` usa o query builder do Drizzle, nao SQL cru direto):
+- `chat_sessions`: id, userId, title, lastCampaignId, lastCampaignName, lastCampaignUrl, createdAt, updatedAt
+- `chat_messages`: id, sessionId (FK com ON DELETE CASCADE — excluir a sessao excluir as mensagens automaticamente), role, content, campanha (JSONB), createdAt
+
+**server/db.ts**: funcoes novas — createChatSession, getChatSessionsByUserId, getChatSessionById, getChatMessagesBySessionId, appendChatMessage, touchChatSession (atualiza updatedAt + ultima campanha), maybeTitleChatSession (so renomeia a sessao na primeira mensagem, enquanto o titulo ainda e o padrao "Nova conversa"), deleteChatSession (com checagem de dono — so exclui se pertencer ao usuario que pediu).
+
+**server/chat.ts**:
+- POST / agora aceita `sessionId` opcional no corpo. Sem sessionId (ou um que nao pertence ao usuario), cria uma sessao nova automaticamente na primeira mensagem, usando o comeco da mensagem do usuario como titulo inicial.
+- Toda troca bem-sucedida (Gemini/DeepSeek/Groq/local — os 4 pontos de retorno) passa por uma funcao auxiliar nova (`persistirTrocaEResponder`) que grava a mensagem do usuario + a resposta no banco, atualiza a sessao (incluindo ultima campanha, se uma foi gerada nesta troca) e devolve o `sessionId` na resposta.
+- A mensagem do usuario e capturada ANTES da nota interna de anexo de foto ser adicionada ao texto (essa nota e instrucao pra IA, nao algo que o usuario digitou — nao devia ser persistida como se fosse).
+- 3 endpoints novos: GET /sessions (lista as conversas do usuario, mais recente primeiro), GET /sessions/:id/messages (carrega o historico de uma conversa, com checagem de dono), DELETE /sessions/:id (exclui, com checagem de dono).
+
+**client/src/hooks/useCampaignChat.ts**: 
+- Novo estado: sessionId, sessoes (lista), carregandoHistorico.
+- Ao montar, le o sessionId salvo no `localStorage` (SO o ID, nunca o conteudo da conversa) e restaura a conversa automaticamente — resolve o "ficar repetindo passos": sem isso, um F5 perdia tudo que ja tinha sido conversado/confirmado.
+- Funcoes novas: `novaConversa()` (limpa tudo, comeca do zero), `carregarConversa(id)` (busca o historico de uma sessao especifica), `excluirSessao(id)` (exclui e, se era a sessao ativa, comeca uma nova), `carregarSessoes()` (atualiza a lista).
+- `ultimaCampanha` derivada da lista de sessoes (a primeira com `lastCampaignId` preenchido, ja que a lista vem ordenada por mais recente).
+
+**Frontend, UI nova**: `ChatHistoryPanel.tsx` (painel com a lista de conversas salvas, cada uma com titulo/campanha gerada/data, exclusao com confirmacao inline pra evitar clique acidental). Cabecalho de `CampaignChat.tsx` (widget flutuante) ganhou botoes de "nova conversa" e "historico"; `ChatHomeView.tsx` (chat embutido na tela inicial) ganhou um cabecalho proprio do zero (nao tinha nenhum antes) com os mesmos dois botoes. Banner de "ultima campanha gerada" (link clicavel pra URL real da campanha, ja resolvida pelo backend — nao reconstruida no cliente, pra nao arriscar montar uma rota errada) aparece nos dois lugares quando existe uma campanha recente.
+
+**O que NAO foi persistido, decisao deliberada**: anexos de foto (base64) nao sao salvos no banco — mensagens carregadas de uma conversa antiga mostram so o texto, sem as miniaturas de foto que foram anexadas naquela troca. Dado que fotos em base64 sao pesadas e o caso de uso principal e "nao perder o texto da conversa ao recarregar", nao "reabrir a foto exata depois de dias", essa e uma simplificacao razoavel pra v1.
+
+Validado: check:server 37/37 (sem erro novo), npm run build confirmado passando (CSS novo presente no bundle final, confirmado por grep), modulos carregam sem crash, as 7 suites de teste existentes sem regressao (117 testes), sintaxe JSONB/ON DELETE CASCADE confirmada identica a outras migracoes ja aplicadas com sucesso neste mesmo arquivo. Sem Postgres real disponivel neste ambiente pra testar a migracao/queries contra um banco de verdade — vale acompanhar o log de deploy do Render ("Running migrations..." / "✅ Migrations applied successfully") apos o merge pra confirmar que as duas tabelas novas sao criadas sem erro.
+
+### Anexo de vídeo no chat, generico (sem exigir Meta conectado) (branch feat/chat-video-attachment)
+
+Michel pediu suporte a anexo de video no chat, apontando que ja existe upload manual de video funcionando na publicacao de campanha (`/api/meta/upload-video`, usado em `CampaignResult.tsx`). Investigado antes de implementar: esse endpoint existente sobe o video DIRETO pra conta de anuncios do Meta do usuario (usando o token de acesso salvo daquela integracao) — funciona bem ali, mas exige que o usuario ja tenha conectado a propria conta Meta. Como o chat costuma ser usado logo no inicio da jornada (as vezes antes de qualquer plataforma estar conectada), reaproveitar esse endpoint direto deixaria o video inacessivel pra quem ainda nao conectou nada.
+
+**Decisao (confirmada com Michel — opcao B):** aceitar o video mesmo sem Meta conectado, usando um caminho generico (Cloudinary, mesmo provedor ja usado pras fotos) em vez de depender de uma integracao de plataforma especifica.
+
+**server/imageGeneration.ts**: nova funcao `uploadVideoBufferToCloudinary` — mesma logica de assinatura/upload ja usada pras fotos (`uploadImageBufferToCloudinary`), mas apontando pro endpoint de VIDEO do Cloudinary (`/video/upload`, diferente de `/image/upload` — a API do Cloudinary separa por tipo de recurso) e com timeout maior (120s, mesmo valor ja usado no upload de video pro Meta).
+
+**server/chat.ts**:
+- Novo endpoint `POST /chat/upload-video` — multipart via multer (nao base64 dentro do JSON da mensagem, diferente das fotos: um video de poucos segundos ja passa de 20-50mb, o que deixaria a requisicao do chat gigante e lenta). Limite de 100mb, com erro especifico e claro se ultrapassar (`LIMIT_FILE_SIZE` do multer tratado explicitamente, retornando 413 com mensagem em portugues em vez de deixar cair no handler de erro generico do Express). Valida o mimetype contra uma lista de formatos aceitos (MP4/MOV/WEBM/AVI/MKV).
+- POST / (mensagem do chat) agora aceita `videoUrl` opcional no corpo — se presente e for uma URL http(s) valida, anexa uma nota na ultima mensagem do usuario avisando a IA que um video existe naquela URL, mas deixando EXPLICITO que ela nao consegue assistir o conteudo — pra evitar que ela invente/descreva o que aparece no video (mesma preocupacao de nao alucinar que motivou o "REGRA DE OURO" ja documentado no topo do arquivo). Testado isolado: URL valida gera a nota corretamente; string vazia ou sem protocolo http(s) (ex: `javascript:alert(1)`) nao gera nota nenhuma.
+- Corrigido de passagem um comentario desatualizado no topo do arquivo que ainda dizia "Stateless... Nada e persistido no banco neste modulo" — nao e mais verdade desde a persistencia de sessoes (frente anterior).
+
+**client/src/hooks/useCampaignChat.ts**: novo tipo `ChatVideoAttachment` (diferente de `ChatImageAttachment` — rastreia status `uploading|done|error` em vez de guardar o arquivo em base64, ja que o upload acontece assim que o arquivo e escolhido, nao so quando a mensagem e enviada). Novo estado `videoAttachment` (um video por vez, diferente das fotos que aceitam varias) e funcoes `addVideoAttachment`/`removeVideoAttachment`. Video e "anexo de uma vez so": limpo automaticamente apos qualquer envio bem-sucedido (nao acumula entre mensagens como as fotos podem).
+
+**UI**: botao de anexar video (icone ao lado do de foto) e um chip mostrando status (girando enquanto sobe, com nome do arquivo quando pronto, com a mensagem de erro se falhar) em `ChatConversationView.tsx`, reaproveitado pelos dois lugares que usam essa view (`CampaignChat.tsx` e `ChatHomeView.tsx`). Botao de enviar fica desabilitado enquanto o video ainda esta subindo, pra nao mandar a mensagem sem a URL pronta.
+
+**O que NAO foi feito nesta frente, decisao deliberada de escopo:** o video anexado nao vira automaticamente um criativo publicavel de campanha — o motor de geracao (`generateCampaign` em `ai.ts`) e hoje inteiramente pensado pra criativos de imagem. Fazer o video ser de fato usado na campanha gerada exigiria estender essa estrutura, um escopo maior e separado. Por enquanto, o video anexado serve pra IA saber que ele existe e mencionar isso na conversa, nao pra ser incorporado tecnicamente na campanha.
+
+Validado: modulo chat.ts carrega sem crash com os imports novos (multer, uploadVideoBufferToCloudinary), check:server 37/37 (sem erro novo, confirmado contra a base sem estas mudancas), npm run build confirmado passando (CSS novo do chip de video presente no bundle final, confirmado por grep), logica de validacao de URL testada isolada (aceita http(s) valido, rejeita vazio e esquemas nao-http), as 7 suites de teste existentes sem regressao (117 testes).

@@ -15,8 +15,10 @@
  * REGRA DE OURO (mesma do LogPro): o agente NUNCA inventa número de
  * performance, preço ou resultado — toda ação real sai da ferramenta.
  *
- * Stateless: o cliente reenvia o histórico a cada turno (máx. 16 mensagens).
- * Nada é persistido no banco neste módulo.
+ * Stateless entre requisições HTTP: cada turno reenvia o histórico
+ * (máx. 16 mensagens). A conversa em si É persistida no banco
+ * (chat_sessions/chat_messages) pra sobreviver a um recarregamento de
+ * página e permitir listar/excluir conversas — ver persistirTrocaEResponder.
  */
 
 import { Router } from "express";
@@ -29,6 +31,8 @@ import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask"
 import { appendGeminiToolTurn } from "./ai-providers/geminiToolTurn";
 import { jwtVerify } from "jose";
 import * as db from "./db";
+import multer from "multer";
+import { uploadVideoBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
 // require("./ai") — mas este arquivo roda em contexto ESM puro (o
@@ -831,6 +835,94 @@ function responderLocal(): RespostaChat {
 /* ---------------- Rotas ---------------- */
 
 // GET /api/chat/status — diagnóstico leve (sem citar fornecedor)
+// ── Sessões de chat: listar, carregar histórico, excluir ──────────────────
+// Pedido de Michel (13/09): salvar/excluir chats, mostrar última campanha.
+chatRouter.get("/sessions", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const sessoes = await db.getChatSessionsByUserId(userId).catch(() => []);
+  res.json({ sessoes });
+});
+
+chatRouter.get("/sessions/:id/messages", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const sessionId = Number(req.params.id);
+  if (!Number.isFinite(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ erro: "ID de sessão inválido." });
+  }
+  const sessao = await db.getChatSessionById(sessionId).catch(() => null);
+  if (!sessao || (sessao as any).userId !== userId) {
+    return res.status(404).json({ erro: "Conversa não encontrada." });
+  }
+  const mensagens = await db.getChatMessagesBySessionId(sessionId).catch(() => []);
+  res.json({ sessao, mensagens });
+});
+
+chatRouter.delete("/sessions/:id", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const sessionId = Number(req.params.id);
+  if (!Number.isFinite(sessionId) || sessionId <= 0) {
+    return res.status(400).json({ erro: "ID de sessão inválido." });
+  }
+  const excluiu = await db.deleteChatSession(sessionId, userId).catch(() => false);
+  if (!excluiu) {
+    return res.status(404).json({ erro: "Conversa não encontrada." });
+  }
+  res.json({ ok: true });
+});
+
+// ── Upload de vídeo anexado no chat ────────────────────────────────────────
+// Achado real (pedido de Michel, 13/09): já existe upload de vídeo no
+// MecProAI (/api/meta/upload-video, usado na publicação de campanha),
+// mas ele exige o Meta já conectado (sobe direto pra conta de anúncios
+// do usuário) — no chat, muitas vezes o usuário ainda está no início e
+// nunca conectou nada. Este endpoint é genérico (Cloudinary, igual as
+// fotos), disponível pra qualquer usuário logado independente de ter
+// alguma plataforma de anúncio conectada.
+const uploadVideoMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100mb — suficiente pra clipes curtos de anúncio
+});
+
+const TIPOS_VIDEO_ACEITOS = new Set([
+  "video/mp4",
+  "video/quicktime", // .mov
+  "video/webm",
+  "video/x-msvideo", // .avi
+  "video/x-matroska", // .mkv
+]);
+
+chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
+  uploadVideoMulter.single("file")(req, res, (err: any) => {
+    if (err?.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ erro: "Vídeo muito grande — o limite é 100MB." });
+    }
+    if (err) {
+      return res.status(400).json({ erro: "Não foi possível processar o arquivo enviado." });
+    }
+    next();
+  });
+}, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const file = req.file as { buffer: Buffer; originalname: string; mimetype: string; size: number } | undefined;
+  if (!file) {
+    return res.status(400).json({ erro: "Nenhum arquivo de vídeo enviado." });
+  }
+  if (!TIPOS_VIDEO_ACEITOS.has(file.mimetype)) {
+    return res.status(400).json({ erro: `Formato de vídeo não suportado (${file.mimetype}). Use MP4, MOV, WEBM, AVI ou MKV.` });
+  }
+  try {
+    const videoUrl = await uploadVideoBufferToCloudinary(file.buffer, file.originalname || `chat-video-${Date.now()}.mp4`);
+    if (!videoUrl) {
+      return res.status(502).json({ erro: "Não foi possível salvar o vídeo agora. Tente novamente em instantes." });
+    }
+    log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size });
+    res.json({ videoUrl, fileName: file.originalname });
+  } catch (e: any) {
+    log.warn("chat", "falha no upload de vídeo do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
+    res.status(500).json({ erro: "Erro ao salvar o vídeo. Tente novamente." });
+  }
+});
+
 chatRouter.get("/status", (_req, res) => {
   const geminiOk = poolChavesGemini().length > 0;
   const deepSeekOk = !!process.env.DEEPSEEK_API_KEY;
@@ -840,6 +932,28 @@ chatRouter.get("/status", (_req, res) => {
     modo: geminiOk || deepSeekOk || groqOk ? "assistente" : "local",
   });
 });
+
+// Persiste a troca (mensagem do usuário + resposta) e responde — usado
+// nos 4 pontos de sucesso do handler abaixo (Gemini/DeepSeek/Groq/local),
+// pra não duplicar a lógica de gravação em cada um.
+async function persistirTrocaEResponder(
+  res: any,
+  sessionId: number | null,
+  ultimaMensagemUsuario: string | undefined,
+  resultado: RespostaChat
+) {
+  if (sessionId) {
+    if (ultimaMensagemUsuario) {
+      await db.appendChatMessage(sessionId, "user", ultimaMensagemUsuario).catch(() => {});
+    }
+    await db.appendChatMessage(sessionId, "assistant", resultado.resposta, resultado.campanha || null).catch(() => {});
+    await db.touchChatSession(sessionId, resultado.campanha ? { id: resultado.campanha.id, name: resultado.campanha.name, url: resultado.campanha.url } : null).catch(() => {});
+    if (ultimaMensagemUsuario) {
+      await db.maybeTitleChatSession(sessionId, ultimaMensagemUsuario).catch(() => {});
+    }
+  }
+  return res.json({ ...resultado, sessionId });
+}
 
 chatRouter.post("/", authChat, (req: any, _res, next) => {
   chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next);
@@ -866,11 +980,36 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
     return res.status(400).json({ erro: `Mensagem muito longa (máximo ${MAX_CONTEUDO_MENSAGEM} caracteres).` });
   }
 
+  // ── Sessão de chat (salvar/restaurar histórico, mostrar última campanha) ──
+  // Achado real (pedido de Michel, 13/09): sem isso, o histórico só
+  // existia no estado local do React — recarregar a página perdia tudo,
+  // e não tinha jeito de listar/excluir conversas anteriores nem ver qual
+  // foi a última campanha gerada.
+  let sessionId: number | null = null;
+  const sessionIdRecebido = Number(req.body?.sessionId);
+  if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
+    const sessaoExistente = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
+    if (sessaoExistente && (sessaoExistente as any).userId === userId) {
+      sessionId = sessionIdRecebido;
+    }
+    // sessionId inválido ou de outro usuário — ignora silenciosamente e
+    // cria uma sessão nova abaixo, em vez de dar erro pro usuário.
+  }
+  if (sessionId === null) {
+    const primeiraMensagem = recebidas.find((m) => m.role === "user")?.content || "Nova conversa";
+    sessionId = await db.createChatSession(userId, primeiraMensagem.slice(0, 80)).catch(() => null as any);
+  }
+
   // Mantém só as últimas trocas — o histórico inteiro é reenviado a cada
   // turno, e briefing de campanha não precisa de contexto longo.
   const mensagens = recebidas
     .filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
     .slice(-MAX_MENSAGENS_HISTORICO);
+
+  // Capturado ANTES da nota interna de anexo de foto ser adicionada
+  // abaixo — essa nota é instrução pra IA, não texto que o usuário
+  // digitou, então não deve ser persistida como se fosse a mensagem dele.
+  const ultimaMensagemUsuario = [...mensagens].reverse().find((m) => m.role === "user")?.content;
 
   if (attachments.length && mensagens.length) {
     const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
@@ -879,10 +1018,24 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
     }
   }
 
+  // Achado real (pedido de Michel, 13/09): vídeo anexado no chat (upload
+  // separado via /chat/upload-video — ver endpoint abaixo) chega aqui só
+  // como uma URL, não como base64 dentro da mensagem. Diferente das
+  // fotos, o modelo NÃO consegue "assistir" o vídeo — a nota deixa isso
+  // explícito, pra IA não fingir que viu o conteúdo e inventar detalhes
+  // que não tem como saber.
+  const videoUrlRecebida = typeof req.body?.videoUrl === "string" ? req.body.videoUrl.trim() : "";
+  if (videoUrlRecebida && /^https?:\/\//i.test(videoUrlRecebida) && mensagens.length) {
+    const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      lastUser.content += `\n\n[Vídeo anexado no chat: ${videoUrlRecebida}. Você não consegue assistir o conteúdo do vídeo — apenas confirme que ele foi recebido e, se relevante, mencione que ele pode ser usado como material da campanha. Nunca descreva ou invente o que aparece no vídeo.]`;
+    }
+  }
+
   if (proximaChaveGemini()) {
     try {
       const resultado = await tentarComGemini(mensagens, userId, attachments);
-      return res.json(resultado);
+      return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, resultado);
     } catch (erro) {
       log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
@@ -891,7 +1044,7 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (process.env.DEEPSEEK_API_KEY) {
     try {
       const resultado = await tentarComDeepSeek(mensagens, userId, attachments);
-      return res.json(resultado);
+      return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, resultado);
     } catch (erro) {
       log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
@@ -900,11 +1053,11 @@ chatRouter.post("/", authChat, (req: any, _res, next) => {
   if (process.env.GROQ_API_KEY) {
     try {
       const resultado = await tentarComGroq(mensagens, userId, attachments);
-      return res.json(resultado);
+      return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, resultado);
     } catch (erro) {
       log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
   }
 
-  return res.json(responderLocal());
+  return await persistirTrocaEResponder(res, sessionId, ultimaMensagemUsuario, responderLocal());
 });

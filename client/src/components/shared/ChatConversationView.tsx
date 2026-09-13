@@ -1,6 +1,6 @@
-import { ImagePlus, Send, X } from "lucide-react";
+import { ImagePlus, Send, X, Video, Loader2 } from "lucide-react";
 import type { RefObject } from "react";
-import type { ChatImageAttachment, ChatMessage } from "@/hooks/useCampaignChat";
+import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment } from "@/hooks/useCampaignChat";
 import { ASSISTANT_IMAGE, SUGESTOES } from "@/hooks/useCampaignChat";
 
 function FormatarTexto({ texto }: { texto: string }) {
@@ -44,6 +44,9 @@ interface ChatConversationViewProps {
   addAttachments: (files: FileList | File[]) => Promise<void>;
   removeAttachment: (id: string) => void;
   attachmentError: string;
+  videoAttachment: ChatVideoAttachment | null;
+  addVideoAttachment: (file: File) => Promise<void>;
+  removeVideoAttachment: () => void;
   send: (textoOverride?: string) => void;
   scrollRef: RefObject<HTMLDivElement>;
   fullScreen?: boolean;
@@ -60,6 +63,9 @@ export default function ChatConversationView({
   addAttachments,
   removeAttachment,
   attachmentError,
+  videoAttachment,
+  addVideoAttachment,
+  removeVideoAttachment,
   send,
   scrollRef,
   fullScreen = false,
@@ -153,6 +159,22 @@ export default function ChatConversationView({
           </div>
         )}
 
+        {videoAttachment && (
+          <div className="campaign-chat-video-chip" data-status={videoAttachment.status}>
+            {videoAttachment.status === "uploading" && <Loader2 size={14} className="campaign-chat-spin" strokeWidth={2.4} />}
+            {videoAttachment.status === "done" && <Video size={14} strokeWidth={2.4} />}
+            {videoAttachment.status === "error" && <X size={14} strokeWidth={2.4} />}
+            <span>
+              {videoAttachment.status === "uploading" && `Enviando ${videoAttachment.fileName}…`}
+              {videoAttachment.status === "done" && videoAttachment.fileName}
+              {videoAttachment.status === "error" && (videoAttachment.erro || "Falha ao enviar o vídeo")}
+            </span>
+            <button type="button" onClick={removeVideoAttachment} aria-label="Remover vídeo">
+              <X size={13} strokeWidth={2.4} />
+            </button>
+          </div>
+        )}
+
         <div className="campaign-chat-composer">
           <label className="campaign-chat-attach" title="Anexar fotos da campanha">
             <input
@@ -166,6 +188,18 @@ export default function ChatConversationView({
               }}
             />
             <ImagePlus size={18} strokeWidth={2.3} />
+          </label>
+          <label className="campaign-chat-attach" title="Anexar vídeo da campanha">
+            <input
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0];
+                if (file) void addVideoAttachment(file);
+                e.currentTarget.value = "";
+              }}
+            />
+            <Video size={18} strokeWidth={2.3} />
           </label>
           <textarea
             value={input}
@@ -183,7 +217,7 @@ export default function ChatConversationView({
           <button
             type="button"
             onClick={() => send()}
-            disabled={loading || (!input.trim() && attachments.length === 0)}
+            disabled={loading || videoAttachment?.status === "uploading" || (!input.trim() && attachments.length === 0)}
             className="campaign-chat-send"
             aria-label="Enviar mensagem"
             title="Enviar"

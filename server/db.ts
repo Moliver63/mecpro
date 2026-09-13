@@ -11,6 +11,7 @@ import {
   lessonProgress,
   appSettings,
   mcpIdempotencyKeys,
+  chatSessions, chatMessages,
   type InsertUser, type InsertProject, type InsertClientProfile,
   type InsertCompetitor, type InsertCampaign, type InsertPaymentHistory,
 } from "./schema";
@@ -1543,3 +1544,63 @@ export async function failMcpIdempotencyKey(recordId: number, errorMessage: stri
     .where(eq(mcpIdempotencyKeys.id, recordId));
 }
 
+// ── Sessões do chat de campanhas (salvar/excluir/listar histórico) ────────
+// Pedido de Michel (13/09): salvar/excluir chats, mostrar última campanha
+// gerada, e o chat manter memória entre sessões (não repetir passos).
+
+export async function createChatSession(userId: number, title: string) {
+  const db = await getDb(); if (!db) throw new Error("DB unavailable");
+  const r = await db.insert(chatSessions).values({ userId, title: title.slice(0, 200) || "Nova conversa" }).returning({ id: chatSessions.id });
+  return r[0].id;
+}
+
+export async function getChatSessionsByUserId(userId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(chatSessions).where(eq(chatSessions.userId, userId)).orderBy(desc(chatSessions.updatedAt));
+}
+
+export async function getChatSessionById(id: number) {
+  const db = await getDb(); if (!db) return null;
+  const r = await db.select().from(chatSessions).where(eq(chatSessions.id, id)).limit(1);
+  return r[0] ?? null;
+}
+
+export async function getChatMessagesBySessionId(sessionId: number) {
+  const db = await getDb(); if (!db) return [];
+  return db.select().from(chatMessages).where(eq(chatMessages.sessionId, sessionId)).orderBy(chatMessages.createdAt);
+}
+
+export async function appendChatMessage(sessionId: number, role: string, content: string, campanha: unknown | null = null) {
+  const db = await getDb(); if (!db) return;
+  await db.insert(chatMessages).values({ sessionId, role, content, campanha: campanha as any });
+}
+
+export async function touchChatSession(sessionId: number, campanha?: { id: number; name: string; url?: string } | null) {
+  const db = await getDb(); if (!db) return;
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if (campanha) {
+    patch.lastCampaignId = campanha.id;
+    patch.lastCampaignName = campanha.name;
+    if (campanha.url) patch.lastCampaignUrl = campanha.url;
+  }
+  await db.update(chatSessions).set(patch as any).where(eq(chatSessions.id, sessionId));
+}
+
+/** Renomeia a sessão só na primeira mensagem (título ainda no padrão). */
+export async function maybeTitleChatSession(sessionId: number, tituloSugerido: string) {
+  const db = await getDb(); if (!db) return;
+  await db
+    .update(chatSessions)
+    .set({ title: tituloSugerido.slice(0, 200) } as any)
+    .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.title, "Nova conversa")));
+}
+
+/** Exclui a sessão só se pertencer ao usuário — retorna false se não achou/não é dono. */
+export async function deleteChatSession(sessionId: number, userId: number): Promise<boolean> {
+  const db = await getDb(); if (!db) return false;
+  const r = await db
+    .delete(chatSessions)
+    .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, userId)))
+    .returning({ id: chatSessions.id });
+  return r.length > 0;
+}

@@ -1069,5 +1069,37 @@ export async function runMigrations(): Promise<void> {
     `).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens("userId")`).catch(() => {});
 
+    // ── Persistência de conversas do chat de campanhas ──────────────────
+    // Achado real (pedido de Michel, 13/09): "salvar ou excluir os chats"
+    // + "mostrar qual campanha ele gerou por último" + "memória do que
+    // fez no chat pra não ficar repetindo passos" — até aqui o chat era
+    // inteiramente sem estado no servidor (histórico só existia no
+    // estado local do React, perdido ao recarregar a página).
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id                 SERIAL PRIMARY KEY,
+        "userId"           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title              VARCHAR(200) NOT NULL DEFAULT 'Nova conversa',
+        "lastCampaignId"   INTEGER,
+        "lastCampaignName" VARCHAR(255),
+        "lastCampaignUrl"  TEXT,
+        "createdAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        "updatedAt"        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions("userId", "updatedAt" DESC)`).catch(() => {});
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id          SERIAL PRIMARY KEY,
+        "sessionId" INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role        VARCHAR(20) NOT NULL,
+        content     TEXT NOT NULL,
+        campanha    JSONB,
+        "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages("sessionId", "createdAt")`).catch(() => {});
+
     console.log('[migrations] ✅ Migrations applied successfully');
 }
