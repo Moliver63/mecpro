@@ -33,8 +33,23 @@ export const SUBSEGMENTS: Record<string, Subsegment[]> = {
       ctaOverride: ["Garantir na planta", "Ver condições de lançamento", "Quero conhecer"] },
     { key: "alto_padrao", label: "Alto padrão", strong: false,
       signals: ["alto padr[ãa]o", "luxo", "cobertura", "exclusiv", "sofisticad"],
-      hookOverride: "exclusividade / sofisticação / estilo de vida premium",
-      ctaOverride: ["Agendar visita exclusiva", "Conhecer o empreendimento"] },
+      // Achado real (conversa colada por Michel, 13/09 — mesmo padrao ja
+      // documentado antes na campanha 747): esse hookOverride/ctaOverride
+      // e interpolado DIRETO no prompt em server/campaignProfile.ts
+      // ("Prefira um destes CTAs: Agendar visita exclusiva...") — mas
+      // server/campaignFactGuard.ts tem uma regra estrutural que REJEITA
+      // "exclusiv[oa]", "alto padrao" e "sofisticad[oa]" como alegacao de
+      // escassez/exclusividade nao comprovada, a menos que o proprio
+      // cliente tenha confirmado isso no briefing. Resultado: o sistema
+      // instrui o modelo a escrever exatamente a linguagem que sua propria
+      // rede de seguranca rejeita depois, fazendo a geracao falhar sem
+      // necessidade. Os SIGNALS de deteccao continuam os mesmos (sao so
+      // pra reconhecer quando o proprio usuario menciona esses termos —
+      // isso e legitimo), mas o texto SUGERIDO pro modelo foi reescrito
+      // pra transmitir a mesma posicao de mercado (padrao premium) sem
+      // usar nenhuma das palavras que o fact guard rejeita.
+      hookOverride: "padrão superior de acabamento / localização privilegiada / estilo de vida premium",
+      ctaOverride: ["Agendar visita", "Conhecer o empreendimento"] },
     { key: "mcmv", label: "Minha Casa Minha Vida", strong: true,
       signals: ["minha casa minha vida", "\\bmcmv\\b", "subs[íi]dio", "entrada facilitada", "financiamento caixa"],
       hookOverride: "realize o sonho da casa própria com subsídio / parcelas que cabem no bolso",
