@@ -3,7 +3,24 @@ import assert from "node:assert/strict";
 import { createChatSessionMiddleware } from "../chatSession";
 import { briefingContext } from "../chatBriefing";
 
-const sessionId = "12345678-1234-1234-1234-123456789012";
+const sessionId = 123;
+test("save failure leaves the error handler able to send JSON", async () => {
+  let payload: any;
+  let resolve!: () => void;
+  const finished = new Promise<void>(r => { resolve = r; });
+  const middleware = createChatSessionMiddleware(async () => ({ async query(sql: string) {
+    if (sql.includes("RETURNING state")) return { rows: [{ state: { briefing: {} } }] };
+    throw new Error("save failed");
+  } }));
+  const res: any = { json(value: any) { payload = value; resolve(); }, on() {} };
+  await middleware({ chatUserId: 7, body: { sessionId } }, res, (error?: unknown) => {
+    if (error) res.json({ erro: "save failed" });
+    else res.json({ resposta: "ok" });
+  });
+  await finished;
+  assert.deepEqual(payload, { erro: "save failed" });
+});
+
 test("session persistence scopes every query to the authenticated account", async () => {
   const queries: Array<{ sql: string; params: any[] }> = [];
   let payload: any;

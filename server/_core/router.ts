@@ -1,4 +1,5 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { parseDailyBudget } from "../../shared/dailyBudget";
 import { log } from "../logger";
 import { recordLedger } from "../financialEngine";
 import superjson from "superjson";
@@ -4298,7 +4299,11 @@ const campaignsRouter = router({
       // Prioridade: % sempre ganha sobre R$ quando ambos presentes
       // Ex: "R$ 100 (33% do total)" → usa 33% do totalDaily
       const pctInRaw = adSetBudgetRaw.match(/(\d+(?:\.\d+)?)\s*%/);
-      if (pctInRaw) {
+      const explicitDaily = /\/dia\s*$/i.test(adSetBudgetRaw) ? parseDailyBudget(adSetBudgetRaw) : null;
+      if (/\/dia\s*$/i.test(adSetBudgetRaw) && explicitDaily === null) throw new Error("Orcamento diario invalido no conjunto de anuncios.");
+      if (explicitDaily !== null) {
+        budgetDaily = explicitDaily;
+      } else if (pctInRaw) {
         const pct   = parseFloat(pctInRaw[1]) / 100;
         budgetDaily = Math.max(1, Math.round(totalDaily * pct));
       } else if (adSetBudgetRaw.match(/R\$[\s]?([\d.,]+)/)) {
@@ -4335,6 +4340,7 @@ const campaignsRouter = router({
       // Se o cálculo ficar abaixo, eleva para o mínimo
       const META_MIN_DAILY_BRL = 6; // R$ 6/dia por adSet quando budget elevado automaticamente
       if (budgetDaily < META_MIN_DAILY_BRL) {
+        if (explicitDaily !== null) throw new Error(`Orcamento diario explicito abaixo do minimo de R$ ${META_MIN_DAILY_BRL}. Confirme o ajuste antes de publicar.`);
         log.warn("meta", "Budget abaixo do mínimo Meta — elevando", {
           original: budgetDaily, minimum: META_MIN_DAILY_BRL,
         });

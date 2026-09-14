@@ -10,13 +10,14 @@ const numbers = ["projectId", "budget", "durationDays", "ageMin", "ageMax", "fea
 
 export function mergeChatBriefing(previous: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
   const next = { ...previous };
-  for (const field of [...strings, ...numbers, "createProject", "newCampaign"]) {
+  if (patch.projectName !== undefined && patch.projectName !== previous.projectName) delete next.confirmDistinctProject;
+  for (const field of [...strings, ...numbers, "createProject", "newCampaign", "confirmDistinctProject"]) {
     if (!(field in patch)) continue;
     const value = patch[field];
     if (value === null) { delete next[field]; continue; }
     if (strings.includes(field) && typeof value === "string" && value.trim()) next[field] = value.trim().slice(0, 4000);
     if (numbers.includes(field) && typeof value === "number" && Number.isFinite(value)) next[field] = value;
-    if (["createProject", "newCampaign"].includes(field) && typeof value === "boolean") next[field] = value;
+    if (["createProject", "newCampaign", "confirmDistinctProject"].includes(field) && typeof value === "boolean") next[field] = value;
   }
   if (patch.createProject === true) delete next.projectId;
   if (typeof patch.projectId === "number") { next.createProject = false; if (!("projectName" in patch)) delete next.projectName; }
