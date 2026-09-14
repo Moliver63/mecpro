@@ -25,6 +25,7 @@ import { Router } from "express";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
 import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
+import { publicarCampanhaNaMeta, listarPaginasMetaConectadas } from "./campaignPublish";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask";
@@ -220,7 +221,14 @@ Colete, nesta ordem de prioridade (só peça o que ainda não souber):
 9. Se o usuário anexar fotos, use essas fotos reais na campanha. Com 2 ou mais fotos anexadas, prefira formato carousel, a não ser que o usuário peça outro formato.
 
 Depois de selecionar um projeto existente, consulte suas campanhas. Pergunte se deseja abrir uma existente, editar uma existente ou gerar uma nova.
-Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao. Esta conversa ainda nao publica campanhas na Meta/Google/TikTok diretamente — se o usuario pedir pra publicar, explique que a publicacao final e feita na tela da campanha (retorne o link) e nao pelo chat ainda.
+Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
+
+PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
+- Publicar e IRREVERSIVEL e GASTA DINHEIRO REAL do cliente. So chame publicar_campanha depois do usuario confirmar EXPLICITAMENTE, NA MESMA troca da conversa — frases como "pode publicar", "sim, publica", "confirmo" contam; uma confirmacao de varias mensagens atras, ou um "sim" respondendo outra pergunta, nao conta.
+- Antes de chamar, resuma pro usuario o que vai ser publicado (nome da campanha, orcamento, pagina) e so prossiga apos a confirmacao dele — nunca publique como primeira reacao a "crie uma campanha" ou similar.
+- Se voce nao sabe o pageId, chame consultar_paginas_meta primeiro (nunca invente ou adivinhe um pageId).
+- So funciona com Meta por enquanto — Google e TikTok continuam sendo publicados manualmente pela tela da campanha (retorne o link).
+- So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
 
 Resolucao de referencias — o usuario raramente vai falar "campaignId 42". Ele vai dizer "essa campanha", "a ultima", "mantenha o orcamento", "a fachada e a principal". Antes de perguntar, procure a resposta nesta ordem:
 1. Na mensagem atual e nas anteriores desta mesma conversa (ex: se voce acabou de gerar uma campanha, "essa campanha"/"a ultima" e ela).
@@ -320,11 +328,45 @@ const DESCRICAO_FOTO_DESTAQUE =
   "NAO adivinhe — consulte a campanha (consultar_projetos_campanhas com campaignId) pra ver a lista de criativos e " +
   "pergunte ao usuario qual delas ele quer, descrevendo as opcoes disponiveis.";
 
+// Achado real (missao "agente conversacional autonomo", Fase 2 — 13/09):
+// publicar era a unica acao do cenario de teste da missao que ainda nao
+// existia como ferramenta de chat. Reaproveita a MESMA orquestracao ja
+// construida (e ja em uso) na ferramenta MCP publish_campaign — auditoria
+// de carrossel, resolucao/upload de imagem, resolucao de link — via
+// server/campaignPublish.ts, nao uma segunda implementacao que pudesse
+// divergir. PUBLICAR E IRREVERSIVEL E GASTA DINHEIRO REAL — as duas
+// ferramentas abaixo tem descricao explicita instruindo o modelo a nunca
+// chamar publicar_campanha sem confirmacao clara do usuario NA MESMA
+// troca (nao uma confirmacao antiga, de varias mensagens atras).
+const PARAMETROS_PAGINAS_META = { type: "object", properties: {}, additionalProperties: false };
+const DESCRICAO_PAGINAS_META =
+  "Lista as Paginas do Facebook que a conta Meta conectada do usuario tem acesso. Chame isso ANTES de " +
+  "publicar_campanha se voce ainda nao sabe o pageId — nunca invente ou adivinhe um pageId.";
+
+const PARAMETROS_PUBLICAR_CAMPANHA = {
+  type: "object",
+  properties: {
+    campaignId: { type: "integer", description: "ID da campanha ja criada e confirmada com o usuario." },
+    pageId: { type: "string", description: "ID da Pagina do Facebook onde publicar — obtido via consultar_paginas_meta. Nunca invente." },
+    destination: { type: "string", enum: ["website", "lead_form"], description: "Padrao: website." },
+    linkUrl: { type: "string", description: "URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da pagina." },
+  },
+  required: ["campaignId", "pageId"],
+};
+const DESCRICAO_PUBLICAR_CAMPANHA =
+  "PUBLICA a campanha na Meta Ads DE VERDADE — a partir daqui, orcamento real do cliente comeca a ser gasto. " +
+  "So chame isso depois do usuario confirmar EXPLICITAMENTE nesta mesma troca (ex: \"pode publicar\", \"sim, publica\", " +
+  "\"confirmo\") — uma confirmacao de varias mensagens atras nao vale, peca confirmacao de novo se o assunto mudou. " +
+  "A campanha e criada PAUSADA (nao comeca a rodar sozinha) — ainda assim, so chame com certeza real de que o " +
+  "usuario quer publicar AGORA. Se voce nao sabe o pageId, chame consultar_paginas_meta primeiro.";
+
 const declaracoesGemini: FunctionDeclaration[] = [
   { name: CONSULTAR_WORKSPACE.name, description: CONSULTAR_WORKSPACE.description, parametersJsonSchema: CONSULTAR_WORKSPACE.parameters },
   { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parametersJsonSchema: PARAMETROS_GERAR_CAMPANHA },
   { name: "atualizar_orcamento_campanha", description: DESCRICAO_ATUALIZAR_ORCAMENTO, parametersJsonSchema: PARAMETROS_ATUALIZAR_ORCAMENTO },
   { name: "definir_foto_destaque", description: DESCRICAO_FOTO_DESTAQUE, parametersJsonSchema: PARAMETROS_FOTO_DESTAQUE },
+  { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parametersJsonSchema: PARAMETROS_PAGINAS_META },
+  { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
 ];
 
 const ferramentasGroq = [
@@ -340,6 +382,14 @@ const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "definir_foto_destaque", description: DESCRICAO_FOTO_DESTAQUE, parameters: PARAMETROS_FOTO_DESTAQUE as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parameters: PARAMETROS_PAGINAS_META as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parameters: PARAMETROS_PUBLICAR_CAMPANHA as Record<string, unknown> },
   },
 ];
 
@@ -696,6 +746,16 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       if (name === CONSULTAR_WORKSPACE.name) return queryChatWorkspace(userId, limparArgsFerramenta(args), db);
       if (name === "atualizar_orcamento_campanha") return atualizarOrcamentoCampanha(userId, limparArgsFerramenta(args), db);
       if (name === "definir_foto_destaque") return definirFotoDestaque(userId, limparArgsFerramenta(args), db);
+      if (name === "consultar_paginas_meta") return listarPaginasMetaConectadas(userId);
+      if (name === "publicar_campanha") {
+        const a = limparArgsFerramenta(args);
+        return publicarCampanhaNaMeta(userId, {
+          campaignId: Number(a.campaignId),
+          pageId: String(a.pageId || ""),
+          destination: a.destination as "website" | "lead_form" | undefined,
+          linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
+        });
+      }
       if (name !== "gerar_campanha") return { erro: "Ferramenta desconhecida." };
       if (campanha) return { campanha };
       const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
@@ -774,6 +834,22 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
     }
     if (chamada.function.name === "definir_foto_destaque") {
       const result = await definirFotoDestaque(userId, limparArgsFerramenta(args), db);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === "consultar_paginas_meta") {
+      const result = await listarPaginasMetaConectadas(userId);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === "publicar_campanha") {
+      const a = limparArgsFerramenta(args);
+      const result = await publicarCampanhaNaMeta(userId, {
+        campaignId: Number(a.campaignId),
+        pageId: String(a.pageId || ""),
+        destination: a.destination as "website" | "lead_form" | undefined,
+        linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
+      });
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -879,6 +955,22 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
     if (chamada.function?.name === "definir_foto_destaque") {
       const result = await definirFotoDestaque(userId, limparArgsFerramenta(args), db);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function?.name === "consultar_paginas_meta") {
+      const result = await listarPaginasMetaConectadas(userId);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function?.name === "publicar_campanha") {
+      const a = limparArgsFerramenta(args);
+      const result = await publicarCampanhaNaMeta(userId, {
+        campaignId: Number(a.campaignId),
+        pageId: String(a.pageId || ""),
+        destination: a.destination as "website" | "lead_form" | undefined,
+        linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
+      });
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }

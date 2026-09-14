@@ -25,7 +25,6 @@ import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./
 import { log } from "./logger";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
-import { getCarouselEditorialIssues } from "../shared/campaignCopyQuality";
 import { classifyCampaignPhoto } from "./campaignPhotoClassification";
 import { getOperationalLessons, refineOperationalLesson } from "./systemMemory";
 
@@ -506,64 +505,18 @@ function orderCampaignPhotoInsights(
   return [...(featured ? [featured] : []), ...rest].map((photo, idx) => ({ ...photo, isFeatured: idx === 0 }));
 }
 
-function getCreativeMedia(c: any) {
-  return {
-    hash: c?.feedImageHash || c?.imageHash || c?.metaImageHash,
-    url: c?.feedImageUrl || c?.imageUrl || c?.mediaUrl,
-  };
-}
-
-function orderedCreativesForCarousel(creatives: any[]): any[] {
-  return creatives
-    .map((creative, index) => ({ creative, index }))
-    .sort((a, b) => {
-      const aFeatured = a.creative?.isFeaturedPhoto === true ? 0 : 1;
-      const bFeatured = b.creative?.isFeaturedPhoto === true ? 0 : 1;
-      if (aFeatured !== bFeatured) return aFeatured - bFeatured;
-      const aOriginal = Number.isFinite(Number(a.creative?.photoOriginalIndex)) ? Number(a.creative.photoOriginalIndex) : Number.MAX_SAFE_INTEGER;
-      const bOriginal = Number.isFinite(Number(b.creative?.photoOriginalIndex)) ? Number(b.creative.photoOriginalIndex) : Number.MAX_SAFE_INTEGER;
-      if (aOriginal !== bOriginal) return aOriginal - bOriginal;
-      return a.index - b.index;
-    })
-    .map((item) => item.creative);
-}
-
-function auditCarouselCreatives(creatives: any[]) {
-  const mediaCreatives = orderedCreativesForCarousel(creatives)
-    .filter((creative) => {
-      const media = getCreativeMedia(creative);
-      return media.hash || media.url;
-    })
-    .slice(0, 10);
-
-  if (mediaCreatives.length < 2) return { ok: true, issues: [] as string[], orderedCreatives: mediaCreatives };
-
-  const issues: string[] = getCarouselEditorialIssues(mediaCreatives);
-  const seenHeadlines = new Map<string, number>();
-  const seenDescriptions = new Map<string, number>();
-  const normalize = (value: unknown) => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
-
-  mediaCreatives.forEach((creative, index) => {
-    const card = index + 1;
-    const headline = normalize(creative?.headline || creative?.title || creative?.name);
-    const description = normalize(creative?.description || creative?.shortDescription);
-    const body = normalize(creative?.copy || creative?.bodyText || creative?.primaryText || creative?.text);
-
-    if (headline.length < 8) issues.push(`Card ${card}: headline ausente ou curta demais.`);
-    if (description.length < 4) issues.push(`Card ${card}: description/shortDescription ausente ou curta demais.`);
-    if (body.length < 80) issues.push(`Card ${card}: copy/bodyText principal curto demais para carrossel.`);
-
-    const previousHeadline = headline ? seenHeadlines.get(headline) : undefined;
-    if (previousHeadline !== undefined) issues.push(`Card ${card}: headline repetida do card ${previousHeadline + 1}.`);
-    if (headline) seenHeadlines.set(headline, index);
-
-    const previousDescription = description ? seenDescriptions.get(description) : undefined;
-    if (previousDescription !== undefined) issues.push(`Card ${card}: description repetida do card ${previousDescription + 1}.`);
-    if (description) seenDescriptions.set(description, index);
-  });
-
-  return { ok: issues.length === 0, issues, orderedCreatives: mediaCreatives };
-}
+// Exportadas em server/carouselAudit.ts (13/09, publicação via chat) —
+// mesmas 3 funções, reaproveitadas aqui via import. Extraídas pra fora
+// deste arquivo porque importar delas DAQUI (mesmo só named exports)
+// arrastava os efeitos colaterais do arquivo inteiro pra qualquer outro
+// consumidor (confirmado: um teste em server/campaignPublish.ts falhava
+// tentando conectar num banco real, sem nenhuma chamada de rede no
+// próprio teste). Nenhum comportamento mudou, só o arquivo onde vivem.
+// Achado real: "export {...} from" reexporta pra quem importa DE FORA
+// deste arquivo, mas não traz os nomes pro escopo INTERNO — e a
+// ferramenta publish_campaign, logo abaixo, ainda chama essas 3 funções
+// diretamente. import normal resolve os dois casos.
+import { getCreativeMedia, orderedCreativesForCarousel, auditCarouselCreatives } from "./carouselAudit";
 
 // ── Escopo de acesso por API key ──────────────────────────────────────────
 type McpScope = "read" | "write" | "publish";
