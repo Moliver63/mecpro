@@ -7169,7 +7169,8 @@ REGRAS DE COPY — PROIBIÇÕES ABSOLUTAS (obrigatoriamente aplicadas em TODOS o
 
 1. NUNCA INVENTE PROMOÇÕES, DESCONTOS OU URGÊNCIA:
    - PROIBIDO: "só hoje", "condições especiais", "por tempo limitado", "últimas vagas", 
-     "desconto de X%", "aproveite agora", "não perca", "corre que acaba"
+     "vagas limitadas", "unidades limitadas", "desconto de X%", "aproveite agora", 
+     "não perca", "corre que acaba"
    - SÓ USE termos de urgência se o briefing EXPLICITAMENTE confirmar uma promoção 
      com data de início e fim. Se não houver, NÃO MENCIONE.
    - Se o cliente não informou preço promocional, NÃO INVENTE um.
@@ -7196,6 +7197,16 @@ REGRAS DE COPY — PROIBIÇÕES ABSOLUTAS (obrigatoriamente aplicadas em TODOS o
    - Se o segmento é alimentação/confeitaria, NÃO use tom de coaching/empreendedorismo.
    - Se o segmento é imóveis, NÃO use tom de produto de consumo massivo.
    - Ajuste o tom ao nicho real do cliente, não a um template genérico de "transformação".
+
+5. NUNCA TROQUE O TIPO DE IMÓVEL/PRODUTO CONFIRMADO POR UM SINÔNIMO PRÓXIMO:
+   - Use EXATAMENTE o termo que o briefing confirmou (ex.: "sala comercial"), nunca
+     um sinônimo aparentemente equivalente como "escritório", "consultório", "loja"
+     ou "ponto comercial" — mesmo que pareçam a mesma coisa, o cliente pode ter um
+     motivo pra ter escolhido aquele termo específico, e um termo errado pode
+     descrever mal o imóvel/produto real.
+   - Isso vale pra qualquer fato confirmado no briefing, não só tipo de imóvel:
+     preço, área, endereço — use o valor exato informado, nunca uma aproximação
+     ou um sinônimo.
 
 VALIDAÇÃO FINAL: Antes de retornar cada criativo, verifique:
 - Alguma palavra da lista PROIBIDA aparece? → Substitua por fato concreto do briefing.

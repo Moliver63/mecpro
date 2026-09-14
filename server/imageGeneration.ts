@@ -1075,14 +1075,30 @@ function buildCloudflarePrompt(prompt: string, maxLength = 1900): string {
 // Cloudinary — dimensão aqui é só hint de geração, nunca requisito.
 const CF_MODELOS_SEM_DIMENSOES = /(@cf\/stabilityai\/|stable-diffusion|dreamshaper|@cf\/lykon\/)/i;
 
-function cloudflareModeloAceitaDimensoes(model: string): boolean {
+export function cloudflareModeloAceitaDimensoes(model: string): boolean {
   return !CF_MODELOS_SEM_DIMENSOES.test(model);
+}
+
+// Achado real (log de produção, 13/09): TODA chamada ao FLUX Schnell
+// falhava com 400 "Additional or unevaluated properties '/num_steps'"
+// — mesmo a retentativa sem dimensões, porque o campo problemático não
+// era width/height, era num_steps. Confirmado via documentação oficial
+// da Cloudflare (developers.cloudflare.com/workers-ai/models/
+// flux-1-schnell) e um PR de terceiros documentando o mesmo problema:
+// o FLUX usa o campo "steps" (default 4, máximo 8) — "num_steps" é
+// nome de campo da família Stable Diffusion, não do FLUX. O código
+// sempre mandava "num_steps", que o schema do FLUX rejeita por
+// completo (nem reconhece o campo). Resultado: toda imagem via
+// Cloudflare falhava e caía direto pro fallback do Pixabay (fotos de
+// banco de imagens genéricas, não geradas pra aquele negócio).
+export function cloudflareCampoDeSteps(model: string): "steps" | "num_steps" {
+  return /flux/i.test(model) ? "steps" : "num_steps";
 }
 
 function montarCorpoCloudflare(prompt: string, format: CreativeImageFormat, comDimensoes: boolean): Record<string, unknown> {
   const corpo: Record<string, unknown> = {
     prompt,
-    num_steps: 8, // mais passos = maior qualidade e melhor aderência ao prompt
+    [cloudflareCampoDeSteps(CF_IMAGE_MODEL)]: 8, // mais passos = maior qualidade e melhor aderência ao prompt
   };
   if (comDimensoes) {
     const dim = FORMAT_DIMENSIONS[format];
