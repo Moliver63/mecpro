@@ -1622,8 +1622,7 @@ export async function generateAdImage(
                   cfBuffer, `cf_flux_${format}_${Date.now()}.jpg`
                 );
                 if (cfUrl) {
-                  IMAGE_CACHE.set(cacheKey, cfUrl);
-                  log.info("image-generation", `✅ Cloudflare FLUX OK (RAG passou, tentativa ${attempt})`, { format });
+                  log.info("image-generation", `Cloudflare FLUX gerou imagem; RAG ainda pendente (tentativa ${attempt})`, { format });
                   // RAG: valida imagem antes de salvar no banco
                   try {
                     const { runImageRAG: _rag } = await import("./imageRAG");
@@ -1642,17 +1641,16 @@ export async function generateAdImage(
                       log.info("image-generation", "RAG aprovado — salvo na biblioteca", {
                         score: ragResult.scores.overall_score,
                       });
+                      IMAGE_CACHE.set(cacheKey, cfUrl);
                     } else {
                       log.warn("image-generation", `RAG ${ragResult.validation_status}`, {
                         rejection: ragResult.rejection_reason.slice(0,80),
                       });
+                      return null;
                     }
                   } catch (ragErr: any) {
-                    // RAG falhou silenciosamente — salva mesmo assim
-                    await saveApprovedImage({
-                      cloudUrl: cfUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
-                      query: "cf_flux", provider: "cloudflare", bytes: cfBuffer.length,
-                    });
+                    log.warn("image-generation", "RAG indisponivel: imagem nao aprovada nem armazenada no cache", { format });
+                    return null;
                   }
                   return cfUrl;
                 }

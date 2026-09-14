@@ -677,6 +677,9 @@ export function buildCampaignFacts({
     furnished ? `Mobilia: ${furnished}` : "",
     includedFees ? `Taxas: ${includedFees}` : "",
     ...structuralFeatures.map((feature) => `Caracteristica: ${feature}`),
+    genericProductPrice ? `Preco do produto/servico: ${genericProductPrice}` : "",
+    genericAddress ? `Endereco comercial: ${genericAddress}` : "",
+    ...confirmedCharacteristics.map((feature) => `Caracteristica confirmada: ${feature}`),
   ]);
 
   const allowedInferences = unique([
@@ -736,7 +739,7 @@ function collectTextFields(value: unknown, prefix = "root", out: Array<{ field: 
   }
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     const nextPrefix = `${prefix}.${key}`;
-    const isTextField = /^(headline|description|shortDescription|bodyText|copy|hook|pain|solution|script|text)$/i.test(key);
+    const isTextField = /^(headline|description|shortDescription|bodyText|copy|hook|cta|pain|solution|script|text)$/i.test(key);
     const isRelevantContainer = /^(creativeSystemV2|copyBank|hooks|bodies|headlines|ctas|descriptions|creativeVariants|channels|placements)$/i.test(key)
       || prefix.includes("creativeSystemV2.copyBank");
     if (isTextField || isRelevantContainer || (item && typeof item === "object")) {

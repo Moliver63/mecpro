@@ -24,6 +24,7 @@ import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
+import { acceptCreativeRewrite } from "./creativeRewriteGuard";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 import { detectRealEstateSegment, matchesNicheKeyword, pickMostSpecificSegmentMatch } from "../shared/segmentConfig";
@@ -8162,6 +8163,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     }
     if (Array.isArray(parsedCreatives) && parsedCreatives.length > 0) {
       const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsedCreatives, {
+        campaignFacts,
         objective:      input.objective,
         segment:        resolvedSegment,
         productName:    (clientProfile as any)?.productName    || "",
@@ -8199,7 +8201,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
         return {
           ...creative,
           ...finalScore,
-          needsReview: (!financeSafe && finalScore.finalScore < 75) || !!creative.hasPlaceholder
+          needsReview: !!creative.needsReview || (!financeSafe && finalScore.finalScore < 75) || !!creative.hasPlaceholder
             || (Array.isArray(creative.segmentAlignmentIssues) && creative.segmentAlignmentIssues.length > 0),
         };
       });
@@ -8207,6 +8209,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     }
   } catch (error: any) {
     log.warn("ai", "Falha ao enriquecer criativos com score/imagem", { error: error?.message });
+    if (String(error?.message).startsWith("FACT_CONFLICT:")) throw error;
   }
 
   const factValidation = validateCampaignFactIntegrity(JSON.parse(creatives || "[]"), campaignFacts);
@@ -9272,6 +9275,7 @@ function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string
 }
 
 async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
+  campaignFacts?: CampaignFacts;
   objective: string;
   segment: string;
   productName?: string;
@@ -9354,44 +9358,56 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
 
   async function improveCreativeIfWeak(creative: any, index: number): Promise<any> {
     let current = creative;
+    const facts = context.campaignFacts || buildCampaignFacts({ input: {}, clientProfile: {}, segment });
+    let attempts = 0;
+    let repairFeedback = "";
     for (let attempt = 1; attempt <= MAX_IMPROVE_ATTEMPTS; attempt++) {
       const score = scoreCreative(current);
       const placeholder = hasResidualPlaceholder(current);
       // Placeholder é bloqueante: mesmo com score alto, precisa regenerar
       // (um [cidade] não substituído é alucinação que não pode publicar)
-      if (score.finalScore >= SCORE_THRESHOLD && !placeholder) {
+      const factAudit = validateCampaignFactIntegrity([current], facts);
+      if (score.finalScore >= SCORE_THRESHOLD && !placeholder && factAudit.status === "passed") {
         return { ...current, ...score, needsReview: false };
       }
       const recs = [
         placeholder ? "REMOVA todos os placeholders como [cidade], {preço}, EMPRESA_AQUI — use texto real ou omita o trecho" : "",
         ...auditCreativeSegmentAlignment(current, segment),
+        ...factAudit.conflicts.map(c => `Remova alegacao nao confirmada: ${c.value} (${c.reason})`),
         (score.recommendations || []).join("; "),
-      ].filter(Boolean).join("; ") || "aumente especificidade, urgência e clareza";
-      log.info("ai", `Score ${score.finalScore} < ${SCORE_THRESHOLD} — melhorando criativo (tentativa ${attempt}/${MAX_IMPROVE_ATTEMPTS})`, {
-        index, headline: String(current.headline || "").slice(0, 40),
+      ].filter(Boolean).join("; ") || "melhore clareza e relevancia sem acrescentar fatos";
+      attempts = attempt;
+      log.info("ai", `Revisando criativo (tentativa ${attempt}/${MAX_IMPROVE_ATTEMPTS})`, {
+        index, score: score.finalScore, factConflicts: factAudit.conflicts.length, placeholder,
       });
       try {
         const raw = await gemini(
           `Melhore este criativo de anúncio Meta Ads seguindo EXATAMENTE as recomendações.\n` +
           `RECOMENDAÇÕES: ${recs}\n\n` +
+          repairFeedback +
           `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description })}\n\n` +
           `REGRAS ABSOLUTAS:\n` +
+          formatCampaignFactsForPrompt(facts) + "\n" +
+          `O criativo atual pode conter erros: NAO e uma fonte de fatos. Nunca acrescente exclusividade, prova social ou entrega hoje sem confirmacao.\n` +
+          `Observacoes visuais (nao comprovam preco, prazo ou exclusividade): ${JSON.stringify(context.photoInsights?.[index] || {})}\n` +
           `- Segmento correto da campanha: ${segment}. Mantenha vocabulário e CTA compatíveis com esse segmento.\n` +
           `- headline: máx 40 caracteres, específica, sem CTA embutido\n` +
           `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
           `- copy: máx 500 caracteres, sem frases repetidas\n` +
+          `- hook: de 1 a 200 caracteres; cta: de 1 a 80 caracteres\n` +
           `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
           `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se a recomendação pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
-          `Retorne APENAS o JSON com os mesmos campos, sem markdown.`,
+          `Retorne APENAS um objeto JSON com headline, description, copy, hook e cta: todos strings nao vazias. Nenhum outro campo, sem markdown.`,
           { temperature: 0.8, jsonMode: true, maxOutputTokens: 800, _endpoint: "improve_creative" },
         );
         const improved = JSON.parse(String(raw).replace(/```json|```/g, "").trim());
-        if (improved?.headline) {
-          current = { ...current, ...improved };
-        }
+        current = acceptCreativeRewrite(current, improved, facts);
       } catch (e) {
-        log.warn("ai", "Falha ao melhorar criativo — mantendo original", { index, attempt });
-        break;
+        repairFeedback = "A tentativa anterior foi recusada. Confira todos os cinco campos e seus limites; omita alegacoes sem fatos confirmados.\n";
+        log.warn("ai", "Reescrita recusada — mantendo ultima versao e tentando dentro do limite", {
+          index, attempt, reason: redactProviderSecrets(e instanceof Error ? e.message : String(e)).slice(0, 400),
+        });
+        continue;
       }
     }
     // Último recurso: se AINDA há placeholder após os retries, remove por sanitização
@@ -9411,15 +9427,22 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     const finalPlaceholder = hasResidualPlaceholder(current);
     const stillWeak = finalScoreResult.finalScore < SCORE_THRESHOLD;
     if (stillWeak) {
-      log.warn("ai", `Criativo permanece com score ${finalScoreResult.finalScore} após ${MAX_IMPROVE_ATTEMPTS} tentativas — marcado para revisão`, { index });
+      log.warn("ai", `Criativo permanece com score ${finalScoreResult.finalScore} após ${attempts} tentativas — marcado para revisão`, { index });
     }
-    return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder };
+    return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder || validateCampaignFactIntegrity([current], facts).status !== "passed" };
   }
 
   const rawList = Array.isArray(creatives) ? creatives : [];
   const improvedList = context.skipAIGeneration
     ? rawList
     : await Promise.all(rawList.map((cr, i) => improveCreativeIfWeak(cr, i)));
+
+  if (context.campaignFacts) {
+    const audit = validateCampaignFactIntegrity(improvedList, context.campaignFacts);
+    if (audit.status !== "passed") {
+      throw new Error(`FACT_CONFLICT: ${audit.conflicts.map(c => `${c.field}: ${c.reason}`).join("; ")}`);
+    }
+  }
 
   const scored = improvedList.map((creative, index) => {
     // Placeholders já foram tratados no gate (regeneração + strip como último recurso).
