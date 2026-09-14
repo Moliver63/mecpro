@@ -7170,9 +7170,12 @@ REGRAS DE COPY — PROIBIÇÕES ABSOLUTAS (obrigatoriamente aplicadas em TODOS o
 1. NUNCA INVENTE PROMOÇÕES, DESCONTOS OU URGÊNCIA:
    - PROIBIDO: "só hoje", "condições especiais", "por tempo limitado", "últimas vagas", 
      "vagas limitadas", "unidades limitadas", "desconto de X%", "aproveite agora", 
-     "não perca", "corre que acaba"
-   - SÓ USE termos de urgência se o briefing EXPLICITAMENTE confirmar uma promoção 
-     com data de início e fim. Se não houver, NÃO MENCIONE.
+     "não perca", "corre que acaba", "exclusivo", "exclusiva", "exclusivos", "exclusivas", 
+     "exclusividade", "sabores exclusivos", "acesso exclusivo"
+   - SÓ USE termos de urgência OU exclusividade se o briefing EXPLICITAMENTE confirmar isso 
+     (ex.: o cliente disse que o produto é literalmente exclusivo/só ele vende). Sem essa 
+     confirmação clara, NÃO USE — mesmo que pareça só um elogio genérico, "exclusivo" é uma 
+     alegação de escassez que precisa de prova, exatamente como preço ou prazo.
    - Se o cliente não informou preço promocional, NÃO INVENTE um.
 
 2. NUNCA USE FRASES GENÉRICAS DE AUTOAJUDA OU TRANSFORMAÇÃO DE VIDA:
@@ -9370,6 +9373,17 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       log.info("ai", `Score ${score.finalScore} < ${SCORE_THRESHOLD} — melhorando criativo (tentativa ${attempt}/${MAX_IMPROVE_ATTEMPTS})`, {
         index, headline: String(current.headline || "").slice(0, 40),
       });
+      // Achado real (log de produção, 14/09): as 4 tentativas de melhorar
+      // criativo falharam com respostas de só ~19-20 tokens de
+      // completion — curto demais pra ser o JSON esperado (headline+
+      // copy+hook+cta+description). O bug real, independente da causa
+      // exata da resposta curta: o catch chamava `break`, saindo do
+      // laço INTEIRO na primeira falha — mesmo o log dizendo "tentativa
+      // 1/2" e MAX_IMPROVE_ATTEMPTS sendo 2, a segunda tentativa nunca
+      // rodava. Removido o break (deixa o for continuar naturalmente
+      // pra tentativa 2) e adicionado o começo da resposta bruta no log
+      // de erro — sem isso, não dava pra saber SE era JSON malformado,
+      // resposta vazia, ou outra coisa, da próxima vez que acontecer.
       try {
         const raw = await gemini(
           `Melhore este criativo de anúncio Meta Ads seguindo EXATAMENTE as recomendações.\n` +
@@ -9388,10 +9402,15 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         const improved = JSON.parse(String(raw).replace(/```json|```/g, "").trim());
         if (improved?.headline) {
           current = { ...current, ...improved };
+        } else {
+          log.warn("ai", "Resposta de melhoria de criativo sem headline — mantendo original nesta tentativa", {
+            index, attempt, respostaInicio: String(raw).slice(0, 120),
+          });
         }
-      } catch (e) {
-        log.warn("ai", "Falha ao melhorar criativo — mantendo original", { index, attempt });
-        break;
+      } catch (e: any) {
+        log.warn("ai", "Falha ao melhorar criativo nesta tentativa — tenta de novo se ainda houver tentativas", {
+          index, attempt, erro: String(e?.message ?? e).slice(0, 200),
+        });
       }
     }
     // Último recurso: se AINDA há placeholder após os retries, remove por sanitização
