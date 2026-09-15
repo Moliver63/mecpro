@@ -37,6 +37,8 @@ import * as db from "./db";
 import multer from "multer";
 import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
+import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply } from "./chatReasoning";
+const deepSeekBillingCooldown = new BillingCooldown();
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
 // require("./ai") — mas este arquivo roda em contexto ESM puro (o
 // próprio arquivo usa import/export no topo, carregado via import()
@@ -214,16 +216,16 @@ interface RespostaChat {
   modo: "assistente" | "local";
 }
 
-const SYSTEM_PROMPT = `Você é o assistente de criação de campanhas do MecProAI, uma plataforma de marketing com IA.
+const SYSTEM_PROMPT = `${CONVERSATION_POLICY}
 
-Antes de perguntar ou gerar, registre os dados novos explicitamente fornecidos pelo usuario em atualizar_briefing. Preserve os demais campos do briefing persistente. Nao pergunte de novo o que ja esta registrado. Uma correcao recente substitui o valor anterior; budget e sempre TOTAL (diario multiplicado pela duracao quando ambos confirmados).
+Quando o usuario estiver montando uma campanha, registre os dados novos explicitamente fornecidos em atualizar_briefing. Preserve os demais campos do briefing persistente. Nao pergunte de novo o que ja esta registrado. Uma correcao recente substitui o valor anterior; budget e sempre TOTAL (diario multiplicado pela duracao quando ambos confirmados).
 Nunca invente a causa de uma falha. FACT_CONFLICT e erro tecnico de geracao, nao uma escolha para o usuario aceitar fatos inventados. Nao recomende criar outro projeto para contornar validacao. Nao diga que uma campanha anterior contaminou o resultado sem evidencia da ferramenta.
 As consultas de campanha sao somente leitura e nao importam copies ou fotos. Para usar uma referencia, confirme os dados atuais e registre-os, sem fingir duplicacao automatica. Se o usuario ja pediu uma nova campanha, nao pergunte novamente se deseja abrir ou criar.
-Nunca confirme criacao sem retorno de sucesso da ferramenta. Nunca afirme upload ou capa sem resultado. Para fotos, pergunte qual NUMERO e a capa (1 a N); nao adivinhe qual arquivo mostra a fachada. Nao confirme publicacao: este chat cria apenas rascunhos.
+Nunca confirme criacao sem retorno de sucesso da ferramenta. Nunca afirme upload ou capa sem resultado. Para fotos, pergunte qual NUMERO e a capa (1 a N); nao adivinhe qual arquivo mostra a fachada. Geracao cria rascunhos; publicacao e uma acao separada com confirmacao propria.
 
-Sua função é ajudar o usuário a montar o briefing de uma campanha de anúncios através de conversa, em vez de um formulário. Você é um coletor de dados direto e educado — nunca um vendedor de resultado, e nunca inventa número de performance.
+Ao ajudar a montar uma campanha, seja direto e educado, nunca um vendedor de resultado. Nunca invente numeros de performance.
 
-Colete, nesta ordem de prioridade (só peça o que ainda não souber):
+Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao souber):
 1. Consulte consultar_projetos_campanhas. Pergunte qual projeto existente usar (projectId) ou se deseja criar um novo (createProject=true e projectName). Nao escolha automaticamente nem invente IDs.
 2. Objetivo da campanha: leads, sales (vendas), traffic (tráfego), branding ou engagement.
 3. Plataforma: meta, google ou tiktok. Se o usuário não souber, sugira meta.
@@ -314,6 +316,7 @@ const ATUALIZAR_BRIEFING = {
 };
 
 async function consultarOuAtualizar(name: string, args: Record<string, unknown>, userId: number) {
+  try {
   if (name === ATUALIZAR_BRIEFING.name) {
     const state = briefingContext.getStore();
     if (!state) return { erro: "Conversa indisponivel." };
@@ -323,7 +326,10 @@ async function consultarOuAtualizar(name: string, args: Record<string, unknown>,
     state.briefing = mergeChatBriefing(state.briefing, args);
     return { briefing: state.briefing, instruction: "Pergunte apenas campos ausentes. Nao gere sem escolha explicita de nova campanha." };
   }
-  return queryChatWorkspace(userId, args, db);
+  return await queryChatWorkspace(userId, args, db);
+  } catch (error) {
+    return { erro: redactProviderSecrets(error instanceof Error ? error.message : "Falha na consulta."), instruction: "Explique a limitacao ou peca o dado ausente. Nao invente resultados e nao execute outra acao para contornar o erro." };
+  }
 }
 
 // Achado real (missao "agente conversacional autonomo", 13/09): o chat
@@ -429,7 +435,7 @@ const ferramentasGroq = [
     type: "function" as const,
     function: { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parameters: PARAMETROS_PUBLICAR_CAMPANHA as Record<string, unknown> },
   },
-];
+].map(tool => ({ ...tool, function: { ...tool.function, parameters: nullableOptionalFields(tool.function.parameters) } }));
 
 // Achado real (cascata de geração, 10/09): Groq enviava
 // "destinationUrl": null quando o usuário não informava URL, e o
@@ -972,6 +978,7 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
 async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
   const apiKey = (process.env.DEEPSEEK_API_KEY || "").trim();
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY não configurada.");
+  if (!deepSeekBillingCooldown.available(apiKey)) throw new Error("DeepSeek temporariamente suspenso neste processo apos erro de saldo.");
 
   const model = MODELO_DEEPSEEK_CHAT.trim() || "deepseek-chat";
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
@@ -999,6 +1006,7 @@ async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
 
   const data: any = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 402) deepSeekBillingCooldown.block(apiKey);
     throw new Error(`DeepSeek HTTP ${res.status}: ${data?.error?.message || "erro desconhecido"}`);
   }
   return data;
@@ -1081,11 +1089,9 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
 
 /* ---------------- Provedor 4: resposta local (sem IA) ---------------- */
 
-function responderLocal(): RespostaChat {
+function responderLocal(text = ""): RespostaChat {
   return {
-    resposta:
-      "No momento os provedores de IA do chat não responderam a tempo. " +
-      "Tente novamente em alguns instantes; se estiver criando uma campanha urgente, a tela de campanhas continua disponível.",
+    resposta: localConversationReply(text, briefingContext.getStore()?.briefing || {}),
     campanha: null,
     modo: "local",
   };
@@ -1393,7 +1399,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     }
   }
 
-  if (process.env.DEEPSEEK_API_KEY) {
+  if (process.env.DEEPSEEK_API_KEY && deepSeekBillingCooldown.available(process.env.DEEPSEEK_API_KEY.trim())) {
     try {
       const resultado = await tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId);
       return finish(resultado);
@@ -1411,5 +1417,5 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     }
   }
 
-  return finish(responderLocal());
+  return finish(responderLocal(ultimaMensagemUsuario || ""));
 });
