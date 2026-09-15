@@ -9549,6 +9549,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       const url = await Promise.race([
         (async () => {
           const img = await generateAdImage(creative, context.segment, context.objective, config, format, {
+                  confirmedVisualFacts: context.campaignFacts?.verifiedFacts,
                   productName:    context.productName,
                   productService: context.productService,
                   niche:          context.niche,
@@ -9613,6 +9614,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         const c = scored[index];
         const url = await Promise.race([
           generateAdImage(c, context.segment, context.objective, config, "feed", {
+              confirmedVisualFacts: context.campaignFacts?.verifiedFacts,
               productName:    context.productName,
               productService: context.productService,
               niche:          context.niche,
