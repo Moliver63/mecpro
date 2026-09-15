@@ -26,6 +26,7 @@ import { briefingContext, mergeChatBriefing, campaignResultText, generationError
 import { chatSessionMiddleware } from "./chatSession";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
+import { createChatRetryBudget } from "./chatRetryBudget";
 import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
 import { publicarCampanhaNaMeta, listarPaginasMetaConectadas } from "./campaignPublish";
 import { confirmedChatContact } from "./chatContact";
@@ -772,8 +773,10 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number): 
   // suspensa (pula pra próxima sem esperar), só pesa em cenário de erro
   // temporário (503/429) generalizado, que já era um caso degradado antes.
   const maxTentativas = tentativas ?? Math.max(poolChavesGemini().length, 4);
+  const retryBudget = createChatRetryBudget();
   let ultimoErro: unknown;
   for (let i = 0; i < maxTentativas; i++) {
+    if (i > 0 && !retryBudget.canAttempt()) throw ultimoErro;
     const chave = proximaChaveGemini();
     if (!chave) {
       throw ultimoErro ?? new Error("Nenhuma chave Gemini disponível no momento (cotas esgotadas).");
@@ -821,7 +824,9 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number): 
         continue;
       }
       if (!erroEhTemporario(erro) || i === maxTentativas - 1) throw erro;
-      await aguardar(1200 * (i + 1));
+      const delay = retryBudget.nextDelay();
+      if (delay === null) throw erro;
+      await aguardar(delay);
     }
   }
   throw ultimoErro;
@@ -878,8 +883,10 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
 /* ---------------- Provedor 2: Groq (fallback) ---------------- */
 
 async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletionMessageParam[], tentativas = 2) {
+  const retryBudget = createChatRetryBudget();
   let ultimoErro: unknown;
   for (let i = 0; i < tentativas; i++) {
+    if (i > 0 && !retryBudget.canAttempt()) throw ultimoErro;
     try {
       return await groq.chat.completions.create({
         model: MODELO_GROQ,
@@ -892,7 +899,9 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
     } catch (erro) {
       ultimoErro = erro;
       if (!erroEhTemporario(erro) || i === tentativas - 1) throw erro;
-      await aguardar(1200 * (i + 1));
+      const delay = retryBudget.nextDelay();
+      if (delay === null) throw erro;
+      await aguardar(delay);
     }
   }
   throw ultimoErro;
