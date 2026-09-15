@@ -1586,6 +1586,37 @@ export async function touchChatSession(sessionId: number, campanha?: { id: numbe
   await db.update(chatSessions).set(patch as any).where(eq(chatSessions.id, sessionId));
 }
 
+// Achado real (achados colados por Michel, 14/09): fotos ficavam so em
+// memoria efemera do navegador — qualquer recarregamento ou interrupcao
+// antes da campanha ser gerada com sucesso perdia as fotos silenciosamente,
+// e o sistema caia pra imagem de IA/banco de imagens sem avisar. Fotos ja
+// enviadas (upload imediato pro Cloudinary) ficam salvas na sessao ate
+// serem consumidas por uma geracao bem-sucedida — sobrevive a
+// recarregamento, e a geracao de campanha recupera daqui se a
+// requisicao atual nao trouxer anexos.
+
+/** Adiciona uma foto ja enviada (URL do Cloudinary) à lista pendente da sessão. */
+export async function addPendingChatPhoto(sessionId: number, photo: { url: string; fileName: string }) {
+  const db = await getDb(); if (!db) return;
+  const atual = await db.select({ pendingPhotoUrls: chatSessions.pendingPhotoUrls }).from(chatSessions).where(eq(chatSessions.id, sessionId)).limit(1);
+  const lista = Array.isArray(atual[0]?.pendingPhotoUrls) ? (atual[0]!.pendingPhotoUrls as any[]) : [];
+  const nova = [...lista, photo].slice(-10); // mesmo limite de 10 fotos por campanha usado no chat
+  await db.update(chatSessions).set({ pendingPhotoUrls: nova as any, updatedAt: new Date() } as any).where(eq(chatSessions.id, sessionId));
+}
+
+/** Lê as fotos pendentes (ainda não consumidas por uma geração bem-sucedida) da sessão. */
+export async function getPendingChatPhotos(sessionId: number): Promise<Array<{ url: string; fileName: string }>> {
+  const db = await getDb(); if (!db) return [];
+  const r = await db.select({ pendingPhotoUrls: chatSessions.pendingPhotoUrls }).from(chatSessions).where(eq(chatSessions.id, sessionId)).limit(1);
+  return Array.isArray(r[0]?.pendingPhotoUrls) ? (r[0]!.pendingPhotoUrls as any) : [];
+}
+
+/** Limpa as fotos pendentes da sessão — chamado após uma geração de campanha bem-sucedida consumi-las. */
+export async function clearPendingChatPhotos(sessionId: number) {
+  const db = await getDb(); if (!db) return;
+  await db.update(chatSessions).set({ pendingPhotoUrls: null } as any).where(eq(chatSessions.id, sessionId));
+}
+
 /** Renomeia a sessão só na primeira mensagem (título ainda no padrão). */
 export async function maybeTitleChatSession(sessionId: number, tituloSugerido: string) {
   const db = await getDb(); if (!db) return;

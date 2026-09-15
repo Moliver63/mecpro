@@ -28,6 +28,16 @@ export interface ChatImageAttachment {
   mimeType: string;
   size: number;
   dataUrl: string;
+  // Achado real (achados colados por Michel, 14/09): antes, a foto só
+  // virava base64 em memória e só era persistida (Cloudinary) quando a
+  // mensagem inteira era enviada — perdida silenciosamente em qualquer
+  // recarregamento antes disso. Agora sobe pro Cloudinary assim que
+  // escolhida (mesmo padrão já usado pro vídeo) — dataUrl continua
+  // existindo só pra preview instantâneo local, photoUrl é a referência
+  // persistida de verdade.
+  status: "uploading" | "done" | "error";
+  photoUrl?: string;
+  erro?: string;
 }
 
 // Achado real (pedido de Michel, 13/09): vídeo não cabe no mesmo modelo
@@ -160,6 +170,26 @@ export function useCampaignChat() {
       setMessages(carregadas.length ? carregadas : [MENSAGEM_INICIAL]);
       setSessionId(id);
       localStorage.setItem(CHAVE_SESSAO_LOCAL, String(id));
+      // Achado real (achados colados por Michel, 14/09): sem isso, um
+      // recarregamento de página perdia as fotos já enviadas nesta
+      // conversa mesmo com o upload já persistido no Cloudinary — o
+      // usuário precisava reenviar tudo de novo. pendingPhotoUrls (ver
+      // db.addPendingChatPhoto) sobrevive no servidor; aqui só restaura
+      // pro estado local pra aparecer de novo na bandeja de anexos.
+      const pendentes = Array.isArray(data?.sessao?.pendingPhotoUrls) ? data.sessao.pendingPhotoUrls : [];
+      if (pendentes.length) {
+        setAttachments(pendentes.map((p: { url: string; fileName: string }, i: number) => ({
+          id: `restaurada-${id}-${i}-${p.url}`,
+          fileName: p.fileName || `foto-${i + 1}`,
+          mimeType: "image/jpeg",
+          size: 0,
+          dataUrl: p.url,
+          status: "done" as const,
+          photoUrl: p.url,
+        })));
+      } else {
+        setAttachments([]);
+      }
     } catch {
       // conexão falhou — mantém o que já estava na tela
     } finally {
@@ -218,7 +248,6 @@ export function useCampaignChat() {
       setAttachmentError(`O chat aceita até ${MAX_CHAT_IMAGES} fotos por campanha.`);
     }
 
-    const next: ChatImageAttachment[] = [];
     for (const file of accepted) {
       if (!ACCEPTED_CHAT_IMAGE_TYPES.has(file.type)) {
         setAttachmentError("Envie apenas imagens nos formatos JPEG, PNG ou WEBP.");
@@ -228,17 +257,30 @@ export function useCampaignChat() {
         setAttachmentError(`A foto "${file.name}" excede 6MB. Comprima antes de anexar.`);
         continue;
       }
-      const dataUrl = await fileToDataUrl(file);
-      next.push({
-        id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
-        fileName: file.name,
-        mimeType: file.type,
-        size: file.size,
-        dataUrl,
-      });
-    }
 
-    if (next.length) setAttachments((prev) => [...prev, ...next].slice(0, MAX_CHAT_IMAGES));
+      const id = `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`;
+      // Preview instantâneo local (não espera o upload) — o upload real
+      // acontece em paralelo, status rastreia o progresso.
+      const dataUrl = await fileToDataUrl(file);
+      setAttachments((prev) => [...prev, {
+        id, fileName: file.name, mimeType: file.type, size: file.size, dataUrl, status: "uploading",
+      }].slice(0, MAX_CHAT_IMAGES));
+
+      try {
+        const form = new FormData();
+        form.append("file", file, file.name);
+        if (sessionId) form.append("sessionId", String(sessionId));
+        const res = await fetch("/api/chat/upload-photo", { method: "POST", credentials: "include", body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.photoUrl) {
+          setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "error", erro: data?.erro || "Não foi possível enviar a foto." } : a));
+          continue;
+        }
+        setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "done", photoUrl: data.photoUrl } : a));
+      } catch {
+        setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "error", erro: "Erro de conexão ao enviar a foto." } : a));
+      }
+    }
   };
 
   const removeAttachment = (id: string) => {
@@ -312,7 +354,12 @@ export function useCampaignChat() {
             fileName: file.fileName,
             mimeType: file.mimeType,
             size: file.size,
-            imageBase64: file.dataUrl,
+            // Preferimos a URL já persistida (upload imediato ao anexar) —
+            // só cai pra base64 se o upload ainda não tiver terminado quando
+            // o usuário enviar a mensagem (raro, mas o servidor aceita os
+            // dois formatos como retrocompatibilidade).
+            photoUrl: file.status === "done" ? file.photoUrl : undefined,
+            imageBase64: file.status === "done" ? undefined : file.dataUrl,
           })),
           videoUrl: videoAttachment?.status === "done" ? videoAttachment.videoUrl : undefined,
         }),

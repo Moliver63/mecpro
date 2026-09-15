@@ -541,6 +541,14 @@ export const chatSessions = pgTable("chat_sessions", {
   lastCampaignId: integer("lastCampaignId"),
   lastCampaignName: varchar("lastCampaignName", { length: 255 }),
   lastCampaignUrl: text("lastCampaignUrl"),
+  // Achado real (achados colados por Michel, 14/09): fotos ficavam so em
+  // memoria efemera do navegador (base64) — qualquer recarregamento ou
+  // interrupcao antes da campanha ser gerada com sucesso perdia as fotos
+  // silenciosamente, e o sistema caia pra imagem de IA/banco de imagens
+  // sem avisar. Fotos ja enviadas (upload imediato pro Cloudinary, ver
+  // /chat/upload-photo) ficam salvas aqui ate serem consumidas por uma
+  // geracao de campanha bem-sucedida — sobrevive a recarregamento.
+  pendingPhotoUrls: jsonb("pendingPhotoUrls"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
