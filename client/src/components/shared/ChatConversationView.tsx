@@ -151,8 +151,18 @@ export default function ChatConversationView({
         {!!attachments.length && (
           <div className="campaign-chat-attachment-tray" aria-label="Fotos anexadas">
             {attachments.map((file, index) => (
-              <div key={file.id} className="campaign-chat-attachment">
+              <div key={file.id} className="campaign-chat-attachment" data-status={file.status}>
                 <img src={file.dataUrl} alt={file.fileName} />
+                {file.status === "uploading" && (
+                  <div className="campaign-chat-attachment-overlay" title="Enviando...">
+                    <Loader2 size={16} className="campaign-chat-spin" strokeWidth={2.4} />
+                  </div>
+                )}
+                {file.status === "error" && (
+                  <div className="campaign-chat-attachment-overlay campaign-chat-attachment-overlay-error" title={file.erro || "Falha ao enviar"}>
+                    <X size={16} strokeWidth={2.6} />
+                  </div>
+                )}
                 <span>{index + 1}</span>
                 <button type="button" onClick={() => removeAttachment(file.id)} aria-label={`Remover ${file.fileName}`}>
                   <X size={13} strokeWidth={2.4} />
@@ -220,7 +230,7 @@ export default function ChatConversationView({
           <button
             type="button"
             onClick={() => send()}
-            disabled={loading || videoAttachment?.status === "uploading" || (!input.trim() && attachments.length === 0)}
+            disabled={loading || videoAttachment?.status === "uploading" || attachments.some((a) => a.status === "uploading") || (!input.trim() && attachments.length === 0)}
             className="campaign-chat-send"
             aria-label="Enviar mensagem"
             title="Enviar"

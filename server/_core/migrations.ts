@@ -1088,6 +1088,17 @@ export async function runMigrations(): Promise<void> {
       )
     `).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions("userId", "updatedAt" DESC)`).catch(() => {});
+    // Achado real (14/09): "lastCampaignUrl" foi adicionada só dentro do
+    // CREATE TABLE IF NOT EXISTS acima — se chat_sessions já existia em
+    // produção antes dessa coluna ser declarada, o CREATE TABLE vira
+    // no-op (Postgres não reconcilia colunas faltantes numa tabela que
+    // já existe) e a coluna nunca chega a ser criada de verdade. ALTER
+    // TABLE ... ADD COLUMN IF NOT EXISTS é o padrão seguro (funciona
+    // independente de quando a tabela foi criada) — usado aqui pra
+    // cobrir essa lacuna e para a nova coluna de fotos pendentes.
+    await pool.query(`ALTER TABLE chat_sessions
+      ADD COLUMN IF NOT EXISTS "lastCampaignUrl" TEXT,
+      ADD COLUMN IF NOT EXISTS "pendingPhotoUrls" JSONB`).catch(() => {});
     await pool.query(`ALTER TABLE chat_sessions
       ADD COLUMN IF NOT EXISTS state JSONB NOT NULL DEFAULT '{"briefing":{}}'::jsonb,
       ADD COLUMN IF NOT EXISTS lease UUID,

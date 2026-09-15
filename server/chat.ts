@@ -35,7 +35,7 @@ import { appendGeminiToolTurn } from "./ai-providers/geminiToolTurn";
 import { jwtVerify } from "jose";
 import * as db from "./db";
 import multer from "multer";
-import { uploadVideoBufferToCloudinary } from "./imageGeneration";
+import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
 // require("./ai") — mas este arquivo roda em contexto ESM puro (o
@@ -192,6 +192,11 @@ interface ChatImageAttachment {
   mimeType?: string;
   size?: number;
   imageBase64?: string;
+  // Achado real (achados colados por Michel, 14/09): fotos já enviadas via
+  // /chat/upload-photo chegam aqui como URL (já no Cloudinary), não mais
+  // como base64 — evita reenviar o mesmo arquivo pesado de novo dentro do
+  // JSON da mensagem.
+  photoUrl?: string;
 }
 
 export interface CampanhaGerada {
@@ -252,6 +257,7 @@ Situações que você precisa saber lidar:
 - Usuário anexa fotos: trate como material real da campanha. Não peça URL pública nem base64; o sistema já recebeu os bytes das imagens.
 - Depois de gerar: resuma em 1-2 frases diretas (nome da campanha, objetivo, orçamento/dia aproximado) e diga que os detalhes completos estão no link que aparece na tela. NÃO prometa resultado ("vai vender muito") — só entregue a campanha criada.
 - Se a ferramenta retornar erro (falta campo, limite do plano): repasse a mensagem do erro ao usuário de forma clara e continue a conversa coletando o que falta.
+- Depois de gerar_campanha ter sucesso: SEMPRE confira o campo photoCount do resultado. Se photoCount for 0 (nenhuma foto real usada), diga isso explicitamente ao usuário — ex: "Gerei a campanha com imagens criadas por IA, já que não recebi nenhuma foto real sua. Quer enviar fotos do seu produto/espaço pra eu regenerar com elas?" NUNCA deixe essa informação implícita — o usuário precisa saber que a campanha usa imagem genérica, não a foto real do negócio dele, sem precisar abrir a campanha pra descobrir.
 - Se a ferramenta avisar que já existe um projeto parecido com o nome novo informado: pergunte ao usuário se é o mesmo negócio (nesse caso, use o projectId indicado no erro) antes de insistir em criar um projeto novo. Isso evita duplicar o mesmo cliente em vários projetos por causa de uma pequena variação no nome digitado.
 
 Regras que valem sempre:
@@ -463,9 +469,15 @@ function sanitizeChatAttachments(raw: unknown): ChatImageAttachment[] {
         mimeType: typeof record.mimeType === "string" ? record.mimeType.slice(0, 80) : undefined,
         size: Number.isFinite(Number(record.size)) ? Number(record.size) : undefined,
         imageBase64: typeof record.imageBase64 === "string" ? record.imageBase64 : undefined,
+        photoUrl: typeof record.photoUrl === "string" && /^https?:\/\//i.test(record.photoUrl) ? record.photoUrl : undefined,
       };
     })
-    .filter((item) => !!item.imageBase64);
+    // Achado real (achados colados por Michel, 14/09): antes, um anexo sem
+    // imageBase64 era descartado silenciosamente (nenhum log, nenhum aviso)
+    // — se algo no caminho perdesse o base64 mas mantivesse o resto do
+    // objeto, a foto simplesmente sumia sem rastro. Agora aceita TAMBÉM
+    // anexos já com photoUrl (upload prévio via /chat/upload-photo).
+    .filter((item) => !!item.imageBase64 || !!item.photoUrl);
 }
 
 async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId: number): Promise<{
@@ -483,18 +495,30 @@ async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId
 
   for (let i = 0; i < attachments.length; i++) {
     const photo = attachments[i];
-    const base64 = base64Payload(photo.imageBase64 || "");
-    if (!base64) throw new Error(`Foto ${i + 1} não contém bytes de imagem.`);
+    const originalName = photo.fileName || `chat-photo-${i + 1}`;
+    const safeName = originalName.replace(/[^\w.\-]+/g, "-").slice(0, 120) || `chat-photo-${i + 1}`;
 
-    const buffer = Buffer.from(base64, "base64");
-    const detected = detectarFormatoImagem(buffer);
-    if (!detected) throw new Error(`Foto ${i + 1} não é JPEG, PNG ou WEBP válido.`);
-    if (buffer.byteLength > MAX_CHAT_IMAGE_BYTES) throw new Error(`Foto ${i + 1} excede 6MB.`);
+    // Achado real (achados colados por Michel, 14/09): foto já enviada via
+    // /chat/upload-photo chega aqui como URL — não precisa (nem deve)
+    // decodificar/reenviar base64 de novo. O caminho de base64 abaixo
+    // continua existindo só como retrocompatibilidade (cliente antigo, ou
+    // upload que falhou e o cliente reenviou o base64 puro).
+    let cloudUrl: string;
+    if (photo.photoUrl) {
+      cloudUrl = photo.photoUrl;
+    } else {
+      const base64 = base64Payload(photo.imageBase64 || "");
+      if (!base64) throw new Error(`Foto ${i + 1} não contém bytes de imagem.`);
 
-    const originalName = photo.fileName || `chat-photo-${i + 1}.${detected}`;
-    const safeName = originalName.replace(/[^\w.\-]+/g, "-").slice(0, 120) || `chat-photo-${i + 1}.${detected}`;
-    const cloudUrl = await uploadBase64ImageToCloudinary(photo.imageBase64 || base64, `chat-${projectId}-${Date.now()}-${i}-${safeName}`);
-    if (!cloudUrl) throw new Error(`Falha ao subir a foto ${i + 1} para o Cloudinary.`);
+      const buffer = Buffer.from(base64, "base64");
+      const detected = detectarFormatoImagem(buffer);
+      if (!detected) throw new Error(`Foto ${i + 1} não é JPEG, PNG ou WEBP válido.`);
+      if (buffer.byteLength > MAX_CHAT_IMAGE_BYTES) throw new Error(`Foto ${i + 1} excede 6MB.`);
+
+      const uploaded = await uploadBase64ImageToCloudinary(photo.imageBase64 || base64, `chat-${projectId}-${Date.now()}-${i}-${safeName}`);
+      if (!uploaded) throw new Error(`Falha ao subir a foto ${i + 1} para o Cloudinary.`);
+      cloudUrl = uploaded;
+    }
 
     let vision: any = null;
     try {
@@ -529,15 +553,15 @@ async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId
 }
 
 // ── Execução real da ferramenta (chama o motor existente) ─────────────────
-async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = []): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
+async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
   try {
-    return await runChatDraftTask(userId, () => gerarRascunhoValidado(args, userId, attachments), TIMEOUT_GERACAO_MS);
+    return await runChatDraftTask(userId, () => gerarRascunhoValidado(args, userId, attachments, sessionId), TIMEOUT_GERACAO_MS);
   } catch (error) {
     return { ok: false, erro: error instanceof Error ? error.message : "Falha ao acompanhar a tarefa." };
   }
 }
 
-async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = []): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
+async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
   try {
     const state = briefingContext.getStore();
     args = mergeChatBriefing(state?.briefing || {}, args);
@@ -628,8 +652,24 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
     const name = String(args.name || "").trim() ||
       `${projectName || "Campanha"} — ${objective === "sales" ? "Vendas" : objective === "leads" ? "Leads" : objective}`;
 
-    const orderedAttachments = [...attachments];
-    if (attachments.length > 1) orderedAttachments.unshift(...orderedAttachments.splice(Number(args.featuredPhotoIndex), 1));
+    // Achado real (achados colados por Michel, 14/09): antes, a geração
+    // só usava os anexos da REQUISIÇÃO ATUAL — se o usuário tivesse
+    // enviado fotos numa mensagem anterior desta mesma conversa mas a
+    // requisição atual não as reincluísse (ex: recarregou a página
+    // entre o upload e a geração final), a geração seguia em frente
+    // silenciosamente sem fotos reais. Recupera da sessão quando a
+    // requisição atual não trouxe nenhuma foto.
+    let attachmentsParaGeracao = attachments;
+    if (attachmentsParaGeracao.length === 0 && sessionId) {
+      const pendentes = await db.getPendingChatPhotos(sessionId).catch(() => []);
+      if (pendentes.length) {
+        attachmentsParaGeracao = pendentes.map((p) => ({ photoUrl: p.url, fileName: p.fileName }));
+        log.info("chat", "fotos recuperadas da sessão para a geração", { userId, sessionId, quantidade: pendentes.length });
+      }
+    }
+
+    const orderedAttachments = [...attachmentsParaGeracao];
+    if (attachmentsParaGeracao.length > 1) orderedAttachments.unshift(...orderedAttachments.splice(Number(args.featuredPhotoIndex), 1));
     const preparedMedia = await prepararFotosDoChat(orderedAttachments, projectId);
     const hasChatPhotos = preparedMedia.realImages.length > 0;
 
@@ -677,6 +717,13 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       coverFileName: orderedAttachments[0]?.fileName,
     };
     log.info("chat", "campanha gerada via chat", { userId, campaignId: campanha.id, projectId });
+    // Fotos consumidas por esta geração — limpa da sessão pra não serem
+    // reaproveitadas silenciosamente numa campanha diferente mais tarde
+    // na mesma conversa (ex: usuário pede uma segunda campanha pra outro
+    // produto/projeto dentro do mesmo bate-papo).
+    if (hasChatPhotos && sessionId) {
+      await db.clearPendingChatPhotos(sessionId).catch(() => {});
+    }
     return { ok: true, campanha };
   } catch (e: any) {
     const msg = e?.message === "timeout"
@@ -774,7 +821,7 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number): 
   throw ultimoErro;
 }
 
-async function tentarComGemini(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = []): Promise<RespostaChat> {
+async function tentarComGemini(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<RespostaChat> {
   const historico: Content[] = mensagens.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -806,7 +853,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       if (name !== "gerar_campanha") return { erro: "Ferramenta desconhecida." };
       if (campanha) return { campanha };
       if (generationError) return { erro: generationError };
-      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments, sessionId);
       if ("campanha" in resultado) {
         campanha = resultado.campanha;
         return { campanha };
@@ -845,7 +892,7 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
   throw ultimoErro;
 }
 
-async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = []): Promise<RespostaChat> {
+async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<RespostaChat> {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
   const historico: Groq.Chat.ChatCompletionMessageParam[] = [
@@ -905,7 +952,7 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
       continue;
     }
     if (chamada.function.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments, sessionId);
       if (resultado.ok) campanha = resultado.campanha;
       if ("campanha" in resultado) return { resposta: campaignResultText(resultado.campanha), campanha: resultado.campanha, modo: "assistente" };
       return { resposta: resultado.erro, campanha: null, modo: "assistente" };
@@ -957,7 +1004,7 @@ async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
   return data;
 }
 
-async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = []): Promise<RespostaChat> {
+async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<RespostaChat> {
   log.info("chat", "tentando DeepSeek fallback", { model: MODELO_DEEPSEEK_CHAT });
   const historico: any[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -1016,7 +1063,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
       continue;
     }
     if (chamada.function?.name === "gerar_campanha") {
-      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments);
+      const resultado = await executarGeracaoCampanha(limparArgsFerramenta(args), userId, attachments, sessionId);
       if (resultado.ok) campanha = resultado.campanha;
       if ("campanha" in resultado) return { resposta: campaignResultText(resultado.campanha), campanha: resultado.campanha, modo: "assistente" };
       return { resposta: resultado.erro, campanha: null, modo: "assistente" };
@@ -1132,6 +1179,65 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
   } catch (e: any) {
     log.warn("chat", "falha no upload de vídeo do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
     res.status(500).json({ erro: "Erro ao salvar o vídeo. Tente novamente." });
+  }
+});
+
+// ── Upload de foto anexada no chat (upload imediato, persistido) ──────────
+// Achado real (achados colados por Michel, 14/09): antes, a foto só virava
+// base64 em memória e só era enviada/persistida (Cloudinary) quando a
+// mensagem inteira era enviada — e nem então ficava salva em lugar
+// nenhum além da requisição daquele exato momento. Qualquer
+// recarregamento de página, ou uma tentativa de geração que falhasse e
+// precisasse de retry, perdia a foto silenciosamente, e o sistema caía
+// pra imagem de IA/banco de imagens sem avisar o usuário. Este endpoint
+// segue o MESMO padrão já usado pro vídeo: sobe pro Cloudinary assim
+// que o arquivo é escolhido (não só quando a mensagem é enviada) e
+// persiste a referência na sessão (ver db.addPendingChatPhoto) — sobrevive
+// a recarregamento, e gerar_campanha recupera daqui se a requisição
+// atual não trouxer anexos (ver prepararFotosDoChat).
+const uploadPhotoMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_CHAT_IMAGE_BYTES },
+});
+
+chatRouter.post("/upload-photo", authChat, (req: any, res, next) => {
+  uploadPhotoMulter.single("file")(req, res, (err: any) => {
+    if (err?.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ erro: "Foto muito grande — o limite é 6MB." });
+    }
+    if (err) {
+      return res.status(400).json({ erro: "Não foi possível processar o arquivo enviado." });
+    }
+    next();
+  });
+}, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const file = req.file as { buffer: Buffer; originalname: string; mimetype: string; size: number } | undefined;
+  if (!file) {
+    return res.status(400).json({ erro: "Nenhuma foto enviada." });
+  }
+  const detected = detectarFormatoImagem(file.buffer);
+  if (!detected) {
+    return res.status(400).json({ erro: "Formato de imagem não suportado. Use JPEG, PNG ou WEBP." });
+  }
+  try {
+    const safeName = (file.originalname || `chat-photo-${Date.now()}.${detected}`).replace(/[^\w.\-]+/g, "-").slice(0, 120);
+    const photoUrl = await uploadImageBufferToCloudinary(file.buffer, `chat-${userId}-${Date.now()}-${safeName}`);
+    if (!photoUrl) {
+      return res.status(502).json({ erro: "Não foi possível salvar a foto agora. Tente novamente em instantes." });
+    }
+    const sessionIdRecebido = Number(req.body?.sessionId);
+    if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
+      const sessao = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
+      if (sessao && (sessao as any).userId === userId) {
+        await db.addPendingChatPhoto(sessionIdRecebido, { url: photoUrl, fileName: safeName }).catch(() => {});
+      }
+    }
+    log.info("chat", "foto anexada no chat via upload genérico", { userId, fileName: safeName, size: file.size });
+    res.json({ photoUrl, fileName: safeName });
+  } catch (e: any) {
+    log.warn("chat", "falha no upload de foto do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
+    res.status(500).json({ erro: "Erro ao salvar a foto. Tente novamente." });
   }
 });
 
@@ -1280,7 +1386,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
 
   if (proximaChaveGemini()) {
     try {
-      const resultado = await tentarComGemini(mensagens, userId, attachments);
+      const resultado = await tentarComGemini(mensagens, userId, attachments, req.chatSessionId);
       return finish(resultado);
     } catch (erro) {
       log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
@@ -1289,7 +1395,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
 
   if (process.env.DEEPSEEK_API_KEY) {
     try {
-      const resultado = await tentarComDeepSeek(mensagens, userId, attachments);
+      const resultado = await tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId);
       return finish(resultado);
     } catch (erro) {
       log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
@@ -1298,7 +1404,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
 
   if (process.env.GROQ_API_KEY) {
     try {
-      const resultado = await tentarComGroq(mensagens, userId, attachments);
+      const resultado = await tentarComGroq(mensagens, userId, attachments, req.chatSessionId);
       return finish(resultado);
     } catch (erro) {
       log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });

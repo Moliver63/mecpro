@@ -1412,6 +1412,24 @@ tbody tr:last-child td { border-bottom: none; }
   object-fit: cover;
 }
 
+.campaign-chat-attachment[data-status="error"] {
+  border-color: rgba(255,59,48,0.5);
+}
+
+.campaign-chat-attachment-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.35);
+  color: white;
+}
+
+.campaign-chat-attachment-overlay-error {
+  background: rgba(255,59,48,0.55);
+}
+
 .campaign-chat-attachment button {
   position: absolute;
   top: 4px;
