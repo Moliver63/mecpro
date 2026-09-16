@@ -3340,6 +3340,51 @@ export function buildBaseTemplate(
 
 
 // ── Gemini com Google Search grounding ────────────────────────────────────────
+// Achado real (pedido de Michel, 16/09): o chat precisa de capacidade de
+// pesquisa pra informacoes que exigem dado atual/externo (ex: preco de
+// mercado, novidade recente, algo que o modelo nao sabe de cor) — o
+// unico grounding com busca real ja existente (geminiWithGrounding, logo
+// abaixo) forca resposta em JSON, pensado pra extracao de dados
+// estruturados de analise de concorrente, nao pra uma resposta em texto
+// natural de conversa. Reaproveita a MESMA chamada de API comprovada
+// (tools: [{google_search:{}}], mesmo pool de chaves/fallback) mas sem
+// forcar JSON — devolve texto corrido + as buscas que o modelo fez
+// (transparencia/log), pra uso especifico do chat.
+export async function pesquisarWebParaChat(pergunta: string): Promise<{ resposta: string; buscas: string[] } | null> {
+  const availableKeys = ALL_GEMINI_KEYS.filter(k => !_exhaustedKeys.has(k) && geminiCredentialHealth.available(k));
+  const apiKey = availableKeys[0];
+  if (!apiKey) return null;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text:
+          `Pesquise e responda em portugues do Brasil, de forma direta e objetiva (max 4 frases). ` +
+          `Se a busca nao trouxer informacao confiavel, diga isso claramente em vez de inventar.\n\nPergunta: ${pergunta}` }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+      }),
+    });
+    const data: any = await res.json();
+    if (data.error) {
+      log.warn("ai", "pesquisarWebParaChat erro", { error: String(data.error.message ?? "").slice(0, 100) });
+      return null;
+    }
+    const resposta = (data.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || "").join("").trim();
+    const buscas = data.candidates?.[0]?.groundingMetadata?.webSearchQueries || [];
+    if (!resposta) return null;
+    log.info("ai", "pesquisarWebParaChat OK", { buscas });
+    return { resposta, buscas };
+  } catch (e: any) {
+    log.warn("ai", "pesquisarWebParaChat falhou", { erro: String(e?.message ?? "").slice(0, 100) });
+    return null;
+  }
+}
+
 export async function geminiWithGrounding(prompt: string): Promise<any | null> {
   const allKeys = ALL_GEMINI_KEYS;
   const availableKeys = allKeys.filter(k => !_exhaustedKeys.has(k));

@@ -52,7 +52,7 @@ const deepSeekBillingCooldown = new BillingCooldown();
 // efeito colateral novo, só reaproveita a mesma constante já centralizada
 // lá — sem precisar de require nem de import() dinâmico (que é async,
 // e poolChavesGemini() precisa continuar síncrona pra quem já a chama).
-import { ALL_GEMINI_KEYS, geminiCredentialHealth } from "./ai";
+import { ALL_GEMINI_KEYS, geminiCredentialHealth, pesquisarWebParaChat } from "./ai";
 import { redactProviderSecrets } from "./providerSafety";
 
 export const chatRouter = Router();
@@ -260,6 +260,7 @@ Situações que você precisa saber lidar:
 - Usuário anexa fotos: trate como material real da campanha. Não peça URL pública nem base64; o sistema já recebeu os bytes das imagens.
 - Depois de gerar: resuma em 1-2 frases diretas (nome da campanha, objetivo, orçamento/dia aproximado) e diga que os detalhes completos estão no link que aparece na tela. NÃO prometa resultado ("vai vender muito") — só entregue a campanha criada.
 - Se a ferramenta retornar erro (falta campo, limite do plano): repasse a mensagem do erro ao usuário de forma clara e continue a conversa coletando o que falta.
+- pesquisar_web traz informação da internet pra te ajudar a responder (ex: preço médio de mercado, tendência recente) — é conversa, não fato confirmado do negócio do cliente. NUNCA vire resultado de pesquisa em alegação de copy publicitária (preço, prazo, característica do produto) sem o cliente confirmar explicitamente que aquilo se aplica ao negócio dele. Cite que veio de pesquisa quando usar ("segundo dados públicos...") em vez de apresentar como se fosse fato do negócio do cliente.
 - Depois de gerar_campanha ter sucesso: SEMPRE confira o campo photoCount do resultado. Se photoCount for 0 (nenhuma foto real usada), diga isso explicitamente ao usuário — ex: "Gerei a campanha com imagens criadas por IA, já que não recebi nenhuma foto real sua. Quer enviar fotos do seu produto/espaço pra eu regenerar com elas?" NUNCA deixe essa informação implícita — o usuário precisa saber que a campanha usa imagem genérica, não a foto real do negócio dele, sem precisar abrir a campanha pra descobrir.
 - Se a ferramenta avisar que já existe um projeto parecido com o nome novo informado: pergunte ao usuário se é o mesmo negócio (nesse caso, use o projectId indicado no erro) antes de insistir em criar um projeto novo. Isso evita duplicar o mesmo cliente em vários projetos por causa de uma pequena variação no nome digitado.
 
@@ -381,6 +382,26 @@ const DESCRICAO_FOTO_DESTAQUE =
 // ferramentas abaixo tem descricao explicita instruindo o modelo a nunca
 // chamar publicar_campanha sem confirmacao clara do usuario NA MESMA
 // troca (nao uma confirmacao antiga, de varias mensagens atras).
+// Achado real (pedido de Michel, 16/09): "um super cerebro capaz de
+// pesquisar informacoes se necessario" — o chat nao tinha nenhuma forma
+// de buscar dado atual/externo, so o conhecimento estatico do modelo.
+// Reaproveita o mesmo grounding com Google Search ja usado (e ja
+// funcionando) na analise de concorrentes — server/ai.ts,
+// pesquisarWebParaChat. Ferramenta de LEITURA — nunca decide nada
+// sozinha, so traz informacao pro modelo usar na resposta.
+const PARAMETROS_PESQUISAR_WEB = {
+  type: "object",
+  properties: {
+    pergunta: { type: "string", description: "O que pesquisar — seja especifico (ex: \"CPL medio Meta Ads imobiliario Brasil 2026\", nao so \"CPL\")." },
+  },
+  required: ["pergunta"],
+};
+const DESCRICAO_PESQUISAR_WEB =
+  "Pesquisa na web (Google, via Gemini) quando a pergunta do usuario precisa de informacao atual ou externa que voce " +
+  "nao tem certeza — preco de mercado, novidade recente, dado especifico de terceiro. NAO use pra decidir algo sobre " +
+  "a conta do usuario (isso e consultar_projetos_campanhas) nem pra inventar numero de performance (isso e sempre " +
+  "proibido, mesmo com pesquisa). Se a pesquisa nao trouxer resposta confiavel, diga isso ao usuario em vez de arriscar.";
+
 const PARAMETROS_PAGINAS_META = { type: "object", properties: {}, additionalProperties: false };
 const DESCRICAO_PAGINAS_META =
   "Lista as Paginas do Facebook que a conta Meta conectada do usuario tem acesso. Chame isso ANTES de " +
@@ -411,6 +432,7 @@ const declaracoesGemini: FunctionDeclaration[] = [
   { name: "definir_foto_destaque", description: DESCRICAO_FOTO_DESTAQUE, parametersJsonSchema: PARAMETROS_FOTO_DESTAQUE },
   { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parametersJsonSchema: PARAMETROS_PAGINAS_META },
   { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
+  { name: "pesquisar_web", description: DESCRICAO_PESQUISAR_WEB, parametersJsonSchema: PARAMETROS_PESQUISAR_WEB },
 ];
 
 const ferramentasGroq = [
@@ -435,6 +457,10 @@ const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parameters: PARAMETROS_PUBLICAR_CAMPANHA as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "pesquisar_web", description: DESCRICAO_PESQUISAR_WEB, parameters: PARAMETROS_PESQUISAR_WEB as Record<string, unknown> },
   },
 ].map(tool => ({ ...tool, function: { ...tool.function, parameters: nullableOptionalFields(tool.function.parameters) } }));
 
@@ -879,6 +905,11 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
           linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
         });
       }
+      if (name === "pesquisar_web") {
+        const a = limparArgsFerramenta(args);
+        const resultado = await pesquisarWebParaChat(String(a.pergunta || ""));
+        return resultado || { erro: "Não consegui pesquisar agora. Responda com o que já sabe, deixando claro que não confirmou com uma busca." };
+      }
       if (name !== "gerar_campanha") return { erro: "Ferramenta desconhecida." };
       if (campanha) return { campanha };
       if (generationError) return { erro: generationError };
@@ -982,6 +1013,12 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
         linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
       });
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === "pesquisar_web") {
+      const a = limparArgsFerramenta(args);
+      const result = await pesquisarWebParaChat(String(a.pergunta || ""));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result || { erro: "Não consegui pesquisar agora." }) });
       continue;
     }
     if (chamada.function.name === "gerar_campanha") {
@@ -1095,6 +1132,12 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
         linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
       });
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function?.name === "pesquisar_web") {
+      const a = limparArgsFerramenta(args);
+      const result = await pesquisarWebParaChat(String(a.pergunta || ""));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result || { erro: "Não consegui pesquisar agora." }) });
       continue;
     }
     if (chamada.function?.name === "gerar_campanha") {
