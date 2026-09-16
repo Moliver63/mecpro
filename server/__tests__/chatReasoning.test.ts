@@ -35,6 +35,8 @@ test("conversation policy separates explanation, evidence and authorized actions
   assert.match(CONVERSATION_POLICY, /nao exija projeto/);
   assert.match(CONVERSATION_POLICY, /nao afirme ter pesquisado/);
   assert.match(CONVERSATION_POLICY, /autorizacao explicita/);
+  assert.match(CONVERSATION_POLICY, /Precisao de fatos/);
+  assert.match(CONVERSATION_POLICY, /nunca como fato certo do negocio do cliente/);
 });
 
 test("concise campaign policy keeps briefing reuse and publication safeguards", () => {
