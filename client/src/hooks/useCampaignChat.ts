@@ -277,6 +277,15 @@ export function useCampaignChat() {
           continue;
         }
         setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "done", photoUrl: data.photoUrl } : a));
+        // Achado real (revisao apontada por Michel, 16/09): se ainda nao
+        // havia sessao (primeira acao do usuario foi anexar foto, antes
+        // de mandar texto), o servidor agora cria uma e devolve o
+        // sessionId — captura aqui pra que essa MESMA sessao seja usada
+        // no envio da mensagem seguinte, e a foto nao fique orfa.
+        if (!sessionId && data.sessionId) {
+          setSessionId(data.sessionId);
+          localStorage.setItem(CHAVE_SESSAO_LOCAL, String(data.sessionId));
+        }
       } catch {
         setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "error", erro: "Erro de conexão ao enviar a foto." } : a));
       }
@@ -284,7 +293,27 @@ export function useCampaignChat() {
   };
 
   const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((item) => item.id !== id));
+    // Achado real (revisao apontada por Michel, 16/09): antes, isso so
+    // mexia no estado local — a foto continuava salva na sessao no
+    // servidor, reaparecendo depois de um recarregamento mesmo tendo
+    // sido removida explicitamente. Sincroniza a remoção quando a foto
+    // já foi persistida (tem photoUrl); se ainda estava só subindo ou
+    // deu erro, não há nada persistido pra remover no servidor.
+    setAttachments((prev) => {
+      const alvo = prev.find((item) => item.id === id);
+      if (alvo?.photoUrl && sessionId) {
+        fetch("/api/chat/pending-photo", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ sessionId, url: alvo.photoUrl }),
+        }).catch(() => {
+          // silencioso — a remoção local já aconteceu; pior caso, a foto
+          // reaparece se a sessão for recarregada antes de uma nova troca
+        });
+      }
+      return prev.filter((item) => item.id !== id);
+    });
   };
 
   // Um vídeo por vez (diferente das fotos, que aceitam várias) — o upload

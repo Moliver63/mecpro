@@ -465,6 +465,24 @@ function detectarFormatoImagem(buffer: Buffer): "jpg" | "png" | "webp" | null {
   return null;
 }
 
+// Achado real (revisao apontada por Michel, 16/09): photoUrl so era
+// checada por comecar com "http(s)://" — qualquer URL arbitraria batendo
+// direto na API (sem passar pelo /chat/upload-photo) entraria como se
+// fosse uma foto real do cliente, indo pra analise de visao computacional
+// e potencialmente pro criativo final da campanha. Restringe a URLs que
+// sao genuinamente do nosso proprio Cloudinary (mesma conta configurada
+// em CLOUDINARY_CLOUD_NAME) — nao aceita foto vinda de qualquer lugar.
+function isTrustedPhotoUrl(url: string): boolean {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  if (!cloudName) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "res.cloudinary.com" && parsed.pathname.startsWith(`/${cloudName}/`);
+  } catch {
+    return false;
+  }
+}
+
 function sanitizeChatAttachments(raw: unknown): ChatImageAttachment[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -476,7 +494,7 @@ function sanitizeChatAttachments(raw: unknown): ChatImageAttachment[] {
         mimeType: typeof record.mimeType === "string" ? record.mimeType.slice(0, 80) : undefined,
         size: Number.isFinite(Number(record.size)) ? Number(record.size) : undefined,
         imageBase64: typeof record.imageBase64 === "string" ? record.imageBase64 : undefined,
-        photoUrl: typeof record.photoUrl === "string" && /^https?:\/\//i.test(record.photoUrl) ? record.photoUrl : undefined,
+        photoUrl: typeof record.photoUrl === "string" && isTrustedPhotoUrl(record.photoUrl) ? record.photoUrl : undefined,
       };
     })
     // Achado real (achados colados por Michel, 14/09): antes, um anexo sem
@@ -1241,19 +1259,66 @@ chatRouter.post("/upload-photo", authChat, (req: any, res, next) => {
     if (!photoUrl) {
       return res.status(502).json({ erro: "Não foi possível salvar a foto agora. Tente novamente em instantes." });
     }
+    // Achado real (revisao apontada por Michel, 16/09): se o usuario
+    // anexasse foto como primeira acao (antes de qualquer mensagem de
+    // texto, que e o que cria a sessao hoje), essa persistencia era
+    // pulada em silencio — a foto so sobrevivia na troca atual, perdida
+    // de novo se a pagina fosse recarregada antes do primeiro texto.
+    // Agora cria a sessao aqui tambem se nenhuma valida foi informada,
+    // igual o middleware do POST / ja faz na primeira mensagem — e
+    // devolve o sessionId pro cliente usar dali em diante.
+    let sessionIdEfetivo: number | null = null;
     const sessionIdRecebido = Number(req.body?.sessionId);
     if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
       const sessao = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
       if (sessao && (sessao as any).userId === userId) {
-        await db.addPendingChatPhoto(sessionIdRecebido, { url: photoUrl, fileName: safeName }).catch(() => {});
+        sessionIdEfetivo = sessionIdRecebido;
       }
     }
+    if (sessionIdEfetivo === null) {
+      sessionIdEfetivo = await db.createChatSession(userId, "Nova conversa").catch(() => null);
+    }
+    if (sessionIdEfetivo !== null) {
+      const salvou = await db.addPendingChatPhoto(sessionIdEfetivo, { url: photoUrl, fileName: safeName }).catch((e: any) => {
+        log.warn("chat", "falha ao persistir foto pendente na sessão", { userId, sessionId: sessionIdEfetivo, erro: redactProviderSecrets(String(e?.message ?? "")) });
+        return false;
+      });
+      if (salvou === false) {
+        // Não bloqueia o upload (a foto já está no Cloudinary e funciona
+        // nesta troca) — só avisa que a persistência entre recarregamentos
+        // pode não ter funcionado desta vez.
+        log.warn("chat", "foto enviada mas não confirmada como persistida na sessão", { userId, sessionId: sessionIdEfetivo });
+      }
+    } else {
+      log.warn("chat", "não foi possível resolver/criar sessão para persistir a foto", { userId });
+    }
     log.info("chat", "foto anexada no chat via upload genérico", { userId, fileName: safeName, size: file.size });
-    res.json({ photoUrl, fileName: safeName });
+    res.json({ photoUrl, fileName: safeName, sessionId: sessionIdEfetivo });
   } catch (e: any) {
     log.warn("chat", "falha no upload de foto do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
     res.status(500).json({ erro: "Erro ao salvar a foto. Tente novamente." });
   }
+});
+
+// Achado real (revisao apontada por Michel, 16/09): remover foto na
+// interface antes so mexia no estado local — a sessao no servidor
+// continuava com todas as fotos, reaparecendo depois de um
+// recarregamento. Este endpoint sincroniza a remoção.
+chatRouter.delete("/pending-photo", authChat, async (req: any, res) => {
+  const userId = req.chatUserId as number;
+  const sessionId = Number(req.body?.sessionId);
+  const url = typeof req.body?.url === "string" ? req.body.url : "";
+  if (!Number.isFinite(sessionId) || sessionId <= 0 || !url) {
+    return res.status(400).json({ erro: "sessionId e url são obrigatórios." });
+  }
+  const sessao = await db.getChatSessionById(sessionId).catch(() => null);
+  if (!sessao || (sessao as any).userId !== userId) {
+    return res.status(404).json({ erro: "Conversa não encontrada." });
+  }
+  await db.removePendingChatPhoto(sessionId, url).catch((e: any) => {
+    log.warn("chat", "falha ao remover foto pendente da sessão", { userId, sessionId, erro: redactProviderSecrets(String(e?.message ?? "")) });
+  });
+  res.json({ ok: true });
 });
 
 chatRouter.get("/status", (_req, res) => {
