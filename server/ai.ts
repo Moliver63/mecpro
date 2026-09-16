@@ -6830,6 +6830,7 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     [(clientProfile as any)?.niche, (clientProfile as any)?.productService, input.extraContext, input.name].filter(Boolean).join(" "),
     input.objective,
   );
+  campaignFacts.intent = { segment: resolvedSegment, objective: input.objective === "branding" ? "awareness" : input.objective };
   const isGenericCommercialRoom =
     campaignFacts.realEstate.propertyType === "sala comercial"
     && !/\b(consult[oó]rio|cl[ií]nica|escrit[oó]rio|sal[aã]o|studio|est[uú]dio)\b/i.test([
@@ -8215,7 +8216,10 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     if (String(error?.message).startsWith("FACT_CONFLICT:")) throw error;
   }
 
-  const factValidation = validateCampaignFactIntegrity(JSON.parse(creatives || "[]"), campaignFacts);
+  const factValidation = validateCampaignFactIntegrity([
+    ...JSON.parse(creatives || "[]"),
+    { adSets: JSON.parse(adSets || "[]") },
+  ], campaignFacts);
   if (factValidation.status === "failed") {
     log.error("ai", "FACT_CONFLICT — campanha bloqueada antes de salvar", {
       projectId: input.projectId,
@@ -8265,9 +8269,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
       postGenerationQualityGate: postGenerationGate,
       budgetViability,
       campaignFacts: {
-        verifiedFacts: campaignFacts.verifiedFacts,
-        allowedInferences: campaignFacts.allowedInferences,
-        forbiddenClaims: campaignFacts.forbiddenClaims,
+        ...campaignFacts,
       },
     });
   } catch {

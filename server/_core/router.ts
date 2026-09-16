@@ -4027,6 +4027,12 @@ const campaignsRouter = router({
         linkUrl: input.linkUrl || null,
       });
       const c = campaign as any;
+      const { assertCampaignPublishIntegrity } = await import("../campaignPublishIntegrity");
+      try {
+        assertCampaignPublishIntegrity(c, input);
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: (error as Error).message });
+      }
 
       // ── Valida budget mínimo antes de publicar ──────────────────────────────
       const allAdSets = (() => { try { return JSON.parse(c.adSets || "[]"); } catch { return []; } })();
@@ -4501,6 +4507,12 @@ const campaignsRouter = router({
           pageId: input.pageId,
           destinationSource,
         });
+      }
+      const { assertObjectiveUnchanged } = await import("../campaignRuleRetrieval");
+      try {
+        assertObjectiveUnchanged(c.objective, resolvedCampaignObj);
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: (error as Error).message });
       }
       const resolvedBrazilRegionKeys = input.locationMode === "brasil" && (input.regions?.length || 0) > 0
         ? await resolveBrazilRegionKeys(token, input.regions || [])

@@ -7,6 +7,8 @@ import {
   normalizeText,
 } from "./factNormalizer";
 
+import { retrieveCampaignRules, canonicalObjective } from "./campaignRuleRetrieval";
+
 type FactSource = Record<string, unknown>;
 
 // Achado real (cascata de geração, 10/09): a verba de mídia diária
@@ -33,6 +35,7 @@ export type CampaignFactConflict = {
 };
 
 export type CampaignFacts = {
+  intent?: { segment: string; objective: string };
   verifiedFacts: string[];
   allowedInferences: string[];
   forbiddenClaims: string[];
@@ -566,6 +569,7 @@ function extractConfirmedCharacteristics(text: string): string[] {
 export function buildCampaignFacts({
   input,
   clientProfile,
+  segment,
   mediaBudget,
 }: {
   input: FactSource;
@@ -694,6 +698,7 @@ export function buildCampaignFacts({
       ...buildForbiddenClaims(currentRaw || raw, propertyType),
       ...collectStaleInheritedClaims(currentFacts, inheritedFacts),
     ]),
+    intent: { segment: segment || "", objective: canonicalObjective(input.objective) },
     socialProofRaw,
     confirmedClaimsRaw: n,
     confirmedCharacteristics,
@@ -786,9 +791,41 @@ export function validateCampaignFactIntegrity(
 ): CampaignFactValidation {
   const conflicts: CampaignFactConflict[] = [];
   const fields = collectTextFields(creatives, "creatives");
+  const rules = retrieveCampaignRules(facts.intent?.segment || "", facts.intent?.objective || "");
+  // Metadata cannot silently redefine the server's confirmed campaign intent.
+  const visit = (value: unknown, path: string) => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, item] of Object.entries(value)) {
+      const field = `${path}.${key}`;
+      if (key === "segmentAlignmentIssues" && Array.isArray(item) && item.length) {
+        conflicts.push({ field, value: "segment_alignment_failed", reason: "campaign_segment_conflict" });
+      }
+      if (typeof item === "string" && item.trim()) {
+        if (key === "objective" && facts.intent?.objective && canonicalObjective(item) !== facts.intent.objective)
+          conflicts.push({ field, value: item, reason: "campaign_objective_conflict" });
+        if (["segment", "segmentAlignment"].includes(key) && facts.intent?.segment && item !== facts.intent.segment)
+          conflicts.push({ field, value: item, reason: "campaign_segment_conflict" });
+      } else if (item && typeof item === "object") visit(item, field);
+    }
+  };
+  visit(creatives, "creatives");
 
   for (const { field, text } of fields) {
     const n = normalizeText(text);
+    for (const term of rules.forbidden) {
+      const normalized = normalizeText(term);
+      if (n.includes(normalized) && !facts.confirmedClaimsRaw.includes(normalized)) {
+        conflicts.push({ field, value: term, reason: "segment_rule_conflict" });
+      }
+    }
+    if (["sala comercial", "imovel comercial"].includes(facts.realEstate.propertyType || "")) {
+      const residential = n.match(/\b(?:novo lar|seu lar|sua familia|pront[oa]s? para morar|moradia|mudanca residencial)\b/);
+      if (residential) conflicts.push({ field, value: residential[0], reason: "commercial_property_residential_copy" });
+    }
+    const unsupported = n.match(/\b(?:disponibilidade imediata|ocupacao imediata|sem burocracia|contratos claros|tranquilidade garantida)\b/g) || [];
+    for (const claim of unsupported) {
+      if (!facts.confirmedClaimsRaw.includes(claim)) conflicts.push({ field, value: claim, reason: "unconfirmed_offer_claim" });
+    }
 
     for (const claim of facts.forbiddenClaims) {
       if (n.includes(normalizeText(claim))) {
@@ -1008,6 +1045,8 @@ export function validateCampaignFactIntegrity(
 
 export function formatCampaignFactsForPrompt(facts: CampaignFacts): string {
   return [
+    `REGRAS RECUPERADAS (nao sao fatos da oferta): ${JSON.stringify(retrieveCampaignRules(facts.intent?.segment || "", facts.intent?.objective || ""))}`,
+    "O segmento e o objetivo confirmados nao podem ser substituidos por exemplos, templates ou reparadores. Para segmento desconhecido, use apenas o briefing; nao force outro setor.",
     "========================",
     "FATOS VERIFICADOS DA CAMPANHA ATUAL",
     "========================",
