@@ -1,7 +1,25 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-08-12 (sessão 28)
+> **Última atualização:** 2026-09-16 (adendo Codex; historico abaixo preservado)
+
+## Adendo Codex - ler antes do historico
+
+Veja [Entrega Codex de 2026-09-16](CODEX_CHANGELOG_2026-09-16.md) e o adendo de
+[Estado atual](MEC_PRO_AI_CURRENT_STATE.md). Eles registram os commits locais ate
+`f57f3ec`, testes, impactos de compatibilidade e pendencias. Os scores e o campo
+"ultimo commit" das secoes historicas abaixo nao representam uma nova auditoria.
+
+- Chat: respostas curtas, reutilizacao de briefing e retries limitados; nao ha
+  garantia de latencia total nem streaming.
+- Imagens: fatos confirmados orientam o prompt e o cache; fidelidade visual
+  depende de validacao real, nao apenas do prompt.
+- Campanhas: regras recuperadas do segmento nao sao fatos da oferta. Segmento,
+  objetivo e copies passam por validacao antes de salvar e no caminho Meta.
+- Campanhas sem snapshot completo de fatos precisam ser regeneradas antes de
+  publicar. Fallback tecnico nao pode trocar silenciosamente o objetivo.
+- Nenhuma destas mudancas comprova deploy ou autoriza publicacao. Nao afirmar
+  que pendencias de anexos, checklist visual ou Google/TikTok foram resolvidas.
 
 ---
 

@@ -1,6 +1,25 @@
 # MecProAI - Estado atual do motor
 
-Atualizado em: 2026-08-29
+Atualizado em: 2026-09-16 (adendo Codex; secoes anteriores preservadas como historico)
+
+## Adendo Codex - precedencia operacional
+
+Consulte [Entrega Codex de 2026-09-16](CODEX_CHANGELOG_2026-09-16.md) para os
+commits cf38880, 71ba7a9, 7f2df58, 01276de e f57f3ec, testes e pendencias.
+Este adendo prevalece sobre descricoes historicas abaixo quando houver conflito.
+
+O chat agora orienta respostas curtas, perguntas somente sobre dados ausentes e
+geracao de rascunho sem confirmacao redundante. A publicacao continua separada.
+Retries mais curtos nao constituem limite total de resposta. Imagens priorizam
+o briefing confirmado e usam cache sensivel ao contexto.
+
+Regras de segmento sao recuperadas localmente sem importar fatos de exemplos.
+O Fact Guard valida intencao e copy; a publicacao Meta exige snapshot completo,
+revalida textos e bloqueia troca automatica de objetivo. Campanhas legadas sem
+snapshot precisam ser regeneradas. Isso nao modifica anuncios ja ativos.
+
+Estado confirmado: implementacao e testes locais. Deploy, comportamento real dos
+provedores e resultado comercial nao foram comprovados por estes testes.
 
 Este documento resume o comportamento atual do MecProAI no fluxo de criacao, validacao e publicacao de campanhas. Ele complementa os documentos historicos em `docs/` e deve ser usado como referencia operacional para evitar divergencia entre briefing, criativos, MCP e Meta Ads.
 
