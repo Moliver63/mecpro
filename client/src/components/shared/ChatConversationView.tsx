@@ -1,6 +1,6 @@
-import { ImagePlus, Send, X, Video, Loader2 } from "lucide-react";
+import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle } from "lucide-react";
 import type { RefObject } from "react";
-import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment } from "@/hooks/useCampaignChat";
+import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment, ChatVelocidade } from "@/hooks/useCampaignChat";
 import { ASSISTANT_IMAGE, SUGESTOES } from "@/hooks/useCampaignChat";
 
 function FormatarTexto({ texto }: { texto: string }) {
@@ -42,6 +42,8 @@ interface ChatConversationViewProps {
   mostrarSugestoes: boolean;
   input: string;
   setInput: (v: string) => void;
+  velocidade: ChatVelocidade;
+  escolherVelocidade: (v: ChatVelocidade) => void;
   attachments: ChatImageAttachment[];
   addAttachments: (files: FileList | File[]) => Promise<void>;
   removeAttachment: (id: string) => void;
@@ -61,6 +63,8 @@ export default function ChatConversationView({
   mostrarSugestoes,
   input,
   setInput,
+  velocidade,
+  escolherVelocidade,
   attachments,
   addAttachments,
   removeAttachment,
@@ -148,6 +152,38 @@ export default function ChatConversationView({
       </main>
 
       <footer className="campaign-chat-footer">
+        <div className="campaign-chat-velocidade" role="radiogroup" aria-label="Velocidade da resposta">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={velocidade === "rapida"}
+            className={velocidade === "rapida" ? "ativo" : undefined}
+            onClick={() => escolherVelocidade("rapida")}
+            title="Respostas diretas e imediatas, sem pesquisar a web"
+          >
+            <Zap size={13} strokeWidth={2.4} /> Rápida
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={velocidade === "media"}
+            className={velocidade === "media" ? "ativo" : undefined}
+            onClick={() => escolherVelocidade("media")}
+            title="Equilíbrio entre velocidade e profundidade (padrão)"
+          >
+            <Gauge size={13} strokeWidth={2.4} /> Média
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={velocidade === "lenta"}
+            className={velocidade === "lenta" ? "ativo" : undefined}
+            onClick={() => escolherVelocidade("lenta")}
+            title="Respostas mais completas, pode pesquisar a web quando ajudar"
+          >
+            <Turtle size={13} strokeWidth={2.4} /> Lenta
+          </button>
+        </div>
         {!!attachments.length && (
           <div className="campaign-chat-attachment-tray" aria-label="Fotos anexadas">
             {attachments.map((file, index) => (

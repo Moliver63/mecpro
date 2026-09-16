@@ -1385,6 +1385,42 @@ tbody tr:last-child td { border-bottom: none; }
   border-top: 1px solid var(--border);
 }
 
+.campaign-chat-velocidade {
+  width: min(820px, 100%);
+  margin: 0 auto 8px;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--off);
+  border-radius: 999px;
+  width: fit-content;
+}
+
+.campaign-chat-velocidade button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--t-fast) var(--ease);
+}
+
+.campaign-chat-velocidade button:hover {
+  color: var(--black);
+}
+
+.campaign-chat-velocidade button.ativo {
+  background: white;
+  color: var(--blue);
+  box-shadow: var(--shadow-xs);
+}
+
 .campaign-chat-attachment-tray {
   width: min(820px, 100%);
   margin: 0 auto 10px;

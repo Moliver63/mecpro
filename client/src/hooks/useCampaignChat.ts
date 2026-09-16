@@ -103,6 +103,12 @@ export const ASSISTANT_IMAGE = "/mecproai-assistant.jpg";
 // restaurar automaticamente ao recarregar a página sem guardar dados
 // sensíveis no navegador.
 const CHAVE_SESSAO_LOCAL = "mecpro_chat_session_id";
+// Achado real (pedido de Michel, 16/09): "precisamos de velocidade, o
+// usuario precisar de a opcao lenta, media e rapida de resposta" —
+// persistida no navegador (preferência do usuário, não da conversa
+// específica) pra não precisar escolher de novo toda vez que abre o chat.
+const CHAVE_VELOCIDADE_LOCAL = "mecpro_chat_velocidade";
+export type ChatVelocidade = "rapida" | "media" | "lenta";
 
 const MAX_CHAT_IMAGES = 10;
 const MAX_CHAT_IMAGE_BYTES = 6 * 1024 * 1024;
@@ -124,6 +130,10 @@ export function useCampaignChat() {
   const sending = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([MENSAGEM_INICIAL]);
   const [input, setInput] = useState("");
+  const [velocidade, setVelocidade] = useState<ChatVelocidade>(() => {
+    const salva = typeof window !== "undefined" ? localStorage.getItem(CHAVE_VELOCIDADE_LOCAL) : null;
+    return salva === "rapida" || salva === "lenta" ? salva : "media";
+  });
   const [attachments, setAttachments] = useState<ChatImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -263,7 +273,7 @@ export function useCampaignChat() {
       // acontece em paralelo, status rastreia o progresso.
       const dataUrl = await fileToDataUrl(file);
       setAttachments((prev) => [...prev, {
-        id, fileName: file.name, mimeType: file.type, size: file.size, dataUrl, status: "uploading",
+        id, fileName: file.name, mimeType: file.type, size: file.size, dataUrl, status: "uploading" as const,
       }].slice(0, MAX_CHAT_IMAGES));
 
       try {
@@ -290,6 +300,11 @@ export function useCampaignChat() {
         setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "error", erro: "Erro de conexão ao enviar a foto." } : a));
       }
     }
+  };
+
+  const escolherVelocidade = (v: ChatVelocidade) => {
+    setVelocidade(v);
+    localStorage.setItem(CHAVE_VELOCIDADE_LOCAL, v);
   };
 
   const removeAttachment = (id: string) => {
@@ -391,6 +406,7 @@ export function useCampaignChat() {
             imageBase64: file.status === "done" ? undefined : file.dataUrl,
           })),
           videoUrl: videoAttachment?.status === "done" ? videoAttachment.videoUrl : undefined,
+          velocidade,
         }),
       });
 
@@ -454,6 +470,8 @@ export function useCampaignChat() {
     messages,
     input,
     setInput,
+    velocidade,
+    escolherVelocidade,
     attachments,
     addAttachments,
     removeAttachment,

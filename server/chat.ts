@@ -464,6 +464,26 @@ const ferramentasGroq = [
   },
 ].map(tool => ({ ...tool, function: { ...tool.function, parameters: nullableOptionalFields(tool.function.parameters) } }));
 
+// Achado real (pedido de Michel, 16/09): "precisamos de velocidade, o
+// usuario precisar de a opcao lenta, media e rapida de resposta". No
+// modo rapido, pesquisar_web fica fora da lista — uma pesquisa na web
+// custa uma chamada de rede inteira (round-trip pro Google + sintese do
+// Gemini) antes mesmo do modelo comecar a responder, o oposto do que
+// "rapido" pede. Arrays computados uma unica vez no carregamento do
+// modulo (nao filtrados a cada requisicao) — baixo custo, e evita
+// reordenar/reestruturar a cadeia de provedores (Gemini → DeepSeek →
+// Groq), que acabou de ter um bug real corrigido.
+const declaracoesGeminiRapida = declaracoesGemini.filter(t => t.name !== "pesquisar_web");
+const ferramentasGroqRapida = ferramentasGroq.filter(t => t.function.name !== "pesquisar_web");
+
+const NOTA_VELOCIDADE_LENTA =
+  "\n\n[Modo de resposta: LENTO. O usuário priorizou profundidade sobre velocidade nesta troca — pode usar pesquisar_web " +
+  "quando genuinamente ajudar a responder melhor, e não precisa se limitar ao modo direto de 1-3 frases se a pergunta " +
+  "pedir mais explicação. Ainda assim, nunca enrole por enrolar.]";
+const NOTA_VELOCIDADE_RAPIDA =
+  "\n\n[Modo de resposta: RÁPIDO. O usuário priorizou velocidade nesta troca — vá direto ao ponto, sem pesquisar a web " +
+  "(a ferramenta não está disponível agora), respondendo com o que você já sabe.]";
+
 // Achado real (cascata de geração, 10/09): Groq enviava
 // "destinationUrl": null quando o usuário não informava URL, e o
 // schema (string) rejeitava a chamada inteira. Regra: campo opcional
@@ -808,7 +828,7 @@ function erroEhCotaDiariaEsgotada(erro: unknown): boolean {
 
 /* ---------------- Provedor 1: Gemini (com pool de chaves) ---------------- */
 
-async function chamarGeminiComRetry(historico: Content[], tentativas?: number): Promise<GenerateContentResponse> {
+async function chamarGeminiComRetry(historico: Content[], tentativas?: number, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<GenerateContentResponse> {
   // Achado real (mesmo log, 10/09): tentativas=4 (padrão anterior) só
   // cobria metade do pool de 8 chaves — se a chave suspensa/com problema
   // fosse a primeira testada, ainda havia risco de esgotar as 4
@@ -846,7 +866,7 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number): 
         contents: historico,
         config: {
           systemInstruction: SYSTEM_PROMPT,
-          tools: [{ functionDeclarations: declaracoesGemini }],
+          tools: [{ functionDeclarations: velocidade === "rapida" ? declaracoesGeminiRapida : declaracoesGemini }],
           toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
         },
       });
@@ -890,7 +910,7 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number): 
   throw ultimoErro;
 }
 
-async function tentarComGemini(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<RespostaChat> {
+async function tentarComGemini(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
   const historico: Content[] = mensagens.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -902,7 +922,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
   let generationError = "";
 
   for (let passo = 0; passo < 4; passo++) {
-    const resposta = await chamarGeminiComRetry(historico);
+    const resposta = await chamarGeminiComRetry(historico, undefined, velocidade);
     if (resposta.text) textoFinal = resposta.text;
 
     const handled = await appendGeminiToolTurn(historico, resposta, async (name, args) => {
@@ -945,7 +965,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
 
 /* ---------------- Provedor 2: Groq (fallback) ---------------- */
 
-async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletionMessageParam[], tentativas = 2) {
+async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletionMessageParam[], tentativas = 2, ferramentas: typeof ferramentasGroq = ferramentasGroq) {
   const retryBudget = createChatRetryBudget();
   let ultimoErro: unknown;
   for (let i = 0; i < tentativas; i++) {
@@ -954,7 +974,7 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
       return await groq.chat.completions.create({
         model: MODELO_GROQ,
         messages: historico,
-        tools: ferramentasGroq,
+        tools: ferramentas,
         tool_choice: "auto",
         parallel_tool_calls: false,
         temperature: 0.3,
@@ -970,7 +990,7 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
   throw ultimoErro;
 }
 
-async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<RespostaChat> {
+async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
   const historico: Groq.Chat.ChatCompletionMessageParam[] = [
@@ -982,7 +1002,7 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
   let textoFinal = "";
 
   for (let passo = 0; passo < 4; passo++) {
-    const resposta = await chamarGroqComRetry(groq, historico);
+    const resposta = await chamarGroqComRetry(groq, historico, 2, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq);
     const msg = resposta.choices[0].message;
     if (msg.content) textoFinal = msg.content;
 
@@ -1090,7 +1110,7 @@ async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
   return data;
 }
 
-async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<RespostaChat> {
+async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
   log.info("chat", "tentando DeepSeek fallback", { model: MODELO_DEEPSEEK_CHAT });
   const historico: any[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -1101,7 +1121,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
   let textoFinal = "";
 
   for (let passo = 0; passo < 4; passo++) {
-    const resposta = await chamarDeepSeekChat(historico, ferramentasGroq);
+    const resposta = await chamarDeepSeekChat(historico, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq);
     const msg = resposta?.choices?.[0]?.message || {};
     if (msg.content) textoFinal = String(msg.content);
 
@@ -1521,9 +1541,24 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     }
   }
 
+  // Achado real (pedido de Michel, 16/09): "precisamos de velocidade, o
+  // usuario precisar de a opcao lenta, media e rapida de resposta".
+  // "media" (padrao) mantém o comportamento de hoje sem alteração
+  // nenhuma — só rápida (sem pesquisar_web) e lenta (nota encorajando
+  // pesquisa/profundidade) mudam algo.
+  const velocidadesValidas = new Set(["rapida", "media", "lenta"]);
+  const velocidadeRecebida = typeof req.body?.velocidade === "string" ? req.body.velocidade.trim() : "media";
+  const velocidade = velocidadesValidas.has(velocidadeRecebida) ? (velocidadeRecebida as "rapida" | "media" | "lenta") : "media";
+  if (velocidade !== "media" && mensagens.length) {
+    const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
+    if (lastUser) {
+      lastUser.content += velocidade === "lenta" ? NOTA_VELOCIDADE_LENTA : NOTA_VELOCIDADE_RAPIDA;
+    }
+  }
+
   if (proximaChaveGemini()) {
     try {
-      const resultado = await tentarComGemini(mensagens, userId, attachments, req.chatSessionId);
+      const resultado = await tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade);
       return finish(resultado);
     } catch (erro) {
       log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
@@ -1532,7 +1567,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
 
   if (process.env.DEEPSEEK_API_KEY && deepSeekBillingCooldown.available(process.env.DEEPSEEK_API_KEY.trim())) {
     try {
-      const resultado = await tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId);
+      const resultado = await tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId, velocidade);
       return finish(resultado);
     } catch (erro) {
       log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
@@ -1541,7 +1576,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
 
   if (process.env.GROQ_API_KEY) {
     try {
-      const resultado = await tentarComGroq(mensagens, userId, attachments, req.chatSessionId);
+      const resultado = await tentarComGroq(mensagens, userId, attachments, req.chatSessionId, velocidade);
       return finish(resultado);
     } catch (erro) {
       log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
