@@ -1,5 +1,16 @@
 # Conversation policy and recovery
 
+## Concise campaign intake
+
+All three chat providers share a short-answer policy: normally 1-3 sentences,
+up to three missing required facts per question, and reuse of confirmed session
+briefing. A requested draft can be generated as soon as the briefing is ready,
+without another "may I generate?" turn. Optional recommendations do not justify
+repeated questions. Project ambiguity, cover selection, facts and separate
+publication authorization still apply. No answer truncation or validator bypass
+is used. Prompt regression tests cannot guarantee live model compliance; validate
+a multi-turn conversation in production before claiming repetition is eliminated.
+
 The chat separates general explanations, account-data queries, planning and
 actions. General questions do not require campaign briefing fields. Account
 claims still require tool evidence. No browser/search capability or unrestricted

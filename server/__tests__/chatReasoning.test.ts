@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BillingCooldown, CONVERSATION_POLICY, localConversationReply, nullableOptionalFields } from "../chatReasoning";
+import { BillingCooldown, CONVERSATION_POLICY, CONCISE_CAMPAIGN_POLICY, localConversationReply, nullableOptionalFields } from "../chatReasoning";
 
 test("optional null is represented in provider schema without relaxing required amounts", () => {
   const input = { type: "object", properties: { projectId: { type: "integer" }, budget: { type: "number", minimum: 1 } }, required: ["budget"], additionalProperties: false };
@@ -35,4 +35,14 @@ test("conversation policy separates explanation, evidence and authorized actions
   assert.match(CONVERSATION_POLICY, /nao exija projeto/);
   assert.match(CONVERSATION_POLICY, /nao afirme ter pesquisado/);
   assert.match(CONVERSATION_POLICY, /autorizacao explicita/);
+});
+
+test("concise campaign policy keeps briefing reuse and publication safeguards", () => {
+  assert.ok(CONVERSATION_POLICY.includes(CONCISE_CAMPAIGN_POLICY));
+  assert.match(CONCISE_CAMPAIGN_POLICY, /1 a 3 frases/);
+  assert.match(CONCISE_CAMPAIGN_POLICY, /ate 3 dados obrigatorios ausentes/);
+  assert.match(CONCISE_CAMPAIGN_POLICY, /Nao repita dados confirmados/);
+  assert.match(CONCISE_CAMPAIGN_POLICY, /sem perguntar novamente/);
+  assert.match(CONCISE_CAMPAIGN_POLICY, /Nunca invente valores/);
+  assert.match(CONCISE_CAMPAIGN_POLICY, /rascunho nao autoriza publicar/);
 });
