@@ -816,11 +816,25 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number): 
   // inteiro numa chamada só; sem custo real pra erro de cota/chave
   // suspensa (pula pra próxima sem esperar), só pesa em cenário de erro
   // temporário (503/429) generalizado, que já era um caso degradado antes.
+  //
+  // Achado real (Michel relatou fallback local aparecendo com frequência,
+  // 16/09): o orçamento de 12s (chatRetryBudget, adicionado numa frente
+  // paralela) tinha um gate ADICIONAL logo aqui — "if (i > 0 &&
+  // !retryBudget.canAttempt()) throw" — aplicado em TODA iteração do
+  // laço, inclusive a rotação de chave suspensa/esgotada que o comentário
+  // acima descreve como "sem custo real". Com várias chaves ruins no
+  // início do pool (cenário real, já visto antes nesta sessão), o tempo
+  // de rede pra CADA tentativa falhar ia consumindo os 12s do orçamento
+  // antes mesmo de chegar nas chaves boas do fim do pool — o sistema
+  // desistia e caía pro modo local mesmo com chave saudável disponível,
+  // exatamente o problema que a mudança de 10/09 tinha resolvido. O
+  // orçamento de 12s continua valendo (via nextDelay() abaixo) só pra
+  // pausa entre tentativas de erro TEMPORÁRIO — não deve bloquear rotação
+  // de chave, que é gratuita e não devia consumir esse orçamento.
   const maxTentativas = tentativas ?? Math.max(poolChavesGemini().length, 4);
   const retryBudget = createChatRetryBudget();
   let ultimoErro: unknown;
   for (let i = 0; i < maxTentativas; i++) {
-    if (i > 0 && !retryBudget.canAttempt()) throw ultimoErro;
     const chave = proximaChaveGemini();
     if (!chave) {
       throw ultimoErro ?? new Error("Nenhuma chave Gemini disponível no momento (cotas esgotadas).");
