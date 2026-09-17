@@ -24,7 +24,7 @@
 import { Router } from "express";
 import { briefingContext, mergeChatBriefing, campaignResultText, generationErrorText, isLastCampaignLinkRequest } from "./chatBriefing";
 import { chatSessionMiddleware } from "./chatSession";
-import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentConfig, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
 import { createChatRetryBudget } from "./chatRetryBudget";
 import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
@@ -58,6 +58,12 @@ import { redactProviderSecrets } from "./providerSafety";
 export const chatRouter = Router();
 
 const MODELO_GEMINI = process.env.GEMINI_CHAT_MODEL ?? "gemini-flash-latest";
+// Modelo opcional pro modo de velocidade "lenta" (o usuário priorizou
+// profundidade sobre latência/custo). Opt-in via env: sem configurar, o modo
+// lenta usa o mesmo modelo dos demais — zero mudança de custo/comportamento
+// pra quem não configurou. Serve pra apontar um modelo mais capaz (ex: um
+// Pro) quando o provedor oferecer, sem reordenar a cadeia de fallback.
+const MODELO_GEMINI_LENTO = process.env.GEMINI_CHAT_MODEL_SLOW ?? MODELO_GEMINI;
 const MODELO_DEEPSEEK_CHAT = process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat";
 // Achado real (log de produção, 10/09): "llama-3.3-70b-versatile" — HTTP
 // 404 "does not exist or you do not have access to it". Confirmado via
@@ -479,7 +485,8 @@ const ferramentasGroqRapida = ferramentasGroq.filter(t => t.function.name !== "p
 const NOTA_VELOCIDADE_LENTA =
   "\n\n[Modo de resposta: LENTO. O usuário priorizou profundidade sobre velocidade nesta troca — pode usar pesquisar_web " +
   "quando genuinamente ajudar a responder melhor, e não precisa se limitar ao modo direto de 1-3 frases se a pergunta " +
-  "pedir mais explicação. Ainda assim, nunca enrole por enrolar.]";
+  "pedir mais explicação. Pense com cuidado antes de responder: confira fatos, números e datas antes de afirmar. " +
+  "Ainda assim, nunca enrole por enrolar.]";
 const NOTA_VELOCIDADE_RAPIDA =
   "\n\n[Modo de resposta: RÁPIDO. O usuário priorizou velocidade nesta troca — vá direto ao ponto, sem pesquisar a web " +
   "(a ferramenta não está disponível agora), respondendo com o que você já sabe.]";
@@ -828,6 +835,30 @@ function erroEhCotaDiariaEsgotada(erro: unknown): boolean {
 
 /* ---------------- Provedor 1: Gemini (com pool de chaves) ---------------- */
 
+// Precisão: o padrão do gemini-flash é temperature 1.0 — alto demais pra um
+// assistente factual com function calling (variação desnecessária nas
+// respostas e nas escolhas de ferramenta). Groq e DeepSeek já rodam a 0.3;
+// 0.4 no Gemini mantém respostas naturais sem afrouxar a consistência.
+// maxOutputTokens evita truncamento silencioso de respostas longas (ex: modo
+// lenta) — sem limite declarado, o modelo corta o texto no meio e o usuário
+// recebe resposta mutilada. Modo lenta: o usuário trocou velocidade por
+// qualidade — liga orçamento de raciocínio (thinking) e permite modelo mais
+// capaz via GEMINI_CHAT_MODEL_SLOW. Só aplicado nesse modo: mídia/rápida
+// seguem exatamente como antes. Exportada pura pra ser testada sem chamar
+// a API de verdade.
+export function configGeminiChat(velocidade: "rapida" | "media" | "lenta" = "media"): { model: string; config: GenerateContentConfig } {
+  const config: GenerateContentConfig = {
+    systemInstruction: SYSTEM_PROMPT,
+    temperature: 0.4,
+    maxOutputTokens: 2048,
+    tools: [{ functionDeclarations: velocidade === "rapida" ? declaracoesGeminiRapida : declaracoesGemini }],
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
+  };
+  const model = velocidade === "lenta" ? MODELO_GEMINI_LENTO : MODELO_GEMINI;
+  if (velocidade === "lenta") config.thinkingConfig = { thinkingBudget: 2048 };
+  return { model, config };
+}
+
 async function chamarGeminiComRetry(historico: Content[], tentativas?: number, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<GenerateContentResponse> {
   // Achado real (mesmo log, 10/09): tentativas=4 (padrão anterior) só
   // cobria metade do pool de 8 chaves — se a chave suspensa/com problema
@@ -861,15 +892,8 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number, v
     }
     try {
       const cliente = new GoogleGenAI({ apiKey: chave });
-      return await cliente.models.generateContent({
-        model: MODELO_GEMINI,
-        contents: historico,
-        config: {
-          systemInstruction: SYSTEM_PROMPT,
-          tools: [{ functionDeclarations: velocidade === "rapida" ? declaracoesGeminiRapida : declaracoesGemini }],
-          toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
-        },
-      });
+      const { model, config } = configGeminiChat(velocidade);
+      return await cliente.models.generateContent({ model, contents: historico, config });
     } catch (erro) {
       ultimoErro = erro;
       // Achado real (unificação, 13/09): chat.ts tinha seu próprio
@@ -978,6 +1002,9 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
         tool_choice: "auto",
         parallel_tool_calls: false,
         temperature: 0.3,
+        // Mesmo motivo do maxOutputTokens no Gemini: sem limite declarado,
+        // respostas longas (modo lenta) podem cortar no meio.
+        max_tokens: 2048,
       });
     } catch (erro) {
       ultimoErro = erro;
@@ -1073,7 +1100,7 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
 }
 
 /* ---------------- Provedor 3: DeepSeek (fallback OpenAI-compatible) ---------------- */
-async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
+async function chamarDeepSeekChat(messages: any[], tools?: any[], maxTokens = 1400) {
   const apiKey = (process.env.DEEPSEEK_API_KEY || "").trim();
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY não configurada.");
   if (!deepSeekBillingCooldown.available(apiKey)) throw new Error("DeepSeek temporariamente suspenso neste processo apos erro de saldo.");
@@ -1084,7 +1111,9 @@ async function chamarDeepSeekChat(messages: any[], tools?: any[]) {
     model,
     messages,
     temperature: 0.3,
-    max_tokens: 1400,
+    // Modo lenta pede espaço pra respostas longas; mídia/rápida seguem no
+    // limite anterior (1400) sem mudança de custo.
+    max_tokens: maxTokens,
   };
   if (tools?.length) {
     body.tools = tools;
@@ -1121,7 +1150,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
   let textoFinal = "";
 
   for (let passo = 0; passo < 4; passo++) {
-    const resposta = await chamarDeepSeekChat(historico, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq);
+    const resposta = await chamarDeepSeekChat(historico, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq, velocidade === "lenta" ? 2048 : 1400);
     const msg = resposta?.choices?.[0]?.message || {};
     if (msg.content) textoFinal = String(msg.content);
 
