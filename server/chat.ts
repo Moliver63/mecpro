@@ -1592,6 +1592,15 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     } catch (erro) {
       log.warn("chat", "Gemini indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
+  } else {
+    // Achado real (Michel relatou o fallback local reaparecendo, 16/09):
+    // quando esta condição é falsa, NADA era logado — só o catch acima
+    // loga, e só quando uma tentativa de verdade falhou. Se o Gemini
+    // for pulado por falta de chave disponível (todas rejeitadas ou com
+    // cota esgotada), os logs do Render não mostravam isso — só que caiu
+    // no modo local no fim da cadeia, sem indicar qual provedor faltou e
+    // por quê. Com este log, a próxima ocorrência fica diagnosticável.
+    log.warn("chat", "Gemini pulado — nenhuma chave disponível (todas rejeitadas ou com cota esgotada)", { userId });
   }
 
   if (process.env.DEEPSEEK_API_KEY && deepSeekBillingCooldown.available(process.env.DEEPSEEK_API_KEY.trim())) {
@@ -1601,6 +1610,11 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     } catch (erro) {
       log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
+  } else {
+    log.warn("chat", "DeepSeek pulado", {
+      userId,
+      motivo: !process.env.DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY não configurada" : "em cooldown de 15min após erro de saldo (402) — se persistir, o saldo da conta DeepSeek provavelmente está zerado",
+    });
   }
 
   if (process.env.GROQ_API_KEY) {
@@ -1610,7 +1624,10 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     } catch (erro) {
       log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
+  } else {
+    log.warn("chat", "Groq pulado — GROQ_API_KEY não configurada", { userId });
   }
 
+  log.error("chat", "TODOS os provedores de IA falharam ou foram pulados — caindo pro modo local", { userId });
   return finish(responderLocal(ultimaMensagemUsuario || ""));
 });
