@@ -266,6 +266,7 @@ Situações que você precisa saber lidar:
 - Usuário anexa fotos: trate como material real da campanha. Não peça URL pública nem base64; o sistema já recebeu os bytes das imagens.
 - Depois de gerar: resuma em 1-2 frases diretas (nome da campanha, objetivo, orçamento/dia aproximado) e diga que os detalhes completos estão no link que aparece na tela. NÃO prometa resultado ("vai vender muito") — só entregue a campanha criada.
 - Se a ferramenta retornar erro (falta campo, limite do plano): repasse a mensagem do erro ao usuário de forma clara e continue a conversa coletando o que falta. NUNCA repita nomes de módulos/sistemas internos pro usuário (ex: "Fact Guard", "Quality Gate", "briefingContext") — o cliente não sabe o que esses nomes significam e não precisa saber. Descreva o que aconteceu em linguagem simples (ex: "o texto incluiu algo que você ainda não confirmou"), não o mecanismo técnico que detectou isso.
+- Se gerar_campanha falhar e o resultado incluir termosRejeitados: ao chamar gerar_campanha DE NOVO pra essa mesma tentativa (usuário confirmou que quer tentar outra vez), sempre inclua esses mesmos termos no parâmetro forbiddenTerms da nova chamada. Sem isso, a nova tentativa não tem nenhuma informação sobre o que evitar e pode cair no mesmo problema de novo — o usuário não deve precisar dizer "tenta de novo" mais de uma vez pro mesmo motivo.
 - pesquisar_web traz informação da internet pra te ajudar a responder (ex: preço médio de mercado, tendência recente) — é conversa, não fato confirmado do negócio do cliente. NUNCA vire resultado de pesquisa em alegação de copy publicitária (preço, prazo, característica do produto) sem o cliente confirmar explicitamente que aquilo se aplica ao negócio dele. Cite que veio de pesquisa quando usar ("segundo dados públicos...") em vez de apresentar como se fosse fato do negócio do cliente.
 - Depois de gerar_campanha ter sucesso: SEMPRE confira o campo photoCount do resultado. Se photoCount for 0 (nenhuma foto real usada), diga isso explicitamente ao usuário — ex: "Gerei a campanha com imagens criadas por IA, já que não recebi nenhuma foto real sua. Quer enviar fotos do seu produto/espaço pra eu regenerar com elas?" NUNCA deixe essa informação implícita — o usuário precisa saber que a campanha usa imagem genérica, não a foto real do negócio dele, sem precisar abrir a campanha pra descobrir.
 - Se a ferramenta avisar que já existe um projeto parecido com o nome novo informado: pergunte ao usuário se é o mesmo negócio (nesse caso, use o projectId indicado no erro) antes de insistir em criar um projeto novo. Isso evita duplicar o mesmo cliente em vários projetos por causa de uma pequena variação no nome digitado.
@@ -301,6 +302,17 @@ const PARAMETROS_GERAR_CAMPANHA = {
     mediaFormat: { type: "string", enum: ["image", "video", "carousel", "mixed"], description: "Formato de mídia." },
     whatsapp: { type: "string", description: "WhatsApp de atendimento, se houver." },
     destinationUrl: { type: "string", description: "URL de destino dos anúncios. Se não houver, OMITE o campo — nunca envie null." },
+    // Achado real (Michel relatou a mensagem de FACT_CONFLICT reaparecendo
+    // ao tentar de novo, 17/09): antes, a mensagem generica de erro nao
+    // levava nenhuma informacao especifica pra proxima tentativa — o
+    // modelo nao tinha como saber QUAL palavra/frase foi rejeitada, entao
+    // uma nova chamada com os mesmos argumentos tinha chance real de
+    // cair no MESMO problema de novo (especialmente se for uma tendencia
+    // sistematica do modelo, nao aleatoriedade). Preencha isto com os
+    // termos exatos que a ferramenta te informou como rejeitados na
+    // tentativa anterior (campo termosRejeitados do resultado com erro) —
+    // isso e injetado como proibicao explicita na proxima geracao.
+    forbiddenTerms: { type: "array", items: { type: "string" }, description: "Termos/frases que uma tentativa anterior desta MESMA campanha teve rejeitados pelo verificador de fatos — preencha com o valor de termosRejeitados retornado no erro anterior, se houver." },
   },
   required: ["objective", "platform", "budget", "durationDays", "newCampaign"],
 };
@@ -631,7 +643,7 @@ async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId
 }
 
 // ── Execução real da ferramenta (chama o motor existente) ─────────────────
-async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
+async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
   try {
     return await runChatDraftTask(userId, () => gerarRascunhoValidado(args, userId, attachments, sessionId), TIMEOUT_GERACAO_MS);
   } catch (error) {
@@ -639,7 +651,7 @@ async function executarGeracaoCampanha(args: Record<string, unknown>, userId: nu
   }
 }
 
-async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string }> {
+async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
   try {
     const state = briefingContext.getStore();
     args = mergeChatBriefing(state?.briefing || {}, args);
@@ -760,6 +772,9 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       args.whatsapp ? `WhatsApp: ${args.whatsapp}` : "",
       args.destinationUrl ? `URL de destino: ${args.destinationUrl}` : "",
       hasChatPhotos ? `${preparedMedia.realImages.length} foto(s) real(is) anexada(s) pelo usuário para orientar e montar os criativos.` : "",
+      Array.isArray(args.forbiddenTerms) && args.forbiddenTerms.length
+        ? `PROIBIDO usar estas palavras/frases nos criativos — foram rejeitadas numa tentativa anterior desta mesma campanha por alegação não comprovada: ${args.forbiddenTerms.slice(0, 20).join(", ")}.`
+        : "",
     ].filter(Boolean).join(". ");
 
     const { generateCampaign } = await import("./ai");
@@ -808,7 +823,19 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       ? "A geração está demorando mais que o esperado. Ela pode ter sido criada mesmo assim — peça pro usuário conferir a lista de campanhas do projeto em alguns segundos."
       : `Falha ao gerar a campanha: ${e?.message || "erro desconhecido"}.`;
     log.warn("chat", "gerar_campanha falhou", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
-    return { ok: false, erro: generationErrorText(redactProviderSecrets(msg)) };
+    // Achado real (Michel relatou a mensagem reaparecendo ao tentar de
+    // novo, 17/09): extrai os termos ESPECÍFICOS rejeitados (ex:
+    // "exclusivos") do erro bruto do Fact Guard — não pro usuário ver
+    // (a mensagem que ele vê continua genérica, via generationErrorText),
+    // mas pro MODELO ver no resultado da ferramenta e poder repassar via
+    // forbiddenTerms na próxima chamada de gerar_campanha, evitando
+    // repetir a mesma palavra que já foi rejeitada.
+    const termosRejeitados = String(e?.message ?? "")
+      .match(/: ([^:()]+?) \((?:unverified_scarcity_or_exclusivity_claim|forbidden_claim_not_in_current_briefing|price_conflict[^)]*)\)/g)
+      ?.map((m) => m.replace(/^:\s*/, "").replace(/\s*\([^)]*\)$/, "").trim())
+      .filter((v, i, arr) => v && arr.indexOf(v) === i)
+      .slice(0, 10);
+    return { ok: false, erro: generationErrorText(redactProviderSecrets(msg)), ...(termosRejeitados?.length ? { termosRejeitados } : {}) };
   }
 }
 
