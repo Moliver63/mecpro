@@ -32,7 +32,17 @@ export function campaignResultText(campaign: NonNullable<ChatBriefingState["last
 }
 
 export function generationErrorText(error: string): string {
-  if (/FACT_CONFLICT/i.test(error)) return "O gerador produziu informacoes nao confirmadas e o Fact Guard bloqueou esta tentativa. Nenhuma campanha foi salva por esta tentativa. O briefing foi mantido; nao e necessario trocar de projeto nem aceitar os trechos inventados.";
+  // Achado real (Michel colou essa mensagem exata, 17/09): "Fact Guard" é
+  // nome de módulo interno — um dono de padaria ou corretor de imóveis
+  // usando o chat não tem contexto nenhum pro que isso significa. Essa
+  // string vira o campo "erro" que o modelo lê e é instruído a "repassar
+  // de forma clara" — sem reescrever aqui, existe risco real do modelo
+  // simplesmente repetir "Fact Guard" pro cliente final. Reescrito sem
+  // jargão interno, e com a próxima ação sugerida (a mesma que a IA já
+  // formulava naturalmente antes disso existir como texto fixo — não
+  // reescrever isso é regredir a experiência, não só um detalhe de
+  // nomenclatura).
+  if (/FACT_CONFLICT/i.test(error)) return "A campanha não foi salva porque o texto gerado incluiu alguma informação que você ainda não confirmou (ou que conflita com o que já foi dito). O que já está registrado no briefing continua guardado — não precisa repetir nada. Posso tentar gerar de novo agora, com mais cuidado pra não incluir isso. Tudo bem?";
   return error;
 }
 
