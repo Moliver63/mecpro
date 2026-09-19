@@ -291,7 +291,22 @@ function detectIncludedFees(raw: string): string | undefined {
 
 const numberWordPattern = "(?:\\d+|um|uma|dois|duas|tres|três|quatro|cinco|seis|sete|oito|nove|dez|cinquenta)";
 const areaPattern = new RegExp(`\\b(?:\\d{1,4}(?:[,.]\\d+)?|${numberWordPattern})\\s*(?:m(?:2|²)|metros?\\s+quadrados?)(?=\\s|[.,;:]|$)`, "i");
-const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?\s*reais|\d{1,3}(?:[,.]\d+)?\s*mil(?:\s+reais)?|(?:valor|pre[cç]o|aluguel|loca[cç][aã]o|mensal|mensais|por)\D{0,20}\d{4,6}(?:,\d{1,2})?)\b/i;
+const moneyPattern = /\b(?:R\$\s*(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?|(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?\s*reais|\d{1,3}(?:[,.]\d+)?\s*mil(?:\s+reais)?|(?:valor|pre[cç]o|aluguel|loca[cç][aã]o|mensal|mensais|por)(?!\D{0,20}(?:n[ºo°]|numero|número|apto\.?|apartamento|unidade|sala|conjunto|bloco|torre)\D{0,10}\d)\D{0,20}\d{4,6}(?:,\d{1,2})?)\b/i;
+// Achado real (log de producao real, 19/09): a ultima alternativa acima
+// (palavra tipo "locacao"/"aluguel" seguida de digitos, pensada pra
+// capturar preco informal sem "R$" tipo "aluguel 2500") casava TAMBEM
+// com "Locacao de apartamento nº 1901" — o NUMERO DO APARTAMENTO, nao um
+// preco. Pior: quando o texto tinha o numero do apto E o preco real
+// ("...aluguel de 2500"), o regex parava no PRIMEIRO match (o numero do
+// apto) e nunca chegava no preco de verdade — corrompendo
+// facts.realEstate.price com um valor sem sentido ("Locação de
+// apartamento nº 1901"), que depois aparecia como "expected" em TODO
+// conflito de preco daquela campanha, mesmo quando o preco gerado
+// estava certo. Lookahead negativo exclui o caso onde um numero de
+// identificacao (nº/numero/apto/apartamento/unidade/sala/conjunto/
+// bloco/torre) aparece entre a palavra-gatilho e os digitos — testado
+// contra 6 casos (numero de apto sozinho, preco informal legitimo, com
+// simbolo R$, os dois juntos no mesmo texto, e variacoes de contexto).
 // Achado real (campanha #754, ao generalizar endereço pra fora de
 // imóveis): a regex antiga só capturava UMA palavra depois de "rua"/
 // "avenida" — "Rua das Palmeiras, 200" virava só "Rua das", perdendo o
