@@ -1,12 +1,23 @@
 import { z } from "zod";
 import { validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFactGuard";
 
+// Achado real (log de produção, 19/09): o campo "pain" (dor que o
+// criativo endereça — parte legítima e estabelecida da estrutura do
+// criativo, checada pelo Fact Guard igual qualquer outro campo de
+// texto) NUNCA fazia parte do que o modelo era autorizado a reescrever
+// aqui (só headline/description/copy/hook/cta). Resultado real:
+// violação detectada em "pain" → sistema pede pro modelo "remova essa
+// alegação" → modelo não tem como, porque o campo nem está na lista do
+// que ele pode editar → campanha falha sempre, em TODAS as tentativas,
+// sem chance real de sucesso. Limite de 160 caracteres já era usado em
+// outro lugar do código pra esse mesmo campo (server/ai.ts:7801).
 const rewriteSchema = z.object({
   headline: z.string().trim().min(1).max(40),
   description: z.string().trim().min(1).max(30),
   copy: z.string().trim().min(1).max(500),
   hook: z.string().trim().min(1).max(200),
   cta: z.string().trim().min(1).max(80),
+  pain: z.string().trim().min(1).max(160).optional(),
 }).strict();
 
 export function acceptCreativeRewrite(original: any, response: unknown, facts: CampaignFacts) {
@@ -23,7 +34,7 @@ export function acceptCreativeRewrite(original: any, response: unknown, facts: C
     if (!node || typeof node !== "object") return;
     for (const key of Object.keys(node)) {
       if (typeof node[key] === "object") sync(node[key]);
-      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta"].includes(key)) {
+      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta", "pain"].includes(key)) {
         const pair = pairs.find(([old]) => typeof old === "string" && old && node[key] === old);
         if (pair) node[key] = pair[1];
       }
