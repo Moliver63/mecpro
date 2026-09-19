@@ -9446,7 +9446,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `Melhore este criativo de anúncio Meta Ads seguindo EXATAMENTE as recomendações.\n` +
           `RECOMENDAÇÕES: ${recs}\n\n` +
           repairFeedback +
-          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description })}\n\n` +
+          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description, pain: current.pain })}\n\n` +
           `REGRAS ABSOLUTAS:\n` +
           formatCampaignFactsForPrompt(facts) + "\n" +
           `O criativo atual pode conter erros: NAO e uma fonte de fatos. Nunca acrescente exclusividade, prova social ou entrega hoje sem confirmacao.\n` +
@@ -9456,9 +9456,10 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
           `- copy: máx 500 caracteres, sem frases repetidas\n` +
           `- hook: de 1 a 200 caracteres; cta: de 1 a 80 caracteres\n` +
+          `- pain: máx 160 caracteres — a dor/desejo específico que este criativo endereça. Mesma regra dos outros campos: nunca invente urgência, escassez ou exclusividade não confirmada aqui também.\n` +
           `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
           `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se a recomendação pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
-          `Retorne APENAS um objeto JSON com headline, description, copy, hook e cta: todos strings nao vazias. Nenhum outro campo, sem markdown.`,
+          `Retorne APENAS um objeto JSON com headline, description, copy, hook, cta e pain: todos strings nao vazias. Nenhum outro campo, sem markdown.`,
           { temperature: 0.8, jsonMode: true, maxOutputTokens: 800, _endpoint: "improve_creative" },
         );
         const improved = JSON.parse(String(raw).replace(/```json|```/g, "").trim());
