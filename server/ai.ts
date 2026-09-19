@@ -7887,9 +7887,17 @@ ${creativeSlotInstructions}
       log.warn("ai", "Campaign JSON reparado automaticamente");
     }
     // Valida que o Gemini retornou dados de campanha reais (não mock de concorrente)
+    // Achado real (log de producao real, 19/09): a mensagem de erro aqui
+    // dizia "Gemini retornou resposta sem campos" mesmo quando o motivo
+    // real era TODOS os provedores internos (Gemini, DeepSeek, Groq,
+    // Genspark) terem falhado — a funcao gemini() ja cascade por esses
+    // provedores por dentro antes de cair no mock. Chamar isso de
+    // "Gemini" especificamente confundia o diagnostico (Michel via essa
+    // mensagem sem saber que o problema real era DeepSeek sem saldo +
+    // Gemini com cota esgotada + Genspark com endpoint que nao responde).
     if (!parsed.strategy && !parsed.adSets && !parsed.creatives) {
-      log.warn("ai", "Gemini retornou resposta sem campos de campanha — pode ser mock interno");
-      throw new Error("Gemini response missing campaign fields — triggering Groq fallback");
+      log.warn("ai", "Resposta sem campos de campanha (todos os provedores internos podem ter falhado — Gemini, DeepSeek, Groq ou Genspark) — pode ser mock interno de ultimo recurso");
+      throw new Error("Generation response missing campaign fields — triggering Groq fallback");
     }
     strategy         = parsed.strategy || "";
     adSets           = JSON.stringify(parsed.adSets || []);
