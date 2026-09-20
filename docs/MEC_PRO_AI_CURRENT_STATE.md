@@ -1001,3 +1001,19 @@ Michel reportou tela de erro generica ("Algo deu errado") apos possivelmente cli
 **Causa raiz do crash em si nao foi determinada com certeza** — nao foi possivel reproduzir localmente (sem acesso ao navegador real nem ao console de erro exato), e o arquivo e grande demais pra auditoria exaustiva manual com confianca total. Recomendado a Michel: se o erro se repetir, capturar o erro exato do console do navegador (ou reproduzir e informar se acontece com QUALQUER campanha ou so com a #790/Morebem especificamente) — isso restringe a busca imediatamente, em vez de continuar auditando as 5386 linhas às cegas.
 
 Validado: `.isLoading` → `.isPending` corrigido nas 3 mutacoes (5 ocorrencias). check:server 37/37 (sem erro novo), checagem completa client+server com memoria maior — erro do isLoading confirmado resolvido (72 → 71 erros pre-existentes, nenhum novo), build passando.
+
+### Investigação do crash React #31 ({daily, lifetime}) em /projects/120/campaign/result/790 — causa raiz nao encontrada, mas ErrorBoundary agora reporta pro servidor (branch feat/client-error-server-reporting)
+
+Michel compartilhou o erro real do console do navegador: `Minified React error #31 ... object with keys {daily, lifetime}`, capturado pelo ErrorBoundary em `/projects/120/campaign/result/790` (a mesma rota "ultima campanha gerada" investigada antes).
+
+**Investigacao extensa, causa raiz NAO confirmada**: buscado em todo o codigo (servidor e cliente) por qualquer lugar que monte um objeto literal com as chaves `daily`+`lifetime` juntas — nao encontrado em lugar nenhum. Isso e um sinal real: todo codigo escrito a mao neste projeto usa nomes em portugues; um objeto com essas duas chaves em ingles sugere fortemente que vem de uma API externa (Meta Graph API mais provavel, dado o padrao `daily_budget`/`lifetime_budget` real da Meta) sendo armazenado ou passado adiante sem transformacao, mas o PONTO EXATO onde isso acontece nao foi localizado apesar de buscas extensas em `CampaignResult.tsx` (5386 linhas), `router.ts` (todas as queries relacionadas a orcamento/campanha), e modulos relacionados.
+
+**Decisao tomada em vez de continuar adivinhando**: em vez de seguir vasculhando as ~5400 linhas as cegas, implementado reporte automatico de erro do ErrorBoundary pro servidor — antes, um crash so aparecia no console do NAVEGADOR do usuario, exigindo que Michel copiasse manualmente pra eu conseguir investigar. Agora:
+
+- Novo endpoint `POST /api/client-error` (`server/_core/index.ts`), com rate limit simples (20/min, reaproveitando `express-rate-limit` ja usado em `publicApi.ts`) pra nao inundar o log se um componente entrar em loop de erro.
+- `ErrorBoundary.tsx` (`componentDidCatch`) agora manda a mensagem de erro, o stack de componentes, o `context` da boundary e a URL (`pathname`) pro novo endpoint — best-effort, nunca bloqueia a UI se a chamada falhar.
+- Loga via `log.error("client", ...)` — aparece nos MESMOS logs do Render que Michel ja compartilha comigo, sem precisar copiar nada manualmente na proxima ocorrencia.
+
+Validado: testado ponta a ponta contra um servidor real rodando neste ambiente (banco falso, mas o boot e o endpoint funcionam independente disso) — requisicao de teste simulando o erro real retornou 204 e apareceu corretamente formatada no log do servidor com todos os campos (message, context, pathname, componentStack). check:server 37/37 (sem erro novo), build passando, servidor sobe sem crash, as 7 suites existentes sem regressao (117 testes).
+
+**Proximo passo natural**: da proxima vez que esse ou qualquer outro erro de ErrorBoundary acontecer, vai aparecer automaticamente no log do Render — Michel so precisa colar o log de novo (ou eu busco direto se tiver acesso), sem precisar reproduzir manualmente nem copiar do console do navegador.

@@ -20,6 +20,23 @@ export default class ErrorBoundary extends React.Component<{
     // Log silencioso — sem expor ao usuário
     console.error("[ErrorBoundary]", error.message, info.componentStack?.slice(0, 200));
     this.setState({ errorInfo: info });
+    // Achado real (Michel colou um erro real do console do navegador, 20/09):
+    // antes disso, o único jeito de eu ver um crash de ErrorBoundary era
+    // Michel copiar manualmente do console do navegador dele — trabalhoso
+    // e fácil de esquecer. Reporta pro servidor também (best-effort, nunca
+    // bloqueia a UI se falhar) — aparece nos mesmos logs do Render que
+    // Michel já compartilha comigo, sem precisar copiar nada na próxima vez.
+    fetch("/api/client-error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        message: error.message,
+        componentStack: info.componentStack,
+        context: this.props.context,
+        pathname: typeof window !== "undefined" ? window.location.pathname : undefined,
+      }),
+    }).catch(() => {});
   }
 
   render() {
