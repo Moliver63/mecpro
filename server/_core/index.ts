@@ -106,6 +106,7 @@ import { Webhook as SvixWebhook } from 'svix';
 import { json } from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import rateLimit from 'express-rate-limit';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as db from '../db.js';
@@ -566,6 +567,25 @@ app.use(cors({
 // (deps novas, tipos de SDK) vira 503 isolado em vez de derrubar o servidor.
 // Montado DEPOIS de cookieParser/json e do CORS — o chat precisa de
 // req.cookies, req.body parseado e headers CORS (dev localhost).
+// Achado real (Michel colou um erro real do console do navegador, 20/09):
+// o ErrorBoundary só logava no console DO NAVEGADOR — pra eu ver, Michel
+// precisava copiar manualmente toda vez. Isso reportava o erro pro
+// servidor tambem, aparecendo nos MESMOS logs do Render que Michel ja
+// compartilha comigo — sem precisar copiar nada na proxima ocorrencia.
+// Rate limit simples (mesma lib ja usada em publicApi.ts) pra nao inundar
+// o log se um componente entrar em loop de erro/re-render.
+const clientErrorLimiter = rateLimit({ windowMs: 60_000, max: 20, standardHeaders: false, legacyHeaders: false });
+app.post('/api/client-error', clientErrorLimiter, (req, res) => {
+  const { message, componentStack, context, pathname } = req.body || {};
+  log.error('client', 'Erro capturado pelo ErrorBoundary no navegador', {
+    message: typeof message === "string" ? message.slice(0, 500) : undefined,
+    context: typeof context === "string" ? context.slice(0, 100) : undefined,
+    pathname: typeof pathname === "string" ? pathname.slice(0, 200) : undefined,
+    componentStack: typeof componentStack === "string" ? componentStack.slice(0, 1000) : undefined,
+  });
+  res.status(204).end();
+});
+
 app.use('/api/chat', (req, res, next) => {
   import('../chat.js')
     .then(({ chatRouter }) => chatRouter(req, res, next))
