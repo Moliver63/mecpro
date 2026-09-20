@@ -2351,9 +2351,9 @@ export default function CampaignResult() {
                       placeholder="Budget (ex: R$ 50/dia)" className="input input-sm w-full" />
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => { updateAdSetMutation.mutate({ campaignId: id, index: i, ...editDraft }); }}
-                        disabled={updateAdSetMutation.isLoading}
+                        disabled={updateAdSetMutation.isPending}
                         className="btn btn-sm btn-green">
-                        {updateAdSetMutation.isLoading ? "Salvando..." : "◎ Salvar"}
+                        {updateAdSetMutation.isPending ? "Salvando..." : "◎ Salvar"}
                       </button>
                       <button onClick={() => { setEditingAdSet(null); setEditDraft({}); }} className="btn btn-sm btn-ghost">Cancelar</button>
                     </div>
@@ -2473,8 +2473,8 @@ export default function CampaignResult() {
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button onClick={() => updateCreativeMutation.mutate({ campaignId: id, index: i, ...editDraft })}
-                        disabled={updateCreativeMutation.isLoading} className="btn btn-sm btn-green">
-                        {updateCreativeMutation.isLoading ? "Salvando..." : "◎ Salvar"}
+                        disabled={updateCreativeMutation.isPending} className="btn btn-sm btn-green">
+                        {updateCreativeMutation.isPending ? "Salvando..." : "◎ Salvar"}
                       </button>
                       <button onClick={() => { setEditingCreative(null); setEditDraft({}); }} className="btn btn-sm btn-ghost">Cancelar</button>
                     </div>
@@ -2506,7 +2506,7 @@ export default function CampaignResult() {
                             ) : (
                               <button
                                 onClick={() => setFeaturedPhotoMutation.mutate({ campaignId: id, creativeIndex: i })}
-                                disabled={setFeaturedPhotoMutation.isLoading}
+                                disabled={setFeaturedPhotoMutation.isPending}
                                 title="Marcar essa foto como destaque — vai primeiro no carrossel ao publicar"
                                 style={{ position: "absolute", top: 8, left: 8, background: "rgba(0,0,0,0.55)", color: "white", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 8, border: "none", cursor: "pointer", backdropFilter: "blur(4px)" }}
                               >
