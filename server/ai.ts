@@ -9473,7 +9473,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         const improved = JSON.parse(String(raw).replace(/```json|```/g, "").trim());
         current = acceptCreativeRewrite(current, improved, facts);
       } catch (e) {
-        repairFeedback = "A tentativa anterior foi recusada. Confira todos os cinco campos e seus limites; omita alegacoes sem fatos confirmados.\n";
+        repairFeedback = "A tentativa anterior foi recusada. Confira todos os seis campos e seus limites; omita alegacoes sem fatos confirmados.\n";
         log.warn("ai", "Reescrita recusada — mantendo ultima versao e tentando dentro do limite", {
           index, attempt, reason: redactProviderSecrets(e instanceof Error ? e.message : String(e)).slice(0, 400),
         });
