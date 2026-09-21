@@ -1747,6 +1747,15 @@ app.get('/terms', (_req, res) => {
   res.send(TERMS_HTML);
 });
 
+// Bloqueia acesso público aos arquivos .map (sourcemap "hidden" no build —
+// gerados pra decodificar stack trace depois, nunca pra servir ao navegador
+// do usuário). Camada extra de segurança além de "hidden" já não referenciar
+// o arquivo no bundle — nada aqui deveria alcançar isso na prática.
+app.use((req, res, next) => {
+  if (req.path.endsWith(".map")) return res.status(404).end();
+  next();
+});
+
 app.use(express.static(distPath));
 
 // SPA fallback – qualquer rota não-API retorna index.html
