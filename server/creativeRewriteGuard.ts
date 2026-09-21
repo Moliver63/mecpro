@@ -22,7 +22,18 @@ const rewriteSchema = z.object({
 
 export function acceptCreativeRewrite(original: any, response: unknown, facts: CampaignFacts) {
   const parsed = rewriteSchema.safeParse(response);
-  if (!parsed.success) throw new Error("rewrite_invalid_schema");
+  if (!parsed.success) {
+    // Achado real (log de producao, 21/09): "rewrite_invalid_schema"
+    // acontecia com frequencia (3 de 8 tentativas de melhoria num unico
+    // log real) sem NENHUM detalhe de qual campo falhou — o erro do Zod
+    // (que diria exatamente "cta: no maximo 80 caracteres" ou "campo
+    // extra nao permitido: reasoning") era descartado por completo antes
+    // de chegar no log. Inclui os detalhes reais no throw — quem chama
+    // ja loga e.message, entao isso vira diagnostico automatico sem
+    // precisar mudar mais nada la.
+    const detalhes = parsed.error.issues.map(i => `${i.path.join(".") || "(raiz)"}: ${i.message}`).join("; ");
+    throw new Error(`rewrite_invalid_schema: ${detalhes}`);
+  }
   const texts = Object.values(parsed.data).join(" ");
   if (/\[[^\]]+\]|\{[^}]+\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i.test(texts)) {
     throw new Error("rewrite_placeholder");
