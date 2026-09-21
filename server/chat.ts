@@ -1047,9 +1047,24 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
 async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+  // Achado real (log de producao, 21/09): Groq rejeitou a requisicao com
+  // 413 "Request too large" — limite de 8000 tokens/minuto no tier
+  // on_demand, pedido de 8246 e depois 9338 tokens. O SYSTEM_PROMPT
+  // sozinho ja tem ~24 mil caracteres (~6 mil tokens estimados) — soma
+  // com as definicoes de ferramentas e MAX_MENSAGENS_HISTORICO (48,
+  // dimensionado pro contexto bem maior do Gemini) e ultrapassa o
+  // orcamento do Groq facilmente, mesmo em conversas nao tao longas.
+  // Isso derrubava a cadeia INTEIRA pro modo local, ja que Groq e o
+  // ULTIMO fallback antes disso — sem chave de API adicional nem
+  // orcamento maior no Groq, a unica alavanca real e mandar menos
+  // historico especificamente aqui (Gemini continua recebendo os 48
+  // normalmente; so o fallback do Groq fica mais enxuto).
+  const MAX_MENSAGENS_GROQ = 10;
+  const mensagensGroq = mensagens.length > MAX_MENSAGENS_GROQ ? mensagens.slice(-MAX_MENSAGENS_GROQ) : mensagens;
+
   const historico: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
-    ...mensagens.map((m) => ({ role: m.role, content: m.content }) as Groq.Chat.ChatCompletionMessageParam),
+    ...mensagensGroq.map((m) => ({ role: m.role, content: m.content }) as Groq.Chat.ChatCompletionMessageParam),
   ];
 
   let campanha: CampanhaGerada | null = null;
