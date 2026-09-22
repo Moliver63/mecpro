@@ -91,12 +91,14 @@ export async function queryChatWorkspace(userId: number, args: Record<string, un
     if (args.campaignId != null) return { erro: "Escolha primeiro o projeto da campanha." };
     return { projects: projects.slice(offset, offset + 30).map(p => ({ id: p.id, name: p.name, url: `/projects/${p.id}` })),
       nextOffset: offset + 30 < projects.length ? offset + 30 : null,
-      question: "Qual projeto deseja usar? Ou prefere criar um novo?" };
+      options: ["existing_project", "new_project"],
+      question: projects.length ? "Qual destes projetos deseja usar, ou prefere criar um projeto do zero?" : "Vamos criar seu primeiro projeto: qual o nome do negocio e o que ele oferece?",
+      instruction: "Apresente os nomes reais retornados, nunca peca IDs. Ofereca mais projetos quando nextOffset existir. Nao repita escolha ja confirmada." };
   }
   const project = projects.find(p => p.id === Number(args.projectId));
   if (!project) return { erro: "Projeto nao encontrado na sua conta." };
   const summarize = (c: any) => ({ id: c.id, name: c.name, projectId: project.id, status: c.status,
-    objective: c.objective, platform: c.platform, budget: c.budget, durationDays: c.duration,
+    objective: c.objective, platform: c.platform, suggestedBudgetDaily: c.suggestedBudgetDaily, durationDays: c.durationDays,
     url: `/projects/${project.id}/campaign/result/${c.id}` });
   if (args.campaignId != null) {
     const campaign = await store.getCampaignById(Number(args.campaignId));
@@ -125,12 +127,15 @@ export async function queryChatWorkspace(userId: number, args: Record<string, un
       adSetsSummary = adSets.map((a: any, index: number) => ({ index, name: a.name || null, budget: a.budget || null, audience: a.audience || null }));
     } catch { /* adSets malformado — segue sem detalhe */ }
     return { campaign: summarize(campaign), creatives: creativesSummary, adSets: adSetsSummary,
+      templatePolicy: "Como modelo, use configuracoes apenas como sugestoes a confirmar no briefing atual. Crie outro rascunho; nao altere a original. Nao importe fotos, fatos, precos, verba ou autorizacao de publicar automaticamente.",
       instruction: "Use creatives[].index e adSets[].index pra chamar atualizar_orcamento_campanha ou definir_foto_destaque quando o usuario pedir uma mudanca. Se nao conseguir identificar com confianca qual foto/conjunto o usuario quer dizer, pergunte em vez de adivinhar." };
   }
   const campaigns = await store.getCampaignsByProjectId(project.id);
   return { project: { id: project.id, name: project.name }, campaigns: campaigns.slice(offset, offset + 30).map(summarize),
     nextOffset: offset + 30 < campaigns.length ? offset + 30 : null,
-    question: "Deseja abrir uma campanha existente ou criar uma nova neste projeto?" };
+    options: campaigns.length ? ["new_campaign", "use_as_template", "edit_campaign"] : ["new_campaign"],
+    question: campaigns.length ? "Deseja criar do zero, usar uma destas campanhas como modelo ou editar uma existente?" : "Este projeto ainda nao tem campanhas. Vamos montar a primeira?",
+    instruction: "Apresente nomes e status das campanhas. Modelo cria outro rascunho apos confirmar dados; editar usa ferramentas de edicao, nao gerar_campanha. Nao repita uma escolha ja explicita." };
 }
 
 async function campanhaDoUsuario(userId: number, campaignId: number, store: ChatWorkspaceStore): Promise<{ campaign: any } | { erro: string }> {

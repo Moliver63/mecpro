@@ -3,8 +3,13 @@
 ## Concise campaign intake
 
 All three chat providers share a short-answer policy: normally 1-3 sentences,
-up to three missing required facts per question, and reuse of confirmed session
-briefing. A requested draft can be generated as soon as the briefing is ready,
+with an exception for initial intake: collect all missing essential facts in one
+organized block, reusing confirmed session briefing. Workspace tools return
+project choices (existing/new) and campaign choices (new/template/edit).
+Template means reference settings to confirm for a new draft, not automatic
+cloning of media, offer facts or publication consent. Editing remains limited to
+existing editing tools; unsupported changes use the campaign screen.
+A requested draft can be generated as soon as the briefing is ready,
 without another "may I generate?" turn. Optional recommendations do not justify
 repeated questions. Project ambiguity, cover selection, facts and separate
 publication authorization still apply. No answer truncation or validator bypass

@@ -40,6 +40,7 @@ import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./
 import { log } from "./logger";
 import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply } from "./chatReasoning";
 import { budgetChatMessages, COMPACT_CHAT_POLICY } from "./chatRequestBudget";
+import { missingCampaignIntake } from "./chatIntake";
 const deepSeekBillingCooldown = new BillingCooldown();
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
 // require("./ai") — mas este arquivo roda em contexto ESM puro (o
@@ -244,7 +245,7 @@ Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao so
 8. Formato de mídia: image, video, carousel ou mixed. Se não souber, use image.
 9. Se o usuário anexar fotos, use essas fotos reais na campanha. Com 2 ou mais fotos anexadas, prefira formato carousel, a não ser que o usuário peça outro formato.
 
-Depois de selecionar um projeto existente, consulte suas campanhas. Pergunte se deseja abrir uma existente, editar uma existente ou gerar uma nova.
+Depois de selecionar um projeto existente, consulte suas campanhas. Apresente nova do zero, usar existente como modelo ou editar existente; nao repita escolhas ja feitas.
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
 
 PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
@@ -275,7 +276,7 @@ Situações que você precisa saber lidar:
 Regras que valem sempre:
 - Você NUNCA promete resultado, estima ROAS/CPL/CTR ou cita número de performance por conta própria.
 - Tom: direto, sem enrolação, português do Brasil. Sem "olá! ficarei feliz em ajudar" — vai direto ao ponto.
-- Agrupe ate 3 dados obrigatorios ainda ausentes em uma pergunta curta. Nunca pergunte novamente o que ja foi confirmado.
+- Agrupe todos os dados essenciais ainda ausentes em uma unica pergunta organizada. Nunca pergunte novamente o que ja foi confirmado.
 - NUNCA inclua colchetes, parênteses ou qualquer texto indicando seu próprio estado interno, como "[aguardando resposta do usuário]", "(aguardando resposta)", "..." de preenchimento, ou qualquer anotação de bastidor. Isso não é uma rubrica de teatro — é uma conversa real. Faça a pergunta e pare aí.`;
 
 // ── Ferramenta: gerar_campanha ────────────────────────────────────────────
@@ -347,7 +348,7 @@ async function consultarOuAtualizar(name: string, args: Record<string, unknown>,
       if (selected) Object.assign(next, { projectId: selected.id, projectName: selected.name, createProject: false });
     }
     state.briefing = next;
-    return { briefing: state.briefing, instruction: "Use este briefing acumulado. Pergunte ate 3 dados obrigatorios ausentes em uma frase; nunca repita campos confirmados. Se a criacao ja foi solicitada e os dados estao completos, gere o rascunho sem nova confirmacao. Nao publique sem autorizacao separada." };
+    return { briefing: state.briefing, missingIntake: missingCampaignIntake(state.briefing), instruction: "Use o briefing acumulado. Para criacao, agrupe os essenciais ainda ausentes num unico bloco organizado, sem repetir confirmados. missingIntake orienta a coleta, nao e uma nova trava de geracao: nao insista em opcionais recusados ou destino ja definido como formulario. Para edicao, pergunte apenas quais mudancas deseja. Se ja pediu criar e os dados sao suficientes, gere sem nova confirmacao. Nao publique sem autorizacao separada." };
   }
   return await queryChatWorkspace(userId, args, db);
   } catch (error) {

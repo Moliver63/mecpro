@@ -42,7 +42,7 @@ test("conversation policy separates explanation, evidence and authorized actions
 test("concise campaign policy keeps briefing reuse and publication safeguards", () => {
   assert.ok(CONVERSATION_POLICY.includes(CONCISE_CAMPAIGN_POLICY));
   assert.match(CONCISE_CAMPAIGN_POLICY, /1 a 3 frases/);
-  assert.match(CONCISE_CAMPAIGN_POLICY, /ate 3 dados obrigatorios ausentes/);
+  assert.match(CONCISE_CAMPAIGN_POLICY, /todos os dados essenciais ausentes/);
   assert.match(CONCISE_CAMPAIGN_POLICY, /Nao repita dados confirmados/);
   assert.match(CONCISE_CAMPAIGN_POLICY, /sem perguntar novamente/);
   assert.match(CONCISE_CAMPAIGN_POLICY, /Nunca invente valores/);
