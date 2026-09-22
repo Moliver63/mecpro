@@ -13,6 +13,18 @@ export default defineConfig({
     outDir: "../dist/public",
     emptyOutDir: true,
     chunkSizeWarningLimit: 600,
+    // Achado real (Michel compartilhou stack trace real de um crash, 21/09):
+    // sem sourcemap, um erro em produção só mostra nomes minificados de
+    // uma letra ("U", "Mi") e o arquivo do BUNDLE (ex: pages-admin-XXX.js)
+    // — insuficiente pra apontar a linha real do código-fonte, e ainda
+    // arriscado de interpretar mal (nomes minificados se repetem entre
+    // chunks diferentes sem relação nenhuma). "hidden" gera os arquivos
+    // .map (permite decodificar o stack depois) SEM adicionar a referência
+    // sourceMappingURL no bundle publicado — o navegador do usuário não
+    // busca o .map automaticamente. Bloqueio explícito de servir esses
+    // arquivos publicamente abaixo (server/_core/index.ts), como camada
+    // extra além do "hidden" já não referenciar o arquivo.
+    sourcemap: "hidden",
     rollupOptions: {
       output: {
         manualChunks(id) {

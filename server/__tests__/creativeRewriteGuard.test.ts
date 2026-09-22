@@ -1,10 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { acceptCreativeRewrite, parseCreativeRewrite, creativeRewriteFeedback } from "../creativeRewriteGuard";
+import { acceptCreativeRewrite, parseCreativeRewrite, creativeRewriteFeedback, CREATIVE_REWRITE_RESPONSE_SCHEMA } from "../creativeRewriteGuard";
 import { buildCampaignFacts, formatCampaignFactsForPrompt } from "../campaignFactGuard";
 
 const facts = buildCampaignFacts({ input: {}, clientProfile: {}, segment: "alimentacao" });
 const clean = { headline: "Conheca os doces", description: "Converse sobre seu pedido", copy: "Fale com a equipe para consultar os doces e fazer seu pedido.", hook: "Doces para sua mesa", cta: "Saiba mais" };
+
+test("provider schema includes pain repair after integrating upstream changes", () => {
+  assert.ok(CREATIVE_REWRITE_RESPONSE_SCHEMA.required.includes("pain"));
+  assert.equal(CREATIVE_REWRITE_RESPONSE_SCHEMA.properties.pain.type, "STRING");
+});
 
 test("rewrite errors identify the offending field and never echo provider secrets", () => {
   assert.throws(() => acceptCreativeRewrite(clean, { ...clean, description: "a".repeat(31) }, facts), /description.*30/);
@@ -54,4 +59,30 @@ test("hidden conflicting variants cannot survive a clean primary rewrite", () =>
 
 test("CTA is also checked for invented exclusivity", () => {
   assert.throws(() => acceptCreativeRewrite(clean, { ...clean, cta: "Garanta doces exclusivos" }, facts), /rewrite_fact_conflict/);
+});
+
+// Achado real (log de produção, 19/09): "pain" nunca fazia parte do que o
+// modelo era autorizado a reescrever (só headline/description/copy/hook/
+// cta) — mas o Fact Guard checa o criativo inteiro, incluindo pain. Uma
+// violação nesse campo especificamente não tinha como ser corrigida em
+// NENHUMA tentativa, sempre falhando (creatives[4].pain:
+// unverified_scarcity_or_exclusivity_claim no log real).
+test("a violation in pain alone cannot be fixed without pain in the rewrite (documents the original bug)", () => {
+  const old = { ...clean, pain: "Encontrar sabores exclusivos para sua festa" };
+  // Reescrita "limpa" nos outros 5 campos, mas sem tocar pain — igual o
+  // comportamento antigo, quando pain nem existia no schema de reescrita.
+  assert.throws(() => acceptCreativeRewrite(old, clean, facts), /rewrite_fact_conflict/);
+});
+
+test("pain is now part of the editable fields — a fix there is accepted", () => {
+  const old = { ...clean, pain: "Encontrar sabores exclusivos para sua festa" };
+  const result = acceptCreativeRewrite(old, { ...clean, pain: "Encontrar sabores certos para sua festa" }, facts);
+  assert.equal(result.pain, "Encontrar sabores certos para sua festa");
+});
+
+test("pain is optional in the rewrite response — omitting it does not reject an otherwise-clean rewrite", () => {
+  // Se pain nao era o problema, o modelo nao deveria ser obrigado a
+  // reenviar esse campo pra reescrita ser aceita.
+  const result = acceptCreativeRewrite(clean, clean, facts);
+  assert.equal(result.pain, undefined);
 });

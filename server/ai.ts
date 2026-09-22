@@ -3355,6 +3355,51 @@ export function buildBaseTemplate(
 
 
 // ── Gemini com Google Search grounding ────────────────────────────────────────
+// Achado real (pedido de Michel, 16/09): o chat precisa de capacidade de
+// pesquisa pra informacoes que exigem dado atual/externo (ex: preco de
+// mercado, novidade recente, algo que o modelo nao sabe de cor) — o
+// unico grounding com busca real ja existente (geminiWithGrounding, logo
+// abaixo) forca resposta em JSON, pensado pra extracao de dados
+// estruturados de analise de concorrente, nao pra uma resposta em texto
+// natural de conversa. Reaproveita a MESMA chamada de API comprovada
+// (tools: [{google_search:{}}], mesmo pool de chaves/fallback) mas sem
+// forcar JSON — devolve texto corrido + as buscas que o modelo fez
+// (transparencia/log), pra uso especifico do chat.
+export async function pesquisarWebParaChat(pergunta: string): Promise<{ resposta: string; buscas: string[] } | null> {
+  const availableKeys = ALL_GEMINI_KEYS.filter(k => !_exhaustedKeys.has(k) && geminiCredentialHealth.available(k));
+  const apiKey = availableKeys[0];
+  if (!apiKey) return null;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(20000),
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text:
+          `Pesquise e responda em portugues do Brasil, de forma direta e objetiva (max 4 frases). ` +
+          `Se a busca nao trouxer informacao confiavel, diga isso claramente em vez de inventar.\n\nPergunta: ${pergunta}` }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+      }),
+    });
+    const data: any = await res.json();
+    if (data.error) {
+      log.warn("ai", "pesquisarWebParaChat erro", { error: String(data.error.message ?? "").slice(0, 100) });
+      return null;
+    }
+    const resposta = (data.candidates?.[0]?.content?.parts || []).map((p: any) => p.text || "").join("").trim();
+    const buscas = data.candidates?.[0]?.groundingMetadata?.webSearchQueries || [];
+    if (!resposta) return null;
+    log.info("ai", "pesquisarWebParaChat OK", { buscas });
+    return { resposta, buscas };
+  } catch (e: any) {
+    log.warn("ai", "pesquisarWebParaChat falhou", { erro: String(e?.message ?? "").slice(0, 100) });
+    return null;
+  }
+}
+
 export async function geminiWithGrounding(prompt: string): Promise<any | null> {
   const allKeys = ALL_GEMINI_KEYS;
   const availableKeys = allKeys.filter(k => !_exhaustedKeys.has(k));
@@ -7857,9 +7902,17 @@ ${creativeSlotInstructions}
       log.warn("ai", "Campaign JSON reparado automaticamente");
     }
     // Valida que o Gemini retornou dados de campanha reais (não mock de concorrente)
+    // Achado real (log de producao real, 19/09): a mensagem de erro aqui
+    // dizia "Gemini retornou resposta sem campos" mesmo quando o motivo
+    // real era TODOS os provedores internos (Gemini, DeepSeek, Groq,
+    // Genspark) terem falhado — a funcao gemini() ja cascade por esses
+    // provedores por dentro antes de cair no mock. Chamar isso de
+    // "Gemini" especificamente confundia o diagnostico (Michel via essa
+    // mensagem sem saber que o problema real era DeepSeek sem saldo +
+    // Gemini com cota esgotada + Genspark com endpoint que nao responde).
     if (!parsed.strategy && !parsed.adSets && !parsed.creatives) {
-      log.warn("ai", "Gemini retornou resposta sem campos de campanha — pode ser mock interno");
-      throw new Error("Gemini response missing campaign fields — triggering Groq fallback");
+      log.warn("ai", "Resposta sem campos de campanha (todos os provedores internos podem ter falhado — Gemini, DeepSeek, Groq ou Genspark) — pode ser mock interno de ultimo recurso");
+      throw new Error("Generation response missing campaign fields — triggering Groq fallback");
     }
     strategy         = parsed.strategy || "";
     adSets           = JSON.stringify(parsed.adSets || []);
@@ -9416,7 +9469,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `Melhore este criativo de anúncio Meta Ads seguindo EXATAMENTE as recomendações.\n` +
           `RECOMENDAÇÕES: ${recs}\n\n` +
           repairFeedback +
-          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description })}\n\n` +
+          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description, pain: current.pain })}\n\n` +
           `REGRAS ABSOLUTAS:\n` +
           formatCampaignFactsForPrompt(facts) + "\n" +
           `O criativo atual pode conter erros: NAO e uma fonte de fatos. Nunca acrescente exclusividade, prova social ou entrega hoje sem confirmacao.\n` +
@@ -9426,9 +9479,10 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
           `- copy: máx 500 caracteres, sem frases repetidas\n` +
           `- hook: de 1 a 200 caracteres; cta: de 1 a 80 caracteres\n` +
+          `- pain: máx 160 caracteres — a dor/desejo específico que este criativo endereça. Mesma regra dos outros campos: nunca invente urgência, escassez ou exclusividade não confirmada aqui também.\n` +
           `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
           `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se a recomendação pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
-          `Retorne APENAS um objeto JSON com headline, description, copy, hook e cta: todos strings nao vazias. Nenhum outro campo, sem markdown.`,
+          `Retorne APENAS um objeto JSON com headline, description, copy, hook, cta e pain: todos strings nao vazias. Nenhum outro campo, sem markdown.`,
           { temperature: 0.3, jsonMode: true, maxOutputTokens: 1600, useCache: false, responseSchema: CREATIVE_REWRITE_RESPONSE_SCHEMA, _endpoint: "improve_creative" },
         );
         const improved = parseCreativeRewrite(String(raw));

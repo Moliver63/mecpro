@@ -817,3 +817,32 @@ test("locacao/aluguel niche keywords still match after switching to whole-word m
   assert.equal(aiDetectSegmentFromNiche("Imobiliária especializada em locação"), "imoveis_locacao");
   assert.equal(aiDetectSegmentFromNiche("Aluguel de apartamentos"), "imoveis_locacao");
 });
+
+// Achado real (log de producao real, 19/09): a ultima alternativa do
+// moneyPattern (palavra-gatilho tipo "locacao"/"aluguel" + digitos
+// proximos, pensada pra preco informal sem "R$") casava TAMBEM com o
+// NUMERO DO APARTAMENTO em frases como "Locação de apartamento nº 1901"
+// — corrompendo facts.realEstate.price com um valor sem sentido, que
+// depois aparecia como "expected" em TODO conflito de preco daquela
+// campanha (mesmo com o preco real correto na copy). Pior: quando o
+// texto tinha o numero do apto E o preco real depois, o regex parava no
+// PRIMEIRO match (o numero do apto) e nunca chegava no preco de
+// verdade.
+test("apartment/unit numbers near locacao/aluguel are not mistaken for the price", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Apto 1901", objective: "leads", platform: "meta",
+      extraContext: "Locação de apartamento nº 1901. Área 90 m². Valor do aluguel R$ 4.500 mensais." },
+    clientProfile: { companyName: "Imobiliária X", niche: "imoveis para locacao", productService: "apartamento para locacao" },
+  });
+  assert.notEqual(facts.realEstate.price, "Locação de apartamento nº 1901");
+  assert.ok(facts.realEstate.price && /4\.?500/.test(facts.realEstate.price), `preço esperado não foi extraído corretamente: ${facts.realEstate.price}`);
+});
+
+test("informal price without R$ near locacao/aluguel keywords still matches (regression guard)", () => {
+  const facts = buildCampaignFacts({
+    input: { name: "Sala", objective: "leads", platform: "meta",
+      extraContext: "Locação de sala comercial. Aluguel 2500, tudo incluso." },
+    clientProfile: { companyName: "Imobiliária Y", niche: "imoveis comerciais", productService: "sala comercial" },
+  });
+  assert.ok(facts.realEstate.price && /2\.?500/.test(facts.realEstate.price), `preço informal legítimo deveria continuar sendo detectado: ${facts.realEstate.price}`);
+});

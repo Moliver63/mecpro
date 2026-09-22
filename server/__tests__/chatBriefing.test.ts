@@ -28,7 +28,7 @@ test("successful result contains authoritative ID/link and no publication claim"
 });
 test("fact errors do not ask users to approve invented claims or change project", () => {
   const text = generationErrorText("FACT_CONFLICT: escritorio");
-  assert.match(text, /briefing foi mantido/);
+  assert.match(text, /briefing foi mantido|briefing continua guardado/);
   assert.doesNotMatch(text, /escritorio/);
   assert.equal(generationErrorText("Informe a capa"), "Informe a capa");
 });

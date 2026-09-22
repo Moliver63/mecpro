@@ -1,5 +1,9 @@
 # Chat and campaign creation reliability
 
+## Merge with origin/main 2125058
+
+The merged implementation retains upstream response-speed modes and their tool selection. Groq now reserves 2048 output tokens and uses an estimated input budget of 5400 (superseding the original 1000/6500 limits below). The structured rewrite schema now requests six fields, including pain, so the upstream pain repair remains reachable. Existing optional-pain input compatibility is preserved by local validation. Schema errors retain root/field details and retry feedback. The briefing error test accepts the updated upstream wording without changing production messages.
+
 Local changes, 2026-09-22. Deployment and live provider calls are not validated by unit tests.
 
 - Groq uses a compact campaign policy, the persisted briefing and a request-size estimate including tool schemas. Older conversation turns are dropped as complete groups. The latest user request and its tool calls/results are never silently cut. Output is limited to 1000 tokens, with an estimated input budget of 6500 tokens. This is an estimate, not a provider tokenizer or a guarantee against account-level rate limits. Oversized mandatory context fails safely.

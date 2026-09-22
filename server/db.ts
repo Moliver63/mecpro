@@ -1596,12 +1596,34 @@ export async function touchChatSession(sessionId: number, campanha?: { id: numbe
 // requisicao atual nao trouxer anexos.
 
 /** Adiciona uma foto ja enviada (URL do Cloudinary) à lista pendente da sessão. */
-export async function addPendingChatPhoto(sessionId: number, photo: { url: string; fileName: string }) {
-  const db = await getDb(); if (!db) return;
-  const atual = await db.select({ pendingPhotoUrls: chatSessions.pendingPhotoUrls }).from(chatSessions).where(eq(chatSessions.id, sessionId)).limit(1);
-  const lista = Array.isArray(atual[0]?.pendingPhotoUrls) ? (atual[0]!.pendingPhotoUrls as any[]) : [];
-  const nova = [...lista, photo].slice(-10); // mesmo limite de 10 fotos por campanha usado no chat
-  await db.update(chatSessions).set({ pendingPhotoUrls: nova as any, updatedAt: new Date() } as any).where(eq(chatSessions.id, sessionId));
+// Achado real (revisao apontada por Michel, 16/09): a versao anterior lia
+// a lista, adicionava a foto e regravava tudo — sem transacao nem
+// operacao atomica. Dois uploads em paralelo (duas abas, ou timing de
+// rede) podiam cada um ler a mesma lista inicial e a ultima escrita
+// vencer, perdendo uma foto em silencio. Reescrito como uma unica
+// instrucao UPDATE atomica no Postgres (concatena o JSONB, mantem so as
+// 10 mais recentes por ORDINALITY) — sem janela de corrida entre ler e
+// escrever. Retorna true/false pra quem chama poder logar falha real em
+// vez de engolir silenciosamente.
+export async function addPendingChatPhoto(sessionId: number, photo: { url: string; fileName: string }): Promise<boolean> {
+  const db = await getDb(); if (!db) return false;
+  const novoItem = JSON.stringify([photo]);
+  const resultado = await db.execute(sql`
+    UPDATE chat_sessions
+    SET "pendingPhotoUrls" = (
+      SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+      FROM (
+        SELECT elem, ord
+        FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novoItem}::jsonb) WITH ORDINALITY AS t(elem, ord)
+        ORDER BY ord DESC
+        LIMIT 10
+      ) recentes
+    ),
+    "updatedAt" = NOW()
+    WHERE id = ${sessionId}
+    RETURNING id
+  `);
+  return (resultado as any).rowCount > 0;
 }
 
 /** Lê as fotos pendentes (ainda não consumidas por uma geração bem-sucedida) da sessão. */
@@ -1615,6 +1637,29 @@ export async function getPendingChatPhotos(sessionId: number): Promise<Array<{ u
 export async function clearPendingChatPhotos(sessionId: number) {
   const db = await getDb(); if (!db) return;
   await db.update(chatSessions).set({ pendingPhotoUrls: null } as any).where(eq(chatSessions.id, sessionId));
+}
+
+// Achado real (revisao apontada por Michel, 16/09): remover uma foto na
+// interface so mexia no estado local do React — o servidor nunca ficava
+// sabendo. Se o usuario removesse uma foto e recarregasse a pagina antes
+// de mandar a mensagem final, a recuperacao da sessao trazia de volta
+// TODAS as fotos, incluindo a que tinha sido removida explicitamente.
+// Operacao atomica (mesmo padrao de addPendingChatPhoto) pra remover um
+// item especifico pela URL.
+export async function removePendingChatPhoto(sessionId: number, url: string): Promise<boolean> {
+  const db = await getDb(); if (!db) return false;
+  const resultado = await db.execute(sql`
+    UPDATE chat_sessions
+    SET "pendingPhotoUrls" = (
+      SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+      FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb)) AS elem
+      WHERE elem->>'url' != ${url}
+    ),
+    "updatedAt" = NOW()
+    WHERE id = ${sessionId}
+    RETURNING id
+  `);
+  return (resultado as any).rowCount > 0;
 }
 
 /** Renomeia a sessão só na primeira mensagem (título ainda no padrão). */
