@@ -9476,7 +9476,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `Observacoes visuais (nao comprovam preco, prazo ou exclusividade): ${JSON.stringify(context.photoInsights?.[index] || {})}\n` +
           `- Segmento correto da campanha: ${segment}. Mantenha vocabulário e CTA compatíveis com esse segmento.\n` +
           `- headline: máx 40 caracteres, específica, sem CTA embutido\n` +
-          `- description: máx 30 caracteres, complementar à headline (NÃO repetir)\n` +
+          `- description: máx 30 caracteres — mire em até 24 pra ter folga (conte antes de responder), complementar à headline (NÃO repetir)\n` +
           `- copy: máx 500 caracteres, sem frases repetidas\n` +
           `- hook: de 1 a 200 caracteres; cta: de 1 a 80 caracteres\n` +
           `- pain: máx 160 caracteres — a dor/desejo específico que este criativo endereça. Mesma regra dos outros campos: nunca invente urgência, escassez ou exclusividade não confirmada aqui também.\n` +
