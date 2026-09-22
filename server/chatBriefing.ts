@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface ChatBriefingState {
+  preparation?: { status: "collecting" | "awaiting_ai" };
   briefing: Record<string, unknown>;
   lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string };
 }

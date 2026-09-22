@@ -57,5 +57,5 @@ export function localConversationReply(text: string, briefing: Record<string, un
     const known = Object.entries(labels).filter(([key]) => briefing[key] != null).map(([key, label]) => `${label}: ${String(briefing[key])}`);
     return known.length ? `Dados registrados nesta conversa:\n${known.join("\n")}\nA IA esta indisponivel; nao fiz nenhuma alteracao.` : "Ainda nao ha esses dados registrados nesta conversa. A IA esta indisponivel; nao vou preencher com suposicoes.";
   }
-  return "Nao consegui obter uma resposta dos provedores de IA agora. Sua conversa foi preservada. Posso mostrar o briefing registrado, mas nao confirmar informacoes externas ou executar novas acoes neste modo local.";
+  return "Nao consegui concluir esta solicitacao agora. Para continuar organizando os dados sem IA, envie Preparar campanha. Voce podera escolher o projeto e preencher o briefing em bloco. Nao vou confirmar informacoes externas nem criar ou publicar uma campanha nesta etapa.";
 }

@@ -1,4 +1,5 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { log } from "../logger";
 import { recordLedger } from "../financialEngine";
@@ -3541,6 +3542,7 @@ const campaignsRouter = router({
   publishToMeta: protectedProcedure
     .input(publishToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
+      await assertCampaignEnriched(ctx.user.id, input.campaignId, db);
       // Verificar se plano permite integração Meta
       const metaCheck = await db.checkPlanLimit(ctx.user.id, "meta");
       if (!metaCheck.allowed) throw new TRPCError({ code: "FORBIDDEN", message: metaCheck.reason });
@@ -5587,6 +5589,7 @@ const campaignsRouter = router({
       const _drz = await getDb();
       const [integration] = await _drz!.select().from(integrations)
         .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
+      await assertCampaignEnriched(userId, input.campaignId, db);
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração TikTok não configurada" });
 
       const token       = integration.accessToken ?? "";
@@ -5731,6 +5734,7 @@ const campaignsRouter = router({
       const userId = (ctx as any).user?.id;
       if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
 
+      await assertCampaignEnriched(userId, input.campaignId, db);
       // Verificar se plano permite Google Ads (premium+)
       const googleCheck = await db.checkPlanLimit(userId, "google");
       if (!googleCheck.allowed) throw new TRPCError({ code: "FORBIDDEN", message: googleCheck.reason });

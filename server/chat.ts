@@ -41,6 +41,8 @@ import { log } from "./logger";
 import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply } from "./chatReasoning";
 import { budgetChatMessages, COMPACT_CHAT_POLICY } from "./chatRequestBudget";
 import { missingCampaignIntake } from "./chatIntake";
+import { prepareChatWithoutAI } from "./chatPreparation";
+import { saveBasicCampaignDraft } from "./basicCampaignDraft";
 const deepSeekBillingCooldown = new BillingCooldown();
 // Achado real (log de produção, 09/09): poolChavesGemini() usava
 // require("./ai") — mas este arquivo roda em contexto ESM puro (o
@@ -1573,6 +1575,23 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   // foi a última campanha gerada.
   const ultimaCampanhaDaSessao = state?.lastCampaign;
   const ultimaMensagemUsuario = [...recebidas].reverse().find(m => m?.role === "user")?.content;
+  if (state && /^\s*(salvar rascunho basico|salvar rascunho básico|\/rascunho)\s*$/i.test(ultimaMensagemUsuario || "")) {
+    try {
+      if (attachments.some(photo => photo.imageBase64)) throw new Error("Salve as fotos pelo botao de anexo antes de criar o rascunho basico.");
+      const campaign = await saveBasicCampaignDraft(userId, req.chatSessionId, state.briefing, db, attachments.length);
+      return finish({ resposta: `Rascunho basico salvo: ${campaign.name}.\n${campaign.url}\nFotos: ${campaign.photoCount}. Aguardando aprimoramento e revisao; publicacao bloqueada.`, campanha: campaign, modo: "local" });
+    } catch (error) {
+      return finish({ resposta: error instanceof Error ? redactProviderSecrets(error.message) : "Nao foi possivel confirmar o rascunho.", campanha: null, modo: "local" });
+    }
+  }
+  if (state && typeof ultimaMensagemUsuario === "string") {
+    try {
+      const preparation = await prepareChatWithoutAI(ultimaMensagemUsuario, state, userId, db);
+      if (preparation) return finish({ resposta: preparation, campanha: null, modo: "local" });
+    } catch {
+      return finish({ resposta: "Nao consegui consultar seus projetos agora. Tente novamente; nenhuma campanha foi criada.", campanha: null, modo: "local" });
+    }
+  }
 
   // Mantém só as últimas trocas — o histórico inteiro é reenviado a cada
   // turno, e briefing de campanha não precisa de contexto longo.

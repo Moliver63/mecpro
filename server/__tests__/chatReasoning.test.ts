@@ -26,7 +26,7 @@ test("offline briefing reports only stored fields and performs no invented compl
   assert.match(reply, /90/);
   assert.match(reply, /Itajai/);
   assert.doesNotMatch(reply, /SECRET|Duracao/);
-  assert.match(localConversationReply("qual o CTR da campanha?", {}), /nao confirmar/);
+  assert.match(localConversationReply("qual o CTR da campanha?", {}), /Preparar campanha/);
   assert.match(localConversationReply("briefing", {}), /nao ha/);
 });
 
