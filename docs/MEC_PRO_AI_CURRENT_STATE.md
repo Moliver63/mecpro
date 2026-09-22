@@ -1081,3 +1081,17 @@ No mesmo log, um criativo (index 0) falhou a reescrita DUAS vezes seguidas pelo 
 **Corrigido**: instrução do prompt de melhoria mudada de "máx 30 caracteres" pra "máx 30 caracteres — mire em até 24 pra ter folga (conte antes de responder)" — dá margem de segurança pro modelo, técnica padrão de engenharia de prompt pra reduzir estouros por pouco de um limite rígido. Não resolve o problema estrutural mais amplo (uma reescrita mistura correção de schema E de fatos na mesma resposta; se uma falha, a outra nunca é validada) — isso exigiria separar as duas preocupações em passes distintos, mudança maior não feita agora.
 
 Validado: check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes).
+
+### OpenRouter (100% gratuito) adicionado como 4º provedor no raciocínio do chat (branch feat/chat-openrouter-free-fallback)
+
+Michel perguntou se existe forma de deixar a geração de campanha menos dependente de Gemini/DeepSeek/Groq, especificamente **100% gratuita**.
+
+**Achado ao investigar**: a geração de campanha em si (`generateCampaign`, em `server/ai.ts`) já tinha Claude e OpenRouter como fallbacks adicionais codificados — mas nunca configurados (chaves ausentes em todo log de boot desta sessão). Mais importante: isso so ajuda DEPOIS que o chat ja decidiu chamar `gerar_campanha` — o raciocinio da PROPRIA conversa (decidir o que responder, qual ferramenta chamar — onde a maioria das quedas pro modo local investigadas nesta sessao realmente acontece) só conhecia Gemini/DeepSeek/Groq.
+
+Pesquisado (setembro/2026): OpenRouter tem modelos gratuitos com suporte real a chamada de ferramentas, incluindo `openai/gpt-oss-20b:free` — a MESMA familia de modelo ja usada com sucesso via Groq nesta base de codigo (`gpt-oss-120b`). API compativel com OpenAI (mesmo formato do Groq).
+
+**Implementado**: `tentarComOpenRouter`, novo 4º provedor no raciocinio do chat — Gemini → DeepSeek → Groq → **OpenRouter (gratuito)** → modo local. Reaproveitou quase todo o codigo ja existente e testado do Groq em vez de reescrever do zero: o SDK do Groq aceita `baseURL` customizado (confirmado: `new Groq({apiKey, baseURL: "https://openrouter.ai/api/v1"})` aponta corretamente pro endpoint certo), entao a MESMA logica de despacho de 8 ferramentas foi extraida pra uma funcao compartilhada (`tentarComOpenAICompativel`), com `tentarComGroq` e a nova `tentarComOpenRouter` virando wrappers finos em cima dela — elimina ~100 linhas de duplicacao que existiriam se reescrito do zero. `chamarGroqComRetry` ganhou um parametro `model` (antes fixo em `MODELO_GROQ`), preservando comportamento existente via valor padrao.
+
+**Zero custo, ativacao imediata quando configurado**: so precisa de `OPENROUTER_API_KEY` no Render (obtida de graca em openrouter.ai) — sem isso, o novo passo e pulado com log claro ("OpenRouter pulado — OPENROUTER_API_KEY não configurada"), sem alterar nenhum comportamento existente.
+
+Validado: confirmado que o SDK do Groq realmente respeita `baseURL` customizado (testado isoladamente, aponta pro endpoint certo do OpenRouter em vez do Groq). check:server 37/37 (sem erro novo), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (117 testes). **Nao testavel de ponta a ponta neste ambiente** — sem chave de API real do OpenRouter nem acesso de rede externo pra confirmar uma chamada genuina funcionando; a estrutura e o formato da requisicao foram cuidadosamente espelhados do padrao ja comprovado do Groq, mas vale Michel confirmar com uma conversa real apos configurar a chave.

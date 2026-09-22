@@ -77,6 +77,14 @@ const MODELO_DEEPSEEK_CHAT = process.env.DEEPSEEK_CHAT_MODEL ?? "deepseek-chat";
 // oficial do próprio Groq pra esse caso, com suporte confirmado a tool
 // calling (essencial aqui, já que o chat usa `tools`/`tool_choice`).
 const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "openai/gpt-oss-120b";
+// Achado real (pedido de Michel, 22/09): "quero um 100% gratuito" — modelo
+// gratuito do OpenRouter com suporte real a chamada de ferramentas
+// (confirmado, setembro/2026), mesma familia ja usada com sucesso via Groq
+// nesta base de codigo (gpt-oss). Usado como fallback ADICIONAL antes do
+// modo local, nao substitui o Groq — so da mais uma chance gratuita quando
+// Gemini + DeepSeek + Groq falham juntos (cenario ja visto varias vezes
+// nesta sessao).
+const MODELO_OPENROUTER = process.env.OPENROUTER_CHAT_MODEL ?? "openai/gpt-oss-20b:free";
 
 // Achado real (transcricao real de conversa, 13/09): 16 mensagens nao
 // bastava pro fluxo que o proprio prompt do sistema pede ("uma pergunta
@@ -1026,7 +1034,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
 
 /* ---------------- Provedor 2: Groq (fallback) ---------------- */
 
-async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletionMessageParam[], tentativas = 2, ferramentas: typeof ferramentasGroq = ferramentasGroq) {
+async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletionMessageParam[], tentativas = 2, ferramentas: typeof ferramentasGroq = ferramentasGroq, model: string = MODELO_GROQ) {
   const retryBudget = createChatRetryBudget();
   const briefing = briefingContext.getStore()?.briefing || {};
   const messages = budgetChatMessages([
@@ -1039,7 +1047,7 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
     if (i > 0 && !retryBudget.canAttempt()) throw ultimoErro;
     try {
       return await groq.chat.completions.create({
-        model: MODELO_GROQ,
+        model,
         messages,
         tools: ferramentas,
         tool_choice: "auto",
@@ -1060,34 +1068,17 @@ async function chamarGroqComRetry(groq: Groq, historico: Groq.Chat.ChatCompletio
   throw ultimoErro;
 }
 
-async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
-  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-  // Achado real (log de producao, 21/09): Groq rejeitou a requisicao com
-  // 413 "Request too large" — limite de 8000 tokens/minuto no tier
-  // on_demand, pedido de 8246 e depois 9338 tokens. O SYSTEM_PROMPT
-  // sozinho ja tem ~24 mil caracteres (~6 mil tokens estimados) — soma
-  // com as definicoes de ferramentas e MAX_MENSAGENS_HISTORICO (48,
-  // dimensionado pro contexto bem maior do Gemini) e ultrapassa o
-  // orcamento do Groq facilmente, mesmo em conversas nao tao longas.
-  // Isso derrubava a cadeia INTEIRA pro modo local, ja que Groq e o
-  // ULTIMO fallback antes disso — sem chave de API adicional nem
-  // orcamento maior no Groq, a unica alavanca real e mandar menos
-  // historico especificamente aqui (Gemini continua recebendo os 48
-  // normalmente; so o fallback do Groq fica mais enxuto).
-  const MAX_MENSAGENS_GROQ = 10;
-  const mensagensGroq = mensagens.length > MAX_MENSAGENS_GROQ ? mensagens.slice(-MAX_MENSAGENS_GROQ) : mensagens;
-
+async function tentarComOpenAICompativel(client: Groq, model: string, mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
   const historico: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
-    ...mensagensGroq.map((m) => ({ role: m.role, content: m.content }) as Groq.Chat.ChatCompletionMessageParam),
+    ...mensagens.map((m) => ({ role: m.role, content: m.content }) as Groq.Chat.ChatCompletionMessageParam),
   ];
 
   let campanha: CampanhaGerada | null = null;
   let textoFinal = "";
 
   for (let passo = 0; passo < 4; passo++) {
-    const resposta = await chamarGroqComRetry(groq, historico, 2, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq);
+    const resposta = await chamarGroqComRetry(client, historico, 2, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq, model);
     const msg = resposta.choices[0].message;
     if (msg.content) textoFinal = msg.content;
 
@@ -1155,6 +1146,25 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
   }
 
   return { resposta: textoFinal, campanha, modo: "assistente" };
+}
+
+async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return tentarComOpenAICompativel(groq, MODELO_GROQ, mensagens, userId, attachments, sessionId, velocidade);
+}
+
+// Achado real (pedido de Michel, 22/09): "existe forma de deixar mais
+// independente do Gemini/DeepSeek/Groq, 100% gratuito?" — OpenRouter tem
+// modelos gratuitos com suporte real a chamada de ferramentas (confirmado
+// via pesquisa, setembro/2026). API compativel com OpenAI (mesmo formato
+// que Groq ja usa) — o proprio SDK do Groq aceita baseURL customizado,
+// entao reaproveita TODA a logica de despacho de ferramentas ja existente
+// e testada, sem reescrever nada do zero. Mais uma chance gratuita antes
+// do modo local, quando Gemini + DeepSeek + Groq falham juntos (cenario
+// ja confirmado varias vezes nesta sessao).
+async function tentarComOpenRouter(mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
+  const openrouter = new Groq({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1" });
+  return tentarComOpenAICompativel(openrouter, MODELO_OPENROUTER, mensagens, userId, attachments, sessionId, velocidade);
 }
 
 /* ---------------- Provedor 3: DeepSeek (fallback OpenAI-compatible) ---------------- */
@@ -1697,10 +1707,21 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
       const resultado = await tentarComGroq(mensagens, userId, attachments, req.chatSessionId, velocidade);
       return finish(resultado);
     } catch (erro) {
-      log.warn("chat", "Groq indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
+      log.warn("chat", "Groq indisponível, tentando OpenRouter", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
   } else {
     log.warn("chat", "Groq pulado — GROQ_API_KEY não configurada", { userId });
+  }
+
+  if (process.env.OPENROUTER_API_KEY) {
+    try {
+      const resultado = await tentarComOpenRouter(mensagens, userId, attachments, req.chatSessionId, velocidade);
+      return finish(resultado);
+    } catch (erro) {
+      log.warn("chat", "OpenRouter indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
+    }
+  } else {
+    log.warn("chat", "OpenRouter pulado — OPENROUTER_API_KEY não configurada", { userId });
   }
 
   log.error("chat", "TODOS os provedores de IA falharam ou foram pulados — caindo pro modo local", { userId });
