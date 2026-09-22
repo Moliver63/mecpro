@@ -10,6 +10,13 @@ const numbers = ["projectId", "budget", "durationDays", "ageMin", "ageMax", "fea
 
 export function mergeChatBriefing(previous: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
   const next = { ...previous };
+  // Retry feedback belongs to this call, never to another campaign's briefing.
+  delete next.forbiddenTerms;
+  if (Array.isArray(patch.forbiddenTerms)) {
+    const terms = patch.forbiddenTerms.filter((value): value is string => typeof value === "string")
+      .map(value => value.trim().slice(0, 200)).filter(Boolean);
+    if (terms.length) next.forbiddenTerms = [...new Set(terms)].slice(0, 20);
+  }
   if (patch.projectName !== undefined && patch.projectName !== previous.projectName) delete next.confirmDistinctProject;
   for (const field of [...strings, ...numbers, "createProject", "newCampaign", "confirmDistinctProject"]) {
     if (!(field in patch)) continue;

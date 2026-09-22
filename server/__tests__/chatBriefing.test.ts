@@ -2,6 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { briefingContext, mergeChatBriefing, campaignResultText, generationErrorText, isLastCampaignLinkRequest } from "../chatBriefing";
 
+test("current retry terms reach generation without leaking to future briefings", () => {
+  const original = { projectId: 7, forbiddenTerms: ["old"] };
+  const next = mergeChatBriefing(original, { forbiddenTerms: [" exclusivos ", "exclusivos", 12, ""] });
+  assert.deepEqual(next.forbiddenTerms, ["exclusivos"]);
+  assert.deepEqual(original.forbiddenTerms, ["old"]);
+  assert.equal(mergeChatBriefing(next, { projectId: 9 }).forbiddenTerms, undefined);
+  assert.equal(mergeChatBriefing(next, {}).forbiddenTerms, undefined);
+  assert.equal(mergeChatBriefing(next, { forbiddenTerms: "invalid" }).forbiddenTerms, undefined);
+});
+
 test("briefing retains known fields and replaces total budget without multiplying again", () => {
   const previous = { projectId: 97, platform: "meta", objective: "leads", budget: 84, durationDays: 14, ageMin: 30, ageMax: 60, whatsapp: "47999465824" };
   const next = mergeChatBriefing(previous, { budget: 100, unknown: "ignored" });
