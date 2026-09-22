@@ -61,7 +61,8 @@ export function nomesDeProjetoParecidos(a: string, b: string): boolean {
 }
 
 export function selectChatProject(projects: Project[], args: Record<string, unknown>): Project | null {
-  const name = typeof args.projectName === "string" ? args.projectName.trim().toLowerCase() : "";
+  const nameKey = (name: string) => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const name = typeof args.projectName === "string" ? nameKey(args.projectName) : "";
   if (args.createProject === true) {
     if (args.projectId != null) throw new Error("Escolha projeto existente ou novo, nao os dois.");
     if (typeof args.projectName !== "string" || !args.projectName.trim()) throw new Error("Qual sera o nome do novo projeto?");
@@ -76,9 +77,9 @@ export function selectChatProject(projects: Project[], args: Record<string, unkn
   }
   const matches = args.projectId != null
     ? projects.filter(p => p.id === Number(args.projectId))
-    : projects.filter(p => name && p.name.trim().toLowerCase() === name);
+    : projects.filter(p => name && nameKey(p.name) === name);
   if (matches.length !== 1) throw new Error("Consulte os projetos e pergunte qual usar ou se deseja criar um novo. Nao selecione automaticamente.");
-  if (name && matches[0].name.trim().toLowerCase() !== name) throw new Error("O nome informado nao corresponde ao projeto selecionado. Confirme o projeto.");
+  if (name && nameKey(matches[0].name) !== name) throw new Error(`O nome informado nao corresponde ao projeto selecionado: "${matches[0].name}" (ID ${matches[0].id}). Confirme qual projeto usar; nao crie outro automaticamente.`);
   return matches[0];
 }
 

@@ -24,7 +24,8 @@ import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
-import { acceptCreativeRewrite } from "./creativeRewriteGuard";
+import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback } from "./creativeRewriteGuard";
+import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 import { detectRealEstateSegment, matchesNicheKeyword, pickMostSpecificSegmentMatch } from "../shared/segmentConfig";
@@ -1916,6 +1917,7 @@ export async function gemini(
     useCache?: boolean;
     cacheAs?: string;
     cacheMeta?: CacheMeta;
+    responseSchema?: Record<string, unknown>;
     // Token telemetry context (passed through to logTokens)
     _userId?:     number;
     _projectId?:  number;
@@ -1934,6 +1936,7 @@ export async function gemini(
 async function _geminiImpl(
   prompt: string,
   opts: {
+    responseSchema?: Record<string, unknown>;
     temperature?: number;
     maxOutputTokens?: number;
     systemInstruction?: string;
@@ -2093,6 +2096,7 @@ async function _geminiImpl(
       temperature,
       maxOutputTokens,
       ...(jsonMode ? { responseMimeType: "application/json" } : {}),
+      ...(jsonMode && opts.responseSchema ? { responseSchema: opts.responseSchema } : {}),
     },
   };
 
@@ -2109,10 +2113,14 @@ async function _geminiImpl(
     }
   }
   const model      = GEMINI_MODELS[modelIndex];
+  if (opts._endpoint === "improve_creative" && model.startsWith("gemini-2.5-flash")) {
+    body.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
   const url        = `${GEMINI_BASE}/${model}:generateContent`;
 
   log.info("ai", `Gemini request — model: ${model} (tentativa ${retryCount + 1})`);
 
+  const requestStarted = Date.now();
   const res  = await fetch(`${url}?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2199,7 +2207,7 @@ async function _geminiImpl(
         if (retryData.error) geminiCredentialHealth.reject(retryKey, retryRes.status, retryData.error);
         if (!retryData.error && retryData.candidates?.[0]?.content?.parts?.[0]?.text) {
           log.info("ai", `Gemini retry 15s OK — ${retryModel}`);
-          return retryData.candidates[0].content.parts[0].text;
+          return opts._endpoint === "improve_creative" ? completeGeminiText(retryData) : retryData.candidates[0].content.parts[0].text;
         }
       } catch {}
     }
@@ -2243,7 +2251,14 @@ async function _geminiImpl(
   }
 
   if (data.error) throw new Error(redactProviderSecrets(String(data.error.message)));
-  const result = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  let result = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  if (opts._endpoint === "improve_creative") {
+    try { result = completeGeminiText(data); }
+    catch (error) {
+      log.warn("ai", "Reescrita incompleta do provedor", { model, finishReason: data.candidates?.[0]?.finishReason, outputTokens: data.usageMetadata?.candidatesTokenCount, thoughtTokens: data.usageMetadata?.thoughtsTokenCount });
+      throw error;
+    }
+  }
 
   // ── Token Telemetry (fire-and-forget) ─────────────────────────────────────
   {
@@ -2257,12 +2272,12 @@ async function _geminiImpl(
     const cachedTok = usage?.cachedContentTokenCount ?? 0;
     logTokens({
       provider: "gemini",
-      model: (data as any)._modelUsed || "gemini-2.5-flash-lite",
+      model,
       endpoint: opts?._endpoint || opts?.cacheAs || "gemini",
       promptTokens: pTok,
       completionTokens: cTok,
       cachedTokens: cachedTok,
-      latencyMs: Math.round(prompt.length / 4),
+      latencyMs: Date.now() - requestStarted,
       temperature: opts?.temperature,
       cacheHit: false,
       cacheType: "none",
@@ -9414,12 +9429,12 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
           `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se a recomendação pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
           `Retorne APENAS um objeto JSON com headline, description, copy, hook e cta: todos strings nao vazias. Nenhum outro campo, sem markdown.`,
-          { temperature: 0.8, jsonMode: true, maxOutputTokens: 800, _endpoint: "improve_creative" },
+          { temperature: 0.3, jsonMode: true, maxOutputTokens: 1600, useCache: false, responseSchema: CREATIVE_REWRITE_RESPONSE_SCHEMA, _endpoint: "improve_creative" },
         );
-        const improved = JSON.parse(String(raw).replace(/```json|```/g, "").trim());
-        current = acceptCreativeRewrite(current, improved, facts);
+        const improved = parseCreativeRewrite(String(raw));
+        current = acceptCreativeRewrite(current, improved, facts, candidate => auditCreativeSegmentAlignment(candidate, segment));
       } catch (e) {
-        repairFeedback = "A tentativa anterior foi recusada. Confira todos os cinco campos e seus limites; omita alegacoes sem fatos confirmados.\n";
+        repairFeedback = creativeRewriteFeedback(e);
         log.warn("ai", "Reescrita recusada — mantendo ultima versao e tentando dentro do limite", {
           index, attempt, reason: redactProviderSecrets(e instanceof Error ? e.message : String(e)).slice(0, 400),
         });

@@ -9,9 +9,29 @@ const rewriteSchema = z.object({
   cta: z.string().trim().min(1).max(80),
 }).strict();
 
-export function acceptCreativeRewrite(original: any, response: unknown, facts: CampaignFacts) {
+export const CREATIVE_REWRITE_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: Object.fromEntries(Object.entries({ headline: 40, description: 30, copy: 500, hook: 200, cta: 80 })
+    .map(([key, limit]) => [key, { type: "STRING", description: `Texto nao vazio, no maximo ${limit} caracteres.` }])),
+  required: ["headline", "description", "copy", "hook", "cta"],
+};
+
+export function parseCreativeRewrite(raw: string): unknown {
+  const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try { return JSON.parse(text); }
+  catch { throw new Error("rewrite_invalid_json: retorne JSON completo com aspas duplas e cinco campos; nao corte strings."); }
+}
+
+export function creativeRewriteFeedback(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const detail = /^rewrite_(invalid_schema|invalid_json|fact_conflict|placeholder)/.test(message)
+    ? message.slice(0, 700) : "Resposta incompleta ou indisponivel; devolva novamente o objeto completo.";
+  return `ERRO DA TENTATIVA ANTERIOR (validacao, nao fatos da oferta): ${detail}\nCorrija o erro sem acrescentar fatos e preserve os cinco campos.\n`;
+}
+
+export function acceptCreativeRewrite(original: any, response: unknown, facts: CampaignFacts, auditSegment?: (candidate: any) => string[]) {
   const parsed = rewriteSchema.safeParse(response);
-  if (!parsed.success) throw new Error("rewrite_invalid_schema");
+  if (!parsed.success) throw new Error(`rewrite_invalid_schema: ${parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const texts = Object.values(parsed.data).join(" ");
   if (/\[[^\]]+\]|\{[^}]+\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i.test(texts)) {
     throw new Error("rewrite_placeholder");
@@ -31,6 +51,7 @@ export function acceptCreativeRewrite(original: any, response: unknown, facts: C
   }
   sync(candidate);
   Object.assign(candidate, parsed.data, { bodyText: parsed.data.copy, shortDescription: parsed.data.description });
+  if (auditSegment) candidate.segmentAlignmentIssues = auditSegment(candidate);
   const audit = validateCampaignFactIntegrity([candidate], facts);
   if (audit.status !== "passed") throw new Error(`rewrite_fact_conflict:${audit.conflicts.map(c => c.reason).join(",")}`);
   return candidate;

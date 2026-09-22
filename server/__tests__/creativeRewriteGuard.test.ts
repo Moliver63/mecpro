@@ -1,10 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { acceptCreativeRewrite } from "../creativeRewriteGuard";
+import { acceptCreativeRewrite, parseCreativeRewrite, creativeRewriteFeedback } from "../creativeRewriteGuard";
 import { buildCampaignFacts, formatCampaignFactsForPrompt } from "../campaignFactGuard";
 
 const facts = buildCampaignFacts({ input: {}, clientProfile: {}, segment: "alimentacao" });
 const clean = { headline: "Conheca os doces", description: "Converse sobre seu pedido", copy: "Fale com a equipe para consultar os doces e fazer seu pedido.", hook: "Doces para sua mesa", cta: "Saiba mais" };
+
+test("rewrite errors identify the offending field and never echo provider secrets", () => {
+  assert.throws(() => acceptCreativeRewrite(clean, { ...clean, description: "a".repeat(31) }, facts), /description.*30/);
+  assert.match(creativeRewriteFeedback(new Error("rewrite_invalid_schema: description: max 30")), /description: max 30/);
+  assert.doesNotMatch(creativeRewriteFeedback(new Error("provider secret sk-private")), /sk-private/);
+  assert.deepEqual(parseCreativeRewrite("```json\n" + JSON.stringify(clean) + "\n```"), clean);
+  assert.throws(() => parseCreativeRewrite('{"headline":"unfinished'), /rewrite_invalid_json/);
+});
+
+test("segment audit is recomputed after repair without bypassing fresh conflicts", () => {
+  const old = { ...clean, segmentAlignmentIssues: ["campaign_segment_conflict"], photoOriginalIndex: 2 };
+  assert.throws(() => acceptCreativeRewrite(old, clean, facts), /rewrite_fact_conflict/);
+  const repaired = acceptCreativeRewrite(old, clean, facts, () => []);
+  assert.deepEqual(repaired.segmentAlignmentIssues, []);
+  assert.equal(repaired.photoOriginalIndex, 2);
+  assert.deepEqual(old.segmentAlignmentIssues, ["campaign_segment_conflict"]);
+  assert.throws(() => acceptCreativeRewrite(old, clean, facts, () => ["campaign_segment_conflict"]), /rewrite_fact_conflict/);
+});
 
 test("non-property product price reaches the verified prompt", () => {
   const food = buildCampaignFacts({ input: { productPrice: "R$ 25" }, clientProfile: {}, segment: "alimentacao" });

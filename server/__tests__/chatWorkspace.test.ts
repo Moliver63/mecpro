@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import { queryChatWorkspace, selectChatProject, nomesDeProjetoParecidos, atualizarOrcamentoCampanha, definirFotoDestaque } from "../chatWorkspace";
 
 const projects = [{ id: 1, name: "Edu" }];
+test("project identity tolerates formatting but never ambiguity or another address", () => {
+  const list = [{ id: 3, name: "Im\u00f3veis - Rua 902" }];
+  assert.equal(selectChatProject(list, { projectId: 3, projectName: "IMOVEIS   Rua 902" })?.id, 3);
+  assert.throws(() => selectChatProject(list, { projectId: 3, projectName: "Imoveis Rua 903" }));
+  assert.throws(() => selectChatProject([...list, { id: 4, name: "Imoveis Rua 902" }], { projectName: "Imoveis Rua 902" }));
+});
 test("project selection requires an explicit existing or new choice", () => {
   assert.throws(() => selectChatProject(projects, {}));
   assert.equal(selectChatProject(projects, { projectId: 1 })?.id, 1);
