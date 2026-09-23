@@ -84,7 +84,17 @@ const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "openai/gpt-oss-120b";
 // modo local, nao substitui o Groq — so da mais uma chance gratuita quando
 // Gemini + DeepSeek + Groq falham juntos (cenario ja visto varias vezes
 // nesta sessao).
-const MODELO_OPENROUTER = process.env.OPENROUTER_CHAT_MODEL ?? "openai/gpt-oss-20b:free";
+// Achado real (log de producao, 23/09): "openai/gpt-oss-20b:free" retornou
+// 404 do OpenRouter em produção — modelos gratuitos no OpenRouter rotacionam
+// com frequencia (ficam indisponiveis, sao renomeados ou descontinuados,
+// dependendo de qual provedor esta servindo aquele modelo naquele momento).
+// Fixar UM modelo especifico deixa esse fallback fragil exatamente do jeito
+// que ele existe pra evitar. Trocado pro roteador automatico gratuito do
+// proprio OpenRouter ("openrouter/free") — escolhe dinamicamente entre os
+// modelos gratuitos disponiveis, ja filtrando por suporte a chamada de
+// ferramentas (documentado oficialmente, setembro/2026). Auto-recupera se
+// um modelo especifico sair do ar, sem precisar de outro deploy.
+const MODELO_OPENROUTER = process.env.OPENROUTER_CHAT_MODEL ?? "openrouter/free";
 
 // Achado real (transcricao real de conversa, 13/09): 16 mensagens nao
 // bastava pro fluxo que o proprio prompt do sistema pede ("uma pergunta
@@ -1156,10 +1166,12 @@ async function tentarComOpenAICompativel(client: Groq, model: string, mensagens:
 // pelo MESMO motivo sempre, virando um passo inutil — confirmado no log
 // real: "Groq indisponível, tentando OpenRouter... OpenRouter
 // indisponível, caindo pra resposta local {erro: chat_context_too_large}"
-// nas duas vezes que aconteceu. O modelo gratuito escolhido
-// (openai/gpt-oss-20b:free) tem 131 mil tokens de contexto — bem mais
-// espaco que o teto conservador do Groq (dimensionado pro limite real de
-// 8000 tokens/minuto do tier on_demand, que o OpenRouter nao tem). Usa um
+// nas duas vezes que aconteceu. O modelo gratuito usado (roteador
+// automatico do OpenRouter, ou um modelo especifico via
+// OPENROUTER_CHAT_MODEL) tem contexto na casa de centenas de milhares de
+// tokens — bem mais espaco que o teto conservador do Groq (dimensionado
+// pro limite real de 8000 tokens/minuto do tier on_demand, que o
+// OpenRouter nao tem). Usa um
 // orcamento bem maior aqui especificamente, pra que o 4º fallback tenha
 // chance real de ajudar nesse cenario exato, nao so replicar a mesma
 // falha.
