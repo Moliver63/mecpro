@@ -28,6 +28,11 @@ console.log('[BOOT] STRIPE_SECRET_KEY set:', !!process.env.STRIPE_SECRET_KEY);
 console.log('[BOOT] GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY);
 console.log('[BOOT] DEEPSEEK_API_KEY set:', !!process.env.DEEPSEEK_API_KEY);
 console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_KEY);
+// Achado real (Michel configurou a chave, 22/09): sem log de boot pra essa
+// variavel, nao dava pra confirmar de relance no proximo deploy se o
+// Render pegou a chave certo — precisaria esperar uma conversa real cair
+// nesse 4º fallback (Gemini→DeepSeek→Groq→OpenRouter) pra descobrir.
+console.log('[BOOT] OPENROUTER_API_KEY set (fallback gratuito):', !!process.env.OPENROUTER_API_KEY, process.env.OPENROUTER_API_KEY ? '✅' : '— nao configurada');
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude fallback):', !!process.env.ANTHROPIC_API_KEY);
 console.log('[BOOT] ASAAS_API_KEY set (Pix pagamentos):', !!process.env.ASAAS_API_KEY);
 console.log('[BOOT] ASAAS_WEBHOOK_TOKEN set (segurança):', !!process.env.ASAAS_WEBHOOK_TOKEN);

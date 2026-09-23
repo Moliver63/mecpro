@@ -1,16 +1,18 @@
 import { z } from "zod";
 import { validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFactGuard";
 
-// Achado real (log de produção, 19/09): o campo "pain" (dor que o
-// criativo endereça — parte legítima e estabelecida da estrutura do
-// criativo, checada pelo Fact Guard igual qualquer outro campo de
-// texto) NUNCA fazia parte do que o modelo era autorizado a reescrever
-// aqui (só headline/description/copy/hook/cta). Resultado real:
-// violação detectada em "pain" → sistema pede pro modelo "remova essa
-// alegação" → modelo não tem como, porque o campo nem está na lista do
-// que ele pode editar → campanha falha sempre, em TODAS as tentativas,
-// sem chance real de sucesso. Limite de 160 caracteres já era usado em
-// outro lugar do código pra esse mesmo campo (server/ai.ts:7801).
+// Achado real (log de produção, 19/09, e novamente 23/09 com campo
+// diferente): campos que a estrutura do criativo realmente tem — "pain"
+// (dor que o criativo endereça) e "solution" (solução que o produto
+// oferece) — checados pelo Fact Guard igual qualquer outro campo de
+// texto, mas NUNCA faziam parte do que o modelo era autorizado a
+// reescrever aqui (só headline/description/copy/hook/cta). Resultado
+// real: violação detectada em "pain"/"solution" → sistema pede pro
+// modelo "remova essa alegação" → modelo não tem como, porque o campo
+// nem está na lista do que ele pode editar → campanha falha sempre, em
+// TODAS as tentativas, sem chance real de sucesso. Limites (160 pra
+// pain, 220 pra solution) já eram usados em outros lugares do código
+// pra esses mesmos campos (server/ai.ts).
 const rewriteSchema = z.object({
   headline: z.string().trim().min(1).max(40),
   description: z.string().trim().min(1).max(30),
@@ -18,26 +20,27 @@ const rewriteSchema = z.object({
   hook: z.string().trim().min(1).max(200),
   cta: z.string().trim().min(1).max(80),
   pain: z.string().trim().min(1).max(160).optional(),
+  solution: z.string().trim().min(1).max(220).optional(),
 }).strict();
 
 export const CREATIVE_REWRITE_RESPONSE_SCHEMA = {
   type: "OBJECT",
-  properties: Object.fromEntries(Object.entries({ headline: 40, description: 30, copy: 500, hook: 200, cta: 80, pain: 160 })
+  properties: Object.fromEntries(Object.entries({ headline: 40, description: 30, copy: 500, hook: 200, cta: 80, pain: 160, solution: 220 })
     .map(([key, limit]) => [key, { type: "STRING", description: `Texto nao vazio, no maximo ${limit} caracteres.` }])),
-  required: ["headline", "description", "copy", "hook", "cta", "pain"],
+  required: ["headline", "description", "copy", "hook", "cta", "pain", "solution"],
 };
 
 export function parseCreativeRewrite(raw: string): unknown {
   const text = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try { return JSON.parse(text); }
-  catch { throw new Error("rewrite_invalid_json: retorne JSON completo com aspas duplas e seis campos; nao corte strings."); }
+  catch { throw new Error("rewrite_invalid_json: retorne JSON completo com aspas duplas e sete campos; nao corte strings."); }
 }
 
 export function creativeRewriteFeedback(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   const detail = /^rewrite_(invalid_schema|invalid_json|fact_conflict|placeholder)/.test(message)
     ? message.slice(0, 700) : "Resposta incompleta ou indisponivel; devolva novamente o objeto completo.";
-  return `ERRO DA TENTATIVA ANTERIOR (validacao, nao fatos da oferta): ${detail}\nCorrija o erro sem acrescentar fatos e preserve os seis campos.\n`;
+  return `ERRO DA TENTATIVA ANTERIOR (validacao, nao fatos da oferta): ${detail}\nCorrija o erro sem acrescentar fatos e preserve os sete campos.\n`;
 }
 
 export function acceptCreativeRewrite(original: any, response: unknown, facts: CampaignFacts, auditSegment?: (candidate: any) => string[]) {
@@ -65,7 +68,7 @@ export function acceptCreativeRewrite(original: any, response: unknown, facts: C
     if (!node || typeof node !== "object") return;
     for (const key of Object.keys(node)) {
       if (typeof node[key] === "object") sync(node[key]);
-      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta", "pain"].includes(key)) {
+      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta", "pain", "solution"].includes(key)) {
         const pair = pairs.find(([old]) => typeof old === "string" && old && node[key] === old);
         if (pair) node[key] = pair[1];
       }
