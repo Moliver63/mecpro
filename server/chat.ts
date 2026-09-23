@@ -28,7 +28,8 @@ import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDecl
 import Groq from "groq-sdk";
 import { createChatRetryBudget } from "./chatRetryBudget";
 import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
-import { publicarCampanhaNaMeta, listarPaginasMetaConectadas } from "./campaignPublish";
+import { listarPaginasMetaConectadas } from "./campaignPublish";
+import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask";
@@ -251,6 +252,7 @@ Depois de selecionar um projeto existente, consulte suas campanhas. Apresente no
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
 
 PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
+- A ferramenta primeiro devolve uma pre-confirmacao. Mostre o resumo e a frase CONFIRMAR PUBLICACAO exatamente como retornada. Apenas essa frase na mensagem atual autoriza executar; "sim" sozinho nao executa. Repita os mesmos parametros depois da confirmacao. Nunca altere destino ou orcamento silenciosamente.
 - Publicar e IRREVERSIVEL e GASTA DINHEIRO REAL do cliente. So chame publicar_campanha depois do usuario confirmar EXPLICITAMENTE, NA MESMA troca da conversa — frases como "pode publicar", "sim, publica", "confirmo" contam; uma confirmacao de varias mensagens atras, ou um "sim" respondendo outra pergunta, nao conta.
 - Antes de chamar, resuma pro usuario o que vai ser publicado (nome da campanha, orcamento, pagina) e so prossiga apos a confirmacao dele — nunca publique como primeira reacao a "crie uma campanha" ou similar.
 - Se voce nao sabe o pageId, chame consultar_paginas_meta primeiro (nunca invente ou adivinhe um pageId).
@@ -442,6 +444,7 @@ const PARAMETROS_PUBLICAR_CAMPANHA = {
   required: ["campaignId", "pageId"],
 };
 const DESCRICAO_PUBLICAR_CAMPANHA =
+  "Primeira chamada prepara confirmacao, sem publicar. Mostre a frase CONFIRMAR PUBLICACAO retornada e espere o usuario envia-la exatamente; depois repita os mesmos argumentos. Exige linkUrl HTTPS explicito. Formulario deve ser publicado pela tela. " +
   "PUBLICA a campanha na Meta Ads DE VERDADE — a partir daqui, orcamento real do cliente comeca a ser gasto. " +
   "So chame isso depois do usuario confirmar EXPLICITAMENTE nesta mesma troca (ex: \"pode publicar\", \"sim, publica\", " +
   "\"confirmo\") — uma confirmacao de varias mensagens atras nao vale, peca confirmacao de novo se o assunto mudou. " +
@@ -449,6 +452,7 @@ const DESCRICAO_PUBLICAR_CAMPANHA =
   "usuario quer publicar AGORA. Se voce nao sabe o pageId, chame consultar_paginas_meta primeiro.";
 
 const declaracoesGemini: FunctionDeclaration[] = [
+  ...adsReadTools.map(tool => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters })),
   { name: ATUALIZAR_BRIEFING.name, description: ATUALIZAR_BRIEFING.description, parametersJsonSchema: ATUALIZAR_BRIEFING.parameters },
   { name: CONSULTAR_WORKSPACE.name, description: CONSULTAR_WORKSPACE.description, parametersJsonSchema: CONSULTAR_WORKSPACE.parameters },
   { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parametersJsonSchema: PARAMETROS_GERAR_CAMPANHA },
@@ -460,6 +464,7 @@ const declaracoesGemini: FunctionDeclaration[] = [
 ];
 
 const ferramentasGroq = [
+  ...adsReadTools.map(tool => ({ type: "function" as const, function: tool })),
   { type: "function" as const, function: ATUALIZAR_BRIEFING },
   { type: "function" as const, function: CONSULTAR_WORKSPACE },
   {
@@ -987,6 +992,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
     if (resposta.text) textoFinal = resposta.text;
 
     const handled = await appendGeminiToolTurn(historico, resposta, async (name, args) => {
+      if (adsReadTools.some(tool => tool.name === name)) return queryChatAds(name, limparArgsFerramenta(args), userId);
       if (name === CONSULTAR_WORKSPACE.name || name === ATUALIZAR_BRIEFING.name) return consultarOuAtualizar(name, limparArgsFerramenta(args), userId);
       if (name === "atualizar_orcamento_campanha") return atualizarOrcamentoCampanha(userId, limparArgsFerramenta(args), db);
       if (name === "definir_foto_destaque") return definirFotoDestaque(userId, limparArgsFerramenta(args), db);
@@ -1118,6 +1124,11 @@ async function tentarComGroq(mensagens: MensagemChat[], userId: number, attachme
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
+    if (adsReadTools.some(tool => tool.name === chamada.function.name)) {
+      const result = await queryChatAds(chamada.function.name, limparArgsFerramenta(args), userId);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
     if (chamada.function.name === "consultar_paginas_meta") {
       const result = await listarPaginasMetaConectadas(userId);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
@@ -1236,6 +1247,11 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
     if (chamada.function?.name === "definir_foto_destaque") {
       const result = await definirFotoDestaque(userId, limparArgsFerramenta(args), db);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (adsReadTools.some(tool => tool.name === chamada.function?.name)) {
+      const result = await queryChatAds(chamada.function.name, limparArgsFerramenta(args), userId);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1536,7 +1552,10 @@ async function persistirTrocaEResponder(
 }
 
 chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => {
-  chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next);
+  const messages = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
+  const message = [...messages].reverse().find((m: any) => m?.role === "user")?.content;
+  adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
+    chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next));
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const state = briefingContext.getStore();
