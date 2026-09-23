@@ -1108,7 +1108,17 @@ async function chamarOpenRouterComRetry(historico: Groq.Chat.ChatCompletionMessa
     ...historico.filter(message => message.role !== "system"),
   ], ferramentas, orcamentoTokens);
   let ultimoErro: unknown;
-  for (let i = 0; i < 2; i++) {
+  // Achado real (log de producao, 23/09): com 2 tentativas de 20s cada,
+  // essa etapa sozinha levou ~39s nesse incidente real (Gemini/DeepSeek/
+  // Groq juntos levaram menos de 1s pra falhar antes de chegar aqui) — a
+  // requisicao inteira demorou 61s ate o usuario receber QUALQUER
+  // resposta, so pra no final cair no modo local mesmo assim. Como esse e
+  // o ULTIMO fallback antes do modo local (que agora oferece um caminho
+  // real de preparar a campanha sem IA, nao mais um beco sem saida), o
+  // custo de repetir aqui supera o beneficio — falha rapido em vez de
+  // dobrar a espera do usuario numa etapa que, no pior caso, ainda vai
+  // cair no mesmo lugar.
+  for (let i = 0; i < 1; i++) {
     if (i > 0 && !retryBudget.canAttempt()) throw ultimoErro;
     try {
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
