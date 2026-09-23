@@ -1095,3 +1095,9 @@ Pesquisado (setembro/2026): OpenRouter tem modelos gratuitos com suporte real a 
 **Zero custo, ativacao imediata quando configurado**: so precisa de `OPENROUTER_API_KEY` no Render (obtida de graca em openrouter.ai) — sem isso, o novo passo e pulado com log claro ("OpenRouter pulado — OPENROUTER_API_KEY não configurada"), sem alterar nenhum comportamento existente.
 
 Validado: confirmado que o SDK do Groq realmente respeita `baseURL` customizado (testado isoladamente, aponta pro endpoint certo do OpenRouter em vez do Groq). check:server 37/37 (sem erro novo), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (117 testes). **Nao testavel de ponta a ponta neste ambiente** — sem chave de API real do OpenRouter nem acesso de rede externo pra confirmar uma chamada genuina funcionando; a estrutura e o formato da requisicao foram cuidadosamente espelhados do padrao ja comprovado do Groq, mas vale Michel confirmar com uma conversa real apos configurar a chave.
+
+### Log de boot pra OPENROUTER_API_KEY (branch feat/openrouter-boot-log)
+
+Michel configurou `OPENROUTER_API_KEY` no Render. Nao havia nenhuma linha de log de boot confirmando essa variavel especificamente (diferente de GEMINI_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, GENSPARK_API_KEY etc., que ja tinham) — sem isso, so daria pra confirmar que a chave foi pega corretamente esperando uma conversa real cair no 4º fallback. Adicionada a linha `[BOOT] OPENROUTER_API_KEY set (fallback gratuito): true/false`, mesmo padrao das demais.
+
+Validado: testado com a variavel definida — linha aparece corretamente no boot (`true ✅`). check:server 37/37, build passando, as 7 suites existentes sem regressao.
