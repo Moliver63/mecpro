@@ -1101,3 +1101,15 @@ Validado: confirmado que o SDK do Groq realmente respeita `baseURL` customizado 
 Michel configurou `OPENROUTER_API_KEY` no Render. Nao havia nenhuma linha de log de boot confirmando essa variavel especificamente (diferente de GEMINI_API_KEY, DEEPSEEK_API_KEY, GROQ_API_KEY, GENSPARK_API_KEY etc., que ja tinham) — sem isso, so daria pra confirmar que a chave foi pega corretamente esperando uma conversa real cair no 4º fallback. Adicionada a linha `[BOOT] OPENROUTER_API_KEY set (fallback gratuito): true/false`, mesmo padrao das demais.
 
 Validado: testado com a variavel definida — linha aparece corretamente no boot (`true ✅`). check:server 37/37, build passando, as 7 suites existentes sem regressao.
+
+### OpenRouter herdava o mesmo orçamento apertado do Groq — falhava pelo mesmo motivo sempre (branch fix/openrouter-larger-token-budget)
+
+Confirmado direto no log de produção (23/09, via acesso as ferramentas MCP do Render conectadas nesta sessao) que a chave OPENROUTER_API_KEY foi corrigida com sucesso pro servico certo (havia sido configurada no servico errado por engano — existem dois servicos parecidos na conta, "mecpro.ai" ativo e "mecpro" um site estatico suspenso) — corrigida diretamente via ferramenta de escrita do Render, deploy confirmado `live`, log de boot confirmou `OPENROUTER_API_KEY set (fallback gratuito): true ✅`.
+
+Mas o MESMO log revelou um problema real na implementacao do dia anterior: o OpenRouter era tentado (confirmando que a chave funcionava), mas falhava com **o mesmo erro exato do Groq**: `chat_context_too_large`. Investigado: `tentarComOpenAICompativel` (funcao compartilhada entre Groq e OpenRouter) passava um orcamento FIXO de 5400 tokens pra `chamarGroqComRetry`, independente do provedor — como o OpenRouter so e tentado DEPOIS que o Groq ja falhou, e o motivo mais comum do Groq falhar e exatamente esse mesmo limite, o OpenRouter herdava a MESMA restricao e batia na MESMA parede, virando um passo inutil na pratica (confirmado 2 vezes seguidas no log real).
+
+**Corrigido**: `chamarGroqComRetry` e `tentarComOpenAICompativel` ganharam um parametro `orcamentoTokens` configuravel (Groq mantem 5400, dimensionado pro limite real de 8000 tokens/minuto do tier on_demand). OpenRouter passa a usar 40000 — o modelo gratuito escolhido (`openai/gpt-oss-20b:free`) tem 131 mil tokens de contexto, bem mais espaco que o Groq, e sem o mesmo limite de tokens/minuto documentado.
+
+Validado: reproduzido o cenario EXATO do log real isoladamente (texto de ~20 mil caracteres, ~6750 tokens estimados) — confirmado que falha com orcamento de 5400 (mesmo erro do log) e passa corretamente com 40000. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes).
+
+**Achado de processo**: essa investigacao foi feita com acesso direto as ferramentas do Render (MCP) conectadas nesta sessao — list_services, list_logs, update_environment_variables, get_deploy — permitindo diagnosticar e corrigir a configuracao errada da chave, e confirmar o comportamento real em producao (nao so hipoteses a partir de logs colados manualmente), dentro da mesma sessao.
