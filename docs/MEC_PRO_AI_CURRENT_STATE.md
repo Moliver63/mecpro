@@ -1158,3 +1158,13 @@ Validado (por mim, revisando o que já estava mergeado): rodei o teste dedicado 
 **Limitação que eles próprios documentaram, honesta**: a reserva de idempotência não cobre publicações feitas por outros caminhos (interface do MecProAI, MCP) — só protege contra duplicação especificamente via chat. E, igual toda validação desta sessão inteira, nenhuma publicação real nem chamada real às APIs foi testada em produção — só a lógica local com dependências simuladas.
 
 Nenhuma dessas duas funcionalidades foi implementada por mim nesta frente — resumo compilado revisando o commit e o `docs/chat-ads-safety.md` que a própria sessão já deixou no repositório.
+
+### OpenRouter com 2 tentativas de 20s dobrava a espera do usuário na última etapa antes do modo local (branch fix/openrouter-single-attempt)
+
+Michel colou a mensagem exata do modo de preparação sem IA (nova funcionalidade da sessão paralela). Sem log anexado dessa vez — busquei diretamente nos logs de producao reais via acesso ao Render (ferramentas MCP conectadas) pela ocorrência mais recente de "TODOS os provedores" e encontrei o incidente exato: 19:45:34, hoje.
+
+**Achado real**: Gemini (503 sobrecarregado), DeepSeek (402 saldo insuficiente) e Groq (chat_context_too_large) levaram juntos menos de 1 segundo pra falhar. O OpenRouter, porem, levou ~39 segundos sozinho antes de desistir — porque `chamarOpenRouterComRetry` tinha `tentativas: 2`, cada uma com timeout de 20s. A REQUISIÇÃO INTEIRA levou 61 segundos (`responseTimeMS=61297` no log de request) ate o usuario receber qualquer resposta — so pra, no final, cair no modo local mesmo assim.
+
+**Corrigido**: reduzido pra 1 tentativa apenas nessa funcao. Dado que o OpenRouter e o ULTIMO fallback antes do modo local (que agora oferece um caminho real de preparar campanha sem IA — frente da sessao paralela — em vez de um beco sem saida), o custo de repetir aqui supera o beneficio: no pior caso (falha de novo), so dobra a espera do usuario pra chegar no MESMO resultado final.
+
+Validado: check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes) + 4/4 no teste de `chatAdsTools.test.ts` (por precaucao, dado que toca a mesma area de codigo). Nao testavel de ponta a ponta neste ambiente (sem acesso de rede ao OpenRouter aqui) — mas a mudanca e puramente estrutural (numero de tentativas), sem risco de comportamento novo alem de falhar mais rapido quando falha.
