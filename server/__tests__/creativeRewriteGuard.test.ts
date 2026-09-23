@@ -86,3 +86,28 @@ test("pain is optional in the rewrite response — omitting it does not reject a
   const result = acceptCreativeRewrite(clean, clean, facts);
   assert.equal(result.pain, undefined);
 });
+
+// Achado real (log de producao, 23/09): mesmo bug estrutural do "pain"
+// (19/09), agora com "solution" — a solucao que o produto oferece, campo
+// real da estrutura do criativo, checado pelo Fact Guard mas fora da
+// lista editavel na reescrita. Log real mostrou creatives[3] falhando
+// com "unconfirmed_offer_claim" em bodyText, copy, hook, pain E solution
+// simultaneamente — as tentativas de reescrita nunca chegaram a corrigir
+// nada porque falhavam antes por estourar o limite de headline/description.
+test("a violation in solution alone cannot be fixed without solution in the rewrite (documents the original bug)", () => {
+  const old = { ...clean, solution: "Oferecemos doces exclusivos para sua festa" };
+  // Reescrita "limpa" nos outros campos, mas sem tocar solution — igual o
+  // comportamento antigo, quando solution nem existia no schema de reescrita.
+  assert.throws(() => acceptCreativeRewrite(old, clean, facts), /rewrite_fact_conflict/);
+});
+
+test("solution is now part of the editable fields — a fix there is accepted", () => {
+  const old = { ...clean, solution: "Oferecemos doces exclusivos para sua festa" };
+  const result = acceptCreativeRewrite(old, { ...clean, solution: "Oferecemos doces variados para sua festa" }, facts);
+  assert.equal(result.solution, "Oferecemos doces variados para sua festa");
+});
+
+test("solution is optional in the rewrite response — omitting it does not reject an otherwise-clean rewrite", () => {
+  const result = acceptCreativeRewrite(clean, clean, facts);
+  assert.equal(result.solution, undefined);
+});
