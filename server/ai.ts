@@ -9475,7 +9475,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `Melhore este criativo de anúncio Meta Ads seguindo EXATAMENTE as recomendações.\n` +
           `RECOMENDAÇÕES: ${recs}\n\n` +
           repairFeedback +
-          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description, pain: current.pain, solution: current.solution })}\n\n` +
+          `CRIATIVO ATUAL (JSON): ${JSON.stringify({ headline: current.headline, copy: current.copy, hook: current.hook, cta: current.cta, description: current.description, pain: current.pain, solution: current.solution, script: current.script })}\n\n` +
           `REGRAS ABSOLUTAS:\n` +
           formatCampaignFactsForPrompt(facts) + "\n" +
           `O criativo atual pode conter erros: NAO e uma fonte de fatos. Nunca acrescente exclusividade, prova social ou entrega hoje sem confirmacao.\n` +
@@ -9487,9 +9487,10 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `- hook: de 1 a 200 caracteres; cta: de 1 a 80 caracteres\n` +
           `- pain: máx 160 caracteres — mire em até 140 pra ter folga (conte antes de responder). A dor/desejo específico que este criativo endereça. Mesma regra dos outros campos: nunca invente urgência, escassez ou exclusividade não confirmada aqui também.\n` +
           `- solution: máx 220 caracteres — mire em até 190 pra ter folga (conte antes de responder). A solução que o produto/serviço oferece pra essa dor. Mesma regra: nunca invente urgência, escassez ou exclusividade não confirmada.\n` +
+          `- script: SÓ se o criativo atual já tiver esse campo (roteiro de vídeo) — máx 900 caracteres, mire em até 780 pra ter folga. Mesma regra: nunca invente urgência, escassez ou exclusividade não confirmada aqui também.\n` +
           `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
           `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se a recomendação pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
-          `Retorne APENAS um objeto JSON com headline, description, copy, hook, cta, pain e solution: todos strings nao vazias. Nenhum outro campo, sem markdown.`,
+          `Retorne APENAS um objeto JSON com headline, description, copy, hook, cta, pain e solution (mais script SE o criativo atual tiver esse campo): todos strings nao vazias. Nenhum outro campo, sem markdown.`,
           { temperature: 0.3, jsonMode: true, maxOutputTokens: 1600, useCache: false, responseSchema: CREATIVE_REWRITE_RESPONSE_SCHEMA, _endpoint: "improve_creative" },
         );
         const improved = parseCreativeRewrite(String(raw));

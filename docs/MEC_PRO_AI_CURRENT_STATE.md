@@ -1178,3 +1178,17 @@ Michel criou mais uma chave Gemini. Investigado antes de configurar: o pool (`AL
 Chave configurada diretamente no Render via ferramenta MCP conectada (servico `mecpro.ai`), mesma abordagem ja usada pra corrigir a `OPENROUTER_API_KEY`.
 
 Validado: log de boot testado isoladamente com cenario real (3 chaves validas + 1 fora do padrao) — reconheceu corretamente as validas e alertou sobre a ignorada. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes).
+
+### TERCEIRA ocorrência do mesmo bug estrutural (script) — categoria inteira fechada com teste que trava a classe (branch fix/rewrite-audited-fields-parity)
+
+Log de produção real (24/09): `FACT_CONFLICT: creatives[3].script: unverified_scarcity_or_exclusivity_claim` — campanha bloqueada por um campo NOVO (`script`, roteiro de vídeo de 30s), exatamente o mesmo padrão estrutural de 19/09 (`pain`) e 23/09 (`solution`): campo faz parte do criativo, é auditado pelo Fact Guard, mas não está na lista do que o modelo pode reescrever — então o sistema pede a correção, o modelo não tem como fazer, e a campanha falha em TODAS as tentativas.
+
+**Mudança de abordagem — parei de corrigir um campo por vez.** Fui na fonte da verdade: `collectTextFields` (`server/campaignFactGuard.ts`) define exatamente quais campos o Fact Guard audita — `headline|description|shortDescription|bodyText|copy|hook|cta|pain|solution|script|text`. Comparando com o schema de reescrita, faltavam **TRÊS** campos, não só o que apareceu hoje: `script`, `shortDescription` e `bodyText`. Os três foram adicionados ao `rewriteSchema` (opcionais, pra não forçar rejeição quando não são o campo problemático) e à lista do `sync()`.
+
+**Trava da categoria inteira**: novo teste que lê AS DUAS listas direto do código-fonte e compara programaticamente — se alguém adicionar um campo auditável novo no futuro e esquecer do schema de reescrita, o teste quebra ali, em vez de virar um quarto incidente em produção. `text` é excluído da comparação por ser alias genérico de container (ex: `{text: "..."}` dentro de variantes), não campo próprio do criativo.
+
+**Confirmado que o teste funciona de verdade**: removi `script` do schema temporariamente e o teste falhou com a mensagem certa (`campos auditados pelo Fact Guard mas NÃO editáveis na reescrita: script`), depois restaurei — não é um teste que passa por acidente.
+
+Limites: `script` 900 caracteres (roteiro de vídeo de 30s — cenas + narração + CTA precisam de espaço real), `shortDescription` 30 e `bodyText` 500 (herdam de description/copy, de quem já são aliases no `sync()`). Prompt de melhoria atualizado pra incluir `script` condicionalmente (só quando o criativo atual tem esse campo).
+
+Validado: 15/15 no arquivo de teste (14 existentes + 1 novo), incluindo a verificação negativa descrita acima. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressão (117 testes).
