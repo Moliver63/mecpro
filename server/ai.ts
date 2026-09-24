@@ -467,6 +467,12 @@ const GEMINI_API_KEY5 = process.env.GEMINI_API_KEY_5;  // chave adicional (opcio
 const GEMINI_API_KEY6 = process.env.GEMINI_API_KEY_07; // chave adicional (opcional)
 const GEMINI_API_KEY7 = process.env.GEMINI_API_KEY_08; // chave adicional (opcional)
 const GEMINI_API_KEY8 = process.env.GEMINI_API_KEY_10; // chave adicional (opcional)
+// Achado real (Michel criou mais uma chave, 24/09): o pool so lia 8 nomes
+// especificos — uma chave nova adicionada com qualquer outro nome seria
+// ignorada em SILENCIO, exatamente o que ja aconteceu antes com as
+// _07/_08/_10 (ver comentario acima). Aceita tambem GEMINI_API_KEY_11 pra
+// que a chave nova entre na rotacao de fato.
+const GEMINI_API_KEY9 = process.env.GEMINI_API_KEY_11; // chave adicional (opcional)
 // Fonte unica do pool de chaves — a lista literal das 5 (agora 8)
 // constantes estava duplicada em varios pontos deste arquivo (cada copia
 // podendo divergir das outras se so uma fosse atualizada — foi assim que
@@ -476,7 +482,7 @@ const GEMINI_API_KEY8 = process.env.GEMINI_API_KEY_10; // chave adicional (opcio
 // manter seu proprio pool incompleto.
 export const ALL_GEMINI_KEYS = [
   GEMINI_API_KEY, GEMINI_API_KEY2, GEMINI_API_KEY3, GEMINI_API_KEY4, GEMINI_API_KEY5,
-  GEMINI_API_KEY6, GEMINI_API_KEY7, GEMINI_API_KEY8,
+  GEMINI_API_KEY6, GEMINI_API_KEY7, GEMINI_API_KEY8, GEMINI_API_KEY9,
 ].filter(Boolean) as string[];
 const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
 const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
