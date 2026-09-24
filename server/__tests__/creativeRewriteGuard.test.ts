@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { acceptCreativeRewrite, parseCreativeRewrite, creativeRewriteFeedback, CREATIVE_REWRITE_RESPONSE_SCHEMA } from "../creativeRewriteGuard";
 import { buildCampaignFacts, formatCampaignFactsForPrompt } from "../campaignFactGuard";
 
@@ -110,4 +111,31 @@ test("solution is now part of the editable fields — a fix there is accepted", 
 test("solution is optional in the rewrite response — omitting it does not reject an otherwise-clean rewrite", () => {
   const result = acceptCreativeRewrite(clean, clean, facts);
   assert.equal(result.solution, undefined);
+});
+
+// Achado real (log de producao, 24/09 — TERCEIRA ocorrencia do MESMO bug
+// estrutural: 19/09 "pain", 23/09 "solution", 24/09 "script"): em vez de
+// corrigir um campo por vez e esperar o quarto incidente, este teste trava
+// a CATEGORIA inteira. `collectTextFields` (campaignFactGuard.ts) e a
+// fonte da verdade de quais campos o Fact Guard audita — se um campo novo
+// for adicionado la e esquecido no schema de reescrita, este teste quebra
+// AQUI, em vez de virar uma campanha travada em producao sem chance de
+// correcao.
+test("every field the Fact Guard audits is also editable in the rewrite schema (locks the pain/solution/script class of bug)", () => {
+  const guardSource = readFileSync(new URL("../campaignFactGuard.ts", import.meta.url), "utf8");
+  const match = guardSource.match(/const isTextField = \/\^\(([^)]+)\)\$\/i/);
+  assert.ok(match, "não encontrei a lista de campos auditados em collectTextFields — se a estrutura mudou, atualize este teste");
+  const auditados = match![1].split("|").map(s => s.trim()).filter(Boolean);
+
+  const rewriteSource = readFileSync(new URL("../creativeRewriteGuard.ts", import.meta.url), "utf8");
+  const schemaBloco = rewriteSource.match(/const rewriteSchema = z\.object\(\{([\s\S]*?)\}\)\.strict\(\)/);
+  assert.ok(schemaBloco, "não encontrei o rewriteSchema — se a estrutura mudou, atualize este teste");
+  const editaveis = [...schemaBloco![1].matchAll(/^\s*(\w+):/gm)].map(m => m[1]);
+
+  // "text" é um alias generico de container (ex: {text: "..."} dentro de
+  // variantes), nao um campo proprio do criativo — nao faz sentido no
+  // schema de reescrita, que edita o criativo de nivel superior.
+  const esperados = auditados.filter(f => f !== "text");
+  const faltando = esperados.filter(f => !editaveis.includes(f));
+  assert.deepEqual(faltando, [], `campos auditados pelo Fact Guard mas NÃO editáveis na reescrita: ${faltando.join(", ")} — isso faz a campanha falhar em todas as tentativas, sem chance de correção (ver pain 19/09, solution 23/09, script 24/09)`);
 });

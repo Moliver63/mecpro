@@ -1,18 +1,27 @@
 import { z } from "zod";
 import { validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFactGuard";
 
-// Achado real (log de produção, 19/09, e novamente 23/09 com campo
-// diferente): campos que a estrutura do criativo realmente tem — "pain"
-// (dor que o criativo endereça) e "solution" (solução que o produto
-// oferece) — checados pelo Fact Guard igual qualquer outro campo de
-// texto, mas NUNCA faziam parte do que o modelo era autorizado a
-// reescrever aqui (só headline/description/copy/hook/cta). Resultado
-// real: violação detectada em "pain"/"solution" → sistema pede pro
-// modelo "remova essa alegação" → modelo não tem como, porque o campo
-// nem está na lista do que ele pode editar → campanha falha sempre, em
-// TODAS as tentativas, sem chance real de sucesso. Limites (160 pra
-// pain, 220 pra solution) já eram usados em outros lugares do código
-// pra esses mesmos campos (server/ai.ts).
+// Achado real (log de produção, 19/09 com "pain", 23/09 com "solution",
+// 24/09 com "script"): a MESMA falha estrutural reapareceu TRÊS vezes com
+// campos diferentes — campo faz parte do criativo e é checado pelo Fact
+// Guard, mas não está na lista do que o modelo pode reescrever aqui.
+// Resultado sempre igual: violação detectada → sistema pede pro modelo
+// corrigir → modelo não tem como (campo fora da lista editável) →
+// campanha falha em TODAS as tentativas, sem chance real de sucesso.
+//
+// Em vez de corrigir um campo por vez (e esperar o quarto incidente),
+// fui na FONTE: `collectTextFields` (server/campaignFactGuard.ts) define
+// exatamente quais campos o Fact Guard verifica —
+// headline|description|shortDescription|bodyText|copy|hook|cta|pain|
+// solution|script|text. Faltavam TRÊS aqui (script, shortDescription,
+// bodyText), não só o que apareceu hoje. Agora a lista cobre todos os
+// campos audítáveis, fechando a categoria inteira do problema.
+//
+// Limites vêm do que já era usado em outros pontos do código pra cada
+// campo (server/ai.ts): pain 160, solution 220. Para script (roteiro de
+// vídeo de 30s — cenas + narração + CTA), 900 dá espaço real sem virar
+// texto interminável. shortDescription e bodyText são aliases de
+// description/copy no `sync()` abaixo, então herdam os mesmos limites.
 const rewriteSchema = z.object({
   headline: z.string().trim().min(1).max(40),
   description: z.string().trim().min(1).max(30),
@@ -21,11 +30,14 @@ const rewriteSchema = z.object({
   cta: z.string().trim().min(1).max(80),
   pain: z.string().trim().min(1).max(160).optional(),
   solution: z.string().trim().min(1).max(220).optional(),
+  script: z.string().trim().min(1).max(900).optional(),
+  shortDescription: z.string().trim().min(1).max(30).optional(),
+  bodyText: z.string().trim().min(1).max(500).optional(),
 }).strict();
 
 export const CREATIVE_REWRITE_RESPONSE_SCHEMA = {
   type: "OBJECT",
-  properties: Object.fromEntries(Object.entries({ headline: 40, description: 30, copy: 500, hook: 200, cta: 80, pain: 160, solution: 220 })
+  properties: Object.fromEntries(Object.entries({ headline: 40, description: 30, copy: 500, hook: 200, cta: 80, pain: 160, solution: 220, script: 900 })
     .map(([key, limit]) => [key, { type: "STRING", description: `Texto nao vazio, no maximo ${limit} caracteres.` }])),
   required: ["headline", "description", "copy", "hook", "cta", "pain", "solution"],
 };
@@ -68,7 +80,7 @@ export function acceptCreativeRewrite(original: any, response: unknown, facts: C
     if (!node || typeof node !== "object") return;
     for (const key of Object.keys(node)) {
       if (typeof node[key] === "object") sync(node[key]);
-      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta", "pain", "solution"].includes(key)) {
+      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta", "pain", "solution", "script"].includes(key)) {
         const pair = pairs.find(([old]) => typeof old === "string" && old && node[key] === old);
         if (pair) node[key] = pair[1];
       }
