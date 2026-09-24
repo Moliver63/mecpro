@@ -24,7 +24,7 @@ import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
-import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback } from "./creativeRewriteGuard";
+import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, type CreativeTextField } from "./creativeRewriteGuard";
 import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
@@ -9429,23 +9429,25 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     return /\[[^\]]*?\]|\{[^}]*?\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i.test(t);
   }
 
-  async function improveCreativeIfWeak(creative: any, index: number): Promise<any> {
+  async function improveCreativeIfWeak(creative: any, index: number, fields?: CreativeTextField[], feedback = "", siblings: any[] = []): Promise<any> {
     let current = creative;
     const facts = context.campaignFacts || buildCampaignFacts({ input: {}, clientProfile: {}, segment });
     let attempts = 0;
-    let repairFeedback = "";
+    let repairFeedback = feedback;
+    let pendingFields: CreativeTextField[] | undefined = fields;
     for (let attempt = 1; attempt <= MAX_IMPROVE_ATTEMPTS; attempt++) {
       const score = scoreCreative(current);
       const placeholder = hasResidualPlaceholder(current);
       // Placeholder é bloqueante: mesmo com score alto, precisa regenerar
       // (um [cidade] não substituído é alucinação que não pode publicar)
       const factAudit = validateCampaignFactIntegrity([current], facts);
-      if (score.finalScore >= SCORE_THRESHOLD && !placeholder && factAudit.status === "passed") {
+      if (score.finalScore >= SCORE_THRESHOLD && !placeholder && factAudit.status === "passed" && !pendingFields?.length && !creativeTextIssues(current).length) {
         return { ...current, ...score, needsReview: false };
       }
       const recs = [
         placeholder ? "REMOVA todos os placeholders como [cidade], {preço}, EMPRESA_AQUI — use texto real ou omita o trecho" : "",
         ...auditCreativeSegmentAlignment(current, segment),
+        ...creativeTextIssues(current),
         ...factAudit.conflicts.map(c => `Remova alegacao nao confirmada: ${c.value} (${c.reason})`),
         (score.recommendations || []).join("; "),
       ].filter(Boolean).join("; ") || "melhore clareza e relevancia sem acrescentar fatos";
@@ -9487,7 +9489,18 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           { temperature: 0.3, jsonMode: true, maxOutputTokens: 1600, useCache: false, responseSchema: CREATIVE_REWRITE_RESPONSE_SCHEMA, _endpoint: "improve_creative" },
         );
         const improved = parseCreativeRewrite(String(raw));
-        current = acceptCreativeRewrite(current, improved, facts, candidate => auditCreativeSegmentAlignment(candidate, segment));
+        const repair = repairCreativeFields(current, improved, facts, pendingFields);
+        current = repair.candidate;
+        current.segmentAlignmentIssues = auditCreativeSegmentAlignment(current, segment);
+        const duplicateFields = duplicateCreativeFields([...siblings, current], siblings.length);
+        pendingFields = [...new Set([...repair.rejected, ...duplicateFields])];
+        if (!pendingFields.length) pendingFields = undefined;
+        repairFeedback = feedback + (repair.issues.length
+          ? `Corrija SOMENTE estes campos: ${repair.issues.join("; ")}. Os demais campos foram aprovados e serao preservados. Retorne o JSON completo, sem inventar fatos.\n`
+          : "");
+        if (repair.rejected.length) log.warn("ai", "Reescrita parcialmente aceita; preservando campos validos", {
+          index, attempt, accepted: repair.accepted, rejected: repair.rejected,
+        });
       } catch (e) {
         repairFeedback = creativeRewriteFeedback(e);
         log.warn("ai", "Reescrita recusada — mantendo ultima versao e tentando dentro do limite", {
@@ -9515,13 +9528,31 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     if (stillWeak) {
       log.warn("ai", `Criativo permanece com score ${finalScoreResult.finalScore} após ${attempts} tentativas — marcado para revisão`, { index });
     }
-    return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder || validateCampaignFactIntegrity([current], facts).status !== "passed" };
+    return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder || !!pendingFields?.length || validateCampaignFactIntegrity([current], facts).status !== "passed" };
   }
 
   const rawList = Array.isArray(creatives) ? creatives : [];
   const improvedList = context.skipAIGeneration
     ? rawList
     : await Promise.all(rawList.map((cr, i) => improveCreativeIfWeak(cr, i)));
+
+  if (!context.skipAIGeneration) {
+    // Sequential repair sees siblings already fixed; media and ordering are untouched.
+    const isCarousel = (context.realImages?.length || 0) > 1 || improvedList.some(c => /carousel|carrossel/i.test(String(c.format || c.type || "")));
+    for (let index = 1; index < improvedList.length; index++) {
+      if (!isCarousel) break;
+      const fields = duplicateCreativeFields(improvedList, index);
+      if (!fields.length) continue;
+      const siblings = improvedList.filter((_, i) => i !== index);
+      const feedback = `Repare somente ${fields.join(", ")}, repetidos em outro card. Nao repita estes textos: ${JSON.stringify(siblings.map(c => ({ headline: c.headline, description: c.description })))}. Use apenas fatos confirmados.\n`;
+      improvedList[index] = await improveCreativeIfWeak(improvedList[index], index, fields, feedback, siblings);
+    }
+    const issues = improvedList.flatMap((c, index) => [
+      ...creativeTextIssues(c).map(issue => `card ${index + 1}: ${issue}`),
+      ...(isCarousel ? duplicateCreativeFields(improvedList, index).map(field => `card ${index + 1}: ${field} repetido`) : []),
+    ]);
+    if (issues.length) throw new Error(`CREATIVE_REPAIR_REQUIRED: ${issues.join("; ")}`);
+  }
 
   if (context.campaignFacts) {
     const audit = validateCampaignFactIntegrity(improvedList, context.campaignFacts);
