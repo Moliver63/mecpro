@@ -1208,3 +1208,19 @@ Configuracao: 1 tentativa apenas (mesma logica do OpenRouter — ultimo elo ante
 Validado: log de boot testado isoladamente (`true ✅`), check:server 37/37 (sem erro novo), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (119 testes) + 19/19 nos testes dedicados de creativeRewriteGuard/chatAdsTools. **Nao testavel de ponta a ponta neste ambiente** — `models.github.ai` fora da lista de dominios permitidos do sandbox; endpoint/headers conferidos contra a documentacao oficial do GitHub (`docs.github.com/en/rest/models/inference`).
 
 **Pendencia de privacidade registrada, NAO resolvida**: descobri durante a pesquisa que, dos 91 provedores que o OpenRouter lista, quatro podem treinar com os prompts recebidos (DeepSeek, Liquid, NVIDIA, Thinking Machines). O roteador automatico (`openrouter/free`) que configurei numa frente anterior pode rotear dados de negocio dos clientes de Michel pra esses provedores. Levantado com Michel, que optou por priorizar o GitHub Models primeiro — a correcao (fixar modelo especifico evitando esses provedores) segue em aberto.
+
+### GitHub Models REMOVIDO — serviço foi descontinuado em 30/07/2026 (branch fix/remove-github-models)
+
+**Erro meu, corrigido no mesmo dia.** Implementei GitHub Models como 5º provedor gratuito algumas horas antes (PR #62). Michel configurou a variavel, o deploy subiu, e o primeiro log real mostrou um erro estranho: `Unexpected token 'O', "OK\r\n" is not valid JSON` — o endpoint respondeu `"OK"` em texto puro, nao JSON.
+
+Investigado direto na documentacao oficial (`docs.github.com/en/github-models`): **"As of July 30, 2026, GitHub Models has been fully retired. The playground, model catalog, inference API, and bring your own key (BYOK) are no longer available to any customer."**
+
+**Causa do meu erro**: pesquisei antes de implementar, mas as fontes que encontrei (blog do OpenRouter, listas curadas no GitHub, docs de integracao do Aspire) eram de junho/julho de 2026 — ANTERIORES ao desligamento, e ainda descreviam o servico como ativo. Tratei aquilo como estado atual sem conferir a documentacao oficial do proprio GitHub, que teria mostrado o aviso de imediato. Custo pro Michel: criou um token a toa e gastou tempo num deploy que nunca teve chance de funcionar.
+
+**Removido**: constante de modelo, `chamarGitHubModelsComRetry`, `tentarComGitHubModels`, bloco de despacho na cadeia e log de boot. Cadeia volta a: Gemini → DeepSeek → Groq → OpenRouter → modo local. Deixada uma NOTA no lugar da constante explicando o desligamento e o sintoma exato (`"OK"` em texto puro), pra que ninguem reintroduza a integracao achando que e uma opcao gratuita viavel.
+
+Variavel `GITHUB_MODELS_TOKEN` removida do Render. Recomendado a Michel revogar o token criado.
+
+Substituto sugerido pelo proprio GitHub: Azure AI Foundry — **nao avaliado aqui**, camada gratuita nao verificada. Nao recomendado sem checagem propria, justamente pra nao repetir o mesmo erro.
+
+Validado: check:server 37/37 (sem erro novo, confirma que nao restou referencia orfa), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (119 testes).
