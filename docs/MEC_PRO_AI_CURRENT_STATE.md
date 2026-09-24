@@ -1192,3 +1192,19 @@ Log de produção real (24/09): `FACT_CONFLICT: creatives[3].script: unverified_
 Limites: `script` 900 caracteres (roteiro de vídeo de 30s — cenas + narração + CTA precisam de espaço real), `shortDescription` 30 e `bodyText` 500 (herdam de description/copy, de quem já são aliases no `sync()`). Prompt de melhoria atualizado pra incluir `script` condicionalmente (só quando o criativo atual tem esse campo).
 
 Validado: 15/15 no arquivo de teste (14 existentes + 1 novo), incluindo a verificação negativa descrita acima. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressão (117 testes).
+
+### GitHub Models como 5º provedor gratuito (branch feat/github-models-provider)
+
+Michel perguntou se existe IA gratuita no GitHub. Pesquisado e confirmado: **GitHub Models** da acesso gratuito a modelos de ponta (GPT-4.1/4o, Llama, Phi, DeepSeek) por endpoint compativel com OpenAI hospedado no **Azure**, vinculado a conta GitHub — infraestrutura bem mais estavel que o roteamento gratuito comunitario do OpenRouter (que custou 3 ciclos de correcao nesta sessao e ainda da timeout).
+
+**Implementado**: `tentarComGitHubModels`, novo 5º elo da cadeia — Gemini → DeepSeek → Groq → OpenRouter → **GitHub Models** → modo local.
+
+**Licao aplicada de imediato** (aprendida na dura com o OpenRouter): chamada via `fetch` puro contra o caminho documentado (`https://models.github.ai/inference/chat/completions`), NAO via SDK do Groq com baseURL customizado — aquele SDK monta `/openai/v1/chat/completions` (caminho proprio do Groq) e geraria 404 aqui tambem. Evitou repetir o mesmo ciclo de 3 correcoes.
+
+**Decisao de seguranca**: usa token PROPRIO (`GITHUB_MODELS_TOKEN`), nao o token de commits do repositorio — escopos diferentes (este precisa de `models: read`) e misturar credencial de escrita em repo com inferencia seria risco desnecessario.
+
+Configuracao: 1 tentativa apenas (mesma logica do OpenRouter — ultimo elo antes do modo local, repetir so dobra a espera), timeout de 20s, orcamento de 40000 tokens (gpt-4o-mini tem 128k de contexto, e esse provedor so e alcancado depois do Groq ja ter falhado por contexto apertado). Log de boot confirmando a variavel, mesmo padrao das demais.
+
+Validado: log de boot testado isoladamente (`true ✅`), check:server 37/37 (sem erro novo), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (119 testes) + 19/19 nos testes dedicados de creativeRewriteGuard/chatAdsTools. **Nao testavel de ponta a ponta neste ambiente** — `models.github.ai` fora da lista de dominios permitidos do sandbox; endpoint/headers conferidos contra a documentacao oficial do GitHub (`docs.github.com/en/rest/models/inference`).
+
+**Pendencia de privacidade registrada, NAO resolvida**: descobri durante a pesquisa que, dos 91 provedores que o OpenRouter lista, quatro podem treinar com os prompts recebidos (DeepSeek, Liquid, NVIDIA, Thinking Machines). O roteador automatico (`openrouter/free`) que configurei numa frente anterior pode rotear dados de negocio dos clientes de Michel pra esses provedores. Levantado com Michel, que optou por priorizar o GitHub Models primeiro — a correcao (fixar modelo especifico evitando esses provedores) segue em aberto.
