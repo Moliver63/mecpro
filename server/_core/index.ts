@@ -46,7 +46,6 @@ console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_
 // Render pegou a chave certo — precisaria esperar uma conversa real cair
 // nesse 4º fallback (Gemini→DeepSeek→Groq→OpenRouter) pra descobrir.
 console.log('[BOOT] OPENROUTER_API_KEY set (fallback gratuito):', !!process.env.OPENROUTER_API_KEY, process.env.OPENROUTER_API_KEY ? '✅' : '— nao configurada');
-console.log('[BOOT] GITHUB_MODELS_TOKEN set (5o provedor, gratuito):', !!process.env.GITHUB_MODELS_TOKEN, process.env.GITHUB_MODELS_TOKEN ? '✅' : '— nao configurada');
 console.log('[BOOT] ANTHROPIC_API_KEY set (Claude fallback):', !!process.env.ANTHROPIC_API_KEY);
 console.log('[BOOT] ASAAS_API_KEY set (Pix pagamentos):', !!process.env.ASAAS_API_KEY);
 console.log('[BOOT] ASAAS_WEBHOOK_TOKEN set (segurança):', !!process.env.ASAAS_WEBHOOK_TOKEN);
