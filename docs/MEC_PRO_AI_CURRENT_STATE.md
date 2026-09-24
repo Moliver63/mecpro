@@ -1168,3 +1168,13 @@ Michel colou a mensagem exata do modo de preparação sem IA (nova funcionalidad
 **Corrigido**: reduzido pra 1 tentativa apenas nessa funcao. Dado que o OpenRouter e o ULTIMO fallback antes do modo local (que agora oferece um caminho real de preparar campanha sem IA — frente da sessao paralela — em vez de um beco sem saida), o custo de repetir aqui supera o beneficio: no pior caso (falha de novo), so dobra a espera do usuario pra chegar no MESMO resultado final.
 
 Validado: check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes) + 4/4 no teste de `chatAdsTools.test.ts` (por precaucao, dado que toca a mesma area de codigo). Nao testavel de ponta a ponta neste ambiente (sem acesso de rede ao OpenRouter aqui) — mas a mudanca e puramente estrutural (numero de tentativas), sem risco de comportamento novo alem de falhar mais rapido quando falha.
+
+### 9ª chave Gemini + log de boot que denuncia chave ignorada em silêncio (branch feat/gemini-key-11)
+
+Michel criou mais uma chave Gemini. Investigado antes de configurar: o pool (`ALL_GEMINI_KEYS`, `server/ai.ts`) so le nomes de variavel ESPECIFICOS (`GEMINI_API_KEY`, `_2` a `_5`, `_07`, `_08`, `_10`) — uma chave adicionada com qualquer outro nome e ignorada em SILENCIO, sem erro nenhum. Isso ja aconteceu antes nesta base de codigo: o proprio comentario em `ai.ts` registra que `_07`, `_08` e `_10` ficaram fora do pool por muito tempo, "justamente na hora que mais importa".
+
+**Implementado**: suporte a `GEMINI_API_KEY_11` (9ª chave) no pool. E, pra que esse mesmo problema nao se repita silenciosamente uma terceira vez, novo log de boot que mostra **quantas chaves entraram no pool DE FATO** e, crucialmente, **alerta sobre qualquer variavel `GEMINI_API_KEY*` cujo nome esteja fora do padrao lido pelo codigo** — transformando uma falha silenciosa (descoberta meses depois num incidente de cota) em algo visivel no proximo boot.
+
+Chave configurada diretamente no Render via ferramenta MCP conectada (servico `mecpro.ai`), mesma abordagem ja usada pra corrigir a `OPENROUTER_API_KEY`.
+
+Validado: log de boot testado isoladamente com cenario real (3 chaves validas + 1 fora do padrao) — reconheceu corretamente as validas e alertou sobre a ignorada. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes).
