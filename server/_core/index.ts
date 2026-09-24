@@ -26,6 +26,19 @@ console.log('[BOOT] JWT_SECRET set:', !!process.env.JWT_SECRET);
 console.log('[BOOT] SESSION_SECRET set:', !!process.env.SESSION_SECRET);
 console.log('[BOOT] STRIPE_SECRET_KEY set:', !!process.env.STRIPE_SECRET_KEY);
 console.log('[BOOT] GEMINI_API_KEY set:', !!process.env.GEMINI_API_KEY);
+// Achado real (Michel criou mais uma chave, 24/09): o codigo so le nomes
+// ESPECIFICOS de variavel (GEMINI_API_KEY, _2.._5, _07, _08, _10, _11) —
+// uma chave adicionada com outro nome e ignorada em silencio, sem erro
+// nenhum. Ja aconteceu antes com 3 chaves. Este log mostra quantas
+// entraram no pool DE FATO, pra que uma chave fora do padrao apareca na
+// hora, em vez de so meses depois num incidente de cota esgotada.
+const _geminiPoolNomes = ['GEMINI_API_KEY', 'GEMINI_API_KEY_2', 'GEMINI_API_KEY_3', 'GEMINI_API_KEY_4', 'GEMINI_API_KEY_5', 'GEMINI_API_KEY_07', 'GEMINI_API_KEY_08', 'GEMINI_API_KEY_10', 'GEMINI_API_KEY_11'];
+const _geminiPoolAtivas = _geminiPoolNomes.filter(n => !!process.env[n]);
+console.log(`[BOOT] Pool Gemini: ${_geminiPoolAtivas.length} de ${_geminiPoolNomes.length} chaves reconhecidas —`, _geminiPoolAtivas.join(', ') || '(nenhuma)');
+const _geminiForaDoPool = Object.keys(process.env).filter(n => /^GEMINI_API_KEY/i.test(n) && !_geminiPoolNomes.includes(n));
+if (_geminiForaDoPool.length) {
+  console.log(`[BOOT] ⚠️  Variaveis Gemini IGNORADAS (nome fora do padrao lido pelo codigo):`, _geminiForaDoPool.join(', '));
+}
 console.log('[BOOT] DEEPSEEK_API_KEY set:', !!process.env.DEEPSEEK_API_KEY);
 console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_KEY);
 // Achado real (Michel configurou a chave, 22/09): sem log de boot pra essa

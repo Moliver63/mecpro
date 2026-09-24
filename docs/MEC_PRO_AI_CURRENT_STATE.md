@@ -1141,3 +1141,40 @@ Log de producao real (23/09), apos o deploy da correcao do modelo (roteador auto
 **Corrigido**: nova funcao `chamarOpenRouterComRetry` usando `fetch` puro contra `https://openrouter.ai/api/v1/chat/completions` (confirmado contra a documentacao oficial do OpenRouter ja pesquisada antes — bate caractere por caractere), em vez de forcar o SDK do Groq numa API que ele nao foi desenhado pra chamar. `tentarComOpenAICompativel` refatorada pra aceitar uma funcao de chamada generica (em vez de um client Groq fixo) — `tentarComGroq` continua usando o SDK real do Groq normalmente (intocado, sem risco pro que ja funciona), `tentarComOpenRouter` passa a usar a nova funcao baseada em fetch.
 
 Validado: check:server 37/37 (sem erro novo), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (117 testes). **Nao testavel de ponta a ponta neste ambiente** — `openrouter.ai` nao esta na lista de dominios permitidos pra chamadas de rede deste sandbox. Verificacao possivel: a URL final usada bate exatamente com os exemplos oficiais da documentacao do OpenRouter ja coletados numa pesquisa anterior. Recomendado a Michel confirmar com uma conversa real apos o deploy — essa e a terceira tentativa de corrigir esse mesmo fallback, entao vale conferencia extra.
+
+### Avaliação: métricas de campanha + publicação protegida via chat — já implementado pela sessão paralela (commit `80a3d72`)
+
+Michel pediu duas coisas: publicar campanha via chat (JÁ existia — implementei numa frente bem no início desta sessão) e métricas de campanha "igual tem no mcp" (não existia). Comecei a implementar as duas em `chat.ts` diretamente, mas a sessão paralela mesclou uma versão SIGNIFICATIVAMENTE mais robusta enquanto eu trabalhava — descartei minha implementação local (redundante/inferior) e revisei a deles com cuidado.
+
+**Avaliação — implementação sólida, superior ao que eu tinha feito**: novo módulo `server/chatAdsTools.ts`, com:
+- **Métricas** (`consultar_metricas_campanha`, `consultar_relatorio_anuncios`) — reaproveita EXATAMENTE a mesma lógica do MCP (`db.getCampaignMetricsDaily`, `appRouter.createCaller(...).unified.getFullReport(...)`), satisfazendo literalmente o pedido "igual tem no mcp".
+- **`bounded()`** — timeout real (10s consultas, 45s publicação) que minha implementação não tinha nenhum.
+- **`compact()`** — limita resposta a 8 itens por lista, 600 caracteres por string, 40 chaves, profundidade 7, com teto de 18KB — proteção direta contra o MESMO problema de "contexto grande demais" que corrigi várias vezes hoje nos outros provedores. Minha implementação não tinha nenhum limite — um relatório grande poderia ele mesmo virar uma nova causa de estouro de contexto.
+- **Publicação protegida**: sistema de confirmação com token criptográfico (`CONFIRMAR PUBLICACAO <hash>`, vinculado a usuário+campanha+snapshot+parâmetros — qualquer mudança invalida a frase) em vez de só aceitar "sim"/"confirmo" (ambíguo numa conversa longa). Reserva de idempotência persistente por usuário/campanha (`db.reserveMcpIdempotencyKey`) — impede publicação duplicada mesmo se a requisição trocar de provedor de IA no meio (Gemini→Groq por timeout, por exemplo). Exige destino HTTPS explícito; formulário instantâneo precisa ser publicado pela tela, não pelo chat.
+- **Integração elegante**: a ferramenta `publicar_campanha` já existente ganhou toda essa proteção nova só com um alias de import (`publishChatAds as publicarCampanhaNaMeta`) — sem precisar tocar no código de despacho já existente nos 3 provedores.
+
+Validado (por mim, revisando o que já estava mergeado): rodei o teste dedicado que eles escreveram (`chatAdsTools.test.ts`) — 4/4 passando, cobrindo propriedade de campanha, exatidão da confirmação, invalidação por mudança de orçamento, e não reabertura de tentativa após resultado incerto. check:server 37/37 (sem erro novo), build passando, módulo `chat.ts` carrega sem crash, as 7 suites existentes sem regressão (117 testes).
+
+**Limitação que eles próprios documentaram, honesta**: a reserva de idempotência não cobre publicações feitas por outros caminhos (interface do MecProAI, MCP) — só protege contra duplicação especificamente via chat. E, igual toda validação desta sessão inteira, nenhuma publicação real nem chamada real às APIs foi testada em produção — só a lógica local com dependências simuladas.
+
+Nenhuma dessas duas funcionalidades foi implementada por mim nesta frente — resumo compilado revisando o commit e o `docs/chat-ads-safety.md` que a própria sessão já deixou no repositório.
+
+### OpenRouter com 2 tentativas de 20s dobrava a espera do usuário na última etapa antes do modo local (branch fix/openrouter-single-attempt)
+
+Michel colou a mensagem exata do modo de preparação sem IA (nova funcionalidade da sessão paralela). Sem log anexado dessa vez — busquei diretamente nos logs de producao reais via acesso ao Render (ferramentas MCP conectadas) pela ocorrência mais recente de "TODOS os provedores" e encontrei o incidente exato: 19:45:34, hoje.
+
+**Achado real**: Gemini (503 sobrecarregado), DeepSeek (402 saldo insuficiente) e Groq (chat_context_too_large) levaram juntos menos de 1 segundo pra falhar. O OpenRouter, porem, levou ~39 segundos sozinho antes de desistir — porque `chamarOpenRouterComRetry` tinha `tentativas: 2`, cada uma com timeout de 20s. A REQUISIÇÃO INTEIRA levou 61 segundos (`responseTimeMS=61297` no log de request) ate o usuario receber qualquer resposta — so pra, no final, cair no modo local mesmo assim.
+
+**Corrigido**: reduzido pra 1 tentativa apenas nessa funcao. Dado que o OpenRouter e o ULTIMO fallback antes do modo local (que agora oferece um caminho real de preparar campanha sem IA — frente da sessao paralela — em vez de um beco sem saida), o custo de repetir aqui supera o beneficio: no pior caso (falha de novo), so dobra a espera do usuario pra chegar no MESMO resultado final.
+
+Validado: check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes) + 4/4 no teste de `chatAdsTools.test.ts` (por precaucao, dado que toca a mesma area de codigo). Nao testavel de ponta a ponta neste ambiente (sem acesso de rede ao OpenRouter aqui) — mas a mudanca e puramente estrutural (numero de tentativas), sem risco de comportamento novo alem de falhar mais rapido quando falha.
+
+### 9ª chave Gemini + log de boot que denuncia chave ignorada em silêncio (branch feat/gemini-key-11)
+
+Michel criou mais uma chave Gemini. Investigado antes de configurar: o pool (`ALL_GEMINI_KEYS`, `server/ai.ts`) so le nomes de variavel ESPECIFICOS (`GEMINI_API_KEY`, `_2` a `_5`, `_07`, `_08`, `_10`) — uma chave adicionada com qualquer outro nome e ignorada em SILENCIO, sem erro nenhum. Isso ja aconteceu antes nesta base de codigo: o proprio comentario em `ai.ts` registra que `_07`, `_08` e `_10` ficaram fora do pool por muito tempo, "justamente na hora que mais importa".
+
+**Implementado**: suporte a `GEMINI_API_KEY_11` (9ª chave) no pool. E, pra que esse mesmo problema nao se repita silenciosamente uma terceira vez, novo log de boot que mostra **quantas chaves entraram no pool DE FATO** e, crucialmente, **alerta sobre qualquer variavel `GEMINI_API_KEY*` cujo nome esteja fora do padrao lido pelo codigo** — transformando uma falha silenciosa (descoberta meses depois num incidente de cota) em algo visivel no proximo boot.
+
+Chave configurada diretamente no Render via ferramenta MCP conectada (servico `mecpro.ai`), mesma abordagem ja usada pra corrigir a `OPENROUTER_API_KEY`.
+
+Validado: log de boot testado isoladamente com cenario real (3 chaves validas + 1 fora do padrao) — reconheceu corretamente as validas e alertou sobre a ignorada. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes).
