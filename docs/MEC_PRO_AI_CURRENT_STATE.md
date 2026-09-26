@@ -1178,3 +1178,49 @@ Michel criou mais uma chave Gemini. Investigado antes de configurar: o pool (`AL
 Chave configurada diretamente no Render via ferramenta MCP conectada (servico `mecpro.ai`), mesma abordagem ja usada pra corrigir a `OPENROUTER_API_KEY`.
 
 Validado: log de boot testado isoladamente com cenario real (3 chaves validas + 1 fora do padrao) — reconheceu corretamente as validas e alertou sobre a ignorada. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressao (117 testes).
+
+### TERCEIRA ocorrência do mesmo bug estrutural (script) — categoria inteira fechada com teste que trava a classe (branch fix/rewrite-audited-fields-parity)
+
+Log de produção real (24/09): `FACT_CONFLICT: creatives[3].script: unverified_scarcity_or_exclusivity_claim` — campanha bloqueada por um campo NOVO (`script`, roteiro de vídeo de 30s), exatamente o mesmo padrão estrutural de 19/09 (`pain`) e 23/09 (`solution`): campo faz parte do criativo, é auditado pelo Fact Guard, mas não está na lista do que o modelo pode reescrever — então o sistema pede a correção, o modelo não tem como fazer, e a campanha falha em TODAS as tentativas.
+
+**Mudança de abordagem — parei de corrigir um campo por vez.** Fui na fonte da verdade: `collectTextFields` (`server/campaignFactGuard.ts`) define exatamente quais campos o Fact Guard audita — `headline|description|shortDescription|bodyText|copy|hook|cta|pain|solution|script|text`. Comparando com o schema de reescrita, faltavam **TRÊS** campos, não só o que apareceu hoje: `script`, `shortDescription` e `bodyText`. Os três foram adicionados ao `rewriteSchema` (opcionais, pra não forçar rejeição quando não são o campo problemático) e à lista do `sync()`.
+
+**Trava da categoria inteira**: novo teste que lê AS DUAS listas direto do código-fonte e compara programaticamente — se alguém adicionar um campo auditável novo no futuro e esquecer do schema de reescrita, o teste quebra ali, em vez de virar um quarto incidente em produção. `text` é excluído da comparação por ser alias genérico de container (ex: `{text: "..."}` dentro de variantes), não campo próprio do criativo.
+
+**Confirmado que o teste funciona de verdade**: removi `script` do schema temporariamente e o teste falhou com a mensagem certa (`campos auditados pelo Fact Guard mas NÃO editáveis na reescrita: script`), depois restaurei — não é um teste que passa por acidente.
+
+Limites: `script` 900 caracteres (roteiro de vídeo de 30s — cenas + narração + CTA precisam de espaço real), `shortDescription` 30 e `bodyText` 500 (herdam de description/copy, de quem já são aliases no `sync()`). Prompt de melhoria atualizado pra incluir `script` condicionalmente (só quando o criativo atual tem esse campo).
+
+Validado: 15/15 no arquivo de teste (14 existentes + 1 novo), incluindo a verificação negativa descrita acima. check:server 37/37 (sem erro novo), build passando, as 7 suites existentes sem regressão (117 testes).
+
+### GitHub Models como 5º provedor gratuito (branch feat/github-models-provider)
+
+Michel perguntou se existe IA gratuita no GitHub. Pesquisado e confirmado: **GitHub Models** da acesso gratuito a modelos de ponta (GPT-4.1/4o, Llama, Phi, DeepSeek) por endpoint compativel com OpenAI hospedado no **Azure**, vinculado a conta GitHub — infraestrutura bem mais estavel que o roteamento gratuito comunitario do OpenRouter (que custou 3 ciclos de correcao nesta sessao e ainda da timeout).
+
+**Implementado**: `tentarComGitHubModels`, novo 5º elo da cadeia — Gemini → DeepSeek → Groq → OpenRouter → **GitHub Models** → modo local.
+
+**Licao aplicada de imediato** (aprendida na dura com o OpenRouter): chamada via `fetch` puro contra o caminho documentado (`https://models.github.ai/inference/chat/completions`), NAO via SDK do Groq com baseURL customizado — aquele SDK monta `/openai/v1/chat/completions` (caminho proprio do Groq) e geraria 404 aqui tambem. Evitou repetir o mesmo ciclo de 3 correcoes.
+
+**Decisao de seguranca**: usa token PROPRIO (`GITHUB_MODELS_TOKEN`), nao o token de commits do repositorio — escopos diferentes (este precisa de `models: read`) e misturar credencial de escrita em repo com inferencia seria risco desnecessario.
+
+Configuracao: 1 tentativa apenas (mesma logica do OpenRouter — ultimo elo antes do modo local, repetir so dobra a espera), timeout de 20s, orcamento de 40000 tokens (gpt-4o-mini tem 128k de contexto, e esse provedor so e alcancado depois do Groq ja ter falhado por contexto apertado). Log de boot confirmando a variavel, mesmo padrao das demais.
+
+Validado: log de boot testado isoladamente (`true ✅`), check:server 37/37 (sem erro novo), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (119 testes) + 19/19 nos testes dedicados de creativeRewriteGuard/chatAdsTools. **Nao testavel de ponta a ponta neste ambiente** — `models.github.ai` fora da lista de dominios permitidos do sandbox; endpoint/headers conferidos contra a documentacao oficial do GitHub (`docs.github.com/en/rest/models/inference`).
+
+**Pendencia de privacidade registrada, NAO resolvida**: descobri durante a pesquisa que, dos 91 provedores que o OpenRouter lista, quatro podem treinar com os prompts recebidos (DeepSeek, Liquid, NVIDIA, Thinking Machines). O roteador automatico (`openrouter/free`) que configurei numa frente anterior pode rotear dados de negocio dos clientes de Michel pra esses provedores. Levantado com Michel, que optou por priorizar o GitHub Models primeiro — a correcao (fixar modelo especifico evitando esses provedores) segue em aberto.
+
+### GitHub Models REMOVIDO — serviço foi descontinuado em 30/07/2026 (branch fix/remove-github-models)
+
+**Erro meu, corrigido no mesmo dia.** Implementei GitHub Models como 5º provedor gratuito algumas horas antes (PR #62). Michel configurou a variavel, o deploy subiu, e o primeiro log real mostrou um erro estranho: `Unexpected token 'O', "OK\r\n" is not valid JSON` — o endpoint respondeu `"OK"` em texto puro, nao JSON.
+
+Investigado direto na documentacao oficial (`docs.github.com/en/github-models`): **"As of July 30, 2026, GitHub Models has been fully retired. The playground, model catalog, inference API, and bring your own key (BYOK) are no longer available to any customer."**
+
+**Causa do meu erro**: pesquisei antes de implementar, mas as fontes que encontrei (blog do OpenRouter, listas curadas no GitHub, docs de integracao do Aspire) eram de junho/julho de 2026 — ANTERIORES ao desligamento, e ainda descreviam o servico como ativo. Tratei aquilo como estado atual sem conferir a documentacao oficial do proprio GitHub, que teria mostrado o aviso de imediato. Custo pro Michel: criou um token a toa e gastou tempo num deploy que nunca teve chance de funcionar.
+
+**Removido**: constante de modelo, `chamarGitHubModelsComRetry`, `tentarComGitHubModels`, bloco de despacho na cadeia e log de boot. Cadeia volta a: Gemini → DeepSeek → Groq → OpenRouter → modo local. Deixada uma NOTA no lugar da constante explicando o desligamento e o sintoma exato (`"OK"` em texto puro), pra que ninguem reintroduza a integracao achando que e uma opcao gratuita viavel.
+
+Variavel `GITHUB_MODELS_TOKEN` removida do Render. Recomendado a Michel revogar o token criado.
+
+Substituto sugerido pelo proprio GitHub: Azure AI Foundry — **nao avaliado aqui**, camada gratuita nao verificada. Nao recomendado sem checagem propria, justamente pra nao repetir o mesmo erro.
+
+Validado: check:server 37/37 (sem erro novo, confirma que nao restou referencia orfa), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (119 testes).

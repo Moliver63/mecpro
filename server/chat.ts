@@ -96,6 +96,16 @@ const MODELO_GROQ = process.env.GROQ_CHAT_MODEL ?? "openai/gpt-oss-120b";
 // ferramentas (documentado oficialmente, setembro/2026). Auto-recupera se
 // um modelo especifico sair do ar, sem precisar de outro deploy.
 const MODELO_OPENROUTER = process.env.OPENROUTER_CHAT_MODEL ?? "openrouter/free";
+// NOTA (24/09): houve aqui uma integracao com GitHub Models como 5o
+// provedor gratuito. REMOVIDA no mesmo dia: o GitHub Models foi
+// descontinuado pelo proprio GitHub em 30/07/2026 ("the playground, model
+// catalog, inference API, and bring your own key (BYOK) are no longer
+// available to any customer" — docs.github.com/en/github-models). O
+// endpoint ainda responde "OK" em texto puro, o que causava
+// "Unexpected token 'O'" no log em vez de um erro claro. Mantido este
+// comentario pra que ninguem reintroduza a integracao achando que e uma
+// opcao gratuita viavel. Substituto sugerido pelo proprio GitHub: Azure
+// AI Foundry (nao avaliado aqui — camada gratuita nao verificada).
 
 // Achado real (transcricao real de conversa, 13/09): 16 mensagens nao
 // bastava pro fluxo que o proprio prompt do sistema pede ("uma pergunta
@@ -1158,8 +1168,7 @@ async function chamarOpenRouterComRetry(historico: Groq.Chat.ChatCompletionMessa
   throw ultimoErro;
 }
 
-async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompletionMessageParam[], ferramentas: typeof ferramentasGroq) => Promise<any>, mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {
-  const historico: Groq.Chat.ChatCompletionMessageParam[] = [
+async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompletionMessageParam[], ferramentas: typeof ferramentasGroq) => Promise<any>, mensagens: MensagemChat[], userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<RespostaChat> {  const historico: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...mensagens.map((m) => ({ role: m.role, content: m.content }) as Groq.Chat.ChatCompletionMessageParam),
   ];

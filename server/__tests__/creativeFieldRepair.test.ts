@@ -5,6 +5,18 @@ import { buildCampaignFacts, validateCampaignFactIntegrity } from "../campaignFa
 
 const clean = { headline: "Conheca a oferta", description: "Converse com a equipe", copy: "Fale com nossa equipe para conhecer os detalhes da oferta.", hook: "Conheca os detalhes", cta: "Saiba mais", pain: "Escolha com informacao", solution: "Consulte os detalhes" };
 
+test("merged optional script is repairable without requiring it on image cards", () => {
+  const facts = buildCampaignFacts({ input: {}, clientProfile: {}, segment: "alimentacao" });
+  assert.deepEqual(repairCreativeFields(clean, clean, facts).rejected, []);
+  const original = { ...clean, script: "Sabores exclusivos", bodyText: clean.copy, shortDescription: clean.description };
+  const repaired = repairCreativeFields(original, { ...clean, script: "Conheca os doces. Fale com nossa equipe." }, facts);
+  assert.deepEqual(repaired.rejected, []);
+  assert.equal(repaired.candidate.script, "Conheca os doces. Fale com nossa equipe.");
+  assert.equal(repaired.candidate.bodyText, clean.copy);
+  assert.equal(repaired.candidate.shortDescription, clean.description);
+  assert.ok(repairCreativeFields(original, clean, facts).rejected.includes("script"));
+});
+
 for (const segment of ["alimentacao", "imoveis_locacao", "fitness", "financeiro"]) {
   test(`partial repair preserves approved fields and media: ${segment}`, () => {
     const facts = buildCampaignFacts({ input: {}, clientProfile: {}, segment });

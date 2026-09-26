@@ -13,7 +13,7 @@ import { validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFac
 // TODAS as tentativas, sem chance real de sucesso. Limites (160 pra
 // pain, 220 pra solution) já eram usados em outros lugares do código
 // pra esses mesmos campos (server/ai.ts).
-export const CREATIVE_TEXT_LIMITS = { headline: 40, description: 30, copy: 500, hook: 200, cta: 80, pain: 160, solution: 220 } as const;
+export const CREATIVE_TEXT_LIMITS = { headline: 40, description: 30, copy: 500, hook: 200, cta: 80, pain: 160, solution: 220, script: 900, shortDescription: 30, bodyText: 500 } as const;
 export type CreativeTextField = keyof typeof CREATIVE_TEXT_LIMITS;
 const rewriteSchema = z.object({
   headline: z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS.headline),
@@ -23,11 +23,16 @@ const rewriteSchema = z.object({
   cta: z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS.cta),
   pain: z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS.pain).optional(),
   solution: z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS.solution).optional(),
+  script: z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS.script).optional(),
+  shortDescription: z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS.shortDescription).optional(),
+  bodyText: z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS.bodyText).optional(),
+
 }).strict();
 
 export const CREATIVE_REWRITE_RESPONSE_SCHEMA = {
   type: "OBJECT",
   properties: Object.fromEntries(Object.entries(CREATIVE_TEXT_LIMITS)
+
     .map(([key, limit]) => [key, { type: "STRING", description: `Texto nao vazio, no maximo ${limit} caracteres.` }])),
   required: ["headline", "description", "copy", "hook", "cta", "pain", "solution"],
 };
@@ -92,7 +97,7 @@ function applyTextPatch(original: any, patch: Record<string, string>) {
     if (!node || typeof node !== "object") return;
     for (const key of Object.keys(node)) {
       if (typeof node[key] === "object") sync(node[key]);
-      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta", "pain", "solution"].includes(key)) {
+      else if (["text", "headline", "copy", "bodyText", "description", "shortDescription", "hook", "cta", "pain", "solution", "script"].includes(key)) {
         const pair = pairs.find(([old]) => typeof old === "string" && old && node[key] === old);
         if (pair) node[key] = pair[1];
       }
@@ -117,6 +122,9 @@ export function repairCreativeFields(original: any, response: unknown, facts: Ca
   const rejected: CreativeTextField[] = [];
   const issues: string[] = [];
   for (const field of fields) {
+    if (field === "bodyText" && input.copy !== undefined && fields.includes("copy")) continue;
+    if (field === "shortDescription" && input.description !== undefined && fields.includes("description")) continue;
+    if (["pain", "solution", "script", "bodyText", "shortDescription"].includes(field) && original[field] === undefined && input[field] === undefined) continue;
     const result = z.string().trim().min(1).max(CREATIVE_TEXT_LIMITS[field]).safeParse(input[field]);
     let reason = result.success ? "" : `use de 1 a ${CREATIVE_TEXT_LIMITS[field]} caracteres`;
     if (result.success) {
