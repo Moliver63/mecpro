@@ -39,6 +39,21 @@ const _geminiForaDoPool = Object.keys(process.env).filter(n => /^GEMINI_API_KEY/
 if (_geminiForaDoPool.length) {
   console.log(`[BOOT] ⚠️  Variaveis Gemini IGNORADAS (nome fora do padrao lido pelo codigo):`, _geminiForaDoPool.join(', '));
 }
+// Achado real (28/09): o Cloudflare Workers AI entra como 2º provedor do
+// chat reusando as MESMAS credenciais que ja geram imagem com FLUX. Como
+// nao ha variavel nova pra configurar, o risco e justamente o inverso do
+// OpenRouter: ninguem lembra de conferir. Este log mostra de relance se as
+// duas metades estao presentes — o token sozinho, ou o account id sozinho,
+// desliga o provedor silenciosamente.
+{
+  const _cfConta = !!String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const _cfToken = !!String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+  const _cfModelo = process.env.CLOUDFLARE_CHAT_MODEL || '@cf/qwen/qwen3-30b-a3b-fp8';
+  console.log(
+    '[BOOT] Cloudflare Workers AI (2º provedor do chat):',
+    _cfConta && _cfToken ? `✅ ${_cfModelo}` : `— desativado (account_id: ${_cfConta ? 'ok' : 'FALTA'}, token: ${_cfToken ? 'ok' : 'FALTA'})`,
+  );
+}
 console.log('[BOOT] DEEPSEEK_API_KEY set:', !!process.env.DEEPSEEK_API_KEY);
 console.log('[BOOT] GROQ_API_KEY set (Llama fallback):', !!process.env.GROQ_API_KEY);
 // Achado real (Michel configurou a chave, 22/09): sem log de boot pra essa

@@ -1,8 +1,26 @@
+// Tokens da Cloudflare nao tem prefixo reconhecivel (sao alfanumericos com
+// - e _), entao nao da pra criar um padrao generico sem redigir texto legitimo
+// por engano. A alternativa segura e redigir o valor EXATO da variavel de
+// ambiente quando ele aparecer no texto — precisao total, zero falso positivo.
+function escaparRegex(valor: string): string {
+  return valor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function redactProviderSecrets(text: string): string {
-  return text
+  let saida = text
     .replace(/AIza[\w-]+/g, "[REDACTED]")
     .replace(/\b(?:sk-|ghp_|github_pat_)[\w-]+/g, "[REDACTED]")
     .replace(/(api[_-]?key\s*[:=]\s*['"]?)[^\s'"&,}]+/gi, "$1[REDACTED]");
+
+  // Valores longos o bastante pra nao colidir com texto comum.
+  for (const nome of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
+    const valor = String(process.env[nome] || "").trim();
+    if (valor.length >= 16) {
+      saida = saida.replace(new RegExp(escaparRegex(valor), "g"), "[REDACTED]");
+    }
+  }
+
+  return saida;
 }
 
 // Rejected credentials stay disabled until restart/configuration replacement.

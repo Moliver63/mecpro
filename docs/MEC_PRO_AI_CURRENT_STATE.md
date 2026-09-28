@@ -1224,3 +1224,46 @@ Variavel `GITHUB_MODELS_TOKEN` removida do Render. Recomendado a Michel revogar 
 Substituto sugerido pelo proprio GitHub: Azure AI Foundry — **nao avaliado aqui**, camada gratuita nao verificada. Nao recomendado sem checagem propria, justamente pra nao repetir o mesmo erro.
 
 Validado: check:server 37/37 (sem erro novo, confirma que nao restou referencia orfa), build passando, modulo carrega sem crash, as 7 suites existentes sem regressao (119 testes).
+
+### Cloudflare Workers AI entra como 2º provedor do chat — Qwen3 gratuito, credencial que ja existia (branch feat/cloudflare-workers-ai-provider)
+
+**Pedido de Michel (28/09)**: "encontre no github uma ia para servir de motor, analise essa https://qwen.ai, kimi e outras gratuitas".
+
+**Pesquisa das duas opcoes citadas — as duas estao fora**, confirmado em fonte oficial (nao em blog de terceiro, justamente por causa do erro do GitHub Models):
+
+- **Qwen (qwen.ai)**: o tier gratuito de API via OAuth de desenvolvedor foi **descontinuado em 15/04/2026**, confirmado na documentacao e nas release notes do proprio Qwen Code. Sobrou um trial de 90 dias / 1M tokens por modelo no endpoint de Singapura, so pra contas novas da Alibaba Cloud. O app de chat continua gratuito, mas nao e API.
+- **Kimi / Moonshot**: **nunca teve tier gratuito**. Exige deposito minimo de US$1 antes de responder qualquer request. K3 custa $3/$15 por M tokens; K2.5 e moonshot-v1 foram aposentados em 31/08/2026.
+
+**Solucao adotada: o mesmo modelo Qwen, servido pela Cloudflare.** `@cf/qwen/qwen3-30b-a3b-fp8` roda no free tier do Workers AI — 10.000 neurons/dia, permanente, sem cartao.
+
+**O ponto decisivo foi nao precisar de credencial nova.** `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN` ja existem neste projeto e ja funcionam: os logs de producao do Render mostram `[image-generation] Cloudflare FLUX gerou imagem` em 23 e 24/09, chamando `/ai/run/` com essas mesmas credenciais, sem nenhum 401/403. A permissao do token e por CONTA (Account > Workers AI), nao por modelo — o mesmo token que roda o FLUX roda os modelos de texto. Depois de uma integracao que falhou inteira (GitHub Models, aposentado) e outra que levou tres rodadas (OpenRouter), o criterio de escolha passou a ser explicitamente "qual candidato tem o menor numero de pecas nao provadas".
+
+**Escolha do modelo pela conta de neurons** (o que limita o free tier), para ~3k tokens de entrada + 1,5k de saida por chamada:
+
+| Modelo | Neurons/chamada | Chamadas/dia no gratuito |
+| --- | --- | --- |
+| `qwen3-30b-a3b-fp8` | ~60 | **~165** |
+| `gpt-oss-120b` | ~197 | ~50 |
+| `llama-3.3-70b-fp8-fast` | ~387 | ~26 |
+
+Doc oficial confirma para o Qwen3: Cloudflare-hosted, **function calling sim** (obrigatorio — o chat tem 8 ferramentas; um modelo sem tool calling nao serve de fallback), reasoning, batch, contexto de 32.768 tokens.
+
+**Posicao na cadeia: 2º, logo depois do Gemini** — Gemini → **Cloudflare** → DeepSeek → Groq → OpenRouter → modo local. Motivo no log real de 23/09, que mostra os buracos acontecendo na mesma requisicao: Gemini 503 "high demand", DeepSeek 402 "Insufficient Balance", Groq `chat_context_too_large`, OpenRouter estourando 20s de timeout — 61 segundos ate o usuario receber qualquer coisa, e ainda assim modo local. Em ultimo lugar o Cloudflare herdaria essa espera inteira; em segundo, pega o caso comum (Gemini indisponivel) quase de imediato.
+
+**Licao do OpenRouter aplicada antes de escrever o codigo**: o path foi verificado na documentacao oficial da Cloudflare, nao por memoria. O endpoint OpenAI-compativel e `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions` — nao e o envelope `/ai/run/`, e nao e o endpoint do AI Gateway (`gateway.ai.cloudflare.com/.../compat/chat/completions`), que a propria doc marca como **deprecated** pra chamada de modelo unico. Existe um teste que captura a URL real montada numa chamada e compara com essa string; no bug do OpenRouter, a verificacao anterior so olhou a PROPRIEDADE `baseURL` do client e nunca o path final, e foi exatamente por isso que o 404 sobreviveu a duas tentativas de correcao.
+
+Configuracao: timeout de 15s (menor que os 20s do OpenRouter de proposito — este roda em 2º lugar, ainda tem tres provedores depois; gastar 20s aqui empurraria o pior caso pra perto de um minuto, que e a reclamacao registrada em `docs/chat-latency.md`), 2 tentativas sob o orcamento de retry existente, orcamento de 20000 tokens (cabe nos 32k de contexto, bem acima do teto de 5400 do Groq, sem chegar nos 40000 do OpenRouter que aqui estourariam).
+
+`options.rejectIfBusy: true` no corpo da requisicao, conforme a doc oficial: faz a chamada falhar em vez de esperar numa fila de capacidade. Numa cadeia de fallback isso e o comportamento desejado — passar pro proximo provedor e melhor do que segurar a resposta do usuario numa fila.
+
+**Duas regressoes de erros anteriores viraram teste**: corpo nao-JSON entra na mensagem de erro truncado em vez de estourar no `JSON.parse` (foi o `"OK\r\n"` do GitHub Models que escondeu que o servico tinha sido desligado), e HTTP 200 com `choices` vazio e tratado como falha para a cadeia seguir adiante — risco ja registrado em `docs/ai-architecture-audit.md`, item 2: "Resposta HTTP valida nao equivale a campanha valida".
+
+**Seguranca de credencial**: `redactProviderSecrets` passou a redigir tambem o valor de `CLOUDFLARE_API_TOKEN` e `CLOUDFLARE_ACCOUNT_ID`. Tokens da Cloudflare nao tem prefixo reconhecivel (alfanumericos com `-` e `_`), entao um padrao generico redigiria texto legitimo por engano; a comparacao e com o valor exato da variavel de ambiente, com piso de 16 caracteres. Atende `docs/provider-credential-safety.md`.
+
+Log de boot mostra as duas metades da credencial separadamente — token sozinho, ou account id sozinho, desliga o provedor silenciosamente, e como nao ha variavel nova pra configurar o risco e justamente ninguem lembrar de conferir.
+
+Validado: 10/10 nos testes dedicados do provider, 15/15 creativeRewriteGuard, 50/50 campaignFactGuard, 3/3 providerSafety. Typecheck do servidor com baseline medido antes e depois: **50 erros nos dois casos, diff vazio, nenhum erro nos arquivos tocados** — os 50 sao pre-existentes em `server/_core/router.ts`. **Nao testado de ponta a ponta neste ambiente**: `api.cloudflare.com` esta fora da lista de dominios permitidos do sandbox, entao a chamada real so acontece no deploy. O que sustenta a expectativa nao e teste local e sim os logs de producao do FLUX, que provam a credencial e o host.
+
+**Pendencia anterior segue aberta**: a privacidade do roteador automatico do OpenRouter (4 dos 91 provedores podem treinar com os prompts). Nao foi tocada nesta frente.
+
+**Proximos passos anotados, nao executados**: (1) o modelo suporta a API de **batch** da Cloudflare, processamento assincrono em lote — ataca direto o pedido "gerar varias campanhas" e pode ter economia diferente da chamada sincrona; (2) rotear pelo **AI Gateway** e so manter o mesmo endpoint, usar o prefixo `@cf/` e adicionar o header `cf-aig-gateway-id`, o que traria cache, rate limiting e log de prompt/resposta. Nenhum dos dois foi medido.
