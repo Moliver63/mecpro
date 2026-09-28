@@ -503,6 +503,22 @@ export function inferPrompt(
     alimentacao:     "appetizing Brazilian food photography, restaurant warm ambiance, delivery packaging with steam, close-up food detail",
     moda_varejo:     "Brazilian fashion lifestyle photography, stylish clothing on model, retail store display, vibrant colors, editorial style",
     b2b:             "modern corporate office meeting room, professional Brazilian business environment, SaaS dashboard on laptop, handshake deal",
+    // Achado real (28/09): shared/segmentConfig.ts define 16 segmentos e este
+    // mapa cobria 9. Os outros SETE caiam em "outro" — "modern Brazilian
+    // professional environment, business context" — ou seja, pet shop,
+    // concessionaria, agencia de viagem, construtora, produtora de eventos,
+    // escola e produto financeiro recebiam todos a mesma cena de escritorio
+    // corporativo. O caso que levantou isso: o curso de autoconhecimento da
+    // Shadia resolveu pro segmento `financeiro` (log: resolvedSegment
+    // "financeiro", derivedNiche "financeiro.curso") e herdou escritorio.
+    // `b2b` nao existe em segmentConfig e fica so por compatibilidade.
+    veiculos:        "Brazilian car dealership showroom, clean vehicle presentation, polished bodywork, wide angle, professional automotive photography",
+    construcao:      "Brazilian construction site or finished build, structural detail, safety equipment in use, daylight, documentary style",
+    educacao:        "Brazilian classroom or study environment, focused students, learning materials on desk, natural light",
+    eventos:         "Brazilian event venue, decorated space, stage or reception setup, warm ambient lighting, no recognizable faces",
+    turismo:         "Brazilian travel destination, scenic landscape or hotel exterior, natural daylight, inviting composition",
+    pet:             "Brazilian pet care setting, healthy dog or cat, clean grooming or veterinary environment, soft natural light",
+    financeiro:      "financial planning scene, calm desk with documents and a calculator, hands reviewing paperwork, neutral professional tone, no charts with readable figures",
     outro:           "modern Brazilian professional environment, business context, clean contemporary setting",
   };
   const segmentVisual = SEGMENT_VISUAL[segment] || SEGMENT_VISUAL["outro"] || "";

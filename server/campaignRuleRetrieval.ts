@@ -68,6 +68,34 @@ export function alinharObjetivosAninhados<T>(
   return { dados: visitar(dados, "") as T, divergencias };
 }
 
+// Achado real (log de producao, 28/09, projeto 49): campanha bloqueada com
+// "carousel_media: Carrossel sem midias suficientes", logo depois do proprio
+// gerador registrar "Carrossel desabilitado nesta geracao — sem sinal de
+// conteudo multiplo {diffCount: 0, realPhotos: 0}".
+//
+// O gate julgava o formato PEDIDO e nao o PRODUZIDO. Sem sinal de conteudo
+// multiplo, o gerador troca todo slot "Carrossel" por "Imagem Feed" e nenhum
+// criativo de carrossel chega a existir — mas o mediaFormat original
+// continuava "carousel", entao a regra cobrava 2+ midias de um carrossel que
+// nao foi gerado.
+//
+// Isto NAO afrouxa a regra: quando o gerador de fato produz carrossel, o
+// formato passa intacto e a exigencia de midia continua valendo.
+export function formatoDeMidiaParaAuditoria<T extends string | undefined>(
+  formatoPedido: T,
+  criativos: unknown[],
+): { formato: T | "single"; downgradeDeCarrossel: boolean } {
+  const pediu = ["carousel", "carrossel", "mixed"].includes(String(formatoPedido || "").trim().toLowerCase());
+  if (!pediu) return { formato: formatoPedido, downgradeDeCarrossel: false };
+
+  const gerou = Array.isArray(criativos)
+    && criativos.some((c: any) => /carrossel|carousel/i.test(String(c?.format ?? "")));
+
+  return gerou
+    ? { formato: formatoPedido, downgradeDeCarrossel: false }
+    : { formato: "single", downgradeDeCarrossel: true };
+}
+
 export function assertObjectiveUnchanged(expected: unknown, actual: unknown) {
   if (!canonicalObjective(expected) || canonicalObjective(expected) !== canonicalObjective(actual)) {
     throw new Error("CAMPAIGN_OBJECTIVE_CONFLICT: configuracao mudaria o objetivo confirmado. Revise destino/pixel ou escolha explicitamente outro objetivo antes de publicar.");

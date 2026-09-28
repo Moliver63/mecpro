@@ -24,7 +24,7 @@ import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
-import { alinharObjetivosAninhados } from "./campaignRuleRetrieval";
+import { alinharObjetivosAninhados, formatoDeMidiaParaAuditoria } from "./campaignRuleRetrieval";
 import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, type CreativeTextField } from "./creativeRewriteGuard";
 import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
@@ -6980,9 +6980,17 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
   // fictícios pra preencher os slides — risco de compliance e copy fraca.
   // AGORA: carrossel só é oferecido quando há sinal real de conteúdo
   // múltiplo — senão o slot vira imagem/vídeo (formato que sustenta 1 oferta).
+  // Achado real (28/09): "academia" e "automotivo" NAO existem em
+  // shared/segmentConfig.ts. Os segmentos reais sao 16 e nenhum tem esses
+  // dois nomes — o de veiculos chama "veiculos". Ou seja, uma concessionaria,
+  // que e o caso mais natural de carrossel que existe, nunca batia nesta
+  // lista e nunca ganhava carrossel. As duas entradas mortas ficam por
+  // compatibilidade caso algum dado antigo ainda as use; as corretas foram
+  // acrescentadas ao lado.
   const MULTI_ITEM_SEGMENTS = [
     "imoveis_venda", "imoveis_locacao", "ecommerce", "moda_varejo",
     "academia", "alimentacao", "automotivo",
+    "veiculos", "pet", "turismo",
   ];
   const diffsRaw = String((clientProfile as any)?.productDifferentials || "");
   const diffCount = (diffsRaw.match(/\n|;|·|^\d+[.)]/gm) || []).length + (diffsRaw.trim() ? 1 : 0);
@@ -8330,10 +8338,38 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
   const parsedForQualityGate = (() => {
     try { return JSON.parse(creatives || "[]"); } catch { return []; }
   })();
+  // Achado real (log de producao, 28/09, projeto 49): campanha bloqueada com
+  // "carousel_media: Carrossel sem midias suficientes", logo depois do
+  // proprio gerador ter registrado "Carrossel desabilitado nesta geracao —
+  // sem sinal de conteudo multiplo {diffCount: 0, realPhotos: 0}".
+  //
+  // O gate estava julgando o formato PEDIDO, nao o PRODUZIDO. Quando
+  // carouselMakesSense e falso, CREATIVE_SLOT_POOL troca todo slot
+  // "Carrossel" por "Imagem Feed (4:5)" e nenhum criativo de carrossel chega
+  // a existir — mas `input.mediaFormat` continua "carousel"/"mixed", entao a
+  // regra exigia 2+ midias pra um carrossel que nao foi gerado.
+  //
+  // Agora o formato vem do que saiu de verdade. Nao e afrouxar a regra: se o
+  // gerador PRODUZIU carrossel, ela continua valendo igual. O downgrade e
+  // registrado em log, porque o usuario pediu carrossel e nao vai receber um
+  // — isso precisa ficar visivel, nao sumir.
+  const formatoPedido = input.mediaFormat || ((input.realImages?.length || 0) > 1 ? "carousel" : input.mediaFormat);
+  const { formato: formatoAuditado, downgradeDeCarrossel } = formatoDeMidiaParaAuditoria(
+    formatoPedido,
+    Array.isArray(parsedForQualityGate) ? parsedForQualityGate : [],
+  );
+  if (downgradeDeCarrossel) {
+    log.warn("ai", "Carrossel pedido mas nao gerado — regra de midia de carrossel nao se aplica a esta campanha", {
+      projectId: input.projectId,
+      formatoPedido,
+      midiasReais: input.realImages?.length || 0,
+    });
+  }
+
   const postGenerationGate = evaluateCampaignQualityGates({
     ...input,
     action: "generate",
-    mediaFormat: input.mediaFormat || ((input.realImages?.length || 0) > 1 ? "carousel" : input.mediaFormat),
+    mediaFormat: formatoAuditado,
     creatives: Array.isArray(parsedForQualityGate) ? parsedForQualityGate : [],
     creativesCount: Array.isArray(parsedForQualityGate) ? parsedForQualityGate.length : 0,
     mediaUrls: input.realImages || [],

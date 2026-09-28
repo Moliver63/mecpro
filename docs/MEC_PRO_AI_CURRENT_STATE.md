@@ -1377,3 +1377,43 @@ Ajuste que sobreviveu: `hasSpecificSubject` passa a ser calculado a partir do te
 **Inconsistencia de dados do cliente, registrada sem alterar**: o perfil diz R$ 99,90/mes (assinatura) e a campanha inteira diz R$ 19,90.
 
 Validado: 11/11 no teste novo, 4/4 visualPrompt (incluindo o que pegou meu erro), 2/2 imageGeneration, 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 7/7 objectiveAlignment, 8/8 campaignQualityGate. Typecheck 50 erros, diff identico ao baseline. **Nenhuma imagem real foi gerada nesta verificacao** — sao testes de construcao de prompt, nao de fidelidade visual; a saida real precisa ser olhada depois do deploy.
+
+### Carrossel fantasma e sete segmentos sem cena visual (branch fix/phantom-carousel-and-segment-coverage)
+
+Dois defeitos independentes, achados no mesmo log de producao (28/09, 22:05, projeto 49).
+
+#### 1. Gate bloqueava carrossel que o proprio gerador tinha desligado
+
+```
+[INFO ] Carrossel desabilitado nesta geração — sem sinal de conteúdo múltiplo
+        {"resolvedSegment":"financeiro","diffCount":0,"realPhotos":0}
+...
+[ERROR] QUALITY_GATE_CONFLICT — campanha bloqueada antes de salvar
+        {"blocking":"carousel_media: Carrossel sem midias suficientes..."}
+```
+
+O gerador decidiu, com razao, que nao havia sinal de conteudo multiplo (zero fotos reais, zero diferenciais) e trocou todo slot "Carrossel" de `CREATIVE_SLOT_POOL` por "Imagem Feed (4:5)". Nenhum criativo de carrossel foi gerado. Mas `input.mediaFormat` continuava `carousel`/`mixed`, e a regra `carousel_media` exige 2+ midias — cobrando midia de um carrossel inexistente.
+
+**Correcao**: `formatoDeMidiaParaAuditoria` em `server/campaignRuleRetrieval.ts`. O gate passa a julgar o que foi PRODUZIDO: se nenhum criativo tem formato carrossel, o formato auditado vira `single`. **Nao afrouxa a regra** — quando o gerador de fato produz carrossel, o formato passa intacto e a exigencia continua, e ha teste cobrindo essa metade. O downgrade vira WARN no log, porque o usuario pediu carrossel e nao vai receber um: isso precisa ficar visivel, nao sumir.
+
+#### 2. Sete dos dezesseis segmentos nao tinham cena visual
+
+`shared/segmentConfig.ts` define 16 segmentos. O `SEGMENT_VISUAL` de `server/imageGeneration.ts` cobria 9. Os sete restantes — `veiculos`, `construcao`, `educacao`, `eventos`, `turismo`, `pet`, `financeiro` — caiam no default de `outro`: "modern Brazilian professional environment, business context, clean contemporary setting". Pet shop, concessionaria, agencia de viagem, construtora, produtora de eventos, escola e produto financeiro recebiam **todos a mesma cena de escritorio corporativo**.
+
+Esta e uma resposta direta a reclamacao "as fotos nao batem com o segmento": o curso de autoconhecimento da Shadia resolve pro segmento `financeiro` (log: `resolvedSegment: "financeiro"`, `derivedNiche: "financeiro.curso"`, porque o perfil cita "desenvolvimento humano, espiritual e **financeiro**") e herdava escritorio corporativo.
+
+**Correcao**: cena visual propria para os sete. Mais um teste que **le os dois arquivos-fonte e compara as listas** — segmento novo em `segmentConfig` sem visual correspondente quebra o teste, em vez de virar escritorio corporativo silenciosamente em producao. Verificado ao contrario: removendo `financeiro` do mapa, o teste falha.
+
+`b2b` existe em `SEGMENT_VISUAL` e nao em `segmentConfig`; ficou por compatibilidade.
+
+#### 3. Dois segmentos mortos na lista de carrossel
+
+`MULTI_ITEM_SEGMENTS` em `server/ai.ts` listava `"academia"` e `"automotivo"`, que **nao existem** em `segmentConfig`. O segmento real de veiculos chama `veiculos`. Ou seja, uma concessionaria — o caso mais natural de carrossel que existe — nunca batia na lista e nunca ganhava carrossel. Acrescentados `veiculos`, `pet` e `turismo`; as duas entradas mortas ficaram por compatibilidade com dado antigo.
+
+#### Observado e nao corrigido
+
+O log mostra `CREATIVE_REPAIR_REQUIRED: card 4: description: String must contain at most 30 character(s); card 4: shortDescription: ...` derrubando o enriquecimento antes do gate. E a mesma familia do estouro de 40 caracteres em `headline` ja registrado: o modelo nao acerta os limites de tamanho e queima as duas tentativas de reescrita. Todos os quatro criativos pararam em score 59-68, "marcado para revisao". Causa de retrabalho constante, ainda em aberto.
+
+Tambem visivel: `DeepSeek HTTP 402 Insufficient Balance` de novo, e uma chave Gemini esgotada logo no inicio da geracao.
+
+Validado: 13/13 visualSubjectAlignment (2 novos), 11/11 objectiveAlignment (4 novos), 4/4 visualPrompt, 2/2 imageGeneration, 8/8 campaignQualityGate, 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 27/27 newSegments, 14/14 carouselCopy. Typecheck 50 erros, diff identico ao baseline. Um erro de tipo que eu introduzi (`unknown` nao atribuivel a `string`) foi pego pelo proprio typecheck e corrigido com generic no helper.

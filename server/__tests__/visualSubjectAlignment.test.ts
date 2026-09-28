@@ -116,3 +116,37 @@ test("a proibicao de texto continua no inicio e no fim", () => {
   assert.match(prompt.slice(0, 80), /NO TEXT NO WORDS NO LETTERS/);
   assert.match(prompt.slice(-200), /ABSOLUTELY NO TEXT/);
 });
+
+// Achado real (28/09): shared/segmentConfig.ts define 16 segmentos e o mapa
+// visual de imagem cobria 9. Os sete restantes caiam no generico de
+// escritorio corporativo — pet shop, concessionaria, viagem, construtora,
+// eventos, escola e produto financeiro, todos com a mesma cena. Foi o que
+// aconteceu com o curso da Shadia, que resolveu pro segmento "financeiro".
+// Este teste le os dois lados do arquivo-fonte e compara, entao um segmento
+// novo em segmentConfig sem visual correspondente quebra o teste em vez de
+// virar escritorio corporativo silenciosamente em producao.
+test("todo segmento configurado tem cena visual propria", async () => {
+  const { readFileSync } = await import("node:fs");
+
+  const config = readFileSync(new URL("../../shared/segmentConfig.ts", import.meta.url), "utf8");
+  const configurados = new Set(
+    Array.from(config.matchAll(/^ {2}([a-z_]+):\s*\{/gm), m => m[1]),
+  );
+
+  const imagens = readFileSync(new URL("../imageGeneration.ts", import.meta.url), "utf8");
+  const bloco = imagens.slice(imagens.indexOf("const SEGMENT_VISUAL"));
+  const comVisual = new Set(
+    Array.from(bloco.slice(0, bloco.indexOf("};")).matchAll(/^\s+([a-z_]+):\s*"/gm), m => m[1]),
+  );
+
+  assert.ok(configurados.size >= 10, `esperava varios segmentos, li ${configurados.size}`);
+
+  const semVisual = [...configurados].filter(s => !comVisual.has(s));
+  assert.deepEqual(semVisual, [], `segmentos sem cena visual: ${semVisual.join(", ")}`);
+});
+
+test("o segmento financeiro nao cai mais no generico de escritorio", () => {
+  const prompt = inferPrompt({ angle: "educacao" }, "financeiro", "leads", "feed", {} as any);
+  assert.match(prompt, /financial planning scene/);
+  assert.ok(!/modern Brazilian professional environment/.test(prompt), "nao pode herdar o visual de 'outro'");
+});

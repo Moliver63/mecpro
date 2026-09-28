@@ -98,3 +98,47 @@ test("percorre aninhamento profundo e arrays dentro de arrays", () => {
   assert.equal(divergencias[0].campo, "nivel1.0.nivel2.nivel3.0.objective");
   assert.equal((dados as any).nivel1[0].nivel2.nivel3[0].objective, "leads");
 });
+
+// Incidente real (log de producao, 28/09, projeto 49): campanha bloqueada com
+// "carousel_media: Carrossel sem midias suficientes", logo depois do gerador
+// registrar "Carrossel desabilitado nesta geracao — sem sinal de conteudo
+// multiplo {diffCount: 0, realPhotos: 0}". O gate julgava o formato pedido,
+// nao o produzido.
+import { formatoDeMidiaParaAuditoria } from "../campaignRuleRetrieval";
+
+const semCarrossel = [
+  { format: "Imagem Feed (4:5)" },
+  { format: "Vídeo 15s Reels/Stories (9:16)" },
+  { format: "Imagem Feed (4:5)" },
+  { format: "Imagem ou Vídeo" },
+];
+const comCarrossel = [{ format: "Imagem Feed (4:5)" }, { format: "Carrossel" }];
+
+test("carrossel pedido mas nao gerado nao cobra midia de carrossel", () => {
+  for (const pedido of ["carousel", "carrossel", "mixed", "MIXED"] as string[]) {
+    const r = formatoDeMidiaParaAuditoria(pedido, semCarrossel);
+    assert.equal(r.formato, "single", `${pedido} deveria virar single`);
+    assert.equal(r.downgradeDeCarrossel, true, "o downgrade precisa ser sinalizado pra virar log");
+  }
+});
+
+// A metade que importa: o conserto nao pode virar desculpa pra deixar passar
+// carrossel de verdade sem midia.
+test("carrossel realmente gerado mantem o formato e a exigencia", () => {
+  const r = formatoDeMidiaParaAuditoria("carousel", comCarrossel);
+  assert.equal(r.formato, "carousel");
+  assert.equal(r.downgradeDeCarrossel, false);
+});
+
+test("formato que nao e carrossel passa intacto", () => {
+  for (const pedido of ["single", "video", "", undefined] as Array<string | undefined>) {
+    const r = formatoDeMidiaParaAuditoria(pedido, semCarrossel);
+    assert.equal(r.formato, pedido);
+    assert.equal(r.downgradeDeCarrossel, false);
+  }
+});
+
+test("lista de criativos ausente nao quebra", () => {
+  assert.equal(formatoDeMidiaParaAuditoria("carousel", undefined as any).formato, "single");
+  assert.equal(formatoDeMidiaParaAuditoria("carousel", []).formato, "single");
+});
