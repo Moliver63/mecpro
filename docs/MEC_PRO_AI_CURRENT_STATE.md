@@ -1267,3 +1267,27 @@ Validado: 10/10 nos testes dedicados do provider, 15/15 creativeRewriteGuard, 50
 **Pendencia anterior segue aberta**: a privacidade do roteador automatico do OpenRouter (4 dos 91 provedores podem treinar com os prompts). Nao foi tocada nesta frente.
 
 **Proximos passos anotados, nao executados**: (1) o modelo suporta a API de **batch** da Cloudflare, processamento assincrono em lote — ataca direto o pedido "gerar varias campanhas" e pode ter economia diferente da chamada sincrona; (2) rotear pelo **AI Gateway** e so manter o mesmo endpoint, usar o prefixo `@cf/` e adicionar o header `cf-aig-gateway-id`, o que traria cache, rate limiting e log de prompt/resposta. Nenhum dos dois foi medido.
+
+### Correcao: Cloudflare rejeitava `content: null` das chamadas de ferramenta (branch fix/cloudflare-null-tool-content)
+
+**Erro meu, pego na primeira conversa real depois do deploy.** O provider subiu correto (`[BOOT] Cloudflare Workers AI (2º provedor do chat): ✅`), o Gemini caiu com 503 como esperado, a cadeia passou pro Cloudflare — e ele devolveu HTTP 400:
+
+```
+5006: AiError: Bad input: oneOf at '/' not met, 0 matches:
+  Type mismatch of '/messages/3/content', 'string' not in 'null',
+  required properties at '/messages/3' are 'role,content'
+```
+
+**Causa**: quando o modelo pede uma ferramenta, o formato OpenAI devolve a mensagem do assistente com `content: null` e `tool_calls` preenchido, e o loop compartilhado empurra essa mensagem de volta no historico (`server/chat.ts:1188`). Groq e OpenRouter aceitam esse null, e a spec da OpenAI permite. O schema da Cloudflare nao: `content` e obrigatorio e nao pode ser nulo. Como eu reaproveitei `tentarComOpenAICompativel` sem normalizar nada, o historico ia cru.
+
+Confirmacao de que o diagnostico esta certo: o indice do erro subiu de `/messages/3` pra `/messages/5` entre uma tentativa e outra, acompanhando o acumulo de turnos de ferramenta na conversa.
+
+**Ruido descartado**: o mesmo erro trazia linhas sobre as mensagens 0, 1 e 2 (`'array' not in 'string'`). Sao colaterais — quando um item do array falha, o validador despeja os erros de todos os ramos do `oneOf`, inclusive os que nao importam. A doc oficial usa `content` como string simples (`content: "Make some robot noises"`), entao string e valida e essas linhas nao apontam defeito. Perseguir elas teria levado a "corrigir" o formato que ja estava certo.
+
+**Correcao**: `normalizarMensagensCloudflare` em `server/ai-providers/cloudflareWorkersAI.ts`. Garante `content` presente e string em toda mensagem; `null`/ausente vira `""`; content em partes e achatado em texto (defensivo). Preserva `tool_calls`, `tool_call_id` e `name`, que sao o que liga a chamada de ferramenta ao resultado — perder isso quebraria o fluxo de campanha inteiro.
+
+**O que o incidente provou de positivo**: transporte, URL, autenticacao e selecao de modelo estao corretos. O 400 e erro de schema da requisicao, nao de conexao nem de credencial — a Cloudflare recebeu, autenticou e validou. Restava so o formato do historico.
+
+Validado: 13/13 no provider (2 testes novos), e os dois testes novos foram verificados ao contrario — **revertendo a correcao eles falham, com ela passam**, entao pegam a regressao de verdade. 15/15 creativeRewriteGuard, 50/50 campaignFactGuard, 3/3 providerSafety, 3/3 chatRequestBudget. Typecheck: 50 erros, identico ao baseline, nenhum nos arquivos tocados.
+
+Ainda **nao provado em producao**: falta uma conversa real passar pelo Cloudflare e completar. O proximo log com `Gemini indisponível, tentando Cloudflare Workers AI` sem um `Cloudflare Workers AI indisponível` logo depois fecha isso.

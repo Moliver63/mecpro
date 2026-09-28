@@ -60,6 +60,57 @@ export type CloudflareChatParams = {
   fetchImpl?: typeof fetch;
 };
 
+// Achado real (log de producao, 28/09, primeira conversa depois do deploy):
+// HTTP 400 "5006: AiError: Bad input: oneOf at '/' not met ... Type mismatch
+// of '/messages/3/content', 'string' not in 'null' ... required properties at
+// '/messages/3' are 'role,content'".
+//
+// Causa: quando o modelo pede uma ferramenta, o formato OpenAI devolve a
+// mensagem do assistente com `content: null` e `tool_calls` preenchido, e o
+// loop compartilhado empurra essa mensagem de volta no historico
+// (server/chat.ts:1188). Groq e OpenRouter aceitam esse null — e a spec da
+// OpenAI permite. O schema da Cloudflare NAO: `content` e obrigatorio e nao
+// pode ser nulo. Por isso o indice do erro subiu de 3 pra 5 entre uma
+// tentativa e outra: a conversa acumulou mais turnos de ferramenta antes da
+// mensagem nula.
+//
+// As linhas do erro sobre as mensagens 0, 1 e 2 ("'array' not in 'string'")
+// sao ruido: quando um item do array falha, o validador despeja os erros de
+// TODOS os ramos do oneOf, inclusive os que nao importam. A doc oficial usa
+// `content` como string simples, entao string e valida. O achatamento de
+// array abaixo e defensivo, cobre o caso de alguem passar content em partes
+// e nao custa nada.
+function textoDeConteudo(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (content === null || content === undefined) return "";
+  if (Array.isArray(content)) {
+    return content
+      .map((parte: any) => (typeof parte === "string" ? parte : typeof parte?.text === "string" ? parte.text : ""))
+      .filter(Boolean)
+      .join("\n");
+  }
+  return String(content);
+}
+
+/**
+ * Deixa o historico no formato que o schema da Cloudflare aceita: `content`
+ * sempre presente e sempre string. Preserva `tool_calls` e `tool_call_id`,
+ * que sao o que liga a chamada de ferramenta ao seu resultado — perder isso
+ * quebraria o fluxo de campanha inteiro.
+ */
+export function normalizarMensagensCloudflare(messages: unknown[]): Record<string, unknown>[] {
+  return (messages || []).map((m: any) => {
+    const saida: Record<string, unknown> = {
+      role: m?.role,
+      content: textoDeConteudo(m?.content),
+    };
+    if (Array.isArray(m?.tool_calls) && m.tool_calls.length) saida.tool_calls = m.tool_calls;
+    if (typeof m?.tool_call_id === "string") saida.tool_call_id = m.tool_call_id;
+    if (typeof m?.name === "string") saida.name = m.name;
+    return saida;
+  });
+}
+
 /**
  * Chama o endpoint OpenAI-compativel do Workers AI e devolve a resposta no
  * formato OpenAI (choices[0].message), o mesmo que Groq e OpenRouter ja
@@ -78,7 +129,7 @@ export async function chamarCloudflareWorkersAI(params: CloudflareChatParams): P
 
   const body: Record<string, unknown> = {
     model: params.model ?? MODELO_CLOUDFLARE,
-    messages: params.messages,
+    messages: normalizarMensagensCloudflare(params.messages),
     temperature: 0.3,
     max_tokens: params.maxTokens ?? 2048,
     // Doc oficial: "For synchronous Chat Completions, set options.rejectIfBusy

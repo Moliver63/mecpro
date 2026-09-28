@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado, MODELO_CLOUDFLARE } from "../ai-providers/cloudflareWorkersAI";
+import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado, normalizarMensagensCloudflare, MODELO_CLOUDFLARE } from "../ai-providers/cloudflareWorkersAI";
 import { redactProviderSecrets } from "../providerSafety";
 
 const CONTA = "conta-de-teste-1234567890";
@@ -200,4 +200,68 @@ test("o token da Cloudflare e redigido nos logs", () => {
     assert.ok(!redigido.includes(CONTA), "o account id nao pode sobrar no texto");
     assert.match(redigido, /\[REDACTED\]/);
   });
+});
+
+// Regressao do log de producao de 28/09: HTTP 400 "5006: AiError: Bad input:
+// oneOf at '/' not met ... Type mismatch of '/messages/3/content', 'string'
+// not in 'null' ... required properties at '/messages/3' are 'role,content'".
+// O loop de ferramentas empurra a mensagem do assistente de volta no historico
+// (server/chat.ts:1188) e, numa chamada de ferramenta pura, ela vem com
+// content null. Groq e OpenRouter aceitam; a Cloudflare rejeita a requisicao
+// inteira.
+test("mensagem de tool_call com content null vira string vazia sem perder tool_calls", async () => {
+  await comCredenciais(async () => {
+    let corpo: any = null;
+    const toolCalls = [{ id: "call_1", type: "function", function: { name: "consultar_workspace", arguments: "{}" } }];
+    await chamarCloudflareWorkersAI({
+      messages: [
+        { role: "system", content: "politica" },
+        { role: "user", content: "cria a campanha" },
+        { role: "assistant", content: null, tool_calls: toolCalls },
+        { role: "tool", tool_call_id: "call_1", content: "{\"ok\":true}" },
+      ],
+      fetchImpl: (async (_url: any, init: any) => {
+        corpo = JSON.parse(init.body);
+        return respostaOk(escolhaValida);
+      }) as any,
+    });
+
+    assert.equal(corpo.messages[2].content, "", "content null precisa virar string vazia");
+    assert.deepEqual(corpo.messages[2].tool_calls, toolCalls, "tool_calls nao pode ser descartado");
+    assert.equal(corpo.messages[3].tool_call_id, "call_1", "tool_call_id liga o resultado a chamada");
+  });
+});
+
+// A invariante que o schema da Cloudflare exige, valendo pra qualquer
+// historico: content presente e string em TODA mensagem enviada.
+test("toda mensagem enviada tem content string, nunca null nem ausente", async () => {
+  await comCredenciais(async () => {
+    let corpo: any = null;
+    await chamarCloudflareWorkersAI({
+      messages: [
+        { role: "system", content: "ok" },
+        { role: "assistant", content: null, tool_calls: [{ id: "a", type: "function", function: { name: "f", arguments: "{}" } }] },
+        { role: "assistant" },
+        { role: "user", content: [{ type: "text", text: "primeira" }, { type: "text", text: "segunda" }] },
+      ],
+      fetchImpl: (async (_url: any, init: any) => {
+        corpo = JSON.parse(init.body);
+        return respostaOk(escolhaValida);
+      }) as any,
+    });
+
+    for (const [i, m] of corpo.messages.entries()) {
+      assert.equal(typeof m.content, "string", `mensagem ${i} precisa ter content string`);
+      assert.ok("content" in m, `mensagem ${i} precisa ter a propriedade content`);
+    }
+    assert.equal(corpo.messages[2].content, "", "content ausente vira string vazia");
+    assert.equal(corpo.messages[3].content, "primeira\nsegunda", "content em partes e achatado em texto");
+  });
+});
+
+test("normalizarMensagensCloudflare nao inventa campos opcionais", () => {
+  const [simples] = normalizarMensagensCloudflare([{ role: "user", content: "oi" }]);
+  assert.deepEqual(simples, { role: "user", content: "oi" });
+  assert.equal("tool_calls" in simples, false);
+  assert.equal("tool_call_id" in simples, false);
 });
