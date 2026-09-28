@@ -7,6 +7,7 @@
  */
 
 import { log }    from "./logger";
+import { redactProviderSecrets } from "./providerSafety";
 
 // Lazy pool — evita crash no startup se DATABASE_URL não estiver disponível
 let _ragPool: any = null;
@@ -112,11 +113,34 @@ export async function analyzeImageWithVision(
       { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body), signal: AbortSignal.timeout(8000) }
     );
-    if (!res.ok) return null;
+    // Achado real (28/09): este `return null` engolia o motivo. Doze imagens
+    // seguidas saiam com overall EXATAMENTE 0.55 — que e o score de "nao sei
+    // nada": sem labels e com biblioteca vazia, a media ponderada da 0.545.
+    // Como 0.55 < 0.72, toda imagem gerada era rejeitada e substituida por
+    // foto de banco do Pixabay, e ninguem via porque a falha nao era logada.
+    //
+    // Suspeita principal do 403/400 aqui: GOOGLE_API_KEY e chave do AI Studio
+    // (Gemini), nao do Cloud Vision. Sao servicos distintos — vision.
+    // googleapis.com precisa da API habilitada no projeto Google. O log
+    // abaixo mostra o status e o corpo, entao a proxima ocorrencia diz
+    // exatamente qual e.
+    if (!res.ok) {
+      const corpo = await res.text().catch(() => "");
+      log.warn("image-rag", "Cloud Vision indisponivel — validacao de imagem vai rodar sem dados", {
+        status: res.status,
+        detalhe: redactProviderSecrets(corpo.slice(0, 200)),
+      });
+      return null;
+    }
 
     const data: any = await res.json();
     const r = data?.responses?.[0];
-    if (!r) return null;
+    if (!r) {
+      log.warn("image-rag", "Cloud Vision respondeu 200 sem annotations — validacao sem dados", {
+        detalhe: redactProviderSecrets(JSON.stringify(data).slice(0, 200)),
+      });
+      return null;
+    }
 
     const labels  = (r.labelAnnotations  || []).map((l: any) => l.description as string);
     const objects = (r.localizedObjectAnnotations || []).map((o: any) => o.name as string);
@@ -442,9 +466,19 @@ export async function runImageRAG(
 
   // Extract just the segment key from potentially long segment text
   const segmentKey = (ctx.segment || "").split("\n")[0].slice(0, 50);
+  // `visao` distingue as duas situacoes que hoje sao indistinguiveis no log:
+  // "analisei e a imagem e ruim" versus "nao consegui analisar". Sem isso,
+  // doze rejeicoes seguidas com overall 0.55 pareciam avaliacao de qualidade
+  // quando eram, na verdade, ausencia total de dados. `biblioteca` expoe o
+  // outro lado do problema: visual_similarity_score so passa de 0.2 com 3+
+  // imagens ja aprovadas no segmento, e imagem so entra na biblioteca depois
+  // de aprovada — com a biblioteca vazia, esse componente fica travado no
+  // minimo.
   log.info("image-rag", `RAG ${decision.status}`, {
     image_id, segment: segmentKey, format: ctx.format,
     overall: scores.overall_score, has_text: visionFallback.has_text,
+    visao: vision ? "ok" : "INDISPONIVEL",
+    biblioteca: retrieved.approved_images.length,
     status: decision.status,
   });
 

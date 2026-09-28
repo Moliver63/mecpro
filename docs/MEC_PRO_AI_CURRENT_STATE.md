@@ -1417,3 +1417,38 @@ O log mostra `CREATIVE_REPAIR_REQUIRED: card 4: description: String must contain
 Tambem visivel: `DeepSeek HTTP 402 Insufficient Balance` de novo, e uma chave Gemini esgotada logo no inicio da geracao.
 
 Validado: 13/13 visualSubjectAlignment (2 novos), 11/11 objectiveAlignment (4 novos), 4/4 visualPrompt, 2/2 imageGeneration, 8/8 campaignQualityGate, 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 27/27 newSegments, 14/14 carouselCopy. Typecheck 50 erros, diff identico ao baseline. Um erro de tipo que eu introduzi (`unknown` nao atribuivel a `string`) foi pego pelo proprio typecheck e corrigido com generic no helper.
+
+### Gerador de imagens: TODA imagem gerada e rejeitada e trocada por foto de banco (branch fix/image-rag-visibility)
+
+**Pedido de Michel (28/09): "o mecproai gera imagens, verifique o gerador de imagens".** Auditoria feita sobre log de producao real, nao suposicao.
+
+**Descoberta principal: o cliente nunca recebe imagem gerada. Recebe foto de banco do Pixabay.** A sequencia se repete identica em toda imagem:
+
+```
+[INFO] Cloudflare FLUX gerou imagem; RAG ainda pendente (tentativa 1)
+[WARN] RAG pending_validation {"rejection":"Scores abaixo do threshold: overall 0.55 < 0.72"}
+[INFO] Pixabay cache set → Imagem re-hospedada no Cloudinary → ✅ Pixabay foto OK
+```
+
+O FLUX gera, o validador rejeita, o Pixabay entra no lugar. Doze imagens consecutivas no log das 21:38, **todas com overall EXATAMENTE 0.55**, em tres formatos diferentes. Medicao real varia; constante e defeito.
+
+**0.55 e o score de "nao sei nada".** Calculado a partir do codigo: com a visao devolvendo vazio e a biblioteca de aprovadas vazia, a media ponderada da `0.50×0.20 + 0.50×0.25 + 0.50×0.15 + 0.875×0.20 + 0.20×0.10 + 0.50×0.10 = 0.545`, que arredonda pra 0.55. O threshold e 0.72. Nunca passa.
+
+**Cadeia causal completa:**
+
+1. `IMAGE_PROVIDER (efetivo): huggingface ✅` no boot — mas `const HF_MODELS: string[] = []`, com o comentario "HF hf-inference nao suporta mais modelos de imagem — desabilitado". O boot imprime check verde pra um provedor sem nenhum modelo.
+2. Quem gera de fato e o Cloudflare FLUX, e ele funciona.
+3. `analyzeImageWithVision` chama **Google Cloud Vision** (`vision.googleapis.com`) com `GOOGLE_API_KEY`. Os logs repetem a cada requisicao "Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY" — essa e a chave do AI Studio/Gemini, que nao autentica no Cloud Vision (servico distinto, precisa ser habilitado no projeto Google).
+4. Sem visao, todo score cai no default → 0.55 → rejeitado → Pixabay.
+
+**Por que ficou escondido**: a falha era silenciosa em dois pontos. `analyzeImageWithVision` fazia `return null` em qualquer erro sem registrar status nem corpo, e o aviso "Vision API indisponivel" ia pra um array interno (`validation_logs`) que nunca chega no logger. Nos logs do Render so aparecia o 0.55, que parece avaliacao de qualidade e na verdade e ausencia de dados.
+
+**Armadilha de ovo e galinha**: `visual_similarity_score` so passa de 0.2 com 3+ imagens ja aprovadas no segmento, e imagem so entra na biblioteca **depois de aprovada** (`Imagem promovida para biblioteca`). Biblioteca vazia trava esse componente no minimo, para sempre.
+
+**O threshold nao esta errado.** Foi elevado de 0.50 pra 0.72 em 10/09 por motivo legitimo, documentado no proprio codigo: imagens de "wellness healthy lifestyle" e "modern bedroom apartment" estavam sendo APROVADAS pra campanha de sala comercial. O problema nao e o threshold, e validar sem dados.
+
+**Entregue nesta frente — visibilidade, nao mudanca de comportamento**: `analyzeImageWithVision` passa a logar status HTTP e corpo (redigido) quando o Cloud Vision falha, e tambem quando responde 200 sem annotations. O log de resultado do RAG ganhou `visao: "ok" | "INDISPONIVEL"` e `biblioteca: <n>`, que distinguem "analisei e a imagem e ruim" de "nao consegui analisar" — hoje indistinguiveis.
+
+**NAO alterado de proposito**: nao mexi no threshold nem inverti o fallback. Deixar passar imagem nao validada seria trocar "sempre banco de imagem" por "sempre imagem nao verificada" — as duas sao nao validadas, uma so finge menos. O conserto real e fazer a visao funcionar, e isso exige decisao de Michel: habilitar a Cloud Vision API no projeto Google, ou migrar a rotulagem pra Gemini, que ele ja tem com 9 chaves no pool.
+
+Validado: typecheck 50 erros, diff identico ao baseline, nenhum erro em `imageRAG.ts`. 13/13 visualSubjectAlignment, 11/11 objectiveAlignment, 4/4 visualPrompt, 2/2 imageGeneration, 3/3 providerSafety. **Nenhuma imagem real foi gerada nesta verificacao** — o efeito dos logs novos so aparece no proximo deploy.
