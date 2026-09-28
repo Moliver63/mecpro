@@ -1291,3 +1291,29 @@ Confirmacao de que o diagnostico esta certo: o indice do erro subiu de `/message
 Validado: 13/13 no provider (2 testes novos), e os dois testes novos foram verificados ao contrario — **revertendo a correcao eles falham, com ela passam**, entao pegam a regressao de verdade. 15/15 creativeRewriteGuard, 50/50 campaignFactGuard, 3/3 providerSafety, 3/3 chatRequestBudget. Typecheck: 50 erros, identico ao baseline, nenhum nos arquivos tocados.
 
 Ainda **nao provado em producao**: falta uma conversa real passar pelo Cloudflare e completar. O proximo log com `Gemini indisponível, tentando Cloudflare Workers AI` sem um `Cloudflare Workers AI indisponível` logo depois fecha isso.
+
+### Batch API da Cloudflare: transporte pronto, integracao BLOQUEADA por decisao de arquitetura (branch feat/cloudflare-batch-transport)
+
+**Pedido de Michel (28/09)**: depois do provider sincrono no ar, atacar a API de batch pra "gerar varias campanhas".
+
+**Achado que muda a premissa, verificado na pagina oficial de precos (atualizada 17/09/2026)**: o batch **nao aumenta a cota gratuita**. "Our free allocation allows anyone to use a total of 10,000 Neurons per day at no charge. All limits reset daily at 00:00 UTC. If you exceed any one of the above limits, further operations will fire with an error." Nenhum desconto documentado pra requisicao enfileirada. Mesmo modelo, mesmos tokens, mesmo custo. Levado a Michel antes de construir; ele optou por seguir mesmo assim, pelo ganho de lote sem espera, e escolheu o chat como ponto de disparo.
+
+Estimativa de teto (nao medida): prompt de geracao de campanha e bem maior que um turno de chat — supondo 8k de entrada e 2k de saida, da ~100 neurons por campanha, ou **~100 campanhas/dia**, com reset as 00:00 UTC (21h de Brasilia). Com batch ou sem batch, o numero e o mesmo.
+
+**O que o batch entrega de fato**: nao segura conexao HTTP (submete N e recebe um `request_id`), nao estoura em erro de capacidade (espera na fila em vez de falhar — o oposto do `rejectIfBusy` do provider sincrono), e `external_reference` por item pra correlacionar resultado com registro. Doc diz que costuma completar em ~5 minutos.
+
+**BLOQUEIO, e a razao de nao ter construido a feature**: gerar uma campanha nao e uma chamada de modelo. `generateCampaign` vai da linha 6581 a 8862 do `server/ai.ts` — 2.280 linhas — com varias chamadas de modelo em estagios diferentes (`callGroqAPI` em dois pontos, caminho hibrido a partir de anuncios raspados, enriquecimento de criativos), intercaladas com Fact Guard, reparo e fallback entre provedores. A API de batch recebe N prompts INDEPENDENTES e devolve N completions; os formatos nao se encaixam.
+
+Construir mesmo assim significaria escrever um segundo gerador de campanha em paralelo, duplicando o prompt e pulando os guards — exatamente o modo de falha que este codigo existe pra evitar. `docs/ai-architecture-audit.md` ja registrou a causa (ai.ts mistura transporte com prompts, estrategia, reparo e geracao) e o item 2 do plano de la e justamente extrair os transportes. **Decisao: nao construir o caminho paralelo.**
+
+**O que e batcheavel hoje sem cirurgia**: `generateCampaignPart` (linha 8862) e costura limpa — monta `partPrompts`, escolhe um, faz UMA chamada `callGroqAPI`. Serve pra "regerar criativos, hooks ou copies de N campanhas existentes de uma vez". Nao e o que foi pedido, mas e entregavel sem tocar no motor.
+
+**Caminho em tres etapas, acordado**: (1) medir o consumo real de neurons por campanha, porque os ~100 sao estimativa; (2) extrair de `generateCampaign` um `construirPromptDeCampanha(input)` puro, com teste provando prompt identico antes e depois — esta e a cirurgia de verdade, mexe no motor que gera toda campanha em producao; (3) o lote em cima da costura, jogando cada completion no pipeline de validacao existente.
+
+**Entregue nesta frente**: `server/ai-providers/cloudflareBatch.ts`, o transporte, que serve as tres etapas e pode ser testado por completo agora. `submeterLote` e `consultarLote`.
+
+Detalhe que virou teste: **`queueRequest=true` vai na QUERY STRING, nao no corpo** — no corpo ele e ignorado e a requisicao vira sincrona silenciosamente, falha dificil de perceber em producao. A mesma URL serve pra submeter e pra consultar; o que muda e o corpo (`requests` pra submeter, `request_id` pra consultar). Endpoint conferido em `/workers-ai/features/batch-api/rest-api/` antes de escrever o codigo.
+
+Tambem coberto: limite de 10 MB checado localmente antes de gastar a viagem, item com `success: false` dentro de um lote bem-sucedido nao e confundido com sucesso (senao salvaria campanha vazia), 200 sem `responses` vira erro, e corpo nao-JSON entra na mensagem em vez de estourar no parse (regressao do `"OK\r\n"` do GitHub Models).
+
+Validado: 12/12 no transporte, 13/13 no provider sincrono, typecheck 50 erros identico ao baseline, nenhum no arquivo novo. **Nao exercitado contra a API real** — `api.cloudflare.com` esta fora da allowlist do sandbox, e nada neste modulo esta ligado a nenhum caminho de producao ainda.
