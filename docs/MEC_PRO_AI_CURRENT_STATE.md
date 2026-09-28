@@ -1317,3 +1317,31 @@ Detalhe que virou teste: **`queueRequest=true` vai na QUERY STRING, nao no corpo
 Tambem coberto: limite de 10 MB checado localmente antes de gastar a viagem, item com `success: false` dentro de um lote bem-sucedido nao e confundido com sucesso (senao salvaria campanha vazia), 200 sem `responses` vira erro, e corpo nao-JSON entra na mensagem em vez de estourar no parse (regressao do `"OK\r\n"` do GitHub Models).
 
 Validado: 12/12 no transporte, 13/13 no provider sincrono, typecheck 50 erros identico ao baseline, nenhum no arquivo novo. **Nao exercitado contra a API real** — `api.cloudflare.com` esta fora da allowlist do sandbox, e nada neste modulo esta ligado a nenhum caminho de producao ainda.
+
+### FACT_CONFLICT por objetivo de ad set: campanha inteira bloqueada por um campo de metadado (branch fix/nested-adset-objective)
+
+**Incidente real (log de producao, 28/09, projeto 49 "Shadia Hasan — Leads")**, diagnosticado a partir do log em vez de suposicao:
+
+```
+FACT_CONFLICT — campanha bloqueada antes de salvar
+conflicts: [{ field: "creatives.4.adSets.2.objective",
+              value: "sales", reason: "campaign_objective_conflict" }]
+```
+
+Um unico conflito. **Nenhum fato inventado, nenhum texto reprovado** — headline, copy, description e afins passaram todos. O que divergiu foi metadado estrutural de UM ad set: objetivo `sales` numa campanha cujo objetivo confirmado e `leads`. O indice 4 e o invólucro `{ adSets }` que o chamador acrescenta depois dos 4 criativos.
+
+**Por que a regra existia e esta certa**: `campaignFactGuard.ts:810` diz "Metadata cannot silently redefine the server's confirmed campaign intent". Metadado nao pode redefinir a intencao confirmada. Correto.
+
+**Por que a reacao estava errada**: no Meta, objetivo e propriedade da CAMPANHA; ad set tem `optimization_goal`, nao objetivo proprio. Um ad set carregando `objective` e redundante por definicao. Quando ele diverge, a resposta certa e alinhar ao objetivo confirmado da campanha, nao descartar a campanha inteira e mandar o usuario tentar de novo.
+
+**Correcao**: `alinharObjetivosAninhados` em `server/campaignRuleRetrieval.ts`, aplicada em `server/ai.ts` imediatamente antes de `validateCampaignFactIntegrity`. Percorre a estrutura, alinha qualquer `objective` aninhado que divirja, e devolve a lista de divergencias — que vai pro log como WARN. **Alinhar nao e silenciar**: cada ocorrencia fica registrada com o caminho do campo e o valor encontrado.
+
+Isso NAO afrouxa o Fact Guard. O guard impede metadado de redefinir a intencao confirmada; alinhar o aninhado AO valor confirmado empurra na direcao da verdade, nao contra ela. Nenhum campo de texto e tocado — ha teste travando essa fronteira, que quebra se alguem um dia ampliar a funcao pra "consertar" copy.
+
+**Bug meu, pego pelo proprio teste**: a primeira versao montava o caminho com ponto na frente quando a raiz e array (`.4.adSets.2.objective`). Cosmetico, mas ia direto pro log de producao. Corrigido na fonte, nao afrouxando o teste.
+
+**Observacao de negocio registrada, nao alterada em codigo**: os fatos confirmados desta campanha incluem "Finalidade: venda" e "venda pelo site oficial e/ou Hotmart", enquanto o objetivo da campanha e `leads`. O modelo escolher `sales` pode estar mais proximo da realidade do negocio que o objetivo configurado. Isso e decisao de Michel no briefing, nao defeito de codigo — o alinhamento respeita o que foi confirmado no nivel da campanha.
+
+**Outros dois problemas visiveis no MESMO log, nao corrigidos nesta frente**: (1) `headline` estourando 40 caracteres repetidamente, com reescrita rejeitando `headline` em quase toda tentativa e criativos parando em score 66-70 "marcado para revisao"; (2) `description repetido` entre cards (`CREATIVE_REPAIR_REQUIRED: card 2: description repetido; card 4: description repetido`). Sao causa de retrabalho e de score baixo, nao de bloqueio.
+
+Validado: 7/7 no teste novo, sendo que ele **reproduz o incidente real** e prova os dois lados — sem o alinhamento o conteudo reprova com `campaign_objective_conflict`, com o alinhamento nao sobra conflito de objetivo. 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 8/8 campaignQualityGate, 5/5 campaignIntent, 13/13 provider Cloudflare, 12/12 transporte de batch. Typecheck: 50 erros, **diff identico ao baseline** depois de normalizar o numero de linha do `ai.ts`, que deslocou 19 linhas por causa da insercao.

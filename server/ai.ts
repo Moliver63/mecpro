@@ -24,6 +24,7 @@ import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
+import { alinharObjetivosAninhados } from "./campaignRuleRetrieval";
 import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, type CreativeTextField } from "./creativeRewriteGuard";
 import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
@@ -8290,10 +8291,28 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     if (String(error?.message).startsWith("FACT_CONFLICT:")) throw error;
   }
 
-  const factValidation = validateCampaignFactIntegrity([
-    ...JSON.parse(creatives || "[]"),
-    { adSets: JSON.parse(adSets || "[]") },
-  ], campaignFacts);
+  // Achado real (28/09, projeto 49): a campanha inteira foi bloqueada por
+  // `creatives.4.adSets.2.objective: "sales"` numa campanha `leads`. Nenhum
+  // fato inventado, nenhum texto reprovado — so metadado estrutural de um ad
+  // set. No Meta o objetivo pertence a campanha e o ad set herda, entao o
+  // aninhado e alinhado ao objetivo confirmado antes da auditoria. Cada
+  // divergencia vai pro log: alinhar nao e silenciar.
+  const { dados: conteudoAuditado, divergencias: objetivosDivergentes } = alinharObjetivosAninhados(
+    [
+      ...JSON.parse(creatives || "[]"),
+      { adSets: JSON.parse(adSets || "[]") },
+    ],
+    campaignFacts.intent?.objective || input.objective,
+  );
+  if (objetivosDivergentes.length) {
+    log.warn("ai", "Objetivo de ad set divergente alinhado ao objetivo confirmado da campanha", {
+      projectId: input.projectId,
+      objetivoCampanha: campaignFacts.intent?.objective || input.objective,
+      divergencias: objetivosDivergentes.slice(0, 12),
+    });
+  }
+
+  const factValidation = validateCampaignFactIntegrity(conteudoAuditado, campaignFacts);
   if (factValidation.status === "failed") {
     log.error("ai", "FACT_CONFLICT — campanha bloqueada antes de salvar", {
       projectId: input.projectId,
