@@ -1345,3 +1345,35 @@ Isso NAO afrouxa o Fact Guard. O guard impede metadado de redefinir a intencao c
 **Outros dois problemas visiveis no MESMO log, nao corrigidos nesta frente**: (1) `headline` estourando 40 caracteres repetidamente, com reescrita rejeitando `headline` em quase toda tentativa e criativos parando em score 66-70 "marcado para revisao"; (2) `description repetido` entre cards (`CREATIVE_REPAIR_REQUIRED: card 2: description repetido; card 4: description repetido`). Sao causa de retrabalho e de score baixo, nao de bloqueio.
 
 Validado: 7/7 no teste novo, sendo que ele **reproduz o incidente real** e prova os dois lados — sem o alinhamento o conteudo reprova com `campaign_objective_conflict`, com o alinhamento nao sobra conflito de objetivo. 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 8/8 campaignQualityGate, 5/5 campaignIntent, 13/13 provider Cloudflare, 12/12 transporte de batch. Typecheck: 50 erros, **diff identico ao baseline** depois de normalizar o numero de linha do `ai.ts`, que deslocou 19 linhas por causa da insercao.
+
+### Prompt de imagem: texto de contrato ia pro modelo como "retrate literalmente" (branch fix/visual-subject-sanitization)
+
+**Pedido de Michel (28/09)**: "as fotos dos criativos nao batem com o segmento". Auditado com dados reais do banco, nao por suposicao — as imagens em si nao puderam ser vistas daqui (`res.cloudinary.com` fora da allowlist do sandbox), entao a auditoria foi do que e PEDIDO ao modelo.
+
+**O que ia no prompt.** O `productService` cru do perfil do projeto 49 (Shadia Hasan), lido do banco:
+
+> "Psicologia, desenvolvimento humano e educacao digital com experiencias imersivas em realidade virtual, Assinatura da Jornada de Transformacao Interior por R$ 99,90/mes, com acesso ilimitado aos cursos e conteudos da plataforma, certificados de conclusao, materiais complementares e experiencia VR completa por Meta Quest"
+
+Entregue ao modelo de imagem como `Specific business/product being advertised: <isso>. Depict this literally and concretely in the scene.`
+
+Preco mensal, assinatura, certificado de conclusao e material complementar nao sao cena — sao termos de contrato. E o mesmo prompt abre e fecha com `ABSOLUTELY NO TEXT. NO NUMBERS.`, ou seja, mandava o modelo retratar literalmente um preco que ele tambem era proibido de desenhar. Duas ordens opostas.
+
+**Correcao**: `sanitizarAssuntoVisual` em `server/imageGeneration.ts`. Quebra o texto em clausulas, descarta as comerciais (preco, assinatura, mensalidade, parcelamento, certificado, garantia, cupom, frete, acesso ilimitado, material complementar), remove digitos remanescentes e limita a 20 palavras. E filtro, nao traducao.
+
+**Dois bugs meus, pegos pelos proprios testes e corrigidos na fonte, nao afrouxando o teste:**
+1. `material(is)?` nao casa "materiais" — o plural de "material" e "materia" + "is", nao "material" + "is". Escrito errado, "materiais complementares" passava direto.
+2. `\b\d+\b` nao remove digito colado em letra: em `120m2` nao existe fronteira de palavra entre `0` e `m`, entao metragem e quantidade de quartos chegavam no modelo apesar do "NO NUMBERS". Removido o `\b`.
+
+**ERRO MEU MAIOR, revertido.** Na primeira versao eu tambem removi a supressao da cena generica de segmento, achando que suprimir era esquecimento. Nao era. O teste `visualPrompt` "food and fitness use the concrete subject rather than generic scene defaults" quebrou e estava certo: a supressao e deliberada e esta documentada em `docs/visual-prompt-alignment.md` ("Image prompts prioritize the product/service over broad segment defaults"). O motivo esta no proprio default de `alimentacao` — "restaurant warm ambiance, delivery packaging with steam" — que, pra um cliente que vende brigadeiro em caixa, **fabrica** restaurante e vapor inexistentes. Eu tinha reintroduzido uma fabricacao que alguem ja havia removido de proposito, da mesma familia do que o Fact Guard combate. Revertido, e agora ha teste travando a decisao pra ela nao ser desfeita de novo.
+
+Ajuste que sobreviveu: `hasSpecificSubject` passa a ser calculado a partir do texto JA sanitizado. Um perfil que so tenha clausula comercial sanitiza pra vazio, e nesse caso a cena generica do segmento volta a valer, em vez de sobrar prompt sem assunto nenhum.
+
+**GAP QUE CONTINUA ABERTO, nao resolvido aqui**: o assunto do produto vai pro modelo **em portugues**. O proprio codigo sabe que isso e problema — o comentario da linha 452 diz "CRITICO: modelos de imagem nao entendem 'imoveis_locacao', precisam de descricao visual em ingles", e por isso `SEGMENT_VISUAL` foi escrito todo em ingles. Mas o texto do produto entra cru. Resolver exige gerar uma descricao visual em ingles a partir do produto, o que e mudanca maior e nao foi feita.
+
+**Outros dois defeitos encontrados na mesma auditoria, NAO corrigidos:**
+1. **Story e Square repetem a mesma imagem nos 4 criativos.** Consulta na campanha 617: `feedImageUrl` tem 4 URLs distintas, `storyImageUrl` tem 1, `squareImageUrl` tem 1. Quatro anuncios exibem a mesma arte 9:16, e o teste A/B de criativo nao testa nada nesses formatos.
+2. **O prompt usado nao e persistido.** As chaves do criativo incluem `imageGenerationMode`, `imageProviderUsed`, `imageGenerationReason` e `imageGenerationWarnings`, mas nenhuma guarda o prompt, e `reason` veio vazio nos quatro. Quando sai imagem ruim, nao ha registro do que foi pedido.
+
+**Inconsistencia de dados do cliente, registrada sem alterar**: o perfil diz R$ 99,90/mes (assinatura) e a campanha inteira diz R$ 19,90.
+
+Validado: 11/11 no teste novo, 4/4 visualPrompt (incluindo o que pegou meu erro), 2/2 imageGeneration, 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 7/7 objectiveAlignment, 8/8 campaignQualityGate. Typecheck 50 erros, diff identico ao baseline. **Nenhuma imagem real foi gerada nesta verificacao** — sao testes de construcao de prompt, nao de fidelidade visual; a saida real precisa ser olhada depois do deploy.

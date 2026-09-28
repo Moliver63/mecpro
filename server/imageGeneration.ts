@@ -438,6 +438,48 @@ export function getPixabayVideoQuery(segment: string, creative: any): string {
 }
 
 
+// Achado real (Michel, 28/09: "as fotos dos criativos nao batem com o
+// segmento"). Auditando o projeto 49 (Shadia Hasan), o texto que ia pro
+// modelo de imagem como assunto a ser "retratado literalmente" era o
+// productService cru do perfil:
+//
+//   "Assinatura da Jornada de Transformacao Interior por R$ 99,90/mes, com
+//    acesso ilimitado aos cursos e conteudos da plataforma, certificados de
+//    conclusao, materiais complementares e experiencia VR completa por Meta
+//    Quest"
+//
+// Nada disso e cena. Sao termos de contrato: preco mensal, assinatura,
+// certificado, material complementar. Pior, o prompt comeca e termina com
+// "ABSOLUTELY NO TEXT. NO NUMBERS." e ao mesmo tempo mandava retratar
+// literalmente um preco — duas ordens opostas no mesmo prompt.
+//
+// Esta funcao tira as clausulas comerciais e os numeros, deixando so o que
+// descreve alguma coisa visivel. Nao traduz: e filtro, nao traducao.
+export function sanitizarAssuntoVisual(texto: string): string {
+  if (!texto || !texto.trim()) return "";
+
+  // Termos que marcam clausula comercial/contratual, nunca cena.
+  // "materia(l|is)" e nao "material(is)?": o plural de material e materiais,
+  // ou seja "materia" + "is". Escrito errado, "materiais complementares"
+  // passava direto e chegava no modelo de imagem.
+  const comercial = /(r\$|reais|\/m[eê]s|mensal|mensalidade|assinatura|plano|parcel|pagamento|pague|desconto|promo|cupom|frete|certificad|garantia|matr[ií]cula|acesso ilimitado|materia(l|is)\s+complementar|conte[uú]dos? da plataforma|por apenas|a partir de|%)/i;
+
+  const limpo = texto
+    .split(/[,;.]/)
+    .map(parte => parte.trim())
+    .filter(parte => parte.length > 2 && !comercial.test(parte))
+    // Numero remanescente sai: o prompt proibe numeros na imagem. SEM \b de
+    // proposito — com fronteira de palavra, "120m2" escapava inteiro, porque
+    // entre "0" e "m" nao existe fronteira. Metragem, quantidade de quartos e
+    // afins chegavam no modelo mesmo com o "NO NUMBERS" no prompt.
+    .map(parte => parte.replace(/\d+([.,]\d+)?/g, "").replace(/\s{2,}/g, " ").trim())
+    .filter(Boolean)
+    .join(", ");
+
+  // Assunto longo demais dilui o peso no modelo; corta em 20 palavras.
+  return limpo.split(/\s+/).slice(0, 20).join(" ").replace(/[,\s]+$/, "");
+}
+
 export function inferPrompt(
   creative: any,
   segment: string,
@@ -500,19 +542,30 @@ export function inferPrompt(
   // ao mapa categorico de segmento (SEGMENT_VISUAL) pra descrever visualmente o que o
   // cliente REALMENTE vende, em vez de depender so de um dos 9 buckets genericos
   // (que caem em "outro" quando o nicho do cliente nao bate com nenhum deles).
-  const realBusinessContext = [
+  const realBusinessContext = sanitizarAssuntoVisual([
     toText(productContext?.productName),
     toText(productContext?.productService),
     toText(productContext?.niche),
-  ].filter(Boolean).join(", ");
+  ].filter(Boolean).join(", "));
   const visualFacts = (productContext?.confirmedVisualFacts || []).filter(fact => /^(tipo|caracteristica|mobilia|pavimentos)/i.test(fact));
-  const hasSpecificSubject = !!(productContext?.productService?.trim() || productContext?.niche?.trim()) || visualFacts.length > 0;
+  // Calculado a partir do texto CRU, nao do sanitizado: um perfil que so
+  // tenha clausula comercial ("Assinatura por R$ 99,90/mes") sanitiza pra
+  // vazio, e nesse caso a cena generica do segmento deve voltar a valer em
+  // vez de sobrar prompt sem assunto nenhum.
+  const hasSpecificSubject = !!realBusinessContext || visualFacts.length > 0;
 
   const parts = [
     noTextPrefix, // NO INÍCIO — maior peso no modelo
     `Professional Brazilian advertising photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
+    // A supressao abaixo e deliberada, nao esquecimento — ver
+    // docs/visual-prompt-alignment.md e o teste "food and fitness use the
+    // concrete subject rather than generic scene defaults". Os defaults de
+    // segmento inventam cena: `alimentacao` traz "restaurant warm ambiance,
+    // delivery packaging with steam", e para quem vende brigadeiro em caixa
+    // isso fabrica restaurante e vapor que nao existem. Quando ha assunto
+    // concreto, ele manda sozinho.
     !hasSpecificSubject && segmentVisual ? `Generic scene context (illustrative, not a verified depiction): ${segmentVisual}.` : "",
     realBusinessContext ? `Specific business/product being advertised: ${realBusinessContext}. Depict this literally and concretely in the scene.` : "",
     visualFacts.length ? `Confirmed visual facts: ${JSON.stringify(visualFacts)}.` : "",
