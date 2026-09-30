@@ -284,7 +284,7 @@ PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
 - A ferramenta primeiro devolve uma pre-confirmacao. Mostre o resumo e a frase CONFIRMAR PUBLICACAO exatamente como retornada. Apenas essa frase na mensagem atual autoriza executar; "sim" sozinho nao executa. Repita os mesmos parametros depois da confirmacao. Nunca altere destino ou orcamento silenciosamente.
 - Publicar e IRREVERSIVEL e GASTA DINHEIRO REAL do cliente. So chame publicar_campanha depois do usuario confirmar EXPLICITAMENTE, NA MESMA troca da conversa — frases como "pode publicar", "sim, publica", "confirmo" contam; uma confirmacao de varias mensagens atras, ou um "sim" respondendo outra pergunta, nao conta.
 - Antes de chamar, resuma pro usuario o que vai ser publicado (nome da campanha, orcamento, pagina) e so prossiga apos a confirmacao dele — nunca publique como primeira reacao a "crie uma campanha" ou similar.
-- Se voce nao sabe o pageId, chame consultar_paginas_meta primeiro (nunca invente ou adivinhe um pageId).
+- NUNCA peca o pageId ao usuario, e NUNCA cite nomes de ferramentas pra ele (consultar_paginas_meta, gerar_campanha etc. sao seus, nao dele). Ele conectou a conta Meta; descobrir a Pagina e trabalho seu. Chame publicar_campanha sem pageId: o servidor resolve sozinho quando ha uma unica Pagina. Se houver varias, a resposta traz a lista — aí pergunte em qual publicar citando os NOMES das Paginas, nunca os numeros.
 - So funciona com Meta por enquanto — Google e TikTok continuam sendo publicados manualmente pela tela da campanha (retorne o link).
 - So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
 
@@ -459,18 +459,23 @@ const DESCRICAO_PESQUISAR_WEB =
 
 const PARAMETROS_PAGINAS_META = { type: "object", properties: {}, additionalProperties: false };
 const DESCRICAO_PAGINAS_META =
-  "Lista as Paginas do Facebook que a conta Meta conectada do usuario tem acesso. Chame isso ANTES de " +
-  "publicar_campanha se voce ainda nao sabe o pageId — nunca invente ou adivinhe um pageId.";
+  "Lista as Paginas do Facebook que a conta Meta conectada do usuario tem acesso. Use quando o usuario " +
+  "perguntar quais Paginas estao vinculadas. Para publicar NAO e necessario: publicar_campanha resolve a " +
+  "Pagina sozinho quando ha uma unica. Nunca invente um pageId nem peca esse numero ao usuario.";
 
 const PARAMETROS_PUBLICAR_CAMPANHA = {
   type: "object",
   properties: {
     campaignId: { type: "integer", description: "ID da campanha ja criada e confirmada com o usuario." },
-    pageId: { type: "string", description: "ID da Pagina do Facebook onde publicar — obtido via consultar_paginas_meta. Nunca invente." },
+    pageId: { type: "string", description: "OPCIONAL. Deixe vazio: o servidor resolve sozinho quando a conta tem uma unica Pagina conectada. So preencha depois que o usuario escolher, POR NOME, entre varias. Nunca invente e nunca peca esse numero ao usuario." },
     destination: { type: "string", enum: ["website", "lead_form"], description: "Padrao: website." },
     linkUrl: { type: "string", description: "URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da pagina." },
   },
-  required: ["campaignId", "pageId"],
+  // pageId saiu do required em 30/09: o servidor resolve sozinho quando ha
+  // uma unica Pagina conectada (ver resolverPaginaMeta em campaignPublish.ts).
+  // Enquanto era obrigatorio, o modelo pedia o numero de 15 digitos ao
+  // usuario em vez de descobrir.
+  required: ["campaignId"],
 };
 const DESCRICAO_PUBLICAR_CAMPANHA =
   "Primeira chamada prepara confirmacao, sem publicar. Mostre a frase CONFIRMAR PUBLICACAO retornada e espere o usuario envia-la exatamente; depois repita os mesmos argumentos. Exige linkUrl HTTPS explicito. Formulario deve ser publicado pela tela. " +
@@ -478,7 +483,8 @@ const DESCRICAO_PUBLICAR_CAMPANHA =
   "So chame isso depois do usuario confirmar EXPLICITAMENTE nesta mesma troca (ex: \"pode publicar\", \"sim, publica\", " +
   "\"confirmo\") — uma confirmacao de varias mensagens atras nao vale, peca confirmacao de novo se o assunto mudou. " +
   "A campanha e criada PAUSADA (nao comeca a rodar sozinha) — ainda assim, so chame com certeza real de que o " +
-  "usuario quer publicar AGORA. Se voce nao sabe o pageId, chame consultar_paginas_meta primeiro.";
+  "usuario quer publicar AGORA. Chame sem pageId: o servidor resolve a Pagina sozinho quando a conta tem " +
+  "uma unica. Se tiver varias, a resposta traz os nomes pra voce perguntar qual — nunca peca o numero ao usuario.";
 
 const declaracoesGemini: FunctionDeclaration[] = [
   ...adsReadTools.map(tool => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters })),

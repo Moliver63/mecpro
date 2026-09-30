@@ -1,3 +1,4 @@
+import { resolverPaginaMetaComLista, type ResolucaoPaginaMeta } from "./metaPageResolution";
 import { appRouter } from "./_core/router";
 import * as db from "./db";
 import { auditCarouselCreatives, orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
@@ -19,7 +20,12 @@ import { auditCarouselCreatives, orderedCreativesForCarousel, getCreativeMedia }
 
 interface PublicarCampanhaOptions {
   campaignId: number;
-  pageId: string;
+  /**
+   * Opcional desde 30/09. Quando vazio, `resolverPaginaMeta` descobre sozinho
+   * se a conta tiver exatamente uma Pagina conectada. Ver o comentario dessa
+   * funcao para o motivo.
+   */
+  pageId?: string;
   destination?: "website" | "lead_form";
   leadGenFormId?: string;
   linkUrl?: string;
@@ -43,7 +49,9 @@ const depsPadrao: PublicarCampanhaDeps = { getCampaignById: db.getCampaignById, 
 
 type PublicarCampanhaResultado =
   | { ok: true; successCount: number; total: number; results: Array<{ adSetName: string; success: boolean; error?: string }>; metaCampaignId?: string; summaryText: string }
-  | { ok: false; erro: string; issues?: string[] };
+  // `paginas` so aparece quando a conta tem mais de uma Pagina conectada e o
+  // assistente precisa perguntar em qual publicar — citando os nomes.
+  | { ok: false; erro: string; issues?: string[]; paginas?: Array<{ pageId: string; name: string }> };
 
 async function criarCallerParaUsuario(userId: number) {
   const user = await db.getUserById(userId);
@@ -70,12 +78,28 @@ export async function listarPaginasMetaConectadas(userId: number): Promise<{ ok:
   }
 }
 
+// A logica pura vive em server/metaPageResolution.ts (sem import de db/env,
+// pra ser testavel isolada). Aqui so amarra com a consulta real a Meta.
+export async function resolverPaginaMeta(
+  userId: number,
+  pageIdInformado: string | undefined,
+  listar: typeof listarPaginasMetaConectadas = listarPaginasMetaConectadas,
+): Promise<ResolucaoPaginaMeta> {
+  return resolverPaginaMetaComLista(pageIdInformado, () => listar(userId));
+}
+
 export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampanhaOptions, deps: PublicarCampanhaDeps = depsPadrao): Promise<PublicarCampanhaResultado> {
   const campaign: any = await deps.getCampaignById(opts.campaignId);
   if (!campaign) return { ok: false, erro: `Campanha ${opts.campaignId} não encontrada.` };
 
   const project: any = await deps.getProjectById(campaign.projectId);
   if (!project || project.userId !== userId) return { ok: false, erro: "Essa campanha não pertence à sua conta." };
+
+  // Resolvido depois da checagem de dono: nao consulta a conta Meta de quem
+  // nem e dono da campanha.
+  const pagina = await resolverPaginaMeta(userId, opts.pageId);
+  if (!pagina.ok) return { ok: false, erro: pagina.erro, ...(pagina.paginas ? { paginas: pagina.paginas } : {}) };
+  const pageIdResolvido = pagina.pageId;
 
   const adSets: any[] = (() => { try { return JSON.parse(campaign.adSets || "[]"); } catch { return []; } })();
   const creatives: any[] = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
@@ -139,7 +163,7 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
   let linkUrl = opts.linkUrl;
   if (!linkUrl) {
     try {
-      const resolved: any = await caller.competitors.resolvePageLink({ pageId: opts.pageId });
+      const resolved: any = await caller.competitors.resolvePageLink({ pageId: pageIdResolvido });
       linkUrl = resolved?.whatsappUrl || (resolved?.website ? (resolved.website.startsWith("http") ? resolved.website : `https://${resolved.website}`) : undefined);
     } catch { /* segue sem link automático */ }
   }
@@ -154,7 +178,7 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
       const result: any = await caller.campaigns.publishToMeta({
         campaignId: opts.campaignId,
         projectId: campaign.projectId,
-        pageId: opts.pageId,
+        pageId: pageIdResolvido,
         destination: opts.destination || "website",
         leadGenFormId: opts.leadGenFormId,
         linkUrl,

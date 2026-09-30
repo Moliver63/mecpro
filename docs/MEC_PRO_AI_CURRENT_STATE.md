@@ -1452,3 +1452,27 @@ O FLUX gera, o validador rejeita, o Pixabay entra no lugar. Doze imagens consecu
 **NAO alterado de proposito**: nao mexi no threshold nem inverti o fallback. Deixar passar imagem nao validada seria trocar "sempre banco de imagem" por "sempre imagem nao verificada" — as duas sao nao validadas, uma so finge menos. O conserto real e fazer a visao funcionar, e isso exige decisao de Michel: habilitar a Cloud Vision API no projeto Google, ou migrar a rotulagem pra Gemini, que ele ja tem com 9 chaves no pool.
 
 Validado: typecheck 50 erros, diff identico ao baseline, nenhum erro em `imageRAG.ts`. 13/13 visualSubjectAlignment, 11/11 objectiveAlignment, 4/4 visualPrompt, 2/2 imageGeneration, 3/3 providerSafety. **Nenhuma imagem real foi gerada nesta verificacao** — o efeito dos logs novos so aparece no proximo deploy.
+
+### Chat pedia o pageId da Meta ao usuario e citava nome de ferramenta interna (branch fix/meta-page-auto-resolution)
+
+**Incidente real (Michel, 30/09).** O chat respondeu:
+
+> "Para publicar na Meta, preciso do pageId da sua página Meta (ex: "123456789012345"). Você tem esse ID pronto? Se não, use `consultar_paginas_meta` para listá-lo."
+
+Dois erros numa frase. **`consultar_paginas_meta` e ferramenta DO ASSISTENTE** — mandar o usuario "usar" um nome interno e o mesmo vazamento de "Fact Guard" e de "Consulte os projetos e pergunte qual usar". E e absurdo pedir um numero de 15 digitos a quem ja conectou a conta Meta: o sistema tem o token e descobre sozinho.
+
+**Nao era capacidade faltando.** `consultar_paginas_meta` ja estava registrada nos tres provedores, o handler funcionava, e o SYSTEM_PROMPT ja dizia "Se voce nao sabe o pageId, chame consultar_paginas_meta primeiro". O modelo **leu a regra e narrou ela em voz alta** em vez de executar. Depender de obediencia nao resolveu duas vezes seguidas (esta e a terceira variacao do mesmo padrao), entao a resolucao virou deterministica.
+
+**Correcao**: `resolverPaginaMetaComLista` em `server/metaPageResolution.ts` (modulo puro, sem import de db/env, pra ser testavel isolado), amarrada em `resolverPaginaMeta` no `campaignPublish.ts` e chamada dentro de `publicarCampanhaNaMeta` **depois da checagem de dono** — nao consulta a conta Meta de quem nem e dono da campanha.
+
+- **Uma Pagina conectada**: usa, sem perguntar. O usuario ainda ve qual e na pre-confirmacao antes de autorizar, entao nada e publicado as escondidas.
+- **Varias Paginas**: NAO escolhe. Publicar gasta dinheiro real e e irreversivel; chutar a Pagina errada e pior que perguntar. Devolve a lista com nomes pro assistente perguntar por NOME.
+- **Nenhuma**: erro acionavel apontando Configuracoes → Meta Ads, sem citar nome de ferramenta, porque essa mensagem chega ao usuario. Ha teste garantindo que `consultar_paginas_meta` nao aparece nela.
+
+`pageId` saiu do `required` do schema de `publicar_campanha` e virou opcional, com a descricao mandando deixar vazio. A regra do prompt foi reescrita: **nunca pedir o pageId ao usuario e nunca citar nomes de ferramenta pra ele**.
+
+**Bug meu, pego pelo typecheck**: escrevi `ResolucaoPaginaMeta` como uniao discriminada, e `tsconfig.server.json` roda com `"strict": false`. Sem `strictNullChecks` o TypeScript **nao estreita uniao por discriminante booleano**, entao todo acesso a `erro` ou `paginas` depois de `if (!r.ok)` virava erro de compilacao. O resto do arquivo nunca tinha batido nisso porque so constroi esses tipos, nunca os estreita. Trocado por campos opcionais, com o motivo comentado no codigo.
+
+Validado: 6/6 no teste novo, 4/4 chatAdsTools, 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 11/11 objectiveAlignment, 13/13 visualSubjectAlignment. Typecheck 50 erros, diff identico ao baseline. `campaignPublish.test.ts` falha por ZodError de env no sandbox — **verificado que falha igual sem estas mudancas**, e pre-existente.
+
+**Nao testado de ponta a ponta**: a resolucao real depende da conta Meta do usuario; aqui a lista e injetada. O proximo pedido de publicacao pelo chat confirma.
