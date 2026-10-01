@@ -8335,6 +8335,10 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     throw new Error(`FACT_CONFLICT: criativos contém informações não confirmadas ou conflitantes. ${preview}`);
   }
 
+  // Persist the audited content, not the original conflicting metadata.
+  creatives = JSON.stringify(conteudoAuditado.slice(0, -1));
+  adSets = JSON.stringify(conteudoAuditado[conteudoAuditado.length - 1].adSets);
+
   const parsedForQualityGate = (() => {
     try { return JSON.parse(creatives || "[]"); } catch { return []; }
   })();

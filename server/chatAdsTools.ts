@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
+import { resolverPaginaMetaComLista } from "./metaPageResolution";
 
 export const adsTurn = new AsyncLocalStorage<{ message: string }>();
 export const adsReadTools = [
@@ -55,17 +56,32 @@ export async function queryChatAds(name: string, args: Record<string, any>, user
 export async function publishChatAds(userId: number, options: any, injected?: any) {
   const db = injected ?? await import("./db");
   try {
-    if (!Number.isInteger(options.campaignId) || options.campaignId < 1 || !/^\d+$/.test(options.pageId)) return { ok: false, erro: "Campanha ou pagina invalida." };
+    const pageId = String(options?.pageId ?? "").trim();
+    if (!Number.isInteger(options?.campaignId) || options.campaignId < 1 || (pageId && !/^\d+$/.test(pageId))) return { ok: false, erro: "Campanha ou pagina invalida." };
     if ((options.destination ?? "website") !== "website" || typeof options.linkUrl !== "string" || !/^https:\/\//i.test(options.linkUrl)) return { ok: false, erro: "No chat, confirme um destino HTTPS explicito. Para formulario instantaneo, use a tela de publicacao." };
     const campaign = await db.getCampaignById(options.campaignId);
     const project = campaign && await db.getProjectById(campaign.projectId);
     if (!project || project.userId !== userId) return { ok: false, erro: "Campanha indisponivel para esta conta." };
-    const snapshot = JSON.stringify({ userId, options, campaign });
+    const pagina = await bounded(resolverPaginaMetaComLista(pageId, async () => {
+      const listar = injected?.listPages ?? (await import("./campaignPublish")).listarPaginasMetaConectadas;
+      return listar(userId);
+    }));
+    if (!pagina.ok || !pagina.pageId || !/^\d+$/.test(pagina.pageId)) return {
+      ok: false, erro: pagina.erro || "Nao foi possivel identificar a Pagina conectada.",
+      ...(pagina.paginas ? { paginas: pagina.paginas } : {}),
+    };
+    // Bind confirmation and execution to the same resolved destination.
+    const resolvedOptions = {
+      campaignId: options.campaignId, pageId: pagina.pageId,
+      destination: "website" as const, linkUrl: options.linkUrl,
+      ...(options.adSetIndexes !== undefined ? { adSetIndexes: options.adSetIndexes } : {}),
+    };
+    const snapshot = JSON.stringify({ userId, options: resolvedOptions, campaign });
     const token = createHash("sha256").update(snapshot).digest("hex").slice(0, 16);
     const confirmation = `CONFIRMAR PUBLICACAO ${token}`;
     if (adsTurn.getStore()?.message.trim() !== confirmation) return {
       ok: false, confirmationRequired: true, campaignId: campaign.id, name: campaign.name,
-      pageId: options.pageId, adSets: campaign.adSets, destination: options.linkUrl ?? "automatico",
+      pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets, destination: resolvedOptions.linkUrl,
       erro: `Mostre os conjuntos e orcamentos ao usuario. Para publicar pausada, ele deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
     };
     // One reservation per campaign, including partial/uncertain outcomes. Never reopen after a timeout.
@@ -73,7 +89,7 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     if (reserved.kind === "cached_result") return reserved.result;
     if (reserved.kind !== "proceed") return { ok: false, erro: "Publicacao ja solicitada. Verifique o resultado na Meta antes de tentar novamente." };
     const publish = injected?.publish ?? (await import("./campaignPublish")).publicarCampanhaNaMeta;
-    const work = publish(userId, options).then(async (result: any) => {
+    const work = publish(userId, resolvedOptions).then(async (result: any) => {
       await db.completeMcpIdempotencyKey(reserved.recordId, result);
       return result;
     });

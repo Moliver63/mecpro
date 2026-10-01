@@ -24,6 +24,46 @@ function fixture() {
 }
 const options = { campaignId: 12, pageId: "123", linkUrl: "https://example.com" };
 
+test("automatic page resolution preserves confirmation and ownership", async () => {
+  const f = fixture();
+  let pageId = "123";
+  let lookups = 0;
+  let sent: any;
+  const deps = { ...f.db,
+    listPages: async () => { lookups++; return { ok: true, pages: [{ pageId, name: "Empresa" }] }; },
+    publish: async (_user: number, value: any) => { sent = value; return { ok: true }; },
+  };
+  const input = { campaignId: 12, linkUrl: options.linkUrl };
+  await publishChatAds(2, input, deps);
+  assert.equal(lookups, 0);
+  const preview = await publishChatAds(1, input, deps);
+  assert.equal(preview.pageName, "Empresa");
+  assert.equal(preview.confirmationRequired, true);
+  const message = preview.erro.match(/CONFIRMAR PUBLICACAO [a-f0-9]+/)[0];
+  pageId = "456";
+  assert.equal((await adsTurn.run({ message }, () => publishChatAds(1, input, deps))).confirmationRequired, true);
+  assert.equal(sent, undefined);
+  pageId = "123";
+  await adsTurn.run({ message }, () => publishChatAds(1, { ...input, pageId }, deps));
+  assert.equal(sent.pageId, "123");
+});
+
+test("multiple or missing pages cannot reserve or publish", async () => {
+  const f = fixture();
+  let pages = [{ pageId: "123", name: "A" }, { pageId: "456", name: "B" }];
+  let reservations = 0;
+  const deps = { ...f.db,
+    listPages: async () => ({ ok: true, pages }),
+    reserveMcpIdempotencyKey: async () => { reservations++; throw new Error("unexpected"); },
+  };
+  const input = { ...options, pageId: "" };
+  assert.equal((await publishChatAds(1, input, deps)).paginas.length, 2);
+  pages = [];
+  assert.match((await publishChatAds(1, input, deps)).erro, /Nenhuma Pagina/);
+  assert.equal(reservations, 0);
+  assert.equal(f.calls(), 0);
+});
+
 test("metrics enforce ownership, period and no-data semantics", async () => {
   const { db } = fixture();
   assert.ok((await queryChatAds("consultar_metricas_campanha", { campaignId: 12 }, 2, db)).erro);

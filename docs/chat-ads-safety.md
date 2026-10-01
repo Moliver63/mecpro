@@ -1,5 +1,16 @@
 # Chat: metricas e publicacao protegida
 
+## Correcao Codex - 2026-10-01
+
+- Pagina omitida e resolvida apos verificar propriedade e antes da confirmacao.
+- Uma Pagina gera preview; varias exigem escolha; nenhuma impede publicacao.
+- Confirmacao e execucao usam o mesmo ID resolvido. Mudanca de Pagina exige
+  nova confirmacao. Idempotencia e destino HTTPS explicito permanecem.
+- Geracao salva os objetivos alinhados que passaram pelo Fact Guard, em vez
+  dos metadados originais conflitantes. Nenhuma campanha existente foi editada.
+- Testes de regressao adicionados com dependencias simuladas; nao houve
+  publicacao real. Validacao local pode exigir permissoes do runtime Node.
+
 Atualizacao local Codex, 2026-09-23.
 
 - Gemini, DeepSeek e Groq recebem as mesmas duas consultas: metricas diarias

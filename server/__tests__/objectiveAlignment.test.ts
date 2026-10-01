@@ -1,7 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { alinharObjetivosAninhados } from "../campaignRuleRetrieval";
 import { buildCampaignFacts, validateCampaignFactIntegrity } from "../campaignFactGuard";
+
+test("generation serializes audited objectives before saving", () => {
+  const source = readFileSync(new URL("../ai.ts", import.meta.url), "utf8");
+  const start = source.indexOf("const factValidation = validateCampaignFactIntegrity(conteudoAuditado, campaignFacts)");
+  const end = source.indexOf("const campaign = await db.createCampaign", start);
+  const audited = source.slice(start, end);
+  assert.match(audited, /creatives = JSON.stringify\(conteudoAuditado.slice\(0, -1\)\)/);
+  assert.match(audited, /adSets = JSON.stringify\(conteudoAuditado\[conteudoAuditado.length - 1\].adSets\)/);
+  assert.ok(audited.indexOf('factValidation.status === "failed"') < audited.indexOf("creatives = JSON.stringify"));
+});
 
 // Reproducao do log de producao de 28/09, projeto 49 "Shadia Hasan — Leads":
 // FACT_CONFLICT em creatives.4.adSets.2.objective com valor "sales", numa
