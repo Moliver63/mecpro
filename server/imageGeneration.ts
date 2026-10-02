@@ -1811,7 +1811,6 @@ export async function generateAdImage(
       // Solução: baixar e re-hospedar no Cloudinary antes de enviar para Meta
       const rehostedUrl = await reHostImageOnCloudinary(pixabayResult.url, format);
       const finalPixUrl = rehostedUrl || pixabayResult.url;
-      IMAGE_CACHE.set(cacheKey, finalPixUrl);
       log.info("image-generation", "✅ Pixabay foto OK", {
         query: pixabayQuery, credit: pixabayResult.credit, format,
         rehosted: !!rehostedUrl,
@@ -1825,17 +1824,19 @@ export async function generateAdImage(
           productService: productContext?.productService,
           niche:          productContext?.niche,
         });
-        if (pixRag.validation_status !== "rejected") {
+        if (pixRag.validation_status === "approved") {
           await saveApprovedImage({
             cloudUrl: finalPixUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
             query: pixabayQuery, provider: "pixabay", bytes: 0,
           });
+          IMAGE_CACHE.set(cacheKey, finalPixUrl);
+        } else {
+          log.warn("image-generation", "Pixabay nao aprovado pelo RAG; imagem descartada", { format });
+          return null;
         }
       } catch {
-        await saveApprovedImage({
-          cloudUrl: finalPixUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
-          query: pixabayQuery, provider: "pixabay", bytes: 0,
-        });
+        log.warn("image-generation", "Validacao Pixabay indisponivel; imagem nao aprovada", { format });
+        return null;
       }
       return finalPixUrl;
     }

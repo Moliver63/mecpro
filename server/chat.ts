@@ -29,6 +29,7 @@ import Groq from "groq-sdk";
 import { createChatRetryBudget } from "./chatRetryBudget";
 import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
 import { listarPaginasMetaConectadas } from "./campaignPublish";
+import { chatImageTool, generateChatImage } from "./chatImageTools";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
@@ -259,6 +260,8 @@ interface RespostaChat {
 
 const SYSTEM_PROMPT = `${CONVERSATION_POLICY}
 
+IMAGENS: para preparar imagens de uma campanha existente, consulte os criativos e use gerar_imagem_campanha nos formatos sem imagem. O sistema possui gerador; nao diga que e incapaz sem tentar a ferramenta. Dez fotos e um limite, nao uma exigencia. Preserve fotos reais e capa existentes; substituicao usa a tela da campanha. Nao confunda gerar imagens com publicar. O motor pode retornar foto de banco: nao afirme origem IA sem comprovacao.
+
 Quando o usuario estiver montando uma campanha, registre os dados novos explicitamente fornecidos em atualizar_briefing. Preserve os demais campos do briefing persistente. Nao pergunte de novo o que ja esta registrado. Uma correcao recente substitui o valor anterior; budget e sempre TOTAL (diario multiplicado pela duracao quando ambos confirmados).
 Nunca invente a causa de uma falha. FACT_CONFLICT e erro tecnico de geracao, nao uma escolha para o usuario aceitar fatos inventados. Nao recomende criar outro projeto para contornar validacao. Nao diga que uma campanha anterior contaminou o resultado sem evidencia da ferramenta.
 As consultas de campanha sao somente leitura e nao importam copies ou fotos. Para usar uma referencia, confirme os dados atuais e registre-os, sem fingir duplicacao automatica. Se o usuario ja pediu uma nova campanha, nao pergunte novamente se deseja abrir ou criar.
@@ -487,6 +490,7 @@ const DESCRICAO_PUBLICAR_CAMPANHA =
   "uma unica. Se tiver varias, a resposta traz os nomes pra voce perguntar qual — nunca peca o numero ao usuario.";
 
 const declaracoesGemini: FunctionDeclaration[] = [
+  { name: chatImageTool.name, description: chatImageTool.description, parametersJsonSchema: chatImageTool.parameters },
   ...adsReadTools.map(tool => ({ name: tool.name, description: tool.description, parametersJsonSchema: tool.parameters })),
   { name: ATUALIZAR_BRIEFING.name, description: ATUALIZAR_BRIEFING.description, parametersJsonSchema: ATUALIZAR_BRIEFING.parameters },
   { name: CONSULTAR_WORKSPACE.name, description: CONSULTAR_WORKSPACE.description, parametersJsonSchema: CONSULTAR_WORKSPACE.parameters },
@@ -499,6 +503,7 @@ const declaracoesGemini: FunctionDeclaration[] = [
 ];
 
 const ferramentasGroq = [
+  { type: "function" as const, function: chatImageTool },
   ...adsReadTools.map(tool => ({ type: "function" as const, function: tool })),
   { type: "function" as const, function: ATUALIZAR_BRIEFING },
   { type: "function" as const, function: CONSULTAR_WORKSPACE },
@@ -1027,6 +1032,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
     if (resposta.text) textoFinal = resposta.text;
 
     const handled = await appendGeminiToolTurn(historico, resposta, async (name, args) => {
+      if (name === chatImageTool.name) return generateChatImage(userId, limparArgsFerramenta(args));
       if (adsReadTools.some(tool => tool.name === name)) return queryChatAds(name, limparArgsFerramenta(args), userId);
       if (name === CONSULTAR_WORKSPACE.name || name === ATUALIZAR_BRIEFING.name) return consultarOuAtualizar(name, limparArgsFerramenta(args), userId);
       if (name === "atualizar_orcamento_campanha") return atualizarOrcamentoCampanha(userId, limparArgsFerramenta(args), db);
@@ -1217,6 +1223,11 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
     }
     if (adsReadTools.some(tool => tool.name === chamada.function.name)) {
       const result = await queryChatAds(chamada.function.name, limparArgsFerramenta(args), userId);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === chatImageTool.name) {
+      const result = await generateChatImage(userId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1429,6 +1440,11 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
     if (adsReadTools.some(tool => tool.name === chamada.function?.name)) {
       const result = await queryChatAds(chamada.function.name, limparArgsFerramenta(args), userId);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function?.name === chatImageTool.name) {
+      const result = await generateChatImage(userId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }

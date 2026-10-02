@@ -3006,13 +3006,25 @@ const campaignsRouter = router({
 
   regenerateCreativeImage: protectedProcedure
     .input(regenerateCreativeImageInputSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const campaign = await db.getCampaignById(input.campaignId) as any;
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+      const project = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "Campanha indisponivel para esta conta." });
 
       const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
       const creative = creatives[input.creativeIndex] as CampaignCreative;
       if (!creative) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
+
+      const imageField = input.format === "stories" ? "storyImageUrl" : input.format === "square" ? "squareImageUrl" : "feedImageUrl";
+      if (input.onlyIfMissing && ((creative as any).usesRealPhoto || (creative as any)[imageField] || (creative as any).imageUrl)) {
+        throw new TRPCError({ code: "CONFLICT", message: "Imagem existente preservada. Use a tela da campanha para substituir." });
+      }
+      let facts: any;
+      try { facts = JSON.parse(campaign.aiResponse || "{}").campaignFacts; } catch { /* no confirmed snapshot */ }
+      if (!facts?.intent?.segment || !Array.isArray(facts.verifiedFacts)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Confirme o briefing antes de gerar imagens: faltam fatos e segmento salvos." });
+      }
 
       // Config inline — igual ao resolveImageProviderConfig() em ai.ts
       // Garante que Pollinations é o fallback final (via generateAdImage)
@@ -3032,10 +3044,11 @@ const campaignsRouter = router({
 
       const imageUrl = await generateAdImage(
         creative,
-        campaign.name || "segmento geral",
+        facts.intent.segment,
         campaign.objective || "leads",
         config,
         input.format as CreativeImageFormat,
+        { productService: facts.verifiedFacts.join("; "), confirmedVisualFacts: facts.verifiedFacts },
       );
 
       if (!imageUrl) throw new TRPCError({

@@ -85,7 +85,7 @@ interface VisionAnalysis {
 export async function analyzeImageWithVision(
   imageUrl: string
 ): Promise<VisionAnalysis | null> {
-  const apiKey = process.env.GOOGLE_API_KEY;
+  const apiKey = process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
 
   try {
@@ -135,7 +135,7 @@ export async function analyzeImageWithVision(
 
     const data: any = await res.json();
     const r = data?.responses?.[0];
-    if (!r) {
+    if (!r || r.error) {
       log.warn("image-rag", "Cloud Vision respondeu 200 sem annotations — validacao sem dados", {
         detalhe: redactProviderSecrets(JSON.stringify(data).slice(0, 200)),
       });

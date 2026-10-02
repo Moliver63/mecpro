@@ -325,6 +325,7 @@ export const updateCreativeImageInputSchema = z.object({
 });
 
 export const regenerateCreativeImageInputSchema = z.object({
+  onlyIfMissing: z.boolean().optional(),
   campaignId: z.number().int().positive(),
   creativeIndex: z.number().int().min(0),
   format: creativeImageEditFormatSchema,
