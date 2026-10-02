@@ -30,6 +30,7 @@ import { createChatRetryBudget } from "./chatRetryBudget";
 import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
 import { listarPaginasMetaConectadas } from "./campaignPublish";
 import { chatImageTool, generateChatImage } from "./chatImageTools";
+import { repairMetaPageReply } from "./chatMetaPageReply";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
@@ -1754,7 +1755,8 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const state = briefingContext.getStore();
-  const finish = (resultado: RespostaChat) => {
+  const finish = async (resultado: RespostaChat) => {
+    resultado = { ...resultado, resposta: await repairMetaPageReply(resultado.resposta, () => listarPaginasMetaConectadas(userId)) };
     if (state && resultado.campanha) {
       state.lastCampaign = resultado.campanha;
       state.briefing.newCampaign = false;

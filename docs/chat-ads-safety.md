@@ -1,5 +1,14 @@
 # Chat: metricas e publicacao protegida
 
+## Correcao local - 2026-10-02
+
+- Saida compartilhada intercepta pedidos de pageId ou instrucao para executar
+  consultar_paginas_meta e consulta a conta autenticada, exibindo nomes.
+- Recuperacao somente leitura; nao declara campanha pronta, nao publica e nao
+  substitui a confirmacao de snapshot exigida por publishChatAds.
+- Testes simulados: uma pagina, varias, nenhuma, falha e respostas normais.
+- Validacao real na conta Meta e deploy ainda necessarios.
+
 ## Correcao Codex - 2026-10-01
 
 - Pagina omitida e resolvida apos verificar propriedade e antes da confirmacao.
