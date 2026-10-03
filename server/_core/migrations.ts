@@ -1116,5 +1116,9 @@ export async function runMigrations(): Promise<void> {
     `).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages("sessionId", "createdAt")`).catch(() => {});
 
+    const { IMAGE_JOB_MIGRATION } = await import('../campaignImageJobs');
+    await pool.query(IMAGE_JOB_MIGRATION);
+    await pool.query("ALTER TABLE campaign_image_jobs ADD COLUMN IF NOT EXISTS validation JSONB");
+    await pool.query("CREATE INDEX IF NOT EXISTS campaign_image_jobs_pending ON campaign_image_jobs(status,next_attempt)");
     console.log('[migrations] ✅ Migrations applied successfully');
 }

@@ -1843,6 +1843,8 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 async function main() {
   try {
     await runMigrations();
+    const { startCampaignImageWorker } = await import('../campaignImageJobs');
+    startCampaignImageWorker();
   await loadLLMModeFromDB();      // Carrega modo LLM (Gemini/Groq) salvo pelo admin
   await loadCopyEngineFromDB();   // Carrega copy engine (gemini/groq/ml_first) salvo pelo admin
     log.info('migrations', '✅ Migrations applied successfully');

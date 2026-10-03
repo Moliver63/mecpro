@@ -27,16 +27,16 @@ export interface ImageRAGResult {
   cloud_url:            string;
   detected_product:     string;
   recommended_campaign: string;
-  confidence_score:     number;
+  confidence_score:     number | null;
   validation_status:    "approved" | "pending_validation" | "rejected";
   scores: {
-    quality_score:          number;
-    conversion_score:       number;
-    branding_score:         number;
-    visual_similarity_score:number;
-    product_match_score:    number;
-    campaign_match_score:   number;
-    overall_score:          number;
+    quality_score:          number | null;
+    conversion_score:       number | null;
+    branding_score:         number | null;
+    visual_similarity_score:number | null;
+    product_match_score:    number | null;
+    campaign_match_score:   number | null;
+    overall_score:          number | null;
   };
   retrieved_context:  string[];
   validation_logs:    string[];
@@ -407,7 +407,16 @@ export async function runImageRAG(
   // ETAPA 1: Análise visual
   const vision = await analyzeImageWithVision(cloudUrl);
   if (!vision) {
-    logs.push("Vision API indisponível — usando scores conservadores");
+    const { validateCampaignImage } = await import("./campaignImageValidator");
+    const decision = await validateCampaignImage(cloudUrl, ctx);
+    await saveRAGLog({ imageId: image_id, cloudUrl, segment: ctx.segment, format: ctx.format,
+      status: decision.status, overallScore: decision.score, hasText: null, labels: [], projectId: ctx.projectId });
+    log.info("image-rag", "Validacao alternativa", { image_id, status: decision.status, overall: decision.score, reason: decision.reason });
+    return { image_id, cloud_url: cloudUrl, detected_product: "Nao identificado", recommended_campaign: ctx.segment,
+      confidence_score: decision.score, validation_status: decision.status,
+      scores: { quality_score: null, conversion_score: null, branding_score: null, visual_similarity_score: null, product_match_score: null, campaign_match_score: null, overall_score: decision.score },
+      retrieved_context: [], validation_logs: [decision.reason], association_reason: decision.status === "approved" ? decision.reason : "",
+      rejection_reason: decision.status === "approved" ? "" : decision.reason, generated_tags: [ctx.segment, ctx.format] };
   }
 
   const visionFallback: VisionAnalysis = vision || {
@@ -506,7 +515,7 @@ export async function runImageRAG(
 
 async function saveRAGLog(data: {
   imageId: string; cloudUrl: string; segment: string; format: string;
-  status: string; overallScore: number; hasText: boolean;
+  status: string; overallScore: number | null; hasText: boolean | null;
   labels: string[]; projectId?: number;
 }): Promise<void> {
   try {

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { log } from "./logger";
+import { canonicalStockQuery } from "./imageWorkflowPolicy";
 
 export type ImageProvider = "huggingface" | "heygen" | "genspark" | "mock";
 export type CreativeImageFormat = "feed" | "stories" | "square";
@@ -144,216 +145,13 @@ const PIXABAY_QUERIES: Record<string, string> = {
   outro:           "business professional modern clean",
 };
 
-// Mapas de palavras-chave: copyContext → termo visual em inglês
-const COPY_TO_VISUAL: Array<[RegExp, string]> = [
-  // Imóveis
-  [/frente.?mar|mar|praia|beach|oceano|ocean/i,          "ocean view apartment luxury beachfront"],
-  [/balneário|camboriu|floripa|florianópolis/i,           "luxury apartment Brazil beach city"],
-  [/aparto|apto|apartamento/i,                           "modern apartment interior living room"],
-  [/casa|home|residência/i,                              "modern house interior living room"],
-  [/locação|alugar|aluguel|morar|morada/i,               "apartment rental keys handover furnished"],
-  [/comprar|venda|vender|financi/i,                      "luxury real estate apartment sale"],
-  [/lançamento|empreendimento|condomínio/i,              "luxury condominium building modern"],
-  // Automotivo
-  [/auto.el[eé]trica|eletrica.*auto|el[eé]trico.*veic|auto.*el[eé]tric/i, "car electric mechanic garage professional"],
-  [/oficina|mecanica|mec[aâ]nico|automotiv|veicul|carro/i, "car mechanic garage automotive professional"],
-  [/motor|motor.?veicul|injet[ao]/i,                     "car engine mechanic workshop"],
-  // Alimentação
-  [/pizza|pizz/i,                                        "delicious pizza restaurant closeup"],
-  [/hamburguer|burger|lanche/i,                          "gourmet burger food photography"],
-  [/sushi|japones/i,                                     "sushi japanese food restaurant"],
-  [/delivery|entreg/i,                                   "food delivery packaging modern"],
-  [/restaurante|cardápio/i,                              "restaurant interior warm lighting"],
-  // Saúde/Estética/Fitness
-  [/academia|fitness|gym|musculação|treino|personal/i,   "fitness gym workout training modern"],
-  // IMPORTANTE: plano anual/assinatura pode ser de QUALQUER produto — não assume fitness
-  // Removido: [/plano.anual|plano.mensal|assinatura|mensalidade/i, "gym membership..."] — causava imagens erradas para SaaS/tech
-  [/bem.estar|wellness|saúde.*corpo/i,                   "wellness healthy lifestyle active"],
-  [/estética|estetica|beleza|beauty/i,                   "beauty salon aesthetic treatment professional"],
-  [/clinica|clínica|médico|saúde/i,                      "modern clinic interior professional"],
-  // Moda
-  [/roupa|moda|fashion|vestuário/i,                      "fashion clothing lifestyle editorial"],
-  [/calçado|sapato|tenis/i,                              "shoes fashion lifestyle modern"],
-  // Tecnologia/B2B
-  [/software|sistema|app|aplicativo/i,                   "SaaS software dashboard laptop business"],
-  [/marketing|campanha|anuncio/i,                        "digital marketing professional laptop"],
-  // Educação
-  [/curso|treinamento|ensino|aprender/i,                 "online course education laptop learning"],
-  [/mentoria|coach/i,                                    "coaching mentoring professional meeting"],
-];
-
-// Ângulos da copy → modificadores visuais
-const ANGLE_VISUAL: Record<string, string> = {
-  exclusividade:  "luxury exclusive premium sophisticated",
-  urgencia:       "urgent limited time bold dynamic",
-  prova_social:   "happy satisfied customer testimonial",
-  transformacao:  "before after transformation success",
-  autoridade:     "expert professional credible authority",
-  oferta:         "special offer sale discount bold",
-  dor:            "problem solution empathy relatable",
-  educacao:       "informative clean professional knowledge",
-};
-
-// Tipos de criativo → modificadores visuais
-const TYPE_VISUAL: Record<string, string> = {
-  testimonial:    "happy customer testimonial smiling portrait",
-  social_proof:   "group satisfied customers community success",
-  authority:      "expert professional confident portrait",
-  storytelling:   "narrative lifestyle real moment authentic",
-  lead_magnet:    "free offer gift attractive compelling",
-  direct_offer:   "product showcase offer pricing bold",
-};
-
 export function getPixabayQuery(
   segment: string,
   creative: any,
   creativeIndex: number = 0,
   productContext?: { productName?: string; productService?: string; niche?: string; city?: string },
 ): string {
-  // 0. PRIORIDADE: nicho do produto define a imagem — evita query errada por match na copy
-  const nicheRaw = (productContext?.niche || "").toLowerCase();
-  const isTechNiche = /marketing.digital|tecnologia|software|saas|anuncio|trafego|digital|plataforma|inteligencia.artificial|ia/i.test(nicheRaw);
-  const isImovelNiche = /imóvel|imovel|imobili|corretag|aluguel|locação|locacao/i.test(nicheRaw);
-  const isAcademiaNiche = /academia|fitness|gym|personal|treino/i.test(nicheRaw);
-
-  // Se nicho é claramente tech/digital: força query visual correta
-  if (isTechNiche && !isImovelNiche) {
-    const techVariations = [
-      "digital marketing SaaS dashboard laptop professional",
-      "business professional team laptop modern office",
-      "technology entrepreneur laptop workspace success",
-      "marketing analytics business growth chart",
-      "professional team meeting technology modern",
-      "entrepreneur laptop digital success business",
-    ];
-    const base = techVariations[creativeIndex % techVariations.length];
-    return base;
-  }
-
-  // 1. Base do segmento
-  const base = PIXABAY_QUERIES[segment] || PIXABAY_QUERIES["outro"] || "professional";
-
-  // 2. Extrai texto da copy + dados do produto para palavras-chave visuais
-  const productText = [
-    toText(productContext?.productName    || ""),
-    toText(productContext?.productService || ""),
-    toText(productContext?.niche          || ""),
-  ].join(" ").toLowerCase();
-  // Property type outranks city and persuasive copy when choosing stock search terms.
-  if (/^imoveis/.test(segment)) {
-    if (/sala comercial|imovel comercial|imóvel comercial|ponto comercial/.test(productText)) return "commercial space interior";
-    if (/apartamento/.test(productText)) return "apartment interior";
-    if (/terreno/.test(productText)) return "land plot";
-  }
-
-  const copyText = [
-    toText(creative?.headline || ""),
-    toText(creative?.hook     || ""),
-    toText(creative?.copy     || ""),
-    toText(creative?.angle    || ""),
-    productText,
-  ].join(" ").toLowerCase();
-
-  // 3. Procura correspondência no copy para query visual específica
-  for (const [pattern, visualQuery] of COPY_TO_VISUAL) {
-    if (pattern.test(copyText)) {
-      // Usa query específica do produto + modificador do tipo/ângulo
-      const type  = toText(creative?.type  || "");
-      const angle = toText(creative?.angle || "");
-      const typeMod  = TYPE_VISUAL[type]   || "";
-      const angleMod = ANGLE_VISUAL[angle] || "";
-      // Varia levemente por índice (página diferente, não só hit diferente)
-      const suffix = creativeIndex > 0 ? ` ${["modern", "professional", "authentic", "vibrant"][creativeIndex % 4]}` : "";
-      return `${visualQuery}${suffix}`.trim();
-    }
-  }
-
-  // 4. Fallback: variações por segmento + funil/ângulo
-  const funnelVariations: Record<string, string[]> = {
-    imoveis_venda:   [
-      "luxury apartment interior natural light",
-      "modern real estate living room design",
-      "apartment building exterior contemporary",
-      "real estate home kitchen modern",
-    ],
-    imoveis_locacao: [
-      "apartment rental keys door modern",
-      "furnished living room cozy rental",
-      "modern bedroom apartment rental",
-      "apartment building entrance welcoming",
-    ],
-    ecommerce:       [
-      "product photography studio white clean",
-      "e-commerce packaging unboxing lifestyle",
-      "online shopping purchase lifestyle",
-      "product flat lay creative composition",
-    ],
-    servicos_locais: [
-      "professional team service smiling",
-      "local business storefront clean modern",
-      "customer service reception desk",
-      "service professional working happy",
-    ],
-    infoprodutos:    [
-      "laptop online course education desk",
-      "student learning success digital",
-      "webinar video call professional",
-      "digital content creator workspace",
-    ],
-    saude_estetica:  [
-      "fitness gym workout training modern",
-      "healthy lifestyle active woman smiling",
-      "gym equipment training professional",
-      "wellness body transformation success",
-    ],
-    alimentacao:     [
-      "delicious food photography restaurant",
-      "chef cooking professional kitchen",
-      "food delivery packaging modern",
-      "cafe restaurant interior cozy",
-    ],
-    moda_varejo:     [
-      "fashion model clothing lifestyle",
-      "retail store display trendy",
-      "outfit flat lay accessories modern",
-      "fashion editorial photography vibrant",
-    ],
-    b2b:             [
-      "business meeting office professional",
-      "team collaboration modern office",
-      "laptop dashboard analytics business",
-      "handshake deal partnership professional",
-    ],
-    automotivo:      [
-      "car mechanic garage professional",
-      "automotive repair workshop tools",
-      "car engine electrical diagnostic",
-      "mechanic customer car service",
-    ],
-    outro:           [
-      "professional business clean modern",
-      "team working office success",
-      "service lifestyle authentic",
-      "modern workspace productive",
-    ],
-  };
-
-  const variations = funnelVariations[segment] || funnelVariations["outro"]!;
-  const angle = toText(creative?.angle || "");
-  const type  = toText(creative?.type  || "");
-
-  // Varia por índice
-  let query = variations[creativeIndex % variations.length];
-
-  // Adiciona modificador de tipo se disponível
-  const typeMod = TYPE_VISUAL[type];
-  if (typeMod && creativeIndex % 2 === 1) query = typeMod;
-
-  // Adiciona modificador de ângulo
-  const angleMod = ANGLE_VISUAL[angle];
-  if (angleMod) query = `${query} ${angleMod.split(" ")[0]}`;
-
-  return query;
+  return canonicalStockQuery(segment, productContext?.productService || "", creativeIndex);
 }
 
 // ── Pixabay VIDEO Search ──────────────────────────────────────────────────────
@@ -1645,6 +1443,23 @@ async function reHostImageOnCloudinary(
   }
 }
 
+// Candidate is not an approved creative. The durable worker persists it before validation.
+export async function generateCampaignImageCandidate(brief: any, format: CreativeImageFormat, index: number): Promise<{ url: string; provider: string } | null> {
+  const context = { productService: brief.facts.join("; "), confirmedVisualFacts: brief.facts, niche: brief.segment };
+  const prompt = inferPrompt(brief.card, brief.segment, brief.objective, format, context);
+  const buffer = await generateWithCloudflareBuffer(prompt, format);
+  if (buffer && buffer.length >= 10000) {
+    const url = await uploadImageBufferToCloudinary(buffer, `campaign_candidate_${Date.now()}_${index}.jpg`);
+    if (url) return { url, provider: "cloudflare" };
+    return null;
+  }
+  const query = canonicalStockQuery(brief.segment, context.productService, index);
+  const stock = await searchPixabay(query, format, index);
+  if (!stock) return null;
+  const url = await reHostImageOnCloudinary(stock.url, format);
+  return url ? { url, provider: "pixabay" } : null;
+}
+
 export async function generateAdImage(
   creative: any,
   segment: string,
@@ -1674,6 +1489,7 @@ export async function generateAdImage(
   const cached = IMAGE_CACHE.get(cacheKey);
   if (cached) return cached;
 
+  let validationPending = false;
   const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
     if (providerToTry === "huggingface") {
       // Cloudflare FLUX com RAG anti-alucinação:
@@ -1719,12 +1535,14 @@ export async function generateAdImage(
                       });
                       IMAGE_CACHE.set(cacheKey, cfUrl);
                     } else {
+                      validationPending = ragResult.validation_status === "pending_validation";
                       log.warn("image-generation", `RAG ${ragResult.validation_status}`, {
                         rejection: ragResult.rejection_reason.slice(0,80),
                       });
                       return null;
                     }
                   } catch (ragErr: any) {
+                    validationPending = true;
                     log.warn("image-generation", "RAG indisponivel: imagem nao aprovada nem armazenada no cache", { format });
                     return null;
                   }
@@ -1775,6 +1593,7 @@ export async function generateAdImage(
 
     for (const candidate of candidates) {
       const url = await tryProvider(candidate.provider, candidate.apiKey);
+      if (validationPending) return null;
       if (url) {
         if (candidate.provider !== provider) {
           log.warn("image-generation", "Fallback de provider aplicado", {
@@ -1811,7 +1630,7 @@ export async function generateAdImage(
       // Solução: baixar e re-hospedar no Cloudinary antes de enviar para Meta
       const rehostedUrl = await reHostImageOnCloudinary(pixabayResult.url, format);
       const finalPixUrl = rehostedUrl || pixabayResult.url;
-      log.info("image-generation", "✅ Pixabay foto OK", {
+      log.info("image-generation", "Pixabay encontrado; validacao pendente", {
         query: pixabayQuery, credit: pixabayResult.credit, format,
         rehosted: !!rehostedUrl,
       });

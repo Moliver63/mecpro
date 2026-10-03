@@ -1,5 +1,12 @@
 # MecProAI - Estado atual do motor
 
+## Adendo local Codex - 2026-10-03
+
+Chat enfileira geracao de imagens faltantes, preserva candidatos pendentes e
+revalida sem gerar de novo. Contexto canonico controla busca Pixabay e validacao
+visual. Ver [fluxo e configuracao](chat-image-generation.md). Nao implica deploy,
+ativacao de billing Google, homologacao SQL ou publicacao de campanhas.
+
 Atualizado em: 2026-09-16 (adendo Codex; secoes anteriores preservadas como historico)
 
 ## Adendo Codex - precedencia operacional
