@@ -952,7 +952,21 @@ function buildCloudflarePrompt(prompt: string, maxLength = 1900): string {
 // modelo: a lista abaixo marca os que NÃO aceitam width/height; o
 // tamanho final do criativo é normalizado depois, no upload do
 // Cloudinary — dimensão aqui é só hint de geração, nunca requisito.
-const CF_MODELOS_SEM_DIMENSOES = /(@cf\/stabilityai\/|stable-diffusion|dreamshaper|@cf\/lykon\/)/i;
+// Achado real (log de produção, 03/10): o FLUX.1 schnell também não aceita
+// dimensões. As nove gerações da campanha 797 levaram 400 na primeira
+// tentativa e só passaram no retry sem width/height — 100% das chamadas,
+// nenhuma exceção:
+//   [WARN] [image-generation] Cloudflare 400 — retry sem dimensões
+//     {"model":"@cf/black-forest-labs/flux-1-schnell","format":"feed"}
+// O schema oficial fecha a questão (developers.cloudflare.com/workers-ai/
+// models/flux-1-schnell/schema-input.json): só `prompt` e `steps`, com
+// "additionalProperties": false. Qualquer width/height é 400 garantido.
+// O FLUX 2 é outro schema e ACEITA width/height (flux-2-flex, -max, -pro),
+// então a regra é por geração do modelo, não por família: flux-1 fora,
+// flux-2 dentro.
+//
+// Isso custava duas viagens de rede e até 60s de timeout em CADA imagem.
+const CF_MODELOS_SEM_DIMENSOES = /(@cf\/stabilityai\/|stable-diffusion|dreamshaper|@cf\/lykon\/|flux-1)/i;
 
 export function cloudflareModeloAceitaDimensoes(model: string): boolean {
   return !CF_MODELOS_SEM_DIMENSOES.test(model);

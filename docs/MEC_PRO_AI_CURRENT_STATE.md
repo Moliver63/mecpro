@@ -1483,3 +1483,47 @@ Dois erros numa frase. **`consultar_paginas_meta` e ferramenta DO ASSISTENTE** �
 Validado: 6/6 no teste novo, 4/4 chatAdsTools, 50/50 campaignFactGuard, 15/15 creativeRewriteGuard, 11/11 objectiveAlignment, 13/13 visualSubjectAlignment. Typecheck 50 erros, diff identico ao baseline. `campaignPublish.test.ts` falha por ZodError de env no sandbox — **verificado que falha igual sem estas mudancas**, e pre-existente.
 
 **Nao testado de ponta a ponta**: a resolucao real depende da conta Meta do usuario; aqui a lista e injetada. O proximo pedido de publicacao pelo chat confirma.
+
+---
+
+## 03/10 — FLUX.1 schnell levava 400 em toda imagem, e o motivo de "validador indisponivel" nao dizia nada
+
+**Sintoma (log de producao, campanha 797, 17:34–17:36)**: nove tarefas de imagem, uma a cada 15s, todas com o mesmo par de linhas:
+
+```
+[WARN] [image-generation] Cloudflare 400 — retry sem dimensoes {"model":"@cf/black-forest-labs/flux-1-schnell","format":"feed"}
+[INFO] [image-job] Estado atualizado {"jobId":N,"campaignId":797,"status":"pending_validation","reason":"visual_validator_unavailable"}
+```
+
+**Primeira pergunta respondida: nao e loop.** A fila do `campaignImageJobs.ts` processa UMA tarefa por tick de 15s, com `attempts<3` e `next_attempt=NOW()+5 minutes` a cada atualizacao. Os jobIds 1..9 em dois minutos sao nove tarefas DISTINTAS drenando a fila, nao a mesma tarefa repetindo — se fosse retentativa, o espacamento seria de 5 minutos. E `candidate_url` e persistido antes da validacao, entao a retentativa **nao regenera** a imagem (`let url = job.candidate_url; if (!url) ...`). O gasto de neurons e limitado: uma geracao por tarefa.
+
+### Bug 1 — width/height no FLUX.1 schnell: 400 garantido em 100% das chamadas
+
+`CF_MODELOS_SEM_DIMENSOES` listava Stable Diffusion, dreamshaper e lykon, mas **nao o FLUX 1**. Resultado: toda geracao mandava `width`/`height`, levava 400, e so passava no retry sem dimensoes. Duas viagens de rede e ate 60s de timeout por imagem, silenciosamente — o retry salvava a geracao, entao nada quebrava de forma visivel.
+
+Prova dupla, as duas contra o que o codigo assumia:
+
+1. **Producao**: 9 de 9 chamadas com 400 na primeira tentativa. Nenhuma excecao.
+2. **Schema oficial** (`developers.cloudflare.com/workers-ai/models/flux-1-schnell/schema-input.json`): so `prompt` e `steps`, com `"additionalProperties": false`. Qualquer campo extra e 400 por definicao.
+
+**Correcao**: `flux-1` entrou no `CF_MODELOS_SEM_DIMENSOES`. A regra e por **geracao** do modelo, nao por familia — o FLUX 2 tem schema proprio e **aceita** width/height (`flux-2-flex`, `-max`, `-pro-preview`, confirmado na doc). Dimensao ali sempre foi hint de geracao: o tamanho final do criativo e normalizado depois, no upload do Cloudinary.
+
+**Havia um teste afirmando o contrario** (`cloudflareModeloAceitaDimensoes("@cf/black-forest-labs/flux-1-schnell") === true`). Estava errado e foi corrigido, com as duas provas no comentario. Diferente do caso da supressao de cena visual em 02/10 — ali o teste existente estava **certo** e eu tinha removido uma decisao deliberada. A diferenca entre os dois casos e evidencia externa: aqui o schema oficial e o log de producao concordam contra o teste.
+
+### Bug 2 — `visual_validator_unavailable` era um rotulo so pra oito falhas diferentes
+
+O `campaignImageValidator.ts` devolvia a MESMA string pra: sem chave, host fora do Cloudinary, download falhado, mime inesperado, imagem grande demais, modelo invalido, resposta nao-ok do Gemini e excecao. Sem distinguir, nao havia como saber se a acao era **esperar** (Gemini em 503) ou **configurar** (chave faltando).
+
+**Correcao**: o motivo agora e `visual_validator_unavailable:<causa>` — `sem_chave_gemini`, `host_nao_permitido`, `download_http_404`, `mime_inesperado`, `imagem_grande_demais`, `corpo_vazio`, `modelo_invalido`, `gemini_http_503`, `timeout`, `excecao`. A **decisao nao mudou**: continua `pending_validation`, preservando o candidato, sem nunca aprovar por falta de leitura. Nenhum consumidor comparava a string antiga (verificado por grep no repo inteiro).
+
+**Mudanca importante de diagnostico**: este validador **nao usa mais o Cloud Vision** — usa o Gemini vision (`IMAGE_VALIDATION_GEMINI_API_KEY || GEMINI_API_KEY`, modelo `gemini-2.5-flash`). O billing do projeto Google Cloud 1000850630887, que eu vinha apontando como bloqueio da validacao de imagem, **nao bloqueia mais este caminho**. A suspeita principal passou a ser o 503 "high demand" do Gemini, que aparece no mesmo log as 17:26, 17:33 e 17:34 derrubando o chat pro Cloudflare. Com os motivos separados, o proximo log diz qual e sem suposicao.
+
+### Paginas Meta: nao houve duplicacao
+
+Os commits `4ca3c98` e `cadbbdb` da sessao paralela **nao** reimplementam `metaPageResolution.ts` — sao tres camadas complementares:
+
+- `44b60b8` (este modulo): resolucao deterministica no caminho de publicacao, depois da checagem de dono.
+- `4ca3c98`: `chatAdsTools.ts` **importa** `resolverPaginaMetaComLista` e amarra confirmacao e execucao ao MESMO destino resolvido (o token de confirmacao passou a ser calculado sobre `resolvedOptions`, nao sobre o pedido cru).
+- `cadbbdb`: `chatMetaPageReply.ts` conserta o TEXTO quando o modelo narra a regra em vez de executar — a rede de seguranca pra quando a instrucao nao e obedecida.
+
+Validado: 307 testes, 303 passando. Os 4 que falham (`offerConfidence` venda+locacao, `campaignPublish.test.ts` por ZodError de env, destino invalido/contatos corrompidos, `nicheToHumanLabel` composto) **falham identicos no origin/main limpo** — verificado rodando a suite com as mudancas em stash. Typecheck 37 erros, diff identico ao baseline linha por linha. Os dois testes novos foram verificados **falhando sem a correcao** e passando com ela.
