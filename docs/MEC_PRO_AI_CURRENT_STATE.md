@@ -1527,3 +1527,50 @@ Os commits `4ca3c98` e `cadbbdb` da sessao paralela **nao** reimplementam `metaP
 - `cadbbdb`: `chatMetaPageReply.ts` conserta o TEXTO quando o modelo narra a regra em vez de executar — a rede de seguranca pra quando a instrucao nao e obedecida.
 
 Validado: 307 testes, 303 passando. Os 4 que falham (`offerConfidence` venda+locacao, `campaignPublish.test.ts` por ZodError de env, destino invalido/contatos corrompidos, `nicheToHumanLabel` composto) **falham identicos no origin/main limpo** — verificado rodando a suite com as mudancas em stash. Typecheck 37 erros, diff identico ao baseline linha por linha. Os dois testes novos foram verificados **falhando sem a correcao** e passando com ela.
+
+---
+
+## 05/10 — formato da imagem ignorava a orientacao do criativo, e a ferramenta nao dizia que a fila tinha desistido
+
+Os dois achados sairam da leitura direta da campanha 797 ("Shadia Hasan — Leads") pelo MCP, nao de log.
+
+**Estado real encontrado**: 10 criativos, **nenhum** com campo de imagem (`feedImageUrl`, `storyImageUrl`, `squareImageUrl`, `imageHash` — todos ausentes). Nenhuma imagem jamais foi aprovada nos criativos.
+
+### Bug 3 — um formato pra chamada inteira, em vez de um por criativo
+
+`campaignImageJobs` usava `const format = args.format || "feed"` pra chamada toda e nunca olhava a `orientation` de cada criativo. Na 797 isso enfileirou as dez tarefas como `feed`, mas os criativos sao mistos: quatro `vertical_9_16` (Stories), tres `quadrado_1_1`, tres `feed_4_5`.
+
+Consequencia: o card de Stories recebia imagem 4:5 gravada em `storyImageUrl`. **E a explicacao mecanica do "Story e Square identicos"** que estava na lista de pendencias desde 02/10 — nao era cache nem repeticao de prompt, era a MESMA proporcao sendo pedida pros tres formatos.
+
+**Correcao**: `formatoPorOrientacao(orientacao, formatoPedido)` em `imageWorkflowPolicy.ts`, aplicada **por criativo** dentro do laco de `start`. O mapeamento segue o conjunto canonico de `ai.ts:7363`: `vertical_9_16` → stories, `quadrado_1_1` → square, `feed_4_5` → feed.
+
+Duas decisoes deliberadas:
+
+- **O formato pedido explicitamente ainda ganha.** Um criativo guarda as tres proporcoes, entao pedir "square" pra um card de Stories e intencao legitima, nao erro.
+- **`horizontal_16_9` cai em feed.** A fila so tem tres formatos, e eles aparecem em quatro lugares acoplados (`FORMAT_DIMENSIONS`, `imageField`, o enum da ferramenta, a coluna do banco). Criar um quarto e mudanca de schema, nao de mapeamento — fica fora deste commit de proposito, documentado como lacuna.
+
+Tem teste cobrindo a metade que protege: a checagem de "ja tem imagem" passou a olhar o campo do formato **derivado**. Olhando sempre o feed, um card de Stories que ja tinha `storyImageUrl` seria reenfileirado e sobrescrito.
+
+### Bug 4 — a resposta da ferramenta nao dizia se a fila ainda ia agir
+
+**Incidente real (Michel, 05/10)**: o chat respondeu "As imagens (...) estao em fila de geracao (status: `queued`). O processo esta em andamento, mas nao ha acao manual disponivel para acelerar. Aguarde 10-15 minutos para a validacao automatica."
+
+As tres afirmacoes estavam erradas:
+
+1. **O status nao era `queued`**, era `pending_validation` — que significa o oposto. `queued` = imagem nunca gerada; `pending_validation` = imagem existe, guardada no Cloudinary, esperando analise.
+2. **Existe acao manual**: `action=revalidate` esta no schema da propria ferramenta e no system prompt que o chat recebe.
+3. **Esperar nunca resolveria**: as tarefas tinham esgotado as tres tentativas nos ciclos de 11:17, 11:22 e 11:28. O SELECT do worker e `attempts<3`, entao elas nao seriam selecionadas nunca mais.
+
+Parte disso e o modelo narrando em vez de executar (mesma familia do incidente do `pageId`). Mas **parte nao era desobediencia**: nada na resposta da ferramenta dizia que a fila havia desistido. O teto de tentativas e regra do SELECT do worker, invisivel pra quem le as linhas de `jobs`. O modelo preencheu a lacuna com a suposicao mais natural — "ainda esta rodando".
+
+**Correcao de contrato, nao de prompt**: a resposta ganhou o campo `estado`, vindo de `resumoDeTarefasDeImagem(rows)`, com `filaVaiAgir` (booleano deterministico), `porStatus`, `paradasSemTentativa` e `destravar` (a acao concreta quando a fila nao vai mais agir). A regra do worker virou a constante compartilhada `MAX_TENTATIVAS_VALIDACAO`, usada tanto no SELECT (agora parametrizado) quanto no resumo — se os dois divergirem, o resumo passa a mentir.
+
+O prompt foi reforcado em cima disso: proibido afirmar estado de memoria, proibido mandar aguardar quando `estado.filaVaiAgir` e false, proibido dizer que nao existe acao manual.
+
+O resumo tambem **nao** manda revalidar por reflexo: com `attempts` abaixo do teto, `filaVaiAgir` e true e `destravar` e null, porque ali esperar e a resposta certa.
+
+**Bug meu, pego pelo typecheck**: escrevi a instrucao nova do prompt com backticks em volta de `estado.filaVaiAgir`, dentro de um template literal — os backticks fecharam a string e quebraram o arquivo (4 erros de sintaxe em `chat.ts`). Corrigido tirando os backticks. O baseline de typecheck existe exatamente pra isso.
+
+Validado: 311 testes, 307 passando. Os 4 que falham sao os mesmos de sempre (`offerConfidence` venda+locacao, `campaignPublish.test.ts` por ZodError de env no sandbox, destino invalido/contatos corrompidos, `nicheToHumanLabel` composto) — verificado que falham identicos no `origin/main` limpo. Typecheck 37 erros, diff identico ao baseline linha por linha. Os testes de formato foram verificados **falhando com so o wiring revertido** (mantendo as funcoes novas, pra o erro ser de asercao e nao de import).
+
+**Nao verificado em producao**: nada disso, nem as correcoes de 03/10. O deploy nao subiu — o log de 05/10 ainda mostra `visual_validator_unavailable` sem sufixo, e no codigo comitado nao existe mais nenhum caminho que devolva essa string pelada.

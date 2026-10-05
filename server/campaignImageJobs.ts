@@ -1,4 +1,5 @@
-import { imageBrief, imageFingerprint, hasCreativeImage, imageField } from "./imageWorkflowPolicy";
+import { imageBrief, imageFingerprint, hasCreativeImage, imageField, formatoPorOrientacao,
+  resumoDeTarefasDeImagem, MAX_TENTATIVAS_VALIDACAO } from "./imageWorkflowPolicy";
 import { log } from "./logger";
 
 export const IMAGE_JOB_MIGRATION = `CREATE TABLE IF NOT EXISTS campaign_image_jobs (
@@ -20,7 +21,6 @@ export async function campaignImageJobs(userId: number, args: any, injected?: an
   const project = campaign && await db.getProjectById(campaign.projectId);
   if (!campaign || !project || project.userId !== userId) return { ok: false, erro: "Campanha indisponivel para esta conta." };
   const pool = await db.getPool(); if (!pool) return { ok: false, erro: "Fila de imagens indisponivel." };
-  const format = args.format || "feed";
   const action = args.action || "start";
   if (action === "revalidate") {
     await pool.query("UPDATE campaign_image_jobs SET status='pending_validation', attempts=0, next_attempt=NOW() WHERE user_id=$1 AND campaign_id=$2 AND status='pending_validation' AND candidate_url IS NOT NULL", [userId, campaign.id]);
@@ -34,20 +34,27 @@ export async function campaignImageJobs(userId: number, args: any, injected?: an
     const selected = creatives.map((creative, index) => ({ creative, index })).filter(c => args.creativeIndex === undefined || c.index === args.creativeIndex);
     const ready = [];
     for (const { creative, index } of selected) {
-      if (hasCreativeImage(creative, format)) continue;
+      // Formato por CRIATIVO, derivado da orientation dele — nao um unico
+      // valor pra chamada inteira. Ver formatoPorOrientacao.
+      const formatoDoCard = formatoPorOrientacao(creative?.orientation, args.format);
+      if (hasCreativeImage(creative, formatoDoCard)) continue;
       if (creative.usesRealPhoto) { blocked.push({ index, reason: "Foto real vinculada sem URL: recupere o anexo; nao substituida por imagem sintetica." }); continue; }
       let brief;
       try { brief = imageBrief(campaign, creative); } catch { return { ok: false, erro: "Faltam fatos e segmento confirmados na campanha. Confirme o briefing; nao precisa enviar dez fotos." }; }
-      ready.push({ index, brief });
+      ready.push({ index, brief, formato: formatoDoCard });
     }
-    for (const { index, brief } of ready) {
-      const fingerprint = imageFingerprint({ userId, campaignId: campaign.id, index, format, brief });
-      await pool.query("INSERT INTO campaign_image_jobs (user_id,campaign_id,creative_index,format,fingerprint,brief) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (fingerprint) DO NOTHING", [userId, campaign.id, index, format, fingerprint, JSON.stringify(brief)]);
+    for (const { index, brief, formato } of ready) {
+      const fingerprint = imageFingerprint({ userId, campaignId: campaign.id, index, format: formato, brief });
+      await pool.query("INSERT INTO campaign_image_jobs (user_id,campaign_id,creative_index,format,fingerprint,brief) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (fingerprint) DO NOTHING", [userId, campaign.id, index, formato, fingerprint, JSON.stringify(brief)]);
     }
   }
   const result = await pool.query("SELECT id,creative_index,format,status,score,reason,attempts,candidate_url AS preview_url,provider FROM campaign_image_jobs WHERE user_id=$1 AND campaign_id=$2 ORDER BY id DESC LIMIT 30", [userId, campaign.id]);
-  return { ok: true, campaignId: campaign.id, jobs: result.rows, blocked, published: false,
-    note: "Ultimas 30 tarefas, incluindo historico. Tarefas persistentes, nao publicacao. Consulte action=status. preview_url e somente para revisao, nao autoriza publicar. Pendente significa imagem preservada aguardando validacao. Aprovadas sao salvas nos criativos. Revalidar nao gera nova imagem." };
+  // `estado` e deterministico e diz se a fila ainda vai agir sozinha — a
+  // informacao que faltava quando o chat inventou "aguarde 10-15 minutos"
+  // para tarefas que haviam esgotado as tentativas. Ver resumoDeTarefasDeImagem.
+  const estado = resumoDeTarefasDeImagem(result.rows);
+  return { ok: true, campaignId: campaign.id, jobs: result.rows, blocked, published: false, estado,
+    note: "Ultimas 30 tarefas, incluindo historico. Tarefas persistentes, nao publicacao. Consulte action=status. preview_url e somente para revisao, nao autoriza publicar. Pendente significa imagem preservada aguardando validacao. Aprovadas sao salvas nos criativos. Revalidar nao gera nova imagem. Relate o estado a partir de `estado`, nunca inferindo do formato das linhas: se estado.filaVaiAgir for false, NAO diga ao usuario para aguardar — diga o que esta em estado.destravar." };
 }
 
 // One global advisory lock: serial processing across replicas, automatically released on disconnect.
@@ -59,7 +66,7 @@ export async function processCampaignImageJob(injected?: any) {
     if (!locked) return;
     // A process died while working. Revalidate a stored candidate; never regenerate an uncertain request.
     await connection.query("UPDATE campaign_image_jobs SET status=CASE WHEN candidate_url IS NULL THEN 'needs_review' ELSE 'pending_validation' END, reason='interrupted_worker' WHERE status='running'");
-    const found = await connection.query("SELECT * FROM campaign_image_jobs WHERE (status='queued' OR (status='pending_validation' AND attempts<3)) AND next_attempt<=NOW() ORDER BY id LIMIT 1");
+    const found = await connection.query("SELECT * FROM campaign_image_jobs WHERE (status='queued' OR (status='pending_validation' AND attempts<$1)) AND next_attempt<=NOW() ORDER BY id LIMIT 1", [MAX_TENTATIVAS_VALIDACAO]);
     const job = found.rows[0]; if (!job) return;
     await connection.query("UPDATE campaign_image_jobs SET status='running',updated_at=NOW() WHERE id=$1", [job.id]);
     const update = async (status: string, reason: string, score: number | null = null) => {

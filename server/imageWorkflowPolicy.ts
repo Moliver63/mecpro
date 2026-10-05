@@ -27,6 +27,100 @@ export function imageFingerprint(value: unknown) {
   return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 }
 export function imageField(format: string) { return format === "stories" ? "storyImageUrl" : format === "square" ? "squareImageUrl" : "feedImageUrl"; }
+
+// Achado real (campanha 797, lido no banco em 05/10): as dez tarefas foram
+// enfileiradas com format "feed", mas os criativos nao sao todos feed —
+// quatro sao `vertical_9_16` (Stories) e tres sao `quadrado_1_1`. O
+// `campaignImageJobs` usava um unico `args.format || "feed"` pra chamada
+// inteira e nunca olhava a `orientation` de cada criativo.
+//
+// Consequencia: criativo de Stories recebia imagem 4:5 gravada em
+// `storyImageUrl`. E a explicacao mecanica do "Story e Square identicos"
+// que estava na lista de pendencias — nao eram identicos por cache, eram
+// a MESMA proporcao pedida pros tres.
+//
+// O formato pedido explicitamente ainda ganha: um criativo pode guardar as
+// tres proporcoes, entao pedir "square" pra um card de Stories e intencao
+// legitima, nao erro.
+//
+// Lacuna conhecida: `horizontal_16_9` cai em "feed" porque a fila so tem
+// tres formatos (FORMAT_DIMENSIONS, imageField, o enum da ferramenta e a
+// coluna do banco). Criar um quarto formato e mudanca de schema, nao de
+// mapeamento — fica fora daqui de proposito.
+export function formatoPorOrientacao(
+  orientacao: unknown,
+  formatoPedido?: string,
+): "feed" | "stories" | "square" {
+  if (formatoPedido === "feed" || formatoPedido === "stories" || formatoPedido === "square") return formatoPedido;
+  const o = String(orientacao || "").trim().toLowerCase();
+  if (o === "vertical_9_16") return "stories";
+  if (o === "quadrado_1_1") return "square";
+  return "feed";
+}
+
+// Teto de tentativas de validacao. Vive aqui, e nao escrito na mao dentro do
+// SQL, porque o resumo abaixo precisa do MESMO numero — se os dois
+// divergirem, o resumo passa a mentir sobre o que a fila vai fazer.
+export const MAX_TENTATIVAS_VALIDACAO = 3;
+
+export type TarefaDeImagem = { status?: string; attempts?: number; creative_index?: number; format?: string; reason?: string };
+
+/**
+ * Achado real (05/10): o chat respondeu a Michel "status: queued (...) nao
+ * ha acao manual disponivel para acelerar. Aguarde 10-15 minutos". As tres
+ * afirmacoes estavam erradas: as tarefas estavam em `pending_validation`,
+ * `action=revalidate` existe no schema da propria ferramenta, e as tarefas
+ * tinham esgotado as tres tentativas — esperar nao produziria nada, nunca.
+ *
+ * A parte que NAO era desobediencia do modelo: nada na resposta da
+ * ferramenta dizia que a fila havia desistido. O teto de tentativas e uma
+ * regra do SELECT do worker, invisivel pra quem le as linhas. O modelo
+ * preencheu a lacuna com a suposicao mais natural ("ainda esta rodando").
+ *
+ * Entao a correcao principal e de contrato, nao de prompt: a ferramenta
+ * passa a dizer, de forma deterministica, se a fila ainda vai agir sozinha
+ * e o que destrava quando nao vai.
+ */
+export function resumoDeTarefasDeImagem(tarefas: TarefaDeImagem[]) {
+  const linhas = Array.isArray(tarefas) ? tarefas : [];
+  const porStatus: Record<string, number> = {};
+  for (const t of linhas) {
+    const s = String(t?.status || "desconhecido");
+    porStatus[s] = (porStatus[s] || 0) + 1;
+  }
+  // O worker so volta a pegar: status='queued', ou 'pending_validation' com
+  // attempts abaixo do teto. Qualquer outro estado e terminal pra fila.
+  const aguardandoFila = linhas.filter(t =>
+    t?.status === "queued" ||
+    (t?.status === "pending_validation" && Number(t?.attempts ?? 0) < MAX_TENTATIVAS_VALIDACAO));
+  const paradas = linhas.filter(t =>
+    t?.status === "pending_validation" && Number(t?.attempts ?? 0) >= MAX_TENTATIVAS_VALIDACAO);
+  const aprovadas = linhas.filter(t => t?.status === "approved");
+
+  const filaVaiAgir = aguardandoFila.length > 0;
+  let destravar: string | null = null;
+  if (!filaVaiAgir && paradas.length > 0) {
+    destravar = `${paradas.length} tarefa(s) esgotaram as ${MAX_TENTATIVAS_VALIDACAO} tentativas de validacao e a fila NAO vai pegar de novo sozinha. Esperar nao resolve. Use action=revalidate: zera o contador e reanalisa a imagem que ja existe, sem gerar outra.`;
+  }
+
+  return {
+    total: linhas.length,
+    porStatus,
+    aprovadas: aprovadas.length,
+    aguardandoFila: aguardandoFila.length,
+    paradasSemTentativa: paradas.length,
+    filaVaiAgir,
+    destravar,
+    // Frase pronta pro assistente: deterministica, pra ele nao precisar
+    // inferir o estado a partir do formato das linhas.
+    resumo: linhas.length === 0
+      ? "Nenhuma tarefa de imagem registrada para esta campanha."
+      : `${linhas.length} tarefa(s): ${Object.entries(porStatus).map(([s, n]) => `${n} ${s}`).join(", ")}. ` +
+        (filaVaiAgir
+          ? `${aguardandoFila.length} ainda na fila automatica.`
+          : "Nenhuma na fila automatica — a fila nao vai agir sozinha."),
+  };
+}
 export function hasCreativeImage(c: any, format: string) {
   return !!(c[imageField(format)] || c.imageUrl || c.imageHash || c.feedImageHash || c.realPhotoUrl);
 }

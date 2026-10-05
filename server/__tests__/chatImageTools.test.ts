@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generateChatImage } from "../chatImageTools";
-import { imageBrief, imageFingerprint, canonicalStockQuery, visualDecision } from "../imageWorkflowPolicy";
+import { imageBrief, imageFingerprint, canonicalStockQuery, visualDecision,
+  resumoDeTarefasDeImagem, MAX_TENTATIVAS_VALIDACAO } from "../imageWorkflowPolicy";
 import { processCampaignImageJob } from "../campaignImageJobs";
 
 function fixture(creatives: any[] = [{ headline: "Planejamento financeiro" }]) {
@@ -25,6 +26,96 @@ test("queues missing cards, preserves real media and explains broken attachments
   await generateChatImage(1, { campaignId: 797 }, f.db);
   assert.equal(f.jobs.size, 2);
 });
+// Achado real (campanha 797 — "Shadia Hasan — Leads", lida no banco em
+// 05/10): as dez tarefas foram enfileiradas com format "feed", mas quatro
+// criativos sao `vertical_9_16` (Stories) e tres sao `quadrado_1_1`. O card
+// de Stories recebia imagem 4:5 gravada em `storyImageUrl` — a explicacao
+// mecanica do "Story e Square identicos": nao era cache, era a MESMA
+// proporcao pedida pros tres.
+test("formato da tarefa sai da orientation de cada criativo, nao do default", async () => {
+  const f = fixture([
+    { headline: "A", orientation: "feed_4_5" },
+    { headline: "B", orientation: "vertical_9_16" },
+    { headline: "C", orientation: "quadrado_1_1" },
+    { headline: "D", orientation: "horizontal_16_9" },
+    { headline: "E" },
+  ]);
+  const r: any = await generateChatImage(1, { campaignId: 797 }, f.db);
+  assert.equal(r.ok, true);
+  const formatos = f.calls.filter(c => c.sql.startsWith("INSERT")).map(c => ({ index: c.params[2], format: c.params[3] }));
+  assert.deepEqual(formatos, [
+    { index: 0, format: "feed" },
+    { index: 1, format: "stories" },
+    { index: 2, format: "square" },
+    // Lacuna conhecida e deliberada: a fila so tem tres formatos, entao
+    // 16:9 cai em feed. Virar um quarto formato e mudanca de schema.
+    { index: 3, format: "feed" },
+    // Sem orientation: feed, como antes.
+    { index: 4, format: "feed" },
+  ]);
+});
+
+test("formato pedido explicitamente ganha da orientation", async () => {
+  const f = fixture([{ headline: "A", orientation: "vertical_9_16" }]);
+  await generateChatImage(1, { campaignId: 797, format: "square" }, f.db);
+  const insert = f.calls.find(c => c.sql.startsWith("INSERT"));
+  assert.equal(insert.params[3], "square", "um criativo guarda as tres proporcoes; pedir uma delas e intencao legitima");
+});
+
+// A metade que protege: a checagem de "ja tem imagem" tem que olhar o campo
+// do formato DERIVADO. Olhando o feed, um card de Stories que ja tinha
+// storyImageUrl seria reenfileirado e sobrescrito.
+test("nao reenfileira card que ja tem imagem no formato derivado", async () => {
+  const f = fixture([
+    { headline: "A", orientation: "vertical_9_16", storyImageUrl: "https://res.cloudinary.com/x/ja-existe.jpg" },
+    { headline: "B", orientation: "quadrado_1_1", squareImageUrl: "https://res.cloudinary.com/x/ja-existe.jpg" },
+  ]);
+  const r: any = await generateChatImage(1, { campaignId: 797 }, f.db);
+  assert.equal(r.ok, true);
+  assert.equal(f.jobs.size, 0, "as duas imagens ja existem no formato certo; nada a gerar");
+});
+
+// Incidente real (Michel, 05/10): o chat respondeu "status: queued (...) nao
+// ha acao manual disponivel para acelerar. Aguarde 10-15 minutos para a
+// validacao automatica." As tres afirmacoes estavam erradas — as tarefas
+// estavam em pending_validation, revalidate existe no schema da propria
+// ferramenta, e as tentativas tinham acabado: esperar nunca produziria nada.
+//
+// A parte que nao era desobediencia: nada na resposta dizia que a fila havia
+// desistido. O teto de tentativas e regra do SELECT do worker, invisivel pra
+// quem le as linhas.
+test("estado diz quando a fila desistiu, em vez de deixar o assistente supor", () => {
+  const dezParadas = Array.from({ length: 10 }, (_, i) =>
+    ({ creative_index: i, status: "pending_validation", attempts: MAX_TENTATIVAS_VALIDACAO, reason: "visual_validator_unavailable" }));
+  const e = resumoDeTarefasDeImagem(dezParadas);
+  assert.equal(e.total, 10);
+  assert.equal(e.filaVaiAgir, false, "attempts no teto: o SELECT do worker nao pega mais");
+  assert.equal(e.paradasSemTentativa, 10);
+  assert.equal(e.aprovadas, 0);
+  assert.match(e.destravar, /revalidate/, "tem que apontar a acao que destrava");
+  assert.match(e.destravar, /Esperar nao resolve/);
+  assert.doesNotMatch(e.resumo, /queued/, "nenhuma esta em queued; o resumo nao pode sugerir isso");
+
+  // Uma tentativa abaixo do teto: a fila AINDA vai pegar, e aqui esperar
+  // e a resposta certa. O resumo nao pode mandar revalidar por reflexo.
+  const aindaNaFila = resumoDeTarefasDeImagem([
+    { creative_index: 0, status: "pending_validation", attempts: MAX_TENTATIVAS_VALIDACAO - 1 },
+  ]);
+  assert.equal(aindaNaFila.filaVaiAgir, true);
+  assert.equal(aindaNaFila.destravar, null);
+
+  // queued sempre e pego, independente de attempts.
+  assert.equal(resumoDeTarefasDeImagem([{ status: "queued", attempts: 99 }]).filaVaiAgir, true);
+
+  // Estados terminais nao sao "aguardando": approved, rejected, failed,
+  // needs_review e cancelled nunca voltam pra fila sozinhos.
+  for (const status of ["approved", "rejected", "failed", "needs_review", "cancelled"]) {
+    assert.equal(resumoDeTarefasDeImagem([{ status, attempts: 0 }]).filaVaiAgir, false, `${status} nao aguarda fila`);
+  }
+  assert.equal(resumoDeTarefasDeImagem([]).filaVaiAgir, false);
+  assert.match(resumoDeTarefasDeImagem([]).resumo, /Nenhuma tarefa/);
+});
+
 test("ownership and inputs fail before reservation", async () => {
   const f = fixture();
   for (const args of [{ campaignId: 0 }, { campaignId: 797, creativeIndex: 5 }, { campaignId: 797, format: "bad" }]) {
