@@ -31,6 +31,7 @@ import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, defi
 import { listarPaginasMetaConectadas } from "./campaignPublish";
 import { chatImageTool, generateChatImage } from "./chatImageTools";
 import { repairMetaPageReply } from "./chatMetaPageReply";
+import { corrigirRespostaDeImagens, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
@@ -1229,6 +1230,8 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
     }
     if (chamada.function.name === chatImageTool.name) {
       const result = await generateChatImage(userId, limparArgsFerramenta(args));
+      // Guarda o estado real deste turno pra trava de texto no fim.
+      registrarEstadoDeImagens(result);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1446,6 +1449,8 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
     if (chamada.function?.name === chatImageTool.name) {
       const result = await generateChatImage(userId, limparArgsFerramenta(args));
+      // Guarda o estado real deste turno pra trava de texto no fim.
+      registrarEstadoDeImagens(result);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1751,12 +1756,18 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   const messages = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
   const message = [...messages].reverse().find((m: any) => m?.role === "user")?.content;
   adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
-    chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next));
+    imageTurn.run({}, () =>
+      chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next)));
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const state = briefingContext.getStore();
   const finish = async (resultado: RespostaChat) => {
     resultado = { ...resultado, resposta: await repairMetaPageReply(resultado.resposta, () => listarPaginasMetaConectadas(userId)) };
+    // Trava deterministica: a correcao de contrato (dar `estado` ao modelo)
+    // nao foi suficiente — em 06/10, com ela no ar, o chat afirmou "queued,
+    // aguarde 10-15 minutos" tendo `filaVaiAgir: false` na mao. So intervem
+    // quando o texto contradiz o estado real deste turno.
+    resultado = { ...resultado, resposta: corrigirRespostaDeImagens(resultado.resposta, imageTurn.getStore()?.estado) };
     if (state && resultado.campanha) {
       state.lastCampaign = resultado.campanha;
       state.briefing.newCampaign = false;

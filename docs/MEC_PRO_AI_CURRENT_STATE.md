@@ -1574,3 +1574,33 @@ O resumo tambem **nao** manda revalidar por reflexo: com `attempts` abaixo do te
 Validado: 311 testes, 307 passando. Os 4 que falham sao os mesmos de sempre (`offerConfidence` venda+locacao, `campaignPublish.test.ts` por ZodError de env no sandbox, destino invalido/contatos corrompidos, `nicheToHumanLabel` composto) — verificado que falham identicos no `origin/main` limpo. Typecheck 37 erros, diff identico ao baseline linha por linha. Os testes de formato foram verificados **falhando com so o wiring revertido** (mantendo as funcoes novas, pra o erro ser de asercao e nao de import).
 
 **Nao verificado em producao**: nada disso, nem as correcoes de 03/10. O deploy nao subiu — o log de 05/10 ainda mostra `visual_validator_unavailable` sem sufixo, e no codigo comitado nao existe mais nenhum caminho que devolva essa string pelada.
+
+---
+
+## 06/10 — a correcao de contrato nao foi suficiente: trava deterministica na resposta de imagens
+
+**O deploy ACONTECEU e incluiu as duas correcoes anteriores.** Boot em `2026-10-05T16:03:19Z` (logs do Render em UTC); o commit `c47035e` e de `2026-10-05T12:57:04-03:00` = `15:57Z`, seis minutos antes. `a26c57f` e de 03/10, tambem antes. Os dois estavam no ar.
+
+**E mesmo assim o chat errou igual.** Resposta de 06/10, com o campo `estado` em producao:
+
+> "As 10 imagens da campanha Shadia Hasan — Leads (ID 797) estao pendentes de validacao (status: `queued`). O processo e automatico e leva 10-15 minutos. Aguarde ou revise o status no link: [...]"
+
+A resposta da ferramenta trazia `estado.filaVaiAgir: false`, as linhas com `status: 'pending_validation'`, e `estado.destravar` com a acao concreta. Verificado que nada e filtrado no caminho: `chat.ts` faz `JSON.stringify(result)` direto no historico, sem allowlist de campos. O modelo tinha o dado estruturado na mao e afirmou o contrario dele.
+
+**Erro meu de julgamento, registrado.** Em 05/10 eu considerei a camada de reparo de texto e decidi nao construir, com este raciocinio: "a raiz (falta de informacao) esta corrigida, e um reparo por regex e mais pesado e mais propenso a falso positivo". A evidencia derrubou isso em um dia. A conclusao correta e a mesma do incidente do `pageId` de 30/09, e eu deveria ter aplicado o precedente em vez de reabrir a decisao: **depender de obediencia nao resolve**. A correcao de contrato era necessaria e nao era suficiente.
+
+**Correcao**: `server/chatImageReply.ts`, modulo puro, encaixado no MESMO seam do `repairMetaPageReply` (a funcao `finish` do router de chat).
+
+- **Nao re-consulta o banco.** Diferente do `chatMetaPageReply`, que refaz a chamada, aqui o `estado` vem da propria chamada da ferramenta daquele turno, guardado num `AsyncLocalStorage` (`imageTurn`) aberto junto com o `adsTurn`. Sem round-trip extra e sem risco de comparar o texto com um estado diferente do que o modelo viu.
+- **`AsyncLocalStorage` e nao variavel de modulo** porque o servidor atende varios usuarios ao mesmo tempo: um objeto compartilhado vazaria o estado da campanha de um usuario pro turno de outro. Tem teste com dois turnos em paralelo garantindo isso.
+- **So intervem quando a afirmacao e FALSA** contra o estado real. Tres gatilhos: mandar aguardar com `filaVaiAgir: false`; negar que exista acao manual tendo `destravar` preenchido; afirmar `queued` sem nenhuma tarefa nesse estado. Com `filaVaiAgir: true`, mandar aguardar esta certo e o texto passa intacto — tem teste pra isso, porque uma trava que reescreve texto correto e pior que a ausencia dela.
+
+Por que `queued` vs `pending_validation` e corrigido mesmo sem o "aguarde": os dois significam coisas **opostas**. `queued` = imagem nunca gerada. `pending_validation` = imagem pronta, guardada no Cloudinary, esperando analise. Trocar uma pela outra inverte o que o usuario entende da situacao, e foi o que fez o Michel esperar duas vezes por um processo que nunca ia rodar.
+
+Os dois textos reais (05/10 e 06/10) estao nos testes como fixtures, verbatim.
+
+Validado: 320 testes, 316 passando, mesmos 4 pre-existentes. Typecheck 37, diff identico ao baseline.
+
+### Estado da 797 nesta data
+
+Lido direto pelo MCP: 10 criativos, **nenhum** com campo de imagem. Nenhuma imagem aprovada, nem depois do deploy. As tarefas seguem paradas em `attempts=3`, e o `revalidate` nao foi rodado — porque o chat mandou aguardar em vez de dizer o que destravava. A causa real da falha de validacao continua **sem ser lida**: precisa do revalidate pra fila pegar as tarefas e so entao o log mostra o `visual_validator_unavailable:<causa>` da correcao de 03/10.
