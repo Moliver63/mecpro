@@ -1604,3 +1604,46 @@ Validado: 320 testes, 316 passando, mesmos 4 pre-existentes. Typecheck 37, diff 
 ### Estado da 797 nesta data
 
 Lido direto pelo MCP: 10 criativos, **nenhum** com campo de imagem. Nenhuma imagem aprovada, nem depois do deploy. As tarefas seguem paradas em `attempts=3`, e o `revalidate` nao foi rodado — porque o chat mandou aguardar em vez de dizer o que destravava. A causa real da falha de validacao continua **sem ser lida**: precisa do revalidate pra fila pegar as tarefas e so entao o log mostra o `visual_validator_unavailable:<causa>` da correcao de 03/10.
+
+---
+
+## 06/10 — as quatro falhas "pre-existentes" da suite, corrigidas
+
+Eu vinha reportando "4 falhas pre-existentes, verificado que falham igual no main limpo" em toda validacao. Verdade, e insuficiente: duas eram **bug de producao** e uma era **cobertura morta**. Dizer "nao fui eu" nao e o mesmo que dizer "esta certo".
+
+Resultado: **324/324 no servidor, 7/7 no cliente, zero falhas.** Typecheck 37 erros, diff identico ao baseline.
+
+### 1. `nicheToHumanLabel: composto → rotulo humano` — dois bugs de UI
+
+**`nicheToHumanLabel("b2b")` devolvia `"B2b"`.** Todas as regras testam o prefixo COM ponto (`startsWith("b2b.")`), e `deriveNicheFromProfile` devolve chave de segmento PURA no passo 6 (fallback sem subsegmento e sem offerType). Valia pros onze segmentos: `"Alimentacao"`, `"Saude Estetica"`, `"Imoveis Venda"` — sem acento e sem o rotulo pensado, direto na interface. Corrigido com o mapa `ROTULO_DE_SEGMENTO`.
+
+**Segundo bug, que o teste nunca alcancou** porque a asercao do `b2b` vinha antes e abortava: o sufixo `_tentativo` so era traduzido no titleizador generico, no fim da funcao. Qualquer nicho que casasse uma regra especifica perdia o `(tentativa)` — `imoveis_venda.lancamento_tentativo` devolvia `"Imovel na planta"`, escondendo do usuario que o subsegmento foi palpite de confianca MEDIA. Agora o sufixo e separado na entrada e reaplicado no fim, valendo pros tres caminhos.
+
+### 2. `conflito venda+locacao rebaixa offerConfidence` — fabricacao de certeza
+
+O gate `wantsOverrides` olhava so a confianca do SUBSEGMENTO e ignorava a da OFERTA. Com "Apartamento para alugar e comprar — duas opcoes", o `inferOfferType` rebaixava a oferta pra `baixa` pela regra explicita de conflito venda↔locacao (ai.ts:1369) — e os overrides passavam, injetando o hook `"disponibilidade imediata / mudanca facil / localizacao ideal"` numa peca que pode ser de VENDA.
+
+Em `imoveis_*` o subsegmento E uma afirmacao sobre tipo de oferta (locacao_anual, temporada, mcmv, venda_pronta) e o proprio segmento foi escolhido pelo `purpose`. Oferta ambigua torna a cadeia inteira palpite, e um hook de aluguel em peca de venda e exatamente a fabricacao que o Fact Guard existe pra impedir.
+
+O gate novo e **restrito a imoveis de proposito**: fora de imoveis, confianca `baixa` de oferta e so ausencia de verbo de compra/venda no texto, e um hook de `infoprodutos.curso` nao afirma nada sobre tipo de oferta — silenciar ali seria perder override legitimo.
+
+### 3. `invalid destination and corrupt stored contacts` — teste e codigo com decisoes opostas, e os dois certos sobre algo
+
+O teste exigia que `socialLinks` corrompido **estourasse**. O codigo tinha um comentario longo citando producao (13/09): `"Unexpected token 'h', \"https://ww\"... is not valid JSON"` derrubava o `gerar_campanha` INTEIRO, porque existe um campo de texto livre em `ClientProfile.tsx` que grava o texto digitado direto em `socialLinks`, sem codificar como JSON.
+
+Quase repeti o erro de 02/10 (reverter decisao deliberada achando que era descuido). Olhando os dois, cada lado acerta metade:
+
+- **O codigo acerta**: perfil com texto livre e dado legitimo do usuario, nao corrupcao. Estourar devolveria a queda de campanha de 13/09.
+- **O teste acerta no TITULO** ("do not overwrite data"): o caminho antigo caia pra `{}` e o `JSON.stringify` gravava so o whatsapp, **apagando** o Instagram e o site que o usuario tinha digitado. Perda silenciosa de dado do cliente. Trocar queda de campanha por perda de dado nao e conserto.
+
+**Saida que atende os dois**: nao estoura E nao perde — o texto nao-JSON e preservado em `textoLivre`. Seguro porque nenhum consumidor itera as chaves de `socialLinks`: todos leem campos nomeados com try/catch proprio (`useCompetitorData.ts`, `CampaignResult.tsx`, `FacebookCampaignCreator.tsx`) e o `PublishValidator.tsx` faz busca de substring por `"wa.me"`. Uma chave extra nao vira link quebrado em tela nenhuma. JSON valido que nao e objeto (escalar, array) tambem passou a ser preservado em vez de cair pra `{}`.
+
+A asercao `assert.throws` foi trocada **de proposito**, com o incidente de producao citado no teste. Troquei a asercao, nao o titulo: a preocupacao dele era certa.
+
+### 4. `campaignPublish.test.ts` — nao era so "ZodError do sandbox", era cobertura morta
+
+Eu vinha descartando como ambiente. Era ZodError de env, sim, mas o efeito importava: **o arquivo inteiro nao rodava**, e com ele quatro guardas do caminho que GASTA DINHEIRO (campanha inexistente, campanha de outro usuario, campanha sem conjuntos de anuncios, auditoria de carrossel). A suite reportava "1 falha de arquivo", que soa como ruido, em vez de "4 testes de autorizacao de publicacao nunca executados".
+
+Causa: `campaignPublish.ts` importa `./_core/router` e `./db` no topo, e `_core/env.ts` valida o ambiente com Zod no load do modulo.
+
+Corrigido pela convencao que o repo ja usa (`chatPrecision.test.ts`): envs minimos num `before` e import dinamico depois. **Nenhuma mudanca em codigo de producao** — considerei tornar os imports lazy, que seria a correcao estrutural, e decidi contra: mexer na ordem de import do caminho de publicacao real, que gasta o dinheiro do Michel, nao se paga por "um arquivo de teste carregar". Nao conecta em banco: `getDb()` so cria o Pool quando chamado, e os testes injetam as duas leituras por `deps`. A URL e `localhost` de proposito — se algum dia alguem fizer este teste tocar banco de verdade, ele falha em localhost em vez de alcancar producao.

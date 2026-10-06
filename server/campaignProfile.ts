@@ -184,8 +184,29 @@ export function resolveCampaignProfile(input: CampaignProfileInput): CampaignPro
       ? SUBSEGMENTS[resolvedSegment]?.find(s => s.key === subsegment.key)
       : undefined;
 
+  // Achado real (teste "conflito venda+locação rebaixa offerConfidence"): o
+  // gate olhava só a confiança do SUBSEGMENTO e ignorava a da OFERTA. Com
+  // "Apartamento para alugar e comprar — duas opções", o `inferOfferType`
+  // rebaixava a oferta pra "baixa" pela regra explícita de conflito
+  // venda↔locação — e os overrides passavam de qualquer jeito, injetando o
+  // hook "disponibilidade imediata / mudança fácil / localização ideal" numa
+  // peça que pode ser de venda.
+  //
+  // Em imoveis_*, o subsegmento É uma afirmação sobre o tipo de oferta
+  // (locacao_anual, temporada, mcmv, venda_pronta) e o próprio segmento foi
+  // escolhido pelo `purpose` logo acima. Se venda↔locação está ambíguo, essa
+  // cadeia inteira é palpite, e um hook de aluguel numa peça de venda é
+  // fabricar certeza que o sistema não tem — a mesma falha que o Fact Guard
+  // existe pra impedir.
+  //
+  // O gate é restrito a imóveis de propósito. Fora de imóveis, confiança
+  // "baixa" de oferta é só ausência de verbo de compra/venda no texto, e um
+  // hook de "infoprodutos.curso" não afirma nada sobre tipo de oferta —
+  // silenciar ali seria perder override legítimo.
+  const ofertaAmbiguaEmImovel = isRealEstate && offer.confidence === "baixa";
+
   const wantsOverrides =
-    !!matchedSub && subsegment.confidence !== "baixa";
+    !!matchedSub && subsegment.confidence !== "baixa" && !ofertaAmbiguaEmImovel;
 
   const hookOverride: string | null =
     wantsOverrides ? matchedSub!.hookOverride ?? null : null;

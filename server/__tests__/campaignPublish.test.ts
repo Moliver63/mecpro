@@ -1,7 +1,35 @@
-import test from "node:test";
+import test, { before } from "node:test";
 import assert from "node:assert/strict";
-import { publicarCampanhaNaMeta } from "../campaignPublish";
 import { auditCarouselCreatives } from "../carouselAudit";
+
+// Correcao de 06/10: este arquivo inteiro nao rodava. Importar
+// campaignPublish.ts no topo puxa `./_core/router` e `./db`, e
+// `_core/env.ts` valida o ambiente com Zod no load do modulo — sem
+// DATABASE_URL/JWT_SECRET/SESSION_SECRET o import estourava ZodError antes
+// do primeiro teste. Resultado: quatro testes de guarda do caminho que
+// GASTA DINHEIRO (campanha inexistente, campanha de outro usuario, campanha
+// sem conjuntos) estavam mortos, e a suite reportava isso como "1 falha"
+// generica de arquivo em vez de cobertura ausente.
+//
+// Vinha sendo descartado como "ZodError de env no sandbox". Era isso, mas
+// nao era so isso: o efeito era perder a cobertura.
+//
+// Correcao pela convencao que o repo ja usa (ver chatPrecision.test.ts):
+// envs minimos de teste num `before` e import dinamico depois. Nenhuma
+// mudanca em codigo de producao. Nao conecta em banco nenhum: `getDb()` so
+// cria o Pool quando chamado, e estes testes injetam as duas leituras de
+// banco por `deps` — nunca tocam no modulo real.
+//
+// A URL e deliberadamente localhost e os segredos sao literais de teste:
+// se algum dia alguem fizer este teste tocar banco de verdade, ele falha
+// em localhost em vez de alcancar producao.
+let publicarCampanhaNaMeta: typeof import("../campaignPublish").publicarCampanhaNaMeta;
+before(async () => {
+  process.env.DATABASE_URL   ??= "postgres://localhost:5432/mecpro_test";
+  process.env.JWT_SECRET     ??= "campaign-publish-test-secret-0123456789";
+  process.env.SESSION_SECRET ??= "campaign-publish-test-secret-0123456789";
+  ({ publicarCampanhaNaMeta } = await import("../campaignPublish"));
+});
 
 // Achado real (missao "agente conversacional autonomo", Fase 2 — 13/09):
 // publicar_campanha reaproveita a MESMA orquestracao ja usada pelo

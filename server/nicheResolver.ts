@@ -126,11 +126,53 @@ export function deriveNicheFromProfile(
   return options.fallbackNiche ? normalizeNicheKey(options.fallbackNiche) : segment;
 }
 
+// Rótulo de segmento SEM subsegmento. Precisa existir porque
+// `deriveNicheFromProfile` devolve chave de segmento pura no passo 6
+// (fallback sem subsegmento e sem offerType), então "b2b", "alimentacao" e
+// "imoveis_venda" chegam aqui sem ponto — e as regras abaixo todas testam
+// `startsWith("b2b.")`, com ponto. Sem este mapa, "b2b" caía no
+// titleizador genérico e virava "B2b" na interface.
+const ROTULO_DE_SEGMENTO: Record<string, string> = {
+  imoveis_venda:    "Imóveis à venda",
+  imoveis_locacao:  "Imóveis para alugar",
+  alimentacao:      "Alimentação",
+  servicos_locais:  "Serviços locais",
+  saude_estetica:   "Saúde e estética",
+  infoprodutos:     "Infoprodutos / Educação",
+  moda_varejo:      "Moda e varejo",
+  ecommerce:        "E-commerce / Produto",
+  b2b:              "B2B / Empresas",
+  financeiro:       "Financeiro / Investimentos",
+  outro:            "Outro",
+};
+
 /**
  * Rótulo humano do nicho (exibição em UI). Não usar para lookup em DB.
+ *
+ * Dois bugs reais corrigidos aqui (05/10 → 06/10), os dois travando o teste
+ * "nicheToHumanLabel: composto → rótulo humano":
+ *
+ * 1. Chave de segmento pura ("b2b") não casava com nenhuma regra, porque
+ *    todas testam o prefixo COM ponto ("b2b."). Caía no titleizador e virava
+ *    "B2b". Valia pros onze segmentos: "Alimentacao", "Saude Estetica",
+ *    "Imoveis Venda" — todos sem acento e sem o rótulo pensado.
+ * 2. O sufixo `_tentativo` só era traduzido no titleizador genérico, no fim.
+ *    Qualquer nicho que casasse uma regra específica perdia o "(tentativa)":
+ *    `imoveis_venda.lancamento_tentativo` devolvia "Imóvel na planta",
+ *    escondendo do usuário que o subsegmento foi um palpite de confiança
+ *    média. Agora o sufixo é separado na entrada e reaplicado no fim, valendo
+ *    pra todos os caminhos.
  */
 export function nicheToHumanLabel(niche: string): string {
-  const lower = (niche || "").toLowerCase();
+  const bruto = (niche || "").toLowerCase();
+  // Separado na entrada: vale pros três caminhos (regra específica, rótulo
+  // de segmento, titleizador), não só pro último.
+  const ehTentativa = /_tentativo$/.test(bruto);
+  const lower = bruto.replace(/_tentativo$/, "");
+  return rotuloBase(lower) + (ehTentativa ? " (tentativa)" : "");
+}
+
+function rotuloBase(lower: string): string {
   if (lower.startsWith("imoveis_locacao.locacao_anual"))  return "Imóvel para alugar (anual)";
   if (lower.startsWith("imoveis_locacao.comercial"))      return "Imóvel comercial para alugar";
   if (lower.startsWith("imoveis_locacao.temporada"))      return "Temporada / Diária";
@@ -152,8 +194,9 @@ export function nicheToHumanLabel(niche: string): string {
   if (lower.startsWith("b2b.saas"))                       return "Software / SaaS";
   if (lower.startsWith("b2b."))                           return "B2B / Empresas";
   if (lower.startsWith("financeiro."))                    return "Financeiro / Investimentos";
-  const cleaned = lower.replace(/_tentativo$/, " (tentativa)");
-  return cleaned
+  // Chave de segmento pura, sem subsegmento.
+  if (ROTULO_DE_SEGMENTO[lower]) return ROTULO_DE_SEGMENTO[lower];
+  return lower
     .split(".")
     .map(s => s.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "))
     .join(" — ");

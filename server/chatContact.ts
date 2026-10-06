@@ -15,14 +15,26 @@ export function confirmedChatContact(args: Record<string, unknown>, existingSoci
     // useCompetitorData.ts) já trata isso com try/catch e cai pra {} —
     // só esta função deixava o erro estourar sem proteção, derrubando a
     // geração de campanha inteira por causa de um campo auxiliar.
+    // Correção de 06/10: não estourar continua certo, mas DESCARTAR o texto
+    // estava errado. O caminho antigo caía pra `{}` e o `JSON.stringify`
+    // abaixo gravava só o whatsapp — apagando do perfil o Instagram e o site
+    // que o usuário tinha digitado naquele campo de texto livre. Trocar uma
+    // queda de campanha por perda silenciosa de dado do cliente não é
+    // conserto.
+    //
+    // Agora o texto não-JSON é preservado em `textoLivre`. É seguro: nenhum
+    // consumidor itera as chaves de socialLinks — todos leem campos nomeados
+    // (instagram, facebook, whatsapp) com try/catch próprio, e o
+    // PublishValidator faz busca de substring por "wa.me". Uma chave extra
+    // não vira link quebrado em nenhuma tela.
     let links: Record<string, unknown> = {};
     if (existingSocialLinks) {
       try {
         const parsed = JSON.parse(existingSocialLinks);
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) links = parsed;
+        else links = { textoLivre: existingSocialLinks };
       } catch {
-        // socialLinks era texto livre, não JSON — ignora e segue com {}
-        // em vez de derrubar a geração de campanha por causa disso.
+        links = { textoLivre: existingSocialLinks };
       }
     }
     contact.socialLinks = JSON.stringify({ ...links, whatsapp: `https://wa.me/${digits}` });
