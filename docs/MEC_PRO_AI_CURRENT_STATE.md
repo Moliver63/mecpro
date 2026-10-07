@@ -1737,3 +1737,40 @@ O validador faz `fetch(url, { redirect: "error" })`. Se o Cloudinary responder 3
 **Nao corrige as 10 tarefas paradas da 797**: o `candidate_url` delas ja esta gravado sem recorte. Vale pra proxima geracao.
 
 Validado: 334/334 no servidor. Typecheck 37, diff identico ao baseline.
+
+---
+
+## 07/10 — Etapa 2 de 2: passos de difusao no valor certo
+
+`montarCorpoCloudflare` mandava `steps: 8` fixo, com o comentario "mais passos = maior qualidade e melhor aderencia ao prompt". Pra modelo de difusao comum isso procede. O FLUX.1 **schnell** e a excecao: "schnell" e a variante DESTILADA, treinada pra render em 1 a 4 passos, e a doc da Cloudflare da `steps` com **default 4 e maximo 8**. Rodar em 8 fica fora da faixa de projeto do modelo — ganho marginal ou nulo.
+
+E o preco nao e marginal. Tabela oficial da Cloudflare pra `@cf/black-forest-labs/flux-1-schnell`: **9,60 neurons por passo** mais 4,80 por tile de 512x512. Numa imagem 1024x1024 (4 tiles = 19,2 neurons):
+
+| | neurons/imagem | imagens/dia no gratuito | campanhas de 10 criativos |
+|---|---|---|---|
+| `steps: 8` (antes) | 96,0 | ~104 | ~10 |
+| `steps: 4` (agora) | 57,6 | ~173 | ~17 |
+
+A conta esta travada em teste, pra nao virar folclore quando alguem quiser mexer de novo.
+
+### Decisoes
+
+**Virou env (`CLOUDFLARE_IMAGE_STEPS`) em vez de fixo no codigo.** Qualidade de imagem e julgamento visual, e eu nao consigo ver as imagens desta sessao. Se 4 passos decepcionarem, o Michel volta pra 8 pelo painel do Render, **sem deploy e sem esperar por mim**. O default e o valor certo (4), nao o antigo — a variavel e escape, nao obrigacao.
+
+**Teto por modelo, nao global.** O teto de 8 vem do schema oficial do flux-1: pedir mais e 400 na hora. Fora do flux-1 o teto e 20, porque a familia Stable Diffusion aceita mais passos e nao faz sentido limita-la pelo schema do FLUX.
+
+**Valor invalido cai no default.** Texto, zero, negativo, fracionario ou acima do teto nao derrubam a geracao — viram 4. Uma variavel de ambiente mal digitada nao deve tirar a geracao de imagem do ar.
+
+Declarada em `_core/env.ts` e documentada em `.env.example` com a conta de custo.
+
+Validado: 338/338 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao baseline.
+
+### O que sobrou das cinco melhorias, e por que paramos aqui
+
+Aplicadas: **1** (proporcao) e **3** (passos) — as duas de efeito mecanico, verificavel sem olhar imagem.
+
+Nao aplicadas de proposito:
+
+- **2 — os cinco blocos de "NO TEXT"** no prompt. O mecanismo e solido (encoder de difusao nao tem negacao; o schnell e destilado de guidance e nao aceita negative prompt, entao repetir "text/words/letters/typography/watermark" cinco vezes condiciona PARA texto). Mas a magnitude e empirica e o validador reprova em `hasText`: mexer sem medir e trocar um palpite por outro. Precisa de 10 geracoes com e 10 sem, contando quantas saem com letra.
+- **4 — o gate `issues.length === 0`** do validador. Reprova com qualquer ressalva cosmetica, e e candidato forte pra razao real de nada ser aprovado. Mas pra separar o que bloqueia do que e ressalva eu preciso LER um `rejected` de verdade com os `issues` preenchidos — e isso depende do revalidate, que ainda nao rodou.
+- **5 — assunto em portugues** indo pro encoder do FLUX, que e predominantemente ingles. Traduzir exige chamada de modelo no caminho de geracao (custo e latencia novos) ou um glossario por segmento (que fabrica termo). Decisao de arquitetura, nao ajuste — nao cabia num "sem risco".

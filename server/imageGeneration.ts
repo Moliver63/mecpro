@@ -988,10 +988,47 @@ export function cloudflareCampoDeSteps(model: string): "steps" | "num_steps" {
   return /flux/i.test(model) ? "steps" : "num_steps";
 }
 
+/**
+ * Quantos passos de difusão pedir ao Cloudflare.
+ *
+ * Estava fixo em 8, com o comentário "mais passos = maior qualidade e
+ * melhor aderência ao prompt". Para um modelo de difusão comum isso é
+ * verdade. O FLUX.1 **schnell** é a exceção: "schnell" é a variante
+ * DESTILADA, treinada para render em 1 a 4 passos, e a própria doc da
+ * Cloudflare dá `steps` com default 4 e máximo 8. Rodar em 8 fica fora da
+ * faixa de projeto do modelo — o ganho é marginal ou nulo.
+ *
+ * E o preço não é marginal. Tabela oficial da Cloudflare para
+ * `@cf/black-forest-labs/flux-1-schnell`: **9,60 neurons por passo** mais
+ * 4,80 por tile de 512x512. Numa imagem 1024x1024 (4 tiles = 19,2):
+ *
+ *   steps 8 → 76,8 + 19,2 = 96,0 neurons  → ~104 imagens/dia no gratuito
+ *   steps 4 → 38,4 + 19,2 = 57,6 neurons  → ~173 imagens/dia
+ *
+ * Em campanha de 10 criativos: de ~10 para ~17 campanhas por dia dentro
+ * dos 10.000 neurons/dia gratuitos.
+ *
+ * Fica em env de propósito, e não fixo no código: se a qualidade em 4
+ * decepcionar, dá para voltar a 8 pelo painel do Render, sem deploy e sem
+ * esperar por mim. O default é o valor certo, não o antigo.
+ *
+ * O teto de 8 vem do schema oficial do flux-1 — pedir mais é 400 na hora.
+ * Valor inválido (texto, zero, negativo, acima do teto) cai no default em
+ * vez de derrubar a geração.
+ */
+export const PASSOS_PADRAO_IMAGEM = 4;
+
+export function passosDeGeracao(model: string, bruto?: string): number {
+  const teto = /flux-1/i.test(model) ? 8 : 20;
+  const n = Number(bruto);
+  if (!Number.isInteger(n) || n < 1 || n > teto) return PASSOS_PADRAO_IMAGEM;
+  return n;
+}
+
 function montarCorpoCloudflare(prompt: string, format: CreativeImageFormat, comDimensoes: boolean): Record<string, unknown> {
   const corpo: Record<string, unknown> = {
     prompt,
-    [cloudflareCampoDeSteps(CF_IMAGE_MODEL)]: 8, // mais passos = maior qualidade e melhor aderência ao prompt
+    [cloudflareCampoDeSteps(CF_IMAGE_MODEL)]: passosDeGeracao(CF_IMAGE_MODEL, process.env.CLOUDFLARE_IMAGE_STEPS),
   };
   if (comDimensoes) {
     const dim = FORMAT_DIMENSIONS[format];
