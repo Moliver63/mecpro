@@ -1702,3 +1702,38 @@ Validado: 328/328 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao ba
 ### Nao corrigido, de proposito
 
 O build acusa `Circular chunk: pages-settings -> pages-admin -> pages-settings` e tres bundles acima de 600 kB (`index` 854 kB, `pages-modules` 779 kB). Sao de performance de carregamento do front, nao de correcao, e mexer em `manualChunks` sem medir o efeito real no tempo de carregamento e chute. Fica anotado, nao chutado.
+
+---
+
+## 07/10 — Etapa 1 de 2: proporcao correta por formato
+
+**Achado**: TODA imagem gerada saia quadrada, nos tres formatos. Dois motivos somados, os dois verificados:
+
+1. O `flux-1-schnell` **nao aceita** `width`/`height` — schema oficial com so `prompt` e `steps` e `"additionalProperties": false`.
+2. O `uploadImageBufferToCloudinary` **nao aplica transformacao nenhuma**: sobe o buffer cru e devolve o `secure_url`.
+
+O comentario em `CF_MODELOS_SEM_DIMENSOES` afirmava que "o tamanho final do criativo e normalizado depois, no upload do Cloudinary". Nao era verdade. Nada normalizava. O card de Stories (9:16) e o de feed (4:5) recebiam a mesma imagem 1:1 e a Meta cortava por conta propria, sem saber onde esta o assunto.
+
+Isso tambem fecha de vez o "Story e Square identicos": a correcao de 05/10 fez o formato escolher o CAMPO certo (`storyImageUrl` vs `feedImageUrl`), mas a imagem continuava quadrada nos dois.
+
+**Correcao**: `urlCloudinaryNaProporcao(url, format)` — transformacao de entrega do Cloudinary, **custo zero**: sem reupload, sem neuron.
+
+### Decisoes
+
+**`c_lfill` e nao `c_fill`.** O `lfill` recorta na proporcao mas NUNCA amplia. De um quadrado de 1024: 4:5 vira 819x1024, 9:16 vira 576x1024 — acima dos minimos da Meta (600x750 e 500x888) e sem inventar pixel. Com `c_fill` o Cloudinary esticaria pra 1080x1350, fabricando nitidez que o modelo nao gerou. Preferi imagem menor e honesta a imagem grande e borrada.
+
+**`g_auto`**: recorte por conteudo. Cortar um quadrado pra 9:16 mantem o assunto no quadro em vez de decepa-lo.
+
+**Aplicada em `generateCampaignImageCandidate`, nao dentro do upload.** O `uploadImageBufferToCloudinary` tambem sobe foto que o usuario anexou — recortar foto real dele seria destrutivo. O escopo aqui e so o candidato gerado.
+
+**Aplicada ANTES da validacao.** O validador precisa julgar o que vai ao ar. Validar o quadrado e publicar o recorte seria aprovar uma imagem e veicular outra.
+
+**Idempotente**, porque o worker reaproveita `candidate_url` nas retentativas: empilhar transformacao a cada passada daria recorte sobre recorte. URL que nao e de upload de imagem do Cloudinary (Pixabay direto, video, mock) passa intacta.
+
+### Risco que eu NAO consigo verificar daqui
+
+O validador faz `fetch(url, { redirect: "error" })`. Se o Cloudinary responder 302 na primeira geracao de uma transformacao nova, a validacao falharia. O proxy desta sessao bloqueia o Cloudinary, entao nao consigo testar — nao vou chamar de risco zero. Se acontecer, os motivos de 03/10 nomeiam na hora: `visual_validator_unavailable:download_http_302` ou `:excecao`. E reversivel num commit.
+
+**Nao corrige as 10 tarefas paradas da 797**: o `candidate_url` delas ja esta gravado sem recorte. Vale pra proxima geracao.
+
+Validado: 334/334 no servidor. Typecheck 37, diff identico ao baseline.

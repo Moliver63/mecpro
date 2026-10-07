@@ -1457,6 +1457,58 @@ async function reHostImageOnCloudinary(
   }
 }
 
+/**
+ * Recorta uma imagem do Cloudinary na proporção do formato, por URL.
+ *
+ * Achado real (07/10): TODA imagem gerada saía quadrada, nos três formatos.
+ * Dois motivos somados, os dois verificados:
+ *
+ * 1. O `flux-1-schnell` NÃO aceita width/height — o schema oficial tem só
+ *    `prompt` e `steps`, com "additionalProperties": false. Então o modelo
+ *    devolve a resolução nativa dele, quadrada.
+ * 2. O `uploadImageBufferToCloudinary` não aplica transformação nenhuma:
+ *    sobe o buffer cru e devolve o secure_url. O comentário em
+ *    `CF_MODELOS_SEM_DIMENSOES` dizia que "o tamanho final do criativo é
+ *    normalizado depois, no upload do Cloudinary". Não era verdade — nada
+ *    normalizava.
+ *
+ * Resultado: o card de Stories (9:16) e o de feed (4:5) recebiam a mesma
+ * imagem 1:1, e a Meta cortava por conta própria, sem saber onde está o
+ * assunto.
+ *
+ * Por que `c_lfill` e não `c_fill`: o `lfill` ("limit fill") recorta na
+ * proporção mas NUNCA amplia. Partindo de um quadrado de 1024, um 4:5 vira
+ * 819x1024 e um 9:16 vira 576x1024 — dentro dos mínimos da Meta (600x750 e
+ * 500x888) e sem inventar pixel que o modelo não gerou. Com `c_fill` o
+ * Cloudinary esticaria pra 1080x1350, fabricando nitidez que não existe.
+ *
+ * `g_auto` escolhe o recorte pelo conteúdo, então cortar um quadrado pra
+ * 9:16 mantém o assunto no quadro em vez de decepá-lo.
+ *
+ * Custo: zero. É transformação na entrega, sem reupload e sem neuron.
+ */
+export function urlCloudinaryNaProporcao(url: string, format: CreativeImageFormat): string {
+  const bruto = String(url || "");
+  const marcador = "/image/upload/";
+  const corte = bruto.indexOf(marcador);
+  // Não é URL de upload de imagem do Cloudinary (Pixabay direto, mock,
+  // vídeo): devolve intacta em vez de montar URL inválida.
+  if (!/^https:\/\/res\.cloudinary\.com\//i.test(bruto) || corte === -1) return bruto;
+
+  const prefixo = bruto.slice(0, corte + marcador.length);
+  const resto = bruto.slice(corte + marcador.length);
+  const primeiroSegmento = resto.split("/")[0] || "";
+
+  // Já transformada: o primeiro segmento depois de /image/upload/ é a
+  // versão (v123456) quando não há transformação. Qualquer outra coisa com
+  // "_" é transformação — não empilha outra em cima.
+  const ehVersao = /^v\d+$/.test(primeiroSegmento);
+  if (!ehVersao && /_/.test(primeiroSegmento)) return bruto;
+
+  const dim = FORMAT_DIMENSIONS[format] || FORMAT_DIMENSIONS.feed;
+  return `${prefixo}c_lfill,g_auto,ar_${dim.ratio},w_${dim.width}/${resto}`;
+}
+
 // Candidate is not an approved creative. The durable worker persists it before validation.
 export async function generateCampaignImageCandidate(brief: any, format: CreativeImageFormat, index: number): Promise<{ url: string; provider: string } | null> {
   const context = { productService: brief.facts.join("; "), confirmedVisualFacts: brief.facts, niche: brief.segment };
@@ -1464,14 +1516,22 @@ export async function generateCampaignImageCandidate(brief: any, format: Creativ
   const buffer = await generateWithCloudflareBuffer(prompt, format);
   if (buffer && buffer.length >= 10000) {
     const url = await uploadImageBufferToCloudinary(buffer, `campaign_candidate_${Date.now()}_${index}.jpg`);
-    if (url) return { url, provider: "cloudflare" };
+    // A proporção é aplicada AQUI, e não dentro do upload, de propósito:
+    // `uploadImageBufferToCloudinary` também sobe foto que o usuário anexou,
+    // e recortar foto real dele seria destrutivo. Aqui o escopo é só o
+    // candidato gerado para a campanha.
+    //
+    // E é aplicada ANTES da validação porque o validador precisa julgar o
+    // que vai ao ar de fato. Validar o quadrado e publicar o recorte seria
+    // aprovar uma imagem e veicular outra.
+    if (url) return { url: urlCloudinaryNaProporcao(url, format), provider: "cloudflare" };
     return null;
   }
   const query = canonicalStockQuery(brief.segment, context.productService, index);
   const stock = await searchPixabay(query, format, index);
   if (!stock) return null;
   const url = await reHostImageOnCloudinary(stock.url, format);
-  return url ? { url, provider: "pixabay" } : null;
+  return url ? { url: urlCloudinaryNaProporcao(url, format), provider: "pixabay" } : null;
 }
 
 export async function generateAdImage(
