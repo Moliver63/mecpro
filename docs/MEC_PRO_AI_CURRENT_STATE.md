@@ -1647,3 +1647,58 @@ Eu vinha descartando como ambiente. Era ZodError de env, sim, mas o efeito impor
 Causa: `campaignPublish.ts` importa `./_core/router` e `./db` no topo, e `_core/env.ts` valida o ambiente com Zod no load do modulo.
 
 Corrigido pela convencao que o repo ja usa (`chatPrecision.test.ts`): envs minimos num `before` e import dinamico depois. **Nenhuma mudanca em codigo de producao** — considerei tornar os imports lazy, que seria a correcao estrutural, e decidi contra: mexer na ordem de import do caminho de publicacao real, que gasta o dinheiro do Michel, nao se paga por "um arquivo de teste carregar". Nao conecta em banco: `getDb()` so cria o Pool quando chamado, e os testes injetam as duas leituras por `deps`. A URL e `localhost` de proposito — se algum dia alguem fizer este teste tocar banco de verdade, ele falha em localhost em vez de alcancar producao.
+
+---
+
+## 07/10 — bypass de rate limit por IPv6 no endpoint MCP
+
+**Primeiro: o deploy de 06/10 20:47Z (17:47 local) incluiu tudo.** O ultimo commit, `8ca0278`, e de 17:41 local — seis minutos antes. `startCampaignImageWorker()` e chamado no boot (`_core/index.ts:1846`), entao a fila esta de pe. Nao ha linha de `[image-job]` no log porque as dez tarefas da 797 seguem paradas em `attempts=3` e o `revalidate` nunca rodou.
+
+### O achado: ERR_ERL_KEY_GEN_IPV6
+
+O proprio boot recusou o `keyGenerator` do limiter de rajada do MCP:
+
+```
+ValidationError: Custom keyGenerator appears to use request IP without calling
+the ipKeyGenerator helper function for IPv6 addresses. This could allow IPv6
+users to bypass limits.
+  at <anonymous> (/opt/render/project/src/server/publicApi.ts:193:25)
+  code: 'ERR_ERL_KEY_GEN_IPV6'
+```
+
+Nao e barulho de biblioteca. O `keyGenerator` caia pra `req.ip` cru, e um IPv6 cru e um endereco UNICO: quem recebe um prefixo delegado — o padrao em provedor residencial e em VPS — troca o ultimo bloco a vontade dentro da propria faixa. Cada requisicao viraria uma chave nova, e o limite de 30 req/min simplesmente nao limitaria. De graca, porque o prefixo inteiro e do cliente.
+
+**Correcao**: `ipKeyGenerator(req.ip)`, o helper da propria biblioteca. Verificado na versao instalada (express-rate-limit 8.3.1) o que ele faz de fato, em vez de assumir: colapsa IPv6 num prefixo **/56** e devolve IPv4 inalterado.
+
+```
+2001:db8:85a3:8d3:1319:8a2e:370:7348  ->  2001:db8:85a3:800::/56
+2001:db8:85a3:8d3::ffff               ->  2001:db8:85a3:800::/56
+203.0.113.42                          ->  203.0.113.42
+```
+
+(Meu primeiro comentario dizia /64 por reflexo. Rodei o helper e corrigi pra /56, que e o valor real.)
+
+### Duas decisoes registradas
+
+**Por que corrigir e nao remover o fallback.** Hoje ele e inalcancavel: o limiter roda DEPOIS do `authApiKey`, que nos dois ramos (token OAuth `mecpro_oauth_` e `api_keys`) sempre preenche `req.apiUser` antes do `next()`, ou responde 401. Verificado nos dois ramos. Fica como rede de seguranca pra se alguem um dia montar o limiter antes da autenticacao — remover transformaria um erro de ordem de middleware em ausencia silenciosa de limite.
+
+**Por que NAO virou chave unica compartilhada.** A alternativa "sem usuario, todos no mesmo balde" trocaria o bypass por uma alavanca de DoS: um cliente esgota os 30/min e derruba todos os outros nao-autenticados. Chave por sub-rede mantem o isolamento.
+
+O `keyGenerator` saiu de inline pra `chaveDeRajadaMcp` exportada, porque inline nao da como exercitar o caminho de IPv6 sem subir o Express inteiro.
+
+Teste verificado **falhando com o IP cru** (o estado de producao) e passando com o helper. Cobre o que importa: enderecos da mesma faixa caem no mesmo balde; faixas diferentes nao se misturam (senao o limiter puniria clientes sem relacao); dois usuarios atras do MESMO IP tem baldes separados — que e o cenario citado no comentario original do limiter, cliente MCP compartilhado; e o mesmo usuario de IPs diferentes compartilha o balde, que e o proposito de chavear por usuario.
+
+### Deprecation do body-parser, no mesmo boot
+
+```
+body-parser deprecated undefined extended: provide extended option
+  at server/oauthServer.ts:41
+```
+
+`urlencoded()` sem `extended` explicito, nas duas rotas OAuth (`/authorize` e `/token`). Passou pra `{ extended: false }`: querystring nativo, suficiente pros campos planos do OAuth (`grant_type`, `code`, `client_id`, `redirect_uri`) e sem o parsing de objeto aninhado do `qs`, que nenhuma das duas rotas usa.
+
+Validado: 328/328 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao baseline.
+
+### Nao corrigido, de proposito
+
+O build acusa `Circular chunk: pages-settings -> pages-admin -> pages-settings` e tres bundles acima de 600 kB (`index` 854 kB, `pages-modules` 779 kB). Sao de performance de carregamento do front, nao de correcao, e mexer em `manualChunks` sem medir o efeito real no tempo de carregamento e chute. Fica anotado, nao chutado.

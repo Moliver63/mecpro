@@ -12,7 +12,7 @@
 import { Router, Request, Response } from "express";
 import { json } from "express";
 import crypto from "crypto";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { getPool } from "./db";
 import { log } from "./logger";
 import * as db from "./db";
@@ -190,15 +190,46 @@ function apiResponse(res: Response, data: any, req: Request) {
 // existe, permitindo chave por usuario autenticado (nao por IP, que seria
 // injusto/inutil aqui: chamadas MCP tendem a vir do mesmo IP de origem do
 // cliente MCP, nao do usuario final).
+/**
+ * Chave do limiter de rajada do MCP. Exportada pra ser testavel: o
+ * keyGenerator inline nao da como exercitar o caminho de IPv6 sem subir o
+ * Express inteiro.
+ *
+ * Achado real (boot de producao, 06/10): o express-rate-limit 8.3.1 recusou
+ * o keyGenerator anterior com ERR_ERL_KEY_GEN_IPV6 — "Custom keyGenerator
+ * appears to use request IP without calling the ipKeyGenerator helper
+ * function for IPv6 addresses. This could allow IPv6 users to bypass limits."
+ *
+ * O motivo e concreto: `req.ip` cru num IPv6 e um endereco unico, e quem
+ * recebe um prefixo delegado (o padrao em provedor residencial e em VPS)
+ * troca de endereco a vontade dentro da propria faixa — cada requisicao
+ * viraria uma chave nova e o limite de 30/min nao limitaria nada. O
+ * `ipKeyGenerator` colapsa IPv6 num prefixo /56 (verificado na versao
+ * instalada), que e a unidade que o cliente nao rotaciona de graca. Em IPv4
+ * devolve o proprio IP.
+ *
+ * Na pratica este fallback nao e alcancado hoje: o limiter roda DEPOIS do
+ * authApiKey, que nos dois ramos (OAuth e api_keys) sempre preenche
+ * req.apiUser antes do next(), ou responde 401. Foi corrigido em vez de
+ * removido porque e rede de seguranca pra se alguem um dia montar o limiter
+ * antes da autenticacao.
+ *
+ * E NAO virou chave unica compartilhada de proposito: um balde so pra todos
+ * os nao-autenticados seria alavanca de DoS — um cliente esgota a cota e
+ * derruba os outros.
+ */
+export function chaveDeRajadaMcp(req: Request): string {
+  const apiUser = (req as any).apiUser;
+  if (apiUser?.id) return `mcp_user_${apiUser.id}`;
+  return req.ip ? ipKeyGenerator(req.ip) : "unknown";
+}
+
 const mcpBurstLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minuto
   max: 30,             // 30 requisicoes MCP por minuto por usuario autenticado
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req: Request) => {
-    const apiUser = (req as any).apiUser;
-    return apiUser?.id ? `mcp_user_${apiUser.id}` : (req.ip || "unknown");
-  },
+  keyGenerator: chaveDeRajadaMcp,
   handler: (req: Request, res: Response) => {
     res.status(429).json({
       error: "rate_limit_burst",

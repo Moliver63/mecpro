@@ -196,7 +196,7 @@ router.get("/authorize", async (req: Request, res: Response) => {
 });
 
 // ── POST /authorize — processa a decisão do usuário ─────────────────────────
-router.post("/authorize", json(), urlencoded(), async (req: Request, res: Response) => {
+router.post("/authorize", json(), urlencoded({ extended: false }), async (req: Request, res: Response) => {
   const { decision, client_id, redirect_uri, code_challenge, state, resource } = req.body || {};
 
   // Validação ANTES de qualquer redirect — inclusive no caminho de "negar".
@@ -240,7 +240,7 @@ router.post("/authorize", json(), urlencoded(), async (req: Request, res: Respon
 });
 
 // ── POST /token — troca code+verifier (ou refresh_token) por access_token ──
-router.post("/token", json(), urlencoded(), async (req: Request, res: Response) => {
+router.post("/token", json(), urlencoded({ extended: false }), async (req: Request, res: Response) => {
   try {
     const { grant_type } = req.body || {};
 
