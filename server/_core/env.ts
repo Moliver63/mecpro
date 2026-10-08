@@ -45,6 +45,8 @@ const envSchema = z.object({
   CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
   CLOUDFLARE_API_TOKEN: z.string().optional(),
   CLOUDFLARE_IMAGE_STEPS: z.string().optional(),
+  GEMINI_CHAT_TIMEOUT_MS: z.string().optional(),
+  GEMINI_CHAT_DEADLINE_MS: z.string().optional(),
   VIDEO_PROVIDER: z.enum(["json2video", "local_wangp"]).optional(),
   LOCAL_WANGP_ENABLED: z.string().optional(),
   LOCAL_WANGP_URL: z.string().optional(),

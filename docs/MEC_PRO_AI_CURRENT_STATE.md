@@ -1774,3 +1774,68 @@ Nao aplicadas de proposito:
 - **2 — os cinco blocos de "NO TEXT"** no prompt. O mecanismo e solido (encoder de difusao nao tem negacao; o schnell e destilado de guidance e nao aceita negative prompt, entao repetir "text/words/letters/typography/watermark" cinco vezes condiciona PARA texto). Mas a magnitude e empirica e o validador reprova em `hasText`: mexer sem medir e trocar um palpite por outro. Precisa de 10 geracoes com e 10 sem, contando quantas saem com letra.
 - **4 — o gate `issues.length === 0`** do validador. Reprova com qualquer ressalva cosmetica, e e candidato forte pra razao real de nada ser aprovado. Mas pra separar o que bloqueia do que e ressalva eu preciso LER um `rejected` de verdade com os `issues` preenchidos — e isso depende do revalidate, que ainda nao rodou.
 - **5 — assunto em portugues** indo pro encoder do FLUX, que e predominantemente ingles. Traduzir exige chamada de modelo no caminho de geracao (custo e latencia novos) ou um glossario por segmento (que fabrica termo). Decisao de arquitetura, nao ajuste — nao cabia num "sem risco".
+
+---
+
+## 08/10 — o chat travava 5 minutos: Gemini sem timeout
+
+**Incidente (Michel, 08/10)**: pediu "CRIE UMA CAMPANHA DO ZERO" e recebeu *"Erro de conexao. Verifique sua internet e tente de novo."* — com a internet dele perfeita. Era o frontend desistindo, nao a rede dele.
+
+```
+15:49:21  Both GOOGLE_API_KEY...                        (comeca no Gemini)
+15:54:23  Gemini indisponivel ... "fetch failed"        (5min02 depois)
+15:54:30  Error: A conversa foi atualizada em outra requisicao  (chatSession.ts:42)
+```
+
+### Causa raiz
+
+`chamarGeminiComRetry` chamava `cliente.models.generateContent(...)` **sem timeout nenhum**. O resto da cadeia tinha teto — Cloudflare 15s, OpenRouter 20s — mas o provedor **primario**, o que roda primeiro em toda mensagem, nao tinha. Socket pendurado ficava pendurado; o `fetch failed` e o undici desistindo sozinho depois de minutos. Pior: o laco cobre ate 9 chaves, dentro de outro laco de ate 4 passos, tudo sem teto.
+
+### O erro de lease era consequencia, e a mensagem dele mente
+
+A mensagem "A conversa foi atualizada em outra requisicao" aponta concorrencia. Nao houve nenhuma. O mecanismo real, no `chatSession.ts`:
+
+1. O navegador desistiu durante os 5 minutos.
+2. `res.on("close")` disparou e, com `sent === false`, rodou `UPDATE chat_sessions SET lease=NULL, busy_until=NULL WHERE ... AND lease=$3` — a requisicao **liberou o proprio lease**.
+3. O handler terminou as 15:54:30, chamou `res.json`, e a gravacao final (`WHERE lease=$3`) achou `lease` nulo: `rowCount` 0, erro lancado.
+
+A requisicao foi atropelada por si mesma.
+
+**Provas de que nao era concorrencia**, as duas no proprio log: um segundo envio teria batido no guarda da entrada e gerado `409 "Aguarde a resposta anterior desta conversa"` — nao ha 409 nenhum; e pra uma segunda requisicao ROUBAR o lease em vez de levar 409, o `busy_until` teria que expirar, o que exige o heartbeat de 60s morto por 5 minutos. Tambem descartado o `touchChatSession` como suspeito: ele so escreve `updatedAt` e `lastCampaign*`, nunca `lease`/`busy_until`.
+
+Confirmado pelo usuario: ele viu a mensagem do FRONTEND ("Erro de conexao"), nao a do servidor — ou seja, o cliente tinha ido embora, exatamente o caminho acima.
+
+### Dano colateral: gravacao parcial
+
+`persistirTrocaEResponder` grava a mensagem do assistente e da `touchChatSession` **antes** do `res.json`. Entao a mensagem entrou no historico e o ponteiro de ultima campanha foi atualizado, mas o **briefing** (`state`) — a unica coisa que aquele UPDATE escreve — foi perdido. Historico avanca, briefing fica atras.
+
+E "Confira suas campanhas antes de tentar novamente" sugere escrita em campanhas. Nao houve: o que falhou foi so o estado da conversa.
+
+### Sobre a documentacao
+
+`docs/chat-state-recovery.md` descreve o lease de 5 minutos e lista como limitacao conhecida *"A process crash may leave a lease until it expires"* — previu o crash deixar lease preso. **Nao previu o inverso**: desconexao liberar o lease e o handler ainda vivo tentar gravar depois. Esse caminho nao estava documentado.
+
+### Correcao aplicada (etapa 1 de 3)
+
+Dois tetos, porque um so nao resolve: sem o **por tentativa**, um socket pendurado come minutos; sem o **total**, nove rotacoes de chave x timeout somam os mesmos minutos de volta.
+
+- `TIMEOUT_GEMINI_MS` = 30.000 por tentativa, via `abortSignal` (a config do SDK aceita).
+- `PRAZO_GEMINI_MS` = 45.000 no total da chamada, checado antes de cada tentativa a partir da segunda.
+- `janelaDaTentativa()` toma o menor dos dois com **piso de 1s** — sem o piso, uma tentativa iniciada com o prazo no fim receberia `AbortSignal.timeout(0)` e morreria sem tocar a rede, gastando uma chave do pool por nada.
+
+**Nao reabre a regressao de 16/09** (documentada no proprio arquivo: gatear rotacao por orcamento fazia o sistema cair pro modo local com chave saudavel disponivel). Rotacao de chave suspensa/esgotada falha na hora — 1 a 3s pelas nove — entao o prazo de 45s nunca e atingido rotacionando. Ele so morde quando algo de fato travou, que e quando se quer parar e cair pro Cloudflare.
+
+**Timeout nao e classificado como erro temporario**, de proposito (`erroEhTemporario` nao casa "aborted due to timeout"): socket pendurado costuma ser rede ou regiao, nao chave, e repetir a mesma espera com outra chave custaria outros 30s por quase nada. Estoura e cai pro Cloudflare. O estagio do Gemini passa de 5 minutos para no maximo 30s.
+
+Em env (`GEMINI_CHAT_TIMEOUT_MS`, `GEMINI_CHAT_DEADLINE_MS`) pra ajustar sem deploy; faixa 1.000 a 120.000 e valor invalido caindo no padrao, porque env mal digitada nao deve reabrir a espera infinita.
+
+Validado: 343/343 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao baseline.
+
+### Etapas 2 e 3, nao aplicadas ainda
+
+- **`res.on("close")` nao deveria liberar o lease com o handler vivo.** Hoje assume que a requisicao morreu; ela so perdeu o ouvinte. Deixar o lease expirar sozinho (5 min, com heartbeat) e mais correto que liberar embaixo de um handler que ainda vai gravar. Mexer nisso altera o caminho de concorrencia de TODA conversa — merece commit proprio.
+- **Gravar estado e mensagem juntos**, e corrigir a mensagem de erro pra nao citar concorrencia inexistente nem mandar conferir campanhas.
+
+### Nao investigado ainda
+
+Na mesma troca, o chat respondeu *"A campanha 'Notting Hill da Embraed' nao foi encontrada entre os projetos existentes. Os projetos disponiveis incluem opcoes de imoveis, como 'Morebem Imoveis — Sala Comercial Rua 902' e outros."* Listar "e outros" em vez dos nomes e a mesma familia de vazamento de processo interno do incidente do `pageId`. Anotado, nao corrigido.

@@ -943,6 +943,61 @@ export function configGeminiChat(velocidade: "rapida" | "media" | "lenta" = "med
   return { model, config };
 }
 
+// Achado real (Michel, 08/10): o chat travou 5 minutos e o navegador
+// desistiu — ele viu "Erro de conexão. Verifique sua internet", com a
+// internet dele perfeita. Log:
+//
+//   15:49:21  Both GOOGLE_API_KEY...                      (começa no Gemini)
+//   15:54:23  Gemini indisponível ... "fetch failed"      (5min02 depois)
+//   15:54:30  Error: A conversa foi atualizada em outra requisicao
+//
+// Causa: esta função chamava `generateContent` SEM timeout nenhum. O resto
+// da cadeia tem teto — Cloudflare 15s, OpenRouter 20s — mas o provedor
+// PRIMÁRIO, o que roda primeiro em toda mensagem, não tinha. Socket
+// pendurado ficava pendurado, e o `fetch failed` é o undici desistindo
+// sozinho depois de minutos.
+//
+// O erro de lease das 15:54:30 era consequência, não causa: o navegador já
+// tinha ido embora, o `res.on("close")` do chatSession.ts liberou o lease
+// da própria requisição, e a gravação final não achou mais o lease dela.
+//
+// Dois tetos, porque um só não resolve: sem o POR TENTATIVA, um socket
+// pendurado come minutos; sem o TOTAL, nove rotações de chave × timeout
+// somam os mesmos minutos de volta.
+//
+// O total é generoso de propósito, pra não reabrir a regressão de 16/09
+// documentada abaixo: rotação de chave suspensa/esgotada falha na hora
+// (1-3s pelas nove), então o prazo nunca é atingido rotacionando — ele só
+// morde quando algo de fato travou, que é exatamente quando se quer parar
+// e cair pro Cloudflare.
+//
+// Em env pra ser ajustável sem deploy. Valor inválido cai no padrão.
+export const TIMEOUT_GEMINI_MS = 30_000;
+export const PRAZO_GEMINI_MS = 45_000;
+
+export function tempoLimiteGemini(bruto: string | undefined, padrao: number): number {
+  const n = Number(bruto);
+  if (!Number.isFinite(n) || n < 1_000 || n > 120_000) return padrao;
+  return Math.floor(n);
+}
+
+/**
+ * Janela de uma tentativa: o menor entre o teto por tentativa e o que
+ * resta do prazo total, com piso de 1s.
+ *
+ * O piso existe porque sem ele uma tentativa iniciada com o prazo quase no
+ * fim receberia AbortSignal.timeout(0) ou negativo e abortaria antes de
+ * sair — gastando uma tentativa do pool sem nunca tocar a rede.
+ *
+ * Nao classificamos timeout como erro temporario de proposito (ver
+ * erroEhTemporario): um socket pendurado costuma ser rede ou regiao, nao
+ * chave, entao repetir a mesma espera com outra chave custaria outros 30s
+ * por quase nada. Melhor estourar e cair pro Cloudflare.
+ */
+export function janelaDaTentativa(limitePorTentativa: number, msRestantesDoPrazo: number): number {
+  return Math.max(1_000, Math.min(limitePorTentativa, msRestantesDoPrazo));
+}
+
 async function chamarGeminiComRetry(historico: Content[], tentativas?: number, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<GenerateContentResponse> {
   // Achado real (mesmo log, 10/09): tentativas=4 (padrão anterior) só
   // cobria metade do pool de 8 chaves — se a chave suspensa/com problema
@@ -968,8 +1023,16 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number, v
   // de chave, que é gratuita e não devia consumir esse orçamento.
   const maxTentativas = tentativas ?? Math.max(poolChavesGemini().length, 4);
   const retryBudget = createChatRetryBudget();
+  const limitePorTentativa = tempoLimiteGemini(process.env.GEMINI_CHAT_TIMEOUT_MS, TIMEOUT_GEMINI_MS);
+  const prazoFinal = Date.now() + tempoLimiteGemini(process.env.GEMINI_CHAT_DEADLINE_MS, PRAZO_GEMINI_MS);
   let ultimoErro: unknown;
   for (let i = 0; i < maxTentativas; i++) {
+    // Prazo total. Nao vale na primeira tentativa: sem ela a chamada
+    // poderia nem comecar. Ver o comentario acima sobre nao reabrir a
+    // regressao de 16/09.
+    if (i > 0 && Date.now() >= prazoFinal) {
+      throw ultimoErro ?? new Error("Gemini nao respondeu dentro do prazo do chat.");
+    }
     const chave = proximaChaveGemini();
     if (!chave) {
       throw ultimoErro ?? new Error("Nenhuma chave Gemini disponível no momento (cotas esgotadas).");
@@ -977,7 +1040,11 @@ async function chamarGeminiComRetry(historico: Content[], tentativas?: number, v
     try {
       const cliente = new GoogleGenAI({ apiKey: chave });
       const { model, config } = configGeminiChat(velocidade);
-      return await cliente.models.generateContent({ model, contents: historico, config });
+      const restante = janelaDaTentativa(limitePorTentativa, prazoFinal - Date.now());
+      return await cliente.models.generateContent({
+        model, contents: historico,
+        config: { ...config, abortSignal: AbortSignal.timeout(restante) },
+      });
     } catch (erro) {
       ultimoErro = erro;
       // Achado real (unificação, 13/09): chat.ts tinha seu próprio
