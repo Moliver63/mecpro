@@ -16,6 +16,10 @@ Fact Guard failures preserve the briefing and never solicit approval of invented
 claims. A recent campaign link can be retrieved without an LLM after rechecking
 ownership. Empty frontend responses never imply success. Concurrent sends are
 blocked in the browser and by a five-minute database lease per conversation.
+A client that disconnects mid-turn does not release the lease: the handler is
+still running and will persist state, so releasing it there made the final
+write miss its own lease and silently drop the turn's briefing. The handler
+releases the lease itself once it has written.
 
 Photo selection uses an explicit zero-based featuredPhotoIndex. The UI displays
 photo numbers; the selected attachment is moved to the front before upload.
@@ -26,7 +30,8 @@ Conversation history can be restored visually. Budget and featured-photo edits
 are local to MecProAI, not automatic updates to active Meta ads. Daily budgets
 are stored with an explicit /dia unit; invalid values and indices are rejected.
 Similar project names require explicit confirmation; exact duplicates remain
-blocked. There is no automatic campaign-copy import. A process crash may leave
-a lease until it expires. Timed-out draft tasks retain their existing idempotency
+blocked. There is no automatic campaign-copy import. A process crash, or a handler
+that never responds, may leave a lease until it expires; an abandoned
+conversation can answer 409 until the handler finishes. Timed-out draft tasks retain their existing idempotency
 behavior. A real database migration and authenticated browser/provider smoke test
 are required before claiming end-to-end production readiness.

@@ -1884,3 +1884,9 @@ Gravar mensagem e estado numa transacao unica. Hoje `persistirTrocaEResponder` g
 Escrevi o teste 5 esperando por `res.json` — que e justamente o que NAO e chamado quando o cliente foi embora. O teste pendurou ("Promise resolution is still pending"). Troquei o sinal de conclusao pela gravacao final do estado, que e o que o teste de fato verifica. O teste 7 tinha o mesmo vicio: nao disparava a resposta, entao a gravacao final nunca rodava.
 
 Validado: 346/346. Typecheck 37, diff identico ao baseline. Os dois testes de comportamento verificados **falhando sem a correcao** (5 e 7); o 6, que protege a metade oposta, passa nos dois lados de proposito.
+
+### Correcao do registro anterior (08/10)
+
+O commit `810774f` afirma "chat-state-recovery.md atualizado". **Nao estava.** O script de edicao casava um trecho sem considerar que o paragrafo estava quebrado em duas linhas (`"A process crash may leave\na lease until it expires."`), a asercao falhou e o arquivo nao foi gravado — mas o commit seguiu com a mensagem afirmando a atualizacao. O conteudo do doc entra agora, neste commit.
+
+Nao usei `--amend` nem force-push de proposito: ha outra sessao empurrando pra este mesmo `main`, e reescrever o tip arriscaria o trabalho dela. Commit de correcao e mais barato que historico bonito.
