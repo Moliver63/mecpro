@@ -1839,3 +1839,48 @@ Validado: 343/343 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao ba
 ### Nao investigado ainda
 
 Na mesma troca, o chat respondeu *"A campanha 'Notting Hill da Embraed' nao foi encontrada entre os projetos existentes. Os projetos disponiveis incluem opcoes de imoveis, como 'Morebem Imoveis — Sala Comercial Rua 902' e outros."* Listar "e outros" em vez dos nomes e a mesma familia de vazamento de processo interno do incidente do `pageId`. Anotado, nao corrigido.
+
+---
+
+## 08/10 — Etapas 2 e 3: o `close` nao libera mais o lease embaixo do handler vivo
+
+Fecha o incidente de hoje. A etapa 1 (`241a89c`) tirou o gatilho — os 5 minutos de espera no Gemini. Estas duas corrigem o que o gatilho expunha.
+
+### Etapa 2 — o culpado era o `res.on("close")`
+
+Ele assumia que socket fechado = requisicao morta e liberava o lease:
+
+```js
+res.on("close", () => {
+  clearInterval(heartbeat);
+  if (!sent) void pool.query(`UPDATE ... SET lease=NULL,busy_until=NULL WHERE ... AND lease=$3`);
+});
+```
+
+Mas o handler continuava vivo e ainda ia gravar. Quando chegava no `res.json`, a gravacao final (`WHERE lease=$3`) nao achava mais o **proprio** lease: `rowCount` 0, erro lancado, e o briefing daquele turno perdido — com a mensagem do assistente **ja gravada antes**, deixando historico e estado dessincronizados.
+
+**Correcao**: enquanto `trabalhoAtivo` estiver de pe, o `close` nao mexe no lease nem no heartbeat. Quem libera e a propria gravacao final, que assim encontra o lease dela e salva o estado. O `close` segue liberando quando nao ha trabalho pendente — sem isso, conversa abandonada ficaria travada em 409 ate o `busy_until` expirar (tem teste pra essa metade).
+
+Tambem para de escrever no socket quando o cliente ja foi: a gravacao e que importava, e ela aconteceu.
+
+**O que se perde, declarado**: um cliente que desiste nao destrava a conversa na hora — espera o handler terminar. Antes isso podia custar os 5 minutos do `busy_until`; com o teto de 30s no Gemini o handler termina em segundos, entao a troca vale. Se o processo morrer de verdade, o lease expira pelo `busy_until` — a limitacao que o `chat-state-recovery.md` ja documentava, agora atualizada pra cobrir tambem o handler que nunca responde.
+
+### Etapa 3 — a mensagem de erro mentia nas duas metades
+
+Antes: *"A conversa foi atualizada em outra requisicao. Confira suas campanhas antes de tentar novamente."*
+
+Nao havia outra requisicao (era o proprio `close`), e mandar conferir campanhas sugeria escrita em campanha quando o que falhou foi so o estado da conversa. Agora:
+
+> "Outro envio assumiu esta conversa enquanto esta resposta era preparada, entao o estado dela nao foi salvo. Nenhuma campanha foi criada, alterada ou publicada por causa disso. Reenvie a mensagem."
+
+Com a etapa 2 no lugar, essa frase passou a ser **verdadeira** quando dispara: so sobra o caso de tomada real por outro envio.
+
+### O que NAO foi feito, e por que
+
+Gravar mensagem e estado numa transacao unica. Hoje `persistirTrocaEResponder` grava a mensagem via drizzle e o estado via `pool.query` — unir exigiria passar o mesmo client pelos dois caminhos. Com a etapa 2, o `rowCount` 0 passa a significar tomada real, onde **nao** se deve gravar mesmo; a janela de inconsistencia que sobra e genuinamente concorrente, nao auto-infligida. Refatorar transacao no caminho de chat por essa janela nao se paga agora.
+
+### Bug meu, nos testes
+
+Escrevi o teste 5 esperando por `res.json` — que e justamente o que NAO e chamado quando o cliente foi embora. O teste pendurou ("Promise resolution is still pending"). Troquei o sinal de conclusao pela gravacao final do estado, que e o que o teste de fato verifica. O teste 7 tinha o mesmo vicio: nao disparava a resposta, entao a gravacao final nunca rodava.
+
+Validado: 346/346. Typecheck 37, diff identico ao baseline. Os dois testes de comportamento verificados **falhando sem a correcao** (5 e 7); o 6, que protege a metade oposta, passa nos dois lados de proposito.
