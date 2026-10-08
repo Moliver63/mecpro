@@ -4,6 +4,10 @@
 
 - Saida compartilhada intercepta pedidos de pageId ou instrucao para executar
   consultar_paginas_meta e consulta a conta autenticada, exibindo nomes.
+  Esta foi a PRIMEIRA das tres travas deterministicas de resposta; as outras
+  duas (estado de imagens, lista de projetos) vieram depois, pelo mesmo motivo.
+  Ver [travas deterministicas](deterministic-reply-guards.md) antes de mexer em
+  qualquer uma — elas parecem redundantes e cobrem coisas diferentes.
 - Recuperacao somente leitura; nao declara campanha pronta, nao publica e nao
   substitui a confirmacao de snapshot exigida por publishChatAds.
 - Testes simulados: uma pagina, varias, nenhuma, falha e respostas normais.

@@ -1,5 +1,119 @@
 # MecProAI - Estado atual do motor
 
+> **Como ler este arquivo.** O nome diz "estado atual", mas o corpo abaixo e
+> cronologico e passou de 1900 linhas: cada secao registra um incidente real e
+> a decisao que ele gerou, e esse historico e o que impede alguem de reverter
+> uma correcao achando que foi descuido. **Nao apague entradas.**
+>
+> A secao "ESTADO ATUAL" logo abaixo e o resumo mantido. Quando ela e a
+> cronologia divergirem, vale **a entrada mais recente por data**, de qualquer
+> autor ou sessao — nao a ordem no arquivo, nem qual adendo se declara
+> prevalente. (Regra corrigida em 08/10: o adendo de 16/09 abaixo dizia
+> prevalecer sobre "descricoes historicas abaixo dele", e as entradas mais
+> novas estao justamente abaixo dele. Seguir aquela regra ao pe da letra
+> mandaria preferir setembro a outubro.)
+
+---
+
+# ESTADO ATUAL — 2026-10-08
+
+## Confirmado em producao
+
+Estes tem evidencia de log, nao so teste local.
+
+- **Cloudflare Workers AI como 2o provedor do chat.** Log de 03/10 mostra
+  Gemini 503 → Cloudflare → resposta, com function calling funcionando
+  (`gerar_campanha` chamada).
+- **Rate limit do MCP nao e mais burlavel por IPv6** (`255c4bf`). O boot de
+  06/10 trazia `ERR_ERL_KEY_GEN_IPV6`; o de 08/10 nao traz mais. Confirmado
+  pela ausencia do erro que a correcao conserta.
+- **Deprecation do body-parser nas rotas OAuth**, pelo mesmo boot.
+
+## No ar, ainda sem evidencia de producao
+
+Deploy de 08/10 13:51 local cobre tudo abaixo (o `d9a1547`, de 13:45, pode ter
+ficado pro deploy seguinte — a lista de deploys do Render confirma).
+
+| Correcao | Commit | Como se confirma |
+|---|---|---|
+| FLUX 1 nao aceita dimensoes (tirava 400 em toda imagem) | `a26c57f` | o WARN "Cloudflare 400 — retry sem dimensoes" nao deve mais aparecer |
+| Causa do validador nomeada (`visual_validator_unavailable:<causa>`) | `a26c57f` | precisa do revalidate na 797 pra falar |
+| Formato da imagem derivado da `orientation` do criativo | `c47035e` | job de card Stories tem que sair com format `stories` |
+| Campo `estado` com `filaVaiAgir` na resposta da fila | `c47035e` | chat nao pode mais dizer "aguarde" com a fila parada |
+| Trava de texto do estado de imagens | `227e0f0` | idem, deterministica |
+| Proporcao por formato via Cloudinary | `364c18e` | imagem de Stories deve sair 9:16, nao 1:1 |
+| Passos de difusao em 4 (era 8) | `44ea615` | ~173 imagens/dia no gratuito, era ~104 |
+| Teto de espera no Gemini (travava 5 min) | `241a89c` | criar campanha do zero deve responder ou falhar em ~30s |
+| `close` nao libera mais o lease com handler vivo | `810774f` | briefing do turno deixa de ser perdido na desconexao |
+| Projetos listados por nome, nao "e outros" | `d9a1547` | ao pedir campanha, os nomes aparecem |
+
+## Travado em acao do Michel
+
+- **`action=revalidate` na campanha 797.** As dez tarefas estao em
+  `attempts=3` e a fila **nao** volta a pega-las sozinha. As imagens existem no
+  Cloudinary. Enquanto isso nao roda, a causa real da falha de validacao
+  continua sem ser lida — e e o fio mais antigo em aberto (desde 03/10).
+- **Saldo DeepSeek** zerado (provedor 3 da cadeia).
+
+**Correcao de diagnostico, registrada:** eu apontei por dias o billing do
+projeto Google Cloud 1000850630887 como bloqueio da validacao de imagem.
+**Nao bloqueia mais este caminho.** O validador novo (`campaignImageValidator`)
+usa Gemini vision, nao Cloud Vision. O Cloud Vision segue no fluxo legado.
+
+## Conhecido e nao corrigido
+
+Por ordem de impacto estimado, com o motivo de nao ter sido mexido.
+
+1. **Os cinco blocos de "NO TEXT" no prompt de imagem.** O encoder de difusao
+   nao tem negacao, e o schnell e destilado de guidance — nao aceita negative
+   prompt. Repetir "text/words/letters/typography/watermark" cinco vezes
+   condiciona **para** texto, e o validador reprova em `hasText`. Mecanismo
+   solido, magnitude empirica: precisa de 10 geracoes com e 10 sem, contando
+   quantas saem com letra. Mexer sem medir e trocar palpite por palpite.
+2. **O gate `issues.length === 0` do validador.** Qualquer ressalva cosmetica
+   reprova, e um modelo de visao com campo `issues` obrigatorio tende a
+   preencher. Candidato forte pra razao de nada ser aprovado. Precisa ler um
+   `rejected` real com os `issues` preenchidos — depende do revalidate.
+3. **Assunto em portugues indo pro encoder do FLUX**, que e predominantemente
+   ingles. Traduzir exige chamada de modelo no caminho de geracao (custo e
+   latencia novos) ou glossario por segmento (que fabrica termo). Decisao de
+   arquitetura, nao ajuste.
+4. **`script: null` e estouro de `description` (30) e `headline` (40)**
+   quebrando o enriquecimento de criativo.
+5. **`numeric field overflow`** na pontuacao automatica.
+6. **Prompt de imagem nao e persistido por criativo** — sem ele nao da pra
+   auditar por que uma imagem saiu como saiu.
+7. **Linha de boot que mente:** `IMAGE_PROVIDER (efetivo): huggingface` com
+   `HF_MODELS` vazio no codigo. A geracao de campanha vai direto pro
+   Cloudflare. Quem depurar imagem lendo o boot comeca no lugar errado.
+8. **API de batch da Cloudflare**, etapas 1-3 (medir neurons reais, extrair o
+   seam de `construirPromptDeCampanha`, so entao o batch). Transporte pronto em
+   `cloudflareBatch.ts`, **nao ligado em producao**.
+9. **Privacidade do auto-router do OpenRouter**: 4 de 91 provedores podem
+   treinar com o prompt.
+10. **Front-end**: chunk circular `pages-settings → pages-admin` e tres bundles
+    acima de 600 kB. Performance de carregamento, nao correcao — mexer em
+    `manualChunks` sem medir e chute.
+
+## Licao transversal desta semana
+
+Tres incidentes independentes, mesmo formato: **a instrucao existia no prompt
+ou no retorno da ferramenta, e nao foi seguida.**
+
+| Data | O que o chat disse ao usuario | A instrucao existia? |
+|---|---|---|
+| 30/09 | "use `consultar_paginas_meta` para lista-lo" | sim, no prompt |
+| 05-06/10 | "status: queued (...) aguarde 10-15 minutos" | sim, e com `estado.filaVaiAgir: false` na mao |
+| 08/10 | "os projetos disponiveis incluem (...) e outros" | sim, no retorno da ferramenta |
+
+Nos tres, reforcar o prompt nao resolveu; o que resolveu foi trava
+deterministica no texto que chega ao usuario. Ver
+[padrao de trava deterministica](deterministic-reply-guards.md) antes de
+"simplificar" qualquer uma das tres — elas parecem redundantes e nao sao.
+
+---
+
+
 ## Adendo local Codex - 2026-10-03
 
 Chat enfileira geracao de imagens faltantes, preserva candidatos pendentes e
