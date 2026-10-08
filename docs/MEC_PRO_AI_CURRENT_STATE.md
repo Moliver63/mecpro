@@ -1890,3 +1890,37 @@ Validado: 346/346. Typecheck 37, diff identico ao baseline. Os dois testes de co
 O commit `810774f` afirma "chat-state-recovery.md atualizado". **Nao estava.** O script de edicao casava um trecho sem considerar que o paragrafo estava quebrado em duas linhas (`"A process crash may leave\na lease until it expires."`), a asercao falhou e o arquivo nao foi gravado — mas o commit seguiu com a mensagem afirmando a atualizacao. O conteudo do doc entra agora, neste commit.
 
 Nao usei `--amend` nem force-push de proposito: ha outra sessao empurrando pra este mesmo `main`, e reescrever o tip arriscaria o trabalho dela. Commit de correcao e mais barato que historico bonito.
+
+---
+
+## 08/10 — "os projetos disponiveis incluem (...) e outros": terceira trava deterministica
+
+**Incidente (Michel, 08/10)**, mesma conversa do travamento:
+
+> "A campanha 'Notting Hill da Embraed' nao foi encontrada entre os projetos existentes. Os projetos disponiveis **incluem** opcoes de imoveis, **como** 'Morebem Imoveis — Sala Comercial Rua 902' **e outros**. Deseja usar um desses projetos ou criar um novo do zero?"
+
+Com isso nao se escolhe nada. E o modelo tinha a lista completa: `queryChatWorkspace` devolve `projects: [{id, name, url}]`, uma `question` pronta e a instrucao explicita *"Apresente os nomes reais retornados, nunca peca IDs. Ofereca mais projetos quando nextOffset existir."* Recebeu tudo e resumiu vagamente.
+
+**Terceira vez do mesmo padrao nesta sessao:**
+
+| Data | Sintoma | Instrucao existia? |
+|---|---|---|
+| 30/09 | "use `consultar_paginas_meta` para lista-lo" | sim |
+| 05-06/10 | "status: queued (...) aguarde 10-15 minutos" | sim, e com `estado.filaVaiAgir` na mao |
+| 08/10 | "os projetos disponiveis incluem (...) e outros" | sim, no retorno da ferramenta |
+
+Nos tres a instrucao estava la e nao foi seguida. A conclusao ja nao e hipotese: **instrucao no prompt nao e garantia, e o que chega ao usuario precisa de trava deterministica.**
+
+**Correcao**: `server/chatProjectReply.ts`, mesmo desenho das outras duas — a lista vem da chamada de ferramenta **daquele turno**, por `AsyncLocalStorage`, sem re-consultar o banco e sem risco de vazar a lista de um usuario pro turno de outro (tem teste com dois turnos em paralelo).
+
+### Decisoes
+
+**Registro dentro de `consultarOuAtualizar`, nao nos tres sitios de despacho.** O laco do Gemini e os dois dos outros provedores passam todos por essa funcao: uma edicao cobre os tres e nao da pra divergir quando alguem mexer num deles.
+
+**Gatilho estreito.** So morde quando o texto de fato escamoteia ("e outros", "entre outros", "alguns projetos", "etc") E fala de projeto E a lista tem 2+ itens. Resposta que cita projetos nominalmente passa intacta — trava que reescreve texto correto e pior que a ausencia dela. Com um projeto so nao ha lista pra escamotear; com nenhum, a resposta certa e criar o primeiro.
+
+**Truncagem com contagem, nao com vaguidade.** Exibe 10 e diz "os 10 primeiros de 12" + "E mais 2". A diferenca de "e outros" e que a contagem era exatamente a informacao que faltava. Se a propria ferramenta paginou (`nextOffset`), avisa que ha mais a seguir em vez de esconder.
+
+**Nome com quebra de linha e tratado**: nome de projeto vem do banco, e dado do usuario, nao formato garantido — sem limpar, um `\n` quebraria a lista em bullets a mais.
+
+Validado: 353/353 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao baseline.

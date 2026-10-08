@@ -32,6 +32,7 @@ import { listarPaginasMetaConectadas } from "./campaignPublish";
 import { chatImageTool, generateChatImage } from "./chatImageTools";
 import { repairMetaPageReply } from "./chatMetaPageReply";
 import { corrigirRespostaDeImagens, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
+import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
@@ -388,7 +389,12 @@ async function consultarOuAtualizar(name: string, args: Record<string, unknown>,
     state.briefing = next;
     return { briefing: state.briefing, missingIntake: missingCampaignIntake(state.briefing), instruction: "Use o briefing acumulado. Para criacao, agrupe os essenciais ainda ausentes num unico bloco organizado, sem repetir confirmados. missingIntake orienta a coleta, nao e uma nova trava de geracao: nao insista em opcionais recusados ou destino ja definido como formulario. Para edicao, pergunte apenas quais mudancas deseja. Se ja pediu criar e os dados sao suficientes, gere sem nova confirmacao. Nao publique sem autorizacao separada." };
   }
-  return await queryChatWorkspace(userId, args, db);
+  // Registrado AQUI, e nao nos tres sitios de despacho (laco do Gemini e os
+  // dois dos outros provedores), porque os tres passam por esta funcao: uma
+  // edicao cobre todos e nao da pra divergir depois.
+  const resultadoWorkspace = await queryChatWorkspace(userId, args, db);
+  registrarProjetosListados(resultadoWorkspace);
+  return resultadoWorkspace;
   } catch (error) {
     return { erro: redactProviderSecrets(error instanceof Error ? error.message : "Falha na consulta."), instruction: "Explique a limitacao ou peca o dado ausente. Nao invente resultados e nao execute outra acao para contornar o erro." };
   }
@@ -1824,7 +1830,8 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   const message = [...messages].reverse().find((m: any) => m?.role === "user")?.content;
   adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
     imageTurn.run({}, () =>
-      chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next)));
+      projectTurn.run({}, () =>
+        chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next))));
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const state = briefingContext.getStore();
@@ -1835,6 +1842,10 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     // aguarde 10-15 minutos" tendo `filaVaiAgir: false` na mao. So intervem
     // quando o texto contradiz o estado real deste turno.
     resultado = { ...resultado, resposta: corrigirRespostaDeImagens(resultado.resposta, imageTurn.getStore()?.estado) };
+    // Terceira trava do mesmo tipo: a ferramenta devolve os nomes reais dos
+    // projetos e manda apresenta-los, e em 08/10 o chat respondeu "os
+    // projetos disponiveis incluem (...) e outros" — impossivel escolher.
+    resultado = { ...resultado, resposta: corrigirRespostaDeProjetos(resultado.resposta, projectTurn.getStore()) };
     if (state && resultado.campanha) {
       state.lastCampaign = resultado.campanha;
       state.briefing.newCampaign = false;
