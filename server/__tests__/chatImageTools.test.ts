@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { generateChatImage } from "../chatImageTools";
 import { imageBrief, imageFingerprint, canonicalStockQuery, visualDecision,
-  resumoDeTarefasDeImagem, MAX_TENTATIVAS_VALIDACAO } from "../imageWorkflowPolicy";
+  resumoDeTarefasDeImagem, MAX_TENTATIVAS_VALIDACAO, rotuloProvedorDeImagem } from "../imageWorkflowPolicy";
 import { processCampaignImageJob } from "../campaignImageJobs";
 
 function fixture(creatives: any[] = [{ headline: "Planejamento financeiro" }]) {
@@ -187,4 +187,45 @@ test("changed brief cancels without provider call", async () => {
   await processCampaignImageJob(f.deps);
   assert.equal(f.generated(), 0);
   assert.ok(f.calls.some(c => c.params[2] === "brief_changed"));
+});
+
+// Achado real (boots de 06 a 09/10): o boot anunciava
+// "IMAGE_PROVIDER (efetivo): huggingface ✅", e enganava duas vezes — HF nao
+// gera imagem em caminho nenhum (HF_MODELS vazio no codigo) e a fila de
+// imagens de campanha nem consulta IMAGE_PROVIDER.
+test("boot nao anuncia provedor de imagem que nao gera imagem", () => {
+  // O ambiente real do Michel: IMAGE_PROVIDER=huggingface com chave HF.
+  const real = rotuloProvedorDeImagem({
+    IMAGE_PROVIDER: "huggingface", HUGGINGFACE_API_KEY: "hf_x",
+    CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "tok", PIXABAY_API_KEY: "pix",
+  });
+  assert.doesNotMatch(real.caminhoLegado, /✅/, "nao pode dar check num provedor desabilitado");
+  assert.match(real.caminhoLegado, /desabilitado no codigo/);
+  // E diz o que DE FATO gera imagem de campanha.
+  assert.match(real.filaDeCampanha, /Cloudflare FLUX ✅/);
+  assert.match(real.filaDeCampanha, /Pixabay ✅/);
+
+  // Auto-deteccao por chave HF cai na mesma ressalva.
+  assert.match(rotuloProvedorDeImagem({ HUGGINGFACE_API_KEY: "hf_x" }).caminhoLegado, /desabilitado no codigo/);
+});
+
+test("boot avisa quando a fila de imagem nao tem gerador", () => {
+  const semNada = rotuloProvedorDeImagem({});
+  assert.match(semNada.filaDeCampanha, /❌ sem gerador/);
+  assert.match(semNada.filaDeCampanha, /PIXABAY_API_KEY tambem ausente/);
+  assert.equal(semNada.caminhoLegado, "mock → SVG inline");
+
+  // Token pela metade nao conta como configurado.
+  assert.match(rotuloProvedorDeImagem({ CLOUDFLARE_ACCOUNT_ID: "acc" }).filaDeCampanha, /❌ sem gerador/);
+  // So o fallback: precisa ficar explicito que nao ha geracao por IA.
+  const soPixabay = rotuloProvedorDeImagem({ PIXABAY_API_KEY: "pix" });
+  assert.match(soPixabay.filaDeCampanha, /so o fallback Pixabay responde/);
+});
+
+test("provedores que nao sao huggingface passam sem a ressalva", () => {
+  assert.equal(rotuloProvedorDeImagem({ IMAGE_PROVIDER: "heygen" }).caminhoLegado, "heygen");
+  assert.equal(rotuloProvedorDeImagem({ IMAGE_PROVIDER: "genspark" }).caminhoLegado, "genspark");
+  assert.equal(rotuloProvedorDeImagem({ HEYGEN_API_KEY: "k" }).caminhoLegado, "heygen (auto-detectado)");
+  // Maiuscula e espaco no env nao mudam a leitura.
+  assert.equal(rotuloProvedorDeImagem({ IMAGE_PROVIDER: "  HeyGen " }).caminhoLegado, "heygen");
 });

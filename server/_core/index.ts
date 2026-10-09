@@ -66,13 +66,13 @@ console.log('[BOOT] ASAAS_API_KEY set (Pix pagamentos):', !!process.env.ASAAS_AP
 console.log('[BOOT] ASAAS_WEBHOOK_TOKEN set (segurança):', !!process.env.ASAAS_WEBHOOK_TOKEN);
 const _hfKey     = (process.env.HUGGINGFACE_API_KEY || '').trim();
 const _heygenKey = (process.env.HEYGEN_API_KEY      || '').trim();
-const _imgProvider = (process.env.IMAGE_PROVIDER || '').toLowerCase();
-const _effectiveProvider = _imgProvider === 'heygen' ? 'heygen ✅'
-  : _imgProvider === 'huggingface' ? 'huggingface ✅'
-  : (!_imgProvider && _heygenKey) ? 'heygen (auto-detectado) ✅'
-  : (!_imgProvider && _hfKey) ? 'huggingface (auto-detectado) ✅'
-  : 'mock → SVG inline';
-console.log('[BOOT] IMAGE_PROVIDER (efetivo):', _effectiveProvider);
+// Antes esta linha dizia 'IMAGE_PROVIDER (efetivo): huggingface ✅', e enganava
+// duas vezes: HF nao gera imagem em caminho nenhum (HF_MODELS vazio no codigo)
+// e a fila de imagens de campanha nem consulta IMAGE_PROVIDER — vai direto no
+// Cloudflare. Ver rotuloProvedorDeImagem.
+const _imagem = rotuloProvedorDeImagem(process.env as Record<string, string | undefined>);
+console.log('[BOOT] Imagem de campanha (fila):', _imagem.filaDeCampanha);
+console.log('[BOOT] IMAGE_PROVIDER (so caminhos legados):', _imagem.caminhoLegado);
 console.log('[BOOT] HEYGEN_API_KEY set:', !!_heygenKey, _heygenKey ? '✅' : '— nao configurada');
 console.log('[BOOT] HUGGINGFACE_API_KEY set:', !!_hfKey, _hfKey ? '✅' : '— nao configurada');
 console.log('[BOOT] CLOUDINARY configurado:', !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET), '(storage para HF)');
@@ -134,6 +134,7 @@ import publicApiRouter from '../publicApi';
 import oauthRouter from '../oauthServer';
 import { createContext } from './context.js';
 import { appRouter } from './router.js';
+import { rotuloProvedorDeImagem } from '../imageWorkflowPolicy';
 import Stripe from 'stripe';
 import { Webhook as SvixWebhook } from 'svix';
 import { json } from 'express';

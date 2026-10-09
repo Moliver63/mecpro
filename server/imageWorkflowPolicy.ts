@@ -63,6 +63,55 @@ export function formatoPorOrientacao(
 // divergirem, o resumo passa a mentir sobre o que a fila vai fazer.
 export const MAX_TENTATIVAS_VALIDACAO = 3;
 
+/**
+ * Linhas de boot sobre geracao de imagem.
+ *
+ * Achado real (boot de producao, 06 a 09/10): o boot anunciava
+ * `IMAGE_PROVIDER (efetivo): huggingface ✅` — e isso enganava duas vezes.
+ *
+ * 1. **HuggingFace nao gera imagem em caminho nenhum.** `HF_MODELS` esta vazio
+ *    no codigo, com o comentario "HF hf-inference nao suporta mais modelos de
+ *    imagem — desabilitado". `generateWithHuggingFace` itera lista vazia e
+ *    devolve null. O ✅ era num provedor morto.
+ * 2. **A fila de imagens de campanha nao consulta `IMAGE_PROVIDER`.**
+ *    `generateCampaignImageCandidate` vai direto no Cloudflare FLUX e cai pro
+ *    Pixabay. A variavel so vale pros caminhos sincronos legados (`ai.ts`,
+ *    `generateAdImage`, `_core/router.ts`), que continuam existindo.
+ *
+ * Quem fosse depurar geracao de imagem lendo esse boot comecava no lugar
+ * errado — o mesmo tipo de armadilha do comentario que afirmava que o
+ * Cloudinary normalizava o tamanho da imagem (nao normalizava, e isso custou
+ * dias de diagnostico).
+ *
+ * Funcao pura, recebendo o env, pra poder ser testada sem subir o servidor.
+ */
+export function rotuloProvedorDeImagem(env: Record<string, string | undefined>) {
+  const pedido = String(env.IMAGE_PROVIDER || "").trim().toLowerCase();
+  const temHf = !!String(env.HUGGINGFACE_API_KEY || "").trim();
+  const temHeygen = !!String(env.HEYGEN_API_KEY || "").trim();
+  const temCloudflare = !!(String(env.CLOUDFLARE_ACCOUNT_ID || "").trim() && String(env.CLOUDFLARE_API_TOKEN || "").trim());
+  const temPixabay = !!String(env.PIXABAY_API_KEY || "").trim();
+
+  const filaDeCampanha = temCloudflare
+    ? `Cloudflare FLUX ✅ (fallback banco de imagens: ${temPixabay ? "Pixabay ✅" : "Pixabay ausente"})`
+    : `❌ sem gerador: CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN ausente${temPixabay ? " — so o fallback Pixabay responde" : " e PIXABAY_API_KEY tambem ausente"}`;
+
+  // O resolvido do caminho legado, sem ✅ pra provedor que nao gera.
+  const resolvido = pedido === "heygen" ? "heygen"
+    : pedido === "huggingface" ? "huggingface"
+    : pedido === "genspark" ? "genspark"
+    : (!pedido && temHeygen) ? "heygen (auto-detectado)"
+    : (!pedido && temHf) ? "huggingface (auto-detectado)"
+    : "mock → SVG inline";
+
+  const ehHuggingface = resolvido.startsWith("huggingface");
+  const caminhoLegado = ehHuggingface
+    ? `${resolvido} — ATENCAO: desabilitado no codigo (HF_MODELS vazio), nao gera imagem`
+    : resolvido;
+
+  return { filaDeCampanha, caminhoLegado };
+}
+
 export type TarefaDeImagem = { status?: string; attempts?: number; creative_index?: number; format?: string; reason?: string };
 
 /**

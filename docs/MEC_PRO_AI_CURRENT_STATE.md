@@ -31,8 +31,8 @@ Estes tem evidencia de log, nao so teste local.
 
 ## No ar, ainda sem evidencia de producao
 
-Deploy de 08/10 13:51 local cobre tudo abaixo (o `d9a1547`, de 13:45, pode ter
-ficado pro deploy seguinte — a lista de deploys do Render confirma).
+Deploy de 09/10 11:06 local cobre **tudo** abaixo, incluindo o `d9a1547`, cuja
+cobertura estava em duvida no deploy anterior.
 
 | Correcao | Commit | Como se confirma |
 |---|---|---|
@@ -83,9 +83,10 @@ Por ordem de impacto estimado, com o motivo de nao ter sido mexido.
 5. **`numeric field overflow`** na pontuacao automatica.
 6. **Prompt de imagem nao e persistido por criativo** — sem ele nao da pra
    auditar por que uma imagem saiu como saiu.
-7. **Linha de boot que mente:** `IMAGE_PROVIDER (efetivo): huggingface` com
-   `HF_MODELS` vazio no codigo. A geracao de campanha vai direto pro
-   Cloudflare. Quem depurar imagem lendo o boot comeca no lugar errado.
+7. ~~Linha de boot que mente~~ — **corrigida em 09/10** (`rotuloProvedorDeImagem`).
+   O boot agora separa "Imagem de campanha (fila)", que e o que de fato gera
+   (Cloudflare FLUX, fallback Pixabay), de "IMAGE_PROVIDER (so caminhos
+   legados)", e marca huggingface como desabilitado no codigo em vez de dar ✅.
 8. **API de batch da Cloudflare**, etapas 1-3 (medir neurons reais, extrair o
    seam de `construirPromptDeCampanha`, so entao o batch). Transporte pronto em
    `cloudflareBatch.ts`, **nao ligado em producao**.

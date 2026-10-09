@@ -115,9 +115,11 @@ validacao **nao bloqueia este caminho**. O Cloud Vision segue no fluxo legado.
 - **Assunto em portugues** indo pro encoder do FLUX, predominantemente ingles.
 - **Prompt nao e persistido por criativo**: sem ele nao da pra auditar por que
   uma imagem saiu como saiu.
-- **`IMAGE_PROVIDER (efetivo): huggingface` no boot** com `HF_MODELS` vazio no
-  codigo: a geracao de campanha vai direto pro Cloudflare. A linha engana quem
-  depura.
+- ~~`IMAGE_PROVIDER (efetivo): huggingface` no boot~~ — **corrigido em 09/10**.
+  O boot separa a fila de campanha (Cloudflare FLUX, fallback Pixabay) dos
+  caminhos legados, e marca huggingface como desabilitado no codigo
+  (`HF_MODELS` vazio faz `generateWithHuggingFace` iterar lista vazia e devolver
+  null) em vez de dar ✅ num provedor que nao gera imagem.
 
 
 ## 2026-10-03 - fila persistente (substitui o fluxo sincrono do chat abaixo)
