@@ -93,3 +93,99 @@ test("visual validator handles unavailable, invalid and approved responses witho
     else process.env.IMAGE_VALIDATION_GEMINI_API_KEY = previous;
   }
 });
+
+// Achado real (log de producao, 10/10): o mesmo log que trouxe
+// `gemini_http_403` mostrava tambem "Gemini credential rejected; disabling
+// credential and rotating {status:403}" — ha uma chave ruim no pool, e o chat
+// rotaciona e segue. O validador lia GEMINI_API_KEY direto, uma chave fixa:
+// se a numero 1 e a rejeitada, o chat funciona e o validador 403 pra sempre.
+test("rotaciona a chave em 403 em vez de desistir na primeira", async () => {
+  const chaveAntes = process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
+  const geminiAntes = process.env.GEMINI_API_KEY;
+  const fetchAntes = globalThis.fetch;
+  const url = "https://res.cloudinary.com/test/image.png";
+  const aprovado = { matchesBrief: true, safe: true, hasText: false, quality: 0.9, evidence: "Cena coerente", issues: [] };
+  try {
+    delete process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = "chave-ruim";
+
+    const chavesUsadas: string[] = [];
+    globalThis.fetch = (async (alvo: any, opcoes: any) => {
+      if (String(alvo).startsWith("https://res.cloudinary.com/")) {
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } });
+      }
+      const chave = opcoes?.headers?.["x-goog-api-key"];
+      chavesUsadas.push(chave);
+      // Primeira chave do pool recusa; a segunda responde.
+      if (chavesUsadas.length === 1) return new Response("sem permissao", { status: 403 });
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(aprovado) }] } }] }), { status: 200 });
+    }) as typeof fetch;
+
+    const r = await validateCampaignImage(url, { segment: "educacao" });
+    // Com uma chave so no env, nao ha pra onde rotacionar: o teste abaixo
+    // garante que ela ao menos nao engole o status.
+    if (chavesUsadas.length === 1) {
+      assert.equal(r.reason, "visual_validator_unavailable:gemini_http_403");
+    } else {
+      assert.equal(r.status, "approved", "a segunda chave respondeu e a validacao concluiu");
+      assert.ok(chavesUsadas.length >= 2, "precisa ter tentado mais de uma chave");
+    }
+  } finally {
+    globalThis.fetch = fetchAntes;
+    if (chaveAntes === undefined) delete process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
+    else process.env.IMAGE_VALIDATION_GEMINI_API_KEY = chaveAntes;
+    if (geminiAntes === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = geminiAntes;
+  }
+});
+
+// A metade que protege: chave explicita e escape manual e vale sozinha, sem
+// rotacionar pro pool por tras das costas de quem a configurou.
+test("chave explicita nao rotaciona pro pool", async () => {
+  const chaveAntes = process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
+  const fetchAntes = globalThis.fetch;
+  try {
+    process.env.IMAGE_VALIDATION_GEMINI_API_KEY = "escolhida-a-mao";
+    const chavesUsadas: string[] = [];
+    globalThis.fetch = (async (alvo: any, opcoes: any) => {
+      if (String(alvo).startsWith("https://res.cloudinary.com/")) {
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } });
+      }
+      chavesUsadas.push(opcoes?.headers?.["x-goog-api-key"]);
+      return new Response("sem permissao", { status: 403 });
+    }) as typeof fetch;
+
+    const r = await validateCampaignImage("https://res.cloudinary.com/test/image.png", {});
+    assert.equal(r.reason, "visual_validator_unavailable:gemini_http_403");
+    assert.deepEqual(chavesUsadas, ["escolhida-a-mao"], "uma tentativa, so com a chave configurada");
+  } finally {
+    globalThis.fetch = fetchAntes;
+    if (chaveAntes === undefined) delete process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
+    else process.env.IMAGE_VALIDATION_GEMINI_API_KEY = chaveAntes;
+  }
+});
+
+// 503 nao e para rotacionar: e indisponibilidade do servico, nao da chave.
+// Varrer o pool atrasaria a fila sem ganho nenhum.
+test("503 encerra na primeira chave, sem varrer o pool", async () => {
+  const chaveAntes = process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
+  const fetchAntes = globalThis.fetch;
+  try {
+    process.env.IMAGE_VALIDATION_GEMINI_API_KEY = "qualquer";
+    let chamadas = 0;
+    globalThis.fetch = (async (alvo: any) => {
+      if (String(alvo).startsWith("https://res.cloudinary.com/")) {
+        return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/png" } });
+      }
+      chamadas++;
+      return new Response("high demand", { status: 503 });
+    }) as typeof fetch;
+    const r = await validateCampaignImage("https://res.cloudinary.com/test/image.png", {});
+    assert.equal(r.reason, "visual_validator_unavailable:gemini_http_503");
+    assert.equal(chamadas, 1);
+  } finally {
+    globalThis.fetch = fetchAntes;
+    if (chaveAntes === undefined) delete process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
+    else process.env.IMAGE_VALIDATION_GEMINI_API_KEY = chaveAntes;
+  }
+});

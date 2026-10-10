@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { acceptCreativeRewrite, parseCreativeRewrite, creativeRewriteFeedback, CREATIVE_REWRITE_RESPONSE_SCHEMA } from "../creativeRewriteGuard";
+import { acceptCreativeRewrite, parseCreativeRewrite, creativeRewriteFeedback, CREATIVE_REWRITE_RESPONSE_SCHEMA, erroDeEnriquecimentoDeveSubir} from "../creativeRewriteGuard";
 import { buildCampaignFacts, formatCampaignFactsForPrompt } from "../campaignFactGuard";
 
 const facts = buildCampaignFacts({ input: {}, clientProfile: {}, segment: "alimentacao" });
@@ -138,4 +138,28 @@ test("every field the Fact Guard audits is also editable in the rewrite schema (
   const esperados = auditados.filter(f => f !== "text");
   const faltando = esperados.filter(f => !editaveis.includes(f));
   assert.deepEqual(faltando, [], `campos auditados pelo Fact Guard mas NÃO editáveis na reescrita: ${faltando.join(", ")} — isso faz a campanha falhar em todas as tentativas, sem chance de correção (ver pain 19/09, solution 23/09, script 24/09)`);
+});
+
+// Achado real (log de producao, 10/10, campanha 797): o laco de reparo
+// CONSERTOU a prova social do criativo 2, mas o card 1 tinha description acima
+// de 30 caracteres que duas reescritas nao resolveram. O
+// CREATIVE_REPAIR_REQUIRED era ENGOLIDO pelo catch de ai.ts, a lista reparada
+// inteira ia pro lixo, e a campanha morria depois num FACT_CONFLICT culpando o
+// criativo 2 — o que ja estava consertado.
+test("erro de reparo sobe junto com conflito de fato, em vez de descartar os reparos", () => {
+  assert.equal(erroDeEnriquecimentoDeveSubir(
+    new Error("CREATIVE_REPAIR_REQUIRED: card 1: description: String must contain at most 30 character(s)")), true);
+  assert.equal(erroDeEnriquecimentoDeveSubir(
+    new Error("FACT_CONFLICT: criativos contém informações não confirmadas")), true);
+  // String crua tambem, nao so Error.
+  assert.equal(erroDeEnriquecimentoDeveSubir("CREATIVE_REPAIR_REQUIRED: card 2: headline longa"), true);
+
+  // O resto continua sendo engolido: falha de imagem ou de score nao deve
+  // impedir a campanha de salvar, que era o motivo do catch existir.
+  for (const outro of [new Error("Cloudflare timeout"), new Error("Pixabay error 429"),
+    "falha ao pontuar criativo", new Error(""), undefined, null]) {
+    assert.equal(erroDeEnriquecimentoDeveSubir(outro), false, `nao devia subir: ${String(outro)}`);
+  }
+  // Prefixo parecido nao conta.
+  assert.equal(erroDeEnriquecimentoDeveSubir("algo CREATIVE_REPAIR_REQUIRED no meio"), false);
 });

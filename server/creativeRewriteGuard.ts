@@ -137,3 +137,39 @@ export function repairCreativeFields(original: any, response: unknown, facts: Ca
   }
   return { candidate: applyTextPatch(original, patch), rejected, issues, accepted: Object.keys(patch) };
 }
+
+/**
+ * O erro do enriquecimento deve subir pro usuario, ou pode ser engolido?
+ *
+ * Achado real (log de producao, 10/10, campanha 797 — cadeia completa):
+ *
+ *  1. A geracao escreveu no criativo 2 uma `description` com prova social
+ *     ("Depoimentos de quem ja fez...") que nao esta nos fatos confirmados.
+ *  2. O laco de reparo DETECTOU e CORRIGIU: na tentativa 2 a `description` foi
+ *     aceita — e `repairCreativeFields` so aceita campo que passa no Fact
+ *     Guard, entao o texto novo estava limpo.
+ *  3. Mas o **card 1** tinha `description` acima de 30 caracteres que duas
+ *     reescritas nao resolveram, e a checagem final lanca
+ *     `CREATIVE_REPAIR_REQUIRED`.
+ *  4. O catch em ai.ts ENGOLIA esse erro, e `creatives` nunca era reatribuido
+ *     — a lista reparada inteira ia pro lixo e a campanha seguia com os
+ *     criativos ORIGINAIS.
+ *  5. O Fact Guard de fora rodava nos originais e matava a campanha pela prova
+ *     social do criativo 2 — a que ja tinha sido consertada no passo 2.
+ *
+ * Resultado: sete chamadas de LLM de reparo jogadas fora por causa de OUTRO
+ * card, e uma mensagem de erro culpando "informacao nao confirmada" quando a
+ * causa real era comprimento de campo. Essa troca de culpa me levou a tres
+ * hipoteses erradas antes de eu ler a linha de cima no log.
+ *
+ * Agora sobe. Isso e mais ESTRITO que antes: quando os criativos originais
+ * passavam por acaso no Fact Guard, a campanha salvava — porem sem
+ * enriquecimento nenhum (sem score, sem copy melhorada). Preferi erro visivel
+ * a degradacao silenciosa: campanha salva com criativo nao enriquecido e
+ * exatamente o resultado "parece feito por IA" que o produto existe pra
+ * evitar, e ninguem tem como perceber que aconteceu.
+ */
+export function erroDeEnriquecimentoDeveSubir(mensagem: unknown): boolean {
+  const texto = String((mensagem as { message?: string })?.message ?? mensagem ?? "");
+  return texto.startsWith("FACT_CONFLICT:") || texto.startsWith("CREATIVE_REPAIR_REQUIRED:");
+}

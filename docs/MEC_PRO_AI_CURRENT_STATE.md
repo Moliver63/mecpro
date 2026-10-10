@@ -2141,3 +2141,66 @@ Tres hipoteses, em ordem, e nao sei qual e:
 3. Restricao por referrer/IP na chave, que barra chamada de servidor.
 
 O caminho mais curto: deixar `IMAGE_VALIDATION_GEMINI_API_KEY` **vazia** no Render. Sem ela o validador cai no `GEMINI_API_KEY`, que e a mesma chave que o chat usa com sucesso. Se o 403 sumir, era a hipotese 1 ou 2.
+
+---
+
+## 10/10 — o reparo funcionou e foi jogado no lixo
+
+Primeiro, o que deu certo: **a geracao rodou em 22 segundos** (16:26:03 → 16:26:25). O teto de espera do Gemini (`241a89c`) esta confirmado em producao — nada de travar cinco minutos.
+
+### A cadeia completa, do log
+
+1. A geracao escreveu no criativo 2 uma `description` com prova social ("Depoimentos de quem ja fez...") que **nao** esta nos fatos confirmados.
+2. O laco de reparo **detectou e corrigiu**: `factConflicts: 2` no primeiro passe, e na tentativa 2 a `description` foi **aceita** — e `repairCreativeFields` so aceita campo que passa no Fact Guard (`creativeRewriteGuard.ts:132`), entao o texto novo estava limpo.
+3. Mas o **card 1** tinha `description` acima de 30 caracteres que duas reescritas nao resolveram:
+   `CREATIVE_REPAIR_REQUIRED: card 1: description: String must contain at most 30 character(s)`
+4. O `catch` em `ai.ts:8297` **engolia** esse erro (so relancava FACT_CONFLICT), e `creatives` nunca era reatribuido — a atribuicao fica no fim do `try`, depois do ponto da excecao. **A lista reparada inteira ia pro lixo.**
+5. O Fact Guard de fora rodava nos criativos **originais** e matava a campanha pela prova social do criativo 2 — a que ja tinha sido consertada no passo 2.
+
+Sete chamadas de LLM de reparo, dinheiro real, o conserto feito — descartado porque **outro** card tinha descricao comprida. E a mensagem culpava "informacao nao confirmada" quando a causa era comprimento de campo.
+
+Essa troca de culpa me custou tres hipoteses erradas antes de eu ler a linha imediatamente acima no log. Fica como metodo: **ler a linha anterior a do erro**, porque o erro que aparece pode ser consequencia do que veio antes.
+
+### Correcao aplicada
+
+`CREATIVE_REPAIR_REQUIRED` passou a subir junto com `FACT_CONFLICT`
+(`erroDeEnriquecimentoDeveSubir`). O usuario agora recebe "card 1: description longa", que e verdade e acionavel, em vez de um FACT_CONFLICT sobre outro criativo.
+
+**Isso e mais estrito que antes, e foi escolha minha.** Quando os criativos originais passavam por acaso no Fact Guard, a campanha salvava — porem **sem enriquecimento nenhum**: sem score, sem copy melhorada. Preferi erro visivel a degradacao silenciosa, porque campanha salva com criativo nao enriquecido e exatamente o resultado "parece feito por IA" que o produto existe pra evitar, e ninguem tem como perceber que aconteceu. O resto dos erros (imagem, score) continua sendo engolido, que era o motivo do `catch` existir.
+
+### O que eu NAO fiz, e por que
+
+Perguntei ao Michel entre tres politicas pro card irreparavel; ele deixou a escolha comigo. Descartar o card e salvar o resto parecia a melhor, e **desisti ao ler o resto da funcao**:
+
+```js
+const img = realImages[index % realImages.length];
+scored[index].feedImageUrl = img;
+```
+
+O modo de fotos reais mapeia foto por **posicao no array**. Descartar o card 1 deslocaria cada criativo seguinte um slot, e publicaria o anuncio do cliente **com a foto errada**. Isso e pior que o bug atual, que bloqueia em vez de errar em producao.
+
+Descartar card exige antes preservar o indice original e fazer o mapeamento de foto usar ele. Fica pra uma mudanca propria, no caminho mais consequente do sistema, nao de carona.
+
+### O 403 do validador, explicado
+
+O mesmo log traz a resposta de ontem:
+
+```
+[WARN] Gemini credential rejected; disabling credential and rotating {"status":403}
+```
+
+**Ha uma chave com 403 no pool**, e o chat rotaciona e segue funcionando. O validador de imagem lia `process.env.GEMINI_API_KEY` **direto** — chave fixa, sem rotacao, sem consultar `geminiCredentialHealth`. Se a chave numero 1 e justamente a rejeitada, o chat funciona e o validador 403 **para sempre**.
+
+Isso explica a semana inteira de `visual_validator_unavailable` com o chat respondendo normalmente, e dispensa as tres hipoteses de ontem (restricao de chave, API desabilitada, referrer). Nenhuma era necessaria.
+
+**Correcao**: o validador usa o pool filtrado por saude, rotaciona em 401/403 e **avisa** `geminiCredentialHealth` quando uma chave recusa — entao chat e geracao tambem param de usar aquela chave. Teto de 3 chaves por validacao: o worker roda a cada 15s, e varrer nove atrasaria a fila sem ganho; se tres chaves saudaveis recusam, o problema nao e a chave.
+
+`IMAGE_VALIDATION_GEMINI_API_KEY`, quando setada, continua valendo **sozinha** — e escape manual, e rotacionar pro pool por tras de quem a configurou seria errado. Tem teste.
+
+E 503 **nao** rotaciona: e indisponibilidade do servico, nao da chave. Varrer o pool ali seria so atraso.
+
+Validado: 367/367 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao baseline.
+
+### Ainda confirmado como pendencia real
+
+O estouro de 30 caracteres em `description`/`shortDescription` (item 4 da lista) agora tem evidencia de producao com nome de campo. O gerador produz descricao longa e duas reescritas nao convergem — o prompt ja pede "mire em ate 24 pra ter folga" e nao basta.

@@ -25,7 +25,7 @@ import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageForma
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { alinharObjetivosAninhados, formatoDeMidiaParaAuditoria } from "./campaignRuleRetrieval";
-import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, type CreativeTextField } from "./creativeRewriteGuard";
+import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, type CreativeTextField } from "./creativeRewriteGuard";
 import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
@@ -8296,7 +8296,11 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     }
   } catch (error: any) {
     log.warn("ai", "Falha ao enriquecer criativos com score/imagem", { error: error?.message });
-    if (String(error?.message).startsWith("FACT_CONFLICT:")) throw error;
+    // CREATIVE_REPAIR_REQUIRED passou a subir junto com FACT_CONFLICT. Engolido,
+    // ele descartava a lista reparada INTEIRA por causa de um card so, e a
+    // campanha morria depois num FACT_CONFLICT que culpava outro criativo — o
+    // que ja tinha sido consertado. Ver erroDeEnriquecimentoDeveSubir.
+    if (erroDeEnriquecimentoDeveSubir(error)) throw error;
   }
 
   // Achado real (28/09, projeto 49): a campanha inteira foi bloqueada por
