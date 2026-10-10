@@ -2039,3 +2039,44 @@ Nos tres a instrucao estava la e nao foi seguida. A conclusao ja nao e hipotese:
 **Nome com quebra de linha e tratado**: nome de projeto vem do banco, e dado do usuario, nao formato garantido — sem limpar, um `\n` quebraria a lista em bullets a mais.
 
 Validado: 353/353 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao baseline.
+
+---
+
+## 10/10 — mensagem de FACT_CONFLICT: o que corrigir e o que NAO tocar
+
+Michel colou a mensagem que recebeu ao tentar gerar:
+
+> "A campanha nao foi salva porque o texto gerado incluiu **alguma informacao** que voce ainda nao confirmou (ou que conflita com o que ja foi dito). O que ja esta registrado no briefing continua guardado — nao precisa repetir nada. Posso tentar gerar de novo agora, **com mais cuidado** pra nao incluir isso. Tudo bem?"
+
+Diferente dos tres incidentes anteriores de resposta vaga, **esta mensagem e fixa no codigo** (`chatBriefing.ts`, `generationErrorText`) — nao e o modelo resumindo.
+
+### O que eu quase quebrei
+
+Minha primeira leitura foi "o guard conhece o campo e o valor exatos, entao e o mesmo caso de 'e outros': mostrar os especificos". Fui conferir antes e achei o teste de 17/09:
+
+```js
+test("fact errors do not ask users to approve invented claims or change project", () => {
+  assert.doesNotMatch(text, /escritorio/);   // o valor rejeitado NAO pode aparecer
+```
+
+**Esconder o valor e deliberado, e a razao e boa.** Mostrar "'piscina aquecida' foi barrada" convida o usuario a responder "confirma ai", e a invencao do modelo entra no briefing como fato confirmado — exatamente o dano que o Fact Guard existe pra impedir. O prompt diz o mesmo em `chat.ts` ("FACT_CONFLICT (...) nao uma escolha para o usuario aceitar fatos inventados").
+
+Terceira vez nesta sessao que um teste existente me impediu de reverter uma decisao deliberada: a supressao de cena visual (02/10, onde eu **nao** conferi e errei), o `chatContact` (08/10) e agora. O padrao ja e claro o suficiente pra virar regra: **antes de "consertar" algo que parece descuido num arquivo com teste, leia o nome do teste.**
+
+### O que estava de fato errado
+
+**"alguma informacao" nao dava acao nenhuma.** Agora sai a **categoria** do que foi barrado — preco, endereco, area, prova social, escassez, beneficio, objetivo, segmento, tipo ou finalidade de imovel. Categoria orienta sem ancorar: se o preco e real, o caminho e o usuario informar o preco, nao homologar o numero que o modelo inventou.
+
+Os `reason` do guard sao snake_case em ingles (`unverified_benefit_claim`, `area_conflict_expected_120`), entao ha traducao — mostrar o codigo cru recriaria o problema de jargao que a correcao de 17/09 resolveu. Teto de tres categorias, pra mensagem nao virar relatorio.
+
+**"com mais cuidado" prometia diligencia que nada entrega.** O mecanismo real e concreto e ja existia: os termos barrados voltam em `termosRejeitados`, o prompt manda repassa-los como `forbiddenTerms` na proxima chamada, e `ai.ts` consome. A frase agora descreve isso — "gerar de novo ja excluindo os termos que foram barrados" — em vez de sugerir que o modelo vai tentar melhor.
+
+Como fica:
+
+> "A campanha nao foi salva: o verificador de fatos bloqueou antes de gravar, em vez de deixar passar algo que voce nao disse. O que foi barrado: um beneficio que nao esta no briefing; um preco que nao esta no briefing confirmado. Nada foi publicado, e o seu briefing continua guardado — nao precisa repetir nada. Posso gerar de novo ja excluindo os termos que foram barrados. E se algum desses pontos for verdade, me diga qual que eu registro no briefing primeiro: o que vale e voce informar, nao aprovar o texto que saiu."
+
+Validado: 359/359. Typecheck 37, diff identico. Os testes novos verificados falhando sem a correcao, e o teste de 17/09 continua passando — era a condicao pra mudanca estar certa.
+
+### Pendencia conhecida
+
+`generationErrorText` produz o campo `erro` que o **modelo** le e repassa. Ele pode re-vaguear o texto na hora de contar pro usuario. Agora a informacao ao menos existe na string; se o modelo apagar a categoria, ai cabe a quarta trava deterministica — mas com evidencia, nao por precaucao.
