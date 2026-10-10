@@ -115,6 +115,65 @@ export function rotuloProvedorDeImagem(env: Record<string, string | undefined>) 
 export type TarefaDeImagem = { status?: string; attempts?: number; creative_index?: number; format?: string; reason?: string };
 
 /**
+ * A causa da indisponibilidade do validador vai se resolver esperando?
+ *
+ * Achado real (Michel, 10/10): a fila devolveu
+ * `visual_validator_unavailable:gemini_http_403`, e o chat respondeu "aguarde
+ * 10-15 minutos para revalidacao". **403 e permissao** — nao resolve esperando
+ * nem em dez minutos nem em dez dias. Durante a semana eu vinha supondo 503
+ * ("high demand"), que de fato seria transitorio; o codigo nomeado de 03/10
+ * derrubou a suposicao assim que o revalidate rodou.
+ *
+ * Defeito meu, de 05/10: `resumoDeTarefasDeImagem` amarrou o aviso somente ao
+ * esgotamento de tentativas. Com `attempts` zerado pelo revalidate,
+ * `filaVaiAgir` fica true e nada avisava — mas as tres tentativas restantes
+ * estavam condenadas a falhar igual. Tratar "a fila vai tentar" como "esperar
+ * resolve" so vale pra causa transitoria.
+ *
+ * 4xx e configuracao (chave, permissao, API desabilitada, modelo, URL que nao
+ * existe): repetir da o mesmo. 408 e 429 sao a excecao — limite de taxa passa.
+ * 5xx e indisponibilidade do outro lado, que passa.
+ */
+export function causaEhPermanente(motivo: unknown): boolean {
+  const texto = String(motivo || "");
+  const causa = texto.includes(":") ? texto.slice(texto.indexOf(":") + 1) : texto;
+
+  // Configuracao do nosso lado: repetir nao muda nada.
+  if (/^(sem_chave_gemini|host_nao_permitido|modelo_invalido)$/.test(causa)) return true;
+  // Problema do candidato ja gravado: a mesma URL devolve o mesmo resultado.
+  if (/^(mime_inesperado|imagem_grande_demais|corpo_vazio)$/.test(causa)) return true;
+
+  const http = /^(?:gemini|download)_http_(\d{3})$/.exec(causa);
+  if (http) {
+    const codigo = Number(http[1]);
+    if (codigo === 408 || codigo === 429) return false; // limite de taxa passa
+    return codigo >= 400 && codigo < 500;
+  }
+  // timeout, excecao, validator_invalid_response e o que nao reconhecemos:
+  // trata como transitorio, porque chutar "permanente" pararia a fila de
+  // tentar numa falha que talvez passasse.
+  return false;
+}
+
+/** Causa permanente em portugues, sem jargao, pro usuario final. */
+export function causaPermanenteEmPortugues(motivo: unknown): string | null {
+  const texto = String(motivo || "");
+  const causa = texto.includes(":") ? texto.slice(texto.indexOf(":") + 1) : texto;
+  if (!causaEhPermanente(causa)) return null;
+  if (causa === "sem_chave_gemini") return "a validacao automatica de imagem nao esta configurada";
+  if (causa === "host_nao_permitido") return "a imagem esta hospedada fora do servidor permitido";
+  if (causa === "modelo_invalido") return "o modelo de validacao configurado e invalido";
+  if (causa === "mime_inesperado") return "o arquivo gravado nao e uma imagem valida";
+  if (causa === "imagem_grande_demais") return "a imagem gravada passa do tamanho aceito";
+  if (causa === "corpo_vazio") return "a imagem gravada chegou vazia";
+  if (/^gemini_http_(401|403)$/.test(causa)) return "a chave usada para validar imagem nao tem permissao de acesso";
+  if (/^gemini_http_404$/.test(causa)) return "o modelo de validacao nao foi encontrado na conta";
+  if (/^gemini_http_/.test(causa)) return "o servico de validacao recusou a requisicao";
+  if (/^download_http_/.test(causa)) return "a imagem gravada nao pode mais ser baixada";
+  return "a validacao automatica esta com problema de configuracao";
+}
+
+/**
  * Achado real (05/10): o chat respondeu a Michel "status: queued (...) nao
  * ha acao manual disponivel para acelerar. Aguarde 10-15 minutos". As tres
  * afirmacoes estavam erradas: as tarefas estavam em `pending_validation`,
@@ -147,8 +206,22 @@ export function resumoDeTarefasDeImagem(tarefas: TarefaDeImagem[]) {
   const aprovadas = linhas.filter(t => t?.status === "approved");
 
   const filaVaiAgir = aguardandoFila.length > 0;
+
+  // Causa permanente: a fila pode ate ter tentativas sobrando, mas elas vao
+  // falhar igual. Ver causaEhPermanente — isto conserta o buraco de 05/10, em
+  // que `destravar` so olhava esgotamento de tentativa.
+  const bloqueadas = linhas.filter(t => causaEhPermanente(t?.reason));
+  const causas = Array.from(new Set(
+    bloqueadas.map(t => causaPermanenteEmPortugues(t?.reason)).filter((c): c is string => !!c)));
+  const esperarResolve = filaVaiAgir && bloqueadas.length === 0;
+
   let destravar: string | null = null;
-  if (!filaVaiAgir && paradas.length > 0) {
+  if (causas.length) {
+    // Primeiro, porque e o caso em que esperar e ativamente a resposta errada.
+    destravar = `${bloqueadas.length} tarefa(s) travada(s) por configuracao, nao por fila: ${causas.join("; ")}. ` +
+      `Esperar NAO resolve — as tentativas que sobraram vao falhar igual. Precisa corrigir a configuracao da validacao; ` +
+      `revalidate depois disso reaproveita as imagens que ja existem, sem gerar outra.`;
+  } else if (!filaVaiAgir && paradas.length > 0) {
     destravar = `${paradas.length} tarefa(s) esgotaram as ${MAX_TENTATIVAS_VALIDACAO} tentativas de validacao e a fila NAO vai pegar de novo sozinha. Esperar nao resolve. Use action=revalidate: zera o contador e reanalisa a imagem que ja existe, sem gerar outra.`;
   }
 
@@ -158,16 +231,24 @@ export function resumoDeTarefasDeImagem(tarefas: TarefaDeImagem[]) {
     aprovadas: aprovadas.length,
     aguardandoFila: aguardandoFila.length,
     paradasSemTentativa: paradas.length,
+    bloqueadasPorConfiguracao: bloqueadas.length,
+    causasPermanentes: causas,
     filaVaiAgir,
+    // `filaVaiAgir` diz se o worker volta a pegar. `esperarResolve` diz se
+    // isso tem chance de dar em algo. Com causa permanente os dois divergem,
+    // e e `esperarResolve` que decide se cabe mandar o usuario aguardar.
+    esperarResolve,
     destravar,
     // Frase pronta pro assistente: deterministica, pra ele nao precisar
     // inferir o estado a partir do formato das linhas.
     resumo: linhas.length === 0
       ? "Nenhuma tarefa de imagem registrada para esta campanha."
       : `${linhas.length} tarefa(s): ${Object.entries(porStatus).map(([s, n]) => `${n} ${s}`).join(", ")}. ` +
-        (filaVaiAgir
-          ? `${aguardandoFila.length} ainda na fila automatica.`
-          : "Nenhuma na fila automatica — a fila nao vai agir sozinha."),
+        (causas.length
+          ? `${bloqueadas.length} travada(s) por configuracao (${causas.join("; ")}) — esperar nao resolve.`
+          : filaVaiAgir
+            ? `${aguardandoFila.length} ainda na fila automatica.`
+            : "Nenhuma na fila automatica — a fila nao vai agir sozinha."),
   };
 }
 export function hasCreativeImage(c: any, format: string) {

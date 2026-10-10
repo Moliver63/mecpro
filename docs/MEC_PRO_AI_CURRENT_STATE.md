@@ -2080,3 +2080,64 @@ Validado: 359/359. Typecheck 37, diff identico. Os testes novos verificados falh
 ### Pendencia conhecida
 
 `generationErrorText` produz o campo `erro` que o **modelo** le e repassa. Ele pode re-vaguear o texto na hora de contar pro usuario. Agora a informacao ao menos existe na string; se o modelo apagar a categoria, ai cabe a quarta trava deterministica — mas com evidencia, nao por precaucao.
+
+---
+
+## 10/10 — o diagnostico de 03/10 falou, e derrubou minha hipotese
+
+O revalidate finalmente rodou na 797, e a string nomeada que eu adicionei em 03/10 deu a resposta:
+
+```
+visual_validator_unavailable:gemini_http_403
+```
+
+**403, nao 503.** Durante uma semana eu vinha apontando o 503 "high demand" do Gemini como suspeita principal, com base no 503 que aparecia no log do chat nos mesmos minutos. Era correlacao, nao causa. 403 e **permissao**: nao passa esperando, nem em dez minutos nem em dez dias.
+
+Vale registrar que a correcao de 03/10 (separar as oito causas sob o mesmo rotulo) existia exatamente pra isso, e so pagou quando a fila voltou a rodar — sete dias depois. O valor dela nao foi consertar nada, foi tornar a pergunta respondivel.
+
+### Erro 1, o mais grave: bloqueio fabricado
+
+A resposta do chat dizia:
+
+> "A campanha Shadia Hasan — Leads (ID 797) **nao pode ser gerada porque** as imagens estao pendentes de validacao"
+
+**Essa dependencia nao existe.** Verificado: `campaign_image_jobs` e lido somente por `campaignImageJobs.ts` e por `_core/migrations.ts`; `server/ai.ts`, que gera a campanha, nao tem **uma unica** referencia a tarefa de imagem ou a `pending_validation`. A nota da propria ferramenta diz "Tarefas persistentes, nao publicacao".
+
+O chat inventou um impedimento e parou o Michel de trabalhar — a campanha podia ser gerada esse tempo todo. Isso e pior que resposta vaga: resposta vaga irrita, impedimento fabricado bloqueia.
+
+**Correcao**: `corrigirBloqueioInventadoDeImagem`, e a primeira trava que **nao depende do estado do turno** — a afirmacao e falsa por construcao, independente de qualquer tarefa existir. Isso importa porque foi justamente o que deixou a trava anterior passar batido: era um pedido de GERACAO, a ferramenta de imagens nao foi chamada, nao houve `estado` capturado, e `corrigirRespostaDeImagens` corretamente nao interveio. O limite documentado em `deterministic-reply-guards.md` ("afirmacao errada sobre algo que nenhuma ferramenta devolveu naquele turno passa") mordeu.
+
+### Erro 2, e o defeito e meu: "esperar" com causa permanente
+
+A resposta mandava "Aguarde 10-15 minutos para revalidacao" — num 403.
+
+E a trava de imagens **nao pegou**, porque eu a escrevi errado em 05/10: o gatilho era `!estado.filaVaiAgir`. Com o revalidate zerando `attempts`, `filaVaiAgir` fica **true** (o worker de fato volta a pegar), entao o "aguarde" passou. Eu tratei "a fila vai tentar de novo" como "esperar resolve". **Para causa permanente sao coisas diferentes**, e o meu resumo nao sabia distinguir.
+
+**Correcao**: `causaEhPermanente(motivo)` classifica a causa, e o resumo ganhou `esperarResolve` ao lado de `filaVaiAgir`. 4xx e configuracao (chave, permissao, API desabilitada, modelo, URL morta) — repetir da o mesmo; 408 e 429 sao excecao, porque limite de taxa passa; 5xx, timeout e excecao sao transitorios. Motivo desconhecido conta como transitorio **de proposito**: chutar "permanente" pararia a fila de tentar numa falha que talvez passasse.
+
+O gatilho da trava de texto passou a usar `esperarResolve`. Com 503 e tentativas sobrando, "aguarde" continua passando intacto — tem teste pros dois lados, porque uma trava que reescreve texto correto e pior que a ausencia dela.
+
+### Erro 3: "status: queued", quinta vez
+
+Mesma causa do erro 1 — sem chamada da ferramenta no turno, sem estado, trava nao morde. Resolvido pela mesma via.
+
+### Bug meu, duas vezes, na mesma regex
+
+A primeira versao listava `pode|podem|consigo` e deixava passar "nao **posso** gerar". A segunda, tentando generalizar, escreveu `n[ã]?ao?` — que exige um 'a' literal depois do opcional 'a' com til, e portanto **nao casa "nao"**. Quebrei o caso principal tentando cobrir os secundarios.
+
+Consertado reconstruindo a regex a partir de partes nomeadas e **imprimindo o resultado antes de testar**, com as doze frases (seis que devem morder, seis que devem passar) rodadas a cada tentativa. As duas variantes que me escaparam entraram no teste.
+
+Validado: 363/363. Typecheck 37, diff identico ao baseline. Testes novos verificados falhando sem a correcao.
+
+### O que o Michel precisa checar, e o que eu NAO sei
+
+O 403 vem de `generativelanguage.googleapis.com` com a chave de
+`IMAGE_VALIDATION_GEMINI_API_KEY || GEMINI_API_KEY`. O chat usa o pool de 9 chaves e **funciona**, entao a chave do chat nao e o problema.
+
+Tres hipoteses, em ordem, e nao sei qual e:
+
+1. **`IMAGE_VALIDATION_GEMINI_API_KEY` esta setada e tem restricao.** Ela tem precedencia sobre o pool. O boot nao imprime essa variavel, entao nao da pra ver de fora. Se for uma chave do Google Cloud (nao do AI Studio), ou com "API restrictions" no console, 403 e o sintoma esperado.
+2. **A API Generative Language nao esta habilitada no projeto dessa chave.** Isso devolve 403 PERMISSION_DENIED. **E aqui eu devo uma correcao**: declarei em 05/10 que o billing do projeto Google Cloud 1000850630887 "nao bloqueia mais este caminho", porque o validador usa Gemini e nao Cloud Vision. Continua verdade que nao e o Cloud Vision — mas se `IMAGE_VALIDATION_GEMINI_API_KEY` for uma chave DESSE projeto, o projeto volta pra dentro do problema por outra porta. Nao posso afirmar sem ver a variavel.
+3. Restricao por referrer/IP na chave, que barra chamada de servidor.
+
+O caminho mais curto: deixar `IMAGE_VALIDATION_GEMINI_API_KEY` **vazia** no Render. Sem ela o validador cai no `GEMINI_API_KEY`, que e a mesma chave que o chat usa com sucesso. Se o 403 sumir, era a hipotese 1 ou 2.

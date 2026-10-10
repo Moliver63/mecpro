@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { corrigirRespostaDeImagens, imageTurn, registrarEstadoDeImagens } from "../chatImageReply";
-import { resumoDeTarefasDeImagem, MAX_TENTATIVAS_VALIDACAO } from "../imageWorkflowPolicy";
+import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn, registrarEstadoDeImagens } from "../chatImageReply";
+import { resumoDeTarefasDeImagem, MAX_TENTATIVAS_VALIDACAO, causaEhPermanente, causaPermanenteEmPortugues } from "../imageWorkflowPolicy";
 
 const dezParadas = resumoDeTarefasDeImagem(
   Array.from({ length: 10 }, (_, i) => ({
@@ -127,4 +127,105 @@ test("o estado atravessa o turno, e turnos distintos nao se contaminam", async (
   ]);
   assert.equal(a?.total, 10);
   assert.equal(b?.total, 0, "o turno do segundo usuario nao recebeu as 10 tarefas do primeiro");
+});
+
+// Resposta real que o chat deu em 10/10, verbatim.
+const RESPOSTA_REAL_10_10 =
+  "A campanha Shadia Hasan — Leads (ID 797) não pode ser gerada porque as imagens estão pendentes de validação (status: `queued`). " +
+  "O erro `visual_validator_unavailable:gemini_http_403` indica que o sistema de validação automática está indisponível. " +
+  "Aguarde 10-15 minutos para revalidação ou revise os previews manualmente nos links fornecidos anteriormente.";
+
+// Essa dependencia NAO existe: campaign_image_jobs e lido somente pelo proprio
+// worker e pelas migrations, e server/ai.ts (que gera a campanha) nao tem uma
+// referencia a tarefa de imagem. O chat fabricou um impedimento e parou o
+// Michel de trabalhar.
+test("bloqueio inventado de geracao por imagem e desmentido", () => {
+  const saida = corrigirBloqueioInventadoDeImagem(RESPOSTA_REAL_10_10);
+  assert.notEqual(saida, RESPOSTA_REAL_10_10);
+  assert.match(saida, /NAO impede gerar a campanha/);
+  assert.match(saida, /Posso gerar a campanha agora/);
+  assert.match(saida, /nada e publicado na Meta sem a sua autorizacao/i);
+
+  // Outras formas da mesma afirmacao falsa.
+  for (const texto of [
+    "Não posso gerar a campanha porque as imagens estão pendentes de validação.",
+    "A validação de imagens impede a geração da campanha neste momento.",
+    "Não dá para criar a campanha enquanto as imagens não forem validadas.",
+    // Estas duas me escaparam na primeira regex (so listava pode|podem|consigo)
+    // e na segunda (que quebrou o proprio "nao"): acento no meio da frase.
+    "Não é possível gerar a campanha: imagens em validação.",
+    "nao pode ser gerada pois as imagens seguem em validacao",
+  ]) {
+    assert.notEqual(corrigirBloqueioInventadoDeImagem(texto), texto, `devia desmentir: ${texto}`);
+  }
+});
+
+// A metade que protege: nao pode reescrever resposta que nao afirma o
+// bloqueio. E a trava roda em TODO turno, sem estado — falso positivo aqui
+// custaria caro.
+test("texto que nao inventa bloqueio passa intacto", () => {
+  for (const texto of [
+    "As imagens estão pendentes de validação. Posso gerar a campanha agora se quiser.",
+    "A campanha não pode ser publicada sem sua autorização.",
+    "Não consigo gerar a campanha porque faltam dados no briefing: público e orçamento.",
+    "Gerei a campanha. As imagens entram quando a validação aprovar.",
+    "Vou gerar a campanha agora.",
+    "",
+  ]) {
+    assert.equal(corrigirBloqueioInventadoDeImagem(texto), texto, `nao devia mexer: ${texto.slice(0, 45)}`);
+  }
+});
+
+// Achado de 10/10: o gatilho de "aguarde" olhava filaVaiAgir, que diz se o
+// worker volta a pegar — nao se isso tem chance de dar em algo. Com 403 e o
+// contador zerado pelo revalidate, filaVaiAgir era true e o "aguarde" passou.
+test("causa permanente proibe mandar aguardar, mesmo com tentativas sobrando", () => {
+  const com403 = resumoDeTarefasDeImagem(
+    Array.from({ length: 10 }, (_, i) => ({
+      creative_index: i, status: "pending_validation", attempts: 0,
+      reason: "visual_validator_unavailable:gemini_http_403",
+    })));
+
+  assert.equal(com403.filaVaiAgir, true, "a fila DE FATO volta a pegar: o contador foi zerado");
+  assert.equal(com403.esperarResolve, false, "mas esperar nao resolve 403");
+  assert.equal(com403.bloqueadasPorConfiguracao, 10);
+  assert.match(com403.destravar, /Esperar NAO resolve/);
+  assert.match(com403.destravar, /permissao/);
+  assert.doesNotMatch(com403.resumo, /ainda na fila automatica/, "nao pode sugerir espera");
+
+  // E a trava de texto agora morde.
+  const saida = corrigirRespostaDeImagens(RESPOSTA_REAL_10_10, com403);
+  assert.notEqual(saida, RESPOSTA_REAL_10_10);
+  assert.doesNotMatch(saida, /Aguarde/i);
+  assert.doesNotMatch(saida, /queued/);
+
+  // 503 continua sendo espera legitima: a trava nao pode virar geral.
+  const com503 = resumoDeTarefasDeImagem([
+    { creative_index: 0, status: "pending_validation", attempts: 0, reason: "visual_validator_unavailable:gemini_http_503" },
+  ]);
+  assert.equal(com503.esperarResolve, true);
+  assert.equal(com503.destravar, null);
+  const textoEspera = "As imagens estão em validação. Aguarde alguns minutos.";
+  assert.equal(corrigirRespostaDeImagens(textoEspera, com503), textoEspera, "com 503, aguardar esta certo");
+});
+
+test("classificacao de causa separa configuracao de indisponibilidade", () => {
+  for (const permanente of ["sem_chave_gemini", "host_nao_permitido", "modelo_invalido", "mime_inesperado",
+    "imagem_grande_demais", "corpo_vazio", "gemini_http_401", "gemini_http_403", "gemini_http_404",
+    "gemini_http_400", "download_http_404", "download_http_403"]) {
+    assert.equal(causaEhPermanente(`visual_validator_unavailable:${permanente}`), true, `${permanente} e permanente`);
+    assert.ok(causaPermanenteEmPortugues(permanente), `${permanente} precisa de texto em portugues`);
+  }
+  for (const transitorio of ["gemini_http_429", "gemini_http_408", "gemini_http_500", "gemini_http_502",
+    "gemini_http_503", "gemini_http_504", "download_http_500", "timeout", "excecao", "validator_invalid_response"]) {
+    assert.equal(causaEhPermanente(`visual_validator_unavailable:${transitorio}`), false, `${transitorio} e transitorio`);
+    assert.equal(causaPermanenteEmPortugues(transitorio), null);
+  }
+  // Limite de taxa passa com o tempo, ao contrario do resto dos 4xx.
+  assert.equal(causaEhPermanente("gemini_http_429"), false);
+  // Motivo desconhecido nao vira "permanente" por chute — pararia a fila de
+  // tentar numa falha que talvez passasse.
+  assert.equal(causaEhPermanente("motivo_novo_que_ninguem_viu"), false);
+  assert.equal(causaEhPermanente(undefined), false);
+  assert.equal(causaEhPermanente("visual_checks_passed"), false);
 });

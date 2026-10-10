@@ -31,7 +31,7 @@ import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, defi
 import { listarPaginasMetaConectadas } from "./campaignPublish";
 import { chatImageTool, generateChatImage } from "./chatImageTools";
 import { repairMetaPageReply } from "./chatMetaPageReply";
-import { corrigirRespostaDeImagens, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
+import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
 import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
@@ -263,7 +263,7 @@ interface RespostaChat {
 
 const SYSTEM_PROMPT = `${CONVERSATION_POLICY}
 
-IMAGENS: para preparar imagens de uma campanha existente, use gerar_imagem_campanha com campaignId, sem creativeIndex para todas as faltantes. A ferramenta enfileira trabalho persistente; queued nao significa imagem gerada. NUNCA afirme o estado das imagens de memoria nem pelo rumo da conversa: chame action=status e relate o campo estado da resposta. Se estado.filaVaiAgir for false, e PROIBIDO dizer ao usuario para aguardar — a fila nao vai pegar essas tarefas de novo sozinha; diga o que esta em estado.destravar. Nunca diga que nao existe acao manual: action=revalidate existe. pending_validation significa imagem preservada aguardando analise, nao reprove nem gere novamente; action=revalidate reanalisa sem nova geracao. Explique bloqueios retornados. Dez fotos e um limite, nao uma exigencia. Preserve fotos reais e capa existentes. Nao publique automaticamente apos gerar. O motor pode retornar foto de banco: nao afirme origem IA sem comprovacao.
+IMAGENS: para preparar imagens de uma campanha existente, use gerar_imagem_campanha com campaignId, sem creativeIndex para todas as faltantes. A ferramenta enfileira trabalho persistente; queued nao significa imagem gerada. Imagem pendente de validacao NAO impede gerar campanha: os caminhos sao separados e a geracao nao consulta a fila de imagens. Nunca diga que a campanha nao pode ser gerada por causa de imagem. Se estado.esperarResolve for false, e PROIBIDO mandar aguardar, mesmo que ainda haja tentativas na fila — causa de configuracao nao passa com o tempo. NUNCA afirme o estado das imagens de memoria nem pelo rumo da conversa: chame action=status e relate o campo estado da resposta. Se estado.filaVaiAgir for false, e PROIBIDO dizer ao usuario para aguardar — a fila nao vai pegar essas tarefas de novo sozinha; diga o que esta em estado.destravar. Nunca diga que nao existe acao manual: action=revalidate existe. pending_validation significa imagem preservada aguardando analise, nao reprove nem gere novamente; action=revalidate reanalisa sem nova geracao. Explique bloqueios retornados. Dez fotos e um limite, nao uma exigencia. Preserve fotos reais e capa existentes. Nao publique automaticamente apos gerar. O motor pode retornar foto de banco: nao afirme origem IA sem comprovacao.
 
 Quando o usuario estiver montando uma campanha, registre os dados novos explicitamente fornecidos em atualizar_briefing. Preserve os demais campos do briefing persistente. Nao pergunte de novo o que ja esta registrado. Uma correcao recente substitui o valor anterior; budget e sempre TOTAL (diario multiplicado pela duracao quando ambos confirmados).
 Nunca invente a causa de uma falha. FACT_CONFLICT e erro tecnico de geracao, nao uma escolha para o usuario aceitar fatos inventados. Nao recomende criar outro projeto para contornar validacao. Nao diga que uma campanha anterior contaminou o resultado sem evidencia da ferramenta.
@@ -1846,6 +1846,9 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     // projetos e manda apresenta-los, e em 08/10 o chat respondeu "os
     // projetos disponiveis incluem (...) e outros" — impossivel escolher.
     resultado = { ...resultado, resposta: corrigirRespostaDeProjetos(resultado.resposta, projectTurn.getStore()) };
+    // Nao depende do estado do turno: imagem pendente nunca impediu gerar
+    // campanha, e o chat afirmou que impedia em 10/10.
+    resultado = { ...resultado, resposta: corrigirBloqueioInventadoDeImagem(resultado.resposta) };
     if (state && resultado.campanha) {
       state.lastCampaign = resultado.campanha;
       state.briefing.newCampaign = false;
