@@ -146,6 +146,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as db from '../db.js';
 import { getPool } from '../db.js';
 import log from './logger.js';
+import { motivoDeOrigemRecusada } from '../corsDiagnostico';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations } from './migrations.js';
@@ -582,14 +583,19 @@ import("../aiCache").then(({ cleanExpiredCache }) => {
 
 app.use(cors({
   origin: (origin, callback) => {
+    // Sem header Origin: cliente que nao e navegador (MCP, curl, app nativo).
+    // CORS nao se aplica, e `null` NAO e o mesmo que ausente — ver
+    // motivoDeOrigemRecusada.
     if (!origin) return callback(null, true);
     if (
       allowedOrigins.includes(origin) ||
       origin.endsWith('.onrender.com') ||
       origin.endsWith('.mecproai.com')
     ) return callback(null, true);
-    // Loga a origem rejeitada (antes: erro genérico sem dizer QUAL origem)
-    log.warn('cors', `Origem bloqueada: ${origin}`);
+    // Loga a origem rejeitada com o MOTIVO. Antes saia so
+    // "Origem bloqueada: null" — sete linhas iguais em 200ms no log de 12/10,
+    // sem nada que permitisse descobrir o que chamava.
+    log.warn('cors', `Origem bloqueada: ${origin}`, { motivo: motivoDeOrigemRecusada(origin) });
     // Rejeita sem lançar Error — evita stack trace 500 no log; o browser recebe a resposta sem headers CORS
     callback(null, false);
   },

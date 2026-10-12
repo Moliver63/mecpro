@@ -2204,3 +2204,35 @@ Validado: 367/367 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao ba
 ### Ainda confirmado como pendencia real
 
 O estouro de 30 caracteres em `description`/`shortDescription` (item 4 da lista) agora tem evidencia de producao com nome de campo. O gerador produz descricao longa e duas reescritas nao convergem — o prompt ja pede "mire em ate 24 pra ter folga" e nao basta.
+
+---
+
+## 12/10 — `cors: Origem bloqueada: null` nao e bug, e o log nao servia pra nada
+
+Log de 12/10, sete linhas identicas em 200ms:
+
+```
+[WARN] [cors] Origem bloqueada: null
+```
+
+### O bloqueio esta CERTO e nao foi mexido
+
+`Origin: null` chega de pagina aberta via `file://`, de iframe com `sandbox` sem `allow-same-origin`, de `data:` URL e de alguns redirecionamentos cross-origin. O middleware roda com `credentials: true` — liberar `null` ali seria buraco de CSRF: qualquer HTML local ou iframe sandboxed passaria a fazer requisicao **autenticada** contra a API. Recusar e o comportamento correto, e assim ficou.
+
+Vale separar duas coisas que o log confundia: **origem ausente** ja e liberada na primeira linha do middleware (`if (!origin) return callback(null, true)`), porque cliente que nao e navegador — MCP, curl, app nativo — nao manda `Origin`. Entao a API publica e o MCP nunca foram afetados. `"null"` e uma string, nao ausencia, e cai nas checagens.
+
+### O que estava ruim: o log
+
+Sete linhas iguais, sem caminho, sem metodo, sem motivo. Impossivel saber se era o Michel abrindo o front compilado fora de um servidor, um iframe de terceiro, ou um cliente quebrado — e as sete em rajada parecem uma pagina carregando e disparando varias chamadas de uma vez, o que reforca a hipotese do `file://`.
+
+`motivoDeOrigemRecusada` agora anexa o motivo acionavel: `null` explica `file://`/sandbox **e** diz explicitamente que nao e cliente de API; `localhost` em porta fora da lista aponta porta de dev; IP cru e `http` sem TLS tem motivo proprio; dominio desconhecido cai no generico, **sem inventar causa**.
+
+Mesma licao da string nomeada do validador (03/10, que levou sete dias pra pagar e entregou `gemini_http_403`): rotulo unico pra varias causas transforma diagnostico em adivinhacao.
+
+### Resto do log: quieto, e isso tambem e informacao
+
+OAuth renovando normal (11:15, 11:43, 11:44, 13:53), nenhum erro de Gemini, nenhum FACT_CONFLICT, nenhum `[image-job]` numa janela de 2h30. O silencio da fila e **esperado**: depois do revalidate de sabado as dez tarefas gastaram as tres tentativas e pararam em `attempts=3`.
+
+**Nao confirmado**: nao ha linha de `[BOOT]` neste log, entao nao da pra dizer se o deploy ja pegou o `96fc0f2` (de sabado). A lista de deploys do Render responde.
+
+Validado: 372/372. Typecheck 37, diff identico ao baseline.
