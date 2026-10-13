@@ -44,7 +44,20 @@ export async function campaignImageJobs(userId: number, args: any, injected?: an
       ready.push({ index, brief, formato: formatoDoCard });
     }
     for (const { index, brief, formato } of ready) {
-      const fingerprint = imageFingerprint({ userId, campaignId: campaign.id, index, format: formato, brief });
+      const baseFingerprint = imageFingerprint({ userId, campaignId: campaign.id, index, format: formato, brief });
+      // Keep a separate row for each deliberate regeneration. A stable fingerprint
+      // alone makes ON CONFLICT silently preserve a rejected candidate forever.
+      // Only rejected/failed jobs may start a fresh generation; queued, running,
+      // pending-validation, and needs-review jobs remain untouched.
+      const latest = await pool.query(
+        "SELECT id,status FROM campaign_image_jobs WHERE user_id=$1 AND campaign_id=$2 AND creative_index=$3 AND format=$4 AND brief=$5::jsonb ORDER BY id DESC LIMIT 1",
+        [userId, campaign.id, index, formato, JSON.stringify(brief)],
+      );
+      const previous = latest.rows[0];
+      if (previous && !["rejected", "failed"].includes(previous.status)) continue;
+      const fingerprint = previous
+        ? imageFingerprint({ baseFingerprint, retryOfJobId: previous.id })
+        : baseFingerprint;
       await pool.query("INSERT INTO campaign_image_jobs (user_id,campaign_id,creative_index,format,fingerprint,brief) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (fingerprint) DO NOTHING", [userId, campaign.id, index, formato, fingerprint, JSON.stringify(brief)]);
     }
   }
@@ -54,7 +67,7 @@ export async function campaignImageJobs(userId: number, args: any, injected?: an
   // para tarefas que haviam esgotado as tentativas. Ver resumoDeTarefasDeImagem.
   const estado = resumoDeTarefasDeImagem(result.rows);
   return { ok: true, campaignId: campaign.id, jobs: result.rows, blocked, published: false, estado,
-    note: "Ultimas 30 tarefas, incluindo historico. Tarefas persistentes, nao publicacao. Consulte action=status. preview_url e somente para revisao, nao autoriza publicar. Pendente significa imagem preservada aguardando validacao. Aprovadas sao salvas nos criativos. Revalidar nao gera nova imagem. Relate o estado a partir de `estado`, nunca inferindo do formato das linhas: se estado.filaVaiAgir for false, NAO diga ao usuario para aguardar — diga o que esta em estado.destravar." };
+    note: "Ultimas 30 tarefas, incluindo historico. Tarefas persistentes, nao publicacao. Consulte action=status. preview_url e somente para revisao, nao autoriza publicar. Pendente significa imagem preservada aguardando validacao. Aprovadas sao salvas nos criativos. Revalidar nao gera nova imagem. action=start cria outra tarefa depois de rejected/failed e preserva o historico; chamadas com tarefa ativa nao duplicam a fila. Relate o estado a partir de `estado`, nunca inferindo do formato das linhas: se estado.filaVaiAgir for false, NAO diga ao usuario para aguardar — diga o que esta em estado.destravar." };
 }
 
 // One global advisory lock: serial processing across replicas, automatically released on disconnect.
