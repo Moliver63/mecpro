@@ -2236,3 +2236,62 @@ OAuth renovando normal (11:15, 11:43, 11:44, 13:53), nenhum erro de Gemini, nenh
 **Nao confirmado**: nao ha linha de `[BOOT]` neste log, entao nao da pra dizer se o deploy ja pegou o `96fc0f2` (de sabado). A lista de deploys do Render responde.
 
 Validado: 372/372. Typecheck 37, diff identico ao baseline.
+
+---
+
+## 13/10 — dez dias, zero imagens: o portao era impossivel de passar
+
+Michel: "preciso fazer o gerador de imagens funcionar". Balanco honesto antes de mais uma correcao: **em dez dias, nenhuma imagem foi aprovada num criativo.** As correcoes de 03 a 10/10 (proporcao, passos, 400 do FLUX, motivos nomeados, formato por orientacao, rotacao de chave) eram todas reais e todas **a montante** do que importa. Nenhuma coloca imagem no criativo.
+
+### O portao reprovava por construcao
+
+```js
+approved = matchesBrief && safe && !hasText && quality >= 0.72 && !issues.length
+```
+
+Cinco condicoes simultaneas, **duas praticamente impossiveis**:
+
+1. **`!issues.length`** — `issues` e campo **obrigatorio** no responseSchema, e o systemInstruction pedia ao modelo pra apontar problemas. Modelo de visao a quem se pede lista de problemas PREENCHE a lista. Qualquer ressalva estetica ("o enquadramento poderia ser mais fechado") zerava a aprovacao. **Uma observacao estava funcionando como veto.**
+2. **`!hasText`** — reprovava QUALQUER texto visivel: rotulo de embalagem, placa ao fundo, numero numa fachada. O proprio systemInstruction dizia que o criterio era "illegible text", nao qualquer texto. E o FLUX quase sempre renderiza algum glifo.
+
+Isso explica os dez dias melhor que o 403 explicava: mesmo com validacao funcionando, a chance de passar era proxima de zero.
+
+**Correcao**: `issues` volta a ser OBSERVACAO (registrada na tarefa, nao veta) e quem veta e `blockers`, que o modelo preenche **so** com o que nao pode ir ao ar — segmento errado, oferta inventada, garantia financeira, conteudo inseguro, banco de imagens passado como foto real. A lista que o systemInstruction sempre teve, agora num campo proprio. Texto passou a vetar **apenas quando ilegivel**.
+
+Isso **nao afrouxa seguranca**: `matchesBrief` e `safe` continuam vetando e `blockers` e explicito. O que saiu foi o veto por qualquer observacao e por qualquer pixel de texto. Ganho de precisao, nao de permissividade.
+
+O motivo da reprova tambem deixou de ser `visual_mismatch_or_quality` pra qualquer uma das cinco causas — mesma doenca do `visual_validator_unavailable`, que levou sete dias pra ser diagnosticado por isso. Agora nomeia os criterios que falharam.
+
+Resposta no formato antigo (com `hasText`, sem `blockers`) volta `validator_invalid_response` de proposito: aprovar com criterio que nao foi avaliado e pior que deixar pendente.
+
+### Os cinco blocos de "NO TEXT" sairam
+
+O prompt final repetia o mesmo aglomerado cinco vezes: `noTextPrefix` no inicio, `noTextFix` no meio, "no text area, no reserved zones", `noTextFix` de novo, e `CF_NO_TEXT_INSTRUCTION` colado pelo `buildCloudflarePrompt`.
+
+O encoder de texto de um modelo de difusao **nao tem negacao** — embute os conceitos presentes nos tokens. "NO TEXT NO WORDS NO LETTERS" condiciona PARA texto, e repetir amplifica. E por isso que negative prompt existe como entrada separada, e o FLUX.1 schnell, destilado de guidance, **nao aceita** negative prompt nem CFG: nao havia onde colocar a restricao corretamente.
+
+Fechava um circulo absurdo: **o prompt pedia texto cinco vezes e o portao reprovava por texto.**
+
+Agora a ausencia de tipografia e descrita pelo positivo — "Straight photographic frame as captured by a camera lens, uncluttered composition with clean negative space." Nenhum token de texto entra no condicionamento. Verificado no prompt gerado: zero ocorrencias de NO TEXT/typography/watermark/caption/overlay.
+
+**Eu adiei isso por dias pedindo medicao**, e a medicao dependia do pipeline rodar, que dependia disto. Circular. O pior caso de remover e neutro: nao existe mecanismo pelo qual repetir esses tokens cinco vezes REDUZA texto. A assimetria mandava agir, e a cautela custou mais que um palpite errado teria custado.
+
+### Um teste existente foi invertido, e a distincao importa
+
+`visualSubjectAlignment.test.ts` afirmava que "NO TEXT NO WORDS NO LETTERS" ficava no inicio e "ABSOLUTELY NO TEXT" no fim.
+
+Diferente da supressao de cena visual (02/10) e do `chatContact` (08/10), **aqui nao havia incidente de producao por tras**. O comentario no codigo dizia "repetido intencionalmente para reforcar — modelos de imagem ignoram restricoes unicas": uma CRENCA sobre comportamento de modelo, e o teste travava a POSICAO da implementacao, nao um comportamento observado. A crenca procede pra modelo com negative prompt; nao pro prompt positivo de um modelo guidance-distilled.
+
+Regra que fica: antes de mexer em algo que parece descuido, ler o nome do teste **e procurar o incidente**. Teste que cita log de producao protege decisao; teste que trava posicao de string protege implementacao.
+
+### Nao mexido, de proposito
+
+Sobrou um "logos" no prompt, em "Do not add products, amenities, furniture, logos, customers or luxury features not confirmed there". Pelo mesmo argumento do encoder, essa frase tambem condiciona pros itens que nomeia. Mas ela e clausula de **integridade de fato** (nao inventar piscina nem marca num anuncio de imovel), documentada e deliberada — reescrever pro positivo e mudanca propria, com risco proprio, e nao e o que bloqueia imagem. Uma mencao e muito diferente de cinco repeticoes do mesmo aglomerado.
+
+Validado: 379/379 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao baseline.
+
+### O que ainda pode barrar, em ordem
+
+1. **403 no validador** — a rotacao de chave de 10/10 (`96fc0f2`) nao foi verificada em producao. Se a chave 1 era a ruim, resolve; se as nove recusam, o problema e outro.
+2. **`quality >= 0.72`** — segue sendo heuristica nao calibrada usada como limiar duro, por falta de dado pra ajustar. Se reprovar por qualidade com imagem visivelmente boa, o numero e o suspeito.
+3. A primeira validacao real agora produz motivo nomeado em vez de rotulo generico — e e isso que decide o proximo passo.

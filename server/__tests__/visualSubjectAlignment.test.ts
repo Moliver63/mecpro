@@ -111,10 +111,36 @@ test("sem produto, a cena do segmento continua sozinha", () => {
   assert.ok(!/Specific business\/product/.test(prompt), "nao inventa assunto quando nao ha produto");
 });
 
-test("a proibicao de texto continua no inicio e no fim", () => {
+// Este teste afirmava o contrario — que "NO TEXT NO WORDS NO LETTERS" ficava no
+// inicio e "ABSOLUTELY NO TEXT" no fim. Foi invertido em 13/10, e vale separar
+// este caso de outros em que um teste existente estava CERTO:
+//
+// A supressao de cena visual (02/10) e o chatContact (08/10) tinham, cada um,
+// um INCIDENTE DE PRODUCAO documentado por tras — e nos dois eu quase reverti
+// decisao deliberada. Aqui nao ha incidente: o comentario no codigo dizia
+// "repetido intencionalmente para reforcar — modelos de imagem ignoram
+// restricoes unicas", que e uma CRENCA sobre comportamento de modelo, e o
+// teste travava a posicao da implementacao, nao um comportamento observado.
+//
+// A crenca procede pra modelo COM negative prompt, onde repetir no campo
+// negativo de fato pesa. O FLUX.1 schnell e destilado de guidance: nao aceita
+// negative prompt nem CFG. No prompt positivo, o encoder nao tem negacao — ele
+// embute os conceitos dos tokens, entao enumerar "text/words/letters/
+// typography/watermark" cinco vezes condiciona PARA texto. E o validador
+// reprovava justamente por texto na imagem: o prompt pedia o que o portao
+// barrava.
+test("ausencia de tipografia e descrita pelo positivo, sem token de negacao", () => {
   const prompt = inferPrompt({ angle: "educacao" }, "infoprodutos", "leads", "feed", { niche: "psicologia" } as any);
-  assert.match(prompt.slice(0, 80), /NO TEXT NO WORDS NO LETTERS/);
-  assert.match(prompt.slice(-200), /ABSOLUTELY NO TEXT/);
+
+  // Nenhum token de texto no condicionamento.
+  for (const token of ["NO TEXT", "NO WORDS", "NO LETTERS", "ABSOLUTELY NO TEXT",
+    "typography", "watermark", "caption", "overlay", "readable sign"]) {
+    assert.ok(!new RegExp(token, "i").test(prompt), `"${token}" nao pode mais entrar no prompt`);
+  }
+
+  // E a instrucao positiva que descreve a mesma intencao: uma fotografia.
+  assert.match(prompt, /Straight photographic frame as captured by a camera lens/);
+  assert.match(prompt, /uncluttered composition/);
 });
 
 // Achado real (28/09): shared/segmentConfig.ts define 16 segmentos e o mapa

@@ -1,15 +1,74 @@
 import { createHash } from "node:crypto";
 
-export type VisualDecision = { status: "approved" | "rejected" | "pending_validation"; score: number | null; reason: string; evidence?: string; issues?: string[]; model?: string };
+export type VisualDecision = { status: "approved" | "rejected" | "pending_validation"; score: number | null; reason: string; evidence?: string; issues?: string[]; blockers?: string[]; model?: string };
+
+export const QUALIDADE_MINIMA = 0.72;
+
+/**
+ * Decide se a imagem pode entrar no criativo.
+ *
+ * Reescrito em 13/10, depois de **dez dias e zero imagens aprovadas**. O
+ * portao anterior era:
+ *
+ *   approved = matchesBrief && safe && !hasText && quality >= 0.72 && !issues.length
+ *
+ * Cinco condicoes simultaneas, e duas praticamente impossiveis:
+ *
+ * 1. **`!issues.length`**: `issues` e campo OBRIGATORIO no schema, e a
+ *    instrucao do sistema pede ao modelo pra apontar problemas. Modelo de
+ *    visao a quem se pede lista de problemas PREENCHE a lista — qualquer
+ *    ressalva cosmetica ("o enquadramento poderia ser mais fechado") zerava a
+ *    aprovacao. Uma observacao estava funcionando como veto.
+ * 2. **`!hasText`**: reprovava QUALQUER texto visivel, quando o proprio
+ *    systemInstruction diz que o critério e "illegible text". Rotulo numa
+ *    embalagem, placa ao fundo, numero numa fachada — tudo reprovava. E o
+ *    FLUX quase sempre renderiza algum glifo.
+ *
+ * O que mudou: `issues` volta a ser OBSERVACAO (registrada, nao veta) e quem
+ * veta e `blockers`, que o modelo preenche so com o que nao pode ir ao ar. O
+ * texto passou a vetar apenas quando ilegivel.
+ *
+ * Isso NAO afrouxa a seguranca: `matchesBrief` e `safe` continuam vetando, e
+ * `blockers` existe exatamente pra segmento errado, oferta inventada, garantia
+ * financeira, conteudo inseguro e banco de imagens passado como foto real do
+ * produto — a lista que o systemInstruction sempre teve. O que saiu foi o veto
+ * por qualquer observacao e o veto por qualquer pixel de texto. E ganho de
+ * precisao, nao de permissividade.
+ *
+ * Compatibilidade: resposta no formato antigo (sem `blockers`/`illegibleText`)
+ * volta `validator_invalid_response` em vez de ser interpretada pela metade —
+ * preferivel a aprovar com criterio que nao foi avaliado.
+ */
 export function visualDecision(value: unknown): VisualDecision {
   const v = value as any;
-  if (!v || typeof v.matchesBrief !== "boolean" || typeof v.safe !== "boolean" || typeof v.hasText !== "boolean" ||
+  const listaDeTextos = (x: unknown) => Array.isArray(x) && x.every(i => typeof i === "string");
+  if (!v || typeof v.matchesBrief !== "boolean" || typeof v.safe !== "boolean" ||
+      typeof v.illegibleText !== "boolean" ||
       typeof v.quality !== "number" || !Number.isFinite(v.quality) || v.quality < 0 || v.quality > 1 ||
-      !Array.isArray(v.issues) || !v.issues.every((x: unknown) => typeof x === "string") || typeof v.evidence !== "string" || !v.evidence.trim()) {
+      !listaDeTextos(v.issues) || !listaDeTextos(v.blockers) ||
+      typeof v.evidence !== "string" || !v.evidence.trim()) {
     return { status: "pending_validation", score: null, reason: "validator_invalid_response" };
   }
-  const approved = v.matchesBrief && v.safe && !v.hasText && v.quality >= 0.72 && !v.issues.length;
-  return { status: approved ? "approved" : "rejected", score: v.quality, reason: approved ? "visual_checks_passed" : "visual_mismatch_or_quality", evidence: v.evidence.slice(0, 2000), issues: v.issues.slice(0, 10).map((s: string) => s.slice(0, 300)) };
+  const corta = (lista: string[]) => lista.slice(0, 10).map((s: string) => s.slice(0, 300));
+  const blockers = corta(v.blockers);
+  const issues = corta(v.issues);
+
+  const reprovas = [
+    !v.matchesBrief ? "fora do briefing" : "",
+    !v.safe ? "conteudo inseguro" : "",
+    v.illegibleText ? "texto ilegivel na imagem" : "",
+    v.quality < QUALIDADE_MINIMA ? `qualidade ${v.quality.toFixed(2)} abaixo de ${QUALIDADE_MINIMA}` : "",
+    blockers.length ? `impedimentos: ${blockers.join("; ")}` : "",
+  ].filter(Boolean);
+
+  if (!reprovas.length) {
+    // Aprovada COM observacoes continua aprovada: a observacao fica registrada
+    // na tarefa pra revisao, sem bloquear a campanha.
+    return { status: "approved", score: v.quality, reason: "visual_checks_passed", evidence: v.evidence.slice(0, 2000), issues, blockers };
+  }
+  // O motivo agora diz QUAL criterio reprovou, em vez do antigo
+  // "visual_mismatch_or_quality" pra qualquer uma das cinco causas.
+  return { status: "rejected", score: v.quality, reason: `visual_rejected: ${reprovas.join(" | ")}`.slice(0, 300), evidence: v.evidence.slice(0, 2000), issues, blockers };
 }
 
 export function imageBrief(campaign: any, creative: any) {

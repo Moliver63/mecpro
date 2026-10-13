@@ -78,7 +78,7 @@ test("visual validator handles unavailable, invalid and approved responses witho
     assert.equal((await validateCampaignImage(url, { segment: "financeiro" })).score, null);
     apiStatus = 200;
     assert.equal((await validateCampaignImage(url, {})).status, "pending_validation");
-    responseText = JSON.stringify({ matchesBrief: true, safe: true, hasText: false, quality: 0.9, evidence: "Calculator and documents", issues: [] });
+    responseText = JSON.stringify({ matchesBrief: true, safe: true, illegibleText: false, quality: 0.9, evidence: "Calculator and documents", issues: [], blockers: [] });
     assert.equal((await validateCampaignImage(url, { segment: "financeiro" })).status, "approved");
     const body = JSON.parse(requests.at(-1).options.body);
     assert.match(body.contents[0].parts[0].text, /financeiro/);
@@ -104,7 +104,7 @@ test("rotaciona a chave em 403 em vez de desistir na primeira", async () => {
   const geminiAntes = process.env.GEMINI_API_KEY;
   const fetchAntes = globalThis.fetch;
   const url = "https://res.cloudinary.com/test/image.png";
-  const aprovado = { matchesBrief: true, safe: true, hasText: false, quality: 0.9, evidence: "Cena coerente", issues: [] };
+  const aprovado = { matchesBrief: true, safe: true, illegibleText: false, quality: 0.9, evidence: "Cena coerente", issues: [], blockers: [] };
   try {
     delete process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = "chave-ruim";

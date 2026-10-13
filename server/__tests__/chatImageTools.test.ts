@@ -144,10 +144,12 @@ test("financial segment cannot inherit ocean from marketing or city", () => {
 test("unavailable validation has no fabricated score", () => {
   assert.equal(visualDecision(null).score, null);
   assert.equal(visualDecision({ quality: 0.99 }).status, "pending_validation");
-  const v = { matchesBrief: true, safe: true, hasText: false, quality: 0.9, evidence: "Documents and calculator", issues: [] };
+  const v = { matchesBrief: true, safe: true, illegibleText: false, quality: 0.9, evidence: "Documents and calculator", issues: [], blockers: [] };
   assert.equal(visualDecision(v).status, "approved");
   assert.equal(visualDecision({ ...v, matchesBrief: false }).status, "rejected");
-  assert.equal(visualDecision({ ...v, hasText: true }).status, "rejected");
+  assert.equal(visualDecision({ ...v, illegibleText: true }).status, "rejected");
+  // Formato antigo (hasText, sem blockers) nao e interpretado pela metade.
+  assert.equal(visualDecision({ matchesBrief: true, safe: true, hasText: false, quality: 0.9, evidence: "x", issues: [] }).reason, "validator_invalid_response");
 });
 function workerFixture(candidate: string | null, status: "approved" | "pending_validation" | "rejected") {
   const f = fixture(); const calls: Array<{ sql: string; params: any[] }> = [];

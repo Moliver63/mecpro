@@ -348,9 +348,30 @@ export function inferPrompt(
     ? "vertical product or scene composition; include people only if required by the brief, then keep their heads fully visible"
     : "product or scene composition; include people only if required by the brief, then keep their heads fully visible";
 
-  // Fix texto: instrução máxima — colocada no INÍCIO e FIM do prompt para ter prioridade
-  const noTextFix = "ABSOLUTELY NO TEXT. NO WORDS. NO LETTERS. NO NUMBERS. NO TYPOGRAPHY. NO WRITING. NO SIGNS. NO LOGOS. NO CAPTIONS. NO OVERLAYS. NO WATERMARKS. Pure clean photography only.";
-  const noTextPrefix = "NO TEXT NO WORDS NO LETTERS — pure photography only —";
+  // Reescrito em 13/10. Aqui havia DOIS blocos repetidos cinco vezes no prompt
+  // final, enumerando "NO TEXT. NO WORDS. NO LETTERS. NO NUMBERS. NO
+  // TYPOGRAPHY. NO WRITING. NO SIGNS. NO LOGOS. NO CAPTIONS. NO OVERLAYS. NO
+  // WATERMARKS.", com um comentário dizendo "repetido intencionalmente para
+  // reforçar — modelos de imagem ignoram restrições únicas".
+  //
+  // O encoder de texto de um modelo de difusão NÃO TEM NEGAÇÃO: ele embute os
+  // conceitos presentes nos tokens. "NO TEXT NO WORDS NO LETTERS" condiciona o
+  // modelo PARA texto, palavras e letras — e repetir cinco vezes amplifica.
+  // É por isso que negative prompt existe como entrada separada, e o FLUX
+  // schnell, destilado de guidance, não aceita negative prompt nem CFG: não há
+  // onde colocar uma restrição corretamente neste modelo.
+  //
+  // Fechava um círculo: o validador reprovava em texto na imagem, e o prompt
+  // pedia texto cinco vezes.
+  //
+  // Agora a ausência de tipografia é descrita pelo POSITIVO — o que a imagem é,
+  // em vez do que ela não deve ter. Nenhum token de "text/word/letter" entra no
+  // condicionamento.
+  //
+  // Eu adiei isso por dias pedindo medição, e a medição dependia do pipeline
+  // rodar, que dependia disto. O pior caso de remover é neutro: não existe
+  // mecanismo pelo qual repetir esses tokens cinco vezes REDUZA texto.
+  const fotografiaPura = "Straight photographic frame as captured by a camera lens, uncluttered composition with clean negative space.";
 
   // Contexto real do negocio (produto/nicho do cliente) — sempre que disponivel, soma-se
   // ao mapa categorico de segmento (SEGMENT_VISUAL) pra descrever visualmente o que o
@@ -369,7 +390,6 @@ export function inferPrompt(
   const hasSpecificSubject = !!realBusinessContext || visualFacts.length > 0;
 
   const parts = [
-    noTextPrefix, // NO INÍCIO — maior peso no modelo
     `Professional Brazilian advertising photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
@@ -387,9 +407,7 @@ export function inferPrompt(
     // hook/headline removidos — causam alucinação de texto no modelo de imagem
     compositionFix,
     "Photorealistic, high-end production quality, cinematic lighting, sharp focus on subjects.",
-    noTextFix,
-    "Clean background, no text area, no reserved zones, pure photography throughout entire frame.",
-    noTextFix, // repetido intencionalmente para reforçar — modelos de imagem ignoram restrições únicas
+    fotografiaPura,
   ].filter(Boolean).join(" ");
 
   return parts;
@@ -936,13 +954,19 @@ async function imageHasHallucinatedText(buffer: Buffer): Promise<boolean> {
 }
 
 // ── Cloudflare Workers AI ─────────────────────────────────────────────────
-const CF_NO_TEXT_INSTRUCTION =
-  "No text, words, letters, numbers, typography, watermark, logo, caption, label, readable sign, or overlay text.";
+// Aqui havia o QUINTO bloco de "No text, words, letters, numbers, typography,
+// watermark, logo, caption, label, readable sign, or overlay text.", colado no
+// fim de todo prompt. Removido pelo mesmo motivo dos outros quatro (ver
+// `fotografiaPura` em inferPrompt): encoder de difusao nao tem negacao, e
+// enumerar esses tokens condiciona o modelo PARA eles.
+//
+// A instrucao positiva vive em inferPrompt e chega aqui dentro do proprio
+// prompt — nao precisa de sufixo. O que sobra aqui e so o corte de tamanho,
+// que o FLUX exige (limite de 2048 no campo `prompt`).
+export const CF_PROMPT_MAX = 1900;
 
-function buildCloudflarePrompt(prompt: string, maxLength = 1900): string {
-  const suffix = `\n\n${CF_NO_TEXT_INSTRUCTION}`;
-  const base = String(prompt || "").trim();
-  return `${base.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
+function buildCloudflarePrompt(prompt: string, maxLength = CF_PROMPT_MAX): string {
+  return String(prompt || "").trim().slice(0, Math.max(0, maxLength));
 }
 
 // Achado real (cascata de geração, 10/09): o endpoint do FLUX no
