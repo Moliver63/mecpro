@@ -9696,7 +9696,13 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   const diagnostics = getImageGenerationDiagnostics(config.provider);
 
   for (let index = 0; index < scored.length; index++) {
-    scored[index].imageProviderUsed = diagnostics.provider;
+    // Diagnostics describes the configured legacy provider, not necessarily
+    // the source that produced the final image. generateAdImage can route
+    // HuggingFace through Cloudflare or fall back to Pixabay, Google Images,
+    // Pollinations, or a mock. Keep the requested provider separate and avoid
+    // claiming a provider was used before an image was actually produced.
+    delete scored[index].imageProviderUsed;
+    scored[index].imageGenerationProviderRequested = diagnostics.provider;
     scored[index].imageGenerationReason = diagnostics.reason;
     scored[index].imageGenerationWarnings = diagnostics.warnings;
     scored[index].imageGenerationMode = diagnostics.canGenerateRealImages ? "real" : "fallback";
