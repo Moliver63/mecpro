@@ -30,6 +30,32 @@ function emptyCreativeSystemV2(): CreativeSystemV2 {
   };
 }
 
+/**
+ * Garante `assetLibrary.assets`.
+ *
+ * Achado por auditoria (13/10): `ensureCreativeSystemV2` garantia o canal Meta
+ * e a projecao legada, mas NAO a biblioteca de assets — e
+ * `syncCreativeImageToV2` usa `v2.assetLibrary.assets` sem protecao tres linhas
+ * depois. Um criativo que ja tenha `creativeSystemV2` de formato antigo, ou
+ * parcial, nao traz `assetLibrary` no spread, e o acesso estoura com
+ * "Cannot read properties of undefined (reading 'assets')".
+ *
+ * Por que isso importa mais do que parece: este e o ULTIMO passo do caminho de
+ * imagem, o que grava a URL aprovada no criativo — e ele **nunca executou em
+ * producao**, porque em dez dias nenhuma imagem foi aprovada. O estouro cairia
+ * no catch do worker como `processing_interrupted_no_automatic_regeneration`,
+ * motivo que nao aponta pra nada: imagem aprovada pelo validador, criativo sem
+ * imagem, e ninguem sabendo por que.
+ *
+ * Correcao defensiva num caminho sem exposicao de producao, que e exatamente
+ * onde defensivo se justifica.
+ */
+function ensureAssetLibrary(v2: CreativeSystemV2) {
+  const alvo = v2 as any;
+  if (!alvo.assetLibrary) alvo.assetLibrary = { assets: [] };
+  if (!Array.isArray(alvo.assetLibrary.assets)) alvo.assetLibrary.assets = [];
+}
+
 function ensureMetaChannel(v2: CreativeSystemV2) {
   if (!v2.channels) v2.channels = {} as any;
   const ch = v2.channels as any;
@@ -74,6 +100,7 @@ export function ensureCreativeSystemV2(
       }
     : emptyCreativeSystemV2();
 
+  ensureAssetLibrary(v2);
   ensureMetaChannel(v2);
   ensureLegacyProjection(v2);
   return v2;

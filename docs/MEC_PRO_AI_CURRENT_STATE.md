@@ -2295,3 +2295,19 @@ Validado: 379/379 no servidor, 7/7 no cliente. Typecheck 37, diff identico ao ba
 1. **403 no validador** — a rotacao de chave de 10/10 (`96fc0f2`) nao foi verificada em producao. Se a chave 1 era a ruim, resolve; se as nove recusam, o problema e outro.
 2. **`quality >= 0.72`** — segue sendo heuristica nao calibrada usada como limiar duro, por falta de dado pra ajustar. Se reprovar por qualidade com imagem visivelmente boa, o numero e o suspeito.
 3. A primeira validacao real agora produz motivo nomeado em vez de rotulo generico — e e isso que decide o proximo passo.
+
+### O ultimo metro: o passo que grava a imagem no criativo
+
+Auditado depois do portao, por um motivo especifico: e o unico trecho do caminho de imagem com **zero exposicao de producao**. Enquanto nada era aprovado, `syncCreativeImageToV2` nunca rodou — nenhum bug ali podia ter aparecido em log.
+
+E tinha um. `ensureCreativeSystemV2` garantia o canal Meta e a projecao legada, mas nao a biblioteca de assets, e `syncCreativeImageToV2` usa `v2.assetLibrary.assets` sem protecao. Criativo com `creativeSystemV2` parcial ou de formato antigo nao traz `assetLibrary` no spread: `Cannot read properties of undefined (reading 'assets')`.
+
+O estouro cairia no catch do worker como `processing_interrupted_no_automatic_regeneration` — motivo que nao aponta pra nada. Resultado visivel pro Michel: imagem aprovada pelo validador, criativo sem imagem, nenhuma pista. A primeira aprovacao em dez dias morreria no ultimo metro, e o diagnostico comecaria de novo do zero.
+
+Correcao: `ensureAssetLibrary` no mesmo lugar das outras duas garantias. Quatro testes em `syncCreativeImagem.test.ts` cobrem v2 parcial, `assets` que nao e array, gravacao nos tres formatos (legado **e** v2) e reaplicacao do mesmo formato atualizando o asset em vez de duplicar — este ultimo porque o worker reaproveita `candidate_url` nas retentativas.
+
+Codigo defensivo num caminho sem exposicao de producao e exatamente onde defensivo se justifica.
+
+### O que falta aplicar, em uma frase
+
+Nada conhecido como quebrado. O que falta nao e patch, e **medicao**: um `revalidate` na 797 reusa as dez imagens ja pagas contra o portao novo, a custo zero de neuronio, e devolve um de tres resultados decisivos — `approved`, `visual_rejected: <criterio nomeado>`, ou `gemini_http_403` de novo (e aqui 403 passa a significar "as nove chaves recusam", nao "a chave 1 e ruim", o que aponta pra Generative Language API desabilitada no projeto).
