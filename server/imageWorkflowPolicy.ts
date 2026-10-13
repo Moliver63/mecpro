@@ -76,8 +76,8 @@ export function imageBrief(campaign: any, creative: any) {
   if (!facts?.intent?.segment || !Array.isArray(facts.verifiedFacts) || !facts.verifiedFacts.length || !facts.verifiedFacts.every((f: unknown) => typeof f === "string")) {
     throw new Error("missing_confirmed_brief");
   }
-  return { version: 1, segment: facts.intent.segment, objective: campaign.objective,
-    facts: facts.verifiedFacts, intent: facts.intent,
+  return { version: 2, segment: facts.intent.segment, objective: campaign.objective,
+    offerAnchor: facts.offerAnchor || [], facts: facts.verifiedFacts, intent: facts.intent,
     card: { headline: creative.headline, description: creative.description, copy: creative.copy, hook: creative.hook, angle: creative.angle } };
 }
 export function imageFingerprint(value: unknown) {

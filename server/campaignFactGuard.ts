@@ -36,6 +36,10 @@ export type CampaignFactConflict = {
 
 export type CampaignFacts = {
   intent?: { segment: string; objective: string };
+  // Âncora compartilhada entre geração de copy e imagem. Contém somente
+  // campos de oferta informados no briefing atual ou perfil do cliente;
+  // não inclui orçamento de mídia nem fatos inferidos do segmento.
+  offerAnchor: string[];
   verifiedFacts: string[];
   allowedInferences: string[];
   forbiddenClaims: string[];
@@ -597,6 +601,17 @@ export function buildCampaignFacts({
   const inheritedRaw = sourceText({}, clientProfile);
   const raw = sourceText(input, clientProfile);
   const n = normalizeText(raw);
+  const offerFields: Array<[string, unknown]> = [
+    ["Nome do produto/serviço", input?.["productName"] || clientProfile?.["productName"]],
+    ["Produto/serviço", input?.["productService"] || clientProfile?.["productService"]],
+    ["Proposta de valor", input?.["uniqueValueProposition"] || clientProfile?.["uniqueValueProposition"]],
+    ["Diferenciais", input?.["productDifferentials"] || clientProfile?.["productDifferentials"]],
+  ];
+  const offerAnchor = unique(offerFields.map(([label, value]) => {
+    const text = compactText(value).slice(0, 400);
+    if (!text || /^(n[aã]o informado|n[aã]o se aplica|nenhum|n\/a|-)\.?$/i.test(text)) return "";
+    return `${label}: ${text}`;
+  }));
   const socialProofRaw = normalizeText(
     compactText(
       [input?.["productProofPoints"], clientProfile?.["productProofPoints"]]
@@ -707,6 +722,7 @@ export function buildCampaignFacts({
   ]);
 
   return {
+    offerAnchor,
     verifiedFacts,
     allowedInferences,
     forbiddenClaims: unique([
@@ -1066,9 +1082,12 @@ export function formatCampaignFactsForPrompt(facts: CampaignFacts): string {
     "FATOS VERIFICADOS DA CAMPANHA ATUAL",
     "========================",
     facts.verifiedFacts.length ? facts.verifiedFacts.map((fact) => `- ${fact}`).join("\n") : "- Nenhum fato protegido informado.",
+    "ÂNCORA DA OFERTA (campos informados pelo cliente; usar como produto/serviço central de todas as copies e imagens):",
+    facts.offerAnchor?.length ? facts.offerAnchor.map((fact) => `- ${fact}`).join("\n") : "- Oferta não especificada; não deduza uma oferta pelo segmento.",
     facts.allowedInferences.length ? `\nINFERENCIAS PERMITIDAS:\n${facts.allowedInferences.map((fact) => `- ${fact}`).join("\n")}` : "",
     facts.forbiddenClaims.length ? `\nPROIBIDO NESTA CAMPANHA:\n${facts.forbiddenClaims.slice(0, 30).map((claim) => `- ${claim}`).join("\n")}` : "",
     "\nREGRA: padroes vencedores e exemplos podem emprestar estrutura persuasiva, mas nunca fatos, numeros, enderecos, precos, metragem ou caracteristicas de outro projeto.",
     "\nREGRA ABSOLUTA: use SOMENTE os FATOS VERIFICADOS acima. NUNCA infira nem adicione: clinica, consultorio, numero de vagas, disponibilidade limitada, urgencia, escassez, descontos, equipamentos ou qualquer caracteristica nao fornecida. Se uma informacao nao estiver nos FATOS VERIFICADOS, OMITA — nao substitua por suposicao.",
+    "\nCONTRATO UNICO DE CRIATIVO: todas as variações de copy e imagem devem representar a mesma oferta descrita na ÂNCORA DA OFERTA. A âncora identifica o assunto; só FATOS VERIFICADOS autorizam afirmações objetivas. Não troque o produto/serviço por um cenário genérico do segmento nem invente benefícios, resultados, objetos, instalações ou características.",
   ].filter(Boolean).join("\n");
 }
