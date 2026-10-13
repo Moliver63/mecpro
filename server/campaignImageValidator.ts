@@ -132,7 +132,8 @@ export async function validateCampaignImage(url: string, brief: unknown): Promis
     }
     return indisponivel(`gemini_http_${ultimoStatus}`);
   } catch (e: any) {
-    const nome = e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : "excecao";
+    const nome = e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : `excecao_${String(e?.name || "Error").replace(/[^a-z0-9_-]/gi, "").slice(0, 40).toLowerCase()}`;
+    log.warn("image-validator", "Falha ao validar imagem", { tipo: nome });
     return indisponivel(nome);
   }
 }

@@ -371,7 +371,7 @@ export function inferPrompt(
   // Eu adiei isso por dias pedindo medição, e a medição dependia do pipeline
   // rodar, que dependia disto. O pior caso de remover é neutro: não existe
   // mecanismo pelo qual repetir esses tokens cinco vezes REDUZA texto.
-  const fotografiaPura = "Straight photographic frame as captured by a camera lens, uncluttered composition with clean negative space.";
+  const fotografiaPura = "Single editorial photograph captured by a camera, not a designed ad layout; smooth unmarked surfaces and a simple real background, with no added graphic overlays, lettered panels or visible interface.";
 
   // Contexto real do negocio (produto/nicho do cliente) — sempre que disponivel, soma-se
   // ao mapa categorico de segmento (SEGMENT_VISUAL) pra descrever visualmente o que o
@@ -388,11 +388,18 @@ export function inferPrompt(
   // vazio, e nesse caso a cena generica do segmento deve voltar a valer em
   // vez de sobrar prompt sem assunto nenhum.
   const hasSpecificSubject = !!realBusinessContext || visualFacts.length > 0;
+  const offerContext = [
+    creative?.headline, creative?.description, creative?.copy, creative?.hook, creative?.angle,
+    productContext?.productName, productContext?.productService, productContext?.niche,
+    ...(productContext?.confirmedVisualFacts || []),
+  ].map(toText).filter(Boolean).join(" ");
+  const hasVrOffer = /\bvr\b|realidade virtual|virtual reality|headset/i.test(offerContext);
 
   const parts = [
-    `Professional Brazilian advertising photograph, ${dim.label} format (${dim.ratio} ratio).`,
+    `Professional Brazilian editorial photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
+    hasVrOffer ? "Show a generic adult participant wearing a modern VR headset as the unmistakable central subject of a guided self-knowledge session; keep the headset clearly visible." : "",
     // A supressao abaixo e deliberada, nao esquecimento — ver
     // docs/visual-prompt-alignment.md e o teste "food and fitness use the
     // concrete subject rather than generic scene defaults". Os defaults de
@@ -1572,7 +1579,7 @@ export function urlCloudinaryNaProporcao(url: string, format: CreativeImageForma
 
 // Candidate is not an approved creative. The durable worker persists it before validation.
 export async function generateCampaignImageCandidate(brief: any, format: CreativeImageFormat, index: number): Promise<{ url: string; provider: string } | null> {
-  const context = { productService: brief.facts.join("; "), confirmedVisualFacts: brief.facts, niche: brief.segment };
+  const context = { productService: [brief.card?.headline, brief.card?.description, brief.card?.hook, brief.card?.angle, ...brief.facts].filter(Boolean).join("; "), confirmedVisualFacts: brief.facts, niche: brief.segment };
   const prompt = inferPrompt(brief.card, brief.segment, brief.objective, format, context);
   const buffer = await generateWithCloudflareBuffer(prompt, format);
   if (buffer && buffer.length >= 10000) {

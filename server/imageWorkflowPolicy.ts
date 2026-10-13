@@ -323,6 +323,13 @@ export function canonicalStockQuery(segment: string, facts: string, index = 0): 
     if (/apartamento/i.test(facts)) return "apartment interior";
     return "real estate building";
   }
+  if (/educa|infoprod|saude|psic|bem.?estar|servic/.test(s) && /\bvr\b|realidade virtual|virtual reality|headset/i.test(facts)) {
+    return [
+      "adult wearing a virtual reality headset in a guided self-reflection session",
+      "close-up portrait of a person using a virtual reality headset in a calm room",
+      "virtual reality headset in use during a personal development session",
+    ][index % 3];
+  }
   const rules: Array<[RegExp, string]> = [
     [/financ/, "financial planning documents calculator"], [/alimenta|restaur|doce/, "food preparation kitchen"],
     [/fitness|academia|esport/, "fitness exercise gym"], [/saude|estet|psicol/, "health wellness professional"],
