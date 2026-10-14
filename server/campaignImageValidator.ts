@@ -1,4 +1,5 @@
 import { visualDecision, type VisualDecision } from "./imageWorkflowPolicy";
+import { log } from "./logger";
 
 // Achado real (log de produção, 03/10): as nove tarefas da campanha 797
 // paravam todas em `visual_validator_unavailable`, e esse motivo é o MESMO

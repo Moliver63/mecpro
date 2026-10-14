@@ -10,9 +10,22 @@ function fixture(creatives: any[] = [{ headline: "Planejamento financeiro" }]) {
   const jobs = new Map();
   const campaign = { id: 797, projectId: 3, objective: "leads", creatives: JSON.stringify(creatives),
     aiResponse: JSON.stringify({ campaignFacts: { intent: { segment: "financeiro" }, verifiedFacts: ["Curso de planejamento financeiro"] } }) };
+  // O mock honra o WHERE da consulta de reenfileiramento (14/10). Antes ele
+  // devolvia TODAS as tarefas pra qualquer SQL, e a consulta nova
+  // ("ja existe tarefa pra este card/formato/brief?") enxergava a tarefa do
+  // card ANTERIOR, concluia que este card ja estava na fila e pulava o insert.
+  // Em producao o WHERE filtra por creative_index/format/brief e isso nao
+  // acontece: o defeito era do mock, nao do codigo.
   const pool = { query: async (sql: string, params: any[] = []) => {
     calls.push({ sql, params });
-    if (sql.startsWith("INSERT")) jobs.set(params[4], { id: jobs.size + 1, status: "queued" });
+    if (sql.startsWith("INSERT")) {
+      jobs.set(params[4], { id: jobs.size + 1, status: "queued", creative_index: params[2], format: params[3], brief: params[5] });
+    }
+    if (/^SELECT id,status FROM campaign_image_jobs/.test(sql)) {
+      const [, , index, formato, brief] = params;
+      const iguais = [...jobs.values()].filter(j => j.creative_index === index && j.format === formato && j.brief === brief);
+      return { rows: iguais.slice(-1), rowCount: iguais.length ? 1 : 0 };
+    }
     return { rows: [...jobs.values()], rowCount: 1 };
   } };
   const db = { getCampaignById: async () => campaign, getProjectById: async () => ({ userId: 1 }), getPool: async () => pool };

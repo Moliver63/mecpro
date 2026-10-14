@@ -372,16 +372,31 @@ export function inferPrompt(
   // Eu adiei isso por dias pedindo medição, e a medição dependia do pipeline
   // rodar, que dependia disto. O pior caso de remover é neutro: não existe
   // mecanismo pelo qual repetir esses tokens cinco vezes REDUZA texto.
-  const fotografiaPura = "Single editorial photograph captured by a camera, not a designed ad layout; smooth unmarked surfaces and a simple real background, with no added graphic overlays, lettered panels or visible interface.";
+  // 14/10: uma sessao paralela reescreveu esta linha como "not a designed ad
+  // layout; smooth unmarked surfaces ... with no added graphic overlays,
+  // lettered panels or visible interface". A INTENCAO estava certa — fotografia
+  // editorial, superficie limpa, fundo real — mas o mecanismo e o mesmo erro de
+  // 13/10 com palavras novas: "ad layout", "overlays", "lettered", "interface"
+  // entram no condicionamento como qualquer outro token, porque o encoder nao
+  // tem negacao. A intencao deles esta preservada aqui, no positivo.
+  const fotografiaPura = "Straight photographic frame as captured by a camera lens, uncluttered composition with clean negative space. A single editorial photograph with smooth matte surfaces and a simple real-world background.";
 
   // Contexto real do negocio (produto/nicho do cliente) — sempre que disponivel, soma-se
   // ao mapa categorico de segmento (SEGMENT_VISUAL) pra descrever visualmente o que o
   // cliente REALMENTE vende, em vez de depender so de um dos 9 buckets genericos
   // (que caem em "outro" quando o nicho do cliente nao bate com nenhum deles).
+  //
+  // 14/10: o `offerAnchor` entrou aqui (sessao paralela) e e ganho real — ancora
+  // a cena na oferta confirmada em vez do nicho solto. Mas ele entrou NO LUGAR
+  // do `niche`, e isso derrubou o assunto visivel: quando o perfil nao tem
+  // productName (caso Shadia Hasan, "⚠️ nao preenchido") e o productService
+  // sanitiza pra vazio por ser clausula comercial, o nicho era o unico assunto
+  // que sobrava. Os dois somam; nenhum substitui o outro.
   const realBusinessContext = sanitizarAssuntoVisual([
     toText(productContext?.productName),
     toText(productContext?.productService),
     ...(productContext?.offerAnchor || []).map(fact => toText(fact).replace(/^[^:]{2,50}:\s*/, "")),
+    toText(productContext?.niche),
   ].filter(Boolean).join(", "));
   const visualFacts = (productContext?.confirmedVisualFacts || []).filter(fact => /^(tipo|caracteristica|mobilia|pavimentos)/i.test(fact));
   // Calculado a partir do texto CRU, nao do sanitizado: um perfil que so
@@ -389,13 +404,12 @@ export function inferPrompt(
   // vazio, e nesse caso a cena generica do segmento deve voltar a valer em
   // vez de sobrar prompt sem assunto nenhum.
   const hasSpecificSubject = !!realBusinessContext || visualFacts.length > 0;
-  const hasSpecificOffer = !!realBusinessContext || visualFacts.length > 0;
 
   const parts = [
     `Professional Brazilian editorial photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
-    hasSpecificOffer ? `Central subject: ${realBusinessContext || JSON.stringify(visualFacts)}. Represent the confirmed product or service in a plausible real use context; when it is intangible, use only a restrained human or environmental scene supported by the offer anchor, without inventing a specific device, venue, outcome or accessory.` : "",
+    hasSpecificSubject ? `Central subject: ${realBusinessContext || JSON.stringify(visualFacts)}. Represent the confirmed product or service in a plausible real use context; when it is intangible, use only a restrained human or environmental scene supported by the offer anchor, without inventing a specific device, venue, outcome or accessory.` : "",
     // A supressao abaixo e deliberada, nao esquecimento — ver
     // docs/visual-prompt-alignment.md e o teste "food and fitness use the
     // concrete subject rather than generic scene defaults". Os defaults de

@@ -2358,3 +2358,37 @@ Nenhuma das duas estava certa. A certa e a terceira: texto dentro do limite, cor
 `Meta Insights API error {"error":"(#100) Tried accessing nonexisting field (insights)"}` aparece no mesmo log. E WARN, a geracao segue, e nao tem relacao com imagem nem com o erro acima — bug proprio, pra corrigir separado.
 
 Validado: 395/395 testes, typecheck 37 (diff identico ao baseline).
+
+## 14/10 — duas sessoes escrevendo no mesmo prompt, e o que isso custou
+
+Quatro commits chegaram na main por outra sessao (`2c45360`, `c4de51e`, `d746c25`, `a303cb8`), e deixaram **5 testes quebrados e o typecheck em 38**. Verificado isolando: as falhas sao todas de origin/main, nenhuma do meu commit.
+
+Isso importa alem dos testes. Parte dos "dez dias sem imagem" tem explicacao aqui: **duas sessoes corrigindo o mesmo prompt de imagem em paralelo, uma desfazendo a outra sem saber.** Correcao de 13/10 aplicada, correcao de 13/10 desfeita em 14/10 com palavras diferentes.
+
+### O que estava CERTO no trabalho da outra sessao, e ficou
+
+1. **`offerAnchor` no brief** (`imageBrief` v1→v2) e no prompt. Ancora a cena na oferta confirmada em vez do nicho solto. Ganho real.
+2. **`productService` montado do card** (headline/description/hook/angle) em vez de `brief.facts.join("; ")`. O card descreve ESTE criativo; os facts descrevem a campanha.
+3. **Reenfileiramento depois de `rejected`/`failed`** (`c4de51e`). Diagnostico certo e bug real: com fingerprint estavel e `ON CONFLICT DO NOTHING`, um card rejeitado **nunca** podia ser regerado por `action=start` — o insert era silenciosamente descartado pra sempre. Agora a retentativa deliberada ganha linha propria e o historico fica.
+4. **`imageProviderUsed` separado de "provedor solicitado"** (`2c45360`). O campo afirmava provedor antes de existir imagem.
+5. **Tipo da excecao no motivo** (`excecao_error` em vez de `excecao`). E refinamento do proprio principio de 03/10: nomear a causa. Meu teste travava o literal `excecao` — e literal e implementacao. Ajustei o teste pra prefixo, nao o codigo.
+6. **Consulta de stock pra VR.** Aditiva e estreita.
+
+### O que estava ERRADO, e foi corrigido
+
+1. **`log` nao importado em `campaignImageValidator.ts`** — o unico dos cinco que era grave. `log.warn` foi adicionado **dentro do catch** do validador, sem o import: `ReferenceError` lancado pelo proprio handler de erro. Toda excecao de rede (socket hang up, DNS, abort — a falha transitoria mais comum) deixaria de virar `pending_validation` e escaparia da funcao. O diagnostico de causa nomeada morria no caminho da excecao, e o validador passava a quebrar duro justo onde devia degradar. Uma linha.
+2. **Negacao de volta no prompt**, com roupa nova: `"not a designed ad layout; smooth unmarked surfaces ... with no added graphic overlays, lettered panels or visible interface"`. A intencao estava certa; o mecanismo e o erro de 13/10 repetido — `ad layout`, `overlays`, `lettered`, `interface` entram no condicionamento como qualquer token, porque o encoder nao tem negacao. Reescrito no positivo, preservando a intencao: `"...A single editorial photograph with smooth matte surfaces and a simple real-world background."`
+3. **`niche` removido do assunto visual**, substituido por `offerAnchor` em vez de somado. Com perfil sem `productName` (exatamente Shadia Hasan, "⚠️ nao preenchido") e `productService` que sanitiza pra vazio por ser clausula comercial, o nicho era o unico assunto que sobrava — e o prompt ficava sem assunto nenhum. Os dois somam agora.
+4. **`hasSpecificOffer` duplicava `hasSpecificSubject`** (expressao identica, dois nomes). Removido.
+
+### Dois testes meus estavam ingenuos, e o codigo deles estava certo
+
+O mock do `fixture` em `chatImageTools.test.ts` devolvia TODAS as tarefas pra qualquer SQL, ignorando o `WHERE`. A consulta nova de reenfileiramento enxergava a tarefa do card ANTERIOR e pulava o insert — so o primeiro card era enfileirado. **Em producao o `WHERE` filtra por `creative_index`/`format`/`brief` e isso nao acontece.** Era defeito do mock. Corrigi o mock pra honrar o filtro, e agora o teste de idempotencia exercita de verdade o comportamento novo.
+
+Registro a distincao, porque ela e a mesma de 13/10 por outro angulo: **teste que quebra nao prova que o codigo esta errado.** Aqui, de 5 falhas, 2 eram teste ingenuo meu, 1 era asserção minha travando literal, e 2 eram bug real no codigo novo.
+
+### Nao mexido, por consistencia com a propria regra
+
+A clausula nova `"without inventing a specific device, venue, outcome or accessory"` tambem e negacao e tambem condiciona pros itens que nomeia. Fica, pelo mesmo motivo registrado em 13/10 pro `"Do not add products, amenities, furniture, logos..."`: e clausula de integridade de fato, risco proprio, mudanca propria, e nao e o que bloqueia imagem. Uma mencao e diferente de cinco repeticoes.
+
+Validado: 395/395, typecheck 37 (de volta ao baseline, vindo de 38).

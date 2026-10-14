@@ -50,10 +50,18 @@ test("motivo de indisponibilidade distingue a causa, sem nunca aprovar", async (
     assert.equal((await validateCampaignImage(url, {})).reason, "visual_validator_unavailable:mime_inesperado");
 
     // Exceção de rede não pode escapar como aprovação.
+    //
+    // O motivo passou a carregar o TIPO da excecao (`excecao_error`,
+    // `excecao_typeerror`) numa mudanca de 14/10. A assercao aqui era pelo
+    // literal `excecao`, e literal e implementacao: o que este teste protege,
+    // desde o log de 03/10, e a causa ser DISTINGUIVEL — e um sufixo de tipo
+    // atende isso melhor que o rotulo unico. Prefixo, entao, nao igualdade.
+    // (`causaEhPermanente` segue classificando como transitorio: tudo que nao
+    // casa com as listas nomeadas cai no `return false`.)
     globalThis.fetch = (async () => { throw new Error("socket hang up"); }) as typeof fetch;
     const quebrou = await validateCampaignImage(url, {});
     assert.equal(quebrou.status, "pending_validation");
-    assert.equal(quebrou.reason, "visual_validator_unavailable:excecao");
+    assert.match(String(quebrou.reason), /^visual_validator_unavailable:excecao(_[a-z0-9_-]+)?$/);
   } finally {
     globalThis.fetch = fetchAntes;
     if (chaveAntes === undefined) delete process.env.IMAGE_VALIDATION_GEMINI_API_KEY;
