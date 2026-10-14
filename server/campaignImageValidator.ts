@@ -99,10 +99,14 @@ export async function validateCampaignImage(url: string, brief: unknown): Promis
           // foi aprovado. Ver visualDecision.
           "blockers: ONLY things that must prevent this image from running as an ad — wrong industry or segment, offer details not in the brief, financial guarantees, unsafe content, or stock imagery presented as the actual property/product. Leave it EMPTY when none apply.",
           "issues: everything else you observed — framing, lighting, composition, anything a reviewer might want to improve. These are notes, NOT reasons to reject. Do not repeat blockers here.",
+          // Verbosidade tem custo real aqui: `evidence` sem teto e uma lista
+          // longa de `issues` estouravam `maxOutputTokens`, o JSON vinha cortado
+          // e o motivo virava `excecao_syntaxerror` (log 14/10, job 74).
+          "Be terse: evidence in at most 2 short sentences, at most 3 issues and at most 3 blockers, each under 120 characters. Brevity matters more than completeness here.",
           "illegibleText: true only when the image renders text that is garbled, misspelled or unreadable. Legible, plausible text (a product label, a sign, a number) is NOT illegible.",
         ].join(" ") }] },
         contents: [{ role: "user", parts: [{ text: JSON.stringify(brief) }, { inlineData: { mimeType: mime, data: Buffer.concat(chunks).toString("base64") } }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 2048, responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: {
+        generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: {
           matchesBrief: { type: "BOOLEAN" }, safe: { type: "BOOLEAN" }, illegibleText: { type: "BOOLEAN" },
           quality: { type: "NUMBER" }, evidence: { type: "STRING" },
           blockers: { type: "ARRAY", items: { type: "STRING" } },
@@ -121,9 +125,44 @@ export async function validateCampaignImage(url: string, brief: unknown): Promis
         body: corpo,
       });
       if (response.ok) {
-        const result: any = await response.json();
-        const text = result.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("");
-        return { ...visualDecision(JSON.parse(text)), model };
+        // Achado real (log de producao, 14/10, campanha 798): o job 74 falhou
+        // tres vezes com `excecao_syntaxerror` enquanto o 75 era APROVADO na
+        // mesma campanha. O SyntaxError vinha daqui, de `JSON.parse(text)`, e
+        // tinha tres origens possiveis que o rotulo unico nao distinguia:
+        //
+        //   1. `candidates` ausente (filtro de seguranca barrou) → `text` e
+        //      `undefined` → "undefined is not valid JSON"
+        //   2. `finishReason: MAX_TOKENS` → JSON cortado no meio
+        //   3. `parts` vazio → `text` e "" → SyntaxError
+        //
+        // Cada uma pede acao diferente do Michel, e nenhuma e "aguarde". Mesmo
+        // principio do 03/10, um nivel mais fundo: o motivo diz qual foi.
+        //
+        // O caso 2 e meu: em 13/10 eu pedi ao modelo pra listar em `issues`
+        // "everything else you observed — framing, lighting, composition", o que
+        // convida resposta longa, e deixei `maxOutputTokens` em 2048. Corrigido
+        // nos dois lados (teto maior e limite de verbosidade na instrucao).
+        let result: any;
+        try { result = await response.json(); }
+        catch { return indisponivel("corpo_nao_json"); }
+
+        const bloqueio = result?.promptFeedback?.blockReason;
+        if (bloqueio) return indisponivel(`bloqueado_seguranca_${String(bloqueio).replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 30)}`);
+
+        const candidato = result?.candidates?.[0];
+        if (!candidato) return indisponivel("sem_candidato");
+        if (candidato.finishReason === "SAFETY" || candidato.finishReason === "PROHIBITED_CONTENT") {
+          return indisponivel(`bloqueado_seguranca_${String(candidato.finishReason).toLowerCase()}`);
+        }
+        if (candidato.finishReason === "MAX_TOKENS") return indisponivel("resposta_truncada");
+
+        const text = (candidato.content?.parts || []).map((p: any) => p.text || "").join("").trim();
+        if (!text) return indisponivel("resposta_vazia");
+
+        let payload: unknown;
+        try { payload = JSON.parse(text); }
+        catch { return indisponivel("json_invalido"); }
+        return { ...visualDecision(payload), model };
       }
       ultimoStatus = response.status;
       if (response.status !== 401 && response.status !== 403) break;

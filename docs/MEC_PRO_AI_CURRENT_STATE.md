@@ -2392,3 +2392,42 @@ Registro a distincao, porque ela e a mesma de 13/10 por outro angulo: **teste qu
 A clausula nova `"without inventing a specific device, venue, outcome or accessory"` tambem e negacao e tambem condiciona pros itens que nomeia. Fica, pelo mesmo motivo registrado em 13/10 pro `"Do not add products, amenities, furniture, logos..."`: e clausula de integridade de fato, risco proprio, mudanca propria, e nao e o que bloqueia imagem. Uma mencao e diferente de cinco repeticoes.
 
 Validado: 395/395, typecheck 37 (de volta ao baseline, vindo de 38).
+
+## 14/10 — a PRIMEIRA imagem aprovada, e o que o mesmo log ainda mostra
+
+```
+15:30:11 [image-job] Estado atualizado {"jobId":75,"campaignId":798,"status":"approved","reason":"visual_checks_passed"}
+```
+
+**Onze dias, e esta e a primeira.** O portao reescrito em 13/10 (`cb985b2`) aprova. A rotacao de chave de 10/10 (`96fc0f2`) responde — nao houve 403 nenhum neste log. As duas correcoes que estavam aplicadas e nao verificadas agora estao verificadas em producao, por uma aprovacao real.
+
+Isso reclassifica o diagnostico inteiro: o 403 que me ocupou uma semana era a chave numero 1 do pool, e o portao impossivel era o que restava.
+
+### O job 74: `excecao_syntaxerror`, tres vezes, enquanto o 75 passava
+
+Mesma campanha, duas imagens, destinos opostos. O `SyntaxError` saia de `JSON.parse(text)` no validador, e tinha **tres origens** que o rotulo unico nao distinguia:
+
+1. `candidates` ausente (filtro de conteudo barrou) → `text` e `undefined` → "undefined is not valid JSON"
+2. `finishReason: MAX_TOKENS` → JSON cortado no meio
+3. `parts` vazio → `text` e `""`
+
+Cada uma pede acao diferente, e nenhuma e "aguarde". Agora sao causas nomeadas: `sem_candidato`, `bloqueado_seguranca_<motivo>`, `resposta_truncada`, `resposta_vazia`, `json_invalido`, `corpo_nao_json`. Mesmo principio de 03/10, um nivel mais fundo.
+
+**A origem 2 e minha.** Em 13/10, ao separar `blockers` de `issues`, eu pedi ao modelo pra listar em `issues` "everything else you observed — framing, lighting, composition, anything a reviewer might want to improve". Isso convida resposta longa, e eu deixei `maxOutputTokens` em 2048. A correcao do portao criou a condicao da truncagem. Corrigido nos dois lados: teto em 4096 e limite explicito de verbosidade na instrucao (evidence em 2 frases, no maximo 3 issues e 3 blockers, 120 caracteres cada).
+
+### Classificacao: bloqueio de seguranca e permanente, causa de resposta nao e
+
+`bloqueado_seguranca_*` entra na lista de causa permanente, na mesma categoria de `mime_inesperado`: o filtro barrou ESTA imagem, entao repetir na mesma URL devolve o mesmo veredito. As causas da RESPOSTA (`resposta_truncada`, `json_invalido`, `sem_candidato`, `corpo_nao_json`, `resposta_vazia`) ficam transitorias de proposito — sao da resposta, nao da imagem, e podem passar numa nova tentativa.
+
+### Defeito pre-existente que o caso novo expos
+
+`destravar` dizia **sempre** "travada por configuracao (...) Precisa corrigir a configuracao da validacao; revalidate depois disso reaproveita as imagens que ja existem". Pra causa que esta na IMAGEM gravada, esse conselho e ativamente errado: `revalidate` reanalisa a MESMA imagem e devolve o mesmo veredito. Michel seguiria a instrucao e nao sairia do lugar.
+
+Valia desde 05/10 pra `mime_inesperado`, `corpo_vazio` e `download_http_*`; o `bloqueado_seguranca` novo so deixou visivel. `causaPedeNovaImagem` separa as duas familias e `destravar` agora diz a acao certa pra cada uma, inclusive no caso misto ("1 de 2 esta na imagem gravada").
+
+### Duas coisas de operacao, nao de codigo
+
+1. `Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.` em todo boot. Duas variaveis com a mesma funcao, e o SDK escolhe uma; a outra fica como armadilha silenciosa. Se a chave ruim do pool for uma dessas, da pra eliminar deixando so uma configurada.
+2. `gemini-2.5-flash-lite` em 503 "high demand" quatro vezes neste log (15:18, 15:28, 15:29, 15:51), com fallback pro Cloudflare funcionando. O fallback e o desenhado, mas a frequencia sugere que o flash-lite esta saturado no horario.
+
+Validado: 402/402, typecheck 37.

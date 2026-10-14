@@ -200,7 +200,14 @@ export function causaEhPermanente(motivo: unknown): boolean {
   // Configuracao do nosso lado: repetir nao muda nada.
   if (/^(sem_chave_gemini|host_nao_permitido|modelo_invalido)$/.test(causa)) return true;
   // Problema do candidato ja gravado: a mesma URL devolve o mesmo resultado.
+  // `bloqueado_seguranca_*` entra aqui (14/10): o filtro do Gemini barrou ESTA
+  // imagem, entao repetir com a mesma URL da o mesmo veredito. Nao e esperar que
+  // resolve — e gerar outra imagem. As demais causas novas do validador
+  // (`resposta_truncada`, `json_invalido`, `sem_candidato`, `corpo_nao_json`)
+  // ficam transitorias de proposito: sao da resposta, nao da imagem, e podem
+  // passar numa nova tentativa.
   if (/^(mime_inesperado|imagem_grande_demais|corpo_vazio)$/.test(causa)) return true;
+  if (/^bloqueado_seguranca(_[a-z0-9_]+)?$/.test(causa)) return true;
 
   const http = /^(?:gemini|download)_http_(\d{3})$/.exec(causa);
   if (http) {
@@ -225,11 +232,36 @@ export function causaPermanenteEmPortugues(motivo: unknown): string | null {
   if (causa === "mime_inesperado") return "o arquivo gravado nao e uma imagem valida";
   if (causa === "imagem_grande_demais") return "a imagem gravada passa do tamanho aceito";
   if (causa === "corpo_vazio") return "a imagem gravada chegou vazia";
+  if (/^bloqueado_seguranca(_[a-z0-9_]+)?$/.test(causa)) return "o filtro de conteudo do validador barrou esta imagem";
   if (/^gemini_http_(401|403)$/.test(causa)) return "a chave usada para validar imagem nao tem permissao de acesso";
   if (/^gemini_http_404$/.test(causa)) return "o modelo de validacao nao foi encontrado na conta";
   if (/^gemini_http_/.test(causa)) return "o servico de validacao recusou a requisicao";
   if (/^download_http_/.test(causa)) return "a imagem gravada nao pode mais ser baixada";
   return "a validacao automatica esta com problema de configuracao";
+}
+
+/**
+ * Causa permanente que pede IMAGEM NOVA, nao correcao de configuracao.
+ *
+ * Achado por leitura (14/10): `destravar` dizia sempre "travada por
+ * configuracao (...) Precisa corrigir a configuracao da validacao; revalidate
+ * depois disso reaproveita as imagens que ja existem". Pra causa que esta na
+ * IMAGEM gravada — arquivo que nao e imagem, corpo vazio, URL que nao baixa
+ * mais, e agora filtro de conteudo — esse conselho e ativamente errado:
+ * `revalidate` reanalisa a MESMA imagem e devolve o mesmo veredito. Michel
+ * seguiria a instrucao e nao sairia do lugar.
+ *
+ * Defeito pre-existente (valia pra `mime_inesperado` e `corpo_vazio` desde
+ * 05/10); o `bloqueado_seguranca` novo so o deixou visivel.
+ */
+export function causaPedeNovaImagem(motivo: unknown): boolean {
+  const texto = String(motivo || "");
+  const causa = texto.includes(":") ? texto.slice(texto.indexOf(":") + 1) : texto;
+  if (!causaEhPermanente(causa)) return false;
+  if (/^(mime_inesperado|imagem_grande_demais|corpo_vazio)$/.test(causa)) return true;
+  if (/^bloqueado_seguranca(_[a-z0-9_]+)?$/.test(causa)) return true;
+  if (/^download_http_/.test(causa)) return true;
+  return false;
 }
 
 /**
@@ -277,9 +309,14 @@ export function resumoDeTarefasDeImagem(tarefas: TarefaDeImagem[]) {
   let destravar: string | null = null;
   if (causas.length) {
     // Primeiro, porque e o caso em que esperar e ativamente a resposta errada.
-    destravar = `${bloqueadas.length} tarefa(s) travada(s) por configuracao, nao por fila: ${causas.join("; ")}. ` +
-      `Esperar NAO resolve — as tentativas que sobraram vao falhar igual. Precisa corrigir a configuracao da validacao; ` +
-      `revalidate depois disso reaproveita as imagens que ja existem, sem gerar outra.`;
+    const pedemNovaImagem = bloqueadas.filter(t => causaPedeNovaImagem(t?.reason)).length;
+    const acao = pedemNovaImagem === bloqueadas.length
+      ? `O problema esta na imagem gravada, nao na configuracao: revalidate reanalisa a MESMA imagem e devolve o mesmo veredito. Precisa gerar outra.`
+      : pedemNovaImagem === 0
+        ? `Precisa corrigir a configuracao da validacao; revalidate depois disso reaproveita as imagens que ja existem, sem gerar outra.`
+        : `${pedemNovaImagem} de ${bloqueadas.length} esta na imagem gravada e precisa de imagem nova; o resto e configuracao da validacao, e para essas o revalidate reaproveita a imagem que ja existe.`;
+    destravar = `${bloqueadas.length} tarefa(s) travada(s), e nao por fila: ${causas.join("; ")}. ` +
+      `Esperar NAO resolve — as tentativas que sobraram vao falhar igual. ${acao}`;
   } else if (!filaVaiAgir && paradas.length > 0) {
     destravar = `${paradas.length} tarefa(s) esgotaram as ${MAX_TENTATIVAS_VALIDACAO} tentativas de validacao e a fila NAO vai pegar de novo sozinha. Esperar nao resolve. Use action=revalidate: zera o contador e reanalisa a imagem que ja existe, sem gerar outra.`;
   }
