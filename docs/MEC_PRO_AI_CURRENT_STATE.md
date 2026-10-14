@@ -2311,3 +2311,50 @@ Codigo defensivo num caminho sem exposicao de producao e exatamente onde defensi
 ### O que falta aplicar, em uma frase
 
 Nada conhecido como quebrado. O que falta nao e patch, e **medicao**: um `revalidate` na 797 reusa as dez imagens ja pagas contra o portao novo, a custo zero de neuronio, e devolve um de tres resultados decisivos — `approved`, `visual_rejected: <criterio nomeado>`, ou `gemini_http_403` de novo (e aqui 403 passa a significar "as nove chaves recusam", nao "a chave 1 e ruim", o que aponta pra Generative Language API desabilitada no projeto).
+
+## 14/10 — a medicao de imagem foi bloqueada por contagem de caractere (e por mim)
+
+Michel rodou a geracao que eu pedi. Ela morreu **antes** do passo de imagem, no enriquecimento de criativo:
+
+```
+CREATIVE_REPAIR_REQUIRED: card 1: headline: String must contain at most 40 character(s);
+card 4: copy: String must contain at most 500 character(s);
+card 4: bodyText: String must contain at most 500 character(s)
+```
+
+Projeto 49 (Shadia Hasan), `realImages: 0` — ou seja, era exatamente a geracao que precisaria de imagem por IA. `campaign_image_jobs` so e alimentado pela ferramenta `gerar_imagens` sobre uma campanha existente, e nenhuma campanha foi criada. **O caminho de imagem nao rodou nem um passo.** Dez dias de diagnostico de imagem, e a medicao decisiva foi barrada por contagem de caractere.
+
+### A causa e estrutural, nao "o modelo foi mal"
+
+No log: `index 0` teve `headline` rejeitada nas duas tentativas; `index 3` teve `copy` rejeitada nas duas.
+
+`repairCreativeFields` rejeita a reescrita ruim e **preserva o campo original**, sem nunca checar se o original e valido. Quando o que esta quebrado E o original (longo demais) e o modelo falha dentro do limite de tentativas, o laco termina segurando um campo invalido **sem saida nenhuma**. A linha `Reescrita parcialmente aceita; preservando campos validos` estava literalmente errada: preservou campo INVALIDO.
+
+E o prompt ja pedia certo: `máx 40 caracteres — mire em até 34 pra ter folga (conte antes de responder)`. Pedia duas vezes, com margem de folga, e o `gemini-2.5-flash-lite` estourou de novo. Modelo de linguagem nao conta caractere de forma confiavel. Era restricao **determinística** sendo cobrada de um processo **probabilistico**, duas vezes, sem plano B.
+
+### Correcao: contar e cortar nao precisa de LLM
+
+`truncarCamposNoLimite` roda como ultimo recurso de comprimento, no mesmo ponto e pela mesma logica do `stripPlaceholders` que ja existia ali: as reescritas acabaram, entao limpeza determinística vale mais que derrubar a campanha.
+
+Corte preferindo fim de frase, depois fronteira de palavra, nunca no meio da palavra, sem reticencias (headline terminando em "..." parece bug, nao escolha), sem conector pendurado no fim e sem colchete aberto sobrando.
+
+**Duas travas, porque cortar texto pode inverter sentido.** "Resultado para todos os alunos, sem excecao nenhuma" cortado em 40 vira "Resultado para todos os alunos" — o oposto do original, num anuncio em nome do cliente:
+
+1. **Negacao perdida reprova o corte.** Se o original tem `não/nunca/jamais/nenhum/sem` e o corte tem menos, o campo nao e truncado.
+2. **Fact Guard roda no texto JA cortado.** Corte que vira alegacao nao confirmada e descartado.
+
+Campo que nao passa nas travas continua invalido e a campanha continua falhando, de proposito. A assimetria manda: reprovar a mais custa um erro claro (que e o que acontece hoje), aprovar a mais custa anuncio publicado com sentido invertido. Truncagem sempre marca `needsReview`.
+
+Detalhe de contagem que importava: a regex de negacao usa lookaround, nao grupo. Com delimitador consumido, "nao nunca" contaria 1 em vez de 2 — e **subcontar o original** e justamente o erro que liberaria o corte perigoso.
+
+### O lado meu disso
+
+O comportamento de falhar duro aqui e meu, de `96fc0f2` (10/10). Antes, o catch engolia `CREATIVE_REPAIR_REQUIRED` e a campanha salvava com os criativos originais, sem enriquecimento. Eu troquei degradacao silenciosa por erro visivel, e mantenho a troca — mas ela converteu "publica headline um pouco longa" em "nao publica nada", e foi isso que bloqueou a medicao de imagem quatro dias depois.
+
+Nenhuma das duas estava certa. A certa e a terceira: texto dentro do limite, cortado de forma determinística, marcado pra revisao.
+
+### Nao corrigido, registrado
+
+`Meta Insights API error {"error":"(#100) Tried accessing nonexisting field (insights)"}` aparece no mesmo log. E WARN, a geracao segue, e nao tem relacao com imagem nem com o erro acima — bug proprio, pra corrigir separado.
+
+Validado: 395/395 testes, typecheck 37 (diff identico ao baseline).

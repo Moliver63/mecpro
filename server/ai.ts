@@ -25,7 +25,7 @@ import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageForma
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { alinharObjetivosAninhados, formatoDeMidiaParaAuditoria } from "./campaignRuleRetrieval";
-import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, type CreativeTextField } from "./creativeRewriteGuard";
+import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, truncarCamposNoLimite, type CreativeTextField } from "./creativeRewriteGuard";
 import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
@@ -9592,13 +9592,32 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         cta:         stripPlaceholders(current.cta),
       };
     }
+    // Último recurso de COMPRIMENTO. Mesma lógica da sanitização acima: as
+    // tentativas de reescrita acabaram e ainda há campo fora do limite, porque
+    // `repairCreativeFields` preserva o campo ORIGINAL quando rejeita a
+    // reescrita — e às vezes o original é justamente o longo demais. Daí em
+    // diante não existe terceira tentativa: ou corta, ou a campanha inteira
+    // morre por contagem de caractere. Ver truncarCamposNoLimite.
+    let truncados: string[] = [];
+    if (creativeTextIssues(current).length) {
+      const corte = truncarCamposNoLimite(current, facts);
+      if (corte.truncados.length) {
+        current = corte.candidate;
+        truncados = corte.truncados;
+        log.warn("ai", "Campo acima do limite truncado como último recurso — marcado para revisão", {
+          index, campos: corte.truncados, naoResolvidos: corte.naoResolvidos,
+        });
+      } else if (corte.naoResolvidos.length) {
+        log.warn("ai", "Campo acima do limite NÃO truncado (corte alteraria sentido)", { index, naoResolvidos: corte.naoResolvidos });
+      }
+    }
     const finalScoreResult = scoreCreative(current);
     const finalPlaceholder = hasResidualPlaceholder(current);
     const stillWeak = finalScoreResult.finalScore < SCORE_THRESHOLD;
     if (stillWeak) {
       log.warn("ai", `Criativo permanece com score ${finalScoreResult.finalScore} após ${attempts} tentativas — marcado para revisão`, { index });
     }
-    return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder || !!pendingFields?.length || validateCampaignFactIntegrity([current], facts).status !== "passed" };
+    return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder || !!truncados.length || !!pendingFields?.length || validateCampaignFactIntegrity([current], facts).status !== "passed" };
   }
 
   const rawList = Array.isArray(creatives) ? creatives : [];

@@ -139,6 +139,136 @@ export function repairCreativeFields(original: any, response: unknown, facts: Ca
 }
 
 /**
+ * Corta texto no limite sem deixar fragmento feio.
+ *
+ * Preferencia: fim de frase; depois fronteira de palavra; nunca no meio da
+ * palavra (a nao ser que a palavra sozinha ja estoure o limite). Sem reticencias
+ * — headline de anuncio terminando em "..." parece bug, nao escolha.
+ */
+const CONECTORES_SOLTOS = new Set(["e", "ou", "de", "da", "do", "das", "dos", "para", "pra", "com", "sem",
+  "que", "a", "o", "as", "os", "em", "no", "na", "nos", "nas", "por", "pelo", "pela", "ao", "aos", "à", "às",
+  "um", "uma", "se", "mas", "como", "ate", "até", "mais", "seu", "sua", "meu", "minha", "nosso", "nossa"]);
+
+export function cortarNoLimite(texto: string, limite: number): string {
+  const limpo = String(texto ?? "").trim();
+  if (limpo.length <= limite) return limpo;
+  const janela = limpo.slice(0, limite);
+
+  // Fim de frase ganha de fronteira de palavra quase sempre: terminar no meio da
+  // frase e o defeito que aparece no anuncio ("Entenda sua historia. Comece a
+  // jornada"), e isso pesa mais que o numero de caracteres preservados. O piso
+  // de 30% nao existe pra maximizar texto, existe pra evitar corte absurdo —
+  // texto que comeca em "Ex. " nao pode virar uma headline de tres letras.
+  const fimDeFrase = Math.max(janela.lastIndexOf("."), janela.lastIndexOf("!"), janela.lastIndexOf("?"));
+  if (fimDeFrase >= Math.floor(limite * 0.3)) return janela.slice(0, fimDeFrase + 1).trim();
+
+  // Se o caractere seguinte ao limite ja e espaco, a janela termina em fim de
+  // palavra: recuar pro espaco anterior jogaria fora uma palavra inteira que
+  // cabia ("...todos os alunos" perderia "alunos").
+  const espaco = /\s/.test(limpo[limite] || "") ? janela.length : janela.lastIndexOf(" ");
+  let corte = (espaco > 0 ? janela.slice(0, espaco) : janela).trim();
+
+  // Colchete ou chave aberta e nao fechada vira "[nova" visivel no anuncio, e o
+  // teste de placeholder (que exige o par) nao pega isso. Corta no abre.
+  for (const [abre, fecha] of [["[", "]"], ["{", "}"]] as const) {
+    const ultimoAbre = corte.lastIndexOf(abre);
+    if (ultimoAbre > 0 && corte.indexOf(fecha, ultimoAbre) === -1) corte = corte.slice(0, ultimoAbre).trim();
+  }
+
+  // Nao terminar em pontuacao solta nem conector pendurado ("Jornada de" ).
+  for (let i = 0; i < 4; i++) {
+    const antes = corte;
+    corte = corte.replace(/[\s,;:·\-–—/|(\[{"']+$/u, "").trim();
+    const partes = corte.split(/\s+/);
+    const ultima = (partes[partes.length - 1] || "").toLowerCase().replace(/[.,;:!?]+$/u, "");
+    if (partes.length > 1 && CONECTORES_SOLTOS.has(ultima)) { partes.pop(); corte = partes.join(" "); }
+    if (corte === antes) break;
+  }
+
+  // Se a limpeza comeu tudo, corte duro: estar no limite vale mais que elegancia.
+  return corte.trim() || limpo.slice(0, limite).trim();
+}
+
+/**
+ * Truncagem determinística como ULTIMO recurso de comprimento.
+ *
+ * Achado real (log de producao, 14/10, projeto 49 — Shadia Hasan):
+ *
+ *  - card 1: `headline` reprovada nas DUAS tentativas de reescrita
+ *  - card 4: `copy` reprovada nas DUAS tentativas
+ *  - fim do laco: `CREATIVE_REPAIR_REQUIRED: card 1: headline: ao menos 40
+ *    caracteres; card 4: copy/bodyText: ao menos 500` e a campanha inteira morre
+ *
+ * A causa nao e o modelo ter ido mal: e estrutural. `repairCreativeFields`
+ * rejeita a reescrita ruim e **preserva o campo original**, sem nunca checar se
+ * o original e valido. Quando o que esta quebrado E o original (longo demais) e
+ * o modelo falha dentro do limite de tentativas, o laco termina segurando um
+ * campo invalido e sem saida nenhuma. O log "preservando campos validos" estava
+ * literalmente errado nesse caso: preservou campo INVALIDO.
+ *
+ * E o prompt ja pedia certo — "máx 40 caracteres — mire em até 34 pra ter folga
+ * (conte antes de responder)". Pedia duas vezes, com margem. Modelo de
+ * linguagem nao conta caractere de forma confiavel: era restricao determinística
+ * sendo cobrada de um processo probabilistico, sem plano B.
+ *
+ * Contar e cortar nao precisa de LLM. Mesmo padrao e mesma logica do
+ * `stripPlaceholders` em ai.ts: regeneracao falhou, limpeza determinística vale
+ * mais que falhar a campanha.
+ *
+ * DUAS travas, porque cortar texto PODE inverter sentido ("não garantimos
+ * retorno" → "garantimos retorno" seria catastrofico num anuncio em nome do
+ * cliente):
+ *
+ *  1. Negacao perdida reprova o corte. Se o original tem `não/nunca/jamais/
+ *     nenhum/sem` e o corte tem menos, o campo nao e truncado.
+ *  2. Fact Guard roda no texto JA cortado. Corte que vira alegacao nao
+ *     confirmada e descartado.
+ *
+ * Campo que nao passa nas travas continua invalido e a campanha continua
+ * falhando — de proposito. A assimetria manda: reprovar a mais custa um erro
+ * claro (que e o que ja acontece hoje), aprovar a mais custa anuncio publicado
+ * com sentido invertido.
+ */
+// Lookaround, nao grupo: delimitador consumido faria "nao nunca" contar 1 em vez
+// de 2, e subcontar o ORIGINAL e justamente o erro que libera um corte perigoso.
+const NEGACOES = String.raw`(?<![\p{L}])(?:n[ãa]o|nunca|jamais|nenhum[ao]?s?|sem)(?![\p{L}])`;
+
+function contarNegacoes(texto: string): number {
+  // `lastIndex` compartilhado entre chamadas daria contagem errada: recria.
+  return (String(texto).match(new RegExp(NEGACOES, "giu")) || []).length;
+}
+
+export function truncarCamposNoLimite(original: any, facts: CampaignFacts) {
+  const patch: Record<string, string> = {};
+  const truncados: CreativeTextField[] = [];
+  const naoResolvidos: string[] = [];
+
+  // `bodyText`/`shortDescription` entram no laco igual aos outros: se `copy` ou
+  // `description` tambem forem truncadas, o espelhamento de `applyTextPatch`
+  // sobrescreve o par e eles ficam alinhados. Se so o espelho estourar o limite
+  // (par ja divergente antes daqui), ele e corrigido sozinho — melhor que
+  // deixar campo invalido e derrubar a campanha por ele.
+  for (const campo of Object.keys(CREATIVE_TEXT_LIMITS) as CreativeTextField[]) {
+    const valor = original[campo];
+    if (typeof valor !== "string") continue;
+    const limite = CREATIVE_TEXT_LIMITS[campo];
+    if (valor.trim().length <= limite) continue;
+
+    const corte = cortarNoLimite(valor, limite);
+    if (!corte || corte.length > limite) { naoResolvidos.push(`${campo}: corte nao coube no limite`); continue; }
+    if (contarNegacoes(corte) < contarNegacoes(valor)) { naoResolvidos.push(`${campo}: corte removeria uma negacao`); continue; }
+    if (/\[[^\]]+\]|\{[^}]+\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i.test(corte)) { naoResolvidos.push(`${campo}: corte expoe placeholder`); continue; }
+    const audit = validateCampaignFactIntegrity([{ [campo]: corte }], facts);
+    if (audit.status !== "passed") { naoResolvidos.push(`${campo}: corte vira alegacao nao confirmada`); continue; }
+
+    patch[campo] = corte;
+    truncados.push(campo);
+  }
+
+  return { candidate: truncados.length ? applyTextPatch(original, patch) : original, truncados, naoResolvidos };
+}
+
+/**
  * O erro do enriquecimento deve subir pro usuario, ou pode ser engolido?
  *
  * Achado real (log de producao, 10/10, campanha 797 — cadeia completa):
