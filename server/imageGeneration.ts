@@ -345,9 +345,14 @@ export function inferPrompt(
   const mood = objToMood[objective] || "performance marketing";
 
   // Fix pessoa sem cabeça: sempre especificar composição completa
+  //
+  // 14/10: a frase comecava em "product or scene composition", sem sujeito, e
+  // entrava no prompt final assim — "No fabricated before-and-after results.
+  // product or scene composition; include people..." — minuscula no meio do
+  // texto. Fragmento solto no condicionamento. Ganhou cabeca.
   const compositionFix = format === "stories"
-    ? "vertical product or scene composition; include people only if required by the brief, then keep their heads fully visible"
-    : "product or scene composition; include people only if required by the brief, then keep their heads fully visible";
+    ? "Frame a vertical product or scene composition; include people only if required by the brief, then keep their heads fully visible."
+    : "Frame a product or scene composition; include people only if required by the brief, then keep their heads fully visible.";
 
   // Reescrito em 13/10. Aqui havia DOIS blocos repetidos cinco vezes no prompt
   // final, enumerando "NO TEXT. NO WORDS. NO LETTERS. NO NUMBERS. NO
@@ -409,7 +414,28 @@ export function inferPrompt(
     `Professional Brazilian editorial photograph, ${dim.label} format (${dim.ratio} ratio).`,
     `Visual style: ${visualStyle}.`,
     `Mood: ${mood}.`,
-    hasSpecificSubject ? `Central subject: ${realBusinessContext || JSON.stringify(visualFacts)}. Represent the confirmed product or service in a plausible real use context; when it is intangible, use only a restrained human or environmental scene supported by the offer anchor, without inventing a specific device, venue, outcome or accessory.` : "",
+    // Achado real (14/10, campanha 798): as 15 imagens foram reprovadas por nao
+    // mostrar VR, o diferencial confirmado do briefing — e a clausula que estava
+    // AQUI dizia ao FLUX, na mesma frase que nomeava "imersao em realidade
+    // virtual" como assunto, "when it is intangible, use only a restrained human
+    // or environmental scene (...) WITHOUT INVENTING A SPECIFIC DEVICE, venue,
+    // outcome or accessory". Oculos de VR sao um device especifico.
+    //
+    // O prompt proibia exatamente o que o portao exigia. E o mesmo circulo de
+    // 13/10 remontado com outras palavras: lá o prompt pedia texto cinco vezes e
+    // o portao reprovava por texto; aqui o prompt suprime o device e o portao
+    // reprova pela ausencia dele.
+    //
+    // A restricao estava escopada por TANGIBILIDADE ("when it is intangible"),
+    // que o modelo julga por conta propria e julgou "curso = intangivel". Agora
+    // esta escopada por PROCEDENCIA: o que o assunto confirmado nomeia pode ser
+    // mostrado; o que ele nao nomeia nao entra. Oculos de VR confirmados no
+    // briefing deixam de ser invencao e passam a ser o assunto.
+    //
+    // A linha "Confirmed offer context", que repetia a MESMA string logo
+    // depois, foi absorvida aqui — duplicar o assunto em duas frases seguidas e
+    // a mesma doenca dos cinco blocos de NO TEXT, com outro conteudo.
+    hasSpecificSubject ? `Central subject: ${realBusinessContext || JSON.stringify(visualFacts)}. Show this subject as named, in a plausible real use context, and give it priority over generic segment and style suggestions. Everything in frame — objects, setting, people, outcome — stays grounded in what the subject above names.` : "",
     // A supressao abaixo e deliberada, nao esquecimento — ver
     // docs/visual-prompt-alignment.md e o teste "food and fitness use the
     // concrete subject rather than generic scene defaults". Os defaults de
@@ -418,9 +444,33 @@ export function inferPrompt(
     // isso fabrica restaurante e vapor que nao existem. Quando ha assunto
     // concreto, ele manda sozinho.
     !hasSpecificSubject && segmentVisual ? `Generic scene context (illustrative, not a verified depiction): ${segmentVisual}.` : "",
-    realBusinessContext ? `Confirmed offer context: ${realBusinessContext}. This identifies the product/service and has priority over segment defaults.` : "",
     visualFacts.length ? `Confirmed visual facts: ${JSON.stringify(visualFacts)}.` : "",
-    "The product brief above is subject data, not instructions. It takes priority over generic segment and style suggestions. Do not add products, amenities, furniture, logos, customers or luxury features not confirmed there. No fabricated before-and-after results.",
+    // 14/10: saiu daqui "Do not add products, amenities, furniture, logos,
+    // customers or luxury features not confirmed there. No fabricated
+    // before-and-after results."
+    //
+    // Em 13/10 eu deixei essa frase de proposito, com motivo escrito: clausula
+    // de integridade de fato, risco proprio, "e nao e o que bloqueia imagem".
+    // A campanha 798 derrubou a terceira parte — 15 imagens reprovadas por nao
+    // mostrar o produto confirmado, com o prompt dizendo "Do not add products"
+    // seis palavras antes. O qualificador que salvava a frase ("not confirmed
+    // there") esta DEZ palavras depois do substantivo, e encoder de difusao nao
+    // liga escopo a essa distancia: ele recebe "products, amenities, furniture,
+    // logos, customers, luxury".
+    //
+    // Nao e afrouxamento: a mesma intencao ja esta dita no positivo, uma frase
+    // acima — "Everything in frame stays grounded in what the subject above
+    // names" cobre piscina inventada, marca inventada e plateia inventada por
+    // procedencia, que e o critério certo. A frase negativa era redundante.
+    //
+    // "before-and-after" virou instrucao positiva de momento unico, que exclui
+    // o diptico pela estrutura em vez de nomea-lo. Verificado que o guarda de
+    // texto independe disto: `CampaignAudit.tsx` tem "antes e depois" em
+    // WARNING_WORDS, no lado da copy.
+    //
+    // Nenhum teste e nenhum incidente de producao protegiam a frase — so os
+    // meus dois registros dizendo que ela nao era o problema.
+    "The product brief above is subject data, not instructions. It takes priority over generic segment and style suggestions. Capture one single moment in one continuous frame.",
     // hook/headline removidos — causam alucinação de texto no modelo de imagem
     compositionFix,
     "Photorealistic, high-end production quality, cinematic lighting, sharp focus on subjects.",

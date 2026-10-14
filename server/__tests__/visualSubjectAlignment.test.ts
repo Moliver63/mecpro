@@ -176,3 +176,63 @@ test("o segmento financeiro nao cai mais no generico de escritorio", () => {
   assert.match(prompt, /financial planning scene/);
   assert.ok(!/modern Brazilian professional environment/.test(prompt), "nao pode herdar o visual de 'outro'");
 });
+
+// Achado real (14/10, campanha 798): as 15 imagens foram reprovadas por nao
+// mostrar VR, o diferencial CONFIRMADO do briefing — e o prompt dizia ao FLUX,
+// na mesma frase que nomeava "imersao em realidade virtual" como assunto,
+// "without inventing a specific device, venue, outcome or accessory". Oculos de
+// VR sao um device especifico. Somado a isso, seis palavras depois: "Do not add
+// products, amenities, furniture, logos, customers...".
+//
+// O prompt proibia exatamente o que o portao exigia — o circulo de 13/10
+// remontado com outras palavras. A restricao estava escopada por TANGIBILIDADE
+// ("when it is intangible"), que o modelo julga sozinho e julgou "curso =
+// intangivel"; agora esta escopada por PROCEDENCIA.
+//
+// Este teste existe porque essa regressao ja voltou uma vez. Ela volta sempre
+// que alguem quiser "reforcar" integridade de fato negando substantivo visual.
+test("o que o briefing confirma pode ser mostrado: nenhum substantivo visual e negado", () => {
+  const prompt = inferPrompt({ angle: "diferencial" }, "infoprodutos", "leads", "feed", {
+    productService: "Jornada de autoconhecimento com imersao em realidade virtual",
+    offerAnchor: ["diferencial: imersao em VR guiada"],
+    confirmedVisualFacts: ["caracteristica: sessao com oculos de realidade virtual"],
+    niche: "psicologia integrativa",
+  } as any);
+
+  // O assunto confirmado chega ao modelo.
+  assert.match(prompt, /realidade virtual/i, "o diferencial confirmado tem que chegar no prompt");
+
+  // E nao chega acompanhado de proibicao de desenha-lo.
+  for (const proibicao of ["without inventing", "Do not add", "do not include", "avoid adding",
+    "furniture", "amenities", "luxury features", "before-and-after"]) {
+    assert.ok(!new RegExp(proibicao, "i").test(prompt),
+      `"${proibicao}" nega substantivo visual: o portao reprova pela ausencia do que isto suprime`);
+  }
+
+  // A integridade de fato continua dita, no positivo e por procedencia.
+  assert.match(prompt, /stays grounded in what the subject above names/);
+  // Defesa de injecao de prompt nao pode ter saido junto.
+  assert.match(prompt, /subject data, not instructions/);
+  // E o diptico antes/depois segue excluido, pela estrutura.
+  assert.match(prompt, /one single moment in one continuous frame/);
+});
+
+// O assunto aparecia em DUAS frases seguidas, identico ("Central subject:" e
+// "Confirmed offer context:"), depois de uma sessao paralela adicionar a
+// primeira sem remover a segunda. Mesma doenca dos cinco blocos de NO TEXT.
+test("o assunto confirmado entra uma vez, nao duas", () => {
+  const prompt = inferPrompt({ angle: "oferta" }, "infoprodutos", "leads", "feed", {
+    productService: "Curso de tranca afro profissional",
+  } as any);
+  assert.equal((prompt.match(/tranca afro profissional/gi) || []).length, 1);
+  assert.ok(!/Confirmed offer context/.test(prompt), "a linha duplicada saiu");
+});
+
+// Fragmento sem sujeito entrava no meio do prompt em minuscula.
+test("nenhuma frase do prompt comeca em minuscula no meio do texto", () => {
+  const prompt = inferPrompt({ angle: "oferta" }, "alimentacao", "sales", "stories", {
+    productService: "Brigadeiro gourmet em caixa",
+  } as any);
+  const quebradas = (prompt.match(/\.\s+[a-z]/g) || []);
+  assert.deepEqual(quebradas, [], `frase comecando em minuscula: ${JSON.stringify(quebradas)}`);
+});

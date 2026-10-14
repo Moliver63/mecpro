@@ -2431,3 +2431,59 @@ Valia desde 05/10 pra `mime_inesperado`, `corpo_vazio` e `download_http_*`; o `b
 2. `gemini-2.5-flash-lite` em 503 "high demand" quatro vezes neste log (15:18, 15:28, 15:29, 15:51), com fallback pro Cloudflare funcionando. O fallback e o desenhado, mas a frequencia sugere que o flash-lite esta saturado no horario.
 
 Validado: 402/402, typecheck 37.
+
+## 14/10 — o prompt proibia o que o portao exigia (de novo)
+
+As 15 imagens da 798 foram reprovadas, e o chat recomendou ao Michel: mandar fotos reais de VR, ou **acrescentar "VR" e "imersao" aos textos do briefing**.
+
+A segunda recomendacao pioraria o problema. `offerAnchor` e `verifiedFacts` alimentam o `matchesBrief` do validador: reforcar VR no briefing faz o portao **exigir VR com mais forca** — enquanto o prompt de geracao, naquele momento, instruia o FLUX a nao desenhar o device. Michel seguiria a instrucao, pagaria mais neuronio e colheria as mesmas 15 reprovas.
+
+### A contradicao, verbatim
+
+Prompt real reproduzido com um briefing tipo Shadia Hasan:
+
+```
+Central subject: ...imersao em realidade virtual, metodo Shadia Hasan...
+Represent the confirmed product or service in a plausible real use context;
+when it is intangible, use only a restrained human or environmental scene
+supported by the offer anchor, WITHOUT INVENTING A SPECIFIC DEVICE, venue,
+outcome or accessory.
+(...)
+Do not add products, amenities, furniture, logos, customers or luxury features
+not confirmed there.
+```
+
+Oculos de VR sao um device especifico. E sao um produto. O prompt nomeia VR como assunto e proibe desenha-lo na MESMA frase, e seis palavras depois proibe "products".
+
+**E o circulo de 13/10 remontado com outras palavras.** Lá: o prompt pedia texto cinco vezes e o portao reprovava por texto. Aqui: o prompt suprime o device e o portao reprova pela ausencia dele.
+
+### A causa: escopo por tangibilidade em vez de procedencia
+
+`"when it is intangible"` entrega ao modelo um julgamento que ele faz sozinho — e "curso de autoconhecimento" ele julga intangivel, mesmo quando o diferencial confirmado e um equipamento fisico. A restricao estava escopada pela natureza do produto; o critério certo e **de onde o item veio**.
+
+Agora: `"Show this subject as named, in a plausible real use context (...) Everything in frame — objects, setting, people, outcome — stays grounded in what the subject above names."` Positivo, e escopado por procedencia: o que o briefing confirma pode ser mostrado, o que ele nao nomeia nao entra. Oculos de VR confirmados deixam de ser invencao e passam a ser o assunto.
+
+### A clausula que eu tinha deixado de proposito, e por que ela saiu agora
+
+`"Do not add products, amenities, furniture, logos, customers or luxury features not confirmed there. No fabricated before-and-after results."`
+
+Em 13/10 eu registrei por escrito o motivo de deixar: clausula de integridade de fato, risco proprio, **"e nao e o que bloqueia imagem"**. A 798 derrubou a terceira parte com evidencia. O qualificador que salvava a frase (`not confirmed there`) esta dez palavras depois do substantivo, e encoder de difusao nao liga escopo a essa distancia: ele recebe "products, amenities, furniture, logos, customers, luxury".
+
+Nao e afrouxamento. A mesma intencao ja esta dita no positivo uma frase acima, por procedencia, que e o critério melhor — a frase negativa era redundante. O antes/depois virou `"Capture one single moment in one continuous frame"`, que exclui o diptico pela estrutura em vez de nomea-lo; e o guarda de texto independe disso (`CampaignAudit.tsx` tem "antes e depois" em `WARNING_WORDS`, no lado da copy).
+
+Verificado antes de remover, pela regra de 13/10: **nenhum teste e nenhum incidente de producao protegiam a frase** — so os meus dois proprios registros dizendo que ela nao era o problema.
+
+### Dois defeitos menores no mesmo prompt
+
+1. **Assunto duplicado.** `Central subject:` e `Confirmed offer context:` carregavam a MESMA string em frases consecutivas, porque a sessao paralela adicionou a primeira sem remover a segunda. Absorvido numa linha.
+2. **Fragmento sem sujeito.** `compositionFix` comecava em `"product or scene composition"`, minuscula, e entrava assim no meio do prompt: `"...before-and-after results. product or scene composition; include people..."`. Ganhou cabeca (`"Frame a product or scene composition;"`), e tem teste garantindo que nenhuma frase do prompt comeca em minuscula no meio do texto.
+
+### O portao NAO foi tocado
+
+Deliberado. Se o portao reprovou porque as imagens de fato nao mostravam o produto, ele estava certo e a correcao certa e a da geracao. Afrouxar o portao porque eu quero que imagens passem e o erro que me custaria a confianca no numero quando ele finalmente subir.
+
+### O que ainda nao sei, e isso importa
+
+Nao vi os `reason` das 15 linhas. O chat disse "reprovadas por nao mostrar VR" **sem citar criterio**, e desde 13/10 o motivo nomeia o criterio (`visual_rejected: fora do briefing | qualidade 0.64 abaixo de 0.72 | impedimentos: ...`). Se as 15 cairam em `fora do briefing`, a historia do VR procede e esta correcao e a certa. Se cairam em `qualidade abaixo de 0.72`, a historia do VR e sintese do chat e o suspeito e o limiar nao calibrado. As duas hipoteses pedem acoes opostas, e o dado que separa esta na coluna `reason`.
+
+Validado: 405/405, typecheck 37.
