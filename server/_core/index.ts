@@ -87,6 +87,20 @@ console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey,  _elevenKey  ? '✅'
 console.log('[BOOT] GENSPARK_API_KEY set:',   !!_gensparkKey, _gensparkKey ? '✅' : '— nao configurada');
 console.log('[BOOT] PID:', process.pid);
 
+// Qual commit esta de fato rodando.
+//
+// Sem esta linha, saber se um log e de antes ou de depois de um deploy exige
+// comparar carimbo de hora com o horario do push. Em 15/10 isso aconteceu duas
+// vezes num dia: uma aprovacao de imagem as 14:29 com deploy as 14:31 — mesma
+// campanha, codigo diferente, e a unica forma de saber qual foi deduzindo pelo
+// relogio. Com seis commits no mesmo dia, dedução nao serve.
+//
+// `RENDER_GIT_COMMIT` e `RENDER_GIT_BRANCH` vem do proprio Render. Fora dele
+// (local, outro host) a linha diz que nao sabe, em vez de inventar.
+const _commit = (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || '').trim();
+const _branch = (process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || '').trim();
+console.log('[BOOT] Commit:', _commit ? `${_commit.slice(0, 7)}${_branch ? ` (${_branch})` : ''}` : 'desconhecido — sem RENDER_GIT_COMMIT no ambiente');
+
 // ── Diagnóstico de integrações de plataformas ──────────────────────────────
 const _metaAppId     = process.env.META_APP_ID     || process.env.FACEBOOK_APP_ID     || '';
 const _metaSecret    = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || '';

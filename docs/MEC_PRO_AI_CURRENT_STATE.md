@@ -2633,3 +2633,40 @@ Nove 503 em 55 minutos, todos caindo pro Cloudflare Workers AI. O fallback funci
 - `Both GOOGLE_API_KEY and GEMINI_API_KEY` segue em todo boot.
 
 Validado: 415/415, typecheck 37.
+
+## 15/10 (boot) — deploy saudavel, e uma linha que encerra a adivinhacao
+
+Boot de 15:44:57. Nada quebrado: migrations aplicadas, `Cloudflare FLUX ✅` na fila, Pixabay como fallback, 181MB RSS, serviço no ar em 6 segundos.
+
+### O `This operation was aborted` e o meu timeout, funcionando
+
+```
+15:46:25  Both GOOGLE_API_KEY... (quatro tentativas de chave)
+15:46:56  Gemini indisponivel, tentando Cloudflare {"erro":"This operation was aborted"}
+```
+
+Trinta e um segundos entre as duas: e o `TIMEOUT_GEMINI_MS = 30_000` de 08/10 cortando um socket pendurado. Diferente do 503 — aqui o Gemini nao recusou, travou. Antes dessa correcao, isso era o chat parado por cinco minutos e o navegador desistindo com "Erro de conexao. Verifique sua internet". Segunda correcao desta serie confirmada pelo proprio log.
+
+O turno seguinte (15:47:51) levou 503 em ~2s. Os dois caminhos de indisponibilidade aparecem no mesmo boot.
+
+### Nenhuma medicao ainda
+
+Nada de imagem neste log: nenhuma tarefa, nenhuma campanha nova. As correcoes de hoje (headline fora do prompt, contexto do RAG, preambulo) estao no ar e **nao foram exercitadas**.
+
+### `[BOOT] Commit:`
+
+Em 15/10 eu precisei deduzir duas vezes qual codigo estava rodando comparando carimbo de hora com horario de push — a aprovacao do job 79 as 14:29 contra o deploy as 14:31, mesma campanha, codigos diferentes. Com seis commits no mesmo dia, dedução nao serve.
+
+`RENDER_GIT_COMMIT` e `RENDER_GIT_BRANCH` vem do proprio Render e nunca eram lidos. Agora o boot imprime o commit curto e a branch; fora do Render diz que nao sabe, em vez de inventar. Verificado nos quatro casos (com branch, sem branch, fora do Render, valor em branco).
+
+Pequeno, e encerra uma classe de duvida que custou tempo em todo log desta semana.
+
+### Pendencias de operacao, inalteradas
+
+- `productDifferentials` da Shadia vazio: e o que destrava a 799.
+- Cloud Vision em 403 por billing.
+- `Both GOOGLE_API_KEY and GEMINI_API_KEY` em todo boot.
+- `gemini-2.5-flash-lite` indisponivel na maior parte das mensagens, por 503 ou por travamento.
+- Dois loggers imprimem "Migrations applied successfully" no mesmo boot. Cosmetico, nao mexido.
+
+Validado: 415/415, typecheck 37.
