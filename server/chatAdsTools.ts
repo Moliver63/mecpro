@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
+import { pendenciasLocaisParaPublicar } from "./publishPreflight";
 import { resolverPaginaMetaComLista } from "./metaPageResolution";
 
 export const adsTurn = new AsyncLocalStorage<{ message: string }>();
@@ -70,6 +71,18 @@ export async function publishChatAds(userId: number, options: any, injected?: an
       ok: false, erro: pagina.erro || "Nao foi possivel identificar a Pagina conectada.",
       ...(pagina.paginas ? { paginas: pagina.paginas } : {}),
     };
+    // Pendencia local ANTES do token de confirmacao.
+    //
+    // Achado real (15/10, campanha 799): o chat mandou o Michel clicar em
+    // Publicar numa campanha que o servidor ia recusar por falta de imagem nos
+    // criativos. A checagem existia, mas rodava DEPOIS da confirmacao — ele
+    // confirmaria pra receber a recusa, gastando a reserva de idempotencia no
+    // caminho.
+    //
+    // Agora a recusa vem antes, com o motivo, e nenhuma reserva e criada.
+    const local = pendenciasLocaisParaPublicar(campaign);
+    if (!local.ok) return { ok: false, erro: local.erro, ...(local.issues ? { issues: local.issues } : {}) };
+
     // Bind confirmation and execution to the same resolved destination.
     const resolvedOptions = {
       campaignId: options.campaignId, pageId: pagina.pageId,
@@ -82,7 +95,7 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     if (adsTurn.getStore()?.message.trim() !== confirmation) return {
       ok: false, confirmationRequired: true, campaignId: campaign.id, name: campaign.name,
       pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets, destination: resolvedOptions.linkUrl,
-      erro: `Mostre os conjuntos e orcamentos ao usuario. Para publicar pausada, ele deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
+      erro: `Mostre os conjuntos e orcamentos ao usuario. Esta campanha AINDA NAO foi publicada; publicar vai cria-la na Meta com status PAUSADO, e ela nao comeca a rodar sozinha. Nao diga que a campanha esta pausada: pausado e o resultado da publicacao, nao o estado de agora. Para confirmar, o usuario deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
     };
     // One reservation per campaign, including partial/uncertain outcomes. Never reopen after a timeout.
     const reserved = await db.reserveMcpIdempotencyKey(userId, "chat_meta_publish", String(campaign.id));
@@ -90,6 +103,19 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     if (reserved.kind !== "proceed") return { ok: false, erro: "Publicacao ja solicitada. Verifique o resultado na Meta antes de tentar novamente." };
     const publish = injected?.publish ?? (await import("./campaignPublish")).publicarCampanhaNaMeta;
     const work = publish(userId, resolvedOptions).then(async (result: any) => {
+      // Falha ANTERIOR a qualquer escrita na Meta pode ser tentada de novo
+      // depois de corrigida. Cachear como resultado final trancaria a campanha
+      // pra sempre neste caminho: `reserveMcpIdempotencyKey` devolve
+      // `cached_result` em toda tentativa seguinte, entao "sem imagem" viraria
+      // a resposta eterna mesmo depois de a imagem existir. `failMcpIdempotencyKey`
+      // reabre o mesmo registro.
+      //
+      // Conservador por omissao: sem a marca `antesDeTocarNaMeta`, assume que a
+      // Meta pode ter sido tocada e mantem a reserva.
+      if (result?.ok === false && result?.antesDeTocarNaMeta === true) {
+        await db.failMcpIdempotencyKey(reserved.recordId, String(result.erro || "pendencia local"));
+        return result;
+      }
       await db.completeMcpIdempotencyKey(reserved.recordId, result);
       return result;
     });

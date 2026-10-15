@@ -2706,3 +2706,39 @@ Nao e excesso de zelo: `publicar_campanha` exige `pageId`, entao um clique diret
 O card virou `div` com link + acao. O hover de elevacao do cartao saiu: elevar o cartao inteiro ao passar sobre o botao dava a impressao de que o cartao e que era clicavel.
 
 Validado: 419/419 testes, typecheck do projeto 0 erros, typecheck do servidor 37, build do cliente OK (o aviso de chunk acima de 600kB e pre-existente).
+
+## 15/10 — "a campanha esta PAUSADA" e a 799 nao podia nem ser publicada
+
+O chat disse ao Michel: *"A campanha Shadia Hasan — Leads (799) esta PAUSADA. Para publicar: 1. Acesse a campanha 2. Clique em Publicar 3. Confirme a URL."*
+
+Duas coisas erradas, e nenhuma por desobediencia do modelo.
+
+### A 799 nao podia ser publicada
+
+`publicarCampanhaNaMeta` recusa com "Nenhuma imagem encontrada nos criativos" quando nenhum criativo tem imagem. Das tarefas de imagem da 799, duas foram reprovadas e uma aprovada. Michel seria mandado clicar em Publicar pra receber a recusa — e a recusa e exatamente o assunto das duas ultimas semanas.
+
+**E a ordem agravava.** `publishChatAds` checava formato, destino, dono e Pagina, emitia o token de confirmacao, e so DEPOIS chamava o publish, que entao checava conjuntos, auditoria de carrossel e imagem. Ou seja: o usuario confirmava uma publicacao impossivel pra descobrir que era impossivel.
+
+Pior: a reserva de idempotencia era criada antes, e `completeMcpIdempotencyKey` gravava a falha como **resultado final**. Como `reserveMcpIdempotencyKey` devolve `cached_result` em toda tentativa seguinte, "sem imagem" viraria a resposta eterna daquele caminho — **mesmo depois de a imagem existir**. A campanha ficaria trancada pra publicacao via chat, para sempre.
+
+### "PAUSADA" saiu da string da propria ferramenta
+
+O status local nasce `draft`, nunca `paused`. A publicacao do chat cria a campanha PAUSADA na Meta de proposito, e a mensagem de confirmacao dizia *"Para publicar pausada, ele deve enviar..."*. O modelo leu isso e reportou a campanha **como** pausada.
+
+Terceira vez na semana que texto de ferramenta vira afirmacao de estado. A string agora diz que a campanha ainda nao foi publicada, que PAUSADO e o resultado da publicacao e nao o estado atual, e proibe explicitamente dizer que ela esta pausada.
+
+### Correcoes
+
+- `pendenciasLocaisParaPublicar` em modulo proprio (`publishPreflight.ts`): so leitura, sem rede e sem banco. Fonte unica usada por `publicarCampanhaNaMeta` e pelo chat.
+- O chat checa pendencia local **antes** do token. Recusa com o motivo, sem emitir token e sem reservar idempotencia.
+- Falha anterior a qualquer escrita na Meta ganhou a marca `antesDeTocarNaMeta` e libera a reserva com `failMcpIdempotencyKey`, que reabre o registro. **Conservador por omissao**: sem a marca, assume que a Meta pode ter sido tocada e mantem a reserva — o invariante do teste "uncertain publication never reopens reservation" continua valendo, e o teste passa sem alteracao.
+
+### Duas licoes de execucao
+
+**O modulo proprio nao foi preciosismo.** A primeira versao deixou a funcao em `campaignPublish.ts`, e o `await import("./campaignPublish")` no caminho de pre-checagem arrastava `./_core/router` — o servidor inteiro — so pra contar se havia imagem. Quatro testes quebraram na hora. Checagem pura nao pertence ao lado do codigo que escreve na rede.
+
+**O fixture estava incompleto, nao o codigo.** Quatro testes de publicacao falharam porque o `campaign` do fixture nunca teve `creatives` — o codigo antigo nao olhava criativos antes do token, e era justamente esse o defeito. Completei o fixture e somei quatro testes novos.
+
+**E eu reabri a armadilha do `strict: false`.** Escrevi `{ ok: true } | { ok: false; erro: string }` e li `local.erro` depois de `if (!local.ok)`: sem `strictNullChecks` o TypeScript nao estreita uniao por discriminante booleano, e foram 12 erros de typecheck. Eu tenho isso registrado desde o comeco e caí de novo. Tipo achatado resolve. Typecheck de volta aos 37, com a mesma distribuicao (29 router, 7 mcpServer, 1 ai.ts).
+
+Validado: 423/423 testes, typecheck do servidor 37 (diff identico ao baseline), typecheck do projeto 0.

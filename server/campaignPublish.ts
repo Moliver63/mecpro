@@ -1,7 +1,8 @@
 import { resolverPaginaMetaComLista, type ResolucaoPaginaMeta } from "./metaPageResolution";
 import { appRouter } from "./_core/router";
 import * as db from "./db";
-import { auditCarouselCreatives, orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
+import { orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
+import { pendenciasLocaisParaPublicar } from "./publishPreflight";
 
 /**
  * campaignPublish.ts — orquestração de "publicar campanha na Meta de verdade",
@@ -51,7 +52,12 @@ type PublicarCampanhaResultado =
   | { ok: true; successCount: number; total: number; results: Array<{ adSetName: string; success: boolean; error?: string }>; metaCampaignId?: string; summaryText: string }
   // `paginas` so aparece quando a conta tem mais de uma Pagina conectada e o
   // assistente precisa perguntar em qual publicar — citando os nomes.
-  | { ok: false; erro: string; issues?: string[]; paginas?: Array<{ pageId: string; name: string }> };
+  // `antesDeTocarNaMeta` marca falha anterior a QUALQUER escrita na Meta
+  // (campanha inexistente, dono errado, Pagina nao resolvida, pendencia local,
+  // auth). Quem reservou idempotencia pode liberar a reserva nesses casos: a
+  // tentativa seguinte, depois de corrigida a causa, nao arrisca publicar duas
+  // vezes. Ausente = assume que a Meta pode ter sido tocada.
+  | { ok: false; erro: string; antesDeTocarNaMeta?: boolean; issues?: string[]; paginas?: Array<{ pageId: string; name: string }> };
 
 async function criarCallerParaUsuario(userId: number) {
   const user = await db.getUserById(userId);
@@ -90,38 +96,31 @@ export async function resolverPaginaMeta(
 
 export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampanhaOptions, deps: PublicarCampanhaDeps = depsPadrao): Promise<PublicarCampanhaResultado> {
   const campaign: any = await deps.getCampaignById(opts.campaignId);
-  if (!campaign) return { ok: false, erro: `Campanha ${opts.campaignId} não encontrada.` };
+  if (!campaign) return { ok: false, erro: `Campanha ${opts.campaignId} não encontrada.`, antesDeTocarNaMeta: true };
 
   const project: any = await deps.getProjectById(campaign.projectId);
-  if (!project || project.userId !== userId) return { ok: false, erro: "Essa campanha não pertence à sua conta." };
+  if (!project || project.userId !== userId) return { ok: false, erro: "Essa campanha não pertence à sua conta.", antesDeTocarNaMeta: true };
 
   // Resolvido depois da checagem de dono: nao consulta a conta Meta de quem
   // nem e dono da campanha.
   const pagina = await resolverPaginaMeta(userId, opts.pageId);
-  if (!pagina.ok) return { ok: false, erro: pagina.erro, ...(pagina.paginas ? { paginas: pagina.paginas } : {}) };
+  if (!pagina.ok) return { ok: false, erro: pagina.erro, antesDeTocarNaMeta: true, ...(pagina.paginas ? { paginas: pagina.paginas } : {}) };
   const pageIdResolvido = pagina.pageId;
 
   const adSets: any[] = (() => { try { return JSON.parse(campaign.adSets || "[]"); } catch { return []; } })();
   const creatives: any[] = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
-  if (adSets.length === 0) return { ok: false, erro: "Essa campanha não tem conjuntos de anúncios gerados." };
+
+  // Fonte unica das pendencias locais, compartilhada com o chat. Marcadas com
+  // `antesDeTocarNaMeta` porque nada foi escrito na Meta ainda: quem reservou
+  // idempotencia pode liberar a reserva e permitir nova tentativa.
+  const local = pendenciasLocaisParaPublicar(campaign);
+  if (!local.ok) return { ok: false, erro: local.erro, antesDeTocarNaMeta: true, ...(local.issues ? { issues: local.issues } : {}) };
 
   let caller;
   try {
     caller = await criarCallerParaUsuario(userId);
   } catch (e: any) {
-    return { ok: false, erro: e?.message || "Falha ao autenticar para publicar." };
-  }
-
-  // Mesma auditoria de carrossel usada pelo publish_campaign do MCP —
-  // bloqueia ANTES de gastar dinheiro se os cards tiverem copy fraca,
-  // curta ou repetida.
-  const copyAudit = auditCarouselCreatives(creatives);
-  if (!copyAudit.ok) {
-    return {
-      ok: false,
-      erro: "Publicação bloqueada pela auditoria de carrossel: há cards com copy fraca, curta ou repetida. Regenere ou atualize os criativos antes de publicar.",
-      issues: copyAudit.issues,
-    };
+    return { ok: false, erro: e?.message || "Falha ao autenticar para publicar.", antesDeTocarNaMeta: true };
   }
 
   const orderedCreatives = orderedCreativesForCarousel(creatives);
@@ -132,8 +131,10 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
       .map((x: any) => (x.hash ? `hash:${x.hash}` : `url:${x.url}`))
   )).slice(0, 10);
 
+  // `pendenciasLocaisParaPublicar` ja garantiu que existe imagem; esta checagem
+  // fica como rede contra divergencia entre as duas formas de contar media.
   if (uniqueImages.length === 0) {
-    return { ok: false, erro: "Nenhuma imagem encontrada nos criativos — não é possível publicar sem imagem." };
+    return { ok: false, erro: "Nenhuma imagem encontrada nos criativos — não é possível publicar sem imagem.", antesDeTocarNaMeta: true };
   }
 
   async function resolveToHash(tagged: string): Promise<string> {
