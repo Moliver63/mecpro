@@ -280,6 +280,72 @@ export function causaPedeNovaImagem(motivo: unknown): boolean {
  * passa a dizer, de forma deterministica, se a fila ainda vai agir sozinha
  * e o que destrava quando nao vai.
  */
+/**
+ * Familia do critério que reprovou, a partir do `reason` do portao.
+ *
+ * `visualDecision` monta `visual_rejected: <criterio> | <criterio> | ...` desde
+ * 13/10. Agrupar por familia (e tirar o numero da qualidade) faz 15 reprovas
+ * virarem duas ou tres causas distintas em vez de quinze strings.
+ */
+export function criteriosDeReprova(motivo: unknown): string[] {
+  const texto = String(motivo || "");
+  if (!texto.startsWith("visual_rejected:")) return [];
+  return Array.from(new Set(texto.slice("visual_rejected:".length).split("|").map(parte => {
+    const p = parte.trim().toLowerCase();
+    if (!p) return "";
+    if (p.startsWith("fora do briefing")) return "fora do briefing";
+    if (p.startsWith("conteudo inseguro")) return "conteudo inseguro";
+    if (p.startsWith("texto ilegivel")) return "texto ilegivel na imagem";
+    // "qualidade 0.64 abaixo de 0.72" → familia, sem o numero.
+    if (p.startsWith("qualidade")) return "qualidade abaixo do minimo";
+    if (p.startsWith("impedimentos")) return "impedimentos apontados pelo validador";
+    return p.slice(0, 60);
+  }).filter(Boolean)));
+}
+
+/**
+ * O que destrava uma REPROVA, por familia de critério.
+ *
+ * Achado real (14/10 e 15/10, campanha 798): o chat mandou a Michel, duas vezes,
+ * palavra por palavra, "as 15 imagens foram rejeitadas por nao mostrar VR
+ * (diferencial central do briefing) (...) Corrija o briefing para incluir 'VR',
+ * 'imersao' e 'metodo Shadia Hasan' NOS TEXTOS".
+ *
+ * Nao era desobediencia do modelo, pela mesma razao de 05/10: `estado` nao
+ * dizia NADA sobre `rejected`. Reprova e o resultado mais informativo que
+ * existe aqui — o portao leu a imagem e nomeou o critério desde 13/10 — e a
+ * ferramenta nao devolvia nem o criterio nem a acao. O modelo preencheu a
+ * lacuna lendo o briefing e inventando a causa.
+ *
+ * Dois erros vinham dessa lacuna, e os dois sao corrigiveis por contrato:
+ *
+ *  1. Afirmar a causa. O chat nao recebia `validation`, onde o validador grava
+ *     `evidence`, `issues` e `blockers` — so o `reason` cortado em 300 chars.
+ *  2. Apontar o lugar errado da correcao. "Incluir nos TEXTOS" e copy do
+ *     anuncio; `matchesBrief` audita o que `offerAnchor` confirma, e
+ *     `offerAnchor` vem de productName, productService,
+ *     uniqueValueProposition e productDifferentials. Texto de anuncio nao
+ *     entra nessa lista.
+ */
+export function acaoParaReprova(criterios: string[]): string {
+  const tem = (c: string) => criterios.includes(c);
+  const partes: string[] = [];
+  if (tem("fora do briefing")) {
+    partes.push("A imagem nao bate com o que o briefing CONFIRMA. O que o validador audita vem de productName, " +
+      "productService, uniqueValueProposition e productDifferentials — reescrever headline ou copy do anuncio NAO " +
+      "muda isso. Se o diferencial que se espera ver na imagem nao estiver num desses quatro campos, ele nao existe " +
+      "nem pro gerador nem pro validador.");
+  }
+  if (tem("qualidade abaixo do minimo")) {
+    partes.push("Reprova por qualidade usa limiar nao calibrado (0.72) sobre heuristica do proprio modelo: com imagem " +
+      "visivelmente boa, o numero e o suspeito, nao a imagem.");
+  }
+  if (tem("texto ilegivel na imagem")) partes.push("Texto ilegivel na imagem pede imagem nova, nao revalidate.");
+  if (tem("conteudo inseguro")) partes.push("Conteudo inseguro pede imagem nova e revisao manual antes de qualquer publicacao.");
+  if (tem("impedimentos apontados pelo validador")) partes.push("Os impedimentos estao em `validation.blockers`, com o que o validador viu em `validation.evidence`: cite de la, nao suponha.");
+  return partes.join(" ");
+}
+
 export function resumoDeTarefasDeImagem(tarefas: TarefaDeImagem[]) {
   const linhas = Array.isArray(tarefas) ? tarefas : [];
   const porStatus: Record<string, number> = {};
@@ -295,6 +361,8 @@ export function resumoDeTarefasDeImagem(tarefas: TarefaDeImagem[]) {
   const paradas = linhas.filter(t =>
     t?.status === "pending_validation" && Number(t?.attempts ?? 0) >= MAX_TENTATIVAS_VALIDACAO);
   const aprovadas = linhas.filter(t => t?.status === "approved");
+  const reprovadas = linhas.filter(t => t?.status === "rejected");
+  const criteriosDeReprovaDistintos = Array.from(new Set(reprovadas.flatMap(t => criteriosDeReprova(t?.reason))));
 
   const filaVaiAgir = aguardandoFila.length > 0;
 
@@ -319,12 +387,22 @@ export function resumoDeTarefasDeImagem(tarefas: TarefaDeImagem[]) {
       `Esperar NAO resolve — as tentativas que sobraram vao falhar igual. ${acao}`;
   } else if (!filaVaiAgir && paradas.length > 0) {
     destravar = `${paradas.length} tarefa(s) esgotaram as ${MAX_TENTATIVAS_VALIDACAO} tentativas de validacao e a fila NAO vai pegar de novo sozinha. Esperar nao resolve. Use action=revalidate: zera o contador e reanalisa a imagem que ja existe, sem gerar outra.`;
+  } else if (!filaVaiAgir && reprovadas.length > 0) {
+    // Reprova nunca foi contemplada aqui, e e o caso mais informativo: o portao
+    // LEU a imagem e nomeou o critério. Sem isto, o chat inventava a causa.
+    destravar = `${reprovadas.length} tarefa(s) reprovada(s) pelo portao visual, por: ${criteriosDeReprovaDistintos.join("; ") || "critério nao informado na linha"}. ` +
+      `Reprova significa que o validador LEU a imagem: revalidate sobre a MESMA imagem e o MESMO briefing devolve o mesmo veredito. ` +
+      `Esperar nao resolve. ${acaoParaReprova(criteriosDeReprovaDistintos)}`;
   }
 
   return {
     total: linhas.length,
     porStatus,
     aprovadas: aprovadas.length,
+    reprovadas: reprovadas.length,
+    // Critérios REAIS, extraidos do `reason` que o portao gravou. Existe pra o
+    // assistente citar daqui em vez de supor a causa a partir do briefing.
+    criteriosDeReprova: criteriosDeReprovaDistintos,
     aguardandoFila: aguardandoFila.length,
     paradasSemTentativa: paradas.length,
     bloqueadasPorConfiguracao: bloqueadas.length,

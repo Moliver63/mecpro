@@ -61,13 +61,23 @@ export async function campaignImageJobs(userId: number, args: any, injected?: an
       await pool.query("INSERT INTO campaign_image_jobs (user_id,campaign_id,creative_index,format,fingerprint,brief) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (fingerprint) DO NOTHING", [userId, campaign.id, index, formato, fingerprint, JSON.stringify(brief)]);
     }
   }
-  const result = await pool.query("SELECT id,creative_index,format,status,score,reason,attempts,candidate_url AS preview_url,provider FROM campaign_image_jobs WHERE user_id=$1 AND campaign_id=$2 ORDER BY id DESC LIMIT 30", [userId, campaign.id]);
+  // `validation` entra aqui em 15/10. O worker ja gravava a decisao completa do
+  // validador nessa coluna — `evidence` (o que ele VIU), `issues` e `blockers` —
+  // e este SELECT nao a trazia. O chat ficava com o `reason`, cortado em 300
+  // caracteres, como unica fonte de texto sobre a reprova.
+  //
+  // Consequencia real (14/10 e 15/10, campanha 798): o chat afirmou duas vezes,
+  // palavra por palavra, que as 15 imagens foram reprovadas "por nao mostrar
+  // VR" — causa que ele nao tinha como ler em lugar nenhum. Nao era invencao
+  // gratuita: era a lacuna mais natural de preencher, porque a evidencia real
+  // estava gravada no banco e fora do alcance dele.
+  const result = await pool.query("SELECT id,creative_index,format,status,score,reason,attempts,candidate_url AS preview_url,provider,validation FROM campaign_image_jobs WHERE user_id=$1 AND campaign_id=$2 ORDER BY id DESC LIMIT 30", [userId, campaign.id]);
   // `estado` e deterministico e diz se a fila ainda vai agir sozinha — a
   // informacao que faltava quando o chat inventou "aguarde 10-15 minutos"
   // para tarefas que haviam esgotado as tentativas. Ver resumoDeTarefasDeImagem.
   const estado = resumoDeTarefasDeImagem(result.rows);
   return { ok: true, campaignId: campaign.id, jobs: result.rows, blocked, published: false, estado,
-    note: "Ultimas 30 tarefas, incluindo historico. Tarefas persistentes, nao publicacao. Consulte action=status. preview_url e somente para revisao, nao autoriza publicar. Pendente significa imagem preservada aguardando validacao. Aprovadas sao salvas nos criativos. Revalidar nao gera nova imagem. action=start cria outra tarefa depois de rejected/failed e preserva o historico; chamadas com tarefa ativa nao duplicam a fila. Relate o estado a partir de `estado`, nunca inferindo do formato das linhas: se estado.filaVaiAgir for false, NAO diga ao usuario para aguardar — diga o que esta em estado.destravar." };
+    note: "Ultimas 30 tarefas, incluindo historico. Tarefas persistentes, nao publicacao. Consulte action=status. preview_url e somente para revisao, nao autoriza publicar. Pendente significa imagem preservada aguardando validacao. Aprovadas sao salvas nos criativos. Revalidar nao gera nova imagem. action=start cria outra tarefa depois de rejected/failed e preserva o historico; chamadas com tarefa ativa nao duplicam a fila. Relate o estado a partir de `estado`, nunca inferindo do formato das linhas: se estado.filaVaiAgir for false, NAO diga ao usuario para aguardar — diga o que esta em estado.destravar. Para reprova, a causa esta em estado.criteriosDeReprova e a evidencia em validation.evidence/issues/blockers de cada linha: cite de la. NAO afirme causa de reprova que nao esteja nesses campos, e nao deduza a causa do briefing. Texto de anuncio (headline, copy) nao e o que o validador audita, entao nunca recomende reescrever copy para passar na validacao." };
 }
 
 // One global advisory lock: serial processing across replicas, automatically released on disconnect.

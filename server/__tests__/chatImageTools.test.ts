@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generateChatImage } from "../chatImageTools";
-import { imageBrief, imageFingerprint, canonicalStockQuery, visualDecision,
+import { imageBrief, imageFingerprint, canonicalStockQuery, visualDecision, criteriosDeReprova,
   resumoDeTarefasDeImagem, MAX_TENTATIVAS_VALIDACAO, rotuloProvedorDeImagem } from "../imageWorkflowPolicy";
 import { processCampaignImageJob } from "../campaignImageJobs";
 
@@ -243,4 +243,60 @@ test("provedores que nao sao huggingface passam sem a ressalva", () => {
   assert.equal(rotuloProvedorDeImagem({ HEYGEN_API_KEY: "k" }).caminhoLegado, "heygen (auto-detectado)");
   // Maiuscula e espaco no env nao mudam a leitura.
   assert.equal(rotuloProvedorDeImagem({ IMAGE_PROVIDER: "  HeyGen " }).caminhoLegado, "heygen");
+});
+
+// Achado real (14/10 e 15/10, campanha 798): o chat mandou a Michel, duas vezes
+// palavra por palavra, "as 15 imagens foram rejeitadas por nao mostrar VR
+// (diferencial central do briefing) (...) Corrija o briefing para incluir 'VR',
+// 'imersao' e 'metodo Shadia Hasan' NOS TEXTOS".
+//
+// Nao era desobediencia, pela mesma razao de 05/10: `estado` nao dizia NADA
+// sobre `rejected`. O portao nomeia o critério desde 13/10 e grava a evidencia
+// em `validation`, e nem o critério nem a evidencia chegavam ao assistente.
+test("reprova devolve critério real e acao, em vez de deixar o chat supor", () => {
+  const estado = resumoDeTarefasDeImagem([
+    { status: "rejected", attempts: 1, reason: "visual_rejected: fora do briefing | qualidade 0.64 abaixo de 0.72" },
+    { status: "rejected", attempts: 1, reason: "visual_rejected: fora do briefing" },
+    { status: "rejected", attempts: 1, reason: "visual_rejected: qualidade 0.70 abaixo de 0.72" },
+  ] as any);
+
+  assert.equal(estado.reprovadas, 3);
+  // Numero da qualidade nao multiplica criterio: 0.64 e 0.70 sao a mesma causa.
+  assert.deepEqual(estado.criteriosDeReprova.sort(), ["fora do briefing", "qualidade abaixo do minimo"]);
+  assert.equal(estado.filaVaiAgir, false);
+  assert.equal(estado.esperarResolve, false, "reprova nunca e caso de aguardar");
+
+  const destravar = String(estado.destravar);
+  assert.match(destravar, /reprovada\(s\) pelo portao visual/);
+  assert.match(destravar, /fora do briefing/);
+  assert.match(destravar, /devolve o mesmo veredito/, "revalidate na mesma imagem nao muda nada");
+  // O ponto que motivou tudo: a correcao NAO e reescrever copy do anuncio.
+  assert.match(destravar, /productDifferentials/);
+  assert.match(destravar, /NAO\s+muda isso/);
+  assert.match(destravar, /limiar nao calibrado/);
+});
+
+test("sem reprova, nada de critério de reprova no estado", () => {
+  const estado = resumoDeTarefasDeImagem([{ status: "approved", attempts: 1, reason: "visual_checks_passed" }] as any);
+  assert.equal(estado.reprovadas, 0);
+  assert.deepEqual(estado.criteriosDeReprova, []);
+  assert.equal(estado.destravar, null);
+});
+
+test("criteriosDeReprova so le motivo de reprova do portao", () => {
+  assert.deepEqual(criteriosDeReprova("visual_validator_unavailable:gemini_http_403"), [],
+    "indisponibilidade nao e reprova: ja tem caminho proprio em causasPermanentes");
+  assert.deepEqual(criteriosDeReprova(null), []);
+  assert.deepEqual(criteriosDeReprova("visual_rejected: texto ilegivel na imagem"), ["texto ilegivel na imagem"]);
+  assert.deepEqual(criteriosDeReprova("visual_rejected: impedimentos: banco de imagens como foto real"),
+    ["impedimentos apontados pelo validador"]);
+});
+
+// A linha que o chat le precisa carregar a evidencia que o worker ja gravava.
+test("o SELECT das tarefas traz validation, nao so o reason cortado", async () => {
+  const f = fixture([{}]);
+  await generateChatImage(1, { campaignId: 797 }, f.db);
+  const select = f.calls.map(c => c.sql).find(s => s.startsWith("SELECT id,creative_index"));
+  assert.ok(select, "o SELECT de listagem precisa existir");
+  assert.match(String(select), /\bvalidation\b/, "sem validation o chat so tem o reason de 300 chars");
 });

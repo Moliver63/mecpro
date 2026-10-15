@@ -2487,3 +2487,39 @@ Deliberado. Se o portao reprovou porque as imagens de fato nao mostravam o produ
 Nao vi os `reason` das 15 linhas. O chat disse "reprovadas por nao mostrar VR" **sem citar criterio**, e desde 13/10 o motivo nomeia o criterio (`visual_rejected: fora do briefing | qualidade 0.64 abaixo de 0.72 | impedimentos: ...`). Se as 15 cairam em `fora do briefing`, a historia do VR procede e esta correcao e a certa. Se cairam em `qualidade abaixo de 0.72`, a historia do VR e sintese do chat e o suspeito e o limiar nao calibrado. As duas hipoteses pedem acoes opostas, e o dado que separa esta na coluna `reason`.
 
 Validado: 405/405, typecheck 37.
+
+## 15/10 — a mesma mensagem, palavra por palavra, 21 horas e tres commits depois
+
+Michel colou de novo, identica, a mensagem de 14/10: "as 15 imagens foram rejeitadas por nao mostrar VR (diferencial central do briefing) (...) Corrija o briefing para incluir 'VR', 'imersao' e 'metodo Shadia Hasan' nos textos".
+
+A repeticao literal e o dado. Resposta de LLM nao sai identica byte a byte duas vezes, a menos que nao esteja saindo de dado novo nenhum.
+
+### Onde o chat foi buscar a causa: em lugar nenhum
+
+Duas leituras, nao suposicao:
+
+1. **O worker JA gravava a evidencia.** `UPDATE campaign_image_jobs SET validation=$2` guarda a decisao completa do validador — `evidence` (o que ele VIU), `issues`, `blockers` — desde que eu adicionei esses campos em 13/10. (Eu tinha concluido pelo grep que ninguem escrevia nessa coluna; estava errado, e ler desfez a conclusao antes de ela virar commit.)
+2. **O SELECT que alimenta o chat nao trazia a coluna.** `SELECT id,creative_index,format,status,score,reason,attempts,candidate_url,provider` — sem `validation`. A evidencia estava gravada no banco e fora do alcance de quem precisava dela.
+3. **`resumoDeTarefasDeImagem` nao tinha NENHUM tratamento de `rejected`.** Contava em `porStatus` e parava ali: sem critério, sem `destravar`, sem acao.
+
+Reprova e o resultado mais informativo do pipeline — o portao leu a imagem e nomeia o critério desde 13/10 — e era o unico status sobre o qual a ferramenta nao dizia nada.
+
+**E exatamente o buraco de 05/10, num status novo.** O comentario que eu mesmo escrevi em cima dessa funcao diz: "nada na resposta da ferramenta dizia que a fila havia desistido (...) o modelo preencheu a lacuna com a suposicao mais natural". Dez dias depois, mesma mecanica: nada dizia por que reprovou, e a suposicao mais natural era ler o briefing e nomear um diferencial.
+
+### Por que a recomendacao estava errada em dois eixos
+
+1. **Afirmar a causa.** O chat nao tinha como ler "VR" em campo nenhum. `offerAnchor` — o que `matchesBrief` audita — e montado de quatro campos: `productName`, `productService`, `uniqueValueProposition`, `productDifferentials`. No log de 14/10 do projeto 49: `productName: ⚠️ nao preenchido`, **`productDifferentials: ❌ VAZIO`**, e os outros dois falam de "autoconhecimento" e "Metodo Shadia Hasan". VR nao aparece em nenhum.
+2. **Apontar o lugar errado.** "Incluir nos TEXTOS" e copy de anuncio. O validador nao audita copy. Se o diferencial nao esta num dos quatro campos acima, ele nao existe nem pro gerador nem pro validador — e reescrever headline nao muda isso.
+
+A parte involuntariamente certa: **`productDifferentials` vazio e um problema real.** Se VR e de fato o diferencial da Shadia, o campo precisa dize-lo. Mas e um campo de perfil, nao o texto do anuncio, e a acao correta nasce de um critério lido, nao de um critério inventado.
+
+### Correcao, de contrato
+
+- `validation` entra no SELECT: o chat passa a receber `evidence`, `issues` e `blockers` do validador.
+- `estado` ganha `reprovadas` e `criteriosDeReprova`, extraidos do `reason` real. `criteriosDeReprova` agrupa por familia e tira o numero da qualidade, entao 15 reprovas viram duas ou tres causas em vez de quinze strings.
+- `destravar` passa a cobrir reprova, dizendo o que cada familia pede — e dizendo explicitamente que o que o validador audita vem daqueles quatro campos, que reescrever copy nao muda isso, e que `revalidate` na MESMA imagem com o MESMO briefing devolve o mesmo veredito.
+- A `note` da ferramenta proibe o que aconteceu: nao afirmar causa de reprova fora de `criteriosDeReprova`/`validation`, nao deduzir a causa do briefing, nunca recomendar reescrever copy pra passar na validacao.
+
+Padrao que se confirma pela terceira vez (05/10, 13/10, hoje): **quando o chat afirma algo errado sobre imagem, o defeito costuma estar no contrato da ferramenta, nao no modelo.** Lacuna no retorno vira invencao na resposta. Prompt pedindo pra nao inventar nao conserta lacuna de dado.
+
+Validado: 409/409, typecheck 37.
