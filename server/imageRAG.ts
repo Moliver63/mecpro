@@ -53,6 +53,21 @@ export interface RAGContext {
   productService?:string;
   niche?:         string;
   campaignId?:    number;
+  // Achado real (log de producao, 15/10, campanha 799): as MESMAS imagens
+  // voltaram `approved` com 0.9 por aqui e `rejected` pela fila, com o mesmo
+  // validador. A diferenca estava no briefing passado a ele.
+  //
+  // Quando o Cloud Vision cai (403, billing desabilitado), este modulo delega
+  // pra `validateCampaignImage` — o que e certo. Mas passava este `ctx` como
+  // briefing, e o `ctx` nao tinha `offerAnchor` nem fatos confirmados. O
+  // criterio `matchesBrief` audita justamente contra esses campos: sem eles,
+  // ele fica sem nada pra contradizer e responde `true`. Aprovacao com 0.9
+  // saindo de uma auditoria praticamente vazia, e salva na biblioteca.
+  //
+  // Os chamadores em imageGeneration.ts ja TINHAM os dois campos em
+  // `productContext` e so nao os repassavam.
+  offerAnchor?:          string[];
+  confirmedVisualFacts?: string[];
 }
 
 // ── Thresholds ────────────────────────────────────────────────────────────────

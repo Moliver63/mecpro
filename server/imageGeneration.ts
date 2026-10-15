@@ -1637,9 +1637,53 @@ export function urlCloudinaryNaProporcao(url: string, format: CreativeImageForma
   return `${prefixo}c_lfill,g_auto,ar_${dim.ratio},w_${dim.width}/${resto}`;
 }
 
+/**
+ * Contexto de imagem a partir do briefing confirmado.
+ *
+ * Extraido pra ser testavel. O contrato que esta funcao carrega — copy de
+ * anuncio NAO entra no prompt de imagem — ja foi revertido uma vez por uma
+ * sessao paralela, e a reversao so apareceu num log de producao com o FLUX
+ * escrevendo "Agila" no lugar de "Agora" dentro da imagem. Contrato que volta
+ * atras duas vezes precisa de teste, nao de comentario.
+ */
+export function contextoDeImagemDoBrief(brief: any): ImageProductContext {
+  return {
+    // Rotulo tematico do card ("oferta", "diferencial"), nao copy: e o que da
+    // variacao por criativo sem pedir texto ao modelo de imagem.
+    productService: String(brief?.card?.angle || ""),
+    offerAnchor: Array.isArray(brief?.offerAnchor) ? brief.offerAnchor : [],
+    confirmedVisualFacts: Array.isArray(brief?.facts) ? brief.facts : [],
+    niche: brief?.segment,
+  };
+}
+
 // Candidate is not an approved creative. The durable worker persists it before validation.
 export async function generateCampaignImageCandidate(brief: any, format: CreativeImageFormat, index: number): Promise<{ url: string; provider: string } | null> {
-  const context = { productService: [brief.card?.headline, brief.card?.description, brief.card?.hook, brief.card?.angle].filter(Boolean).join("; "), offerAnchor: brief.offerAnchor || [], confirmedVisualFacts: brief.facts, niche: brief.segment };
+  // Achado real (log de producao, 15/10, campanha 799, job 77). O validador, com
+  // as proprias palavras:
+  //
+  //   "The text in the image 'Agila' is a misspelling of 'Agora' from the
+  //    brief's headline."
+  //
+  // FLUX estava RENDERIZANDO a headline do anuncio dentro da imagem, e o portao
+  // reprovava por texto ilegivel. "Agora" e palavra de headline; "Agila" e a
+  // tentativa do FLUX de escreve-la.
+  //
+  // A causa: `headline`, `description` e `hook` do card entravam aqui como
+  // `productService` e viravam o "Central subject" do prompt. Copy de anuncio no
+  // prompt de imagem e texto pedido ao modelo — ele desenha o que leu.
+  //
+  // E isso JA ERA DECISAO DOCUMENTADA deste arquivo: na linha 474, no lugar
+  // exato onde esses campos eram injetados, esta escrito "hook/headline
+  // removidos — causam alucinacao de texto no modelo de imagem". O comentario
+  // ficou de pe; a injecao voltou por outro campo, mil linhas depois, onde
+  // ninguem cruzaria com ele.
+  //
+  // `angle` fica: e rotulo tematico do criativo ("oferta", "diferencial"), nao
+  // copy, e e o que da variacao por card — a intencao de quem montou esta linha.
+  // A identidade do produto vem de `offerAnchor`, que sai dos campos confirmados
+  // do perfil, nao do texto do anuncio.
+  const context = contextoDeImagemDoBrief(brief);
   const prompt = inferPrompt(brief.card, brief.segment, brief.objective, format, context);
   const buffer = await generateWithCloudflareBuffer(prompt, format);
   if (buffer && buffer.length >= 10000) {
@@ -1725,6 +1769,10 @@ export async function generateAdImage(
                       productName:    productContext?.productName,
                       productService: productContext?.productService,
                       niche:          productContext?.niche,
+                      // Sem estes dois o `matchesBrief` do validador fica sem
+                      // nada pra auditar e aprova por vacuidade. Ver RAGContext.
+                      offerAnchor:          productContext?.offerAnchor || [],
+                      confirmedVisualFacts: productContext?.confirmedVisualFacts || [],
                     });
                     if (ragResult.validation_status === "approved") {
                       await saveApprovedImage({
@@ -1844,6 +1892,10 @@ export async function generateAdImage(
           productName:    productContext?.productName,
           productService: productContext?.productService,
           niche:          productContext?.niche,
+          // Sem estes dois o `matchesBrief` do validador fica sem nada pra
+          // auditar e aprova por vacuidade. Ver RAGContext.
+          offerAnchor:          productContext?.offerAnchor || [],
+          confirmedVisualFacts: productContext?.confirmedVisualFacts || [],
         });
         if (pixRag.validation_status === "approved") {
           await saveApprovedImage({

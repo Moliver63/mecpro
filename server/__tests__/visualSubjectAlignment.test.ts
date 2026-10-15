@@ -236,3 +236,62 @@ test("nenhuma frase do prompt comeca em minuscula no meio do texto", () => {
   const quebradas = (prompt.match(/\.\s+[a-z]/g) || []);
   assert.deepEqual(quebradas, [], `frase comecando em minuscula: ${JSON.stringify(quebradas)}`);
 });
+
+// Achado real (log de producao, 15/10, campanha 799, job 77). O validador, com
+// as proprias palavras:
+//
+//   "The text in the image 'Agila' is a misspelling of 'Agora' from the
+//    brief's headline."
+//
+// FLUX estava RENDERIZANDO a headline do anuncio dentro da imagem, e o portao
+// reprovava por texto ilegivel. E isso JA era decisao documentada na linha 474
+// deste arquivo — "hook/headline removidos — causam alucinacao de texto no
+// modelo de imagem" — revertida por outro campo mil linhas depois.
+//
+// Terceira vez que uma decisao documentada de imagem volta atras. Este teste
+// cobre o CONTRATO de entrada, nao so o prompt: copy de anuncio nao entra no
+// contexto de imagem.
+test("copy de anuncio nao entra no contexto da imagem, nem no prompt", async () => {
+  const { contextoDeImagemDoBrief } = await import("../imageGeneration");
+  const brief = {
+    segment: "infoprodutos",
+    facts: ["Curso de autoconhecimento"],
+    offerAnchor: ["Produto/serviço: curso de autoconhecimento"],
+    card: {
+      headline: "Comece Agora sua jornada",
+      description: "Vagas abertas hoje",
+      copy: "Texto longo de anuncio que nunca deveria virar pixel",
+      hook: "Voce se conhece?",
+      angle: "diferencial",
+    },
+  };
+
+  const ctx = contextoDeImagemDoBrief(brief);
+  const serializado = JSON.stringify(ctx);
+  for (const copy of ["Comece", "Agora", "Vagas", "se conhece", "virar pixel"]) {
+    assert.ok(!serializado.includes(copy), `copy do anuncio no contexto de imagem: "${copy}"`);
+  }
+  // O angle fica: rotulo tematico, nao copy, e e o que varia por card.
+  assert.equal(ctx.productService, "diferencial");
+  assert.deepEqual(ctx.offerAnchor, ["Produto/serviço: curso de autoconhecimento"]);
+
+  // E o prompt montado desse contexto tambem nao carrega copy.
+  const prompt = inferPrompt({ angle: "diferencial" }, "infoprodutos", "leads", "feed", ctx as any);
+  for (const copy of ["Comece", "Vagas abertas", "se conhece", "virar pixel"]) {
+    assert.ok(!prompt.includes(copy), `copy do anuncio no prompt: "${copy}" — o FLUX desenha o que le`);
+  }
+  assert.match(prompt, /curso de autoconhecimento/i, "o produto confirmado continua chegando");
+});
+
+test("brief sem card ou sem listas nao quebra o contexto", async () => {
+  const { contextoDeImagemDoBrief } = await import("../imageGeneration");
+  const vazio = contextoDeImagemDoBrief({});
+  assert.equal(vazio.productService, "");
+  assert.deepEqual(vazio.offerAnchor, []);
+  assert.deepEqual(vazio.confirmedVisualFacts, []);
+  // offerAnchor/facts com tipo errado nao viram `.map` de undefined.
+  const torto = contextoDeImagemDoBrief({ offerAnchor: "nao e array", facts: null, card: { angle: 7 } });
+  assert.deepEqual(torto.offerAnchor, []);
+  assert.deepEqual(torto.confirmedVisualFacts, []);
+  assert.equal(torto.productService, "7");
+});

@@ -2523,3 +2523,60 @@ A parte involuntariamente certa: **`productDifferentials` vazio e um problema re
 Padrao que se confirma pela terceira vez (05/10, 13/10, hoje): **quando o chat afirma algo errado sobre imagem, o defeito costuma estar no contrato da ferramenta, nao no modelo.** Lacuna no retorno vira invencao na resposta. Prompt pedindo pra nao inventar nao conserta lacuna de dado.
 
 Validado: 409/409, typecheck 37.
+
+## 15/10 — o portao falou, e inverteu o diagnostico do chat
+
+Campanha 799. Pela primeira vez os motivos de reprova chegaram com o critério e a evidencia do validador, e eles dizem o contrario do que o chat vinha dizendo.
+
+```
+job 76: visual_rejected: texto ilegivel na imagem | impedimentos: The text at the
+  bottom of the image is illegible placeholder text, which is unprofessional for an ad.
+
+job 77: visual_rejected: fora do briefing | impedimentos: The image depicts a VR
+  experience, but the brief's product description does not confirm the course is
+  delivered via VR.; The text in the image 'Agila' is a misspelling of 'Agora'
+  from the brief's headline.
+```
+
+### O VR estava invertido
+
+O chat dizia: "rejeitadas por **nao mostrar** VR". O validador diz: a imagem **mostra** VR, e o briefing nao confirma VR. Diametralmente oposto.
+
+Ou seja: a correcao de 14/10 (`953bbab`) funcionou — o prompt deixou de proibir o device e o FLUX passou a desenhar o VR. O que falta e do outro lado: `productDifferentials` vazio, VR nao e fato confirmado, e o portao reprova por mostrar o que o briefing nao sustenta. Que e o portao fazendo exatamente o trabalho dele.
+
+A acao e preencher `productDifferentials` no perfil. O chat apontou o campo certo por acidente e descreveu a causa pelo avesso.
+
+### 'Agila': o FLUX estava escrevendo a headline dentro da imagem
+
+Esta e a descoberta que importa mais. `"Agora"` e palavra de headline; `"Agila"` e a tentativa do FLUX de escreve-la.
+
+Causa: `headline`, `description` e `hook` do card entravam como `productService` e viravam o "Central subject" do prompt. Copy de anuncio num prompt de imagem **e texto pedido ao modelo** — ele desenha o que le. Depois o portao reprova por texto ilegivel. Mais um circulo fechado: pedimos o texto e reprovamos o texto.
+
+**E isso ja era decisao documentada deste arquivo.** Linha 474, no lugar exato onde esses campos eram injetados: `"hook/headline removidos — causam alucinacao de texto no modelo de imagem"`. O comentario ficou de pe; a injecao voltou por outro campo, mil linhas depois, onde ninguem cruzaria com ele.
+
+Terceira decisao de imagem documentada e revertida pela sessao paralela (13/10 NO TEXT, 14/10 niche, hoje headline). As duas primeiras eu peguei por teste quebrado. Esta nao quebrou teste nenhum, porque nao havia teste no CONTRATO DE ENTRADA — so no prompt montado. Por isso `contextoDeImagemDoBrief` foi extraida: agora o contrato tem teste proprio, e `angle` (rotulo tematico, nao copy) fica como a variacao por card.
+
+Regra que fica: **comentario nao protege decisao, teste protege.** Comentario a mil linhas do ponto de injecao nao protege nada.
+
+### Mesmo validador, dois vereditos, por briefing diferente
+
+As mesmas imagens voltaram `approved` com 0.9 pelo `image-rag` inline e `rejected` pela fila.
+
+O Cloud Vision esta fora do ar (403, billing desabilitado no projeto), e quando ele cai o `imageRAG` delega pra `validateCampaignImage` — o que e certo. Mas passava o proprio `RAGContext` como briefing, e esse objeto nao tinha `offerAnchor` nem fatos confirmados. `matchesBrief` audita exatamente contra esses campos: sem eles fica sem nada pra contradizer e responde `true`. Aprovacao com 0.9 saindo de auditoria praticamente vazia, salva na biblioteca.
+
+(Primeira leitura minha foi que esse caminho FABRICAVA o 0.9. Errado: 0.9 e score real do Gemini e `visual_checks_passed` e string do meu proprio `visualDecision`. Ler desfez a conclusao antes de ela virar commit, pela segunda vez nesta sessao.)
+
+Os dois chamadores em `imageGeneration.ts` ja tinham os campos em `productContext` e so nao os repassavam. Agora repassam. **Efeito visivel: menos imagem passa na checagem inline da biblioteca** — porque a checagem era quase vazia e deixou de ser. O branch do Pixabay ja tinha o descarte implementado (`"Pixabay nao aprovado pelo RAG; imagem descartada"`); ele so nunca disparava.
+
+### Confirmado em producao nesta rodada
+
+A truncagem de 14/10 (`dc0a42b`) funcionou: o log mostra `headline` rejeitada duas vezes no laco de reescrita, sem `CREATIVE_REPAIR_REQUIRED`, e a campanha 799 criada (`generateCampaign done`). Era o que bloqueava a medicao ontem.
+
+### Pendencias que este log reitera
+
+- `Cloud Vision 403 billing` — o caminho principal do `imageRAG` esta morto. Decidir: habilitar billing ou remover o Cloud Vision e assumir o Gemini como unico validador.
+- `numeric field overflow` no score automatico (nao critico, ja registrado).
+- `Both GOOGLE_API_KEY and GEMINI_API_KEY` em todo boot.
+- `gemini-2.5-flash-lite` em 503 com fallback pro Cloudflare, varias vezes.
+
+Validado: 411/411, typecheck 37.
