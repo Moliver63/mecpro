@@ -81,3 +81,49 @@ turno passa, e vai continuar passando.
 O custo e substituir o texto do modelo, perdendo nuance que ele poderia ter
 acertado no resto da resposta. Por isso o gatilho estreito: na duvida, nao
 intervir.
+
+## 15/10 — o mecanismo por tras dos guardas
+
+Os quatro guardas deste documento tratam SINTOMA: frase por frase, corrigem
+afirmacao que a resposta nao podia sustentar. Em 15/10 o mecanismo apareceu.
+
+Os tres lacos de provedor em `chat.ts` (Gemini, Groq/Cloudflare, DeepSeek)
+tinham, identico, este padrao:
+
+```ts
+const resposta = await chamarProvedor(historico);
+if (resposta.text) textoFinal = resposta.text;   // <- antes de saber
+const chamada = <tool call da resposta>;
+if (!chamada) break;
+```
+
+Quando o modelo emite **texto E chamada de ferramenta na mesma resposta**, esse
+texto e preambulo: escrito antes de o resultado da ferramenta existir. E ja
+estava gravado em `textoFinal`. Se nenhum passo seguinte produzisse texto —
+porque os 4 passos esgotaram ainda pedindo ferramenta, ou porque a resposta
+terminal veio vazia — o preambulo era devolvido como conclusao.
+
+Isso explica o que nenhuma hipotese anterior explicava: por que a mensagem sobre
+a campanha 798 chegou **identica, byte a byte**, em 14/10 e 15/10. Nao era cache
+nem desobediencia. Era o mesmo preambulo, gerado do mesmo estado pre-dado,
+promovido duas vezes a resposta final. A forma delata: afirmacao fechada mais
+pergunta no fim.
+
+E a causa que ele afirmava era o **inverso** do que o portao gravou — o
+validador disse que a imagem MOSTRA VR e o briefing nao confirma VR. Nao tinha
+como acertar: foi escrito antes de os dados chegarem.
+
+**Regra agora**: so vira resposta o texto de um passo que NAO pediu ferramenta
+(`respostaFinalDoPasso`). Laco que termina sem passo terminal devolve
+`RESPOSTA_SEM_CONCLUSAO`, que nao afirma nada sobre dado nem sobre estado de
+campanha.
+
+Preferir falha visivel a preambulo: um "nao consegui" custa uma mensagem; um
+preambulo afirmando causa errada custou dois dias de trabalho na direcao errada.
+
+Os tres lacos foram corrigidos juntos de proposito. Corrigir so o Gemini seria
+quase inocuo: o log de 15/10 mostra `gemini-2.5-flash-lite` em 503 em quase toda
+mensagem, com o chat rodando a maior parte do tempo pelo fallback.
+
+Teste `chatPreambulo.test.ts` cobre a regra e varre `chat.ts` pelos tres padroes
+antigos, porque o que volta atras aqui nao e logica, e uma linha de atribuicao.

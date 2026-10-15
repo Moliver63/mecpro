@@ -33,6 +33,7 @@ import { chatImageTool, generateChatImage } from "./chatImageTools";
 import { repairMetaPageReply } from "./chatMetaPageReply";
 import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
 import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
+import { respostaFinalDoPasso, RESPOSTA_SEM_CONCLUSAO } from "./chatRespostaFinal";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
@@ -1104,7 +1105,6 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
 
   for (let passo = 0; passo < 4; passo++) {
     const resposta = await chamarGeminiComRetry(historico, undefined, velocidade);
-    if (resposta.text) textoFinal = resposta.text;
 
     const handled = await appendGeminiToolTurn(historico, resposta, async (name, args) => {
       if (name === chatImageTool.name) return generateChatImage(userId, limparArgsFerramenta(args));
@@ -1138,12 +1138,16 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       generationError = resultado.erro;
       return { erro: generationError };
     });
+    // `handled` e true exatamente quando a resposta trouxe chamada de ferramenta,
+    // e nesse caso o texto dela e preambulo. Ver respostaFinalDoPasso.
+    const terminal = respostaFinalDoPasso(resposta.text, handled);
+    if (terminal) textoFinal = terminal;
     if (!handled) break;
     if (campanha) return { resposta: campaignResultText(campanha), campanha, modo: "assistente" };
     if (generationError) return { resposta: generationError, campanha: null, modo: "assistente" };
   }
 
-  return { resposta: textoFinal, campanha, modo: "assistente" };
+  return { resposta: textoFinal || RESPOSTA_SEM_CONCLUSAO, campanha, modo: "assistente" };
 }
 
 /* ---------------- Provedor 2: Groq (fallback) ---------------- */
@@ -1267,9 +1271,11 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
   for (let passo = 0; passo < 4; passo++) {
     const resposta = await chamar(historico, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq);
     const msg = resposta.choices[0].message;
-    if (msg.content) textoFinal = msg.content;
 
     const chamada = msg.tool_calls?.[0];
+    // Texto junto de chamada de ferramenta e preambulo. Ver respostaFinalDoPasso.
+    const terminal = respostaFinalDoPasso(msg.content, !!chamada);
+    if (terminal) textoFinal = terminal;
     if (!chamada) break;
 
     historico.push(msg);
@@ -1344,7 +1350,7 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
     });
   }
 
-  return { resposta: textoFinal, campanha, modo: "assistente" };
+  return { resposta: textoFinal || RESPOSTA_SEM_CONCLUSAO, campanha, modo: "assistente" };
 }
 
 // Achado real (log de producao, 23/09): quando ativado, o OpenRouter
@@ -1486,9 +1492,11 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
   for (let passo = 0; passo < 4; passo++) {
     const resposta = await chamarDeepSeekChat(historico, velocidade === "rapida" ? ferramentasGroqRapida : ferramentasGroq, velocidade === "lenta" ? 2048 : 1400);
     const msg = resposta?.choices?.[0]?.message || {};
-    if (msg.content) textoFinal = String(msg.content);
 
     const chamada = Array.isArray(msg.tool_calls) ? msg.tool_calls[0] : null;
+    // Texto junto de chamada de ferramenta e preambulo. Ver respostaFinalDoPasso.
+    const terminal = respostaFinalDoPasso(msg.content, !!chamada);
+    if (terminal) textoFinal = terminal;
     if (!chamada) break;
 
     historico.push(msg);
@@ -1563,7 +1571,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     });
   }
 
-  return { resposta: textoFinal, campanha, modo: "assistente" };
+  return { resposta: textoFinal || RESPOSTA_SEM_CONCLUSAO, campanha, modo: "assistente" };
 }
 
 /* ---------------- Provedor 4: resposta local (sem IA) ---------------- */

@@ -2580,3 +2580,56 @@ A truncagem de 14/10 (`dc0a42b`) funcionou: o log mostra `headline` rejeitada du
 - `gemini-2.5-flash-lite` em 503 com fallback pro Cloudflare, varias vezes.
 
 Validado: 411/411, typecheck 37.
+
+## 15/10 (tarde) — achei o mecanismo das respostas inventadas
+
+Segunda aprovacao no log (`jobId 79`, campanha 799, `visual_checks_passed`), mas o achado nao e esse. O deploy as 14:31 e posterior a essa aprovacao, entao o job 79 passou no codigo ANTIGO: 2 reprovas e 1 aprovacao em 799 antes da correcao da headline.
+
+### Uma linha nova no log, sete vezes
+
+```
+there are non-text parts functionCall in the response, returning concatenation
+of all text parts. Please refer to the non text parts for a full response.
+```
+
+Hipotese inicial: a chamada de ferramenta estava sendo descartada pelo acessor `.text`. **Errado** — `appendGeminiToolTurn` le `candidates[0].content.parts` e trata os `functionCall` por conta propria. O aviso do SDK e inofensivo. (Terceira vez nesta sessao que ler desfez uma conclusao minha antes de ela virar commit.)
+
+Mas ler o laco pra verificar isso expos o que importa.
+
+### Os tres lacos de provedor gravavam o preambulo como resposta
+
+```ts
+const resposta = await chamarProvedor(historico);
+if (resposta.text) textoFinal = resposta.text;   // <- antes de saber
+const chamada = <tool call da resposta>;
+if (!chamada) break;
+```
+
+Identico em Gemini (1107), Groq/Cloudflare (1270) e DeepSeek (1489).
+
+Quando o modelo emite **texto E chamada de ferramenta na mesma resposta**, esse texto e preambulo: foi escrito antes de o resultado da ferramenta existir. E ja estava em `textoFinal`. Se nenhum passo seguinte produzisse texto — 4 passos esgotados ainda pedindo ferramenta, ou resposta terminal vazia — o preambulo voltava ao usuario como conclusao.
+
+**Isso explica o que nenhuma hipotese minha anterior explicava**: por que a mensagem da 798 chegou identica, byte a byte, em 14/10 e 15/10. Nao era cache, nao era desobediencia do modelo. Mesmo preambulo, mesmo estado pre-dado, promovido duas vezes. A forma delata: afirmacao fechada mais pergunta no fim ("(...) Deseja enviar fotos ou ajustar o briefing?").
+
+E a causa que ele afirmava era o INVERSO do que o portao gravou. Nao tinha como acertar: foi escrito antes de os dados chegarem.
+
+### Isso reenquadra tres correcoes minhas
+
+`corrigirRespostaDeImagens` e `corrigirBloqueioInventadoDeImagem` (10/10) e o `estado`/`destravar` de 05/10 e de ontem tratavam o sintoma frase por frase — e valem, porque um modelo tambem erra com dado na mao. Mas a fonte das tres invencoes mais caras desta saga era estrutural, num `if` de uma linha, replicado em tres lugares.
+
+Correcao: `respostaFinalDoPasso` — so vira resposta o texto de um passo que NAO pediu ferramenta. Laco sem passo terminal devolve `RESPOSTA_SEM_CONCLUSAO`, que nao afirma nada sobre dado nem sobre estado de campanha.
+
+Preferir falha visivel a preambulo: um "nao consegui" custa uma mensagem; um preambulo afirmando causa errada custou dois dias de trabalho na direcao errada.
+
+Os tres juntos de proposito — corrigir so o Gemini seria quase inocuo, porque o log mostra `gemini-2.5-flash-lite` em 503 em QUASE TODA mensagem (nove vezes em 55 minutos) e o chat roda a maior parte do tempo pelo fallback.
+
+### Operacao: o chat esta no fallback, nao no primario
+
+Nove 503 em 55 minutos, todos caindo pro Cloudflare Workers AI. O fallback funciona (foi por isso que ninguem percebeu), mas o provedor primario do chat esta efetivamente indisponivel pra esse modelo no horario comercial. Decisao de produto, nao bug: trocar o modelo de chat, ou assumir o Cloudflare como primario e o Gemini como fallback.
+
+### Tambem neste log
+
+- `ml-cron` rodou limpo: `scored: 174, errors: 0` — sem `numeric field overflow` neste ciclo.
+- `Both GOOGLE_API_KEY and GEMINI_API_KEY` segue em todo boot.
+
+Validado: 415/415, typecheck 37.
