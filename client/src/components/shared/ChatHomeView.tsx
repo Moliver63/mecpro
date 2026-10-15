@@ -80,6 +80,9 @@ export default function ChatHomeView() {
           removeVideoAttachment={chat.removeVideoAttachment}
           send={chat.send}
           scrollRef={chat.scrollRef}
+          longeDoFim={chat.longeDoFim}
+          naoLidas={chat.naoLidas}
+          irParaUltima={chat.irParaUltima}
         />
       </div>
     </div>

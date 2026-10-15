@@ -107,6 +107,9 @@ export default function CampaignChat() {
         removeVideoAttachment={chat.removeVideoAttachment}
         send={chat.send}
         scrollRef={chat.scrollRef}
+        longeDoFim={chat.longeDoFim}
+        naoLidas={chat.naoLidas}
+        irParaUltima={chat.irParaUltima}
         fullScreen
       />
     </div>

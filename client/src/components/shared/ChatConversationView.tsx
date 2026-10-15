@@ -1,4 +1,4 @@
-import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle } from "lucide-react";
+import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle, ArrowDown, Megaphone } from "lucide-react";
 import type { RefObject } from "react";
 import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment, ChatVelocidade } from "@/hooks/useCampaignChat";
 import { ASSISTANT_IMAGE, SUGESTOES } from "@/hooks/useCampaignChat";
@@ -53,6 +53,9 @@ interface ChatConversationViewProps {
   removeVideoAttachment: () => void;
   send: (textoOverride?: string) => void;
   scrollRef: RefObject<HTMLDivElement>;
+  longeDoFim: boolean;
+  naoLidas: number;
+  irParaUltima: () => void;
   fullScreen?: boolean;
 }
 
@@ -74,6 +77,9 @@ export default function ChatConversationView({
   removeVideoAttachment,
   send,
   scrollRef,
+  longeDoFim,
+  naoLidas,
+  irParaUltima,
   fullScreen = false,
 }: ChatConversationViewProps) {
   return (
@@ -101,11 +107,35 @@ export default function ChatConversationView({
                   <FormatarTexto texto={msg.content} />
 
                   {msg.campanha && (
-                    <a href={msg.campanha.url} className="campaign-chat-campaign-card">
-                      <strong>Campanha criada</strong>
-                      <span>{msg.campanha.name}</span>
-                      <em>Ver campanha completa</em>
-                    </a>
+                    <div className="campaign-chat-campaign-card">
+                      <a href={msg.campanha.url} className="campaign-chat-campaign-link">
+                        <strong>Campanha criada</strong>
+                        <span>{msg.campanha.name}</span>
+                        <em>Ver campanha completa</em>
+                      </a>
+                      {/*
+                        Publicar e acao de dinheiro: este botao NAO publica. Ele
+                        pede as paginas conectadas e o que falta confirmar, e a
+                        publicacao so acontece depois de escolher a pagina e
+                        confirmar na conversa. `publicar_campanha` exige pageId,
+                        entao um clique direto seria impossivel de qualquer forma.
+                      */}
+                      <button
+                        type="button"
+                        className="campaign-chat-publicar"
+                        disabled={loading}
+                        onClick={() =>
+                          send(
+                            `Quero publicar a campanha #${msg.campanha!.id} na Meta. ` +
+                            "Liste minhas paginas conectadas e me diga o que falta confirmar antes de publicar. " +
+                            "Nao publique nada ainda."
+                          )
+                        }
+                      >
+                        <Megaphone size={14} strokeWidth={2.4} />
+                        Publicar na Meta
+                      </button>
+                    </div>
                   )}
 
                   {needsLogin && i === messages.length - 1 && !loading && (
@@ -150,6 +180,21 @@ export default function ChatConversationView({
           )}
         </div>
       </main>
+
+      <div className="campaign-chat-descer-camada">
+        {longeDoFim && (
+        <button
+          type="button"
+          className="campaign-chat-descer"
+          onClick={irParaUltima}
+          aria-label={naoLidas > 0 ? `Ir para a ultima mensagem (${naoLidas} nova(s))` : "Ir para a ultima mensagem"}
+          title="Ir para a ultima mensagem"
+        >
+          <ArrowDown size={18} strokeWidth={2.6} />
+          {naoLidas > 0 && <span className="campaign-chat-descer-badge">{naoLidas > 9 ? "9+" : naoLidas}</span>}
+        </button>
+        )}
+      </div>
 
       <footer className="campaign-chat-footer">
         <div className="campaign-chat-velocidade" role="radiogroup" aria-label="Velocidade da resposta">

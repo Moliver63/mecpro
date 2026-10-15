@@ -2670,3 +2670,39 @@ Pequeno, e encerra uma classe de duvida que custou tempo em todo log desta seman
 - Dois loggers imprimem "Migrations applied successfully" no mesmo boot. Cosmetico, nao mexido.
 
 Validado: 415/415, typecheck 37.
+
+## 15/10 — chat: rolagem e publicar na Meta
+
+Pedido do Michel: "a seta para rolar melhor e ver as mensagens" e "a opcao de publicar na meta".
+
+### A rolagem nao era "sem seta", era forcada
+
+```ts
+useEffect(() => {
+  const el = scrollRef.current;
+  if (el) el.scrollTop = el.scrollHeight;
+}, [messages, loading]);
+```
+
+Dois defeitos num efeito de tres linhas:
+
+1. **Arrastava pro fim sempre.** A cada mensagem nova E a cada mudanca de `loading` — inclusive com a pessoa lendo algo mais acima. Reler uma resposta anterior enquanto outra chegava era impossivel: o scroll voltava sozinho. A queixa "nao consigo ver as mensagens" era isso, nao falta de barra.
+2. **Sem volta.** Uma vez la em cima, voltar pro fim exigia arrastar a conversa inteira.
+
+Agora: rolagem automatica so age sobre quem **estava** acompanhando o fim; quem subiu fica onde esta, e aparece a seta pra voltar, com contagem do que chegou enquanto lia. `loading` deixou de contar como mensagem nova — o "digitando" nao soma no contador nem puxa o scroll. Enviar mensagem volta a acompanhar o fim, que e o unico caso em que puxar e o esperado.
+
+`estaAcompanhandoOFim` saiu do hook pra `client/src/lib/chatScroll.ts`: e a unica conta que decide todo o comportamento e vale teste proprio em vez de depender de DOM. Folga de 120px, nao zero — inercia, zoom e altura fracionaria de linha deixam sobra de pixels, e distancia negativa (overscroll elastico do iOS) continua sendo o fim.
+
+A seta ancora numa camada de altura zero logo acima do footer, nao no container da conversa. Numero magico (`bottom: 124px`) quebraria com o seletor de velocidade e de novo no mobile, onde o padding do footer muda.
+
+### Publicar na Meta: botao que NAO publica
+
+O card de campanha no chat so tinha link pra pagina da campanha. A publicacao existia como ferramenta (`publicar_campanha`) alcancavel apenas digitando.
+
+O botao novo abre o fluxo em vez de publicar: pede as paginas conectadas e o que falta confirmar, explicitamente sem publicar nada ainda. A publicacao acontece depois de escolher a pagina e confirmar na conversa.
+
+Nao e excesso de zelo: `publicar_campanha` exige `pageId`, entao um clique direto seria impossivel de qualquer forma — e um botao que publicasse campanha real de cliente em um clique seria a coisa errada a construir mesmo se fosse possivel. `consultar_paginas_meta` e `publicar_campanha` existem nos tres modos de velocidade (o modo rapido so remove `pesquisar_web`), entao o fluxo funciona em qualquer um.
+
+O card virou `div` com link + acao. O hover de elevacao do cartao saiu: elevar o cartao inteiro ao passar sobre o botao dava a impressao de que o cartao e que era clicavel.
+
+Validado: 419/419 testes, typecheck do projeto 0 erros, typecheck do servidor 37, build do cliente OK (o aviso de chunk acima de 600kB e pre-existente).

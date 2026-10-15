@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { estaAcompanhandoOFim } from "@/lib/chatScroll";
 
 /**
  * useCampaignChat — lógica compartilhada do assistente de campanhas via
@@ -143,11 +144,70 @@ export function useCampaignChat() {
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Rola pro fim a cada mensagem nova
+  /**
+   * Rolagem do chat.
+   *
+   * Pedido do Michel (15/10): "a seta para rolar melhor e ver as mensagens".
+   *
+   * O que havia: `el.scrollTop = el.scrollHeight` num efeito disparado por
+   * `[messages, loading]`. Ou seja, o chat era jogado pro fim a cada mensagem
+   * nova E a cada vez que o `loading` mudava — mesmo que a pessoa tivesse
+   * rolado pra cima pra reler algo. Ler uma resposta anterior enquanto outra
+   * chegava era impossivel: o scroll voltava sozinho.
+   *
+   * E, uma vez la em cima, nao havia como voltar pro fim sem arrastar.
+   *
+   * Agora: so rola sozinho se a pessoa ESTAVA acompanhando o fim. Se ela subiu,
+   * fica onde esta e aparece a seta pra voltar, com contagem do que chegou
+   * enquanto ela lia.
+   */
+  const [longeDoFim, setLongeDoFim] = useState(false);
+  const [naoLidas, setNaoLidas] = useState(0);
+  const acompanhandoOFim = useRef(true);
+  const temConversa = messages.length > 0;
+
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, loading]);
+    if (!el) return;
+    const aoRolar = () => {
+      const noFim = estaAcompanhandoOFim(el);
+      acompanhandoOFim.current = noFim;
+      setLongeDoFim(!noFim);
+      if (noFim) setNaoLidas(0);
+    };
+    el.addEventListener("scroll", aoRolar, { passive: true });
+    aoRolar();
+    return () => el.removeEventListener("scroll", aoRolar);
+    // Reatacha quando a view da conversa aparece: antes da primeira mensagem o
+    // elemento nao esta montado e o listener nao teria onde entrar.
+  }, [temConversa]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (acompanhandoOFim.current) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    // Chegou algo enquanto a pessoa lia mais acima: avisa em vez de arrastar.
+    setNaoLidas((n) => n + 1);
+  }, [messages]);
+
+  // `loading` nao conta como mensagem nova: o "digitando" nao pode somar no
+  // contador nem puxar o scroll de quem subiu.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && acompanhandoOFim.current) el.scrollTop = el.scrollHeight;
+  }, [loading]);
+
+  const irParaUltima = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    acompanhandoOFim.current = true;
+    setLongeDoFim(false);
+    setNaoLidas(0);
+  };
 
   const carregarSessoes = async () => {
     try {
@@ -369,6 +429,12 @@ export function useCampaignChat() {
     if ((!texto && attachments.length === 0) || sending.current) return;
     sending.current = true;
 
+    // Quem acabou de enviar quer ver a propria mensagem: voltar a acompanhar o
+    // fim aqui e o unico caso em que puxar o scroll e o comportamento esperado.
+    acompanhandoOFim.current = true;
+    setLongeDoFim(false);
+    setNaoLidas(0);
+
     // needsLogin é resetado a cada nova tentativa (reset otimista) — sem
     // isso, o aviso de login ficaria colado pra sempre depois de setado
     // uma vez, mesmo após o usuário logar de novo e voltar a conversar.
@@ -484,6 +550,9 @@ export function useCampaignChat() {
     send,
     mostrarSugestoes,
     scrollRef,
+    longeDoFim,
+    naoLidas,
+    irParaUltima,
     sessionId,
     sessoes,
     carregandoHistorico,
