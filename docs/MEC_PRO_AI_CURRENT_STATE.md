@@ -2742,3 +2742,39 @@ Terceira vez na semana que texto de ferramenta vira afirmacao de estado. A strin
 **E eu reabri a armadilha do `strict: false`.** Escrevi `{ ok: true } | { ok: false; erro: string }` e li `local.erro` depois de `if (!local.ok)`: sem `strictNullChecks` o TypeScript nao estreita uniao por discriminante booleano, e foram 12 erros de typecheck. Eu tenho isso registrado desde o comeco e caí de novo. Tipo achatado resolve. Typecheck de volta aos 37, com a mesma distribuicao (29 router, 7 mcpServer, 1 ai.ts).
 
 Validado: 423/423 testes, typecheck do servidor 37 (diff identico ao baseline), typecheck do projeto 0.
+
+## 16/10 — o fallback do chat ficou barato (sem decidir o primario)
+
+Log curto, nada novo: duas trocas de chat, as duas caindo pro Cloudflare. Nenhuma tarefa de imagem, nenhuma campanha nova, nenhum boot. As correcoes de 15/10 seguem sem exercicio.
+
+O unico sinal e o mesmo de ontem, agora em dois dias consecutivos: **toda troca observada cai pro fallback**, em dois modos.
+
+```
+18:20:40 → 18:21:10   "This operation was aborted"        (31s)
+18:34:24              503 "This model is experiencing high demand"  (~2s)
+```
+
+O primeiro e o `TIMEOUT_GEMINI_MS = 30_000` de 08/10 cortando socket pendurado: a correcao funcionando, e ainda assim **30 segundos antes da primeira palavra**. Em amostra pequena, 1 em cada 5 trocas cai nesse modo.
+
+### `EsperaDeModelo`: pagar uma vez, nao em cada mensagem
+
+Depois de uma falha de MODELO, o Gemini e pulado por 90s e a mensagem vai direto pro Cloudflare. Passada a janela, tenta de novo sozinho.
+
+**Isto nao decide qual provedor deve ser o primario.** Essa segue sendo decisao do Michel, e segue pendente. O que mudou e o preco do fallback que ja existia: pagar 30s uma vez e o custo de descobrir que o modelo esta fora; pagar 30s em cada mensagem seguinte, sabendo que esta fora, e desperdicio.
+
+O classificador e **estreito de proposito**. Abrem janela: 503/UNAVAILABLE, socket abortado, timeout, `fetch failed`. NAO abrem: 401/403 (chave — a rotacao do pool trata), 400 (requisicao), 429 (taxa). Pular o primario por erro dessas classes esconderia defeito nosso atras de um fallback silencioso.
+
+E o log ganhou motivo proprio: "Gemini pulado — modelo em espera curta apos falha recente", com os segundos restantes. Sem isso o log diria "nenhuma chave disponivel", que seria falso — mesma disciplina de 05/10 e do `visual_validator_unavailable`.
+
+Classe propria em vez de reusar `BillingCooldown`: aquela hasheia a chave porque a chave E uma API key, e a janela dela (15 min) e de problema de saldo. Aqui a chave e o nome do modelo, que nao e segredo, e a janela e curta. Mesma forma, motivos diferentes.
+
+Janela por modelo, nao global: o modelo lento (`GEMINI_CHAT_MODEL_SLOW`) nao herda a espera do rapido.
+
+### Pendencias de operacao, inalteradas
+
+1. `productDifferentials` da Shadia vazio — e o que destrava a 799, e nada antes disso publica.
+2. Cloud Vision em 403 por billing.
+3. Modelo do chat: trocar, ou assumir o Cloudflare como primario.
+4. `Both GOOGLE_API_KEY and GEMINI_API_KEY` em todo boot.
+
+Validado: 428/428, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).

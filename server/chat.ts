@@ -34,6 +34,7 @@ import { repairMetaPageReply } from "./chatMetaPageReply";
 import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
 import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
 import { respostaFinalDoPasso, RESPOSTA_SEM_CONCLUSAO } from "./chatRespostaFinal";
+import { modeloIndisponivel, esperaDeModeloGemini } from "./chatProviderCooldown";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
@@ -1976,13 +1977,28 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     }
   }
 
-  if (proximaChaveGemini()) {
+  // `esperaDeModeloGemini`: depois de uma falha de MODELO (503 ou socket
+  // pendurado), pula o Gemini por 90s e vai direto pro Cloudflare. Nos logs de
+  // 15 e 16/10 toda troca observada caiu pro fallback, e o caso do socket
+  // pendurado custa 30s antes da primeira palavra. Pagar uma vez e descobrir;
+  // pagar em cada mensagem e desperdicio. Ver chatProviderCooldown.
+  if (proximaChaveGemini() && esperaDeModeloGemini.disponivel(MODELO_GEMINI)) {
     try {
       const resultado = await tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade);
       return finish(resultado);
     } catch (erro) {
+      // So falha de modelo abre a janela. Chave rejeitada, requisicao invalida e
+      // limite de taxa seguem tentando: pular por causa deles esconderia
+      // defeito nosso atras de um fallback silencioso.
+      if (modeloIndisponivel(erro)) esperaDeModeloGemini.bloquear(MODELO_GEMINI);
       log.warn("chat", "Gemini indisponível, tentando Cloudflare Workers AI", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
     }
+  } else if (proximaChaveGemini()) {
+    // Tem chave, mas o modelo esta na janela de espera. Motivo nomeado: sem
+    // isto o log diria "nenhuma chave disponivel", que seria falso.
+    log.warn("chat", "Gemini pulado — modelo em espera curta apos falha recente", {
+      userId, modelo: MODELO_GEMINI, faltamSegundos: esperaDeModeloGemini.segundosRestantes(MODELO_GEMINI),
+    });
   } else {
     // Achado real (Michel relatou o fallback local reaparecendo, 16/09):
     // quando esta condição é falsa, NADA era logado — só o catch acima
