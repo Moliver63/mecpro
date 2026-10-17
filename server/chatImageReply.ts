@@ -79,11 +79,25 @@ const IMAGEM_BLOQUEIA_GERACAO =
   // posso gerar", e a segunda quebrou o proprio "nao". O limite em [^.] e
   // proposital: sem ele, "As imagens estao pendentes. Posso gerar a campanha
   // agora." seria lido como bloqueio.
-  /n[ãa]o\s+(?:[^\s.]+\s+){0,3}?(?:gerar|gerad[ao]s?|criar|criad[ao]s?)[^.]{0,80}?(?:imagens?|valida[çc][ãa]o)|(?:imagens?|valida[çc][ãa]o)[^.]{0,80}?(?:impede|impedem|bloqueia|bloqueiam)[^.]{0,40}?(?:gera[çc][ãa]o|gerar|criar)/i;
+  //
+  // Terceira alternativa, 17/10: ASSUNTO ANTES DA NEGACAO. A mensagem que o
+  // Michel recebeu foi "As imagens da campanha (...) nao podem ser geradas sem
+  // fotos reais de VR" — a palavra "imagens" vem ANTES do "nao", e as duas
+  // alternativas acima exigem o contrario. O guarda existia e deixou passar.
+  //
+  // O lookahead sobre as palavras intermediarias e obrigatorio: sem ele, a
+  // forma "imagem (...) nao impede gerar" tambem casaria, e essa e a forma da
+  // PROPRIA correcao devolvida abaixo — o guarda reescreveria a propria saida.
+  /n[ãa]o\s+(?:[^\s.]+\s+){0,3}?(?:gerar|gerad[ao]s?|criar|criad[ao]s?)[^.]{0,80}?(?:imagens?|valida[çc][ãa]o)|(?:imagens?|valida[çc][ãa]o)[^.]{0,80}?(?:impede|impedem|bloqueia|bloqueiam)[^.]{0,40}?(?:gera[çc][ãa]o|gerar|criar)|(?:imagens?|valida[çc][ãa]o)[^.]{0,80}?n[ãa]o\s+(?:(?!impede|impedem|bloqueia|bloqueiam|atrapalha)[^\s.]+\s+){0,3}?(?:gerar|gerad[ao]s?|criar|criad[ao]s?)/i;
 
 export function corrigirBloqueioInventadoDeImagem(texto: string): string {
   if (!texto || !IMAGEM_BLOQUEIA_GERACAO.test(texto)) return texto;
-  return "Imagem pendente de validacao NAO impede gerar a campanha — os dois caminhos sao separados, e a geracao nao consulta a fila de imagens. " +
+  // Sem a palavra "impede": o texto anterior ("validacao NAO impede gerar")
+  // casava a segunda alternativa da propria regex, entao o guarda reescrevia a
+  // propria saida se rodasse duas vezes. Era fragilidade latente — a cadeia em
+  // `finish` passa uma vez — mas corrigida na fonte em vez de afrouxar o
+  // detector. Verificado por teste de idempotencia.
+  return "A fila de imagens e a geracao de campanha sao caminhos separados: gerar campanha nao consulta a fila de imagens. " +
     "Posso gerar a campanha agora. As imagens entram nos criativos quando a validacao aprovar, e nada e publicado na Meta sem a sua autorizacao em separado.";
 }
 

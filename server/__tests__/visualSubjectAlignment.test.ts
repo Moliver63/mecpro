@@ -262,7 +262,7 @@ test("copy de anuncio nao entra no contexto da imagem, nem no prompt", async () 
       description: "Vagas abertas hoje",
       copy: "Texto longo de anuncio que nunca deveria virar pixel",
       hook: "Voce se conhece?",
-      angle: "diferencial",
+      angle: "oferta",
     },
   };
 
@@ -271,12 +271,16 @@ test("copy de anuncio nao entra no contexto da imagem, nem no prompt", async () 
   for (const copy of ["Comece", "Agora", "Vagas", "se conhece", "virar pixel"]) {
     assert.ok(!serializado.includes(copy), `copy do anuncio no contexto de imagem: "${copy}"`);
   }
-  // O angle fica: rotulo tematico, nao copy, e e o que varia por card.
-  assert.equal(ctx.productService, "diferencial");
+  // O angle fica SO quando e rotulo de vocabulario fechado. Em 15/10 eu
+  // mantive `angle` argumentando "rotulo tematico, nao copy", e o argumento
+  // estava errado: `angle` e enum em um gerador de copy e TEXTO LIVRE em dois
+  // outros. Foi por ele que "VR" chegou na imagem sem estar no briefing
+  // (campanha 799, job 77). Ver anguloTematico.
+  assert.equal(ctx.productService, "oferta");
   assert.deepEqual(ctx.offerAnchor, ["Produto/serviço: curso de autoconhecimento"]);
 
   // E o prompt montado desse contexto tambem nao carrega copy.
-  const prompt = inferPrompt({ angle: "diferencial" }, "infoprodutos", "leads", "feed", ctx as any);
+  const prompt = inferPrompt({ angle: "oferta" }, "infoprodutos", "leads", "feed", ctx as any);
   for (const copy of ["Comece", "Vagas abertas", "se conhece", "virar pixel"]) {
     assert.ok(!prompt.includes(copy), `copy do anuncio no prompt: "${copy}" — o FLUX desenha o que le`);
   }
@@ -293,5 +297,44 @@ test("brief sem card ou sem listas nao quebra o contexto", async () => {
   const torto = contextoDeImagemDoBrief({ offerAnchor: "nao e array", facts: null, card: { angle: 7 } });
   assert.deepEqual(torto.offerAnchor, []);
   assert.deepEqual(torto.confirmedVisualFacts, []);
-  assert.equal(torto.productService, "7");
+  assert.equal(torto.productService, "", "numero nao e rotulo tematico");
+});
+
+// Achado real (15/10, campanha 799, job 77). O validador reprovou com:
+//
+//   "The image depicts a VR experience, but the brief's product description
+//    does not confirm the course is delivered via VR."
+//
+// A pergunta certa nao era por que o portao reprovou — ele estava certo. Era
+// por que o GERADOR desenhou VR, se VR nao esta no briefing. Resposta: o
+// `angle` do card, que e texto livre em dois dos tres geradores de copy, levou
+// a invencao do modelo de copy pro assunto da imagem.
+//
+// Cadeia: copy inventada → assunto da imagem → imagem mostra a invencao →
+// portao reprova. A invencao entrou a montante do portao.
+test("angulo inventado pelo modelo de copy nao vira assunto da imagem", async () => {
+  const { contextoDeImagemDoBrief, anguloTematico } = await import("../imageGeneration");
+
+  // Vocabulario fechado passa, com acento normalizado.
+  for (const [entrada, saida] of [["oferta", "oferta"], ["Educação", "educacao"], ["prova_social", "prova_social"],
+    ["transformacao", "transformacao"], ["URGÊNCIA", "urgencia"]] as Array<[string, string]>) {
+    assert.equal(anguloTematico(entrada), saida, entrada);
+  }
+  // Texto livre do modelo de copy nao passa.
+  for (const inventado of ["imersão em VR guiada pelo Método Shadia Hasan", "diferencial", "escassez de vagas", "VR"]) {
+    assert.equal(anguloTematico(inventado), "", inventado);
+  }
+
+  const brief = {
+    segment: "infoprodutos",
+    facts: ["Curso e jornada de autoconhecimento pelo Metodo Shadia Hasan"],
+    offerAnchor: ["Produto/serviço: Curso e jornada de autoconhecimento pelo Metodo Shadia Hasan"],
+    card: { angle: "imersão em VR guiada pelo Método Shadia Hasan" },
+  };
+  const ctx = contextoDeImagemDoBrief(brief);
+  assert.equal(ctx.productService, "", "o angulo inventado nao entra no contexto");
+
+  const prompt = inferPrompt(brief.card, brief.segment, "leads", "feed", ctx as any);
+  assert.doesNotMatch(prompt, /\bvr\b|realidade virtual|imers/i, "VR nao pode chegar no prompt sem estar no briefing");
+  assert.match(prompt, /autoconhecimento/i, "o assunto confirmado continua chegando");
 });

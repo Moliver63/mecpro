@@ -2818,3 +2818,54 @@ Sobram as tres de `NUMERIC(8,4)` (max 9999.9999): `label_ctr`, `label_cpc`, `lab
 Nao vou chutar a coluna nem mexer na formula com hipotese. O que decide e uma linha de log com o valor, e isso entra quando houver campanha com entrega real pra produzir o caso.
 
 Validado: 428/428, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).
+
+## 17/10 — eu estava fazendo a pergunta errada, por tres dias
+
+Michel: *"o mecproai precisa ser capaz de gerar as imagens hoje"*, e o chat dizendo *"nao podem ser geradas sem fotos reais de VR (...) Atualmente, 0 fotos reais foram enviadas"*.
+
+Ele esta certo e eu estava errado. Gerar imagem sem foto do cliente e a razao de existir do produto, e eu passei tres dias empurrando ele pro `productDifferentials` — pedindo que ele mudasse o briefing pra acomodar um defeito nosso.
+
+### A pergunta certa
+
+O validador, verbatim (job 77):
+
+> "The image depicts a VR experience, but the brief's product description does not confirm the course is delivered via VR."
+
+Eu lia isso como "falta VR no briefing". A leitura certa e a inversa: **por que o gerador desenhou VR, se VR nao esta no briefing?** O portao estava certo — a imagem mostrava algo que o briefing nao sustenta. A invencao entrou a montante dele.
+
+### Por onde o VR entrou: pelo `angle`
+
+Em 15/10 eu tirei `headline`, `description` e `hook` do assunto da imagem porque sao copy, e **mantive `angle`** com este argumento escrito: *"e rotulo tematico do criativo ('oferta', 'diferencial'), nao copy"*.
+
+O argumento estava errado, e dava pra ter verificado em uma linha. `angle` e enum em UM gerador de copy (`ai.ts:6033`: exclusividade|urgencia|prova_social|educacao|oferta|dor|transformacao) e **texto livre** em dois outros (`ai.ts:7354` e `ai.ts:9180`, onde o prompt pede literalmente "angulo persuasivo usado"). Como texto livre, ele carrega o que o modelo de copy inventou — "imersao em VR" — direto pro "Central subject" do prompt de imagem.
+
+Cadeia completa: **copy inventada → assunto da imagem → imagem mostra a invencao → portao de imagem reprova.**
+
+Quarto circulo identico na mesma semana, e todos com a mesma forma: uma metade do pipeline produz X e a outra reprova X.
+
+1. 13/10 — o prompt pedia texto cinco vezes, o portao reprovava por texto.
+2. 14/10 — o prompt proibia o device, o portao exigia o produto.
+3. 15/10 — a headline entrava no prompt, o portao reprovava o texto desenhado.
+4. 17/10 — o `angle` levava invencao da copy, o portao reprovava a invencao.
+
+**Correcao**: `anguloTematico` aceita so o vocabulario fechado declarado no proprio gerador de copy. Texto livre e descartado. Verificado no prompt real de um briefing tipo Shadia: VR sai, "Curso e jornada de autoconhecimento pelo Metodo Shadia Hasan" fica.
+
+Nenhuma acao do Michel: nao precisa de foto, nao precisa mexer no briefing.
+
+### O guarda deterministico existia e deixou passar
+
+A mensagem era "**As imagens** da campanha (...) **nao podem ser geradas** sem fotos reais". As duas alternativas de `IMAGEM_BLOQUEIA_GERACAO` exigiam a palavra "imagens" DEPOIS da negacao; aqui ela vem antes. Terceira alternativa adicionada, com assunto antes da negacao.
+
+E a afirmacao e falsa duas vezes: a fila gera sem foto do cliente, e `usesRealPhoto` e o ramo para quando ha foto.
+
+### Uma fragilidade pre-existente que apareceu no caminho
+
+O lookahead da alternativa nova nao e preciosismo. Sem ele, a forma "imagem (...) nao impede gerar" tambem casaria — e essa era a forma da **propria correcao devolvida pelo guarda**. Medindo, descobri que a regex ANTIGA ja casava a propria saida pela segunda alternativa ("validacao NAO impede gerar"): o guarda nao era idempotente antes desta sessao. Latente, porque a cadeia em `finish` passa uma vez.
+
+Corrigido na fonte — reescrevendo a correcao sem a palavra "impede" — em vez de afrouxar o detector. Com teste de idempotencia.
+
+### Dois testes meus de ontem travavam a suposicao errada
+
+`visualSubjectAlignment` afirmava `ctx.productService === "diferencial"`: encodava a crenca de que `angle` e rotulo livre. O log de hoje desmentiu a crenca, nao o teste. Atualizados, mais um teste novo com o caso do VR verbatim.
+
+Validado: 432/432, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).

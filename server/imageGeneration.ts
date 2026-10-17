@@ -1646,11 +1646,58 @@ export function urlCloudinaryNaProporcao(url: string, format: CreativeImageForma
  * escrevendo "Agila" no lugar de "Agora" dentro da imagem. Contrato que volta
  * atras duas vezes precisa de teste, nao de comentario.
  */
+/**
+ * Angulos tematicos declarados no proprio gerador de copy (ai.ts:6033).
+ * Vocabulario fechado: rotulo de tema, nao texto livre.
+ */
+const ANGULOS_TEMATICOS = new Set([
+  "exclusividade", "urgencia", "prova_social", "educacao", "oferta", "dor", "transformacao",
+]);
+
+/**
+ * O `angle` do card, SO se for um dos rotulos tematicos conhecidos.
+ *
+ * Achado real (15/10, campanha 799, job 77). O validador reprovou com:
+ *
+ *   "The image depicts a VR experience, but the brief's product description
+ *    does not confirm the course is delivered via VR."
+ *
+ * A pergunta certa nao era "por que o portao reprovou" — ele estava certo, a
+ * imagem mostrava algo que o briefing nao sustenta. Era **por que o gerador
+ * desenhou VR**, se VR nao esta no briefing.
+ *
+ * Resposta: por aqui. Em 15/10 eu tirei `headline`, `description` e `hook` do
+ * assunto da imagem porque sao copy, e **mantive `angle`** argumentando que era
+ * "rotulo tematico, nao copy". Esse argumento estava errado: `angle` e enum em
+ * UM dos geradores de copy (ai.ts:6033) e **texto livre** nos outros dois
+ * (ai.ts:7354 e ai.ts:9180, onde o prompt pede "angulo persuasivo usado"). Como
+ * texto livre, ele carrega o que o modelo de copy inventou — "imersao em VR" —
+ * direto pro "Central subject" do prompt de imagem. O FLUX desenhou, e o portao
+ * reprovou por mostrar o que o briefing nao confirma.
+ *
+ * Cadeia completa: copy inventada → assunto da imagem → imagem mostra a
+ * invencao → portao de imagem reprova. O portao fazia o trabalho dele; a
+ * invencao entrou a montante.
+ *
+ * Com vocabulario fechado, o caminho onde `angle` e enum segue dando variacao
+ * por card, e os caminhos de texto livre nao conseguem mais injetar assunto. A
+ * identidade do produto continua vindo de `offerAnchor`, que sai dos campos
+ * confirmados do perfil.
+ */
+export function anguloTematico(bruto: unknown): string {
+  const normalizado = String(bruto ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, "_");
+  return ANGULOS_TEMATICOS.has(normalizado) ? normalizado : "";
+}
+
 export function contextoDeImagemDoBrief(brief: any): ImageProductContext {
   return {
-    // Rotulo tematico do card ("oferta", "diferencial"), nao copy: e o que da
-    // variacao por criativo sem pedir texto ao modelo de imagem.
-    productService: String(brief?.card?.angle || ""),
+    // So rotulo tematico de vocabulario fechado. Texto livre do modelo de copy
+    // nao entra: foi por aqui que "VR" chegou na imagem sem estar no briefing.
+    productService: anguloTematico(brief?.card?.angle),
     offerAnchor: Array.isArray(brief?.offerAnchor) ? brief.offerAnchor : [],
     confirmedVisualFacts: Array.isArray(brief?.facts) ? brief.facts : [],
     niche: brief?.segment,

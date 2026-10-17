@@ -142,7 +142,16 @@ const RESPOSTA_REAL_10_10 =
 test("bloqueio inventado de geracao por imagem e desmentido", () => {
   const saida = corrigirBloqueioInventadoDeImagem(RESPOSTA_REAL_10_10);
   assert.notEqual(saida, RESPOSTA_REAL_10_10);
-  assert.match(saida, /NAO impede gerar a campanha/);
+  // A assercao era pelo literal "NAO impede gerar a campanha". Esse texto saiu
+  // em 17/10 porque era ele que casava a segunda alternativa da propria regex
+  // do guarda — a correcao reescrevia a propria saida se rodasse duas vezes.
+  //
+  // O que este teste protege, desde o log de 10/10, e a DECISAO: a afirmacao
+  // falsa tem que ser desmentida, e a resposta tem que dizer que os dois
+  // caminhos sao independentes. A redacao exata e implementacao. Entao a
+  // assercao passou a ser pelo sentido.
+  assert.match(saida, /caminhos separados/);
+  assert.match(saida, /nao consulta a fila de imagens/);
   assert.match(saida, /Posso gerar a campanha agora/);
   assert.match(saida, /nada e publicado na Meta sem a sua autorizacao/i);
 
@@ -228,4 +237,40 @@ test("classificacao de causa separa configuracao de indisponibilidade", () => {
   assert.equal(causaEhPermanente("motivo_novo_que_ninguem_viu"), false);
   assert.equal(causaEhPermanente(undefined), false);
   assert.equal(causaEhPermanente("visual_checks_passed"), false);
+});
+
+// Achado real (17/10): o Michel recebeu "As imagens da campanha Shadia Hasan —
+// Leads (799) nao podem ser geradas sem fotos reais de VR (...). Atualmente, 0
+// fotos reais foram enviadas." O guarda existia e deixou passar: as duas
+// alternativas da regex exigiam a palavra "imagens" DEPOIS da negacao, e aqui
+// ela vem antes.
+//
+// E a afirmacao e falsa duas vezes: a fila gera SEM foto do cliente (e a razao
+// de existir do produto), e `usesRealPhoto` e o ramo para quando ha foto.
+test("pega o bloqueio inventado quando o assunto vem antes da negacao", () => {
+  const msg = "As imagens da campanha Shadia Hasan — Leads (799) não podem ser geradas sem fotos reais de VR (cliente usando óculos, ambiente de método) ou confirmação do briefing com \"VR\", \"imersão\" e \"método Shadia Hasan\". Atualmente, 0 fotos reais foram enviadas.";
+  const corrigido = corrigirBloqueioInventadoDeImagem(msg);
+  assert.notEqual(corrigido, msg, "a afirmacao de que nao da pra gerar precisa ser corrigida");
+  assert.match(corrigido, /caminhos separados/);
+  assert.doesNotMatch(corrigido, /fotos reais/, "a exigencia inventada nao pode sobreviver");
+});
+
+// A correcao devolvida casava a SEGUNDA alternativa da propria regex
+// ("validacao NAO impede gerar"), entao o guarda reescrevia a propria saida se
+// rodasse duas vezes. Fragilidade latente (a cadeia em `finish` passa uma vez),
+// corrigida na fonte — reescrevendo a correcao, nao afrouxando o detector.
+test("o guarda nao reescreve a propria saida", () => {
+  const uma = corrigirBloqueioInventadoDeImagem("nao posso gerar as imagens agora");
+  assert.equal(corrigirBloqueioInventadoDeImagem(uma), uma, "idempotente");
+});
+
+test("texto inocente sobre imagem pendente segue intacto", () => {
+  for (const ok of [
+    "As imagens estão pendentes. Posso gerar a campanha agora.",
+    "As imagens foram aprovadas e a campanha está pronta.",
+    "A campanha não pode ser publicada sem imagem aprovada.",
+    "Posso gerar a campanha agora e as imagens entram depois.",
+  ]) {
+    assert.equal(corrigirBloqueioInventadoDeImagem(ok), ok, ok.slice(0, 44));
+  }
 });
