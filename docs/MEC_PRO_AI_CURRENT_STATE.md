@@ -2778,3 +2778,43 @@ Janela por modelo, nao global: o modelo lento (`GEMINI_CHAT_MODEL_SLOW`) nao her
 4. `Both GOOGLE_API_KEY and GEMINI_API_KEY` em todo boot.
 
 Validado: 428/428, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).
+
+## 17/10 — o cron de metricas, e o que EU quase afirmei errado
+
+Log curto. O chat segue caindo pro Cloudflare ("This operation was aborted", 30s — terceiro dia seguido), e nenhuma tarefa de imagem, nenhuma campanha nova. As correcoes de 15/10 seguem sem exercicio.
+
+A linha nova:
+
+```
+17:13:31 [ml-cron] Falha ao gravar campaign_metrics diário (não crítico)
+         {"campaignId":586,"error":"The operation was aborted due to timeout"}
+17:14:10 [ml-cron] campaign_metrics: 0 linhas gravadas neste ciclo
+```
+
+### A consulta mais pesada tinha o orcamento mais apertado
+
+Sao duas chamadas a Meta por campanha, e as duas rodavam com `AbortSignal.timeout(8000)`. A segunda usa `time_increment=1` sobre um intervalo de datas — devolve uma linha por dia e e estritamente mais custosa que a agregada. Mesmo teto na consulta mais caras.
+
+Isto e cron de fundo: ninguem espera a resposta. Um timeout aqui perde o dia de metricas daquela campanha, que e a entrada do laco de aprendizado. A assimetria manda esperar mais, e o custo de estender e o cron demorar. A diaria foi pra 25s (`ML_CRON_INSIGHTS_TIMEOUT_MS`, ajustavel sem deploy), a agregada fica nos 8s.
+
+### "0 linhas" era a mesma mensagem para situacoes opostas
+
+Nao havia campanha publicada pra consultar (benigno) ou havia e todas falharam (dado perdido): mesma linha de log. Mesma doenca do `visual_validator_unavailable` de 03/10, que levou sete dias pra ser diagnosticada por isso.
+
+Agora o log diz qual dos tres casos foi, com `campanhasConsideradas` e `campanhasComFalha`. Isso tambem resolve de passagem a duvida de dias atras: "0 linhas" aparece em todo ciclo desde 15/10, e ate agora nao havia como saber se era vazio benigno.
+
+### O que eu quase afirmei, e nao era verdade
+
+Eu ia reportar `patternsExtracted: 0` com `scored: 174` como laco de aprendizado inerte, encadeado ao `numeric field overflow`. Fui ler antes.
+
+O `INSERT` de `winner_patterns` **ja loga** a propria falha ("pattern INSERT falhou"), e essa linha nao aparece em nenhum log do Michel. Ou seja: o insert nao esta falhando. O portao e `qualifiedByScore || qualifiedByCopy`, e 0 padroes com 174 campanhas pontuadas e consistente com nenhuma campanha cruzar o limiar de vencedora — plausivel, porque nenhuma delas teve entrega real. **Comportamento correto, nao defeito.** Quarta vez nesta semana que ler desfez uma conclusao minha antes de ela virar commit.
+
+### `numeric field overflow`: estreitado, nao resolvido
+
+Vem de `server/ai.ts:8634` (`Score automático falhou`), no insert de `ml_dataset`, nao do cron de metricas. Descartei por leitura das colunas: `feature_statistical_conf NUMERIC(5,3)` recebe 0..1; `feature_volume_weight NUMERIC(5,2)` e limitado a 10 por `Math.min`; `label_score` e 0..100; `label_success_probability` e 30..90. Todos cabem.
+
+Sobram as tres de `NUMERIC(8,4)` (max 9999.9999): `label_ctr`, `label_cpc`, `label_roas`. **`label_roas` e a candidata**, porque e divisao por `spend` e a formula de fallback aceita qualquer `spend > 0` — com gasto de centavos, ROAS explode.
+
+Nao vou chutar a coluna nem mexer na formula com hipotese. O que decide e uma linha de log com o valor, e isso entra quando houver campanha com entrega real pra produzir o caso.
+
+Validado: 428/428, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).

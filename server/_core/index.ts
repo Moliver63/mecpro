@@ -2195,7 +2195,16 @@ async function main() {
       `).catch(() => ({ rows: [] }));
 
       let totalSynced = 0;
+      // 25s para a consulta diaria (`time_increment=1`), contra os 8s da
+      // agregada. Ajustavel por env sem deploy; valor invalido cai no padrao.
+      const TIMEOUT_INSIGHTS_DIARIO_MS = (() => {
+        const n = Number(process.env.ML_CRON_INSIGHTS_TIMEOUT_MS);
+        return Number.isFinite(n) && n >= 5_000 && n <= 120_000 ? Math.floor(n) : 25_000;
+      })();
       let totalMetricsDaysSynced = 0;
+      // Contadores para o log dizer POR QUE deu 0 linhas. Ver o log no fim.
+      let metricasCampanhasConsideradas = 0;
+      let metricasCampanhasComFalha = 0;
       for (const u of users.rows) {
         try {
           const metaInt = await db.getApiIntegration(u.userId, "meta").catch(() => null);
@@ -2259,6 +2268,7 @@ async function main() {
             // ── campaign_metrics diário (aditivo, isolado, não afeta o ml_dataset acima) ──
             // Mesmo padrão já validado em syncMetaCampaignMetrics (router.ts):
             // chamada SEPARADA com time_increment=1, try/catch próprio.
+            metricasCampanhasConsideradas++;
             try {
               const AVG_CONVERSION_VALUE = 50;
               const dailyRes = await fetch(
@@ -2267,7 +2277,20 @@ async function main() {
                 `&time_range={"since":"${since}","until":"${today}"}` +
                 `&time_increment=1` +
                 `&access_token=${token}`,
-                { signal: AbortSignal.timeout(8000) }
+                // Achado real (log 17/10): `campanha 586, "The operation was
+                // aborted due to timeout"`, e o ciclo fechou com 0 linhas.
+                //
+                // Esta consulta usa `time_increment=1` sobre um intervalo de
+                // datas — ela devolve uma linha por dia e e estritamente mais
+                // pesada que a agregada acima, que roda com os mesmos 8s. O
+                // orcamento mais apertado estava na consulta mais custosa.
+                //
+                // Isto e cron de fundo: ninguem espera a resposta. Um timeout
+                // aqui perde o dia de metricas daquela campanha, que e a
+                // entrada do laco de aprendizado. A assimetria manda esperar
+                // mais: o custo de estender e o cron demorar, sem usuario
+                // envolvido.
+                { signal: AbortSignal.timeout(TIMEOUT_INSIGHTS_DIARIO_MS) }
               );
               const dailyData: any = await dailyRes.json();
               if (!dailyData.error && Array.isArray(dailyData.data)) {
@@ -2305,6 +2328,7 @@ async function main() {
                 totalMetricsDaysSynced += dailyData.data.length;
               }
             } catch (metricsErr: any) {
+              metricasCampanhasComFalha++;
               log.warn("ml-cron", "Falha ao gravar campaign_metrics diário (não crítico)", {
                 campaignId: camp.id, error: metricsErr?.message?.slice(0, 80),
               });
@@ -2316,9 +2340,22 @@ async function main() {
         log.info("ml-cron", `✅ Auto-sync ML: ${totalSynced} campanhas atualizadas com métricas reais`);
       }
       if (totalMetricsDaysSynced > 0) {
-        log.info("ml-cron", `✅ campaign_metrics: ${totalMetricsDaysSynced} linhas diárias gravadas`);
+        log.info("ml-cron", `✅ campaign_metrics: ${totalMetricsDaysSynced} linhas diárias gravadas`, {
+          campanhasConsideradas: metricasCampanhasConsideradas, campanhasComFalha: metricasCampanhasComFalha,
+        });
       } else {
-        log.info("ml-cron", "campaign_metrics: 0 linhas gravadas neste ciclo");
+        // "0 linhas" era a MESMA mensagem para duas situacoes opostas: nao
+        // havia campanha publicada pra buscar (benigno), ou havia e todas
+        // falharam (dado perdido). Mesma doenca do `visual_validator_unavailable`
+        // de 03/10, que levou sete dias pra ser diagnosticada por isso.
+        const porque = metricasCampanhasConsideradas === 0
+          ? "nenhuma campanha com metaCampaignId para consultar"
+          : metricasCampanhasComFalha >= metricasCampanhasConsideradas
+            ? `todas as ${metricasCampanhasConsideradas} campanha(s) consultadas falharam`
+            : `${metricasCampanhasConsideradas} campanha(s) consultadas nao retornaram dia nenhum`;
+        log.info("ml-cron", `campaign_metrics: 0 linhas gravadas neste ciclo — ${porque}`, {
+          campanhasConsideradas: metricasCampanhasConsideradas, campanhasComFalha: metricasCampanhasComFalha,
+        });
       }
     } catch (err: any) {
       log.warn("ml-cron", "Erro no auto-sync ML", { error: err.message?.slice(0, 80) });
