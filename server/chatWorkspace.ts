@@ -119,6 +119,7 @@ export async function queryChatWorkspace(userId: number, args: Record<string, un
       creativesSummary = creatives.map((c: any, index: number) => ({
         index, headline: c.headline || null, isFeaturedPhoto: !!c.isFeaturedPhoto,
         hasImage: !!(c.feedImageUrl || c.imageUrl || c.storyImageUrl),
+        needsReview: c.needsReview === true, score: typeof c.finalScore === "number" ? c.finalScore : null,
       }));
     } catch { /* creatives malformado — segue sem detalhe, nao quebra a consulta */ }
     let adSetsSummary: Array<Record<string, unknown>> = [];
@@ -138,7 +139,7 @@ export async function queryChatWorkspace(userId: number, args: Record<string, un
     instruction: "Apresente nomes e status das campanhas. Modelo cria outro rascunho apos confirmar dados; editar usa ferramentas de edicao, nao gerar_campanha. Nao repita uma escolha ja explicita." };
 }
 
-async function campanhaDoUsuario(userId: number, campaignId: number, store: ChatWorkspaceStore): Promise<{ campaign: any } | { erro: string }> {
+export async function campanhaDoUsuario(userId: number, campaignId: number, store: ChatWorkspaceStore): Promise<{ campaign: any } | { erro: string }> {
   if (!Number.isSafeInteger(campaignId) || campaignId <= 0) return { erro: "campaignId invalido." };
   const campaign = await store.getCampaignById(campaignId);
   if (!campaign) return { erro: "Campanha nao encontrada." };

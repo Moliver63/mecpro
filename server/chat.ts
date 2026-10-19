@@ -28,6 +28,7 @@ import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDecl
 import Groq from "groq-sdk";
 import { createChatRetryBudget } from "./chatRetryBudget";
 import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
+import { editarCriativo, aprovarRevisaoCriativo } from "./chatCreativeEdit";
 import { listarPaginasMetaConectadas } from "./campaignPublish";
 import { chatImageTool, generateChatImage } from "./chatImageTools";
 import { repairMetaPageReply } from "./chatMetaPageReply";
@@ -64,7 +65,7 @@ const deepSeekBillingCooldown = new BillingCooldown();
 // efeito colateral novo, só reaproveita a mesma constante já centralizada
 // lá — sem precisar de require nem de import() dinâmico (que é async,
 // e poolChavesGemini() precisa continuar síncrona pra quem já a chama).
-import { ALL_GEMINI_KEYS, geminiCredentialHealth, pesquisarWebParaChat } from "./ai";
+import { ALL_GEMINI_KEYS, geminiCredentialHealth, pesquisarWebParaChat, auditCreativeSegmentAlignment } from "./ai";
 import { redactProviderSecrets } from "./providerSafety";
 
 export const chatRouter = Router();
@@ -287,6 +288,7 @@ Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao so
 
 Depois de selecionar um projeto existente, consulte suas campanhas. Apresente nova do zero, usar existente como modelo ou editar existente; nao repita escolhas ja feitas.
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
+Se publicar_campanha recusar por criativo em revisao: score baixo sozinho o usuario pode aprovar com aprovar_revisao_criativo (mostre os textos e o score antes); placeholder, texto fora do segmento, alegacao nao confirmada ou depoimento inventado exigem reescrever com editar_criativo. Nunca invente prova social pra subir score.
 
 PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
 - A ferramenta primeiro devolve uma pre-confirmacao. Mostre o resumo e a frase CONFIRMAR PUBLICACAO exatamente como retornada. Apenas essa frase na mensagem atual autoriza executar; "sim" sozinho nao executa. Repita os mesmos parametros depois da confirmacao. Nunca altere destino ou orcamento silenciosamente.
@@ -440,6 +442,44 @@ const DESCRICAO_FOTO_DESTAQUE =
   "NAO adivinhe — consulte a campanha (consultar_projetos_campanhas com campaignId) pra ver a lista de criativos e " +
   "pergunte ao usuario qual delas ele quer, descrevendo as opcoes disponiveis.";
 
+// Achado real (19/10, campanha 799): "ele precisa ser possivel publicar via
+// chat". Todos os criativos estavam needsReview (score 57-68) e nada no produto
+// limpava a flag. Regra do Michel ("So score baixo"): aprovar no chat libera so
+// score < 75; placeholder, segmento, fato nao confirmado e depoimento inventado
+// exigem corrigir o texto. Implementacao em server/chatCreativeEdit.ts.
+const PARAMETROS_EDITAR_CRIATIVO = {
+  type: "object",
+  properties: {
+    campaignId: { type: "integer", description: "ID da campanha ja criada." },
+    creativeIndex: { type: "integer", description: "Indice do criativo, de creatives[].index numa consulta anterior." },
+    headline: { type: "string", description: "Novo titulo, ate 40 caracteres. So envie se for mudar." },
+    description: { type: "string", description: "Nova descricao curta, ate 30 caracteres. So envie se for mudar." },
+    copy: { type: "string", description: "Novo texto principal, ate 500 caracteres. So envie se for mudar." },
+    cta: { type: "string", description: "Nova chamada para acao, ate 80 caracteres. So envie se for mudar." },
+    hook: { type: "string", description: "Novo gancho, ate 200 caracteres. So envie se for mudar." },
+  },
+  required: ["campaignId", "creativeIndex"],
+};
+const DESCRICAO_EDITAR_CRIATIVO =
+  "Reescreve o texto de um criativo de uma campanha JA CRIADA e recalcula score e pendencias de revisao. " +
+  "Use quando o usuario pedir pra mudar titulo/texto/CTA, ou quando a publicacao estiver bloqueada por placeholder, " +
+  "texto fora do segmento, alegacao nao confirmada ou depoimento inventado. Nunca invente depoimento, numero de " +
+  "clientes, prazo ou resultado que o usuario nao informou. Mostre o texto novo ao usuario antes de chamar, " +
+  "salvo se ele mesmo ditou o texto. Respeite os limites de caracteres: texto maior e recusado, nao cortado.";
+const PARAMETROS_APROVAR_REVISAO = {
+  type: "object",
+  properties: {
+    campaignId: { type: "integer", description: "ID da campanha ja criada." },
+    creativeIndexes: { type: "array", items: { type: "integer" }, description: "Indices dos criativos a aprovar. Omita para todos os que aguardam revisao." },
+  },
+  required: ["campaignId"],
+};
+const DESCRICAO_APROVAR_REVISAO =
+  "Aprova criativos marcados para revisao SO quando o unico motivo e score abaixo de 75. Primeira chamada nao aprova: " +
+  "devolve os textos e a frase APROVAR CRIATIVOS; mostre os textos e o score e espere o usuario enviar a frase exata, " +
+  "depois repita a chamada com os mesmos argumentos. Placeholder, texto fora do segmento, fato nao confirmado ou " +
+  "depoimento inventado NAO sao aprovaveis: corrija com editar_criativo.";
+
 // Achado real (missao "agente conversacional autonomo", Fase 2 — 13/09):
 // publicar era a unica acao do cenario de teste da missao que ainda nao
 // existia como ferramenta de chat. Reaproveita a MESMA orquestracao ja
@@ -507,6 +547,8 @@ const declaracoesGemini: FunctionDeclaration[] = [
   { name: "gerar_campanha", description: DESCRICAO_GERAR_CAMPANHA, parametersJsonSchema: PARAMETROS_GERAR_CAMPANHA },
   { name: "atualizar_orcamento_campanha", description: DESCRICAO_ATUALIZAR_ORCAMENTO, parametersJsonSchema: PARAMETROS_ATUALIZAR_ORCAMENTO },
   { name: "definir_foto_destaque", description: DESCRICAO_FOTO_DESTAQUE, parametersJsonSchema: PARAMETROS_FOTO_DESTAQUE },
+  { name: "editar_criativo", description: DESCRICAO_EDITAR_CRIATIVO, parametersJsonSchema: PARAMETROS_EDITAR_CRIATIVO },
+  { name: "aprovar_revisao_criativo", description: DESCRICAO_APROVAR_REVISAO, parametersJsonSchema: PARAMETROS_APROVAR_REVISAO },
   { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parametersJsonSchema: PARAMETROS_PAGINAS_META },
   { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
   { name: "pesquisar_web", description: DESCRICAO_PESQUISAR_WEB, parametersJsonSchema: PARAMETROS_PESQUISAR_WEB },
@@ -528,6 +570,14 @@ const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "definir_foto_destaque", description: DESCRICAO_FOTO_DESTAQUE, parameters: PARAMETROS_FOTO_DESTAQUE as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "editar_criativo", description: DESCRICAO_EDITAR_CRIATIVO, parameters: PARAMETROS_EDITAR_CRIATIVO as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "aprovar_revisao_criativo", description: DESCRICAO_APROVAR_REVISAO, parameters: PARAMETROS_APROVAR_REVISAO as Record<string, unknown> },
   },
   {
     type: "function" as const,
@@ -1006,6 +1056,15 @@ export function janelaDaTentativa(limitePorTentativa: number, msRestantesDoPrazo
   return Math.max(1_000, Math.min(limitePorTentativa, msRestantesDoPrazo));
 }
 
+// Um despacho so pras tres familias de provedor (Gemini, OpenAI-compativel,
+// DeepSeek): ferramenta nova registrada em um e esquecida em outro ja deixou o
+// chat mudo num fallback antes.
+async function executarEdicaoDeCriativo(name: string | undefined, args: unknown, userId: number): Promise<Record<string, unknown> | null> {
+  if (name === "editar_criativo") return editarCriativo(userId, limparArgsFerramenta(args as any), db, auditCreativeSegmentAlignment);
+  if (name === "aprovar_revisao_criativo") return aprovarRevisaoCriativo(userId, limparArgsFerramenta(args as any), db, adsTurn.getStore()?.message || "");
+  return null;
+}
+
 async function chamarGeminiComRetry(historico: Content[], tentativas?: number, velocidade: "rapida" | "media" | "lenta" = "media"): Promise<GenerateContentResponse> {
   // Achado real (mesmo log, 10/09): tentativas=4 (padrão anterior) só
   // cobria metade do pool de 8 chaves — se a chave suspensa/com problema
@@ -1113,6 +1172,8 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       if (name === CONSULTAR_WORKSPACE.name || name === ATUALIZAR_BRIEFING.name) return consultarOuAtualizar(name, limparArgsFerramenta(args), userId);
       if (name === "atualizar_orcamento_campanha") return atualizarOrcamentoCampanha(userId, limparArgsFerramenta(args), db);
       if (name === "definir_foto_destaque") return definirFotoDestaque(userId, limparArgsFerramenta(args), db);
+      const edicao = await executarEdicaoDeCriativo(name, args, userId);
+      if (edicao) return edicao;
       if (name === "consultar_paginas_meta") return listarPaginasMetaConectadas(userId);
       if (name === "publicar_campanha") {
         const a = limparArgsFerramenta(args);
@@ -1302,6 +1363,13 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
       const result = await definirFotoDestaque(userId, limparArgsFerramenta(args), db);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
+    }
+    {
+      const result = await executarEdicaoDeCriativo(chamada.function.name, args, userId);
+      if (result) {
+        historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+        continue;
+      }
     }
     if (adsReadTools.some(tool => tool.name === chamada.function.name)) {
       const result = await queryChatAds(chamada.function.name, limparArgsFerramenta(args), userId);
@@ -1523,6 +1591,13 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
       const result = await definirFotoDestaque(userId, limparArgsFerramenta(args), db);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
+    }
+    {
+      const result = await executarEdicaoDeCriativo(chamada.function?.name, args, userId);
+      if (result) {
+        historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+        continue;
+      }
     }
     if (adsReadTools.some(tool => tool.name === chamada.function?.name)) {
       const result = await queryChatAds(chamada.function.name, limparArgsFerramenta(args), userId);

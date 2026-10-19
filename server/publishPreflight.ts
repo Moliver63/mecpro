@@ -1,4 +1,6 @@
 import { auditCarouselCreatives, orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
+import { verificarIntegridadeParaPublicar } from "./campaignPublishIntegrity";
+import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha } from "./creativeReview";
 
 /**
  * Pre-checagem LOCAL de publicacao: so leitura, sem rede e sem banco.
@@ -64,6 +66,34 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
     .map((c: any) => getCreativeMedia(c))
     .some((x: any) => x?.hash || x?.url);
   if (!temImagem) return { ok: false, erro: "Nenhuma imagem encontrada nos criativos — não é possível publicar sem imagem." };
+
+  // Criativo marcado pra revisao: `assertCampaignPublishIntegrity` recusa na
+  // publicacao real. Achado real (19/10, campanha 799): os 4 criativos estavam
+  // marcados e o chat emitia o token de confirmacao mesmo assim. Aqui a recusa
+  // vem antes e diz, por criativo, se basta aprovar (score baixo) ou se o
+  // texto precisa ser corrigido.
+  const facts = factsDaCampanha(campaign);
+  const emRevisao = creatives
+    .map((c: any, index: number) => ({ c, index }))
+    .filter(({ c }) => c?.needsReview === true);
+  if (emRevisao.length) {
+    const diagnosticos = emRevisao.map(({ c, index }) => ({ index, d: diagnosticarRevisao(c, facts) }));
+    const liberaveis = diagnosticos.filter((x) => x.d.liberavelPorAprovacao).map((x) => x.index);
+    const bloqueados = diagnosticos.filter((x) => !x.d.liberavelPorAprovacao).map((x) => x.index);
+    const caminhos = [
+      liberaveis.length ? `criativo(s) ${liberaveis.join(", ")} tem so score baixo e podem ser aprovados pelo usuario com aprovar_revisao_criativo` : "",
+      bloqueados.length ? `criativo(s) ${bloqueados.join(", ")} precisam ter o texto corrigido com editar_criativo antes` : "",
+    ].filter(Boolean).join("; ");
+    return {
+      ok: false,
+      erro: `Publicação bloqueada: ${emRevisao.length} criativo(s) ainda precisam de revisão. ${caminhos}.`,
+      issues: diagnosticos.map((x) => descreverDiagnostico(x.index, x.d)),
+    };
+  }
+
+  // Mesma regra da publicacao real (snapshot de fatos, objetivo, Fact Guard).
+  const integridade = verificarIntegridadeParaPublicar(campaign);
+  if (!integridade.ok) return { ok: false, erro: integridade.erro };
 
   return { ok: true };
 }

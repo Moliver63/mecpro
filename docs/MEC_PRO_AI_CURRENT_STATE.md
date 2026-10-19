@@ -2992,3 +2992,30 @@ Validado: 9 testes novos com a sequencia real do fal-ai simulada (Hub → fila �
 ### Nao verificado
 
 **Nenhuma imagem real foi gerada pelo HF.** `router.huggingface.co` esta fora da allowlist deste sandbox, e a conta nao tem credito. A verificacao e: credito na conta, deploy, e o log mostrar `Hugging Face gerou imagem` — ou `Hugging Face sem imagem: <motivo>` dizendo qual camada falta. O HF so roda quando o Cloudflare nao entrega (cota de ~173/dia ou falha). Pra provar sem esperar isso: `npx tsx server/scripts/testar-huggingface-imagem.ts` no Shell do Render — gera uma imagem, mede, descarta, nao grava nada, e diz o motivo nomeado se falhar.
+
+## 19/10 — Publicar pelo chat: criativo em revisao deixa de ser beco sem saida
+
+Michel: "ele precisa ser possivel publicar via chat". A 799 (Shadia Hasan) tinha os 4 criativos `needsReview: true` (scores 68, 57, 62, 65). Achado: **nenhum caminho do produto limpava a flag** — nem o chat, nem a tela (`updateCreative` recalcula score mas nao toca em `needsReview`). `assertCampaignPublishIntegrity` recusa criativo marcado, entao a campanha era impublicavel por qualquer porta. E a pre-checagem do chat (`pendenciasLocaisParaPublicar`) nao olhava `needsReview` nem o snapshot de fatos: emitia o token de confirmacao e a recusa vinha so depois.
+
+Regra decidida pelo Michel ("So score baixo"): aprovar no chat libera o criativo **so quando o unico motivo e score < 75**. Placeholder, texto fora do segmento, alegacao nao confirmada, depoimento inventado e campo acima do limite continuam bloqueando ate o texto ser corrigido.
+
+### Implementacao
+
+- `server/creativeReview.ts` (leve, sem `ai.ts`): `diagnosticarRevisao` le o motivo do criativo salvo — `score_baixo`, `placeholder`, `segmento` (de `segmentAlignmentIssues`), `texto_longo`, `fatos` (Fact Guard contra `aiResponse.campaignFacts`), `depoimento_inventado`, `nao_identificado`. `liberavelPorAprovacao` so com `["score_baixo"]`.
+- **`depoimento_inventado` e novo e veio da 799**: o criativo 1 tem "Ana Paula, 28, ..." com citacao, e a propria geracao anotou em `complianceNotes` "Depoimento ficticio baseado em persona". O Fact Guard nao pega esse formato (procura "depoimentos reais", "milhares de clientes", estrelas). Sem esse motivo, aprovar por score liberaria depoimento falso pra Meta. Detecta pelo texto (nome + idade) e pela anotacao da geracao enquanto o texto nao foi reescrito.
+- **`nao_identificado` nao e liberavel**: truncamento no limite e campo nao reescrito marcam `needsReview` na geracao sem deixar rastro. Nao da pra provar que e "so score"; editar recalcula do zero.
+- `pendenciasLocaisParaPublicar` agora recusa criativo em revisao **antes do token**, por criativo, dizendo quem pode ser aprovado e quem precisa de texto novo; e roda a mesma integridade de `publishToMeta` (`verificarIntegridadeParaPublicar`, versao sem throw do assert). Vale pro chat e pro MCP `publish_campaign` (mesma funcao).
+- Ferramentas de chat novas (`server/chatCreativeEdit.ts`), registradas nas tres familias de provedor por um despacho unico (`executarEdicaoDeCriativo`):
+  - `editar_criativo`: headline ≤40, description ≤30, copy ≤500, cta ≤80, hook ≤200. **Recusa sem gravar** texto acima do limite (nao corta), placeholder ou alegacao que o Fact Guard reprova. Sincroniza `bodyText`/`shortDescription` e o `copyBank` V2, recalcula score/segmento/`needsReview`, e **apaga aprovacao anterior** (valia pro texto antigo).
+  - `aprovar_revisao_criativo`: duas etapas como publicar. A primeira devolve os textos, o score e `APROVAR CRIATIVOS <token>`; so a mensagem atual igual a frase aplica. O token amarra os textos: mudou o texto, a frase velha nao vale. Grava `reviewApprovedAt/By`, `reviewApprovalReason: "score_baixo"`, `reviewApprovedScore`.
+- `consultar_projetos_campanhas` passa a mostrar `needsReview` e `score` por criativo. `auditCreativeSegmentAlignment` exportado de `ai.ts` (injetado na edicao).
+
+Validado: 13 testes novos com os textos reais da 799; fixture do `chatAdsTools.test` ganhou `objective` e `campaignFacts` (a pre-checagem passou a exigir o que `publishToMeta` ja exigia); suite 469/469; `tsc -p tsconfig.server.json` 37, mesmo conjunto do baseline; `check:mcp` ok com env falso.
+
+### Estado da 799 com isso
+
+Criativos 0, 2 e 3: so score baixo → aprovaveis no chat. Criativo 1: depoimento inventado → precisa `editar_criativo` antes. Nao verificado: se o `aiResponse` da 799 tem `campaignFacts` (o MCP nao expoe); se nao tiver, a pre-checagem agora diz isso antes do token, e a saida e regenerar.
+
+### Fora do escopo, registrado
+
+`campaigns.updateCreative` (tRPC, tela) nao confere dono da campanha e nao recalcula `needsReview`.

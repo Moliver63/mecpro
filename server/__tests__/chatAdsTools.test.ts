@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { adsTurn, queryChatAds, publishChatAds } from "../chatAdsTools";
+import { buildCampaignFacts } from "../campaignFactGuard";
 
 function fixture() {
   let calls = 0;
@@ -10,8 +11,14 @@ function fixture() {
   // imagem nenhuma nao e publicavel. O fixture nunca tinha `creatives` porque o
   // codigo antigo nao olhava os criativos antes do token — e era justamente
   // esse o defeito: o token era emitido para campanha impossivel de publicar.
+  // `objective` + `aiResponse.campaignFacts` entraram em 19/10: a pre-checagem
+  // passou a rodar a mesma regra de integridade de `publishToMeta` antes do
+  // token (campanha 799 recebia token e era recusada depois da confirmacao).
   const campaign = {
-    id: 12, projectId: 4, name: "Teste", adSets: '[{"budget":50}]',
+    id: 12, projectId: 4, name: "Teste", adSets: '[{"budget":50}]', objective: "leads",
+    aiResponse: JSON.stringify({ campaignFacts: buildCampaignFacts({
+      input: { objective: "leads" }, clientProfile: { niche: "planejamento financeiro" }, segment: "financeiro",
+    }) }),
     creatives: JSON.stringify([{ headline: "Planejamento financeiro com quem entende", description: "Fale com a equipe", copy: "Converse com um especialista sobre o seu caso e receba um plano.", feedImageUrl: "https://res.cloudinary.com/x/a.png" }]),
   };
   const db = {

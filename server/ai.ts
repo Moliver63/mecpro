@@ -1282,7 +1282,7 @@ const SEGMENT_ALIGNMENT_RULES: Record<string, SegmentAlignmentRule> = {
   },
 };
 
-function auditCreativeSegmentAlignment(creative: any, segment: string): string[] {
+export function auditCreativeSegmentAlignment(creative: any, segment: string): string[] {
   const rule = SEGMENT_ALIGNMENT_RULES[segment];
   if (!rule) return [];
   const text = [

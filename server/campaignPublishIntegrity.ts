@@ -1,6 +1,22 @@
 import { validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFactGuard";
 import { assertObjectiveUnchanged } from "./campaignRuleRetrieval";
 
+/**
+ * Versao que nao lanca, pra pre-checagem do chat (`pendenciasLocaisParaPublicar`)
+ * recusar ANTES do token de confirmacao com a mesma regra da publicacao real.
+ * Achado real (19/10, campanha 799): a pre-checagem nao olhava needsReview nem
+ * o snapshot de fatos, entao o chat emitia token pra campanha que
+ * `publishToMeta` ia recusar aqui.
+ */
+export function verificarIntegridadeParaPublicar(campaign: any, overrides: unknown = {}): { ok: boolean; erro?: string } {
+  try {
+    assertCampaignPublishIntegrity(campaign, overrides);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, erro: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function assertCampaignPublishIntegrity(campaign: any, overrides: unknown = {}) {
   let response: any;
   let creatives: unknown;
