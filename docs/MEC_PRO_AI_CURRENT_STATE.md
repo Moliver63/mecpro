@@ -2926,3 +2926,37 @@ E o `JSON.stringify(visualFacts)` do prompt virou lista simples: chave e aspas s
 O Fact Guard da copy aprovou VR oito vezes; o validador de imagem disse que VR nao esta confirmado. Dois guardas, duas nocoes de "confirmado", sobre o mesmo fato. Com o VR sendo real, quem estava errado era o lado da imagem — por nao receber os fatos. Resolvido pela correcao acima, mas vale registrar: **os dois guardas precisam ler a mesma fonte, e ainda nao leem** (`offerAnchor` vem de 4 campos de perfil; `verifiedFacts` vem do briefing). Enquanto diferirem, essa classe de desacordo volta.
 
 Validado: 435/435, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).
+
+## 19/10 — "fotografia editorial" no briefing virava segmento eventos e bloqueava 100% dos criativos
+
+Pedido do Michel: regerar a 799 com copy e imagem mais modernas. Tres geracoes com direcao de arte no `extraContext` morreram com o mesmo erro, nos quatro criativos:
+
+```
+FACT_CONFLICT: creatives.0.segmentAlignmentIssues: campaign_segment_conflict; (... 1, 2, 3)
+```
+
+A mesma geracao **sem** `extraContext` passou (campanha 801, `segmentAlignment: "infoprodutos"`).
+
+### Causa
+
+`generateCampaign` resolvia o segmento inicial concatenando perfil + `extraContext` + nome da campanha, e `pickMostSpecificSegmentMatch` escolhe a nicheKey mais longa do texto inteiro. O briefing dizia "fotografia editorial realista" e "estetica elegante": `fotografia` (10 letras) e nicheKey de `eventos`, e venceu tudo que o perfil tinha. Com o segmento em `eventos`, `auditCreativeSegmentAlignment` cobrava `evento|festa|buffet...` na copy de autoconhecimento, e o Fact Guard barrava todos os cards. Reproduzido com a funcao real: os tres textos que mandei resolvem pra `eventos`.
+
+E a mesma familia do "casa"/"casamento" e do "loja"/"confeitaria" (setembro), mas por outra porta: aquelas correcoes trataram a REGEX das nicheKeys; nenhuma tratou a ORIGEM do texto. Texto livre de briefing (direcao de arte, tom, restricoes) redefinia o negocio do cliente.
+
+### Correcao (`1289ef0`)
+
+`resolveInitialCampaignSegment` em `server/ai.ts`: segmento explicito vence; depois o perfil (`niche`, `productService`, `productName`); `extraContext` e nome so decidem quando o perfil da `outro` — o fallback antigo fica preservado pra perfil vazio.
+
+**Nao afrouxa nada**: a finalidade imobiliaria continua vindo do briefing atual pelo passo de `resolveIsRealEstate`/`purpose`, que roda depois. Comparado lado a lado com a logica antiga (script com o fluxo real de `ai.ts`): corretor com perfil generico + "aluguel" no texto da `imoveis_locacao` nos dois; + "venda" da `imoveis_venda` nos dois; Morebem sala comercial em locacao igual nos dois. Mudou so onde a antiga errava: Shadia sai de `eventos`; Gra Kau com "entrega em casa" no texto livre saia `imoveis_venda` (o #754 por outra porta) e agora sai `alimentacao`.
+
+### Processo, registrado
+
+O commit foi enviado **antes** de eu ler `MEC_PRO_AI_CURRENT_STATE.md` e o resto de `docs/` — li so FRAMEWORK, o fim do SYSTEM_MEMORY e busca por termo. Michel perguntou se eu tinha lido; nao tinha. A leitura completa depois nao contradisse a correcao, mas mudou a validacao: o primeiro typecheck usou o tsconfig errado e so 5 suites rodaram. Refeito no padrao do repo, e o teste trocou um perfil inventado pelo `productService` real do projeto 49 documentado em 28/09.
+
+Validado: suite inteira 447/447 (base `d96dddc`: 442/442, +5 novos), `tsc -p tsconfig.server.json` 37 erros, diff identico ao baseline (29 router, 7 mcpServer, 1 ai.ts).
+
+### Nao corrigido, registrado
+
+- **Nao existe segmento de academia/fitness.** "Academia, musculacao e treino funcional" resolve `outro`, e ai o texto livre decide — "organize suas financas" no briefing vira `financeiro`. Pre-existente, igual antes e depois desta correcao. `MULTI_ITEM_SEGMENTS` ainda lista `academia`, que nao existe na taxonomia.
+- **O perfil da Shadia muda de segmento conforme e editado**: `financeiro` em 28/09 ("desenvolvimento humano, espiritual e financeiro"), `educacao` com o texto documentado, `infoprodutos` na 801 de hoje. O segmento depende do perfil por desenho; vale o perfil dizer o que o negocio e.
+- `package-lock.json` fora de sincronia com `package.json` (`@google/genai@1.52.0` ausente do lock): `npm ci` falha. Usei `npm install` sem gravar o lock.
