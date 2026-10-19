@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sanitizarAssuntoVisual, inferPrompt } from "../imageGeneration";
+import { sanitizarAssuntoVisual, inferPrompt, contextoDeImagemDoBrief } from "../imageGeneration";
 
 // Texto real do perfil do cliente, projeto 49 (Shadia Hasan), lido do banco.
 // Era isto que ia pro modelo de imagem com a ordem "depict this literally".
@@ -337,4 +337,72 @@ test("angulo inventado pelo modelo de copy nao vira assunto da imagem", async ()
   const prompt = inferPrompt(brief.card, brief.segment, "leads", "feed", ctx as any);
   assert.doesNotMatch(prompt, /\bvr\b|realidade virtual|imers/i, "VR nao pode chegar no prompt sem estar no briefing");
   assert.match(prompt, /autoconhecimento/i, "o assunto confirmado continua chegando");
+});
+
+// Achado real (19/10, lendo a campanha 799 pelo MCP em vez de pedir o dado).
+//
+// O filtro de fatos visuais tinha vocabulario de IMOVEL — tipo|caracteristica|
+// mobilia|pavimentos — aplicado aos 16 segmentos. Para um infoproduto, TODO
+// fato confirmado era descartado, porque nenhum comeca com essas palavras.
+//
+// E a raiz da saga do VR. A jornada da Shadia usa realidade virtual de verdade
+// (confirmado pelo Michel em 19/10), e os fatos confirmados chegavam aqui e
+// eram jogados fora. Sobrava assunto magro, e o unico caminho que o VR tinha
+// era pelo `angle` inventado pela copy — que eu fechei, com razao, em 17/10.
+// Fechei a porta errada estando certo: o VR precisava entrar pela porta dos
+// FATOS, e ela estava tapada.
+test("fato confirmado de qualquer segmento chega ao assunto da imagem", () => {
+  const brief = {
+    segment: "infoprodutos",
+    facts: [
+      "Produto: Curso e jornada de autoconhecimento pelo Metodo Shadia Hasan",
+      "Diferencial: jornada vivencial com imersao em realidade virtual",
+    ],
+    offerAnchor: ["Produto/serviço: Curso de autoconhecimento"],
+    card: { angle: "oferta" },
+  };
+  const prompt = inferPrompt(brief.card, brief.segment, "leads", "feed", contextoDeImagemDoBrief(brief) as any);
+  assert.match(prompt, /realidade virtual/i, "o diferencial confirmado tem que chegar no prompt");
+  assert.match(prompt, /Confirmed visual facts/);
+  // Imovel continua funcionando pelo caminho explicito.
+  const imovel = inferPrompt({ angle: "oferta" }, "imoveis", "leads", "feed", {
+    confirmedVisualFacts: ["tipo: apartamento de dois quartos", "mobilia: cozinha planejada"],
+  } as any);
+  assert.match(imovel, /apartamento de dois quartos/i);
+  assert.match(imovel, /cozinha planejada/i);
+});
+
+// A outra metade: abrir os fatos ao assunto abriu uma porta nova de TEXTO. Onde
+// comprar, como pagar e por onde falar nunca sao cena — e dominio, marca e
+// e-mail sao exatamente o que o FLUX tenta DESENHAR (o 'Agila' de 15/10 por
+// outra porta).
+test("fato de onde comprar, preco e contato nao entra no prompt de imagem", () => {
+  const prompt = inferPrompt({ angle: "oferta" }, "infoprodutos", "leads", "feed", {
+    confirmedVisualFacts: [
+      "Diferencial: imersao em realidade virtual",
+      "Venda: site oficial shadiahasan.com e/ou Hotmart",
+      "Preco: assinatura de R$ 99,90/mes com certificado",
+      "Contato: ola@shadiahasan.com.br",
+      "Site: https://shadiahasan.com/aula",
+      "Plataforma: Hotmart",
+    ],
+  } as any);
+
+  assert.match(prompt, /realidade virtual/i, "o fato visual continua chegando");
+  for (const fora of [/shadiahasan/i, /\.com/i, /hotmart/i, /@/, /99/, /assinatura/i, /certificad/i, /https?:/i]) {
+    assert.doesNotMatch(prompt, fora, `nao pode chegar no prompt: ${fora}`);
+  }
+});
+
+test("sanitizador remove endereco, dominio, e-mail e arroba", () => {
+  for (const [entrada, proibido] of [
+    ["Site oficial: shadiahasan.com", /shadiahasan|\.com/i],
+    ["Contato: ola@exemplo.com.br", /@|exemplo/i],
+    ["Veja em https://exemplo.com/aula", /https|exemplo/i],
+    ["Siga @marca no Instagram", /@marca/i],
+  ] as Array<[string, RegExp]>) {
+    assert.doesNotMatch(sanitizarAssuntoVisual(entrada), proibido, entrada);
+  }
+  // E nao estraga texto normal.
+  assert.match(sanitizarAssuntoVisual("jornada vivencial com imersao em realidade virtual"), /realidade virtual/);
 });

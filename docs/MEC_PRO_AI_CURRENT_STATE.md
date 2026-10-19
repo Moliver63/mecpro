@@ -2869,3 +2869,60 @@ Corrigido na fonte — reescrevendo a correcao sem a palavra "impede" — em vez
 `visualSubjectAlignment` afirmava `ctx.productService === "diferencial"`: encodava a crenca de que `angle` e rotulo livre. O log de hoje desmentiu a crenca, nao o teste. Atualizados, mais um teste novo com o caso do VR verbatim.
 
 Validado: 432/432, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).
+
+## 19/10 — li a campanha pelo MCP, e o caminho de imagem ESTA funcionando
+
+Eu passei quatro dias pedindo ao Michel uma medicao que eu mesmo podia ler: existe ferramenta MCP do MecProAI nesta sessao. `get_campaign(799)` em dois minutos.
+
+### Confirmado por dado, nao por esperanca
+
+A 799 tem 4 criativos, **todos com imagem**. E dois foram escritos pela FILA:
+
+```
+criativo 1: storyImageUrl  .../c_lfill,g_auto,ar_9:16,w_1080/v1792074516/...
+criativo 3: squareImageUrl .../c_lfill,g_auto,ar_1:1,w_1080/v1792074530/...
+            imageValidationStatus: "approved"  imageProviderUsed: "cloudflare"
+```
+
+O `c_lfill,g_auto,ar_9:16,w_1080` e o recorte por proporcao (`364c18e`). O `approved` e o portao reescrito (`cb985b2`). A imagem esta gravada no campo legado **e** no `assetLibrary.assets` do `creativeSystemV2`, com o `channels.meta.placements.stories.legacyProjection` atualizado — o "ultimo metro que nunca rodou" (`736ade3`).
+
+Quatro correcoes que eu listava como nao verificadas estao verificadas em producao: portao, rotacao de chave, recorte e gravacao no criativo.
+
+### Eu errei em 16/10, e o erro tem a mesma forma dos outros
+
+Eu afirmei que a 799 nao podia ser publicada porque nenhum criativo tinha imagem. Errado: o criativo 0 tem as tres imagens desde 13:59, vindas do caminho inline (RAG), nao da fila. **Eu inferi do log da fila em vez de ler os criativos.** Mesmo erro de metodo que me custou os dias anteriores: concluir de um sinal indireto quando o direto estava a uma chamada de distancia.
+
+`publishStatus: "draft"`, `metaCampaignId: null` — nunca publicada, e a 799 **pode** ser publicada agora (a pre-checagem exige um criativo com imagem, e tem quatro).
+
+### A raiz da saga do VR: um filtro de imovel aplicado a 16 segmentos
+
+Michel confirmou: **o VR e real**, faz parte do metodo. Entao a copy estava certa e o validador de imagem estava reclamando de um fato verdadeiro — porque `offerAnchor` nao o continha.
+
+O motivo esta na linha 406 de `imageGeneration.ts`:
+
+```ts
+.filter(fact => /^(tipo|caracteristica|mobilia|pavimentos)/i.test(fact))
+```
+
+Vocabulario de IMOVEL. Para um infoproduto, **todo fato confirmado era descartado**. Sobrava assunto magro (offerAnchor + segmento), e o unico caminho que o VR tinha era pelo `angle` inventado pela copy — que eu fechei, com razao, em 17/10.
+
+**Fechei a porta errada estando certo.** O `angle` nao deve mesmo definir assunto de imagem. Mas o VR precisava entrar pela porta dos FATOS, e ela estava tapada por quatro palavras escritas para imoveis.
+
+Agora o criterio e procedencia mais sanitizacao: fato confirmado entra se sobrar conteudo visual depois de `sanitizarAssuntoVisual`. O caminho explicito de imovel continua funcionando.
+
+### Abrir os fatos abriu uma porta de texto, e ela foi fechada junto
+
+Fato confirmado inclui "Venda: site oficial shadiahasan.com e/ou Hotmart" e "Contato: ola@...". Dominio, marca e e-mail sao exatamente o que o FLUX tenta DESENHAR — o 'Agila' de 15/10 por outra porta. Duas travas:
+
+1. `sanitizarAssuntoVisual` passou a remover URL, dominio, e-mail e @handle.
+2. Rotulo de categoria nao-visual (venda, contato, site, pagamento, preco, prazo, plataforma, cupom...) descarta o fato inteiro. Filtrar pelo ROTULO e mais preciso que limpar o valor: "Hotmart" sobrevive a sanitizacao de dominio por nao ter TLD, e marca no prompt de imagem e pedido de logo.
+
+Verificado no briefing real da 799: `realidade virtual` chega; `shadiahasan.com`, `Hotmart`, `R$ 99,90`, `certificado` e `@` ficam fora.
+
+E o `JSON.stringify(visualFacts)` do prompt virou lista simples: chave e aspas sao token no condicionamento igual a qualquer outro.
+
+### Quinta instancia da mesma doenca, agora entre copy e imagem
+
+O Fact Guard da copy aprovou VR oito vezes; o validador de imagem disse que VR nao esta confirmado. Dois guardas, duas nocoes de "confirmado", sobre o mesmo fato. Com o VR sendo real, quem estava errado era o lado da imagem — por nao receber os fatos. Resolvido pela correcao acima, mas vale registrar: **os dois guardas precisam ler a mesma fonte, e ainda nao leem** (`offerAnchor` vem de 4 campos de perfil; `verifiedFacts` vem do briefing). Enquanto diferirem, essa classe de desacordo volta.
+
+Validado: 435/435, typecheck 37 (29 router, 7 mcpServer, 1 ai.ts — igual ao baseline).
