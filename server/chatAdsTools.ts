@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { pendenciasLocaisParaPublicar } from "./publishPreflight";
-import { resolverPaginaMetaComLista } from "./metaPageResolution";
+import { resolverPaginaMetaComLista, destinoDaPagina, urlHttps } from "./metaPageResolution";
 
 export const adsTurn = new AsyncLocalStorage<{ message: string }>();
 export const adsReadTools = [
@@ -54,6 +54,60 @@ export async function queryChatAds(name: string, args: Record<string, any>, user
   } catch { return { erro: "Consulta indisponivel ou excedeu o tempo. Nenhuma metrica foi confirmada; tente novamente." }; }
 }
 
+interface OpcoesDePublicacao {
+  campaignId: number;
+  pageId: string;
+  destination: "website" | "lead_form";
+  linkUrl?: string;
+  leadGenFormId?: string;
+  adSetIndexes?: number[];
+}
+
+async function callerDoUsuario(db: any, userId: number, injected?: any) {
+  if (injected?.caller) return injected.caller;
+  const user = await db.getUserById(userId);
+  if (!user) throw new Error("Usuario indisponivel.");
+  return (await import("./_core/router")).appRouter.createCaller({ req: {} as any, res: {} as any, user } as any);
+}
+
+async function listarFormularios(db: any, userId: number, pageId: string, injected?: any): Promise<Array<{ id: string; name?: string; status?: string; leads_count?: number }>> {
+  if (injected?.listLeadForms) return injected.listLeadForms(pageId);
+  const caller = await callerDoUsuario(db, userId, injected);
+  return caller.integrations.listLeadForms({ pageId });
+}
+
+function resumoFormularios(forms: Array<{ id: string; name?: string; status?: string; leads_count?: number }>) {
+  return forms.slice(0, 30).map((f) => ({ leadGenFormId: String(f.id), nome: f.name || null, status: f.status || null, leads: f.leads_count ?? null }));
+}
+
+/**
+ * Lista os formularios instantaneos da Pagina pra o modelo escolher PELO NOME.
+ * Sem isso, `destination: "lead_form"` exigia um ID que o chat nao tinha como
+ * descobrir: ou pedia o numero ao usuario, ou inventava.
+ */
+export async function listarFormulariosChat(userId: number, args: Record<string, any>, injected?: any) {
+  const db = injected ?? await import("./db");
+  try {
+    const pageId = String(args?.pageId ?? "").trim();
+    if (pageId && !/^\d+$/.test(pageId)) return { erro: "Pagina invalida." };
+    const pagina = await bounded(resolverPaginaMetaComLista(pageId, async () => {
+      const listar = injected?.listPages ?? (await import("./campaignPublish")).listarPaginasMetaConectadas;
+      return listar(userId);
+    }));
+    if (!pagina.ok || !pagina.pageId) return { erro: pagina.erro || "Nao foi possivel identificar a Pagina conectada.", ...(pagina.paginas ? { paginas: pagina.paginas } : {}) };
+    const forms = await bounded(listarFormularios(db, userId, pagina.pageId, injected));
+    const ativos = forms.filter((f) => !f.status || f.status === "ACTIVE");
+    return {
+      pageId: pagina.pageId, pageName: pagina.pageName,
+      formularios: resumoFormularios(ativos),
+      ...(forms.length > ativos.length ? { inativosOcultos: forms.length - ativos.length } : {}),
+      instruction: ativos.length
+        ? "Apresente os formularios pelo NOME e pergunte qual usar; nunca mostre nem peca o numero. Depois chame publicar_campanha com destination=lead_form e o leadGenFormId do escolhido."
+        : "Esta Pagina nao tem formulario ativo. Diga isso ao usuario; criar formulario e feito pela tela de publicacao ou pelo Gerenciador da Meta.",
+    };
+  } catch { return { erro: "Nao consegui consultar os formularios desta Pagina agora. Nada foi alterado." }; }
+}
+
 export async function publishChatAds(userId: number, options: any, injected?: any) {
   const db = injected ?? await import("./db");
   try {
@@ -62,15 +116,11 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     const destination = options.destination ?? "website";
     if (destination !== "website" && destination !== "lead_form") return { ok: false, erro: "Destino invalido. Use website ou lead_form." };
     const leadGenFormId = typeof options.leadGenFormId === "string" ? options.leadGenFormId.trim() : "";
-    if (destination === "lead_form" && !leadGenFormId) return { ok: false, erro: "Informe o ID de um formulario instantaneo Meta existente para publicar como lead_form." };
+    if (destination === "lead_form" && !/^\d+$/.test(leadGenFormId)) return { ok: false, erro: "Escolha o formulario instantaneo pelo nome com consultar_formularios_meta; nao peca o numero ao usuario." };
     let linkUrl: string | undefined;
     if (destination === "website" && options.linkUrl !== undefined) {
-      if (typeof options.linkUrl !== "string" || !options.linkUrl.trim()) return { ok: false, erro: "Informe uma URL HTTPS valida." };
-      try {
-        const parsed = new URL(options.linkUrl.trim());
-        if (parsed.protocol !== "https:" || !parsed.hostname) return { ok: false, erro: "Informe uma URL HTTPS valida." };
-        linkUrl = parsed.toString();
-      } catch { return { ok: false, erro: "Informe uma URL HTTPS valida." }; }
+      linkUrl = urlHttps(options.linkUrl);
+      if (!linkUrl) return { ok: false, erro: "Informe uma URL HTTPS valida." };
     }
     const campaign = await db.getCampaignById(options.campaignId);
     const project = campaign && await db.getProjectById(campaign.projectId);
@@ -95,28 +145,37 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     const local = pendenciasLocaisParaPublicar(campaign);
     if (!local.ok) return { ok: false, erro: local.erro, ...(local.issues ? { issues: local.issues } : {}) };
 
-    // Bind confirmation and execution to the same resolved destination.
+    // Destino resolvido ANTES do token, pra confirmacao e execucao apontarem
+    // pro mesmo lugar e o usuario ver o destino real antes de confirmar.
+    let origemDestino = "informado pelo usuario";
+    let nomeFormulario = "";
     if (destination === "website" && !linkUrl) {
       try {
         const resolved = injected?.resolvePageLink
           ? await bounded(injected.resolvePageLink(pagina.pageId))
-          : await bounded((async () => {
-              const user = await db.getUserById(userId);
-              if (!user) throw new Error("Usuario indisponivel.");
-              const caller = injected?.caller ?? (await import("./_core/router")).appRouter.createCaller({ req: {} as any, res: {} as any, user } as any);
-              return caller.competitors.resolvePageLink({ pageId: pagina.pageId });
-            })());
-        linkUrl = resolved?.whatsappUrl || (resolved?.website ? (resolved.website.startsWith("http") ? resolved.website : "https://" + resolved.website) : undefined);
-        if (linkUrl) {
-          const parsed = new URL(linkUrl);
-          if (parsed.protocol !== "https:" || !parsed.hostname) linkUrl = undefined;
-          else linkUrl = parsed.toString();
-        }
-      } catch { /* exige URL manual se a pagina nao puder resolver o destino */ }
-      if (!linkUrl) return { ok: false, erro: "Nao encontrei WhatsApp ou site HTTPS configurado nesta Pagina. Informe uma linkUrl HTTPS antes de confirmar a publicacao." };
+          : await bounded((async () => (await callerDoUsuario(db, userId, injected)).competitors.resolvePageLink({ pageId: pagina.pageId }))());
+        const destino = destinoDaPagina(resolved);
+        if (destino) { linkUrl = destino.url; origemDestino = destino.origem; }
+      } catch { /* sem destino da Pagina: pede URL manual abaixo */ }
+      if (!linkUrl) return { ok: false, erro: "Nao encontrei WhatsApp nem site HTTPS configurado nesta Pagina. Peca ao usuario a URL HTTPS de destino antes de confirmar a publicacao." };
+    }
+    if (destination === "lead_form") {
+      // Formulario conferido ANTES do token. Achado (19/10, revisao do PR #64):
+      // o ID so e usado na criacao do anuncio, DEPOIS de campanha e conjunto
+      // ja existirem na Meta. ID errado ou de outra Pagina falhava no meio e
+      // deixava campanha orfa la. Sem conseguir listar, nao arrisca.
+      let forms: Array<{ id: string; name?: string; status?: string }>;
+      try { forms = await bounded(listarFormularios(db, userId, pagina.pageId, injected)); }
+      catch { return { ok: false, erro: "Nao consegui conferir os formularios desta Pagina na Meta agora. Nada foi publicado; tente de novo em instantes." }; }
+      const form = forms.find((f) => String(f.id) === leadGenFormId);
+      if (!form) return { ok: false, erro: "Esse formulario nao existe nesta Pagina.", formularios: resumoFormularios(forms) };
+      if (form.status && form.status !== "ACTIVE") return { ok: false, erro: `O formulario "${form.name || form.id}" esta ${form.status}, nao ativo. Escolha um ativo.`, formularios: resumoFormularios(forms) };
+      nomeFormulario = form.name || form.id;
     }
 
-    const resolvedOptions = {
+    // Forma PLANA de proposito: com `strict: false` o TypeScript nao estreita
+    // a uniao `{linkUrl} | {leadGenFormId}` (PR #64 deixou 2 erros novos aqui).
+    const resolvedOptions: OpcoesDePublicacao = {
       campaignId: options.campaignId,
       pageId: pagina.pageId,
       destination,
@@ -128,7 +187,7 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     const confirmation = `CONFIRMAR PUBLICACAO ${token}`;
     if (adsTurn.getStore()?.message.trim() !== confirmation) return {
       ok: false, confirmationRequired: true, campaignId: campaign.id, name: campaign.name,
-      pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets, destination: destination === "website" ? resolvedOptions.linkUrl : "Formulario instantaneo (ID " + resolvedOptions.leadGenFormId + ")",
+      pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets, destination: destination === "website" ? `${resolvedOptions.linkUrl} (${origemDestino})` : `Formulario instantaneo "${nomeFormulario}"`,
       erro: `Mostre os conjuntos e orcamentos ao usuario. Esta campanha AINDA NAO foi publicada; publicar vai cria-la na Meta com status PAUSADO, e ela nao comeca a rodar sozinha. Nao diga que a campanha esta pausada: pausado e o resultado da publicacao, nao o estado de agora. Para confirmar, o usuario deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
     };
     // One reservation per campaign, including partial/uncertain outcomes. Never reopen after a timeout.

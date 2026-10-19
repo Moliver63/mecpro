@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { adsTurn, queryChatAds, publishChatAds } from "../chatAdsTools";
+import { adsTurn, queryChatAds, publishChatAds, listarFormulariosChat } from "../chatAdsTools";
+import { destinoDaPagina } from "../metaPageResolution";
 import { buildCampaignFacts } from "../campaignFactGuard";
 
 function fixture() {
@@ -101,7 +102,7 @@ test("publication requires current exact confirmation and executes once", async 
   assert.equal(f.calls(), 1);
 });
 
-test("changed budget invalidates confirmation; foreign campaigns and implicit destinations denied", async () => {
+test("changed budget invalidates confirmation; foreign campaigns denied", async () => {
   const f = fixture();
   const preview = await publishChatAds(1, options, f.db);
   const message = preview.erro.match(/CONFIRMAR PUBLICACAO [a-f0-9]+/)[0];
@@ -109,8 +110,89 @@ test("changed budget invalidates confirmation; foreign campaigns and implicit de
   const result = await adsTurn.run({ message }, () => publishChatAds(1, options, f.db));
   assert.equal(result.confirmationRequired, true);
   assert.equal((await publishChatAds(2, options, f.db)).ok, false);
-  assert.equal((await publishChatAds(1, { ...options, linkUrl: undefined }, f.db)).ok, false);
   assert.equal(f.calls(), 0);
+});
+
+// PR #64 (19/10) passou a resolver o destino pela Pagina quando o chat nao
+// manda linkUrl. Antes disto o teste "implicit destinations denied" so passava
+// porque o mock nao tinha `resolvePageLink`: a busca quebrava e caia na recusa.
+test("sem linkUrl: usa o WhatsApp da Pagina, mostra antes de confirmar e publica nele", async () => {
+  const f = fixture();
+  let sent: any;
+  const deps = { ...f.db,
+    resolvePageLink: async () => ({ whatsappUrl: "https://wa.me/5547999998888", website: "shadiahasan.com" }),
+    publish: async (_u: number, value: any) => { sent = value; return { ok: true }; },
+  };
+  const input = { campaignId: 12, pageId: "123" };
+  const preview = await publishChatAds(1, input, deps);
+  assert.equal(preview.confirmationRequired, true);
+  assert.equal(preview.destination, "https://wa.me/5547999998888 (WhatsApp da Pagina)");
+  const message = preview.erro.match(/CONFIRMAR PUBLICACAO [a-f0-9]+/)[0];
+  await adsTurn.run({ message }, () => publishChatAds(1, input, deps));
+  assert.equal(sent.linkUrl, "https://wa.me/5547999998888");
+  assert.equal(sent.destination, "website");
+});
+
+test("sem linkUrl e sem destino na Pagina: recusa antes do token", async () => {
+  const f = fixture();
+  const deps = { ...f.db, resolvePageLink: async () => ({ whatsappUrl: null, website: null }) };
+  const r = await publishChatAds(1, { campaignId: 12, pageId: "123" }, deps);
+  assert.equal(r.ok, false);
+  assert.equal(r.confirmationRequired, undefined);
+  assert.match(r.erro, /URL HTTPS/);
+});
+
+test("destinoDaPagina: telefone invalido nao vira wa.me; site sem esquema vira https; http nao e promovido", () => {
+  assert.deepEqual(destinoDaPagina({ whatsappUrl: "https://wa.me/5547999998888" }), { url: "https://wa.me/5547999998888", origem: "WhatsApp da Pagina" });
+  assert.deepEqual(destinoDaPagina({ whatsappUrl: "https://wa.me/123", website: "www.shadiahasan.com outro.com" }), { url: "https://www.shadiahasan.com/", origem: "site da Pagina" });
+  assert.equal(destinoDaPagina({ website: "http://site.com.br" }), null);
+  assert.equal(destinoDaPagina({ website: "localhost" }), null);
+  assert.equal(destinoDaPagina(null), null);
+});
+
+const FORMS = [
+  { id: "9001", name: "Aula gratis VR", status: "ACTIVE", leads_count: 4 },
+  { id: "9002", name: "Antigo", status: "ARCHIVED" },
+];
+
+test("lead_form: formulario ativo da Pagina vai pro token e chega na publicacao", async () => {
+  const f = fixture();
+  let sent: any;
+  const deps = { ...f.db, listLeadForms: async () => FORMS, publish: async (_u: number, v: any) => { sent = v; return { ok: true }; } };
+  const input = { campaignId: 12, pageId: "123", destination: "lead_form", leadGenFormId: "9001" };
+  const preview = await publishChatAds(1, input, deps);
+  assert.equal(preview.confirmationRequired, true);
+  assert.equal(preview.destination, 'Formulario instantaneo "Aula gratis VR"');
+  const message = preview.erro.match(/CONFIRMAR PUBLICACAO [a-f0-9]+/)[0];
+  await adsTurn.run({ message }, () => publishChatAds(1, input, deps));
+  assert.equal(sent.leadGenFormId, "9001");
+  assert.equal(sent.destination, "lead_form");
+  assert.equal(sent.linkUrl, undefined);
+});
+
+test("lead_form: ID fora da Pagina, arquivado, nao numerico ou lista indisponivel recusam antes do token", async () => {
+  const f = fixture();
+  const base = { campaignId: 12, pageId: "123", destination: "lead_form" };
+  const deps = { ...f.db, listLeadForms: async () => FORMS };
+  const fora = await publishChatAds(1, { ...base, leadGenFormId: "7777" }, deps);
+  assert.match(fora.erro, /nao existe nesta Pagina/);
+  assert.equal(fora.formularios.length, 2);
+  assert.match((await publishChatAds(1, { ...base, leadGenFormId: "9002" }, deps)).erro, /ARCHIVED/);
+  assert.match((await publishChatAds(1, { ...base, leadGenFormId: "formulario" }, deps)).erro, /consultar_formularios_meta/);
+  const fora2 = await publishChatAds(1, { ...base, leadGenFormId: "9001" }, { ...f.db, listLeadForms: async () => { throw new Error("graph"); } });
+  assert.match(fora2.erro, /Nada foi publicado/);
+  assert.equal(f.calls(), 0);
+});
+
+test("consultar_formularios_meta: so ativos, pelo nome, e respeita a escolha de Pagina", async () => {
+  const f = fixture();
+  const deps = { ...f.db, listPages: async () => ({ ok: true, pages: [{ pageId: "123", name: "Shadia" }] }), listLeadForms: async (pageId: string) => (pageId === "123" ? FORMS : []) };
+  const r: any = await listarFormulariosChat(1, {}, deps);
+  assert.equal(r.pageName, "Shadia");
+  assert.deepEqual(r.formularios.map((x: any) => x.nome), ["Aula gratis VR"]);
+  assert.equal(r.inativosOcultos, 1);
+  const varias: any = await listarFormulariosChat(1, {}, { ...deps, listPages: async () => ({ ok: true, pages: [{ pageId: "1", name: "A" }, { pageId: "2", name: "B" }] }) });
+  assert.equal(varias.paginas.length, 2);
 });
 
 test("uncertain publication never reopens reservation", async () => {

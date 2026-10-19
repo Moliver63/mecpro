@@ -3019,3 +3019,18 @@ Criativos 0, 2 e 3: so score baixo → aprovaveis no chat. Criativo 1: depoiment
 ### Fora do escopo, registrado
 
 `campaigns.updateCreative` (tRPC, tela) nao confere dono da campanha e nao recalcula `needsReview`.
+
+## 19/10 — Publicacao Meta pelo chat: revisao do PR #64 e ajustes
+
+O PR #64 (`205c1f8`, `05ac448`) abriu dois caminhos no `publicar_campanha` do chat: destino resolvido pela Pagina quando nao vem `linkUrl`, e `destination: "lead_form"` com `leadGenFormId`. Revisado e ajustado:
+
+1. **`tsc` saiu do baseline (37 → 39)**: `resolvedOptions` virou uniao `{linkUrl} | {leadGenFormId}`, que nao estreita com `strict: false`. Agora e a interface plana `OpcoesDePublicacao`. Volta a 37.
+2. **Teste passando por acaso**: "implicit destinations denied" so passava porque o mock nao tinha `resolvePageLink` e a busca quebrava. Renomeado; testes novos cobrem WhatsApp da Pagina chegando na publicacao, Pagina sem destino recusando antes do token, e `lead_form`.
+3. **Chat sem como achar o formulario**: nao havia ferramenta pra listar formularios, entao o modelo pediria o numero ao usuario ou inventaria. Nova `consultar_formularios_meta` (so ativos, pelo nome, mesma resolucao de Pagina do publicar), registrada nas tres familias de provedor. `leadGenFormId` precisa ser so digitos.
+4. **Formulario conferido antes do token**: o ID so e usado na criacao do anuncio, depois de campanha e conjunto ja existirem na Meta; ID errado ou de outra Pagina deixaria campanha orfa. Agora tem que estar na lista da Pagina e `ACTIVE`; sem conseguir listar, recusa ("Nada foi publicado").
+5. **Campo da Graph**: `resolvePageLink` pedia `whatsapp_connected_id`, que nao aparece na referencia publica do no Page (os campos de WhatsApp listados sao `whatsapp_number`, `has_whatsapp_number`, `has_whatsapp_business_number`). Campo inexistente faz a Graph recusar a chamada inteira, e ai nem o `website` voltava. Agora pede `whatsapp_number`, e se a Graph recusar repete so com `name,website`. Vale pra tela, MCP e chat.
+6. **`destinoDaPagina`** (em `metaPageResolution.ts`, usado pelo chat e pelo `publicarCampanhaNaMeta` do MCP): `wa.me` so com 10 a 15 digitos; `website` usa o primeiro endereco, sem esquema vira https, `http://` nao e promovido. A pre-confirmacao mostra a origem ("WhatsApp da Pagina" / "site da Pagina") e o nome do formulario.
+
+Validado: suite 475/475, `tsc` 37 (mesmo conjunto do baseline), `check:mcp` ok com env falso.
+
+**Nao verificado**: a resposta real da Graph pra `whatsapp_number` na Pagina da Shadia (sandbox sem acesso a graph.facebook.com). O log `resolvePageLink OK ... hasWhatsApp` ou `resolvePageLink sem whatsapp_number` em producao responde. Tambem visto e nao mexido: `CampaignResult.tsx:770` chama `campaigns.resolvePageLink`, mas o procedimento mora em `competitors`; com o `?.` a chamada some em silencio.

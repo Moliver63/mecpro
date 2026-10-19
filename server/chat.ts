@@ -36,7 +36,7 @@ import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn
 import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
 import { respostaFinalDoPasso, RESPOSTA_SEM_CONCLUSAO } from "./chatRespostaFinal";
 import { modeloIndisponivel, esperaDeModeloGemini } from "./chatProviderCooldown";
-import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta } from "./chatAdsTools";
+import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta, listarFormulariosChat } from "./chatAdsTools";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask";
@@ -295,6 +295,7 @@ PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
 - Publicar e IRREVERSIVEL e GASTA DINHEIRO REAL do cliente. So chame publicar_campanha depois do usuario confirmar EXPLICITAMENTE, NA MESMA troca da conversa — frases como "pode publicar", "sim, publica", "confirmo" contam; uma confirmacao de varias mensagens atras, ou um "sim" respondendo outra pergunta, nao conta.
 - Antes de chamar, resuma pro usuario o que vai ser publicado (nome da campanha, orcamento, pagina) e so prossiga apos a confirmacao dele — nunca publique como primeira reacao a "crie uma campanha" ou similar.
 - NUNCA peca o pageId ao usuario, e NUNCA cite nomes de ferramentas pra ele (consultar_paginas_meta, gerar_campanha etc. sao seus, nao dele). Ele conectou a conta Meta; descobrir a Pagina e trabalho seu. Chame publicar_campanha sem pageId: o servidor resolve sozinho quando ha uma unica Pagina. Se houver varias, a resposta traz a lista — aí pergunte em qual publicar citando os NOMES das Paginas, nunca os numeros.
+- Destino: sem linkUrl, o servidor usa o WhatsApp ou o site da Pagina e mostra qual na pre-confirmacao; diga ao usuario pra onde o anuncio vai levar. Para formulario instantaneo, chame consultar_formularios_meta, pergunte qual pelo NOME e publique com destination=lead_form e o leadGenFormId escolhido.
 - So funciona com Meta por enquanto — Google e TikTok continuam sendo publicados manualmente pela tela da campanha (retorne o link).
 - So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
 
@@ -511,6 +512,16 @@ const DESCRICAO_PESQUISAR_WEB =
   "proibido, mesmo com pesquisa). Se a pesquisa nao trouxer resposta confiavel, diga isso ao usuario em vez de arriscar.";
 
 const PARAMETROS_PAGINAS_META = { type: "object", properties: {}, additionalProperties: false };
+const PARAMETROS_FORMULARIOS_META = {
+  type: "object",
+  properties: {
+    pageId: { type: "string", description: "OPCIONAL. Deixe vazio: o servidor resolve quando ha uma unica Pagina. So preencha depois que o usuario escolher a Pagina pelo nome." },
+  },
+};
+const DESCRICAO_FORMULARIOS_META =
+  "Lista os formularios instantaneos ATIVOS da Pagina Meta, com nome e leadGenFormId. Use antes de publicar_campanha com " +
+  "destination=lead_form: apresente os formularios pelo NOME, pergunte qual usar e passe o leadGenFormId do escolhido. " +
+  "Nunca peca nem mostre o numero do formulario ao usuario.";
 const DESCRICAO_PAGINAS_META =
   "Lista as Paginas do Facebook que a conta Meta conectada do usuario tem acesso. Use quando o usuario " +
   "perguntar quais Paginas estao vinculadas. Para publicar NAO e necessario: publicar_campanha resolve a " +
@@ -523,7 +534,7 @@ const PARAMETROS_PUBLICAR_CAMPANHA = {
     pageId: { type: "string", description: "OPCIONAL. Deixe vazio: o servidor resolve sozinho quando a conta tem uma unica Pagina conectada. So preencha depois que o usuario escolher, POR NOME, entre varias. Nunca invente e nunca peca esse numero ao usuario." },
     destination: { type: "string", enum: ["website", "lead_form"], description: "Padrao: website." },
     linkUrl: { type: "string", description: "URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da pagina." },
-    leadGenFormId: { type: "string", description: "Obrigatorio quando destination=lead_form: ID de um formulario instantaneo Meta existente." },
+    leadGenFormId: { type: "string", description: "Obrigatorio quando destination=lead_form: leadGenFormId devolvido por consultar_formularios_meta. Nunca invente nem peca ao usuario." },
   },
   // pageId saiu do required em 30/09: o servidor resolve sozinho quando ha
   // uma unica Pagina conectada (ver resolverPaginaMeta em campaignPublish.ts).
@@ -532,7 +543,7 @@ const PARAMETROS_PUBLICAR_CAMPANHA = {
   required: ["campaignId"],
 };
 const DESCRICAO_PUBLICAR_CAMPANHA =
-  "Primeira chamada prepara confirmacao, sem publicar. Mostre a frase CONFIRMAR PUBLICACAO retornada e espere o usuario envia-la exatamente; depois repita os mesmos argumentos. Para website, linkUrl HTTPS pode ser informada ou resolvida via WhatsApp/site da Pagina; se nao houver destino, peca uma URL HTTPS. Para lead_form, informe o leadGenFormId de um formulario instantaneo Meta existente. " +
+  "Primeira chamada prepara confirmacao, sem publicar. Mostre a frase CONFIRMAR PUBLICACAO retornada e espere o usuario envia-la exatamente; depois repita os mesmos argumentos. Para website, linkUrl HTTPS pode ser informada ou resolvida via WhatsApp/site da Pagina; se nao houver destino, peca uma URL HTTPS. Para lead_form, escolha o formulario com consultar_formularios_meta e passe o leadGenFormId; nunca peca esse numero ao usuario. " +
   "PUBLICA a campanha na Meta Ads DE VERDADE — a partir daqui, orcamento real do cliente comeca a ser gasto. " +
   "So chame isso depois do usuario confirmar EXPLICITAMENTE nesta mesma troca (ex: \"pode publicar\", \"sim, publica\", " +
   "\"confirmo\") — uma confirmacao de varias mensagens atras nao vale, peca confirmacao de novo se o assunto mudou. " +
@@ -551,6 +562,7 @@ const declaracoesGemini: FunctionDeclaration[] = [
   { name: "editar_criativo", description: DESCRICAO_EDITAR_CRIATIVO, parametersJsonSchema: PARAMETROS_EDITAR_CRIATIVO },
   { name: "aprovar_revisao_criativo", description: DESCRICAO_APROVAR_REVISAO, parametersJsonSchema: PARAMETROS_APROVAR_REVISAO },
   { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parametersJsonSchema: PARAMETROS_PAGINAS_META },
+  { name: "consultar_formularios_meta", description: DESCRICAO_FORMULARIOS_META, parametersJsonSchema: PARAMETROS_FORMULARIOS_META },
   { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
   { name: "pesquisar_web", description: DESCRICAO_PESQUISAR_WEB, parametersJsonSchema: PARAMETROS_PESQUISAR_WEB },
 ];
@@ -583,6 +595,10 @@ const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parameters: PARAMETROS_PAGINAS_META as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "consultar_formularios_meta", description: DESCRICAO_FORMULARIOS_META, parameters: PARAMETROS_FORMULARIOS_META as Record<string, unknown> },
   },
   {
     type: "function" as const,
@@ -1176,6 +1192,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       const edicao = await executarEdicaoDeCriativo(name, args, userId);
       if (edicao) return edicao;
       if (name === "consultar_paginas_meta") return listarPaginasMetaConectadas(userId);
+      if (name === "consultar_formularios_meta") return listarFormulariosChat(userId, limparArgsFerramenta(args));
       if (name === "publicar_campanha") {
         const a = limparArgsFerramenta(args);
         return publicarCampanhaNaMeta(userId, {
@@ -1387,6 +1404,11 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
     }
     if (chamada.function.name === "consultar_paginas_meta") {
       const result = await listarPaginasMetaConectadas(userId);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === "consultar_formularios_meta") {
+      const result = await listarFormulariosChat(userId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1616,6 +1638,11 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
     if (chamada.function?.name === "consultar_paginas_meta") {
       const result = await listarPaginasMetaConectadas(userId);
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function?.name === "consultar_formularios_meta") {
+      const result = await listarFormulariosChat(userId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }

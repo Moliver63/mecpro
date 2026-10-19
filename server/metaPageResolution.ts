@@ -72,3 +72,27 @@ export async function resolverPaginaMetaComLista(
     paginas: pages,
   };
 }
+
+export function urlHttps(valor: unknown): string | undefined {
+  if (typeof valor !== "string" || !valor.trim()) return undefined;
+  try {
+    const parsed = new URL(valor.trim());
+    return parsed.protocol === "https:" && parsed.hostname.includes(".") ? parsed.toString() : undefined;
+  } catch { return undefined; }
+}
+
+/**
+ * Destino do anuncio a partir da Pagina (resposta de `competitors.resolvePageLink`).
+ * WhatsApp primeiro, como o caminho da tela. Telefone so vale com 10 a 15
+ * digitos (E.164): `wa.me/<qualquer id>` vira link quebrado no anuncio. O campo
+ * `website` da Graph pode trazer varios enderecos separados por espaco; usa o
+ * primeiro, e sem esquema vira https. Site http:// nao e promovido a https.
+ */
+export function destinoDaPagina(resolved: any): { url: string; origem: string } | null {
+  const wa = typeof resolved?.whatsappUrl === "string" ? resolved.whatsappUrl.match(/^https:\/\/wa\.me\/(\d{10,15})$/) : null;
+  if (wa) return { url: `https://wa.me/${wa[1]}`, origem: "WhatsApp da Pagina" };
+  const primeiro = typeof resolved?.website === "string" ? resolved.website.trim().split(/[\s,;]+/)[0] : "";
+  if (!primeiro) return null;
+  const url = urlHttps(/^[a-z][a-z0-9+.-]*:\/\//i.test(primeiro) ? primeiro : `https://${primeiro}`);
+  return url ? { url, origem: "site da Pagina" } : null;
+}

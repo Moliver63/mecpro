@@ -1753,17 +1753,30 @@ const competitorsRouter = router({
       }
       const token = (integration as any).accessToken as string;
       try {
-        const res = await fetch(
-          `https://graph.facebook.com/v19.0/${input.pageId}?fields=whatsapp_connected_id,name,website&access_token=${token}`,
-          { signal: AbortSignal.timeout(6000) }
-        );
-        const data: any = await res.json();
+        // `whatsapp_connected_id` (usado ate 19/10) nao aparece na referencia
+        // publica do no Page da Graph; os campos de WhatsApp listados la sao
+        // `whatsapp_number`, `has_whatsapp_number` e
+        // `has_whatsapp_business_number`. Campo inexistente faz a Graph recusar
+        // a chamada INTEIRA, e ai nem o `website` voltava. Pede `whatsapp_number` e, se a Graph recusar o
+        // campo (permissao), repete so com nome e site.
+        const consultar = async (fields: string) => {
+          const res = await fetch(
+            `https://graph.facebook.com/v19.0/${input.pageId}?fields=${fields}&access_token=${token}`,
+            { signal: AbortSignal.timeout(6000) }
+          );
+          return (await res.json()) as any;
+        };
+        let data: any = await consultar("whatsapp_number,name,website");
+        if (data.error) {
+          log.warn("meta", "resolvePageLink sem whatsapp_number, tentando so site", { pageId: input.pageId, error: data.error.message });
+          data = await consultar("name,website");
+        }
         if (data.error) {
           log.warn("meta", "resolvePageLink erro Graph API", { pageId: input.pageId, error: data.error.message });
           return { pageId: input.pageId, whatsappUrl: null, website: null, source: "graph_error" };
         }
-        const waPhone = data.whatsapp_connected_id
-          ? String(data.whatsapp_connected_id).replace(/\D/g, "")
+        const waPhone = data.whatsapp_number
+          ? String(data.whatsapp_number).replace(/\D/g, "") || null
           : null;
         const website = data.website || null;
         const whatsappUrl = waPhone ? `https://wa.me/${waPhone}` : null;

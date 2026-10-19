@@ -1,4 +1,4 @@
-import { resolverPaginaMetaComLista, type ResolucaoPaginaMeta } from "./metaPageResolution";
+import { resolverPaginaMetaComLista, destinoDaPagina, type ResolucaoPaginaMeta } from "./metaPageResolution";
 import { appRouter } from "./_core/router";
 import * as db from "./db";
 import { orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
@@ -165,7 +165,8 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
   if (!linkUrl) {
     try {
       const resolved: any = await caller.competitors.resolvePageLink({ pageId: pageIdResolvido });
-      linkUrl = resolved?.whatsappUrl || (resolved?.website ? (resolved.website.startsWith("http") ? resolved.website : `https://${resolved.website}`) : undefined);
+      // Mesma regra do chat (destinoDaPagina): telefone valido ou site HTTPS.
+      linkUrl = destinoDaPagina(resolved)?.url;
     } catch { /* segue sem link automático */ }
   }
 
