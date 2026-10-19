@@ -523,6 +523,7 @@ const PARAMETROS_PUBLICAR_CAMPANHA = {
     pageId: { type: "string", description: "OPCIONAL. Deixe vazio: o servidor resolve sozinho quando a conta tem uma unica Pagina conectada. So preencha depois que o usuario escolher, POR NOME, entre varias. Nunca invente e nunca peca esse numero ao usuario." },
     destination: { type: "string", enum: ["website", "lead_form"], description: "Padrao: website." },
     linkUrl: { type: "string", description: "URL de destino. Se omitido, tenta resolver automaticamente via WhatsApp/site da pagina." },
+    leadGenFormId: { type: "string", description: "Obrigatorio quando destination=lead_form: ID de um formulario instantaneo Meta existente." },
   },
   // pageId saiu do required em 30/09: o servidor resolve sozinho quando ha
   // uma unica Pagina conectada (ver resolverPaginaMeta em campaignPublish.ts).
@@ -531,7 +532,7 @@ const PARAMETROS_PUBLICAR_CAMPANHA = {
   required: ["campaignId"],
 };
 const DESCRICAO_PUBLICAR_CAMPANHA =
-  "Primeira chamada prepara confirmacao, sem publicar. Mostre a frase CONFIRMAR PUBLICACAO retornada e espere o usuario envia-la exatamente; depois repita os mesmos argumentos. Exige linkUrl HTTPS explicito. Formulario deve ser publicado pela tela. " +
+  "Primeira chamada prepara confirmacao, sem publicar. Mostre a frase CONFIRMAR PUBLICACAO retornada e espere o usuario envia-la exatamente; depois repita os mesmos argumentos. Para website, linkUrl HTTPS pode ser informada ou resolvida via WhatsApp/site da Pagina; se nao houver destino, peca uma URL HTTPS. Para lead_form, informe o leadGenFormId de um formulario instantaneo Meta existente. " +
   "PUBLICA a campanha na Meta Ads DE VERDADE — a partir daqui, orcamento real do cliente comeca a ser gasto. " +
   "So chame isso depois do usuario confirmar EXPLICITAMENTE nesta mesma troca (ex: \"pode publicar\", \"sim, publica\", " +
   "\"confirmo\") — uma confirmacao de varias mensagens atras nao vale, peca confirmacao de novo se o assunto mudou. " +
@@ -1182,6 +1183,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
           pageId: String(a.pageId || ""),
           destination: a.destination as "website" | "lead_form" | undefined,
           linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
+          leadGenFormId: typeof a.leadGenFormId === "string" ? a.leadGenFormId : undefined,
         });
       }
       if (name === "pesquisar_web") {
@@ -1395,6 +1397,7 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
         pageId: String(a.pageId || ""),
         destination: a.destination as "website" | "lead_form" | undefined,
         linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
+        leadGenFormId: typeof a.leadGenFormId === "string" ? a.leadGenFormId : undefined,
       });
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
@@ -1623,6 +1626,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
         pageId: String(a.pageId || ""),
         destination: a.destination as "website" | "lead_form" | undefined,
         linkUrl: typeof a.linkUrl === "string" ? a.linkUrl : undefined,
+        leadGenFormId: typeof a.leadGenFormId === "string" ? a.leadGenFormId : undefined,
       });
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;

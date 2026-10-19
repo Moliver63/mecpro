@@ -59,7 +59,19 @@ export async function publishChatAds(userId: number, options: any, injected?: an
   try {
     const pageId = String(options?.pageId ?? "").trim();
     if (!Number.isInteger(options?.campaignId) || options.campaignId < 1 || (pageId && !/^\d+$/.test(pageId))) return { ok: false, erro: "Campanha ou pagina invalida." };
-    if ((options.destination ?? "website") !== "website" || typeof options.linkUrl !== "string" || !/^https:\/\//i.test(options.linkUrl)) return { ok: false, erro: "No chat, confirme um destino HTTPS explicito. Para formulario instantaneo, use a tela de publicacao." };
+    const destination = options.destination ?? "website";
+    if (destination !== "website" && destination !== "lead_form") return { ok: false, erro: "Destino invalido. Use website ou lead_form." };
+    const leadGenFormId = typeof options.leadGenFormId === "string" ? options.leadGenFormId.trim() : "";
+    if (destination === "lead_form" && !leadGenFormId) return { ok: false, erro: "Informe o ID de um formulario instantaneo Meta existente para publicar como lead_form." };
+    let linkUrl: string | undefined;
+    if (destination === "website" && options.linkUrl !== undefined) {
+      if (typeof options.linkUrl !== "string" || !options.linkUrl.trim()) return { ok: false, erro: "Informe uma URL HTTPS valida." };
+      try {
+        const parsed = new URL(options.linkUrl.trim());
+        if (parsed.protocol !== "https:" || !parsed.hostname) return { ok: false, erro: "Informe uma URL HTTPS valida." };
+        linkUrl = parsed.toString();
+      } catch { return { ok: false, erro: "Informe uma URL HTTPS valida." }; }
+    }
     const campaign = await db.getCampaignById(options.campaignId);
     const project = campaign && await db.getProjectById(campaign.projectId);
     if (!project || project.userId !== userId) return { ok: false, erro: "Campanha indisponivel para esta conta." };
@@ -84,9 +96,31 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     if (!local.ok) return { ok: false, erro: local.erro, ...(local.issues ? { issues: local.issues } : {}) };
 
     // Bind confirmation and execution to the same resolved destination.
+    if (destination === "website" && !linkUrl) {
+      try {
+        const resolved = injected?.resolvePageLink
+          ? await bounded(injected.resolvePageLink(pagina.pageId))
+          : await bounded((async () => {
+              const user = await db.getUserById(userId);
+              if (!user) throw new Error("Usuario indisponivel.");
+              const caller = injected?.caller ?? (await import("./_core/router")).appRouter.createCaller({ req: {} as any, res: {} as any, user } as any);
+              return caller.competitors.resolvePageLink({ pageId: pagina.pageId });
+            })());
+        linkUrl = resolved?.whatsappUrl || (resolved?.website ? (resolved.website.startsWith("http") ? resolved.website : "https://" + resolved.website) : undefined);
+        if (linkUrl) {
+          const parsed = new URL(linkUrl);
+          if (parsed.protocol !== "https:" || !parsed.hostname) linkUrl = undefined;
+          else linkUrl = parsed.toString();
+        }
+      } catch { /* exige URL manual se a pagina nao puder resolver o destino */ }
+      if (!linkUrl) return { ok: false, erro: "Nao encontrei WhatsApp ou site HTTPS configurado nesta Pagina. Informe uma linkUrl HTTPS antes de confirmar a publicacao." };
+    }
+
     const resolvedOptions = {
-      campaignId: options.campaignId, pageId: pagina.pageId,
-      destination: "website" as const, linkUrl: options.linkUrl,
+      campaignId: options.campaignId,
+      pageId: pagina.pageId,
+      destination,
+      ...(destination === "website" ? { linkUrl } : { leadGenFormId }),
       ...(options.adSetIndexes !== undefined ? { adSetIndexes: options.adSetIndexes } : {}),
     };
     const snapshot = JSON.stringify({ userId, options: resolvedOptions, campaign });
@@ -94,7 +128,7 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     const confirmation = `CONFIRMAR PUBLICACAO ${token}`;
     if (adsTurn.getStore()?.message.trim() !== confirmation) return {
       ok: false, confirmationRequired: true, campaignId: campaign.id, name: campaign.name,
-      pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets, destination: resolvedOptions.linkUrl,
+      pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets, destination: destination === "website" ? resolvedOptions.linkUrl : "Formulario instantaneo (ID " + resolvedOptions.leadGenFormId + ")",
       erro: `Mostre os conjuntos e orcamentos ao usuario. Esta campanha AINDA NAO foi publicada; publicar vai cria-la na Meta com status PAUSADO, e ela nao comeca a rodar sozinha. Nao diga que a campanha esta pausada: pausado e o resultado da publicacao, nao o estado de agora. Para confirmar, o usuario deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
     };
     // One reservation per campaign, including partial/uncertain outcomes. Never reopen after a timeout.
