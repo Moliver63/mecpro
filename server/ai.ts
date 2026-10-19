@@ -1162,6 +1162,26 @@ function resolveSegmentFromCampaignContext(...parts: Array<unknown>): string {
   return detectSegmentFromNiche(text);
 }
 
+// Segmento inicial da geração: perfil do cliente primeiro, texto livre depois.
+// Achado real (campanha Shadia Hasan, out/2026): o extraContext é briefing
+// livre e costuma trazer direção de arte. "fotografia editorial" batia na
+// nicheKey "fotografia" de eventos (chave mais longa vence em
+// pickMostSpecificSegmentMatch) e a campanha de autoconhecimento virava
+// "eventos": a auditoria cobrava "festa/evento" na copy e todos os criativos
+// caíam em campaign_segment_conflict. Texto livre só decide o segmento
+// quando o perfil não identifica nenhum (fallback antigo preservado).
+export function resolveInitialCampaignSegment(
+  explicitSegment: unknown,
+  clientProfile: { niche?: unknown; productService?: unknown; productName?: unknown } | null | undefined,
+  extraContext?: unknown,
+  campaignName?: unknown,
+): string {
+  const profileParts = [clientProfile?.niche, clientProfile?.productService, clientProfile?.productName];
+  const fromProfile = resolveSegmentFromCampaignContext(explicitSegment, ...profileParts);
+  if (fromProfile !== "outro") return fromProfile;
+  return resolveSegmentFromCampaignContext(explicitSegment, ...profileParts, extraContext, campaignName);
+}
+
 type SegmentAlignmentRule = {
   requiredAny: RegExp[];
   foreignTerms: RegExp[];
@@ -6871,11 +6891,10 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
   // (input.segment se for uma chave válida de SEGMENT_COPY_RULES, senão
   // detecta a partir do nicho) — não duplica lógica nova, só expõe o mesmo
   // resultado pra alimentar a inferência de subsegmento.
-  const initialSegment = resolveSegmentFromCampaignContext(
+  // Perfil do cliente primeiro: ver resolveInitialCampaignSegment.
+  const initialSegment = resolveInitialCampaignSegment(
     input.segment,
-    (clientProfile as any)?.niche,
-    (clientProfile as any)?.productService,
-    (clientProfile as any)?.productName,
+    clientProfile as any,
     input.extraContext,
     input.name,
   );

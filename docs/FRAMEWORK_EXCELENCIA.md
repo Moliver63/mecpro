@@ -357,6 +357,11 @@ uma vez, aquilo não deve precisar ser corrigido de novo.
 - Nunca gravar validade de token sem confirmar no `/debug_token` do Meta
 - Filtro de copy só tem efeito se a variável limpa for usada NO PAYLOAD, não
   apenas na auditoria (bug real encontrado em 2026-07-22)
+- Segmento da campanha vem do PERFIL do cliente; extraContext (texto livre,
+  muitas vezes direção de arte) só decide quando o perfil dá "outro".
+  "fotografia editorial" virava segmento eventos e bloqueava 100% dos
+  criativos com campaign_segment_conflict (resolveInitialCampaignSegment,
+  2026-10-19)
 
 ---
 
