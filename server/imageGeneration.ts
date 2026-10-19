@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { log } from "./logger";
+import { fatosVisuaisDoBriefing, sanitizarAssuntoVisual } from "./imageSubjectSafety";
 import { canonicalStockQuery } from "./imageWorkflowPolicy";
 
 export type ImageProvider = "huggingface" | "heygen" | "genspark" | "mock";
@@ -254,42 +255,11 @@ export function getPixabayVideoQuery(segment: string, creative: any): string {
 //
 // Esta funcao tira as clausulas comerciais e os numeros, deixando so o que
 // descreve alguma coisa visivel. Nao traduz: e filtro, nao traducao.
-export function sanitizarAssuntoVisual(texto: string): string {
-  if (!texto || !texto.trim()) return "";
+// `sanitizarAssuntoVisual` e os fatos visuais moram em ./imageSubjectSafety
+// desde 19/10: uma unica fonte da decisao, com teste de invariante proprio.
+// Reexportado porque o nome ja era importado de fora.
+export { sanitizarAssuntoVisual } from "./imageSubjectSafety";
 
-  // Termos que marcam clausula comercial/contratual, nunca cena.
-  // "materia(l|is)" e nao "material(is)?": o plural de material e materiais,
-  // ou seja "materia" + "is". Escrito errado, "materiais complementares"
-  // passava direto e chegava no modelo de imagem.
-  const comercial = /(r\$|reais|\/m[eê]s|mensal|mensalidade|assinatura|plano|parcel|pagamento|pague|desconto|promo|cupom|frete|certificad|garantia|matr[ií]cula|acesso ilimitado|materia(l|is)\s+complementar|conte[uú]dos? da plataforma|por apenas|a partir de|%)/i;
-
-  // URL, dominio, e-mail e @handle saem ANTES de qualquer coisa. Entraram na
-  // conta em 19/10, quando os fatos confirmados passaram a alimentar o assunto:
-  // "Site oficial: shadiahasan.com" e exatamente o tipo de token que o FLUX
-  // tenta DESENHAR como texto — a mesma doenca do 'Agila' de 15/10, por outra
-  // porta. O split por "." vem depois, senao o dominio e picado em pedacos que
-  // escapam.
-  const semEndereco = texto
-    .replace(/\bhttps?:\/\/\S+/gi, " ")
-    .replace(/\b[\w.+-]+@[\w-]+\.[\w.]+/gi, " ")
-    .replace(/\s@[\w.]+/g, " ")
-    .replace(/\b[\w-]+\.(com|br|net|org|io|app|me|co)(\.[a-z]{2})?\b/gi, " ");
-
-  const limpo = semEndereco
-    .split(/[,;.]/)
-    .map(parte => parte.trim())
-    .filter(parte => parte.length > 2 && !comercial.test(parte))
-    // Numero remanescente sai: o prompt proibe numeros na imagem. SEM \b de
-    // proposito — com fronteira de palavra, "120m2" escapava inteiro, porque
-    // entre "0" e "m" nao existe fronteira. Metragem, quantidade de quartos e
-    // afins chegavam no modelo mesmo com o "NO NUMBERS" no prompt.
-    .map(parte => parte.replace(/\d+([.,]\d+)?/g, "").replace(/\s{2,}/g, " ").trim())
-    .filter(Boolean)
-    .join(", ");
-
-  // Assunto longo demais dilui o peso no modelo; corta em 20 palavras.
-  return limpo.split(/\s+/).slice(0, 20).join(" ").replace(/[,\s]+$/, "");
-}
 
 export function inferPrompt(
   creative: any,
@@ -431,20 +401,9 @@ export function inferPrompt(
   // confirmado entra se sobrar conteudo visual depois de `sanitizarAssuntoVisual`
   // (que remove clausula comercial, numero, URL, dominio e e-mail). O rotulo
   // "Label: valor" sai, igual ao offerAnchor. Teto de 6 pra nao diluir o peso.
-  const VISUAL_EXPLICITO = /^(tipo|caracteristica|mobilia|pavimentos)/i;
-  // Categoria de fato que nunca e cena: ONDE comprar, COMO pagar, POR ONDE
-  // falar. Filtrar pelo rotulo, que o proprio briefing fornece, e mais preciso
-  // que tentar limpar o valor — "Venda: site oficial e/ou Hotmart" sobrevive a
-  // sanitizacao de dominio (Hotmart nao tem TLD) e marca no prompt de imagem e
-  // pedido de logo.
-  const ROTULO_NAO_VISUAL = /^(venda|vendas|contato|site|link|url|pagamento|pre[cç]o|valor|prazo|entrega|suporte|canal|whatsapp|telefone|e-?mail|inscri[cç][aã]o|checkout|plataforma|cupom|desconto)\b/i;
-  const visualFacts = (productContext?.confirmedVisualFacts || [])
-    .map(fact => toText(fact))
-    .filter(bruto => VISUAL_EXPLICITO.test(bruto) || !ROTULO_NAO_VISUAL.test(bruto))
-    .map(bruto => sanitizarAssuntoVisual(VISUAL_EXPLICITO.test(bruto) ? bruto : bruto.replace(/^[^:]{2,50}:\s*/, "")))
-    // Resto de rotulo ("Contato:", "Veja em") nao e fato: exige letra de sobra.
-    .filter(fato => (fato.match(/\p{L}/gu) || []).length >= 4)
-    .slice(0, 6);
+  // Uma chamada, uma fonte. A decisao de o que pode virar cena — e por que a
+  // regra e de FORMA e nao de vocabulario — esta em ./imageSubjectSafety.
+  const visualFacts = fatosVisuaisDoBriefing(productContext?.confirmedVisualFacts);
   // Calculado a partir do texto CRU, nao do sanitizado: um perfil que so
   // tenha clausula comercial ("Assinatura por R$ 99,90/mes") sanitiza pra
   // vazio, e nesse caso a cena generica do segmento deve voltar a valer em

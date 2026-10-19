@@ -78,3 +78,49 @@ entram crus do briefing em portugues, enquanto o andaime do prompt esta em
 ingles. O encoder T5 do FLUX e predominantemente ingles. Traduzir exige chamada
 de modelo no caminho de geracao (custo e latencia novos) ou glossario por
 segmento (que fabrica termo): decisao de arquitetura, nao ajuste de prompt.
+
+## 19/10 — como o filtro de fatos visuais foi feito pra envelhecer bem
+
+Michel: *"essa alteracao precisa cobrir possiveis situacoes que venham surgir no futuro"*. O pedido apontou uma fraqueza real: eu tinha acabado de trocar uma lista de 4 palavras de imovel (`tipo|caracteristica|mobilia|pavimentos`) por uma lista de 20 palavras de transacao. Lista nova envelhece igual.
+
+### O que decide hoje
+
+Tudo em `server/imageSubjectSafety.ts`, modulo puro com teste de invariante proprio.
+
+**Regra de FORMA — generaliza, nao depende de adivinhar palavra:**
+digito, URL, `www.`, dominio, e-mail, @handle e aparte em parenteses. Nunca sao cena, em nenhum segmento, em nenhum briefing futuro.
+
+**Regra de VOCABULARIO — nao generaliza, e so pra prosa transacional:**
+dois conjuntos, separados pra manter a historia de cada um. O `comercial` historico, intocado (cada termo tem razao propria, e "materia(l|is) complementar" tem bug documentado atras), e o transacional de 19/10.
+
+**Teto de CARACTERES, nao de contagem.** Seis fatos curtos somam pouco; seis verbosos diluem o assunto inteiro. Briefing futuro tem fato de qualquer tamanho.
+
+**Rotulo sempre sai, sem caso especial.** "tipo: apartamento de dois quartos" vira "apartamento de dois quartos". Eliminou a terceira lista (`VISUAL_EXPLICITO`) e melhorou o prompt.
+
+**Checagem no fato INTEIRO, nao so no rotulo.** "Compre no site oficial", solto, era invisivel pro filtro que olhava so rotulo.
+
+### Tres regras que eu escrevi e descartei no mesmo dia
+
+Registradas porque cada uma teria criado o bug seguinte, e porque a proxima pessoa vai ter as mesmas ideias.
+
+1. **Barrar sigla em CAIXA ALTA** (CNPJ, CPF, PIX). Barraria **"VR"** — o fato que a semana toda tentou fazer chegar na imagem. E CNPJ/CPF morrem de graca: o valor e digito, o rotulo sai, sobra vazio.
+
+2. **Vocabulario largo**: a primeira versao tinha `atendimento`, `suporte`, `canal`, `plataforma`, `valor`, `prazo`, `entrega`, `contato`, `telefone`, `e-mail`, `cnpj`, `cpf`, `inscricao`. O teste de invariante derrubou na hora: **`atendimento` matava "atendimento em VR com acompanhamento"**, cena legitima. "atendimento domiciliar", "plano de aula", "canal de luz": palavra generica em lista de bloqueio bloqueia demais.
+   Treze palavras saíram sem perder barreira, por um criterio: **termo cujo VALOR tem forma de identificador nao precisa estar na lista**, porque a regra de forma ja o mata. "Contato: ola@x.com.br" sobra vazio; "Telefone: (11) 99999-0000" sobra vazio.
+
+3. **"Fato de uma palavra nao e cena"**, pra pegar "Plataforma: Hotmart" depois da poda. Derrubada por teste pre-existente: **"Caracteristica: ar-condicionado" e uma palavra e e cena**. Com ela, "churrasqueira", "varanda" e "piscina" morriam tambem. Pelo criterio do proprio pedido ela e PIOR que a palavra que eu tinha tirado — superficie de erro de todo fato visual de um token, contra "plataforma" aparecendo como objeto de cena, que nesse dominio e raro. **Palavra estreita de volta na lista ganha de regra larga.**
+
+### Limite conhecido, declarado
+
+**Marca sem dominio nao e detectavel por forma.** "Plataforma: Hotmart" e barrado por vocabulario; "Diferencial: parceria oficial com a Nike" passa. Marca em prompt de imagem e pedido de logo, e logo em anuncio e problema de compliance.
+
+Nao existe regra determinística pra isso sem lista de marcas, e lista de marcas e exatamente o que envelhece. Fica para o portao visual, que tem `blockers` e reprova logo e material de banco de imagem passado como real. Ha teste afirmando que a Nike passa — se isso mudar, o comentario do modulo muda junto.
+
+### O que faz o teste cobrir o futuro
+
+`imageSubjectSafety.test.ts` nao afirma "a palavra X esta na lista". Afirma **propriedade da saida** sobre um corpus adversarial de 25 briefings de segmentos variados, com rotulos deliberadamente fora do vocabulario:
+
+- nada de digito, URL, dominio, e-mail, @, moeda, `%` ou parentese sai do filtro, qualquer que seja a entrada;
+- fato visual de infoproduto, imovel, servico e saude continua chegando.
+
+Um rotulo que ninguem imaginou quebra o teste pela propriedade, nao pela ausencia na lista. Noise inofensivo pode passar (um "ate dias antes" sem numero), e isso e **troca aceita**: a alternativa e lista de palavras uteis, que e o que quebrou pra imovel.
