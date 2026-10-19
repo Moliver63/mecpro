@@ -34,6 +34,7 @@
     "@google-analytics/data": "^6.1.0",
     "@google/genai": "^1.0.0",
     "@hookform/resolvers": "^5.2.2",
+    "@huggingface/inference": "^4.13.32",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",

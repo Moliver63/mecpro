@@ -2960,3 +2960,35 @@ Validado: suite inteira 447/447 (base `d96dddc`: 442/442, +5 novos), `tsc -p tsc
 - **Nao existe segmento de academia/fitness.** "Academia, musculacao e treino funcional" resolve `outro`, e ai o texto livre decide — "organize suas financas" no briefing vira `financeiro`. Pre-existente, igual antes e depois desta correcao. `MULTI_ITEM_SEGMENTS` ainda lista `academia`, que nao existe na taxonomia.
 - **O perfil da Shadia muda de segmento conforme e editado**: `financeiro` em 28/09 ("desenvolvimento humano, espiritual e financeiro"), `educacao` com o texto documentado, `infoprodutos` na 801 de hoje. O segmento depende do perfil por desenho; vale o perfil dizer o que o negocio e.
 - `package-lock.json` fora de sincronia com `package.json` (`@google/genai@1.52.0` ausente do lock): `npm ci` falha. Usei `npm install` sem gravar o lock.
+
+## 19/10 — Hugging Face reativado como gerador de imagem (reserva entre Cloudflare e Pixabay)
+
+Michel perguntou se o gerador do Hugging Face estava funcionando no MecProAI. **Nao estava, por desenho**: desde 28/09 (`963a2de`) `HF_MODELS` era lista vazia, `generateWithHuggingFace` nunca era chamada em ponto nenhum do servidor, e o rotulo `IMAGE_PROVIDER=huggingface` gerava pelo Cloudflare FLUX. Na 799, os criativos mostravam "provedor pedido: huggingface" e "provedor usado: cloudflare". Michel decidiu reativar.
+
+### Conta e token, verificados em producao (Shell do Render, 19/10)
+
+- `HUGGINGFACE_API_KEY` valida, conta `Michelleal123`, `isPro: false`.
+- Permissoes: `global: []` e `scoped: [inference.serverless.write, inference.endpoints.infer.write]`. **Correcao minha registrada**: eu disse que `global: []` indicava falta de permissao de inferencia. Errado: a permissao de inferencia e scoped na propria conta.
+- Conta gratuita nao tem credito mensal pra Inference Providers (PRO tem US$ 2). **Sem credito comprado, toda chamada volta 402.** Esse e o bloqueio que sobra, e e de conta, nao de codigo.
+
+### Implementacao
+
+`server/ai-providers/huggingFaceImage.ts`, transporte puro, via cliente oficial `@huggingface/inference` (4.13.32, dependencia nova). A doc oficial nao publica o formato HTTP cru de text-to-image, so os clientes; montar URL a mao foi o erro do OpenRouter (404 por tres rodadas).
+
+Tres decisoes, todas tiradas de ler o codigo do pacote, nao da doc:
+
+1. **Provedor padrao `fal-ai`, nao `auto`.** `resolveProvider` pega `mappings[0]` sem checar status, e consulta o mapeamento sem o token. O mapeamento real do `FLUX.1-schnell` em 19/10: nscale/fal-ai/wavespeed `live`, together/deepinfra `error`. Mudou a ordem, "auto" cai em provedor quebrado. Trocavel por `HF_IMAGE_PROVIDER`.
+2. **`outputType: "url"` e download proprio.** O fal-ai e por fila, e o cliente faz o polling e o download final com o `fetch` GLOBAL, ignorando o injetado. Pedindo so a URL, o download fica com o nosso timeout e testavel. Data URL tambem tratada.
+3. **Pausa propria de 15 min em 402**, e nao `markProviderExhausted` (24h): o caso esperado e colocar credito no mesmo dia.
+
+Motivo nomeado em toda falha (`sem_credito`, `token_sem_permissao`, `modelo_ou_provedor_indisponivel`, `limite_de_taxa`, `provedor_fora`, `timeout`, `imagem_vazia`), mesma licao do `visual_validator_unavailable`.
+
+**Onde entra**: na fila (`generateCampaignImageCandidate`) e no caminho inline (`generateAdImage`), sempre **depois** do Cloudflare e **antes** do Pixabay. No inline, o RAG que era so do Cloudflare virou `aprovarComRag`, compartilhado: imagem do HF passa pelo MESMO portao. Comportamento do Cloudflare identico (mesma ordem, mesmo label `cloudflare` na biblioteca).
+
+Tambem: `generateWithHuggingFace` e `HF_MODELS` (codigo morto, 115 linhas) removidos; `redactProviderSecrets` passa a cobrir `hf_` e o valor exato de `HUGGINGFACE_API_KEY`; o boot diz a cadeia real ("Cloudflare FLUX ✅ → Hugging Face ✅ (reserva, pago por credito) → banco de imagens: Pixabay ✅"). O teste do boot de 06-09/10 foi atualizado, nao afrouxado: o principio "so leva ✅ o que gera" continua, com casos novos (sem chave, HF sem Cloudflare).
+
+Validado: 9 testes novos com a sequencia real do fal-ai simulada (Hub → fila → resultado → download); suite inteira 456/456 (base `f23441f`: 447/447); `tsc -p tsconfig.server.json` 37, diff identico ao baseline; `check:mcp` ok com env falso de localhost (sem env, ZodError identico na base).
+
+### Nao verificado
+
+**Nenhuma imagem real foi gerada pelo HF.** `router.huggingface.co` esta fora da allowlist deste sandbox, e a conta nao tem credito. A verificacao e: credito na conta, deploy, e o log mostrar `Hugging Face gerou imagem` — ou `Hugging Face sem imagem: <motivo>` dizendo qual camada falta. O HF so roda quando o Cloudflare nao entrega (cota de ~173/dia ou falha). Pra provar sem esperar isso: `npx tsx server/scripts/testar-huggingface-imagem.ts` no Shell do Render — gera uma imagem, mede, descarta, nao grava nada, e diz o motivo nomeado se falhar.

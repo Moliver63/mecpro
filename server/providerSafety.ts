@@ -9,11 +9,11 @@ function escaparRegex(valor: string): string {
 export function redactProviderSecrets(text: string): string {
   let saida = text
     .replace(/AIza[\w-]+/g, "[REDACTED]")
-    .replace(/\b(?:sk-|ghp_|github_pat_)[\w-]+/g, "[REDACTED]")
+    .replace(/\b(?:sk-|ghp_|github_pat_|hf_)[\w-]+/g, "[REDACTED]")
     .replace(/(api[_-]?key\s*[:=]\s*['"]?)[^\s'"&,}]+/gi, "$1[REDACTED]");
 
   // Valores longos o bastante pra nao colidir com texto comum.
-  for (const nome of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
+  for (const nome of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "HUGGINGFACE_API_KEY"]) {
     const valor = String(process.env[nome] || "").trim();
     if (valor.length >= 16) {
       saida = saida.replace(new RegExp(escaparRegex(valor), "g"), "[REDACTED]");

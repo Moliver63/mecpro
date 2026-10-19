@@ -132,6 +132,9 @@ export const MAX_TENTATIVAS_VALIDACAO = 3;
  *    no codigo, com o comentario "HF hf-inference nao suporta mais modelos de
  *    imagem — desabilitado". `generateWithHuggingFace` itera lista vazia e
  *    devolve null. O ✅ era num provedor morto.
+ *    (Atualizado 19/10: HF reativado pela rota Inference Providers em
+ *    ai-providers/huggingFaceImage.ts, como reserva entre Cloudflare e
+ *    Pixabay. O principio continua: so leva ✅ o que de fato gera.)
  * 2. **A fila de imagens de campanha nao consulta `IMAGE_PROVIDER`.**
  *    `generateCampaignImageCandidate` vai direto no Cloudflare FLUX e cai pro
  *    Pixabay. A variavel so vale pros caminhos sincronos legados (`ai.ts`,
@@ -151,9 +154,16 @@ export function rotuloProvedorDeImagem(env: Record<string, string | undefined>) 
   const temCloudflare = !!(String(env.CLOUDFLARE_ACCOUNT_ID || "").trim() && String(env.CLOUDFLARE_API_TOKEN || "").trim());
   const temPixabay = !!String(env.PIXABAY_API_KEY || "").trim();
 
+  // 19/10: Hugging Face reativado (Inference Providers) como reserva entre o
+  // Cloudflare e o Pixabay. "pago por credito" fica explicito: conta gratuita
+  // nao tem credito, e sem ele toda chamada volta 402 (logada como sem_credito).
+  const hf = temHf ? "Hugging Face ✅ (reserva, pago por credito)" : "Hugging Face ausente";
+  const pixabay = temPixabay ? "Pixabay ✅" : "Pixabay ausente";
   const filaDeCampanha = temCloudflare
-    ? `Cloudflare FLUX ✅ (fallback banco de imagens: ${temPixabay ? "Pixabay ✅" : "Pixabay ausente"})`
-    : `❌ sem gerador: CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN ausente${temPixabay ? " — so o fallback Pixabay responde" : " e PIXABAY_API_KEY tambem ausente"}`;
+    ? `Cloudflare FLUX ✅ → ${hf} → banco de imagens: ${pixabay}`
+    : temHf
+      ? `Cloudflare ausente → ${hf} → banco de imagens: ${pixabay}`
+      : `❌ sem gerador: CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN ausente${temPixabay ? " — so o fallback Pixabay responde" : " e PIXABAY_API_KEY tambem ausente"}`;
 
   // O resolvido do caminho legado, sem ✅ pra provedor que nao gera.
   const resolvido = pedido === "heygen" ? "heygen"
@@ -164,8 +174,11 @@ export function rotuloProvedorDeImagem(env: Record<string, string | undefined>) 
     : "mock → SVG inline";
 
   const ehHuggingface = resolvido.startsWith("huggingface");
+  // O rotulo "huggingface" nesse caminho gera PRIMEIRO pelo Cloudflare FLUX;
+  // o Hugging Face so entra como reserva. Dizer isso evita a confusao que
+  // levou a "o HF esta funcionando?" em 19/10.
   const caminhoLegado = ehHuggingface
-    ? `${resolvido} — ATENCAO: desabilitado no codigo (HF_MODELS vazio), nao gera imagem`
+    ? `${resolvido} — gera por Cloudflare FLUX primeiro, Hugging Face como reserva${temHf ? "" : " (sem HUGGINGFACE_API_KEY: reserva inativa)"}`
     : resolvido;
 
   return { filaDeCampanha, caminhoLegado };

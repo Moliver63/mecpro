@@ -208,20 +208,31 @@ test("changed brief cancels without provider call", async () => {
 // "IMAGE_PROVIDER (efetivo): huggingface ✅", e enganava duas vezes — HF nao
 // gera imagem em caminho nenhum (HF_MODELS vazio no codigo) e a fila de
 // imagens de campanha nem consulta IMAGE_PROVIDER.
+//
+// 19/10: HF reativado (Inference Providers) como reserva entre Cloudflare e
+// Pixabay. O principio deste teste continua — so leva ✅ o que de fato gera —
+// e as asercoes passaram a dizer a verdade nova: com chave, o HF gera; sem
+// chave, nao leva ✅; e o rotulo "huggingface" diz que gera primeiro pelo
+// Cloudflare (a confusao que levou a pergunta "o HF esta funcionando?").
 test("boot nao anuncia provedor de imagem que nao gera imagem", () => {
   // O ambiente real do Michel: IMAGE_PROVIDER=huggingface com chave HF.
   const real = rotuloProvedorDeImagem({
     IMAGE_PROVIDER: "huggingface", HUGGINGFACE_API_KEY: "hf_x",
     CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "tok", PIXABAY_API_KEY: "pix",
   });
-  assert.doesNotMatch(real.caminhoLegado, /✅/, "nao pode dar check num provedor desabilitado");
-  assert.match(real.caminhoLegado, /desabilitado no codigo/);
-  // E diz o que DE FATO gera imagem de campanha.
-  assert.match(real.filaDeCampanha, /Cloudflare FLUX ✅/);
-  assert.match(real.filaDeCampanha, /Pixabay ✅/);
+  assert.doesNotMatch(real.caminhoLegado, /✅/, "o rotulo legado nao leva check, so descreve");
+  assert.match(real.caminhoLegado, /Cloudflare FLUX primeiro, Hugging Face como reserva/);
+  // A fila diz a cadeia real, na ordem.
+  assert.match(real.filaDeCampanha, /Cloudflare FLUX ✅ → Hugging Face ✅ \(reserva, pago por credito\) → banco de imagens: Pixabay ✅/);
 
-  // Auto-deteccao por chave HF cai na mesma ressalva.
-  assert.match(rotuloProvedorDeImagem({ HUGGINGFACE_API_KEY: "hf_x" }).caminhoLegado, /desabilitado no codigo/);
+  // Sem chave HF, o HF nao pode levar ✅.
+  const semHf = rotuloProvedorDeImagem({ CLOUDFLARE_ACCOUNT_ID: "acc", CLOUDFLARE_API_TOKEN: "tok" });
+  assert.match(semHf.filaDeCampanha, /Hugging Face ausente/);
+  assert.doesNotMatch(semHf.filaDeCampanha, /Hugging Face ✅/);
+  assert.match(rotuloProvedorDeImagem({ IMAGE_PROVIDER: "huggingface" }).caminhoLegado, /reserva inativa/);
+
+  // So chave HF, sem Cloudflare: o HF passa a ser o gerador, e o boot diz isso.
+  assert.match(rotuloProvedorDeImagem({ HUGGINGFACE_API_KEY: "hf_x" }).filaDeCampanha, /Cloudflare ausente → Hugging Face ✅/);
 });
 
 test("boot avisa quando a fila de imagem nao tem gerador", () => {

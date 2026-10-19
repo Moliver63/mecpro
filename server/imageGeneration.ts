@@ -2,6 +2,8 @@ import crypto from "crypto";
 import { log } from "./logger";
 import { fatosVisuaisDoBriefing, sanitizarAssuntoVisual } from "./imageSubjectSafety";
 import { canonicalStockQuery } from "./imageWorkflowPolicy";
+import { gerarImagemHuggingFace } from "./ai-providers/huggingFaceImage";
+import { redactProviderSecrets } from "./providerSafety";
 
 export type ImageProvider = "huggingface" | "heygen" | "genspark" | "mock";
 export type CreativeImageFormat = "feed" | "stories" | "square";
@@ -15,12 +17,7 @@ export interface ImageProductContext {
 }
 
 const IMAGE_CACHE = new Map<string, string>();
-// API nova HuggingFace router: /v1/text-to-image
-// FLUX.1-schnell: gratuito, rápido (4 steps), nova API
-// SD 3.5 Large: alta qualidade, nova API
-// SDXL Turbo: fallback rápido
-// HF hf-inference não suporta mais modelos de imagem — desabilitado
-const HF_MODELS: string[] = [];
+// Hugging Face: ver ai-providers/huggingFaceImage.ts (rota Inference Providers, 19/10).
 
 // Cloudflare Workers AI — FLUX.1-schnell gratuito (10k neurons/dia)
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "";
@@ -772,121 +769,6 @@ export async function uploadBase64ImageToCloudinary(base64Data: string, fileName
   return uploadImageBufferToCloudinary(Buffer.from(base64Clean, "base64"), fileName);
 }
 
-async function generateWithHuggingFace(prompt: string, apiKey: string, format: CreativeImageFormat): Promise<string | null> {
-  const dim = FORMAT_DIMENSIONS[format];
-
-  for (const model of HF_MODELS) {
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        // FAL-AI endpoint via HF router (suporta FLUX sem precisar de créditos FAL direto)
-        const apiUrl = model.includes("schnell")
-          ? "https://router.huggingface.co/fal-ai/flux/schnell"
-          : "https://router.huggingface.co/hf-inference/models/" + model + "/v1/text-to-image";
-
-        // Payload adapta por modelo:
-        // FLUX.1-schnell: sem guidance_scale, poucos steps
-        // SD 3.5 / SDXL: com width/height e guidance
-        const isFlux   = model.includes("FLUX") || model.includes("schnell");
-        const isFalAi  = apiUrl.includes("fal-ai");
-        const isTurbo  = model.includes("turbo");
-        
-        let params: Record<string, any>;
-        if (isFalAi) {
-          // FAL-AI via HF router: payload diferente
-          params = {
-            prompt,
-            image_size: format === "stories" ? "portrait_16_9"
-              : format === "square"  ? "square_hd"
-              : "portrait_4_3",
-            num_inference_steps: 4,
-            num_images: 1,
-            enable_safety_checker: false,
-          };
-        } else if (!isFlux) {
-          params = { inputs: prompt, parameters: {
-            width: Math.min(dim.width, 1024), height: Math.min(dim.height, 1024),
-            num_inference_steps: isTurbo ? 4 : 28, guidance_scale: isTurbo ? 0 : 7,
-          }};
-        } else {
-          params = { inputs: prompt, parameters: { num_inference_steps: 4 } };
-        }
-
-        const res = await fetch(apiUrl, {
-          method: "POST",
-          headers: {
-            Authorization: "Bearer " + apiKey,
-            "Content-Type": "application/json",
-            Accept: "image/jpeg,image/png,image/*",
-          },
-          body: JSON.stringify(params),
-          signal: AbortSignal.timeout(90000),
-        });
-
-        if (res.status === 503) {
-          log.warn("image-generation", "HF 503, retry agendado", { model, attempt, format });
-          await sleep(1200 * attempt);
-          continue;
-        }
-
-        if (!res.ok) {
-          const preview = await res.text().catch(() => "");
-          log.warn("image-generation", "HF retornou erro", { model, attempt, status: res.status, preview: preview.slice(0, 160) });
-
-          // 402 = créditos esgotados no provider. É falha fatal para esta execução.
-          if (res.status === 402 || /depleted your monthly included credits/i.test(preview)) {
-            markProviderExhausted("huggingface");
-            log.warn("image-generation", "HF sem créditos — interrompendo tentativas neste provider", { model, format });
-            return null;
-          }
-
-          break;
-        }
-
-        const contentType = res.headers.get("content-type") || "";
-        
-        // FAL-AI retorna JSON com URL da imagem gerada
-        if (isFalAi && contentType.includes("application/json")) {
-          const falData: any = await res.json().catch(() => ({}));
-          const falUrl = falData?.images?.[0]?.url || falData?.image?.url;
-          if (falUrl) {
-            // Faz download da imagem e upload para Cloudinary
-            const imgRes = await fetch(falUrl, { signal: AbortSignal.timeout(20000) }).catch(() => null);
-            if (imgRes?.ok) {
-              const buf = Buffer.from(await imgRes.arrayBuffer());
-              const cloudUrl = await uploadImageBufferToCloudinary(buf, `flux_${format}_${Date.now()}.jpg`);
-              if (cloudUrl) {
-                log.info("image-generation", "HF FAL-AI → Cloudinary OK", { model, format, url: cloudUrl.slice(0, 60) });
-                return cloudUrl;
-              }
-            }
-          }
-          break; // FAL-AI falhou
-        }
-        
-        if (!contentType.includes("image")) {
-          const preview = await res.text().catch(() => "");
-          log.warn("image-generation", "HF retornou conteúdo não-imagem", { model, preview: preview.slice(0, 160) });
-          break;
-        }
-
-        const arrayBuffer = await res.arrayBuffer();
-        const hfBuffer = Buffer.from(arrayBuffer);
-        // Upload para Cloudinary — URL estável necessária para Meta Ads
-        const cloudUrl = await uploadImageBufferToCloudinary(hfBuffer, `hf_${format}_${Date.now()}.jpg`);
-        if (cloudUrl) {
-          log.info("image-generation", "HF → Cloudinary OK", { model, format, url: cloudUrl.slice(0, 60) });
-          return cloudUrl;
-        }
-        return null; // sem Cloudinary, buffer não pode ser usado como URL
-      } catch (error: any) {
-        log.warn("image-generation", "Erro na geração HF", { model, attempt, error: error?.message, format });
-        if (attempt < 3) await sleep(1200 * attempt);
-      }
-    }
-  }
-
-  return null;
-}
 
 // ── Banco de imagens aprovadas pelo RAG ──────────────────────────────────────
 // Salva imagens validadas e reutiliza antes de gerar novas
@@ -1748,6 +1630,18 @@ export async function generateCampaignImageCandidate(brief: any, format: Creativ
     if (url) return { url: urlCloudinaryNaProporcao(url, format), provider: "cloudflare" };
     return null;
   }
+  // Hugging Face (Inference Providers) antes do banco de imagens: gera imagem
+  // de verdade quando o Cloudflare esgota a cota ou falha. Sem chave, pula
+  // calado; com chave e falha, o motivo vai nomeado pro log.
+  const hf = await gerarImagemHuggingFace(prompt, format);
+  if (hf.buffer) {
+    const url = await uploadImageBufferToCloudinary(hf.buffer, `campaign_candidate_hf_${Date.now()}_${index}.jpg`);
+    if (url) return { url: urlCloudinaryNaProporcao(url, format), provider: "huggingface" };
+  } else if (hf.motivo !== "sem_chave") {
+    log.warn("image-generation", `Hugging Face sem imagem: ${hf.motivo}`, {
+      format, index, detalhe: redactProviderSecrets(hf.detalhe || ""),
+    });
+  }
   const query = canonicalStockQuery(brief.segment, context.productService, index);
   const stock = await searchPixabay(query, format, index);
   if (!stock) return null;
@@ -1785,6 +1679,44 @@ export async function generateAdImage(
   if (cached) return cached;
 
   let validationPending = false;
+  // RAG: valida a imagem gerada antes de salvar no banco. Compartilhado por
+  // Cloudflare e Hugging Face pra os dois passarem pelo MESMO portao.
+  const aprovarComRag = async (url: string, bytes: number, providerLabel: string): Promise<string | null> => {
+    try {
+      const { runImageRAG: _rag } = await import("./imageRAG");
+      const ragResult = await _rag(url, bytes, {
+        segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
+        productName:    productContext?.productName,
+        productService: productContext?.productService,
+        niche:          productContext?.niche,
+        // Sem estes dois o `matchesBrief` do validador fica sem
+        // nada pra auditar e aprova por vacuidade. Ver RAGContext.
+        offerAnchor:          productContext?.offerAnchor || [],
+        confirmedVisualFacts: productContext?.confirmedVisualFacts || [],
+      });
+      if (ragResult.validation_status === "approved") {
+        await saveApprovedImage({
+          cloudUrl: url, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
+          query: ragResult.generated_tags.slice(0,3).join(","),
+          provider: providerLabel, bytes,
+        });
+        log.info("image-generation", "RAG aprovado — salvo na biblioteca", {
+          score: ragResult.scores.overall_score, provider: providerLabel,
+        });
+        IMAGE_CACHE.set(cacheKey, url);
+        return url;
+      }
+      validationPending = ragResult.validation_status === "pending_validation";
+      log.warn("image-generation", `RAG ${ragResult.validation_status}`, {
+        rejection: ragResult.rejection_reason.slice(0,80), provider: providerLabel,
+      });
+      return null;
+    } catch (ragErr: any) {
+      validationPending = true;
+      log.warn("image-generation", "RAG indisponivel: imagem nao aprovada nem armazenada no cache", { format, provider: providerLabel });
+      return null;
+    }
+  };
   const tryProvider = async (providerToTry: ImageProvider, apiKey?: string): Promise<string | null> => {
     if (providerToTry === "huggingface") {
       // Cloudflare FLUX com RAG anti-alucinação:
@@ -1810,42 +1742,7 @@ export async function generateAdImage(
                 );
                 if (cfUrl) {
                   log.info("image-generation", `Cloudflare FLUX gerou imagem; RAG ainda pendente (tentativa ${attempt})`, { format });
-                  // RAG: valida imagem antes de salvar no banco
-                  try {
-                    const { runImageRAG: _rag } = await import("./imageRAG");
-                    const ragResult = await _rag(cfUrl, cfBuffer.length, {
-                      segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
-                      productName:    productContext?.productName,
-                      productService: productContext?.productService,
-                      niche:          productContext?.niche,
-                      // Sem estes dois o `matchesBrief` do validador fica sem
-                      // nada pra auditar e aprova por vacuidade. Ver RAGContext.
-                      offerAnchor:          productContext?.offerAnchor || [],
-                      confirmedVisualFacts: productContext?.confirmedVisualFacts || [],
-                    });
-                    if (ragResult.validation_status === "approved") {
-                      await saveApprovedImage({
-                        cloudUrl: cfUrl, segment: (segment || "outro").split("\n")[0].slice(0, 50), format,
-                        query: ragResult.generated_tags.slice(0,3).join(","),
-                        provider: "cloudflare", bytes: cfBuffer.length,
-                      });
-                      log.info("image-generation", "RAG aprovado — salvo na biblioteca", {
-                        score: ragResult.scores.overall_score,
-                      });
-                      IMAGE_CACHE.set(cacheKey, cfUrl);
-                    } else {
-                      validationPending = ragResult.validation_status === "pending_validation";
-                      log.warn("image-generation", `RAG ${ragResult.validation_status}`, {
-                        rejection: ragResult.rejection_reason.slice(0,80),
-                      });
-                      return null;
-                    }
-                  } catch (ragErr: any) {
-                    validationPending = true;
-                    log.warn("image-generation", "RAG indisponivel: imagem nao aprovada nem armazenada no cache", { format });
-                    return null;
-                  }
-                  return cfUrl;
+                  return await aprovarComRag(cfUrl, cfBuffer.length, "cloudflare");
                 }
               } else {
                 log.warn("image-generation", `RAG: imagem CF rejeitada (tentativa ${attempt}) — tentando novamente`, { format });
@@ -1858,7 +1755,23 @@ export async function generateAdImage(
           } catch { /* continua */ }
         }
       }
-      // HF hf-inference desabilitado — todos os modelos mortos
+      // Hugging Face pela rota atual (Inference Providers), reativado em 19/10:
+      // entra quando o Cloudflare nao existe ou nao entregou imagem, ANTES do
+      // Pixabay, e passa pelo mesmo RAG. Ver ai-providers/huggingFaceImage.ts.
+      const hf = await gerarImagemHuggingFace(
+        inferPrompt(creative, segment, objective, format, productContext), format,
+      );
+      if (hf.buffer) {
+        const hfUrl = await uploadImageBufferToCloudinary(hf.buffer, `hf_${format}_${Date.now()}.jpg`);
+        if (hfUrl) {
+          log.info("image-generation", "Hugging Face gerou imagem; RAG ainda pendente", { format });
+          return await aprovarComRag(hfUrl, hf.buffer.length, "huggingface");
+        }
+      } else if (hf.motivo !== "sem_chave") {
+        log.warn("image-generation", `Hugging Face sem imagem: ${hf.motivo}`, {
+          format, detalhe: redactProviderSecrets(hf.detalhe || ""),
+        });
+      }
       return null;
     }
 
