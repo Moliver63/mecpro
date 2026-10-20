@@ -102,3 +102,20 @@ test("sem mudancas: nao grava e devolve a revisao", () => {
   assert.equal((r.relatorio!.revisao as any[]).length, 2);
   assert.ok((r.relatorio!.valoresCitadosNoResumo as string[]).some((t) => t.includes("R$ 30")));
 });
+
+test("799: fica so o TOF a R$ 6/dia; MOF e BOF saem e o minimo de publicacao deixa de avisar", () => {
+  const r = ajustarRascunhoCampanha(campanha(), { keepAdSetIndexes: [0], adSetBudgetsDaily: [6] }, auditCreativeSegmentAlignment);
+  assert.equal(r.erro, undefined, String(r.erro));
+  const adSets = JSON.parse(r.patch!.adSets!);
+  assert.equal(adSets.length, 1);
+  assert.equal(adSets[0].name, "TOF - Público Frio Autoconhecimento VR");
+  assert.equal(adSets[0].budget, "R$ 6,00/dia");
+  assert.deepEqual(r.relatorio!.avisos, []);
+  assert.ok((r.relatorio!.alteracoes as string[]).some((a) => /conjunto 2 .* removido/.test(a)));
+});
+
+test("keepAdSetIndexes invalido, vazio ou repetido e recusado", () => {
+  for (const k of [[], [5], [0, 0]]) {
+    assert.match(String(ajustarRascunhoCampanha(campanha(), { keepAdSetIndexes: k }, auditCreativeSegmentAlignment).erro), /keepAdSetIndexes/);
+  }
+});

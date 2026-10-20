@@ -3045,3 +3045,7 @@ Pedido do Michel pra 799: R$ 2/dia em cada um dos 3 conjuntos (R$ 6/dia, R$ 84 e
 - MCP `update_campaign_draft` (+ aliases), escopo `write`, confere dono.
 
 Validado: 6 testes com a forma real da 799; suite 481/481; `tsc` 37; `check:mcp` ok.
+
+## 20/10 — `update_campaign_draft` remove conjuntos (`keepAdSetIndexes`)
+
+Aplicado na 799: orcamento ajustado (3 x R$ 2/dia, total R$ 84), criativo 1 sem o depoimento inventado (headline encurtada pra 40: "Jornada de autoconhecimento Shadia Hasan"), resumo trocado de "R$ 90/mes" pra "R$ 84 em 14 dias". Revisao: 4 criativos so com score baixo. Mas R$ 2 por conjunto fica abaixo do minimo de publicacao (R$ 5,11), e o Michel escolheu ficar com UM conjunto a R$ 6/dia. A ferramenta nao removia conjunto: entrou `keepAdSetIndexes`, aplicado antes de `adSetBudgetsDaily`. 2 testes novos; suite e `tsc` no baseline.

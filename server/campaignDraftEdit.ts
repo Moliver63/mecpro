@@ -28,6 +28,8 @@ export interface EdicaoDeCriativo {
 }
 
 export interface EntradaRascunho {
+  /** Indices dos conjuntos que FICAM, na ordem atual. Os outros saem do rascunho. Aplicado antes de adSetBudgetsDaily. */
+  keepAdSetIndexes?: number[];
   adSetBudgetsDaily?: number[];
   suggestedBudgetDaily?: number;
   suggestedBudgetMonthly?: number;
@@ -104,7 +106,22 @@ export function ajustarRascunhoCampanha(campaign: any, entrada: EntradaRascunho,
   const facts = factsDaCampanha(campaign);
 
   // ── Orcamento por conjunto ────────────────────────────────────────────────
-  const adSets: any[] = json(campaign.adSets, []);
+  let adSets: any[] = json(campaign.adSets, []);
+  // Pedido real (20/10, 799): R$ 6/dia em 3 conjuntos da R$ 2 cada, abaixo do
+  // minimo de publicacao; o Michel escolheu ficar com UM conjunto a R$ 6.
+  if (entrada.keepAdSetIndexes !== undefined) {
+    const k = entrada.keepAdSetIndexes;
+    const unicos = Array.isArray(k) ? [...new Set(k)] : [];
+    if (!unicos.length || unicos.length !== k.length || !unicos.every((i) => Number.isSafeInteger(i) && i >= 0 && i < adSets.length)) {
+      return { erro: `keepAdSetIndexes precisa listar ao menos um conjunto existente, sem repetir (ha ${adSets.length}: 0 a ${adSets.length - 1}).` };
+    }
+    const removidos = adSets.map((a: any, i: number) => ({ a, i })).filter((x) => !unicos.includes(x.i));
+    adSets = unicos.sort((a, b) => a - b).map((i) => adSets[i]);
+    if (removidos.length) {
+      alteracoes.push(...removidos.map((x) => `conjunto ${x.i} (${x.a?.name || "sem nome"}) removido do rascunho`));
+      patch.adSets = JSON.stringify(adSets);
+    }
+  }
   if (entrada.adSetBudgetsDaily !== undefined) {
     const v = entrada.adSetBudgetsDaily;
     if (!Array.isArray(v) || v.length !== adSets.length || !v.every(valorEmReais)) {

@@ -2137,13 +2137,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
   const updateCampaignDraftToolConfig = {
     title: "Ajustar rascunho de campanha (sem Meta)",
     description:
-      "Ajusta um RASCUNHO de campanha no MecProAI: orcamento diario de cada conjunto, orcamento diario/total da " +
+      "Ajusta um RASCUNHO de campanha no MecProAI: quais conjuntos ficam, orcamento diario de cada conjunto, orcamento diario/total da " +
       "campanha, textos de criativos (headline<=40, description<=30, copy<=500, cta<=80, hook<=200, pain<=160, " +
       "solution<=220, script<=900; texto maior e recusado, nao cortado) e trocas de texto no resumo (strategy). " +
       "Recalcula score e revisao dos criativos e devolve quais ainda precisam de revisao. Nunca envia nada a Meta; " +
       "recusa campanha ja publicada. Sem nenhum campo de mudanca, so reexecuta e devolve a revisao.",
     inputSchema: {
       campaignId: z.number().int().positive(),
+      keepAdSetIndexes: z.array(z.number().int().min(0)).optional().describe("Indices dos conjuntos que ficam no rascunho; os outros sao removidos. Aplicado ANTES de adSetBudgetsDaily, que passa a valer para os que ficaram."),
       adSetBudgetsDaily: z.array(z.number().positive()).optional().describe("Orcamento diario em reais de cada conjunto, na ordem dos conjuntos."),
       suggestedBudgetDaily: z.number().positive().optional().describe("Orcamento diario total da campanha em reais."),
       suggestedBudgetMonthly: z.number().positive().optional().describe("Orcamento total do periodo em reais (coluna suggestedBudgetMonthly)."),
