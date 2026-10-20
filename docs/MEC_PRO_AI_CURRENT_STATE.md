@@ -3034,3 +3034,14 @@ O PR #64 (`205c1f8`, `05ac448`) abriu dois caminhos no `publicar_campanha` do ch
 Validado: suite 475/475, `tsc` 37 (mesmo conjunto do baseline), `check:mcp` ok com env falso.
 
 **Nao verificado**: a resposta real da Graph pra `whatsapp_number` na Pagina da Shadia (sandbox sem acesso a graph.facebook.com). O log `resolvePageLink OK ... hasWhatsApp` ou `resolvePageLink sem whatsapp_number` em producao responde. Tambem visto e nao mexido: `CampaignResult.tsx:770` chama `campaigns.resolvePageLink`, mas o procedimento mora em `competitors`; com o `?.` a chamada some em silencio.
+
+## 20/10 — `update_campaign_draft` (MCP): ajustar rascunho sem tocar na Meta
+
+Pedido do Michel pra 799: R$ 2/dia em cada um dos 3 conjuntos (R$ 6/dia, R$ 84 em 14 dias), trocar a copy do criativo 1 (tirar o depoimento inventado de "Ana Paula, 28"), manter rascunho e reexecutar a revisao. Nenhuma ferramenta fazia isso: o MCP so tinha imagem, foto destaque e edicao de campanha JA publicada; o chat nao mexe no orcamento total nem em gancho/roteiro.
+
+- `server/campaignDraftEdit.ts` (puro): orcamento por conjunto (`formatDailyBudget`), `suggestedBudgetDaily/Monthly`, texto de criativos (headline, description, copy, cta, hook, pain, solution, script + complianceNotes), trocas literais nos textos do resumo (`strategy`), varredura de termos proibidos e revisao de todos os criativos depois das mudancas. Recusa campanha com `metaCampaignId`/`publishedAt` ou status fora de draft/error.
+- Edicao de texto usa o MESMO nucleo do chat: `aplicarEdicaoDeTexto` (extraido de `editarCriativo`), com limite que recusa em vez de cortar, placeholder, Fact Guard, aliases, V2 e recalculo de needsReview.
+- Avisa (sem bloquear o rascunho) quando conjunto fica abaixo de R$ 5,11/dia: `publishToMeta` recusa esse valor na publicacao.
+- MCP `update_campaign_draft` (+ aliases), escopo `write`, confere dono.
+
+Validado: 6 testes com a forma real da 799; suite 481/481; `tsc` 37; `check:mcp` ok.

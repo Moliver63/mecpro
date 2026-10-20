@@ -2130,6 +2130,68 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     title: "Definir foto destaque da campanha (alias mecproai)",
   }, setFeaturedPhotoHandler);
 
+  // ── update_campaign_draft ─────────────────────────────────────────────
+  // Pedido real (20/10, campanha 799): ajustar orcamento por conjunto,
+  // orcamento total, copy e resumo de um RASCUNHO e reexecutar a revisao,
+  // sem enviar nada a Meta. Logica em server/campaignDraftEdit.ts.
+  const updateCampaignDraftToolConfig = {
+    title: "Ajustar rascunho de campanha (sem Meta)",
+    description:
+      "Ajusta um RASCUNHO de campanha no MecProAI: orcamento diario de cada conjunto, orcamento diario/total da " +
+      "campanha, textos de criativos (headline<=40, description<=30, copy<=500, cta<=80, hook<=200, pain<=160, " +
+      "solution<=220, script<=900; texto maior e recusado, nao cortado) e trocas de texto no resumo (strategy). " +
+      "Recalcula score e revisao dos criativos e devolve quais ainda precisam de revisao. Nunca envia nada a Meta; " +
+      "recusa campanha ja publicada. Sem nenhum campo de mudanca, so reexecuta e devolve a revisao.",
+    inputSchema: {
+      campaignId: z.number().int().positive(),
+      adSetBudgetsDaily: z.array(z.number().positive()).optional().describe("Orcamento diario em reais de cada conjunto, na ordem dos conjuntos."),
+      suggestedBudgetDaily: z.number().positive().optional().describe("Orcamento diario total da campanha em reais."),
+      suggestedBudgetMonthly: z.number().positive().optional().describe("Orcamento total do periodo em reais (coluna suggestedBudgetMonthly)."),
+      creativeEdits: z.array(z.object({
+        index: z.number().int().min(0),
+        headline: z.string().optional(), description: z.string().optional(), copy: z.string().optional(),
+        cta: z.string().optional(), hook: z.string().optional(), pain: z.string().optional(),
+        solution: z.string().optional(), script: z.string().optional(), complianceNotes: z.string().optional(),
+      })).optional(),
+      strategyReplacements: z.array(z.object({ from: z.string().min(1), to: z.string() })).optional().describe("Trocas literais dentro dos textos do resumo/estrategia."),
+      forbiddenTerms: z.array(z.string()).optional().describe("Termos que nao podem sobrar nos criativos nem no resumo; a resposta lista onde ainda aparecem."),
+    },
+  };
+
+  async function updateCampaignDraftHandler(input: any) {
+    if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
+    const campaign: any = await db.getCampaignById(input.campaignId);
+    if (!campaign) return { content: [{ type: "text" as const, text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+    const project: any = await db.getProjectById(campaign.projectId);
+    if (!project || project.userId !== userId) {
+      return { content: [{ type: "text" as const, text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+    }
+    const { ajustarRascunhoCampanha } = await import("./campaignDraftEdit");
+    const { auditCreativeSegmentAlignment } = await import("./ai");
+    const r = ajustarRascunhoCampanha(campaign, input, auditCreativeSegmentAlignment);
+    if (r.erro) {
+      return { content: [{ type: "text" as const, text: `Nada foi salvo. ${r.erro}` }], structuredContent: { ok: false, erro: r.erro, detalhes: r.detalhes ?? null }, isError: true };
+    }
+    if (r.patch && Object.keys(r.patch).length) {
+      await db.updateCampaign(campaign.id, r.patch as any);
+      log.info("mcp-draft", "rascunho ajustado", { userId, campaignId: campaign.id, campos: Object.keys(r.patch) });
+    }
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(r.relatorio, null, 2) }],
+      structuredContent: { ok: true, campaignId: campaign.id, salvo: Object.keys(r.patch || {}), ...r.relatorio },
+    };
+  }
+
+  server.registerTool("update_campaign_draft", updateCampaignDraftToolConfig, updateCampaignDraftHandler);
+  server.registerTool("MECPROAI.update_campaign_draft", {
+    ...updateCampaignDraftToolConfig,
+    title: "Ajustar rascunho de campanha (alias MECPROAI)",
+  }, updateCampaignDraftHandler);
+  server.registerTool("mecproai.update_campaign_draft", {
+    ...updateCampaignDraftToolConfig,
+    title: "Ajustar rascunho de campanha (alias mecproai)",
+  }, updateCampaignDraftHandler);
+
   // ═══════════════════════════════════════════════════════════════════════
   // FASE 3 — publicação real na Meta
   // ═══════════════════════════════════════════════════════════════════════

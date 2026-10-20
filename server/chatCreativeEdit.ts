@@ -22,7 +22,6 @@ import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha, textoDoCria
 export type AuditorDeSegmento = (creative: any, segment: string) => string[];
 
 const CAMPOS_EDITAVEIS = ["headline", "description", "copy", "cta", "hook"] as const;
-type CampoEditavel = typeof CAMPOS_EDITAVEIS[number];
 
 const PLACEHOLDER_RE = /\[[^\]]*?\]|\{[^}]*?\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i;
 
@@ -31,6 +30,76 @@ function lerCriativos(campaign: any): any[] | null {
     const v = JSON.parse(campaign.creatives || "[]");
     return Array.isArray(v) ? v : null;
   } catch { return null; }
+}
+
+export type CampoDeTexto = "headline" | "description" | "copy" | "cta" | "hook" | "pain" | "solution" | "script";
+
+/**
+ * Nucleo da edicao de texto, compartilhado pelo chat (`editar_criativo`) e pelo
+ * MCP (`update_campaign_draft`): valida limite, placeholder e Fact Guard,
+ * sincroniza aliases e V2, recalcula score/segmento/needsReview e apaga
+ * aprovacao anterior. Puro: nao grava nada.
+ */
+export function aplicarEdicaoDeTexto(
+  atual: any,
+  args: Record<string, unknown>,
+  campos: readonly CampoDeTexto[],
+  facts: ReturnType<typeof factsDaCampanha>,
+  auditarSegmento: AuditorDeSegmento,
+  agora: () => Date = () => new Date(),
+): { erro: string; conflitos?: string[]; instruction?: string } | { creative: any; diagnostico: ReturnType<typeof diagnosticarRevisao>; mudancas: Record<string, string> } {
+  const mudancas: Record<string, string> = {};
+  const erros: string[] = [];
+  for (const campo of campos) {
+    const valor = args[campo];
+    if (valor === undefined || valor === null) continue;
+    if (typeof valor !== "string" || !valor.trim()) { erros.push(`${campo} vazio`); continue; }
+    const texto = valor.trim();
+    // Recusa em vez de cortar: cortar texto que o usuario aprovou muda o que
+    // ele leu. Quem chamou reescreve mais curto e tenta de novo.
+    if (texto.length > CREATIVE_TEXT_LIMITS[campo]) {
+      erros.push(`${campo} tem ${texto.length} caracteres; maximo ${CREATIVE_TEXT_LIMITS[campo]}`);
+      continue;
+    }
+    if (PLACEHOLDER_RE.test(texto)) { erros.push(`${campo} tem marcador nao preenchido`); continue; }
+    mudancas[campo] = texto;
+  }
+  if (erros.length) return { erro: `Nada foi salvo: ${erros.join("; ")}.` };
+  if (!Object.keys(mudancas).length) return { erro: `Nenhum campo de texto informado (${campos.join(", ")}).` };
+
+  let proximo: any = { ...atual, ...mudancas };
+  // O anuncio da Meta le `copy || bodyText` e `description || shortDescription`.
+  // Alias velho ao lado do campo novo vira texto divergente em outro caminho.
+  if (mudancas.copy !== undefined && "bodyText" in atual) proximo.bodyText = mudancas.copy;
+  if (mudancas.description !== undefined && "shortDescription" in atual) proximo.shortDescription = mudancas.description;
+
+  if (facts) {
+    const auditoria = validateCampaignFactIntegrity([mudancas], facts);
+    if (auditoria.status !== "passed") {
+      return {
+        erro: "Nada foi salvo: o texto novo traz alegacao que nao esta no briefing da campanha.",
+        conflitos: auditoria.conflicts.slice(0, 5).map((c) => `${c.field.replace(/^creatives\.\d+\./, "")}: ${c.reason} ("${c.value}")`),
+        instruction: "Reescreva sem essa alegacao, ou peca ao usuario o dado real (com fonte) e atualize o briefing antes.",
+      };
+    }
+  }
+
+  const segmento = facts?.intent?.segment || atual.segmentAlignment || "";
+  proximo.segmentAlignmentIssues = segmento ? auditarSegmento(proximo, segmento) : [];
+  proximo.hasPlaceholder = PLACEHOLDER_RE.test(textoDoCriativo(proximo));
+  Object.assign(proximo, scoreCreative(proximo));
+  proximo.textEditedAt = agora().toISOString();
+  proximo._edited = true;
+  // Aprovacao anterior valia para o texto anterior.
+  delete proximo.reviewApprovedAt;
+  delete proximo.reviewApprovedBy;
+  delete proximo.reviewApprovalReason;
+  delete proximo.reviewApprovedScore;
+
+  const diagnostico = diagnosticarRevisao({ ...proximo, needsReview: false }, facts);
+  proximo.needsReview = diagnostico.motivos.length > 0;
+  proximo = syncCreativeTextToV2(proximo);
+  return { creative: proximo, diagnostico, mudancas };
 }
 
 /** Reescreve campos de texto de um criativo e recalcula score, segmento, fatos e needsReview. */
@@ -53,59 +122,10 @@ export async function editarCriativo(
       criativosDisponiveis: creatives.map((c: any, i: number) => ({ index: i, headline: c?.headline || null })) };
   }
 
-  const mudancas: Partial<Record<CampoEditavel, string>> = {};
-  const erros: string[] = [];
-  for (const campo of CAMPOS_EDITAVEIS) {
-    const valor = args[campo];
-    if (valor === undefined || valor === null) continue;
-    if (typeof valor !== "string" || !valor.trim()) { erros.push(`${campo} vazio`); continue; }
-    const texto = valor.trim();
-    // Recusa em vez de cortar: cortar texto que o usuario aprovou muda o que
-    // ele leu. O modelo reescreve mais curto e tenta de novo.
-    if (texto.length > CREATIVE_TEXT_LIMITS[campo]) {
-      erros.push(`${campo} tem ${texto.length} caracteres; maximo ${CREATIVE_TEXT_LIMITS[campo]}`);
-      continue;
-    }
-    if (PLACEHOLDER_RE.test(texto)) { erros.push(`${campo} tem marcador nao preenchido`); continue; }
-    mudancas[campo] = texto;
-  }
-  if (erros.length) return { erro: `Nada foi salvo: ${erros.join("; ")}.` };
-  if (!Object.keys(mudancas).length) return { erro: "Nenhum campo de texto informado (headline, description, copy, cta ou hook)." };
-
-  const atual = creatives[index];
-  let proximo: any = { ...atual, ...mudancas };
-  // O anuncio da Meta le `copy || bodyText` e `description || shortDescription`.
-  // Alias velho ao lado do campo novo vira texto divergente em outro caminho.
-  if (mudancas.copy !== undefined && "bodyText" in atual) proximo.bodyText = mudancas.copy;
-  if (mudancas.description !== undefined && "shortDescription" in atual) proximo.shortDescription = mudancas.description;
-
   const facts = factsDaCampanha(campaign);
-  if (facts) {
-    const auditoria = validateCampaignFactIntegrity([mudancas], facts);
-    if (auditoria.status !== "passed") {
-      return {
-        erro: "Nada foi salvo: o texto novo traz alegacao que nao esta no briefing da campanha.",
-        conflitos: auditoria.conflicts.slice(0, 5).map((c) => `${c.field.replace(/^creatives\.\d+\./, "")}: ${c.reason} ("${c.value}")`),
-        instruction: "Reescreva sem essa alegacao, ou peca ao usuario o dado real (com fonte) e atualize o briefing antes.",
-      };
-    }
-  }
-
-  const segmento = facts?.intent?.segment || atual.segmentAlignment || "";
-  proximo.segmentAlignmentIssues = segmento ? auditarSegmento(proximo, segmento) : [];
-  proximo.hasPlaceholder = PLACEHOLDER_RE.test(textoDoCriativo(proximo));
-  Object.assign(proximo, scoreCreative(proximo));
-  proximo.textEditedAt = new Date().toISOString();
-  proximo._edited = true;
-  // Aprovacao anterior valia para o texto anterior.
-  delete proximo.reviewApprovedAt;
-  delete proximo.reviewApprovedBy;
-  delete proximo.reviewApprovalReason;
-  delete proximo.reviewApprovedScore;
-
-  const diagnostico = diagnosticarRevisao({ ...proximo, needsReview: false }, facts);
-  proximo.needsReview = diagnostico.motivos.length > 0;
-  proximo = syncCreativeTextToV2(proximo);
+  const aplicado = aplicarEdicaoDeTexto(creatives[index], args, CAMPOS_EDITAVEIS, facts, auditarSegmento);
+  if ("erro" in aplicado) return aplicado;
+  const { creative: proximo, diagnostico, mudancas } = aplicado;
 
   const atualizados = [...creatives];
   atualizados[index] = proximo;
