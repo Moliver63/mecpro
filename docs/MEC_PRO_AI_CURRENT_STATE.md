@@ -3049,3 +3049,38 @@ Validado: 6 testes com a forma real da 799; suite 481/481; `tsc` 37; `check:mcp`
 ## 20/10 — `update_campaign_draft` remove conjuntos (`keepAdSetIndexes`)
 
 Aplicado na 799: orcamento ajustado (3 x R$ 2/dia, total R$ 84), criativo 1 sem o depoimento inventado (headline encurtada pra 40: "Jornada de autoconhecimento Shadia Hasan"), resumo trocado de "R$ 90/mes" pra "R$ 84 em 14 dias". Revisao: 4 criativos so com score baixo. Mas R$ 2 por conjunto fica abaixo do minimo de publicacao (R$ 5,11), e o Michel escolheu ficar com UM conjunto a R$ 6/dia. A ferramenta nao removia conjunto: entrou `keepAdSetIndexes`, aplicado antes de `adSetBudgetsDaily`. 2 testes novos; suite e `tsc` no baseline.
+## 21/10 — login dava certo e um segundo depois jogava o usuario pro login
+
+```
+15:19:07  Google callback — redirecionando apos login {userId:2}
+15:19:08  Google callback error {name:"TokenError", msg:"Malformed auth code."}
+15:19:41  Google callback error {name:"TokenError", msg:"Malformed auth code."}
+```
+
+Codigo de autorizacao do Google e de uso unico. Login concluido as 15:19:07 e o MESMO codigo reenviado um segundo depois, e de novo 33s depois.
+
+### Causa raiz: o service worker interceptava a navegacao do callback
+
+O callback e `/api/auth/google/callback`, e o `sw.js` avaliava o ramo de `/api/` **antes de qualquer checagem de `request.mode`**. Uma NAVEGACAO caia nele e era respondida com `fetch(request)`, que segue redirect por padrao. O callback responde 302 com `Set-Cookie` pro /dashboard, o fetch seguia, e o `respondWith` devolvia o HTML do dashboard como resposta da navegacao **pro callback**.
+
+Resultado: a barra de endereco ficava em `/api/auth/google/callback?code=...`. Qualquer recarregamento reenviava o codigo ja consumido.
+
+Correcao: navegacao para `/api/` e `/trpc/` sai no topo, **sem `respondWith`** — o browser segue o 302 nativamente, grava o cookie e a URL final e /dashboard. Nao sobra callback na barra pra reenviar.
+
+Vale pra todo `/api/` em navegacao, nao so o OAuth: download e qualquer rota 3xx tinham o mesmo problema, e nenhuma e rota de SPA.
+
+Detalhe que importa: o ramo de navegacao de SPA *tinha* um caso `/api/` que chamava `event.respondWith(fetch(request))`. Isso **tambem** segue redirect e manteria o bug — e de todo jeito nunca era alcancado, porque o ramo de `/api/` vinha antes. Removido.
+
+`CACHE_VERSION` subiu pra v5: sem isso o cliente com service worker antigo instalado nao recebe a correcao.
+
+### Consequencia, e o que o Michel de fato via
+
+O ramo de erro mandava **todo** `TokenError` pro `/login?error=oauth_expired`. Entao quem tinha acabado de logar com sucesso era jogado pra tela de login com erro de sessao expirada, um segundo depois.
+
+Agora, antes de decidir o destino, o callback verifica o cookie de sessao — `jwtVerify`, nao presenca de cookie. Com sessao valida, reenvio de codigo consumido nao e falha de login: o login aconteceu, e segue pro destino. O destino continua validado contra redirecionamento aberto (mesma checagem do caminho de sucesso).
+
+### Teste e de FONTE, de proposito
+
+Service worker roda no browser e nao da pra instanciar aqui. O que protege a correcao e a ORDEM das checagens, e ordem se le no arquivo: o teste afirma que a guarda vem antes do primeiro `respondWith`, que ela devolve sem responder, que o ramo de SPA nao reintroduz o caso, e que a versao do cache subiu.
+
+Validado: 447/447, typecheck do servidor 37 (igual ao baseline), typecheck do projeto 0, build OK.

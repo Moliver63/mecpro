@@ -1081,11 +1081,45 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   // Callback do Google
   app.get('/api/auth/google/callback',
     (req: Request, res: Response, next: any) => {
-      passport.authenticate('google', { session: false }, (err: any, user: any) => {
+      // `async` porque o ramo de erro verifica o cookie de sessao antes de
+      // decidir o destino. Passport ignora o retorno do callback.
+      passport.authenticate('google', { session: false }, async (err: any, user: any) => {
         if (err) {
           // TokenError: Malformed auth code — código OAuth usado 2x ou expirado
           const isTokenErr = err.name === 'TokenError' || err.message?.includes('Malformed');
-          log.warn('oauth', 'Google callback error', { name: err.name, msg: err.message?.slice(0, 80) });
+
+          // Quem JA esta logado nao volta pra tela de login.
+          //
+          // Achado real (log de producao, 21/10): login concluido as 15:19:07 e
+          // `Malformed auth code` as 15:19:08 e 15:19:41 — o mesmo codigo
+          // reenviado (causa raiz no service worker, ver client/public/sw.js
+          // v5). O ramo abaixo mandava TODO TokenError pro
+          // `/login?error=oauth_expired`, entao quem tinha acabado de logar com
+          // sucesso era jogado pra tela de login com erro de sessao expirada.
+          //
+          // Reenvio de codigo consumido por quem tem cookie valido nao e falha
+          // de login: o login aconteceu. Segue pro destino.
+          if (isTokenErr) {
+            const jaLogado = await (async () => {
+              try {
+                const token = (req as any).cookies?.token;
+                if (!token || !process.env.JWT_SECRET) return false;
+                const { jwtVerify } = await import('jose');
+                const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+                const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null as any }));
+                return !!payload?.userId;
+              } catch { return false; }
+            })();
+            if (jaLogado) {
+              const estado = typeof req.query.state === 'string' ? req.query.state : undefined;
+              const appUrl = process.env.APP_URL || 'https://www.mecproai.com';
+              const destino = estado && (estado.startsWith('/') || estado.startsWith(appUrl)) ? estado : '/dashboard';
+              log.info('oauth', 'Callback repetido com sessao valida — seguindo para o destino', { dest: destino.slice(0, 100) });
+              return res.redirect(destino);
+            }
+          }
+
+          log.warn('oauth', 'Google callback error', { name: err.name, msg: err.message?.slice(0, 80), tokenErr: isTokenErr });
           return res.redirect(isTokenErr
             ? '/login?error=oauth_expired'   // código expirou/reutilizado — pede novo login
             : '/login?error=oauth_failed'
