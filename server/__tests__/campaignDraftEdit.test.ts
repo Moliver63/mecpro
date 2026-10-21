@@ -119,3 +119,14 @@ test("keepAdSetIndexes invalido, vazio ou repetido e recusado", () => {
     assert.match(String(ajustarRascunhoCampanha(campanha(), { keepAdSetIndexes: k }, auditCreativeSegmentAlignment).erro), /keepAdSetIndexes/);
   }
 });
+
+test("approveLowScoreCreatives: libera so score baixo; depoimento inventado continua bloqueado", () => {
+  const r = ajustarRascunhoCampanha(campanha(), { approveLowScoreCreatives: [0, 1] }, auditCreativeSegmentAlignment, () => new Date("2026-10-21T17:00:00Z"));
+  assert.equal(r.erro, undefined, String(r.erro));
+  const [c0, c1] = JSON.parse(r.patch!.creatives!);
+  assert.equal(c0.needsReview, false);
+  assert.equal(c0.reviewApprovalReason, "score_baixo");
+  assert.equal(c0.reviewApprovedAt, "2026-10-21T17:00:00.000Z");
+  assert.equal(c1.needsReview, true);
+  assert.ok((r.relatorio!.avisos as string[]).some((a) => /depoimento inventado/.test(a)));
+});

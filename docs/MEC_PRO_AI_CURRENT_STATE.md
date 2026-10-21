@@ -3084,3 +3084,7 @@ Agora, antes de decidir o destino, o callback verifica o cookie de sessao — `j
 Service worker roda no browser e nao da pra instanciar aqui. O que protege a correcao e a ORDEM das checagens, e ordem se le no arquivo: o teste afirma que a guarda vem antes do primeiro `respondWith`, que ela devolve sem responder, que o ramo de SPA nao reintroduz o caso, e que a versao do cache subiu.
 
 Validado: 447/447, typecheck do servidor 37 (igual ao baseline), typecheck do projeto 0, build OK.
+
+## 21/10 — `update_campaign_draft` aprova score baixo (`approveLowScoreCreatives`)
+
+Michel pediu pra publicar a 799 e aprovou explicitamente os 4 criativos (scores 62-68, unico motivo score). A aprovacao so existia no chat do app (`aprovar_revisao_criativo`); pelo MCP nao havia como. Entrou `approveLowScoreCreatives` no `update_campaign_draft`, com a mesma regra ("So score baixo"): libera so quando `diagnosticarRevisao` da `liberavelPorAprovacao`; o resto vira aviso e continua bloqueado. Grava `reviewApprovedBy: "user_via_mcp"`. 1 teste novo; suite e `tsc` no baseline.

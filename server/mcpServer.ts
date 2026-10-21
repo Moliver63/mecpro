@@ -2139,7 +2139,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     description:
       "Ajusta um RASCUNHO de campanha no MecProAI: quais conjuntos ficam, orcamento diario de cada conjunto, orcamento diario/total da " +
       "campanha, textos de criativos (headline<=40, description<=30, copy<=500, cta<=80, hook<=200, pain<=160, " +
-      "solution<=220, script<=900; texto maior e recusado, nao cortado) e trocas de texto no resumo (strategy). " +
+      "solution<=220, script<=900; texto maior e recusado, nao cortado) e trocas de texto no resumo (strategy) e aprovacao, pelo usuario, de criativo com score baixo. " +
       "Recalcula score e revisao dos criativos e devolve quais ainda precisam de revisao. Nunca envia nada a Meta; " +
       "recusa campanha ja publicada. Sem nenhum campo de mudanca, so reexecuta e devolve a revisao.",
     inputSchema: {
@@ -2155,6 +2155,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         solution: z.string().optional(), script: z.string().optional(), complianceNotes: z.string().optional(),
       })).optional(),
       strategyReplacements: z.array(z.object({ from: z.string().min(1), to: z.string() })).optional().describe("Trocas literais dentro dos textos do resumo/estrategia."),
+      approveLowScoreCreatives: z.array(z.number().int().min(0)).optional().describe("Indices de criativos que o USUARIO aprovou EXPLICITAMENTE nesta conversa apesar do score abaixo de 75. So libera quando o unico motivo de revisao e score baixo; nunca envie sem a aprovacao dele."),
       forbiddenTerms: z.array(z.string()).optional().describe("Termos que nao podem sobrar nos criativos nem no resumo; a resposta lista onde ainda aparecem."),
     },
   };

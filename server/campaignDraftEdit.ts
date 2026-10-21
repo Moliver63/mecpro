@@ -34,6 +34,13 @@ export interface EntradaRascunho {
   suggestedBudgetDaily?: number;
   suggestedBudgetMonthly?: number;
   creativeEdits?: EdicaoDeCriativo[];
+  /**
+   * Indices de criativos que o USUARIO aprovou explicitamente apesar do score
+   * baixo. Mesma regra do chat (`aprovar_revisao_criativo`, decisao "So score
+   * baixo"): so libera quando o unico motivo e score < 75. Aplicado depois das
+   * edicoes de texto.
+   */
+  approveLowScoreCreatives?: number[];
   strategyReplacements?: Array<{ from: string; to: string }>;
   forbiddenTerms?: string[];
 }
@@ -174,6 +181,27 @@ export function ajustarRascunhoCampanha(campaign: any, entrada: EntradaRascunho,
     alteracoes.push(`criativo ${i}: ${Object.keys(aplicado.mudancas).join(", ")}${edicao.complianceNotes ? ", complianceNotes" : ""}`);
   }
   if (entrada.creativeEdits?.length) patch.creatives = JSON.stringify(creatives);
+
+  // ── Aprovacao de score baixo (pedido real 21/10, 799: "Aprovo os 4") ─────
+  if (entrada.approveLowScoreCreatives !== undefined) {
+    const lista = entrada.approveLowScoreCreatives;
+    if (!Array.isArray(lista) || !lista.every((i) => Number.isSafeInteger(i) && i >= 0 && creatives[i])) {
+      return { erro: `approveLowScoreCreatives tem indice inexistente (ha ${creatives.length} criativos).` };
+    }
+    const recusados: string[] = [];
+    let aprovouAlgum = false;
+    for (const i of [...new Set(lista)]) {
+      const c = creatives[i];
+      if (c?.needsReview !== true) continue;
+      const d = diagnosticarRevisao(c, facts);
+      if (!d.liberavelPorAprovacao) { recusados.push(descreverDiagnostico(i, d)); continue; }
+      creatives[i] = { ...c, needsReview: false, reviewApprovedAt: agora().toISOString(), reviewApprovedBy: "user_via_mcp", reviewApprovalReason: "score_baixo", reviewApprovedScore: c.finalScore ?? null };
+      alteracoes.push(`criativo ${i}: score ${d.score} aprovado pelo usuario`);
+      aprovouAlgum = true;
+    }
+    if (recusados.length) avisos.push(...recusados.map((r) => `Nao aprovado (so score baixo e aprovavel): ${r}`));
+    if (aprovouAlgum) patch.creatives = JSON.stringify(creatives);
+  }
 
   // ── Resumo (strategy) ────────────────────────────────────────────────────
   const strategyBruta = String(campaign.strategy || "");
