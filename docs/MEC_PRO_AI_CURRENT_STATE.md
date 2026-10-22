@@ -1,11 +1,16 @@
 # MecProAI - Estado atual do motor
 
 > **Como ler este arquivo.** O nome diz "estado atual", mas o corpo abaixo e
-> cronologico e passou de 1900 linhas: cada secao registra um incidente real e
+> cronologico e passou de 3000 linhas: cada secao registra um incidente real e
 > a decisao que ele gerou, e esse historico e o que impede alguem de reverter
 > uma correcao achando que foi descuido. **Nao apague entradas.**
 >
-> A secao "ESTADO ATUAL" logo abaixo e o resumo mantido. Quando ela e a
+> **Leia a secao "ESTADO ATUAL" logo abaixo e pare ali**, a menos que precise
+> da historia de uma decisao especifica. Ela e o resumo mantido, e e atualizada
+> no lugar — nao anexada. Se ela estiver com data velha em relacao a ultima
+> entrada da cronologia, ela esta desatualizada, e atualiza-la e trabalho de
+> docs legitimo (foi o que aconteceu em 22/10: o resumo estava em 08/10 com
+> 1200 linhas de cronologia depois dele). Quando ela e a
 > cronologia divergirem, vale **a entrada mais recente por data**, de qualquer
 > autor ou sessao — nao a ordem no arquivo, nem qual adendo se declara
 > prevalente. (Regra corrigida em 08/10: o adendo de 16/09 abaixo dizia
@@ -15,105 +20,200 @@
 
 ---
 
-# ESTADO ATUAL — 2026-10-08
+# ESTADO ATUAL — 2026-10-22
+
+## A mudanca desde o resumo anterior (08/10)
+
+O resumo de 08/10 dizia que o fio mais antigo em aberto era a validacao de
+imagem, travada num `revalidate` da campanha 797. **Esse fio fechou.** O caminho
+de imagem completa de ponta a ponta, com dado, e o que mudou e grande o
+suficiente pra ser a primeira coisa a ler.
 
 ## Confirmado em producao
 
-Estes tem evidencia de log, nao so teste local.
+Com evidencia de log ou de leitura do banco, nao so teste local.
 
-- **Cloudflare Workers AI como 2o provedor do chat.** Log de 03/10 mostra
-  Gemini 503 → Cloudflare → resposta, com function calling funcionando
-  (`gerar_campanha` chamada).
-- **Rate limit do MCP nao e mais burlavel por IPv6** (`255c4bf`). O boot de
-  06/10 trazia `ERR_ERL_KEY_GEN_IPV6`; o de 08/10 nao traz mais. Confirmado
-  pela ausencia do erro que a correcao conserta.
-- **Deprecation do body-parser nas rotas OAuth**, pelo mesmo boot.
+**O caminho de imagem completo.** Lido pelo MCP em 19/10 (`get_campaign(799)`):
+os 4 criativos tem imagem, e dois foram escritos **pela fila**:
 
-## No ar, ainda sem evidencia de producao
+```
+criativo 1: storyImageUrl  .../c_lfill,g_auto,ar_9:16,w_1080/v1792074516/...
+criativo 3: squareImageUrl .../c_lfill,g_auto,ar_1:1,w_1080/v1792074530/...
+            imageValidationStatus: "approved"  imageProviderUsed: "cloudflare"
+```
 
-Deploy de 09/10 11:06 local cobre **tudo** abaixo, incluindo o `d9a1547`, cuja
-cobertura estava em duvida no deploy anterior.
+O `c_lfill,g_auto,ar_...` e o recorte por proporcao; o `approved` e o portao
+reescrito; a imagem esta gravada no campo legado **e** no
+`assetLibrary.assets` do `creativeSystemV2`, com `channels.meta.placements`
+atualizado. Isso confirma de uma vez: portao de aprovacao (`cb985b2`), rotacao
+de chave do validador (`96fc0f2`), recorte por formato (`364c18e`) e a gravacao
+no criativo (`736ade3`, o "ultimo metro" que nunca havia executado).
+
+Tambem confirmado:
+
+- **Truncagem de campo longo** (`dc0a42b`): log de 15/10 mostra `headline`
+  rejeitada duas vezes no laco de reescrita **sem** `CREATIVE_REPAIR_REQUIRED`,
+  e a campanha 799 criada. Era isso que impedia qualquer medicao.
+- **Teto de espera do Gemini** (`241a89c`): `"This operation was aborted"`
+  aparece a exatamente 30s, repetidamente, de 15 a 21/10. Antes era o chat
+  parado cinco minutos e o navegador desistindo.
+- **Causa nomeada no validador**: os motivos de reprova da 799 chegaram com
+  criterio e evidencia do validador (`texto ilegivel na imagem`,
+  `fora do briefing`, com os `impedimentos` em texto).
+- **Cloudflare Workers AI como 2o provedor do chat**, com function calling.
+- **Rate limit do MCP nao burlavel por IPv6** (`255c4bf`) e deprecation do
+  body-parser nas rotas OAuth, pela ausencia dos erros no boot.
+
+## No ar, ainda sem exercicio
+
+Deploy cobre tudo abaixo. Nenhum destes tem evidencia de producao ainda.
 
 | Correcao | Commit | Como se confirma |
 |---|---|---|
-| FLUX 1 nao aceita dimensoes (tirava 400 em toda imagem) | `a26c57f` | o WARN "Cloudflare 400 — retry sem dimensoes" nao deve mais aparecer |
-| Causa do validador nomeada (`visual_validator_unavailable:<causa>`) | `a26c57f` | precisa do revalidate na 797 pra falar |
-| Formato da imagem derivado da `orientation` do criativo | `c47035e` | job de card Stories tem que sair com format `stories` |
-| Campo `estado` com `filaVaiAgir` na resposta da fila | `c47035e` | chat nao pode mais dizer "aguarde" com a fila parada |
-| Trava de texto do estado de imagens | `227e0f0` | idem, deterministica |
-| Proporcao por formato via Cloudinary | `364c18e` | imagem de Stories deve sair 9:16, nao 1:1 |
-| Passos de difusao em 4 (era 8) | `44ea615` | ~173 imagens/dia no gratuito, era ~104 |
-| Teto de espera no Gemini (travava 5 min) | `241a89c` | criar campanha do zero deve responder ou falhar em ~30s |
-| `close` nao libera mais o lease com handler vivo | `810774f` | briefing do turno deixa de ser perdido na desconexao |
-| Projetos listados por nome, nao "e outros" | `d9a1547` | ao pedir campanha, os nomes aparecem |
+| Segmento nao e mais redefinido por texto livre do briefing | `1289ef0` | gerar a 799 com direcao de arte no `extraContext` deixa de dar `FACT_CONFLICT` nos 4 cards |
+| `angle` inventado pela copy nao entra no assunto da imagem | `f23770a` | prompt de imagem sem termo que nao esta no briefing |
+| Fato confirmado de qualquer segmento chega ao assunto | `2aa4291` `d96dddc` | imagem da Shadia deve mostrar o diferencial confirmado |
+| Preambulo de ferramenta nao vira resposta final | `215ae52` | chat deixa de afirmar causa antes de ter o dado |
+| Reprova devolve criterio e acao em `estado` | `13bf82b` | chat cita `criteriosDeReprova`, nao deduz do briefing |
+| Pendencia local checada antes do token de publicacao | `29a9c85` | campanha sem imagem recusa com motivo, sem gastar reserva |
+| `needsReview` deixa de ser beco sem saida | (sessao paralela, 19/10) | aprovar no chat libera criativo cujo unico motivo e score < 75 |
+| `update_campaign_draft` aprova score baixo (`approveLowScoreCreatives`) | `f0a635d` | mesma regra pelo MCP; usado na 799 em 21/10 |
+| Hugging Face como gerador reserva (Cloudflare → HF → Pixabay) | (sessao paralela, 19/10) | `Hugging Face gerou imagem` no log, **depende de credito na conta** |
+| Janela de espera quando o modelo de chat cai | `8469863` | log diz "modelo em espera curta apos falha recente" |
+| Service worker nao reenvia o codigo do OAuth | `1718c31` | `Malformed auth code` para de aparecer apos login |
+| Rolagem do chat respeita quem subiu, e botao de publicar | `2c5da32` | seta aparece ao rolar pra cima; card tem acao de publicar |
+| Consulta diaria de metricas com teto proprio | `b89b520` | `campaign_metrics` passa a gravar linha, ou diz por que nao |
+| `[BOOT] Commit:` diz qual codigo esta rodando | `bf20ef6` | aparece no proximo boot |
+
+## Onde estao as campanhas do projeto 49 (lido pelo MCP em 22/10)
+
+Dado direto, nao inferencia:
+
+- **799** (`Shadia Hasan — Leads`, 15/10): `publishStatus: "draft"`,
+  `metaCampaignId: null`. Os 4 criativos foram **aprovados pelo Michel em
+  21/10** e os 4 tem imagem. Ela esta publicavel e **nao foi publicada**.
+- **800 e 801** (`Leads v2 (moderna)`, 19/10): as regeneracoes com direcao de
+  arte; a 801 e a que passou depois da correcao de segmento. Ambas `draft`.
+- **O projeto JA publicou com sucesso**: 674, 612, 610 e 602 estao em
+  `publishStatus: "success"` com `metaCampaignId` real, de agosto. **O caminho
+  de publicacao na Meta nao e inedito nesta conta** — o que estava bloqueado era
+  publicar as campanhas novas, por `needsReview` e por falta de imagem.
+- Os nomes historicos confirmam o VR como parte da oferta desde agosto
+  ("Jornada VR" em 656, 655, 617, 616, 612, 611, 610, e uma v17 explicitamente
+  "sem VR"). Isso corrobora o que o Michel confirmou em 19/10, e explica por que
+  a copy escrevia VR: esta no negocio, nao foi invencao do modelo.
 
 ## Travado em acao do Michel
 
-- **`action=revalidate` na campanha 797.** As dez tarefas estao em
-  `attempts=3` e a fila **nao** volta a pega-las sozinha. As imagens existem no
-  Cloudinary. Enquanto isso nao roda, a causa real da falha de validacao
-  continua sem ser lida — e e o fio mais antigo em aberto (desde 03/10).
+- **Credito na conta Hugging Face.** Conta gratuita nao tem credito de
+  Inference Providers, entao **toda chamada volta 402**. O HF so e acionado
+  quando o Cloudflare nao entrega, entao isso nao bloqueia o dia a dia, mas a
+  reserva nao existe de fato enquanto nao houver credito. Pra provar sem
+  esperar:
+  `npx tsx server/scripts/testar-huggingface-imagem.ts` no Shell do Render.
+- **Cloud Vision em 403 por billing.** O caminho principal do `imageRAG` esta
+  morto. Decidir: habilitar billing, ou remover o Cloud Vision e assumir o
+  Gemini como validador unico. Hoje se paga a latencia de um 403 por imagem.
+- **Modelo do chat.** `gemini-2.5-flash-lite` esteve indisponivel na maior
+  parte das mensagens observadas de 15 a 21/10, por 503 ou por travamento de
+  socket. O fallback funciona (foi por isso que passou despercebido). Decidir:
+  trocar o modelo, ou assumir o Cloudflare como primario.
+- **`GOOGLE_API_KEY` e `GEMINI_API_KEY` as duas configuradas.** O SDK escolhe
+  `GOOGLE_API_KEY` e avisa em todo boot; a outra fica como armadilha silenciosa.
 - **Saldo DeepSeek** zerado (provedor 3 da cadeia).
-
-**Correcao de diagnostico, registrada:** eu apontei por dias o billing do
-projeto Google Cloud 1000850630887 como bloqueio da validacao de imagem.
-**Nao bloqueia mais este caminho.** O validador novo (`campaignImageValidator`)
-usa Gemini vision, nao Cloud Vision. O Cloud Vision segue no fluxo legado.
 
 ## Conhecido e nao corrigido
 
-Por ordem de impacto estimado, com o motivo de nao ter sido mexido.
+Por impacto estimado, com o motivo de nao ter sido mexido.
 
-1. **Os cinco blocos de "NO TEXT" no prompt de imagem.** O encoder de difusao
-   nao tem negacao, e o schnell e destilado de guidance — nao aceita negative
-   prompt. Repetir "text/words/letters/typography/watermark" cinco vezes
-   condiciona **para** texto, e o validador reprova em `hasText`. Mecanismo
-   solido, magnitude empirica: precisa de 10 geracoes com e 10 sem, contando
-   quantas saem com letra. Mexer sem medir e trocar palpite por palpite.
-2. **O gate `issues.length === 0` do validador.** Qualquer ressalva cosmetica
-   reprova, e um modelo de visao com campo `issues` obrigatorio tende a
-   preencher. Candidato forte pra razao de nada ser aprovado. Precisa ler um
-   `rejected` real com os `issues` preenchidos — depende do revalidate.
-3. **Assunto em portugues indo pro encoder do FLUX**, que e predominantemente
-   ingles. Traduzir exige chamada de modelo no caminho de geracao (custo e
-   latencia novos) ou glossario por segmento (que fabrica termo). Decisao de
-   arquitetura, nao ajuste.
-4. **`script: null` e estouro de `description` (30) e `headline` (40)**
-   quebrando o enriquecimento de criativo.
-5. **`numeric field overflow`** na pontuacao automatica.
-6. **Prompt de imagem nao e persistido por criativo** — sem ele nao da pra
+1. **`offerAnchor` e `verifiedFacts` sao duas fontes de "confirmado".** O Fact
+   Guard da copy aprovou "VR" oito vezes enquanto o validador de imagem dizia
+   que VR nao estava confirmado — dois guardas, duas nocoes do mesmo fato. O
+   caso concreto foi resolvido em 19/10, mas **a causa de fundo fica**:
+   `offerAnchor` vem de quatro campos de perfil e `verifiedFacts` vem do
+   briefing. Enquanto diferirem, essa classe de desacordo volta em outro
+   formato. Unificar e mudanca de arquitetura, nao ajuste.
+2. **`quality >= 0.72` como limiar duro.** Heuristica nao calibrada do proprio
+   modelo de visao usada como corte. Sem dado pra ajustar o numero, e inventar
+   um valor e trocar palpite por palpite. Se reprovar imagem visivelmente boa,
+   o numero e o primeiro suspeito.
+3. **Marca sem dominio no prompt de imagem.** "Hotmart" cai por vocabulario;
+   "parceria com a Nike" passa. Marca em prompt de imagem e pedido de logo, e
+   logo em anuncio e compliance. Nao existe regra determinística sem lista de
+   marcas, e lista de marcas e exatamente o que envelhece. Fica para o portao
+   visual, que reprova logo via `blockers`. Ver
+   [visual-prompt-alignment](visual-prompt-alignment.md).
+4. **`numeric field overflow`** no insert de `ml_dataset` (`ai.ts`, log
+   `Score automatico falhou`). Estreitado por leitura: as colunas que cabem
+   foram descartadas; sobram as tres `NUMERIC(8,4)`, e **`label_roas` e a
+   candidata** (divisao por `spend`, com fallback que aceita qualquer
+   `spend > 0`). Nao chutado: resolve com uma campanha de entrega real.
+5. **Nao existe segmento de academia/fitness** na taxonomia. "Academia,
+   musculacao e treino funcional" resolve `outro`, e dai o texto livre decide.
+   `MULTI_ITEM_SEGMENTS` ainda lista `academia`, que nao existe. Pre-existente.
+6. **Assunto em portugues indo pro encoder do FLUX**, predominantemente ingles.
+   Traduzir exige chamada de modelo no caminho de geracao (custo e latencia) ou
+   glossario por segmento (que fabrica termo). Decisao de arquitetura.
+7. **Prompt de imagem nao e persistido por criativo.** Sem ele nao da pra
    auditar por que uma imagem saiu como saiu.
-7. ~~Linha de boot que mente~~ — **corrigida em 09/10** (`rotuloProvedorDeImagem`).
-   O boot agora separa "Imagem de campanha (fila)", que e o que de fato gera
-   (Cloudflare FLUX, fallback Pixabay), de "IMAGE_PROVIDER (so caminhos
-   legados)", e marca huggingface como desabilitado no codigo em vez de dar ✅.
-8. **API de batch da Cloudflare**, etapas 1-3 (medir neurons reais, extrair o
+8. **Criativo irreparavel nao e descartado.** `realImages[index % n]` mapeia
+   foto por posicao no array, entao remover o card 1 desloca todos os
+   seguintes e publicaria o anuncio de um cliente com a foto errada. Pior que
+   bloquear. Exige preservar o indice de origem antes.
+9. **API de batch da Cloudflare**, etapas 1-3 (medir neurons reais, extrair o
    seam de `construirPromptDeCampanha`, so entao o batch). Transporte pronto em
-   `cloudflareBatch.ts`, **nao ligado em producao**.
-9. **Privacidade do auto-router do OpenRouter**: 4 de 91 provedores podem
-   treinar com o prompt.
-10. **Front-end**: chunk circular `pages-settings → pages-admin` e tres bundles
-    acima de 600 kB. Performance de carregamento, nao correcao — mexer em
-    `manualChunks` sem medir e chute.
+   `cloudflareBatch.ts`, nao ligado.
+10. **Privacidade do auto-router do OpenRouter**: 4 de 91 provedores podem
+    treinar com o prompt.
+11. **Front-end**: chunk circular `pages-settings → pages-admin` e tres bundles
+    acima de 600 kB. Carregamento, nao correcao.
+12. **Dois loggers imprimem "Migrations applied successfully"** no mesmo boot.
+    Cosmetico.
 
-## Licao transversal desta semana
+Resolvidos desde o resumo anterior, onde estavam como itens 1 e 2: os cinco
+blocos de "NO TEXT" no prompt e o gate `issues.length === 0`, os dois em 13/10.
 
-Tres incidentes independentes, mesmo formato: **a instrucao existia no prompt
-ou no retorno da ferramenta, e nao foi seguida.**
+## O padrao que se repetiu cinco vezes
 
-| Data | O que o chat disse ao usuario | A instrucao existia? |
+Vale mais que qualquer item da lista acima. **Uma metade do pipeline produz X e
+a outra reprova X**, e em nenhum dos casos o defeito estava onde o sintoma
+apontava.
+
+| Data | O que uma metade fazia | O que a outra reprovava |
 |---|---|---|
-| 30/09 | "use `consultar_paginas_meta` para lista-lo" | sim, no prompt |
-| 05-06/10 | "status: queued (...) aguarde 10-15 minutos" | sim, e com `estado.filaVaiAgir: false` na mao |
-| 08/10 | "os projetos disponiveis incluem (...) e outros" | sim, no retorno da ferramenta |
+| 13/10 | prompt pedia texto cinco vezes (`NO TEXT` repetido) | texto na imagem |
+| 14/10 | prompt proibia "specific device" | ausencia do produto confirmado |
+| 15/10 | `headline` entrava no assunto da imagem | texto desenhado (`'Agila'` por `'Agora'`) |
+| 17/10 | `angle` levava invencao da copy | a invencao |
+| 19/10 | filtro de fatos com vocabulario de imovel descartava o VR confirmado | VR "nao confirmado" |
 
-Nos tres, reforcar o prompt nao resolveu; o que resolveu foi trava
-deterministica no texto que chega ao usuario. Ver
-[padrao de trava deterministica](deterministic-reply-guards.md) antes de
-"simplificar" qualquer uma das tres — elas parecem redundantes e nao sao.
+Antes de ajustar um portao que reprova, **ler o que o lado de producao esta
+mandando**. Quatro das cinco vezes o portao estava certo.
+
+## Regras de metodo que se pagaram
+
+- **Ler antes de afirmar.** Cinco conclusoes minhas foram desfeitas por leitura
+  antes de virarem commit nesta serie: o `validation` que eu disse nao ser
+  gravado (era), o `image-rag` que eu disse fabricar score 0.9 (nao fabricava,
+  delegava), o `functionCall` descartado pelo SDK (inofensivo),
+  `patternsExtracted: 0` como laco inerte (comportamento correto) e a main
+  "quebrada" pela sessao paralela (era `node_modules` meu desatualizado).
+- **Lacuna no retorno da ferramenta vira invencao na resposta.** Quando o chat
+  afirma algo errado, o defeito costuma estar no contrato, nao no modelo. O
+  mecanismo foi achado em 15/10: texto emitido JUNTO de chamada de ferramenta e
+  preambulo, escrito antes do resultado existir, e era promovido a resposta
+  final. Ver [deterministic-reply-guards](deterministic-reply-guards.md).
+- **Teste que cita log de producao protege decisao; teste que trava posicao de
+  string protege implementacao.** Antes de mexer no que parece descuido, ler o
+  nome do teste **e procurar o incidente**.
+- **Comentario nao protege decisao, teste protege.** O `hook/headline removidos
+  — causam alucinacao de texto` ficou de pe na linha 474 enquanto a injecao
+  voltava por outro campo mil linhas depois.
+- **Dado direto ganha de sinal indireto.** Eu passei quatro dias pedindo ao
+  Michel uma medicao que o MCP desta sessao lia em dois minutos, e afirmei que
+  a 799 nao tinha imagem inferindo do log da fila em vez de ler os criativos.
 
 ---
-
 
 ## Adendo local Codex - 2026-10-03
 

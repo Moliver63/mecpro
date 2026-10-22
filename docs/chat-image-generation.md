@@ -1,5 +1,36 @@
 # Imagens no chat - 2026-10-02
 
+> **Estado em 22/10: o caminho funciona de ponta a ponta, confirmado por dado.**
+>
+> Leitura do banco em 19/10 (`get_campaign(799)` pelo MCP): dois criativos com
+> imagem escrita **pela fila**, com `imageValidationStatus: "approved"`, recorte
+> `c_lfill,g_auto,ar_9:16,w_1080` na URL e gravacao no campo legado **e** no
+> `assetLibrary.assets` do `creativeSystemV2`.
+>
+> Os blocos abaixo sao o historico de como se chegou la, e seguem valendo pra
+> entender POR QUE cada peca e como e. O que mudou depois de 08/10 — portao de
+> aprovacao reescrito, prompt sem token de negacao, assunto por procedencia,
+> `angle` de vocabulario fechado, filtro de fatos sem vocabulario de imovel —
+> esta na cronologia de [MEC_PRO_AI_CURRENT_STATE](MEC_PRO_AI_CURRENT_STATE.md),
+> entradas de 13 a 19/10, e resumido na secao ESTADO ATUAL de la.
+>
+> Deliberadamente **nao duplicado aqui**: resumo copiado em dois arquivos
+> envelhece em um dos dois, e foi exatamente isso que aconteceu com este
+> cabecalho entre 08 e 22/10.
+>
+> As duas regras de desenho que mais custaram pra descobrir, e que valem antes
+> de mexer em qualquer coisa deste caminho:
+>
+> 1. **O encoder do FLUX nao tem negacao.** O schnell e destilado de guidance e
+>    nao aceita negative prompt. Enumerar o que a imagem NAO deve ter condiciona
+>    **para** aquilo. Tudo no prompt e descrito pelo positivo.
+> 2. **Nada que um modelo escreveu livremente entra no assunto da imagem.**
+>    Headline, copy, hook e `angle` livre viraram texto desenhado ou invencao na
+>    cena. O assunto vem de campo confirmado de perfil e de fato confirmado do
+>    briefing, filtrado por forma. Ver
+>    [visual-prompt-alignment](visual-prompt-alignment.md).
+
+
 ## 2026-10-07/08 - proporcao, custo e estado da fila (substitui pontos do bloco de 03/10 abaixo)
 
 Quatro correcoes. As tres primeiras mudam o que o bloco de 03/10 descreve.
