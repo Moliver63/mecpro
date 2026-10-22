@@ -77,6 +77,9 @@ Deploy cobre tudo abaixo. Nenhum destes tem evidencia de producao ainda.
 | Reprova devolve criterio e acao em `estado` | `13bf82b` | chat cita `criteriosDeReprova`, nao deduz do briefing |
 | Pendencia local checada antes do token de publicacao | `29a9c85` | campanha sem imagem recusa com motivo, sem gastar reserva |
 | `needsReview` deixa de ser beco sem saida | (sessao paralela, 19/10) | aprovar no chat libera criativo cujo unico motivo e score < 75 |
+| A **tela** tambem aprova, e diz o motivo antes de publicar | `b61a9d5` | clicar em Publicar com criativo em revisao abre o diagnostico, nao o modal |
+| `updateCreative` limpa `needsReview` quando a edicao resolveu | `b61a9d5` | corrigir texto na tela passa a liberar a publicacao |
+| `updateCreative` checa dono da campanha | `b61a9d5` | gravava criativo por id, com qualquer usuario logado |
 | `update_campaign_draft` aprova score baixo (`approveLowScoreCreatives`) | `f0a635d` | mesma regra pelo MCP; usado na 799 em 21/10 |
 | Hugging Face como gerador reserva (Cloudflare → HF → Pixabay) | (sessao paralela, 19/10) | `Hugging Face gerou imagem` no log, **depende de credito na conta** |
 | Janela de espera quando o modelo de chat cai | `8469863` | log diz "modelo em espera curta apos falha recente" |
@@ -90,8 +93,18 @@ Deploy cobre tudo abaixo. Nenhum destes tem evidencia de producao ainda.
 Dado direto, nao inferencia:
 
 - **799** (`Shadia Hasan — Leads`, 15/10): `publishStatus: "draft"`,
-  `metaCampaignId: null`. Os 4 criativos foram **aprovados pelo Michel em
-  21/10** e os 4 tem imagem. Ela esta publicavel e **nao foi publicada**.
+  `metaCampaignId: null`. Os 4 tem imagem (`manualImageOverride: true`, o
+  Michel subiu as fotos em 19/10 15:57).
+
+  **Correcao de 22/10:** a linha anterior aqui dizia que os 4 criativos foram
+  "aprovados pelo Michel em 21/10" e que a campanha estava publicavel. Estava
+  errado, e o erro custou tres tentativas de publicacao ao Michel
+  (12:55:19, 12:55:27, 12:55:49, todas `CAMPAIGN_INTEGRITY`). A leitura do
+  banco em 22/10 mostrou os 4 ainda com `needsReview: true`, score 68/62/62/65.
+  **A aprovacao de 21/10 nao persistiu.** A licao de metodo: "o Michel aprovou"
+  e um evento de conversa; `needsReview: false` no banco e o fato. Registrar o
+  primeiro como se fosse o segundo mandou a sessao seguinte procurar defeito no
+  caminho errado.
 - **800 e 801** (`Leads v2 (moderna)`, 19/10): as regeneracoes com direcao de
   arte; a 801 e a que passou depois da correcao de segmento. Ambas `draft`.
 - **O projeto JA publicou com sucesso**: 674, 612, 610 e 602 estao em
@@ -173,7 +186,7 @@ Por impacto estimado, com o motivo de nao ter sido mexido.
 Resolvidos desde o resumo anterior, onde estavam como itens 1 e 2: os cinco
 blocos de "NO TEXT" no prompt e o gate `issues.length === 0`, os dois em 13/10.
 
-## O padrao que se repetiu cinco vezes
+## O padrao que se repetiu seis vezes
 
 Vale mais que qualquer item da lista acima. **Uma metade do pipeline produz X e
 a outra reprova X**, e em nenhum dos casos o defeito estava onde o sintoma
@@ -189,6 +202,27 @@ apontava.
 
 Antes de ajustar um portao que reprova, **ler o que o lado de producao esta
 mandando**. Quatro das cinco vezes o portao estava certo.
+
+### A variante de 22/10: o portao estava certo e nao havia saida
+
+A sexta vez tem forma diferente e merece nome proprio. O portao
+(`assertCampaignPublishIntegrity`) estava **certo**: criativo em revisao nao
+deve ir pra Meta. A regra que libera tambem estava certa e ja existia. O que
+faltava era a regra existir **na porta que o usuario usa**: ela estava no chat
+e no MCP, e nao na tela. Resultado pro Michel: tres cliques em Publicar, tres
+recusas com a mesma mensagem, zero indicacao de qual criativo, por que, ou o
+que fazer.
+
+Duas coisas a tirar disso:
+
+1. **Toda regra que bloqueia precisa de saida em todas as portas.** Ao
+   adicionar bloqueio, a pergunta e "por quais caminhos o usuario chega aqui, e
+   todos tem como resolver?". O MecProAI tem tres: tela, chat e MCP.
+2. **Regra duplicada e regra que vai divergir.** O laco de aprovacao existia em
+   duas copias; a divergencia nao foi uma copia errada, foi uma **copia
+   ausente**. Em `b61a9d5` a regra virou `triarParaAprovacao` +
+   `aplicarAprovacaoPorScore`, em `creativeReview.ts`, com teste de fonte que
+   falha se alguma das tres portas remontar o carimbo na mao.
 
 ## Regras de metodo que se pagaram
 
