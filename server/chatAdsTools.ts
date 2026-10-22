@@ -143,7 +143,17 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     //
     // Agora a recusa vem antes, com o motivo, e nenhuma reserva e criada.
     const local = pendenciasLocaisParaPublicar(campaign);
-    if (!local.ok) return { ok: false, erro: local.erro, ...(local.issues ? { issues: local.issues } : {}) };
+    if (!local.ok) {
+      return {
+        ok: false, erro: local.erro,
+        ...(local.issues ? { issues: local.issues } : {}),
+        // Todas as pendencias, nao so a primeira: sem isso o chat resolve uma e
+        // descobre a seguinte no clique seguinte. `acao` diz qual ferramenta
+        // resolve cada uma — aprovar_criativo => aprovar_revisao_criativo,
+        // editar_texto => editar_criativo.
+        ...(local.pendencias?.length ? { pendencias: local.pendencias } : {}),
+      };
+    }
 
     // Destino resolvido ANTES do token, pra confirmacao e execucao apontarem
     // pro mesmo lugar e o usuario ver o destino real antes de confirmar.

@@ -133,6 +133,35 @@ test("a tela confirma antes de gravar", () => {
   assert.ok(semConfirm < gravacao, "a etapa sem confirm tem que sair antes de qualquer gravacao");
 });
 
+test("a tela tem como LER o que bloqueia, nao so aprovar", () => {
+  // A pre-checagem existia so pro chat. A tela clicava em Publicar e recebia a
+  // mensagem crua do primeiro portao.
+  assert.match(ROTA, /publishPreflight: protectedProcedure/);
+  const inicio = ROTA.indexOf("publishPreflight: protectedProcedure");
+  const bloco = ROTA.slice(inicio, inicio + 1500);
+  assert.match(bloco, /\.query\(/, "e leitura, nao mutation");
+  assert.match(bloco, /pendenciasLocaisParaPublicar/, "mesma regra da publicacao real");
+  assert.match(bloco, /userId !== ctx\.user\.id/, "sem checagem de dono qualquer conta le a campanha");
+});
+
+test("publishToMeta nomeia todas as pendencias, nao so a que ele barrou", () => {
+  const inicio = ROTA.indexOf("assertCampaignPublishIntegrity(c, input)");
+  assert.ok(inicio > 0);
+  const bloco = ROTA.slice(inicio, inicio + 1200);
+  assert.match(bloco, /pendenciasLocaisParaPublicar/);
+  assert.match(bloco, /Pend[eê]ncias desta campanha/);
+});
+
+const TELA = readFileSync(new URL("../../client/src/pages/CampaignResult.tsx", import.meta.url), "utf8");
+
+test("a tela consulta a pre-checagem antes de abrir o modal de publicar", () => {
+  assert.match(TELA, /publishPreflight\?\.fetch/, "a tela precisa consultar a pre-checagem");
+  const checagem = TELA.indexOf("if (await abrirRevisaoDeCriativos()) return;");
+  const compliance = TELA.indexOf("complianceMutation.mutateAsync");
+  assert.ok(checagem > 0, "a porta tem que existir no caminho de publicar");
+  assert.ok(checagem < compliance, "a pre-checagem vem antes de abrir o modal");
+});
+
 test("a tela checa dono da campanha antes de gravar criativo", () => {
   // updateCreative gravava criativo por id de campanha sem checar dono.
   for (const mutation of ["updateCreative: protectedProcedure", "approveCreativeReview: protectedProcedure"]) {

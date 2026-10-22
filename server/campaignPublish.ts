@@ -114,7 +114,13 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
   // `antesDeTocarNaMeta` porque nada foi escrito na Meta ainda: quem reservou
   // idempotencia pode liberar a reserva e permitir nova tentativa.
   const local = pendenciasLocaisParaPublicar(campaign);
-  if (!local.ok) return { ok: false, erro: local.erro, antesDeTocarNaMeta: true, ...(local.issues ? { issues: local.issues } : {}) };
+  if (!local.ok) {
+    return {
+      ok: false, erro: local.erro, antesDeTocarNaMeta: true,
+      ...(local.issues ? { issues: local.issues } : {}),
+      ...(local.pendencias?.length ? { pendencias: local.pendencias } : {}),
+    };
+  }
 
   let caller;
   try {

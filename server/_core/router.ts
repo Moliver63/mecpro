@@ -3682,6 +3682,28 @@ const campaignsRouter = router({
       return results;
     }),
 
+  /**
+   * O que impede esta campanha de ir pra Meta, tudo de uma vez (22/10).
+   *
+   * A tela nunca consultava a pre-checagem: ela existia so pro chat. Resultado
+   * pro Michel: clicar em Publicar e receber a mensagem crua do primeiro
+   * portao, sem saber o que vem depois dele. Esta query roda a MESMA
+   * `pendenciasLocaisParaPublicar` da publicacao real, so leitura, sem rede.
+   */
+  publishPreflight: protectedProcedure
+    .input(z.object({ campaignId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+      const projeto = await db.getProjectById(campaign.projectId);
+      if (!projeto || (projeto as any).userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Campanha indisponivel para esta conta." });
+      }
+      const { pendenciasLocaisParaPublicar } = await import("../publishPreflight");
+      const local = pendenciasLocaisParaPublicar(campaign);
+      return { ok: local.ok, pendencias: local.pendencias ?? [] };
+    }),
+
   publishToMeta: protectedProcedure
     .input(publishToMetaInputSchema)
     .mutation(async ({ input, ctx }) => {
@@ -4174,9 +4196,22 @@ const campaignsRouter = router({
       const c = campaign as any;
       const { assertCampaignPublishIntegrity } = await import("../campaignPublishIntegrity");
       try {
+        // `input` entra como overrides de proposito: a auditoria de fatos
+        // tambem precisa olhar o que o formulario de publicacao mandou.
         assertCampaignPublishIntegrity(c, input);
       } catch (error) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: (error as Error).message });
+        // A mensagem crua deste portao nomeia UM problema. A pre-checagem
+        // completa nomeia todos, e e a mesma que o chat usa. Michel levou tres
+        // recusas identicas em 22/10 justamente por so receber a primeira.
+        const { pendenciasLocaisParaPublicar } = await import("../publishPreflight");
+        const local = pendenciasLocaisParaPublicar(c);
+        const lista = (local.pendencias ?? []).map((p) => `• ${p.titulo}`).join("\n");
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: lista
+            ? `${(error as Error).message}\n\nPendências desta campanha:\n${lista}`
+            : (error as Error).message,
+        });
       }
 
       // ── Valida budget mínimo antes de publicar ──────────────────────────────

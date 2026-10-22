@@ -496,7 +496,7 @@ export default function CampaignResult() {
       // Publicar de dentro do modal não passa pelo checkComplianceAndPublish,
       // então a recusa por revisão pode chegar aqui. Abre o diagnóstico em vez
       // de só repetir a mensagem do servidor.
-      if (msg.includes("CAMPAIGN_INTEGRITY") && msg.includes("revisao")) {
+      if (msg.includes("CAMPAIGN_INTEGRITY") || msg.includes("Pendências desta campanha")) {
         setShowModal(false);
         setPublishing(false);
         abrirRevisaoDeCriativos().then((abriu) => {
@@ -629,6 +629,7 @@ export default function CampaignResult() {
   // saída. Agora o aviso vem antes do modal de publicar, com o motivo de cada
   // criativo e o botão de aprovar quando o único motivo é score baixo.
   const [revisaoGate, setRevisaoGate] = useState<any>(null);
+  const trpcUtils = trpc.useUtils();
   const approveReviewMutation = (trpc as any).campaigns?.approveCreativeReview?.useMutation?.() ?? { mutateAsync: null, isPending: false };
 
   // ── Busca preview real via Meta API ──────────────────────────────────────
@@ -664,14 +665,26 @@ export default function CampaignResult() {
    * está e o que precisa de correção de texto.
    */
   async function abrirRevisaoDeCriativos(): Promise<boolean> {
-    if (!approveReviewMutation.mutateAsync) return false;
     try {
-      const diagnostico = await approveReviewMutation.mutateAsync({ campaignId: (c as any).id });
-      if (!diagnostico?.liberaveis?.length && !diagnostico?.bloqueados?.length) return false;
-      setRevisaoGate(diagnostico);
+      // Pré-checagem completa: a mesma que a publicação real roda. Devolve
+      // TODAS as pendências, não só a primeira, pra não resolver uma por clique.
+      const buscarPreflight = (trpcUtils as any)?.campaigns?.publishPreflight?.fetch;
+      if (!buscarPreflight) return false;
+      const preflight = await buscarPreflight({ campaignId: (c as any).id });
+      const pendencias = preflight?.pendencias ?? [];
+      if (!pendencias.length) return false;
+
+      // Só os aprováveis precisam do texto completo pra decisão informada.
+      const aprovaveis = pendencias.filter((p: any) => p.tipo === "revisao_aprovavel");
+      let liberaveis: any[] = [];
+      if (aprovaveis.length && approveReviewMutation.mutateAsync) {
+        const r = await approveReviewMutation.mutateAsync({ campaignId: (c as any).id });
+        liberaveis = r?.liberaveis ?? [];
+      }
+      setRevisaoGate({ pendencias, liberaveis });
       return true;
     } catch (e: any) {
-      toast.error("Não consegui ler o motivo da revisão: " + (e?.message || "erro desconhecido"));
+      toast.error("Não consegui ler o que está bloqueando: " + (e?.message || "erro desconhecido"));
       return false;
     }
   }
@@ -680,15 +693,26 @@ export default function CampaignResult() {
     if (!approveReviewMutation.mutateAsync) return;
     try {
       const r = await approveReviewMutation.mutateAsync({ campaignId: (c as any).id, indexes, confirm: true });
-      if (r?.aplicado) {
-        toast.success(r.bloqueados?.length
-          ? `◎ ${r.aprovados.length} criativo(s) aprovado(s). Ainda há ${r.bloqueados.length} bloqueando a publicação.`
-          : `◎ ${r.aprovados.length} criativo(s) aprovado(s). Pode publicar.`);
-        setRevisaoGate(null);
-        await refetchCampaign?.();
-      } else {
-        setRevisaoGate(r);
+      if (!r?.aplicado) {
         toast.error(r?.message || "Nada foi aprovado.");
+        return;
+      }
+      await refetchCampaign?.();
+
+      // Reconsulta: aprovar pode não ter sido a única pendência. Se sobrou
+      // algo, o modal mostra o que sobrou em vez de fechar e deixar o próximo
+      // clique em Publicar descobrir.
+      const buscarPreflight = (trpcUtils as any)?.campaigns?.publishPreflight?.fetch;
+      const depois = buscarPreflight
+        ? await buscarPreflight({ campaignId: (c as any).id }).catch(() => null)
+        : null;
+      const restantes = depois?.pendencias ?? [];
+      if (restantes.length) {
+        setRevisaoGate({ pendencias: restantes, liberaveis: [] });
+        toast.warning?.(`${r.aprovados.length} aprovado(s), mas ainda há ${restantes.length} pendência(s).`);
+      } else {
+        setRevisaoGate(null);
+        toast.success(`◎ ${r.aprovados.length} criativo(s) aprovado(s). Pode publicar.`);
       }
     } catch (e: any) {
       toast.error("Erro ao aprovar: " + (e?.message || "erro desconhecido"));
@@ -700,11 +724,10 @@ export default function CampaignResult() {
     const camp = c as any;
     const creatives = (() => { try { return JSON.parse(camp.creatives || "[]"); } catch { return []; } })();
 
-    // Antes de qualquer coisa: se há criativo em revisão, o publish vai ser
-    // recusado pelo servidor. Mostra o motivo agora.
-    if (creatives.some((cr: any) => cr?.needsReview === true)) {
-      if (await abrirRevisaoDeCriativos()) return;
-    }
+    // Antes de qualquer coisa: a pré-checagem local diz o que o servidor vai
+    // recusar. Se há pendência, mostra tudo agora em vez de deixar o publish
+    // falhar com a mensagem do primeiro portão.
+    if (await abrirRevisaoDeCriativos()) return;
 
     const texts = [
       camp.name || "",
@@ -3813,22 +3836,56 @@ ${sc.cta}`); }}
             <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 24px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
               <div style={{ width: 40, height: 40, borderRadius: 10, background: "#f59e0b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>⚠</div>
               <div style={{ flex: 1 }}>
-                <p style={{ fontSize: 15, fontWeight: 800, color: "var(--black)", margin: 0 }}>Criativos aguardando revisão</p>
-                <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>A Meta só recebe a campanha depois que isso for resolvido</p>
+                <p style={{ fontSize: 15, fontWeight: 800, color: "var(--black)", margin: 0 }}>
+                  {(revisaoGate.pendencias?.length ?? 0) === 1
+                    ? "Falta uma coisa para publicar"
+                    : `Faltam ${revisaoGate.pendencias?.length ?? 0} coisas para publicar`}
+                </p>
+                <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>Tudo que a Meta vai recusar, listado de uma vez</p>
               </div>
               <button onClick={() => setRevisaoGate(null)} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "var(--muted)", lineHeight: 1 }}>✕</button>
             </div>
 
             <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1, minHeight: 0 }}>
 
+              {(revisaoGate.pendencias ?? []).map((p: any, i: number) => {
+                const aprovavel = p.tipo === "revisao_aprovavel";
+                const cor = aprovavel
+                  ? { borda: "#fde68a", fundo: "#fffbeb", texto: "#92400e" }
+                  : { borda: "#fecaca", fundo: "#fef2f2", texto: "#991b1b" };
+                return (
+                  <div key={i} style={{ border: `1px solid ${cor.borda}`, background: cor.fundo, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: cor.texto, margin: 0, lineHeight: 1.5 }}>{p.titulo}</p>
+                    {!!p.detalhes?.length && (
+                      <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+                        {p.detalhes.map((d: string, j: number) => (
+                          <li key={j} style={{ fontSize: 12, color: cor.texto, lineHeight: 1.5, marginBottom: 3 }}>{d}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {aprovavel && (
+                      <p style={{ fontSize: 12, color: cor.texto, margin: "8px 0 0", lineHeight: 1.5, opacity: .85 }}>
+                        Score abaixo de 75 quer dizer que a IA achou o texto fraco, não que ele quebre regra da Meta.
+                      </p>
+                    )}
+                    {p.acao === "editar_texto" && !aprovavel && (
+                      <p style={{ fontSize: 12, color: cor.texto, margin: "8px 0 0", lineHeight: 1.5, opacity: .85 }}>
+                        Edite o criativo e salve: a revisão é recalculada no salvamento.
+                      </p>
+                    )}
+                    {p.acao === "enviar_imagem" && (
+                      <p style={{ fontSize: 12, color: cor.texto, margin: "8px 0 0", lineHeight: 1.5, opacity: .85 }}>
+                        Gere a imagem no criativo ou envie uma foto real.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+
               {!!revisaoGate.liberaveis?.length && (
-                <>
-                  <p style={{ fontSize: 13, color: "var(--black)", margin: "0 0 4px", fontWeight: 700 }}>
-                    Pode publicar assim, se você quiser
-                  </p>
-                  <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 14px", lineHeight: 1.5 }}>
-                    Score abaixo de 75 quer dizer que a IA achou o texto fraco, não que ele quebre alguma regra da Meta.
-                    Você decide: aprovar como está ou editar o texto antes.
+                <div style={{ marginTop: 6 }}>
+                  <p style={{ fontSize: 13, color: "var(--black)", margin: "0 0 10px", fontWeight: 700 }}>
+                    O texto que você vai aprovar
                   </p>
                   {revisaoGate.liberaveis.map((item: any) => (
                     <div key={item.index} style={{ border: "1px solid var(--border)", borderRadius: 12, padding: 14, marginBottom: 10, background: "var(--off)" }}>
@@ -3843,22 +3900,6 @@ ${sc.cta}`); }}
                       {item.cta && <p style={{ fontSize: 11, color: "#1877f2", margin: "6px 0 0", fontWeight: 700 }}>{item.cta}</p>}
                     </div>
                   ))}
-                </>
-              )}
-
-              {!!revisaoGate.bloqueados?.length && (
-                <div style={{ marginTop: revisaoGate.liberaveis?.length ? 18 : 0 }}>
-                  <p style={{ fontSize: 13, color: "var(--black)", margin: "0 0 4px", fontWeight: 700 }}>
-                    Precisa de correção no texto
-                  </p>
-                  <p style={{ fontSize: 12, color: "var(--muted)", margin: "0 0 10px", lineHeight: 1.5 }}>
-                    Aprovar não resolve esses — edite o criativo e salve, que a revisão é recalculada.
-                  </p>
-                  {revisaoGate.bloqueados.map((motivo: string, i: number) => (
-                    <div key={i} style={{ border: "1px solid #fecaca", background: "#fef2f2", borderRadius: 10, padding: "10px 12px", marginBottom: 8, fontSize: 12, color: "#991b1b", lineHeight: 1.5 }}>
-                      {motivo}
-                    </div>
-                  ))}
                 </div>
               )}
             </div>
@@ -3866,7 +3907,7 @@ ${sc.cta}`); }}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", padding: "16px 24px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
               <button onClick={() => setRevisaoGate(null)}
                 style={{ background: "white", border: "1px solid var(--border)", color: "var(--black)", fontWeight: 700, fontSize: 13, padding: "10px 16px", borderRadius: 10, cursor: "pointer" }}>
-                Fechar e editar texto
+                Fechar
               </button>
               {!!revisaoGate.liberaveis?.length && (
                 <button

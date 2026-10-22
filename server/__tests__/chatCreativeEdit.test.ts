@@ -83,19 +83,47 @@ test("diagnostico: needsReview sem motivo rastreavel nao e liberavel (truncament
   assert.equal(d.liberavelPorAprovacao, false);
 });
 
-test("preflight recusa ANTES do token, por criativo, dizendo quem aprova e quem corrige", () => {
+test("preflight recusa ANTES do token, separando quem aprova de quem corrige", () => {
   const r = pendenciasLocaisParaPublicar(loja([C0, C1]).campaign);
   assert.equal(r.ok, false);
-  assert.match(r.erro!, /2 criativo\(s\) ainda precisam de revis/);
-  assert.match(r.erro!, /criativo\(s\) 0 tem so score baixo/);
-  assert.match(r.erro!, /criativo\(s\) 1 precisam ter o texto corrigido/);
-  assert.equal(r.issues?.length, 2);
+
+  // Duas pendencias distintas, nao uma frase com as duas dentro: a tela precisa
+  // saber QUAL criativo tem botao de aprovar e qual tem que ser editado.
+  const aprovavel = r.pendencias!.find((p) => p.tipo === "revisao_aprovavel");
+  const bloqueada = r.pendencias!.find((p) => p.tipo === "revisao_bloqueada");
+  assert.deepEqual(aprovavel?.criativos, [0]);
+  assert.equal(aprovavel?.acao, "aprovar_criativo");
+  assert.deepEqual(bloqueada?.criativos, [1]);
+  assert.equal(bloqueada?.acao, "editar_texto");
+  assert.equal(aprovavel?.detalhes.length, 1);
+  assert.equal(bloqueada?.detalhes.length, 1);
+
+  // `erro` e `issues` continuam preenchidos: campaignPublish.ts e
+  // chatAdsTools.ts leem esses dois campos.
+  assert.ok(r.erro);
+  assert.ok(r.issues?.length);
+});
+
+test("preflight nao esconde o portao seguinte atras da revisao", () => {
+  // A versao anterior saia na PRIMEIRA pendencia: o usuario aprovava os
+  // criativos, clicava em publicar e so entao descobria que o briefing nao
+  // tinha snapshot de fatos. Agora as duas chegam juntas.
+  const r = pendenciasLocaisParaPublicar(loja([C0], { comFatos: false }).campaign);
+  assert.equal(r.ok, false);
+  const tipos = r.pendencias!.map((p) => p.tipo);
+  assert.ok(tipos.includes("revisao_aprovavel") || tipos.includes("revisao_bloqueada"), "a revisao precisa aparecer");
+  assert.ok(tipos.includes("integridade"), "e a integridade tambem, na mesma resposta");
 });
 
 test("preflight sem snapshot de fatos recusa com a mesma regra da publicacao real", () => {
   const r = pendenciasLocaisParaPublicar(loja([{ ...C0, needsReview: false }], { comFatos: false }).campaign);
   assert.equal(r.ok, false);
-  assert.match(r.erro!, /CAMPAIGN_INTEGRITY/);
+  const integridade = r.pendencias!.find((p) => p.tipo === "integridade");
+  // Titulo sem o prefixo tecnico: vai direto pra tela do usuario. O
+  // `CAMPAIGN_INTEGRITY` continua na excecao que `publishToMeta` lanca, que e
+  // onde ele serve pra grep de log.
+  assert.match(integridade!.titulo, /sem briefing validado completo/);
+  assert.doesNotMatch(integridade!.titulo, /CAMPAIGN_INTEGRITY/);
 });
 
 test("aprovar: primeira chamada nao grava e devolve a frase; frase exata aprova so o liberavel", async () => {
