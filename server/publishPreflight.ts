@@ -84,6 +84,26 @@ export interface ItemDePendencia {
   /** Indices dos criativos afetados; vazio quando nao se aplica. */
   criativos: number[];
   acao: AcaoDePendencia;
+  /**
+   * Texto atual de cada criativo afetado.
+   *
+   * Achado real (22/10): sem o texto em maos, o chat relatou a pendencia e
+   * inventou a correcao — mandou gravar a string "Texto corrigido" na
+   * descricao de um anuncio real. Quem vai reescrever precisa ler o que esta
+   * escrito; e quem vai aprovar precisa ver o que esta aprovando.
+   */
+  textos?: Array<{ index: number; score: number; headline: string | null; description: string | null; copy: string | null; cta: string | null }>;
+}
+
+function textosDe(creatives: any[], indices: number[], scores: Record<number, number>) {
+  return indices.map((index) => ({
+    index,
+    score: scores[index] ?? (typeof creatives[index]?.finalScore === "number" ? creatives[index].finalScore : 0),
+    headline: creatives[index]?.headline ?? null,
+    description: creatives[index]?.description ?? null,
+    copy: creatives[index]?.copy ?? null,
+    cta: creatives[index]?.cta ?? null,
+  }));
 }
 
 export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicacao {
@@ -132,20 +152,28 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
     const diagnosticos = emRevisao.map(({ c, index }) => ({ index, d: diagnosticarRevisao(c, facts) }));
     const liberaveis = diagnosticos.filter((x) => x.d.liberavelPorAprovacao);
     const bloqueados = diagnosticos.filter((x) => !x.d.liberavelPorAprovacao);
+    const scores: Record<number, number> = {};
+    for (const x of diagnosticos) scores[x.index] = x.d.score;
     if (liberaveis.length) {
+      const indices = liberaveis.map((x) => x.index);
       pendencias.push({
         tipo: "revisao_aprovavel", acao: "aprovar_criativo",
-        criativos: liberaveis.map((x) => x.index),
-        titulo: `${liberaveis.length} criativo(s) ficaram em revisão só por score baixo. Você pode aprovar como está.`,
+        criativos: indices,
+        // Os indices entram no titulo de proposito: em texto corrido o modelo
+        // do chat perdeu um dos quatro ("4 criativos (0, 2, 3)").
+        titulo: `${liberaveis.length} criativo(s) ficaram em revisão só por score baixo: ${indices.join(", ")}. Você pode aprovar como está.`,
         detalhes: liberaveis.map((x) => descreverDiagnostico(x.index, x.d)),
+        textos: textosDe(creatives, indices, scores),
       });
     }
     if (bloqueados.length) {
+      const indices = bloqueados.map((x) => x.index);
       pendencias.push({
         tipo: "revisao_bloqueada", acao: "editar_texto",
-        criativos: bloqueados.map((x) => x.index),
-        titulo: `${bloqueados.length} criativo(s) precisam ter o texto corrigido antes de publicar.`,
+        criativos: indices,
+        titulo: `${bloqueados.length} criativo(s) precisam ter o texto corrigido antes de publicar: ${indices.join(", ")}.`,
         detalhes: bloqueados.map((x) => descreverDiagnostico(x.index, x.d)),
+        textos: textosDe(creatives, indices, scores),
       });
     }
   }

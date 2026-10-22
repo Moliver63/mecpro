@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { triarParaAprovacao, aplicarAprovacaoPorScore } from "../creativeReview";
+import { triarParaAprovacao, aplicarAprovacaoPorScore, diagnosticarRevisao } from "../creativeReview";
 
 /**
  * Achado real (22/10, campanha 799 da Shadia Hasan): tres tentativas de
@@ -113,6 +113,86 @@ const MCP = readFileSync(new URL("../campaignDraftEdit.ts", import.meta.url), "u
 test("a tela tem uma mutation que limpa needsReview", () => {
   assert.match(ROTA, /approveCreativeReview: protectedProcedure/, "sem isso a tela volta a ser porta sem saida");
   assert.match(ROTA, /aplicarAprovacaoPorScore\(creatives, aprovados/);
+});
+
+// ── A edicao de preenchimento (22/10) ─────────────────────────────────────
+// O chat afirmou que o criativo 1 da 799 tinha "depoimento invalido" (nao
+// tinha: aquele era o estado de 19/10, antes da reescrita de 20/10) e mandou
+// corrigir com `description="Texto corrigido"`. Essa string nao e placeholder,
+// cabe em 30 caracteres e nao alega nada, entao passava por todas as travas e
+// seria gravada num anuncio real.
+const CRIATIVO_1_DA_799 = {
+  finalScore: 62, needsReview: true, segmentAlignmentIssues: [],
+  headline: "Jornada de autoconhecimento Shadia Hasan",
+  description: "Autoconhecimento e Foco",
+  cta: "Saiba mais",
+  hook: "Quer entender seus padrões emocionais? Conheça a jornada Shadia Hasan.",
+  copy: "Conheça o Método Shadia Hasan, uma proposta de desenvolvimento pessoal que combina autoconhecimento e experiências em realidade virtual.",
+  // A reescrita de 20/10. Sem isso o diagnostico ainda acusaria o depoimento
+  // ficticio que o criativo tinha em 19/10 — que e exatamente o estado velho
+  // que o chat relatou como se fosse de hoje.
+  textEditedAt: "2026-10-20T11:47:59.971Z",
+  complianceNotes: "Copy factual definida pelo cliente em 20/10, sem depoimento e sem promessa de resultado.",
+};
+
+test("criativo 1 da 799 hoje tem SO score baixo, nao depoimento inventado", () => {
+  const d = diagnosticarRevisao(CRIATIVO_1_DA_799, null);
+  assert.deepEqual(d.motivos, ["score_baixo"]);
+  assert.equal(d.liberavelPorAprovacao, true);
+
+  // E o estado de 19/10, pra deixar claro de onde vinha a confusao.
+  const em19 = { ...CRIATIVO_1_DA_799 } as any;
+  delete em19.textEditedAt;
+  em19.complianceNotes = "Depoimento ficticio baseado em persona";
+  assert.ok(diagnosticarRevisao(em19, null).motivos.includes("depoimento_inventado"));
+});
+
+test("edicao de preenchimento salva, mas a resposta diz o que ela fez", async () => {
+  // "Texto corrigido" nao e placeholder, cabe em 30 caracteres e nao alega
+  // nada: passa por todas as travas. Nao existe regra deterministica que o
+  // separe de uma copy curta boa — tentar por vocabulario bloquearia a escrita
+  // do proprio usuario (duas edicoes legitimas de teste cairam na primeira
+  // tentativa). Entao a resposta informa em vez de barrar.
+  const { aplicarEdicaoDeTexto } = await import("../chatCreativeEdit");
+  const campos = ["headline", "description", "copy", "cta", "hook"] as const;
+  const r: any = aplicarEdicaoDeTexto(CRIATIVO_1_DA_799, { description: "Texto corrigido" }, campos as any, null, () => []);
+  assert.ok(r.creative, "edicao do usuario nao e recusada por heuristica de score");
+  assert.ok(r.avisos?.length, "mas o efeito tem que vir dito");
+  assert.ok(r.avisos.some((a: string) => /score caiu/.test(a)), `avisos: ${JSON.stringify(r.avisos)}`);
+  assert.ok(r.avisos.some((a: string) => /nao resolveu nenhum bloqueio/.test(a)));
+  assert.ok(r.avisos.some((a: string) => /score abaixo de 75/.test(a)));
+});
+
+test("a ferramenta de editar avisa que o texto vai pro anuncio", () => {
+  const CHAT_SRC = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
+  const inicio = CHAT_SRC.indexOf("const DESCRICAO_EDITAR_CRIATIVO");
+  const bloco = CHAT_SRC.slice(inicio, inicio + 1600);
+  assert.match(bloco, /VAI PRO ANUNCIO/);
+  assert.match(bloco, /Texto corrigido/, "o exemplo do que nao fazer e o caso real de 22/10");
+  assert.match(bloco, /textos/, "aponta pro texto atual que vem nas pendencias");
+});
+
+test("as pendencias carregam o texto atual de cada criativo e os indices no titulo", async () => {
+  const { pendenciasLocaisParaPublicar } = await import("../publishPreflight");
+  const criativo = (i: number) => ({
+    finalScore: 62, needsReview: true, segmentAlignmentIssues: [],
+    headline: `Headline ${i}`, description: "Desc", copy: "Texto da copy desse criativo.", cta: "Saiba mais",
+    feedImageUrl: "https://res.cloudinary.com/x/image/upload/v1/a.jpg",
+  });
+  const campanha = {
+    adSets: JSON.stringify([{ name: "TOF", budget: "R$ 6,00/dia" }]),
+    creatives: JSON.stringify([criativo(0), criativo(1)]),
+    aiResponse: "{}",
+  };
+  const r = pendenciasLocaisParaPublicar(campanha);
+  const revisao = r.pendencias!.find((p) => p.tipo === "revisao_aprovavel" || p.tipo === "revisao_bloqueada");
+  assert.ok(revisao, "a revisao tem que aparecer");
+  // Indices no titulo: em texto corrido o modelo perdeu um dos quatro.
+  assert.match(revisao!.titulo, /0, 1/);
+  // E o texto atual, pra ninguem precisar inventar substituto.
+  assert.equal(revisao!.textos?.length, 2);
+  assert.equal(revisao!.textos?.[0].headline, "Headline 0");
+  assert.equal(revisao!.textos?.[0].copy, "Texto da copy desse criativo.");
 });
 
 test("publish_campaign do MCP usa a pre-checagem compartilhada", () => {

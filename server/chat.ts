@@ -466,7 +466,14 @@ const DESCRICAO_EDITAR_CRIATIVO =
   "Use quando o usuario pedir pra mudar titulo/texto/CTA, ou quando a publicacao estiver bloqueada por placeholder, " +
   "texto fora do segmento, alegacao nao confirmada ou depoimento inventado. Nunca invente depoimento, numero de " +
   "clientes, prazo ou resultado que o usuario nao informou. Mostre o texto novo ao usuario antes de chamar, " +
-  "salvo se ele mesmo ditou o texto. Respeite os limites de caracteres: texto maior e recusado, nao cortado.";
+  "salvo se ele mesmo ditou o texto. Respeite os limites de caracteres: texto maior e recusado, nao cortado. " +
+  // Achado real (22/10, 799): o modelo relatou pendencia que nao existia e
+  // mandou gravar a string "Texto corrigido" na descricao de um anuncio real.
+  "O texto que voce enviar VAI PRO ANUNCIO: nunca envie preenchimento do tipo 'Texto corrigido', " +
+  "'Descricao ajustada' ou qualquer frase que nao seja copy de verdade. Leia o texto atual do criativo " +
+  "antes (vem em `textos` nas pendencias de publicacao) e reescreva a partir dele. " +
+  "Score abaixo de 75 NAO e defeito de texto que a edicao conserta: ou se reescreve com beneficio concreto " +
+  "do briefing, ou o usuario aprova como esta com aprovar_revisao_criativo.";
 const PARAMETROS_APROVAR_REVISAO = {
   type: "object",
   properties: {

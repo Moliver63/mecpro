@@ -50,7 +50,7 @@ export function aplicarEdicaoDeTexto(
   facts: ReturnType<typeof factsDaCampanha>,
   auditarSegmento: AuditorDeSegmento,
   agora: () => Date = () => new Date(),
-): { erro: string; conflitos?: string[]; instruction?: string } | { creative: any; diagnostico: ReturnType<typeof diagnosticarRevisao>; mudancas: Record<string, string> } {
+): { erro: string; conflitos?: string[]; instruction?: string } | { creative: any; diagnostico: ReturnType<typeof diagnosticarRevisao>; mudancas: Record<string, string>; avisos?: string[] } {
   const mudancas: Record<string, string> = {};
   const erros: string[] = [];
   for (const campo of campos) {
@@ -100,9 +100,47 @@ export function aplicarEdicaoDeTexto(
   delete proximo.reviewApprovedScore;
 
   const diagnostico = diagnosticarRevisao({ ...proximo, needsReview: false }, facts);
+
+  /**
+   * Efeito da edicao, dito em voz alta (22/10).
+   *
+   * Achado real: o chat disse ao Michel que o criativo 1 da 799 tinha
+   * "depoimento invalido" (nao tinha — era o estado de 19/10, antes da
+   * reescrita de 20/10) e mandou corrigir com
+   * `editar_criativo(..., description="Texto corrigido")`. Essa string nao e
+   * placeholder, cabe em 30 caracteres e nao alega nada, entao passa por todas
+   * as travas e seria gravada num anuncio real.
+   *
+   * A primeira versao disto RECUSAVA edicao que nao resolvia motivo e baixava
+   * o score. Dois testes de edicao legitima do usuario cairam na hora, e
+   * estavam certos: trocar a propria copy, mesmo perdendo pontos da
+   * heuristica, e decisao de quem escreve o anuncio. Nenhuma regra
+   * deterministica separa "Texto corrigido" de uma copy curta boa — tentar
+   * separar por vocabulario e a armadilha de 19/10 em outra roupa, e aqui o
+   * custo do falso positivo e bloquear o trabalho do usuario.
+   *
+   * Entao a resposta INFORMA em vez de barrar: quem le a resposta (modelo ou
+   * usuario) ve que a edicao nao resolveu bloqueio nenhum e quanto o score
+   * caiu. A defesa de verdade esta antes, em nao inventar a pendencia: as
+   * pendencias agora carregam o texto atual (`textos`) e os indices, e a
+   * descricao da ferramenta diz que o texto vai pro anuncio.
+   */
+  const motivosAntes = diagnosticarRevisao({ ...atual, needsReview: false }, facts);
+  const resolveuAlgo = motivosAntes.motivos.some((m) => !diagnostico.motivos.includes(m));
+  const scoreAntes = typeof atual?.finalScore === "number" ? atual.finalScore : motivosAntes.score;
+  const scoreDepois = typeof proximo.finalScore === "number" ? proximo.finalScore : diagnostico.score;
+  const avisos: string[] = [];
+  if (scoreDepois < scoreAntes) avisos.push(`o score caiu de ${scoreAntes} para ${scoreDepois}`);
+  if (motivosAntes.motivos.length && !resolveuAlgo) {
+    avisos.push(`a edicao nao resolveu nenhum bloqueio; continua: ${motivosAntes.motivos.join(", ")}`);
+  }
+  if (motivosAntes.motivos.length === 1 && motivosAntes.motivos[0] === "score_baixo" && !resolveuAlgo) {
+    avisos.push("score abaixo de 75 nao e defeito que edicao conserta sozinha: reescreva com beneficio concreto do briefing, ou o usuario aprova como esta");
+  }
+
   proximo.needsReview = diagnostico.motivos.length > 0;
   proximo = syncCreativeTextToV2(proximo);
-  return { creative: proximo, diagnostico, mudancas };
+  return { creative: proximo, diagnostico, mudancas, ...(avisos.length ? { avisos } : {}) };
 }
 
 /** Reescreve campos de texto de um criativo e recalcula score, segmento, fatos e needsReview. */
@@ -129,6 +167,7 @@ export async function editarCriativo(
   const aplicado = aplicarEdicaoDeTexto(creatives[index], args, CAMPOS_EDITAVEIS, facts, auditarSegmento);
   if ("erro" in aplicado) return aplicado;
   const { creative: proximo, diagnostico, mudancas } = aplicado;
+  const avisosDaEdicao = (aplicado as any).avisos as string[] | undefined;
 
   const atualizados = [...creatives];
   atualizados[index] = proximo;
@@ -141,6 +180,10 @@ export async function editarCriativo(
     score: proximo.finalScore,
     precisaRevisao: proximo.needsReview,
     ...(proximo.needsReview ? { pendencia: descreverDiagnostico(index, diagnostico) } : {}),
+    // Efeito da edicao em voz alta: salvar em silencio uma troca que piorou o
+    // score e nao resolveu bloqueio foi o que deixou passar a edicao de
+    // preenchimento de 22/10. Mostre ao usuario.
+    ...(avisosDaEdicao?.length ? { avisos: avisosDaEdicao } : {}),
     scope: "mecpro_only", syncedToMeta: false,
     message: proximo.needsReview
       ? (diagnostico.liberavelPorAprovacao
