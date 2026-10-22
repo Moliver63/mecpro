@@ -2600,9 +2600,33 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
 
       const adSets: any[] = (() => { try { return JSON.parse(campaign.adSets || "[]"); } catch { return []; } })();
       const creatives: any[] = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
-      if (adSets.length === 0) {
-        await db.failMcpIdempotencyKey(idempotencyRecordId, "Campanha sem ad sets gerados.");
-        return { content: [{ type: "text", text: "Essa campanha não tem ad sets gerados. Rode generate_campaign primeiro." }], isError: true };
+
+      // Pre-checagem unica, a mesma do chat e da tela. Esta ferramenta tinha a
+      // QUARTA copia das mesmas checagens (ad sets, copy de carrossel, imagem),
+      // cada uma com a sua redacao, e nenhuma olhava `needsReview` — quem
+      // publicava por aqui descobria a revisao so quando o router recusava.
+      // Copia divergente foi exatamente a causa do caso de 22/10.
+      const { pendenciasLocaisParaPublicar } = await import("./publishPreflight");
+      const local = pendenciasLocaisParaPublicar(campaign);
+      if (!local.ok) {
+        const pendencias = local.pendencias ?? [];
+        const message = [
+          "Publicação bloqueada antes de tocar na Meta. Pendências desta campanha:",
+          ...pendencias.map((p) => [`- ${p.titulo}`, ...p.detalhes.map((d) => `    ${d}`)].join("\n")),
+        ].join("\n");
+        await db.failMcpIdempotencyKey(idempotencyRecordId, message);
+        return {
+          content: [{ type: "text", text: message }],
+          structuredContent: {
+            // `creative_copy_audit` preservado pra nao quebrar quem ja
+            // distinguia esse caso; os outros tipos entram em `pendencias`.
+            errorType: pendencias.some((p) => p.tipo === "copy_carrossel") ? "creative_copy_audit" : "pre_publish_blocked",
+            stage: "pre_publish_local_checks",
+            issues: local.issues ?? [],
+            pendencias,
+          },
+          isError: true,
+        };
       }
 
       let caller;
@@ -2613,24 +2637,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         return { content: [{ type: "text", text: e.message }], isError: true };
       }
 
-      const copyAudit = auditCarouselCreatives(creatives);
-      if (!copyAudit.ok) {
-        const message =
-          "Publicação bloqueada pela auditoria de carrossel: há cards com copy fraca, curta ou repetida. " +
-          "Regenere ou atualize os criativos antes de publicar na Meta.\n\n" +
-          copyAudit.issues.map((issue) => `- ${issue}`).join("\n");
-        await db.failMcpIdempotencyKey(idempotencyRecordId, message);
-        return {
-          content: [{ type: "text", text: message }],
-          structuredContent: {
-            errorType: "creative_copy_audit",
-            stage: "pre_publish_carousel_copy_audit",
-            issues: copyAudit.issues,
-          },
-          isError: true,
-        };
-      }
-
       const orderedCreatives = orderedCreativesForCarousel(creatives);
       const uniqueImages = Array.from(new Set(
         orderedCreatives
@@ -2638,11 +2644,6 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           .filter((x: any) => x.hash || x.url)
           .map((x: any) => x.hash ? `hash:${x.hash}` : `url:${x.url}`)
       )).slice(0, 10);
-
-      if (uniqueImages.length === 0) {
-        await db.failMcpIdempotencyKey(idempotencyRecordId, "Nenhuma imagem encontrada nos criativos.");
-        return { content: [{ type: "text", text: "Nenhuma imagem encontrada nos criativos gerados — não é possível publicar sem imagem." }], isError: true };
-      }
 
       async function resolveToHash(tagged: string): Promise<string> {
         if (tagged.startsWith("hash:")) return tagged.slice(5);

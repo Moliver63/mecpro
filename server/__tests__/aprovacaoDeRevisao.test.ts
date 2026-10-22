@@ -115,6 +115,18 @@ test("a tela tem uma mutation que limpa needsReview", () => {
   assert.match(ROTA, /aplicarAprovacaoPorScore\(creatives, aprovados/);
 });
 
+test("publish_campaign do MCP usa a pre-checagem compartilhada", () => {
+  // Tinha a quarta copia das mesmas checagens, e nenhuma olhava needsReview.
+  const MCP_SRV = readFileSync(new URL("../mcpServer.ts", import.meta.url), "utf8");
+  // Ancora no titulo da ferramenta: a string "publish_campaign" aparece antes,
+  // numa referencia a ela em outra resposta.
+  const inicio = MCP_SRV.indexOf('title: "Publicar campanha na Meta"');
+  assert.ok(inicio > 0, "registro da ferramenta publish_campaign nao encontrado");
+  const bloco = MCP_SRV.slice(inicio, inicio + 6000);
+  assert.match(bloco, /pendenciasLocaisParaPublicar/);
+  assert.doesNotMatch(bloco, /auditCarouselCreatives\(creatives\)/, "a auditoria de copy vem da pre-checagem, nao de copia local");
+});
+
 test("as tres portas usam a mesma triagem, nenhuma reimplementa a regra", () => {
   for (const [nome, fonte] of [["tela", ROTA], ["chat", CHAT], ["mcp", MCP]] as const) {
     assert.match(fonte, /triarParaAprovacao\(/, `${nome} precisa triar pela regra compartilhada`);
