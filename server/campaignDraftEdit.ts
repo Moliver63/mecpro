@@ -1,5 +1,8 @@
 import { aplicarEdicaoDeTexto, type AuditorDeSegmento, type CampoDeTexto } from "./chatCreativeEdit";
-import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha } from "./creativeReview";
+import {
+  diagnosticarRevisao, descreverDiagnostico, factsDaCampanha,
+  triarParaAprovacao, aplicarAprovacaoPorScore,
+} from "./creativeReview";
 import { formatDailyBudget } from "../shared/dailyBudget";
 
 /**
@@ -185,22 +188,25 @@ export function ajustarRascunhoCampanha(campaign: any, entrada: EntradaRascunho,
   // ── Aprovacao de score baixo (pedido real 21/10, 799: "Aprovo os 4") ─────
   if (entrada.approveLowScoreCreatives !== undefined) {
     const lista = entrada.approveLowScoreCreatives;
-    if (!Array.isArray(lista) || !lista.every((i) => Number.isSafeInteger(i) && i >= 0 && creatives[i])) {
+    if (!Array.isArray(lista)) {
       return { erro: `approveLowScoreCreatives tem indice inexistente (ha ${creatives.length} criativos).` };
     }
-    const recusados: string[] = [];
-    let aprovouAlgum = false;
-    for (const i of [...new Set(lista)]) {
-      const c = creatives[i];
-      if (c?.needsReview !== true) continue;
-      const d = diagnosticarRevisao(c, facts);
-      if (!d.liberavelPorAprovacao) { recusados.push(descreverDiagnostico(i, d)); continue; }
-      creatives[i] = { ...c, needsReview: false, reviewApprovedAt: agora().toISOString(), reviewApprovedBy: "user_via_mcp", reviewApprovalReason: "score_baixo", reviewApprovedScore: c.finalScore ?? null };
-      alteracoes.push(`criativo ${i}: score ${d.score} aprovado pelo usuario`);
-      aprovouAlgum = true;
+    const triagem = triarParaAprovacao(creatives, lista, facts);
+    if (triagem.invalidos.length) {
+      return { erro: `approveLowScoreCreatives tem indice inexistente (ha ${creatives.length} criativos).` };
     }
-    if (recusados.length) avisos.push(...recusados.map((r) => `Nao aprovado (so score baixo e aprovavel): ${r}`));
-    if (aprovouAlgum) patch.creatives = JSON.stringify(creatives);
+    if (triagem.bloqueados.length) {
+      avisos.push(...triagem.bloqueados.map((r) => `Nao aprovado (so score baixo e aprovavel): ${r}`));
+    }
+    if (triagem.liberaveis.length) {
+      const aprovados = triagem.liberaveis.map((x) => x.index);
+      const atualizados = aplicarAprovacaoPorScore(creatives, aprovados, "user_via_mcp", agora().toISOString());
+      // `creatives` e lido depois (revisao final), entao substitui no lugar.
+      creatives.length = 0;
+      creatives.push(...atualizados);
+      for (const x of triagem.liberaveis) alteracoes.push(`criativo ${x.index}: score ${x.score} aprovado pelo usuario`);
+      patch.creatives = JSON.stringify(creatives);
+    }
   }
 
   // ── Resumo (strategy) ────────────────────────────────────────────────────

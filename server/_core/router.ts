@@ -2,6 +2,10 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { log } from "../logger";
+import {
+  diagnosticarRevisao, factsDaCampanha,
+  triarParaAprovacao, aplicarAprovacaoPorScore,
+} from "../creativeReview";
 import { recordLedger } from "../financialEngine";
 import superjson from "superjson";
 import type { Context } from "./context";
@@ -25,6 +29,7 @@ import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlin
 import { buildEnhancedCloudinaryImageUrl, generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
   updateCreativeInputSchema,
+  approveCreativeReviewInputSchema,
   updateCreativeImageInputSchema,
   setFeaturedPhotoInputSchema,
   regenerateCreativeImageInputSchema,
@@ -2777,9 +2782,15 @@ const campaignsRouter = router({
   // -- Edição manual de criativo ---------------------------------------------
   updateCreative: protectedProcedure
     .input(updateCreativeInputSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const campaign = await db.getCampaignById(input.campaignId) as any;
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+      // Faltava: a mutation gravava criativo por id de campanha, sem checar
+      // dono. Mesmo padrao de regenerateCreativeImage/generateCreativeVideo.
+      const projetoDoCriativo = await db.getProjectById(campaign.projectId);
+      if (!projetoDoCriativo || (projetoDoCriativo as any).userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Campanha indisponivel para esta conta." });
+      }
       const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
       if (!creatives[input.index]) throw new TRPCError({ code: "BAD_REQUEST", message: "Criativo não encontrado" });
       const currentCreative = (creatives[input.index] ?? {}) as CampaignCreative;
@@ -2793,9 +2804,115 @@ const campaignsRouter = router({
       } as any;
       Object.assign(nextCreative, scoreCreative(nextCreative));
       nextCreative._edited = true;
+      (nextCreative as any).textEditedAt = new Date().toISOString();
+
+      // A tela recalculava o score e deixava `needsReview` como estava: quem
+      // corrigia o texto aqui continuava sem conseguir publicar. Mesma regra
+      // do chat — rediagnostica o criativo editado e, se nao sobrou motivo,
+      // libera. Se sobrou, devolve o motivo em vez de so salvar em silencio.
+      const fatosDaCampanha = factsDaCampanha(campaign);
+      const diagnostico = diagnosticarRevisao({ ...(nextCreative as any), needsReview: false }, fatosDaCampanha);
+      if ((currentCreative as any)?.needsReview === true && !diagnostico.motivos.length) {
+        (nextCreative as any).needsReview = false;
+        delete (nextCreative as any).reviewApprovedAt;
+        delete (nextCreative as any).reviewApprovedBy;
+        delete (nextCreative as any).reviewApprovalReason;
+        delete (nextCreative as any).reviewApprovedScore;
+      }
+
       creatives[input.index] = syncCreativeTextToV2(nextCreative);
       await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(creatives));
-      return { ok: true, creatives };
+      return {
+        ok: true,
+        creatives,
+        revisao: {
+          precisaRevisao: (creatives[input.index] as any)?.needsReview === true,
+          motivos: diagnostico.motivos,
+          detalhes: diagnostico.detalhes,
+          score: diagnostico.score,
+          aprovavelComoEsta: diagnostico.liberavelPorAprovacao,
+        },
+      };
+    }),
+
+  /**
+   * Aprovar criativo em revisao pela TELA (22/10, campanha 799).
+   *
+   * Michel tentou publicar tres vezes e levou "criativos ainda precisam de
+   * revisao" nas tres. Os 4 criativos estavam `needsReview: true` por score
+   * entre 62 e 68, e a tela nao tinha nenhuma porta pra liberar — so o chat e
+   * o MCP. Mesma regra dos outros dois caminhos (`creativeReview.ts`): libera
+   * quando o UNICO motivo e score abaixo de 75. Sem `confirm`, nao grava
+   * nada: devolve o que seria aprovado e o que continua bloqueado.
+   */
+  approveCreativeReview: protectedProcedure
+    .input(approveCreativeReviewInputSchema)
+    .mutation(async ({ input, ctx }) => {
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+      const projeto = await db.getProjectById(campaign.projectId);
+      if (!projeto || (projeto as any).userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Campanha indisponivel para esta conta." });
+      }
+
+      const creatives = JSON.parse(campaign.creatives || "[]") as any[];
+      if (!Array.isArray(creatives) || !creatives.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Campanha sem criativos." });
+      }
+
+      const pedidos = input.indexes && input.indexes.length ? input.indexes : null;
+      const triagem = triarParaAprovacao(creatives, pedidos, factsDaCampanha(campaign));
+      if (triagem.invalidos.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Criativo inexistente: ${triagem.invalidos.join(", ")} (ha ${creatives.length}).` });
+      }
+
+      if (!triagem.emRevisao.length) {
+        return { ok: true, aplicado: false, aprovados: [], bloqueados: [], liberaveis: [], message: "Nenhum criativo esta aguardando revisao." };
+      }
+
+      // Primeira etapa: mostra o que seria aprovado, sem gravar.
+      if (!input.confirm) {
+        return {
+          ok: true,
+          aplicado: false,
+          confirmacaoNecessaria: triagem.liberaveis.length > 0,
+          aprovados: [],
+          liberaveis: triagem.liberaveis.map(({ index, score }) => ({
+            index, score,
+            headline: creatives[index]?.headline ?? null,
+            description: creatives[index]?.description ?? null,
+            copy: creatives[index]?.copy ?? null,
+            cta: creatives[index]?.cta ?? null,
+          })),
+          bloqueados: triagem.bloqueados,
+          message: triagem.liberaveis.length
+            ? "Score abaixo de 75 significa que a IA achou o texto fraco, não que ele viole alguma regra. Confirme para publicar assim mesmo."
+            : "Nenhum destes pode ser aprovado como está: corrija o texto.",
+        };
+      }
+
+      if (!triagem.liberaveis.length) {
+        return {
+          ok: false, aplicado: false, aprovados: [], liberaveis: [],
+          bloqueados: triagem.bloqueados,
+          message: "Nenhum criativo pode ser aprovado como está. Edite o texto para resolver os motivos listados.",
+        };
+      }
+
+      const aprovados = triagem.liberaveis.map((x) => x.index);
+      const atualizados = aplicarAprovacaoPorScore(creatives, aprovados, ctx.user.id, new Date().toISOString());
+      await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(atualizados));
+      log.info("creative-review", "criativo aprovado pela tela", { campaignId: input.campaignId, userId: ctx.user.id, aprovados, bloqueados: triagem.bloqueados.length });
+
+      return {
+        ok: true, aplicado: true, aprovados,
+        liberaveis: [],
+        bloqueados: triagem.bloqueados,
+        creatives: atualizados,
+        message: triagem.bloqueados.length
+          ? "Aprovados. Os criativos ainda listados continuam impedindo a publicação."
+          : "Aprovados. A campanha pode seguir para publicação.",
+      };
     }),
 
   updateCreativeImage: protectedProcedure

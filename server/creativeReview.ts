@@ -131,8 +131,90 @@ const ROTULO: Record<MotivoRevisao, string> = {
 };
 
 export function descreverDiagnostico(index: number, d: DiagnosticoRevisao): string {
-  const acao = d.liberavelPorAprovacao ? "pode ser aprovado no chat" : "precisa corrigir o texto";
+  const acao = d.liberavelPorAprovacao ? "pode ser aprovado como esta" : "precisa corrigir o texto";
   return `Criativo ${index}: ${d.motivos.map((m) => ROTULO[m]).join(", ")} — ${d.detalhes.join("; ")} (${acao}).`;
+}
+
+/**
+ * Triagem e aplicacao da aprovacao, uma vez so.
+ *
+ * Existiam dois lacos identicos (chat `aprovar_revisao_criativo` e MCP
+ * `approveLowScoreCreatives`) e a tela ia virar o terceiro. Cada copia e uma
+ * chance de a regra divergir: foi exatamente assim que a tela ficou sem
+ * nenhuma forma de limpar `needsReview` enquanto o chat tinha. A regra mora
+ * aqui; cada porta cuida so da sua confirmacao e da sua gravacao.
+ *
+ * `indices = null` significa "todos os que estao em revisao".
+ */
+export interface CriativoLiberavel { index: number; score: number; }
+
+export interface TriagemDeAprovacao {
+  /** Em revisao e liberavel: o unico motivo e score baixo. */
+  liberaveis: CriativoLiberavel[];
+  /** Em revisao e bloqueado, ja descrito pra mostrar a quem pediu. */
+  bloqueados: string[];
+  /** Indices pedidos que estao em revisao, liberaveis ou nao. */
+  emRevisao: number[];
+  /** Indices pedidos que nao existem na lista. Entrada invalida, nao bloqueio. */
+  invalidos: number[];
+}
+
+export function triarParaAprovacao(
+  creatives: any[],
+  indices: number[] | null | undefined,
+  facts?: CampaignFacts | null,
+): TriagemDeAprovacao {
+  const lista = Array.isArray(creatives) ? creatives : [];
+  const invalidos: number[] = [];
+  let pedidos: number[];
+
+  if (indices === null || indices === undefined) {
+    pedidos = lista.map((c: any, i: number) => (c?.needsReview === true ? i : -1)).filter((i) => i >= 0);
+  } else {
+    pedidos = [];
+    for (const i of indices) {
+      if (!Number.isSafeInteger(i) || i < 0 || !lista[i]) { invalidos.push(i); continue; }
+      if (!pedidos.includes(i)) pedidos.push(i);
+    }
+    pedidos.sort((a, b) => a - b);
+  }
+
+  const emRevisao = pedidos.filter((i) => lista[i]?.needsReview === true);
+  const liberaveis: CriativoLiberavel[] = [];
+  const bloqueados: string[] = [];
+  for (const index of emRevisao) {
+    const d = diagnosticarRevisao(lista[index], facts);
+    if (d.liberavelPorAprovacao) liberaveis.push({ index, score: d.score });
+    else bloqueados.push(descreverDiagnostico(index, d));
+  }
+
+  return { liberaveis, bloqueados, emRevisao, invalidos };
+}
+
+/**
+ * Devolve a lista nova com `needsReview` limpo nos indices dados, carimbando
+ * quem aprovou. Nao triar antes libera criativo bloqueado: quem chama passa
+ * `triagem.liberaveis`, nunca a lista crua do usuario.
+ */
+export function aplicarAprovacaoPorScore(
+  creatives: any[],
+  indices: number[],
+  // numero (userId, como o chat sempre gravou) ou rotulo de origem ("user_via_mcp").
+  aprovadoPor: string | number,
+  momento: string,
+): any[] {
+  const alvo = new Set(indices);
+  return (Array.isArray(creatives) ? creatives : []).map((c: any, i: number) => {
+    if (!alvo.has(i)) return c;
+    return {
+      ...c,
+      needsReview: false,
+      reviewApprovedAt: momento,
+      reviewApprovedBy: aprovadoPor,
+      reviewApprovalReason: "score_baixo",
+      reviewApprovedScore: c?.finalScore ?? null,
+    };
+  });
 }
 
 export function factsDaCampanha(campaign: any): CampaignFacts | null {

@@ -4,7 +4,10 @@ import { CREATIVE_TEXT_LIMITS } from "./creativeRewriteGuard";
 import { scoreCreative } from "./creativeScoringEngine";
 import { validateCampaignFactIntegrity } from "./campaignFactGuard";
 import { syncCreativeTextToV2 } from "../shared/campaignCreative.sync";
-import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha, textoDoCriativo } from "./creativeReview";
+import {
+  diagnosticarRevisao, descreverDiagnostico, factsDaCampanha, textoDoCriativo,
+  triarParaAprovacao, aplicarAprovacaoPorScore,
+} from "./creativeReview";
 
 /**
  * Ferramentas de chat que destravam a publicacao: editar o texto de um
@@ -174,23 +177,20 @@ export async function aprovarRevisaoCriativo(
   const creatives = lerCriativos(campaign);
   if (!creatives) return { erro: "Lista de criativos invalida." };
 
-  let indices: number[];
-  if (args.creativeIndexes === undefined || args.creativeIndexes === null) {
-    indices = creatives.map((c: any, i: number) => (c?.needsReview === true ? i : -1)).filter((i) => i >= 0);
-  } else if (Array.isArray(args.creativeIndexes) && args.creativeIndexes.every((i) => Number.isSafeInteger(i) && (i as number) >= 0 && creatives[i as number])) {
-    indices = [...new Set(args.creativeIndexes as number[])].sort((a, b) => a - b);
-  } else {
+  const pedidos = args.creativeIndexes;
+  if (pedidos !== undefined && pedidos !== null && !Array.isArray(pedidos)) {
     return { erro: "creativeIndexes invalido.", criativosDisponiveis: creatives.length };
   }
 
   const facts = factsDaCampanha(campaign);
-  const emRevisao = indices.filter((i) => creatives[i]?.needsReview === true);
-  if (!emRevisao.length) return { ok: true, campaignId: campaign.id, message: "Nenhum desses criativos esta aguardando revisao." };
+  const triagem = triarParaAprovacao(creatives, pedidos as number[] | null | undefined, facts);
+  if (triagem.invalidos.length) {
+    return { erro: "creativeIndexes invalido.", criativosDisponiveis: creatives.length };
+  }
+  if (!triagem.emRevisao.length) return { ok: true, campaignId: campaign.id, message: "Nenhum desses criativos esta aguardando revisao." };
 
-  const diagnosticos = emRevisao.map((index) => ({ index, c: creatives[index], d: diagnosticarRevisao(creatives[index], facts) }));
-  const liberaveis = diagnosticos.filter((x) => x.d.liberavelPorAprovacao);
-  const bloqueados = diagnosticos.filter((x) => !x.d.liberavelPorAprovacao);
-  const bloqueadosDescritos = bloqueados.map((x) => descreverDiagnostico(x.index, x.d));
+  const liberaveis = triagem.liberaveis.map((x) => ({ ...x, c: creatives[x.index] }));
+  const bloqueadosDescritos = triagem.bloqueados;
 
   if (!liberaveis.length) {
     return {
@@ -205,8 +205,8 @@ export async function aprovarRevisaoCriativo(
   if (mensagemAtual.trim() !== frase) {
     return {
       ok: false, confirmationRequired: true, campaignId: campaign.id,
-      paraAprovar: liberaveis.map(({ index, c, d }) => ({
-        index, score: d.score,
+      paraAprovar: liberaveis.map(({ index, score, c }) => ({
+        index, score,
         headline: c.headline, description: c.description, copy: c.copy, cta: c.cta,
       })),
       ...(bloqueadosDescritos.length ? { bloqueados: bloqueadosDescritos } : {}),
@@ -214,15 +214,12 @@ export async function aprovarRevisaoCriativo(
     };
   }
 
-  const momento = agora().toISOString();
-  const atualizados = creatives.map((c: any, i: number) => {
-    if (!liberaveis.some((x) => x.index === i)) return c;
-    return {
-      ...c, needsReview: false,
-      reviewApprovedAt: momento, reviewApprovedBy: userId,
-      reviewApprovalReason: "score_baixo", reviewApprovedScore: c.finalScore ?? null,
-    };
-  });
+  const atualizados = aplicarAprovacaoPorScore(
+    creatives,
+    liberaveis.map((x) => x.index),
+    userId,
+    agora().toISOString(),
+  );
   await store.updateCampaignField(campaign.id, "creatives", JSON.stringify(atualizados));
   return {
     ok: true, campaignId: campaign.id,

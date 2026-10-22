@@ -324,6 +324,22 @@ export const updateCreativeImageInputSchema = z.object({
   }
 });
 
+/**
+ * Aprovar criativo que ficou em revisao so por score baixo, pela TELA.
+ *
+ * Achado real (22/10, campanha 799): tres tentativas de publicar recusadas com
+ * "criativos ainda precisam de revisao", e a tela nao tinha como limpar a
+ * flag — so o chat e o MCP tinham. `confirm` existe pelo mesmo motivo do
+ * token no chat: aprovar texto que a IA achou fraco e decisao do usuario, nao
+ * efeito de um clique acidental. `indexes` vazio ou ausente = todos os que
+ * estao em revisao.
+ */
+export const approveCreativeReviewInputSchema = z.object({
+  campaignId: z.number().int().positive(),
+  indexes: z.array(z.number().int().min(0)).optional(),
+  confirm: z.boolean().optional(),
+});
+
 export const regenerateCreativeImageInputSchema = z.object({
   onlyIfMissing: z.boolean().optional(),
   campaignId: z.number().int().positive(),
