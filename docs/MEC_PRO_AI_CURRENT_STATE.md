@@ -3222,3 +3222,14 @@ Validado: 447/447, typecheck do servidor 37 (igual ao baseline), typecheck do pr
 ## 21/10 — `update_campaign_draft` aprova score baixo (`approveLowScoreCreatives`)
 
 Michel pediu pra publicar a 799 e aprovou explicitamente os 4 criativos (scores 62-68, unico motivo score). A aprovacao so existia no chat do app (`aprovar_revisao_criativo`); pelo MCP nao havia como. Entrou `approveLowScoreCreatives` no `update_campaign_draft`, com a mesma regra ("So score baixo"): libera so quando `diagnosticarRevisao` da `liberavelPorAprovacao`; o resto vira aviso e continua bloqueado. Grava `reviewApprovedBy: "user_via_mcp"`. 1 teste novo; suite e `tsc` no baseline.
+
+## 24/10 — Relatorio Meta: cliques no link e visualizacoes da pagina de destino
+
+Analisando a 804 (Shadia, trafego, ativa desde 23/10), o relatorio (`unified.getFullReport`, usado pelo MCP `get_full_ads_report` e pelo chat) so trazia `clicks`, que na Meta e "todos os cliques" (curtir, expandir, comentar). CTR de 3,7% nessa base nao diz quantos foram ao site. Pedido do Michel: trazer as duas metricas.
+
+- `server/metaTrafficMetrics.ts` (puro): `trafegoDaLinha` (cliques no link = `inline_link_clicks`, fallback acao `link_click`; paginas carregadas = acao `landing_page_view`, 0 sem pixel) e `taxasDeTrafego` (`linkCtr`, `costPerLinkClick`, `costPerLandingPageView`, `landingPageViewRate`), sem NaN/Infinity.
+- Nos totais, por campanha e nos 3 breakdowns. `notes` no totals explica a diferenca entre `clicks` e `linkClicks`.
+- Achado junto: `baseFields` nao pedia `campaign_id,campaign_name`, entao a lista `campaigns` saia sem nome nem ID (o relatorio de 24/10 nao dizia de qual campanha era). Corrigido.
+- Tela (`MetaCampaigns.tsx`) usa outro endpoint e continua so com "Cliques". Nao mexido.
+
+Validado: 4 testes novos; suite 516/516; `tsc` 37; `check:mcp` ok. Nao verificado contra a Graph real (sandbox sem acesso); confere no proximo `get_full_ads_report`.

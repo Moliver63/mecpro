@@ -1,4 +1,5 @@
 import { initTRPC, TRPCError } from "@trpc/server";
+import { CAMPOS_DE_TRAFEGO_META, trafegoDaLinha, taxasDeTrafego } from "../metaTrafficMetrics";
 import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { log } from "../logger";
@@ -10760,7 +10761,11 @@ const unifiedRouter = router({
             if (!act) {
               report.meta = { configured: false, error: "Ad Account ID Meta inválido." };
             } else {
-              const baseFields = "impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,action_values";
+              // campaign_id/campaign_name: sem eles a lista `campaigns` saia sem
+              // nome nem ID (o relatorio da 804 nao dizia de qual campanha era).
+              // inline_link_clicks + acao landing_page_view: trafego real, ver
+              // server/metaTrafficMetrics.ts.
+              const baseFields = `campaign_id,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,action_values,${CAMPOS_DE_TRAFEGO_META}`;
               const timeRange  = `{"since":"${since}","until":"${until}"}`;
 
               const fetchInsights = async (breakdowns?: string) => {
@@ -10793,8 +10798,11 @@ const unifiedRouter = router({
                 acc.leads         += extractAction(row, "lead");
                 acc.purchases     += extractAction(row, "purchase");
                 acc.purchaseValue += extractValue(row, "purchase");
+                const trafego = trafegoDaLinha(row);
+                acc.linkClicks       += trafego.linkClicks;
+                acc.landingPageViews += trafego.landingPageViews;
                 return acc;
-              }, { impressions: 0, clicks: 0, spend: 0, reach: 0, leads: 0, purchases: 0, purchaseValue: 0 });
+              }, { impressions: 0, clicks: 0, spend: 0, reach: 0, leads: 0, purchases: 0, purchaseValue: 0, linkClicks: 0, landingPageViews: 0 });
 
               report.meta = {
                 configured: true,
@@ -10805,7 +10813,11 @@ const unifiedRouter = router({
                   cpc:  totals.clicks > 0 ? totals.spend / totals.clicks : 0,
                   cpm:  totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
                   roas: totals.spend > 0 ? totals.purchaseValue / totals.spend : 0,
+                  ...taxasDeTrafego(totals),
                 },
+                // `clicks`/`ctr` sao "todos os cliques" da Meta; para trafego, leia
+                // linkClicks/linkCtr e landingPageViews.
+                notes: { clicks: "todos os cliques (inclui curtir, expandir, comentar)", linkClicks: "cliques no link", landingPageViews: "pagina de destino carregada (exige pixel no site; 0 sem pixel)" },
                 campaigns: summary.map((row: any) => ({
                   campaignId: row.campaign_id, campaignName: row.campaign_name,
                   impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
@@ -10813,22 +10825,27 @@ const unifiedRouter = router({
                   cpm: Number(row.cpm || 0), reach: Number(row.reach || 0), frequency: Number(row.frequency || 0),
                   leads: extractAction(row, "lead"), purchases: extractAction(row, "purchase"),
                   purchaseValue: extractValue(row, "purchase"),
+                  ...trafegoDaLinha(row),
+                  ...taxasDeTrafego({ impressions: Number(row.impressions || 0), spend: Number(row.spend || 0), ...trafegoDaLinha(row) }),
                 })),
                 breakdowns: {
                   ageGender: byAgeGender.map((row: any) => ({
                     age: row.age, gender: row.gender,
                     impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
                     spend: Number(row.spend || 0), ctr: Number(row.ctr || 0),
+                    ...trafegoDaLinha(row),
                   })),
                   placement: byPlacement.map((row: any) => ({
                     platform: row.publisher_platform, position: row.platform_position,
                     impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
                     spend: Number(row.spend || 0), ctr: Number(row.ctr || 0),
+                    ...trafegoDaLinha(row),
                   })),
                   device: byDevice.map((row: any) => ({
                     device: row.device_platform,
                     impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
                     spend: Number(row.spend || 0), ctr: Number(row.ctr || 0),
+                    ...trafegoDaLinha(row),
                   })),
                 },
               };
