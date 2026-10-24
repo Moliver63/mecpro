@@ -4,6 +4,7 @@ import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
+import { faixaEtariaDoAdSet } from "../metaTargeting";
 import {
   diagnosticarRevisao, factsDaCampanha,
   triarParaAprovacao, aplicarAprovacaoPorScore,
@@ -3773,7 +3774,7 @@ const campaignsRouter = router({
       function resolveObjectiveAndGoal(
         obj: string,
         pixelId?: string,
-        opts?: { isWhatsAppDestination?: boolean; hasLink?: boolean },
+        opts?: { isWhatsAppDestination?: boolean; hasLink?: boolean; otimizarPorVisualizacaoDePagina?: boolean },
       ): { campaignObj: string; optimizationGoal: string } {
         const o = (obj || "").toLowerCase();
         const isWhatsAppDestination = !!opts?.isWhatsAppDestination;
@@ -3835,6 +3836,20 @@ const campaignsRouter = router({
             campaignObj: "OUTCOME_TRAFFIC",
             optimizationGoal: hasLink ? "LANDING_PAGE_VIEWS" : "LINK_CLICKS",
           };
+        }
+
+        /**
+         * Trafego otimizando por VISUALIZACAO DE PAGINA, quando pedido.
+         *
+         * O padrao continua `LINK_CLICKS`, e isso nao e bug: sem pixel
+         * funcionando, otimizar por visualizacao de pagina trava a entrega,
+         * porque a Meta nao recebe o evento. O que faltava era poder
+         * escolher. So muda quando o usuario pede explicitamente, e a
+         * checagem de pixel fica em quem chama, pra recusar antes de criar
+         * a campanha em vez de criar uma que nao entrega.
+         */
+        if (o === "traffic" && opts?.otimizarPorVisualizacaoDePagina && hasLink) {
+          return { campaignObj: "OUTCOME_TRAFFIC", optimizationGoal: "LANDING_PAGE_VIEWS" };
         }
 
         return {
@@ -4672,6 +4687,17 @@ const campaignsRouter = router({
         });
       }
 
+      // Pedir visualizacao de pagina sem pixel cria campanha que nao entrega:
+      // a Meta nao tem o evento pra otimizar. Recusa antes de criar, em vez de
+      // cair em silencio pra cliques e o usuario achar que escolheu outra coisa.
+      if (input.trafficOptimization === "landing_page_views" && !input.pixelId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Otimizar por visualizacoes da pagina exige um pixel configurado nesta campanha. " +
+                   "Selecione o pixel, ou publique otimizando por cliques no link.",
+        });
+      }
+
       const { campaignObj: resolvedCampaignObj, optimizationGoal: adSetOptimizationGoal } = resolveObjectiveAndGoal(
         correctedObjective,
         input.pixelId ?? undefined,
@@ -4679,6 +4705,7 @@ const campaignsRouter = router({
           isWhatsAppDestination,
           hasLink:     !!finalLink,
           hasLinkedWA: !!(whatsappDestination as any)._connectedPhone,
+          otimizarPorVisualizacaoDePagina: input.trafficOptimization === "landing_page_views",
         },
       );
       if (String(objective || "").toLowerCase() === "engagement" && !isWhatsAppDestination) {
@@ -4747,9 +4774,16 @@ const campaignsRouter = router({
 
       // ── Parse do adSet para extrair idade e interesses ────────────────────
       const adSetAudience = String(adSet?.audience || "");
-      const ageMatch = adSetAudience.match(/[Ii]dade[:\s]+?(\d{2})[-–](\d{2})/);
-      const parsedAgeMin = ageMatch ? parseInt(ageMatch[1]) : (input.ageMin ?? 18);
-      const parsedAgeMax = ageMatch ? parseInt(ageMatch[2]) : (input.ageMax ?? 65);
+      // Ver server/metaTargeting.ts: o regex antigo procurava "idade" num texto
+      // que diz "Faixa etaria", nunca casava, e mandava 18-65 pra Meta em toda
+      // campanha publicada. Na 804 isso jogou 46% da verba em 65+.
+      const faixaEtaria = faixaEtariaDoAdSet(adSet, input);
+      const parsedAgeMin = faixaEtaria.min;
+      const parsedAgeMax = faixaEtaria.max;
+      log.info("meta", "faixa etaria do conjunto", {
+        campaignId: input.campaignId,
+        min: parsedAgeMin, max: parsedAgeMax, origem: faixaEtaria.origem,
+      });
 
       const interestMatch = adSetAudience.match(/[Ii]nteresses[:\s]+([^.]+)/);
       const interestTerms = interestMatch

@@ -391,6 +391,13 @@ export const publishToMetaInputSchema = z.object({
   placements: z.array(z.string()).optional().nullable(),
   ageMin: z.number().min(13).max(65).optional(),
   ageMax: z.number().min(18).max(65).optional(),
+  /**
+   * Objetivo trafego: por que otimizar. Padrao `link_clicks`, que e o
+   * comportamento de sempre. `landing_page_views` faz a Meta procurar quem
+   * realmente ABRE a pagina, nao quem clica, e exige pixel recebendo evento
+   * — sem ele a entrega trava. Por isso e escolha explicita, nunca padrao.
+   */
+  trafficOptimization: z.enum(["link_clicks", "landing_page_views"]).optional(),
   regions: z.array(z.string()).optional(),
   countries: z.array(z.string()).optional(),
   cities: z.array(z.string()).optional(),
