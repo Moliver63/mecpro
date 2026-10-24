@@ -3,6 +3,7 @@ import { CAMPOS_DE_TRAFEGO_META, trafegoDaLinha, taxasDeTrafego } from "../metaT
 import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { log } from "../logger";
+import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
 import {
   diagnosticarRevisao, factsDaCampanha,
   triarParaAprovacao, aplicarAprovacaoPorScore,
@@ -3503,10 +3504,10 @@ const campaignsRouter = router({
           const reach       = Number(ins.reach || 0);
           const frequency   = Number(ins.frequency || 0);
           const leads       = (ins.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
-          const purchases   = (ins.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
+          const purchases   = comprasDaLinha(ins);
           // ROAS: usa valor REAL de conversão do Meta (action_values) quando disponível;
           // fallback: estimativa única de R$50/conversão (antes havia 2 fórmulas divergentes: R$100 e R$50)
-          const purchaseValue = Number((ins.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
+          const purchaseValue = valorDasComprasDaLinha(ins);
           const roas = spend > 0
             ? (purchaseValue > 0 ? purchaseValue / spend : (Number(purchases) * AVG_CONVERSION_VALUE) / spend)
             : 0;
@@ -3612,8 +3613,8 @@ const campaignsRouter = router({
             if (!dailyData.error && Array.isArray(dailyData.data)) {
               for (const day of dailyData.data) {
                 const dLeads     = (day.actions || []).find((a: any) => a.action_type === "lead")?.value || 0;
-                const dPurchases = (day.actions || []).find((a: any) => a.action_type === "purchase")?.value || 0;
-                const dPurchaseValue = Number((day.action_values || []).find((a: any) => a.action_type === "purchase")?.value || 0);
+                const dPurchases = comprasDaLinha(day);
+                const dPurchaseValue = valorDasComprasDaLinha(day);
                 // Conversa de WhatsApp iniciada — sinal de conversão separado de "lead".
                 // Achado real (auditoria 03/09): campanhas de Clique-para-WhatsApp
                 // apareciam com leads=0 mesmo convertendo bem, porque esse action_type
@@ -10796,8 +10797,8 @@ const unifiedRouter = router({
                 acc.spend         += Number(row.spend || 0);
                 acc.reach          = Math.max(acc.reach, Number(row.reach || 0));
                 acc.leads         += extractAction(row, "lead");
-                acc.purchases     += extractAction(row, "purchase");
-                acc.purchaseValue += extractValue(row, "purchase");
+                acc.purchases     += comprasDaLinha(row);
+                acc.purchaseValue += valorDasComprasDaLinha(row);
                 const trafego = trafegoDaLinha(row);
                 acc.linkClicks       += trafego.linkClicks;
                 acc.landingPageViews += trafego.landingPageViews;
@@ -10823,8 +10824,8 @@ const unifiedRouter = router({
                   impressions: Number(row.impressions || 0), clicks: Number(row.clicks || 0),
                   spend: Number(row.spend || 0), ctr: Number(row.ctr || 0), cpc: Number(row.cpc || 0),
                   cpm: Number(row.cpm || 0), reach: Number(row.reach || 0), frequency: Number(row.frequency || 0),
-                  leads: extractAction(row, "lead"), purchases: extractAction(row, "purchase"),
-                  purchaseValue: extractValue(row, "purchase"),
+                  leads: extractAction(row, "lead"), purchases: comprasDaLinha(row),
+                  purchaseValue: valorDasComprasDaLinha(row),
                   ...trafegoDaLinha(row),
                   ...taxasDeTrafego({ impressions: Number(row.impressions || 0), spend: Number(row.spend || 0), ...trafegoDaLinha(row) }),
                 })),
@@ -13831,7 +13832,7 @@ const mediaBudgetRouter = router({
           const actions = ins.actions || [];
           const waClicks   = actions.find((a: any) => a.action_type === "onsite_conversion.messaging_conversation_started_7d")?.value || 0;
           const leads      = actions.find((a: any) => a.action_type === "lead")?.value || 0;
-          const purchases  = actions.find((a: any) => a.action_type === "purchase")?.value || 0;
+          const purchases  = valorDaAcao(actions);
 
           // Score composto — normalizado por gasto (ROAS de resultado)
           let primaryMetric = "ctr";
