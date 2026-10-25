@@ -23,6 +23,7 @@ import * as db from "./db";
 import { appRouter } from "./_core/router";
 import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
+import { analisarFaixaEtaria } from "./analiseDeFaixaEtaria";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 import { classifyCampaignPhoto } from "./campaignPhotoClassification";
@@ -674,6 +675,48 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     return appRouter.createCaller({ req: {} as any, res: {} as any, user } as any);
   }
 
+  /**
+   * Conselho de faixa etaria a partir do historico real da conta.
+   *
+   * NUNCA bloqueia e NUNCA lanca: conselho e melhoria, nao pre-requisito. Falha
+   * de rede, integracao ausente ou volume insuficiente devolve aviso, e a
+   * geracao segue exatamente como seguia antes.
+   *
+   * Nao aplica nada por conta propria. A idade continua vindo de quem chama ou
+   * do texto do modelo; isto aqui so diz o que o dado sustenta, e explicita
+   * quando o dado nao sustenta nada — que, com orcamento de poucos reais por
+   * dia, vai ser a resposta na maioria das vezes.
+   */
+  async function conselhoDeFaixaEtaria(idadePedida?: { min?: number; max?: number }) {
+    const origem = (idadePedida?.min && idadePedida?.max)
+      ? `informada na chamada (${idadePedida.min}-${idadePedida.max})`
+      : "escrita pelo modelo, sem base em dado";
+    try {
+      const caller = await getCaller();
+      const relatorio: any = await caller.unified.getFullReport({ platforms: ["meta"], period: "90d" } as any);
+      const bruto: any[] = relatorio?.platforms?.meta?.breakdowns?.ageGender || [];
+      const linhas = bruto.map((r: any) => ({
+        faixa: String(r?.age || ""),
+        impressoes: Number(r?.impressions || 0),
+        // linkClicks e o clique que leva ao site; clicks inclui curtir e expandir.
+        cliquesNoLink: Number(r?.linkClicks ?? r?.clicks ?? 0),
+        resultados: Number(r?.landingPageViews || 0),
+        gasto: Number(r?.spend || 0),
+      }));
+      const analise = analisarFaixaEtaria(linhas, { nomeDoResultado: "visualizacao da pagina" });
+      return { ...analise, origemDaIdade: origem, aplicadaAutomaticamente: false };
+    } catch (e: any) {
+      log.warn("meta", "conselho de faixa etaria indisponivel, seguindo sem ele", { error: e?.message });
+      return {
+        temBase: false, recomendacao: null, faixas: [], taxaAgregada: 0,
+        totalDeCliques: 0, totalDeResultados: 0,
+        resumo: "Nao foi possivel ler o historico da conta para analisar faixa etaria.",
+        avisos: [`Historico indisponivel: ${e?.message || "erro desconhecido"}.`],
+        origemDaIdade: origem, aplicadaAutomaticamente: false,
+      };
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // FASE 1 — tools de leitura
   // ═══════════════════════════════════════════════════════════════════════
@@ -851,6 +894,77 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
         structuredContent: { campaignId, days: days || 30, metrics: rows },
       };
+    }
+  );
+
+  server.registerTool(
+    "analisar_publico_por_idade",
+    {
+      title: "Analisar público por idade (com teste de significância)",
+      description:
+        "Analisa, a partir do histórico real da conta na Meta, quais faixas de " +
+        "idade merecem orçamento, e devolve uma faixa sugerida. Julga pelo " +
+        "resultado DEPOIS do clique (visualização da página), não pelo CTR, " +
+        "porque CTR alto com aproveitamento baixo é comum em faixas mais " +
+        "velhas e escolher por CTR erra. Só reprova uma faixa quando a falta " +
+        "de resultado é improvável por azar, e diz abertamente 'sem base' " +
+        "quando o volume não permite conclusão, o que é o caso normal com " +
+        "orçamento baixo. Não altera campanha nenhuma: só recomenda. Use " +
+        "antes de criar campanha ou quando o usuário perguntar qual idade usar.",
+      inputSchema: {
+        period: z.enum(["7d", "30d", "90d"]).optional()
+          .describe("Janela do histórico. Padrão: 90d, porque faixa etária precisa de volume acumulado."),
+      },
+    },
+    async ({ period }) => {
+      let caller;
+      try {
+        caller = await getCaller();
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao autenticar: ${e.message}` }], isError: true };
+      }
+      try {
+        const relatorio: any = await caller.unified.getFullReport({
+          platforms: ["meta"], period: period || "90d",
+        } as any);
+        const bruto: any[] = relatorio?.platforms?.meta?.breakdowns?.ageGender || [];
+        if (!bruto.length) {
+          return {
+            content: [{ type: "text", text: "Sem quebra por idade no período: ou a integração Meta não está configurada, ou nenhuma campanha entregou impressões. Nada a analisar." }],
+            structuredContent: { temBase: false, recomendacao: null, faixas: [] },
+          };
+        }
+        const analise = analisarFaixaEtaria(
+          bruto.map((r: any) => ({
+            faixa: String(r?.age || ""),
+            impressoes: Number(r?.impressions || 0),
+            cliquesNoLink: Number(r?.linkClicks ?? r?.clicks ?? 0),
+            resultados: Number(r?.landingPageViews || 0),
+            gasto: Number(r?.spend || 0),
+          })),
+          { nomeDoResultado: "visualizacao da pagina" },
+        );
+
+        const linhas = analise.faixas.map((f) =>
+          `${f.faixa.padEnd(6)} ${String(f.impressoes).padStart(6)} impr  ${String(f.cliquesNoLink).padStart(4)} cliques  ` +
+          `${String(f.resultados).padStart(3)} result  esperado ${f.esperado.toFixed(1).padStart(5)}  ` +
+          `${f.veredicto.toUpperCase().padEnd(11)} ${f.motivo}`,
+        );
+        const texto = [
+          analise.resumo,
+          "",
+          ...linhas,
+          ...(analise.avisos.length ? ["", "Avisos:", ...analise.avisos.map((a) => `- ${a}`)] : []),
+          "",
+          analise.recomendacao
+            ? `Sugestão: ageMin ${analise.recomendacao.min}, ageMax ${analise.recomendacao.max}. Nada foi alterado; aplique você.`
+            : "Nenhuma sugestão: o dado não sustenta decisão de idade.",
+        ].join("\n");
+
+        return { content: [{ type: "text", text: texto }], structuredContent: analise as any };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao analisar público por idade: ${e.message}` }], isError: true };
+      }
     }
   );
 
@@ -1402,6 +1516,11 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         (input.mediaFormat && input.mediaFormat !== "mixed") ? "Formato de midia: " + input.mediaFormat : "",
       ].filter(Boolean).join(". ");
 
+      // Em paralelo com a geracao, de proposito: a geracao leva dezenas de
+      // segundos, entao o conselho fica pronto antes e nao soma latencia. Se
+      // falhar, nao derruba nada — ver conselhoDeFaixaEtaria.
+      const conselhoPromise = conselhoDeFaixaEtaria({ min: input.ageMin, max: input.ageMax });
+
       const campaignPromise = generateCampaign({
         projectId: input.projectId, userId, name: input.name, objective: input.objective,
         platform: input.platform, budget: input.budget, duration: input.duration,
@@ -1418,10 +1537,17 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         const campaign: any = await Promise.race([campaignPromise, timeoutPromise]);
         const elapsed = Date.now() - startTime;
         const aiResponse = (() => { try { return JSON.parse(campaign.aiResponse || "{}"); } catch { return {}; } })();
+        const conselho = await conselhoPromise.catch(() => null);
+        const notaDeIdade = !conselho
+          ? ""
+          : conselho.temBase && conselho.recomendacao
+          ? ` Público por idade: ${conselho.resumo} A faixa desta campanha foi ${conselho.origemDaIdade} e NÃO foi alterada automaticamente; para aplicar a sugestão, gere de novo com ageMin/ageMax ou edite o conjunto.`
+          : ` Público por idade: ${conselho.resumo} A faixa desta campanha foi ${conselho.origemDaIdade}.`;
         return {
-          content: [{ type: "text", text: `Campanha gerada: "${campaign.name || input.name}" (id: ${campaign.id}) no projeto ${project.name}. Tempo total: ${Math.round(elapsed/1000)}s. Ainda não publicada na Meta.` }],
+          content: [{ type: "text", text: `Campanha gerada: "${campaign.name || input.name}" (id: ${campaign.id}) no projeto ${project.name}. Tempo total: ${Math.round(elapsed/1000)}s. Ainda não publicada na Meta.${notaDeIdade}` }],
           structuredContent: {
             id: campaign.id,
+            publicoPorIdade: conselho,
             name: campaign.name || input.name,
             projectId: input.projectId,
             factValidation: aiResponse.factValidation || null,
