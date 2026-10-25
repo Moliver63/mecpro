@@ -5,6 +5,7 @@ import { parseDailyBudget } from "../../shared/dailyBudget";
 import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
 import { faixaEtariaDoAdSet } from "../metaTargeting";
+import { mesclarTargeting, temIntencaoDePlacement } from "../metaTargetingMerge";
 import {
   diagnosticarRevisao, factsDaCampanha,
   triarParaAprovacao, aplicarAprovacaoPorScore,
@@ -9575,8 +9576,11 @@ const metaCampaignsRouter = router({
   updateAdSetPlacements: protectedProcedure
     .input(z.object({
       adSetId:       z.string(),
-      placements:    z.array(z.string()),
-      placementMode: z.enum(["auto", "manual"]),
+      // Opcionais de propósito: "ausente" tem que significar "não toque nos
+      // posicionamentos". Sem isso, uma edição só de idade cai no modo auto e
+      // joga a campanha para Advantage+ Placements sem ninguém ter pedido.
+      placements:    z.array(z.string()).optional(),
+      placementMode: z.enum(["auto", "manual"]).optional(),
       regions:       z.array(z.string()).optional(),
       countries:     z.array(z.string()).optional(),
       geoCity:       z.string().optional(),
@@ -9719,46 +9723,31 @@ const metaCampaignsRouter = router({
       const resolvedAgeMin = input.ageMin ?? currentTargeting.age_min ?? 18;
       const resolvedAgeMax = input.ageMax ?? currentTargeting.age_max ?? 65;
 
-      let targetingUpdate: any = {};
+      // A Meta substitui o targeting inteiro no POST, então o merge parte do
+      // targeting REAL e sobrescreve só o que a edição pediu. Ver
+      // metaTargetingMerge.ts: é o que impede uma edição de idade de apagar
+      // interesses, gênero, idioma e públicos salvos da campanha ativa.
+      const targetingMesclado = mesclarTargeting({
+        atual: currentTargeting,
+        ageMin: resolvedAgeMin,
+        ageMax: resolvedAgeMax,
+        geoLocations: resolvedGeoLocations,
+        placementMode: input.placementMode,
+        placements: input.placements,
+        mapaDePlacement: PLACEMENT_MAP,
+      });
 
-      if (input.placementMode === "auto" || input.placements.length === 0) {
-        targetingUpdate = {
-          targeting: {
-            age_min: resolvedAgeMin,
-            age_max: resolvedAgeMax,
-            targeting_automation: { advantage_audience: 0 },
-            geo_locations: resolvedGeoLocations,
-            device_platforms: ["mobile", "desktop"],
-          }
-        };
-      } else {
-        const publishers  = new Set<string>();
-        const fbPos:  string[] = [];
-        const igPos:  string[] = [];
-        const audPos: string[] = [];
+      log.info("meta", "targeting mesclado para edicao de ad set", {
+        adSetId: input.adSetId,
+        age: `${resolvedAgeMin}-${resolvedAgeMax}`,
+        mexeuEmPlacement: temIntencaoDePlacement({
+          placementMode: input.placementMode,
+          placements: input.placements,
+        }),
+        preservou: Object.keys(currentTargeting || {}).filter((k) => k !== "age_min" && k !== "age_max" && k !== "geo_locations"),
+      });
 
-        input.placements.forEach(id => {
-          const map = PLACEMENT_MAP[id];
-          if (!map) return;
-          publishers.add(map.pub);
-          if (map.pub === "facebook")         fbPos.push(map.pos);
-          if (map.pub === "instagram")        igPos.push(map.pos);
-          if (map.pub === "audience_network") audPos.push(map.pos);
-        });
-
-        targetingUpdate = {
-          targeting: {
-            age_min: resolvedAgeMin,
-            age_max: resolvedAgeMax,
-            targeting_automation: { advantage_audience: 0 },
-            geo_locations: resolvedGeoLocations,
-            publisher_platforms:             Array.from(publishers),
-            ...(fbPos.length  > 0 ? { facebook_positions:          fbPos }  : {}),
-            ...(igPos.length  > 0 ? { instagram_positions:         igPos }  : {}),
-            ...(audPos.length > 0 ? { audience_network_positions:  audPos } : {}),
-          }
-        };
-      }
+      const targetingUpdate: any = { targeting: targetingMesclado };
 
       const res = await fetch(`https://graph.facebook.com/v19.0/${input.adSetId}`, {
         method: "POST",

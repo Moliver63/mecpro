@@ -2475,13 +2475,15 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       if (!resolvedAdSetId) {
         results.push({ action: "targeting", success: false, error: "Ad set Meta nao encontrado para atualizar publico/localizacao." });
       } else {
-        const placements = input.placements ?? [];
-        const placementMode = input.placementMode ?? (placements.length > 0 ? "manual" : "auto");
+        // NAO invente placementMode. Um ajuste so de idade chegava aqui e saia
+        // com placementMode "auto", o que jogava a campanha para Advantage+
+        // Placements sem ninguem ter pedido. Repassa o que veio, e so isso:
+        // ausente significa "nao toque nos posicionamentos".
         try {
           await caller.metaCampaigns.updateAdSetPlacements({
             adSetId: resolvedAdSetId,
-            placements,
-            placementMode,
+            placements: input.placements,
+            placementMode: input.placementMode,
             regions: input.regions,
             countries: input.countries,
             geoCity: input.geoCity,
