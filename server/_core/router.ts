@@ -6,6 +6,7 @@ import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
 import { faixaEtariaDoAdSet } from "../metaTargeting";
 import { mesclarTargeting, temIntencaoDePlacement } from "../metaTargetingMerge";
+import { GOOGLE_ADS_API_VERSION, urlDoCliente, urlListarContasAcessiveis } from "../googleAdsApi";
 import {
   diagnosticarRevisao, factsDaCampanha,
   triarParaAprovacao, aplicarAprovacaoPorScore,
@@ -655,11 +656,8 @@ async function getGoogleAccessToken(integration: {
   return data.access_token;
 }
 
-const GOOGLE_ADS_API_VERSION = process.env.GOOGLE_ADS_API_VERSION || "v23";
-
 function buildGoogleAdsUrl(customerId: string, path: string): string {
-  const cleanId = String(customerId || "").replace(/\D/g, "");
-  return `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${cleanId}/${path}`;
+  return urlDoCliente(customerId, path);
 }
 
 // ── Google Ads API via biblioteca oficial (gRPC) ────────────────────────────
@@ -7995,7 +7993,7 @@ const integrationsRouter = router({
 
       if (devToken) {
         try {
-          const listRes = await fetch("https://googleads.googleapis.com/v17/customers:listAccessibleCustomers", {
+          const listRes = await fetch(urlListarContasAcessiveis(), {
             headers: {
               "Authorization":   `Bearer ${tokenData.access_token}`,
               "developer-token": devToken,
@@ -10472,7 +10470,7 @@ const googleCampaignsRouter = router({
         updateMask: { paths: ["status"] },
       }));
       const res = await fetch(
-        `https://googleads.googleapis.com/v17/customers/${runtime.customerId}/campaigns:mutate`,
+        urlDoCliente(runtime.customerId, "campaigns:mutate"),
         {
           method: "POST",
           headers: {
