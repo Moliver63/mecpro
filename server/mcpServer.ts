@@ -898,6 +898,80 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── Vendas reais (Kiwify / Hotmart) ────────────────────────────────────
+  // Orquestra trpc.sales.* via createCaller (regra de negocio fica no router).
+  server.registerTool(
+    "create_sales_webhook",
+    {
+      title: "Criar webhook de vendas (Kiwify/Hotmart)",
+      description:
+        "Cria uma URL secreta de webhook para um projeto receber as vendas reais " +
+        "da Kiwify ou da Hotmart. Cole a URL retornada na plataforma (Kiwify: " +
+        "Apps > Webhooks; Hotmart: Ferramentas > Webhook). Cada venda passa a ser " +
+        "atribuida a campanha MecProAI pelas UTMs (utm_campaign=mp{id}) que o " +
+        "MecProAI coloca nos anuncios de site. Retorna a URL uma vez: trate como senha.",
+      inputSchema: {
+        projectId: z.number().int().positive().describe("ID do projeto (list_projects)."),
+        provider: z.enum(["kiwify", "hotmart"]).describe("Plataforma de venda."),
+        verifySecret: z.string().max(200).optional()
+          .describe("Opcional. Hotmart: o hottok da conta. Kiwify: o token do webhook, para validar a assinatura."),
+      },
+    },
+    async ({ projectId, provider, verifySecret }) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
+      try {
+        const caller = await getCaller();
+        const created: any = await (caller as any).sales.createIntegration({ projectId, provider, verifySecret });
+        return {
+          content: [{ type: "text", text: JSON.stringify(created, null, 2) }],
+          structuredContent: created,
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Nao foi possivel criar o webhook: ${e?.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_sales_report",
+    {
+      title: "Relatorio de vendas reais por campanha",
+      description:
+        "Vendas aprovadas, reembolsos, receita, gasto, custo por venda e ROAS por " +
+        "campanha de um projeto, a partir dos webhooks de venda (Kiwify/Hotmart). " +
+        "A linha com campaignId null sao vendas sem atribuicao. Tambem lista os " +
+        "ultimos eventos recebidos, util para conferir se o webhook esta chegando.",
+      inputSchema: {
+        projectId: z.number().int().positive().describe("ID do projeto (list_projects)."),
+        days: z.number().int().min(1).max(365).optional().describe("Periodo em dias (padrao 30)."),
+      },
+    },
+    async ({ projectId, days }) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      try {
+        const caller = await getCaller();
+        const [summary, recent, integrations] = await Promise.all([
+          (caller as any).sales.summary({ projectId, days }),
+          (caller as any).sales.recentEvents({ projectId, limit: 10 }),
+          (caller as any).sales.listIntegrations({ projectId }),
+        ]);
+        const result = {
+          summary,
+          recentEvents: recent,
+          integrations: (integrations as any[]).map((i) => ({
+            id: i.id, provider: i.provider, active: i.active, lastEventAt: i.lastEventAt,
+          })),
+        };
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          structuredContent: result,
+        };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Nao foi possivel ler as vendas: ${e?.message}` }], isError: true };
+      }
+    }
+  );
+
   server.registerTool(
     "verificar_texto_da_campanha",
     {

@@ -26,6 +26,8 @@ import { adminIntelligenceRouter } from "./adminIntelligenceRouter";
 import { siteAnalyticsRouter } from "./siteAnalyticsRouter";
 import { vslRouter } from "./vslRouter";
 import { fineTuningRouter } from "./fineTuningRouter";
+import { salesRouter } from "./salesRouter";
+import { buildMecproUrlTags, shouldApplyUrlTags } from "../salesWebhookParsing";
 import { scoreCreative } from "../creativeScoringEngine";
 import { getCarouselEditorialIssues } from "../../shared/campaignCopyQuality";
 import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
@@ -5723,7 +5725,30 @@ const campaignsRouter = router({
         }
       }
 
-      const creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
+      // UTMs MecProAI: permitem atribuir a venda real (webhook Kiwify/Hotmart,
+      // salesAttribution.ts) a esta campanha. So em link de site, sem
+      // sobrescrever rastreio que o cliente ja colocou no proprio link.
+      const mecproUrlTags = shouldApplyUrlTags({
+        link: finalLink,
+        isWhatsApp: isWhatsAppDestination,
+        isLeadForm: dest === "lead_form",
+      }) ? buildMecproUrlTags(input.campaignId) : null;
+      if (mecproUrlTags) creativeBody.url_tags = mecproUrlTags;
+
+      let creativeData: any;
+      try {
+        creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
+      } catch (creativeErr: any) {
+        // url_tags e campo novo neste fluxo: se a Meta recusar o criativo com
+        // ele, tenta uma vez sem, para nunca bloquear publicacao por rastreio.
+        if (!mecproUrlTags) throw creativeErr;
+        log.warn("meta", "Criativo recusado com url_tags — tentando sem rastreio", { error: String(creativeErr?.message || "").slice(0, 160) });
+        delete creativeBody.url_tags;
+        creativeData = await metaPost<any>(`${accountId}/adcreatives`, creativeBody, "Creative");
+      }
+      if (mecproUrlTags && creativeBody.url_tags) {
+        log.info("meta", "url_tags MecProAI aplicados ao criativo", { campaignId: input.campaignId });
+      }
       const metaCreativeId = creativeData.id;
 
       // 4. Ad
@@ -14369,6 +14394,7 @@ export const appRouter = router({
   consultas: consultasRouter,
   academy: academyRouter,
   fineTuning: fineTuningRouter,
+  sales: salesRouter,
   intelligence:   adminIntelligenceRouter,
   siteAnalytics:  siteAnalyticsRouter,
   vsl:            vslRouter,   // ← ADICIONAR ESTA LINHA

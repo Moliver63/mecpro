@@ -1120,5 +1120,13 @@ export async function runMigrations(): Promise<void> {
     await pool.query(IMAGE_JOB_MIGRATION);
     await pool.query("ALTER TABLE campaign_image_jobs ADD COLUMN IF NOT EXISTS validation JSONB");
     await pool.query("CREATE INDEX IF NOT EXISTS campaign_image_jobs_pending ON campaign_image_jobs(status,next_attempt)");
+    // ── Vendas reais (Kiwify/Hotmart) — base do ROAS real e do funil perpétuo ──
+    // Puramente aditiva (CREATE ... IF NOT EXISTS). Falha aqui nao derruba o boot.
+    try {
+      const { SALES_MIGRATION } = await import('../salesAttribution');
+      await pool.query(SALES_MIGRATION);
+    } catch (err: any) {
+      console.warn('[migrations] sales tables skipped:', err?.message);
+    }
     console.log('[migrations] ✅ Migrations applied successfully');
 }

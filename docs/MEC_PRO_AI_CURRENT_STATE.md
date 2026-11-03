@@ -3233,3 +3233,25 @@ Analisando a 804 (Shadia, trafego, ativa desde 23/10), o relatorio (`unified.get
 - Tela (`MetaCampaigns.tsx`) usa outro endpoint e continua so com "Cliques". Nao mexido.
 
 Validado: 4 testes novos; suite 516/516; `tsc` 37; `check:mcp` ok. Nao verificado contra a Graph real (sandbox sem acesso); confere no proximo `get_full_ads_report`.
+
+---
+
+## 2026-11-03 — Vendas reais por campanha (Kiwify / Hotmart)
+
+Primeira peca do funil perpetuo, recomendada pelo conselho: medir venda real
+antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
+
+- `server/salesWebhookParsing.ts` (puro): parser Kiwify/Hotmart, status, token
+  `mp{id}`, `url_tags`, sanitizacao LGPD. Testes: `npm run test:sales-webhook` (9/9).
+- `server/salesAttribution.ts`: tabelas `sales_integrations`/`sales_events`
+  (migracao aditiva no boot + `migration_sales_events.sql`), atribuicao
+  restrita ao projeto, relatorio com custo por venda e ROAS.
+- `server/_core/salesRouter.ts` (`trpc.sales.*`), webhook
+  `/api/webhook/sales/:provider/:token` em index.ts, tools MCP
+  `create_sales_webhook` e `get_sales_report`.
+- `publishToMeta`: `url_tags` no criativo de link de site, com retry sem eles.
+- Testado contra Postgres 16 local: idempotencia, troca aprovado -> reembolsado,
+  bloqueio de atribuicao entre projetos, atribuicao por ad id, isolamento do
+  relatorio, assinatura Kiwify/Hotmart, e-mail fora do `raw`.
+- **Nao confirmado em producao:** formato real dos payloads, aceitacao de
+  `url_tags` pela Meta neste fluxo, repasse de UTM pela pagina de venda.

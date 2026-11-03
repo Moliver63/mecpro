@@ -164,6 +164,8 @@ import { motivoDeOrigemRecusada } from '../corsDiagnostico';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { runMigrations } from './migrations.js';
+import { getActiveIntegrationByToken, maskToken, recordSaleEvent, verifyProviderSignature } from '../salesAttribution.js';
+import { parseSalesPayload } from '../salesWebhookParsing.js';
 import { loadLLMModeFromDB, loadCopyEngineFromDB } from '../ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -234,6 +236,52 @@ app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Webhook de vendas (Kiwify / Hotmart) — venda real por campanha ──────────
+// Registrado ANTES do json parser global de proposito: a verificacao opcional
+// de assinatura da Kiwify precisa do corpo bruto. Autenticacao principal e o
+// token de 192 bits na URL (uma por projeto, criada em trpc.sales.createIntegration).
+// Responde 200 mesmo para evento ignorado, para a plataforma nao reenviar em loop;
+// so responde 4xx quando a URL/assinatura e invalida.
+app.post('/api/webhook/sales/:provider/:token', express.raw({ type: '*/*', limit: '1mb' }), async (req: Request, res: Response) => {
+  const provider = String(req.params.provider || '').toLowerCase();
+  if (provider !== 'kiwify' && provider !== 'hotmart') {
+    return res.status(404).json({ error: 'provider_desconhecido' });
+  }
+  const token = String(req.params.token || '');
+  try {
+    const integration = await getActiveIntegrationByToken(provider, token);
+    if (!integration) {
+      log.warn('sales-webhook', 'URL de webhook invalida ou desativada', { provider, token: maskToken(token), ip: req.ip });
+      return res.status(404).json({ error: 'webhook_nao_encontrado' });
+    }
+    const rawBody: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {}));
+    const check = verifyProviderSignature(integration, req as any, rawBody);
+    if (!check.ok) {
+      log.warn('sales-webhook', 'Assinatura rejeitada', { provider, integrationId: integration.id, reason: check.reason });
+      return res.status(401).json({ error: check.reason });
+    }
+    let body: any = null;
+    try { body = JSON.parse(rawBody.toString('utf8') || '{}'); } catch {
+      return res.status(400).json({ error: 'json_invalido' });
+    }
+    const sale = parseSalesPayload(provider, body);
+    if (!sale) {
+      log.info('sales-webhook', 'Evento sem pedido reconhecivel — ignorado', { provider, integrationId: integration.id, keys: Object.keys(body || {}).slice(0, 12) });
+      return res.json({ received: true, ignored: true });
+    }
+    const saved = await recordSaleEvent(integration, sale);
+    log.info('sales-webhook', 'Venda registrada', {
+      provider, integrationId: integration.id, projectId: integration.projectId,
+      status: sale.status, amountCents: sale.amountCents,
+      campaignId: saved?.campaignId ?? null, attribution: saved?.attributionMethod ?? null,
+    });
+    return res.json({ received: true, status: sale.status, attributed: !!saved?.campaignId });
+  } catch (err: any) {
+    log.warn('sales-webhook', 'Erro ao processar webhook de venda', { provider, error: err?.message?.slice(0, 200) });
+    return res.status(500).json({ error: 'erro_interno' });
   }
 });
 
