@@ -6112,7 +6112,7 @@ const campaignsRouter = router({
       // 4. Create Campaign via gRPC
       const buildGoogleCampaignCreate = (name: string) => ({
         name,
-        status: 2, // PAUSED
+        status: 3, // PAUSED (CampaignStatus: ENABLED=2, PAUSED=3). Nasce pausada: o usuario ativa depois de revisar.
         advertising_channel_type:
           input.campaignType === "DISPLAY"         ? 3 :   // DISPLAY
           input.campaignType === "VIDEO"            ? 6 :   // VIDEO (YouTube)

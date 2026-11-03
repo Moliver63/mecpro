@@ -616,7 +616,7 @@ function buildPlatformConnectionStatus(platform: AdsConnectionPlatform, integrat
       label: "Google Ads",
       configured,
       connected: active && hasToken,
-      readyForPublish: false,
+      readyForPublish: readyForApi,
       readyForApi,
       connectUrl: `${appUrl}/settings/google`,
       savedAccount: maskPublicId(integration?.accountId),
@@ -625,11 +625,11 @@ function buildPlatformConnectionStatus(platform: AdsConnectionPlatform, integrat
         canInspectStatus: true,
         canOpenConnectionScreen: true,
         canCompleteOAuth: false,
-        canPublishCampaign: false,
-        publishTool: null,
+        canPublishCampaign: readyForApi,
+        publishTool: readyForApi ? "publish_google_campaign" : null,
       },
       note: readyForApi
-        ? "Google Ads esta pronto para consultas/relatorios internos; publicacao por MCP ainda precisa de tool especifica."
+        ? "Google Ads pronto. Publicacao de Pesquisa via publish_google_campaign (nasce PAUSADA; exige confirmacao explicita)."
         : "A conexao deve ser concluida na tela de Google Ads para obter refresh_token e selecionar Customer ID.",
     };
   }
@@ -3012,6 +3012,112 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         structuredContent: { successCount, total: results.length, results, metaCampaignId: sharedMetaCampaignId, partial: isPartial },
         isError: successCount !== results.length,
       };
+    }
+  );
+
+  // ── publish_google_campaign (Pesquisa) ─────────────────────────────────
+  server.registerTool(
+    "publish_google_campaign",
+    {
+      title: "Publicar campanha de Pesquisa no Google Ads",
+      description:
+        "CRIA no Google Ads uma campanha de PESQUISA (texto) com um grupo de anúncios, palavras-chave e um " +
+        "anúncio responsivo. A campanha e o anúncio nascem PAUSADOS: nada é gasto até o usuário ativar na " +
+        "conta do Google Ads. Só funciona com conta de anunciante (conta gerente/MCC sem conta filha é recusada). " +
+        "NUNCA chame sem confirmação explícita do usuário sobre orçamento, textos e palavras-chave: passe " +
+        "confirmadoPeloUsuario=true somente depois dessa confirmação. Textos são conferidos, não cortados: " +
+        "título acima de 30 caracteres ou descrição acima de 90 é recusado. Vídeo não existe em Pesquisa.\n\n" +
+        "IDEMPOTÊNCIA: gere um idempotencyKey único (UUID v4) por intenção de publicação e reenvie o MESMO valor " +
+        "em retry, para não criar a campanha duas vezes.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID do rascunho no MecProAI que originou esta campanha (para registrar a publicação)."),
+        campaignName: z.string().min(3).max(120),
+        dailyBudgetReais: z.number().positive().describe("Orçamento diário em reais."),
+        durationDays: z.number().int().positive().optional().describe("Duração em dias. Omitido = sem data final."),
+        bidding: z.enum(["MAXIMIZE_CLICKS", "MAXIMIZE_CONVERSIONS"]).default("MAXIMIZE_CLICKS")
+          .describe("MAXIMIZE_CONVERSIONS só faz sentido com ação de conversão configurada no Google."),
+        keywords: z.array(z.string().min(2)).min(1).describe('Palavras-chave. Use "frase" para correspondência de frase e [exata] para exata; sem aspas é ampla.'),
+        negativeKeywords: z.array(z.string()).default([]),
+        ads: z.array(z.object({
+          headlines: z.array(z.string()).describe("3 a 15 títulos, até 30 caracteres cada."),
+          descriptions: z.array(z.string()).describe("2 a 4 descrições, até 90 caracteres cada."),
+          finalUrl: z.string().url().describe("URL final (https)."),
+        })).min(1).max(3),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário ter confirmado orçamento, textos e palavras-chave."),
+        idempotencyKey: z.string().min(8).max(200),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      const campaign: any = await db.getCampaignById(input.campaignId);
+      if (!campaign) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+
+      const { conferirCampanhaPesquisa, dataGoogle } = await import("./googleAdsPublicar");
+      const problemas = conferirCampanhaPesquisa({
+        campaignName: input.campaignName, dailyBudgetReais: input.dailyBudgetReais, durationDays: input.durationDays,
+        keywords: input.keywords, negativeKeywords: input.negativeKeywords, ads: input.ads as any,
+      });
+      if (problemas.length) {
+        return {
+          content: [{ type: "text", text: "Nada foi criado no Google. Corrija antes de publicar:\n" + problemas.map((p) => `- ${p}`).join("\n") }],
+          structuredContent: { problemas },
+          isError: true,
+        };
+      }
+
+      let idempotency: Awaited<ReturnType<typeof db.reserveMcpIdempotencyKey>>;
+      try {
+        idempotency = await db.reserveMcpIdempotencyKey(userId, "publish_google_campaign", input.idempotencyKey);
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao verificar idempotência: ${e.message}` }], isError: true };
+      }
+      if (idempotency.kind === "cached_result") {
+        const cached = idempotency.result || {};
+        return {
+          content: [{ type: "text", text: `[Resultado já processado para esta idempotencyKey: nenhuma campanha nova foi criada]\n\n${cached.summaryText || JSON.stringify(cached, null, 2)}` }],
+          structuredContent: { ...cached, fromCache: true },
+          isError: cached.isError === true,
+        };
+      }
+      if (idempotency.kind === "duplicate_in_progress") {
+        return { content: [{ type: "text", text: "Já existe uma publicação em andamento com essa idempotencyKey. Aguarde em vez de repetir." }], isError: true };
+      }
+      const recordId = idempotency.recordId;
+
+      try {
+        const caller = await getCaller();
+        const agora = new Date();
+        const result: any = await caller.campaigns.publishToGoogle({
+          campaignId: input.campaignId,
+          projectId: campaign.projectId,
+          campaignName: input.campaignName,
+          campaignType: "SEARCH",
+          biddingStrategy: input.bidding,
+          dailyBudgetMicros: Math.round(input.dailyBudgetReais * 1_000_000),
+          startDate: dataGoogle(agora),
+          ...(input.durationDays ? { endDate: dataGoogle(agora, input.durationDays) } : {}),
+          locations: ["BR"],
+          languages: ["pt"],
+          devices: ["MOBILE", "DESKTOP"],
+          keywords: input.keywords,
+          negativeKeywords: input.negativeKeywords,
+          ads: input.ads,
+        } as any);
+        const summaryText =
+          `Campanha criada no Google Ads, PAUSADA (nada será gasto até você ativar).\n` +
+          `Campanha: ${result.googleCampaignId} | Grupo: ${result.googleAdGroupId} | Anúncios: ${(result.googleAdIds || []).join(", ") || "nenhum"}\n` +
+          `Orçamento: R$ ${input.dailyBudgetReais}/dia. Para ativar, abra a campanha no Google Ads e revise antes.`;
+        const payload = { summaryText, isError: false, googleCampaignId: result.googleCampaignId, googleAdGroupId: result.googleAdGroupId, googleAdIds: result.googleAdIds };
+        await db.completeMcpIdempotencyKey(recordId, payload);
+        return { content: [{ type: "text", text: summaryText }], structuredContent: payload };
+      } catch (e: any) {
+        await db.failMcpIdempotencyKey(recordId, e.message);
+        return { content: [{ type: "text", text: `Falha ao criar no Google: ${e.message}` }], isError: true };
+      }
     }
   );
 
