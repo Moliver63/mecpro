@@ -658,11 +658,11 @@ function buildPlatformConnectionStatus(platform: AdsConnectionPlatform, integrat
       canInspectStatus: true,
       canOpenConnectionScreen: true,
       canCompleteOAuth: false,
-      canPublishCampaign: false,
-      publishTool: null,
+      canPublishCampaign: readyForApi,
+      publishTool: readyForApi ? "publish_tiktok_campaign" : null,
     },
     note: readyForApi
-      ? "TikTok esta pronto para consultas/relatorios internos; publicacao por MCP ainda precisa de tool especifica."
+      ? "TikTok Ads pronto. Publicacao de trafego via publish_tiktok_campaign (nasce PAUSADA; exige confirmacao explicita)."
       : "A conexao deve ser concluida na tela de TikTok Ads para consentimento e advertiser id.",
   };
 }
@@ -3117,6 +3117,100 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       } catch (e: any) {
         await db.failMcpIdempotencyKey(recordId, e.message);
         return { content: [{ type: "text", text: `Falha ao criar no Google: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── publish_tiktok_campaign (Trafego, sempre PAUSADA) ──────────────────
+  server.registerTool(
+    "publish_tiktok_campaign",
+    {
+      title: "Publicar campanha de tráfego no TikTok Ads",
+      description:
+        "CRIA no TikTok Ads uma campanha de TRÁFEGO com um grupo de anúncios e um anúncio de vídeo por vídeo informado. " +
+        "Campanha, grupo e anúncios nascem PAUSADOS (DISABLE): nada é gasto até o usuário ativar no TikTok Ads Manager. " +
+        "Cada vídeo pode vir como videoId (já na biblioteca), nomeNaBiblioteca (nome do arquivo já enviado ao Ads Manager) " +
+        "ou videoUrl (https público, MP4 H.264 vertical). NUNCA chame sem confirmação explícita do usuário sobre orçamento, " +
+        "texto, vídeos e página de destino: passe confirmadoPeloUsuario=true somente depois dela. " +
+        "Os erros do TikTok voltam sem mascarar, na etapa em que ocorreram.\n\n" +
+        "IDEMPOTÊNCIA: gere um idempotencyKey único (UUID v4) por intenção e reenvie o MESMO valor em retry.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID do rascunho no MecProAI que originou esta campanha."),
+        campaignName: z.string().min(3).max(120),
+        dailyBudgetReais: z.number().positive().describe("Orçamento diário em reais, por grupo de anúncios."),
+        landingPageUrl: z.string().url().describe("Página de destino (https)."),
+        adText: z.string().min(3).max(100).describe("Texto do anúncio, até 100 caracteres."),
+        callToAction: z.string().default("LEARN_MORE"),
+        displayName: z.string().min(2).max(40).describe("Nome que aparece como autor do anúncio (identidade)."),
+        videos: z.array(z.object({
+          videoId: z.string().optional(),
+          videoUrl: z.string().url().optional(),
+          nomeNaBiblioteca: z.string().optional(),
+        })).min(1).max(5),
+        ageGroups: z.array(z.enum(["AGE_18_24", "AGE_25_34", "AGE_35_44", "AGE_45_54", "AGE_55_100"])).optional(),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário confirmar orçamento, texto, vídeos e destino."),
+        idempotencyKey: z.string().min(8).max(200),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      const campaign: any = await db.getCampaignById(input.campaignId);
+      if (!campaign) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+      const integracao: any = await db.getApiIntegration(userId, "tiktok");
+      if (!integracao?.isActive || !integracao.accessToken || !integracao.accountId) {
+        return { content: [{ type: "text", text: "TikTok Ads não está conectado. Conecte em Integrações → TikTok Ads." }], isError: true };
+      }
+
+      const { conferirEntradaTikTok, criarClienteTikTok, publicarCampanhaTikTok } = await import("./tiktokPublicar");
+      const entrada = {
+        advertiserId: String(integracao.accountId), campaignName: input.campaignName, dailyBudgetReais: input.dailyBudgetReais,
+        landingPageUrl: input.landingPageUrl, adText: input.adText, callToAction: input.callToAction, displayName: input.displayName,
+        videos: input.videos, ageGroups: input.ageGroups,
+      };
+      const problemas = conferirEntradaTikTok(entrada);
+      if (problemas.length) {
+        return { content: [{ type: "text", text: "Nada foi criado no TikTok. Corrija antes de publicar:\n" + problemas.map((x) => `- ${x}`).join("\n") }], structuredContent: { problemas }, isError: true };
+      }
+
+      let idempotency: Awaited<ReturnType<typeof db.reserveMcpIdempotencyKey>>;
+      try {
+        idempotency = await db.reserveMcpIdempotencyKey(userId, "publish_tiktok_campaign", input.idempotencyKey);
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao verificar idempotência: ${e.message}` }], isError: true };
+      }
+      if (idempotency.kind === "cached_result") {
+        const cached = idempotency.result || {};
+        return {
+          content: [{ type: "text", text: `[Resultado já processado para esta idempotencyKey: nada novo foi criado]\n\n${cached.summaryText || JSON.stringify(cached, null, 2)}` }],
+          structuredContent: { ...cached, fromCache: true }, isError: cached.isError === true,
+        };
+      }
+      if (idempotency.kind === "duplicate_in_progress") {
+        return { content: [{ type: "text", text: "Já existe uma publicação em andamento com essa idempotencyKey. Aguarde em vez de repetir." }], isError: true };
+      }
+      const recordId = idempotency.recordId;
+
+      let etapa = "início";
+      try {
+        const r = await publicarCampanhaTikTok(criarClienteTikTok(String(integracao.accessToken)), entrada, (m) => { etapa = m; });
+        try {
+          await db.updateCampaign(input.campaignId, { tiktokCampaignId: r.campaignId, tiktokAdGroupId: r.adGroupId } as any);
+        } catch (e: any) { log.warn("tiktok", "campanha criada, mas falhou ao registrar ids", { error: e?.message }); }
+        const summaryText =
+          `Campanha criada no TikTok Ads, PAUSADA (nada será gasto até você ativar).\n` +
+          `Campanha: ${r.campaignId} | Grupo: ${r.adGroupId} | Anúncios: ${r.ads.map((a) => a.adId).join(", ")}\n` +
+          `Orçamento: R$ ${input.dailyBudgetReais}/dia. Revise no TikTok Ads Manager antes de ativar.` +
+          (r.avisos.length ? `\nAvisos: ${r.avisos.join(" | ")}` : "");
+        const payload = { summaryText, isError: false, ...r };
+        await db.completeMcpIdempotencyKey(recordId, payload);
+        return { content: [{ type: "text", text: summaryText }], structuredContent: payload };
+      } catch (e: any) {
+        await db.failMcpIdempotencyKey(recordId, e.message);
+        return { content: [{ type: "text", text: `Falha no TikTok na etapa "${etapa}": ${e.message}. Se a campanha já tinha sido criada, confira no Ads Manager (nasce pausada) antes de repetir.` }], isError: true };
       }
     }
   );

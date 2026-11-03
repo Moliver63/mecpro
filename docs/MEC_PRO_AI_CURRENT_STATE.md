@@ -3281,3 +3281,9 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - Env no servidor: `TIKTOK_MARKETING_APP_ID` e `TIKTOK_MARKETING_APP_SECRET` (nao confundir com `TIKTOK_CLIENT_KEY/SECRET`, do Login Kit).
 - Modulo: `server/tiktokMarketingAuth.ts` (state por usuario com validade de 30 min; resposta lida de forma tolerante, refresh_token/expires_in opcionais). Formulario manual continua como alternativa.
 - Pendente: migrar publicacao de Vendas/Leads para as APIs Smart+ antes de 01/01/2027.
+
+## TikTok Ads — publicacao via MCP (publish_tiktok_campaign)
+- Tool `publish_tiktok_campaign`: campanha de TRAFEGO, grupo e um anuncio por video, tudo PAUSADO (DISABLE). Exige `confirmadoPeloUsuario=true` e `idempotencyKey`.
+- Modulo `server/tiktokPublicar.ts` (cliente injetavel, testes em `server/__tests__/tiktokPublicar.test.ts`). Substitui, para este caminho, os defeitos do `publishToTikTok` legado: video_id lido errado, `PULL_FROM_URL` (o certo e `UPLOAD_BY_URL`), `location_ids ["BR"]` (Brasil = 3469034), grupo criado ativo, sem identidade.
+- Videos: `videoId`, `nomeNaBiblioteca` (arquivo ja enviado ao Ads Manager) ou `videoUrl` (https, MP4 H.264 vertical).
+- Campos da Marketing API v1.3 foram escritos sem acesso a doc oficial renderizada: o primeiro envio real pode devolver erro do TikTok em alguma etapa (mensagem volta crua); como nasce pausado, ajustar e repetir nao gasta verba.

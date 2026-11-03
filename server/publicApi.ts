@@ -303,6 +303,7 @@ router.get("/mcp", (_req: Request, res: Response) => {
       "list_meta_pages",
       "publish_campaign",
       "publish_google_campaign",
+      "publish_tiktok_campaign",
     ],
   });
 });
