@@ -302,6 +302,7 @@ router.get("/mcp", (_req: Request, res: Response) => {
       "mecproai.set_featured_photo",
       "list_meta_pages",
       "publish_campaign",
+      "publish_google_campaign",
     ],
   });
 });

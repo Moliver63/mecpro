@@ -3263,3 +3263,9 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - Declara conteudo gerado por IA por padrao (`video_content_metadata`, v26+).
 - PENDENTE: nao existe campanha Demand Gen no MecProAI, e o `publishToGoogle` de DISPLAY/VIDEO manda URL onde a API exige resource name de asset. Videos so servem para PMax/Demand Gen, nunca para Pesquisa.
 - Nao testado contra a API real (so com fetch simulado). Primeiro envio real deve ser conferido pelo usuario.
+
+## Google: publicacao por MCP e campanha pausada (2026-11-03)
+- Nova tool MCP `publish_google_campaign` (Pesquisa): chama `campaigns.publishToGoogle` por dentro. Exige `confirmadoPeloUsuario=true` e `idempotencyKey`; confere os textos (titulo ate 30, descricao ate 90) e RECUSA em vez de cortar; teto de R$ 500/dia; start em fuso de Sao Paulo.
+- BUG corrigido: a campanha Google era criada com `status: 2, // PAUSED`, mas CampaignStatus ENABLED=2 e PAUSED=3. Agora nasce pausada (3). Anuncio e palavra-chave: ver router (anuncio ja era 3).
+- `get_platform_connections` (Google) passa a informar `publishTool: "publish_google_campaign"` quando `readyForApi`.
+- Conta MCC sem conta filha continua sendo recusada pelo `publishToGoogle`.
