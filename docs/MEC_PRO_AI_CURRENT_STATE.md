@@ -3269,3 +3269,9 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - BUG corrigido: a campanha Google era criada com `status: 2, // PAUSED`, mas CampaignStatus ENABLED=2 e PAUSED=3. Agora nasce pausada (3). Anuncio e palavra-chave: ver router (anuncio ja era 3).
 - `get_platform_connections` (Google) passa a informar `publishTool: "publish_google_campaign"` quando `readyForApi`.
 - Conta MCC sem conta filha continua sendo recusada pelo `publishToGoogle`.
+
+## TikTok: login x anuncios (2026-11-03)
+- O app em developers.tiktok.com (MECPROAI / sandbox) e Login Kit: serve para o PERFIL. Nao da acesso a anuncios. Anuncios usam a Marketing API (business-api.tiktok.com) com Access Token + Advertiser ID, via formulario manual (`upsertTikTok`) ou outro app no portal do TikTok for Business.
+- Escopos do login agora vem de `server/tiktokOAuth.ts`: padrao `user.info.basic,user.info.profile` (os unicos do Sandbox). `user.info.stats` e `video.list` sao do produto Display API, que o app nao tem; pedi-los fazia a autorizacao inteira falhar. Apos aprovacao em Producao: `TIKTOK_OAUTH_SCOPES=user.info.basic,user.info.profile,user.info.stats,video.list`.
+- Redirect URI cadastrado no TikTok: `https://www.mecproai.com/auth/tiktok/callback`. O cliente monta `window.location.origin + /auth/tiktok/callback`; abrir em mecproai.com (sem www) gera URI nao cadastrada.
+- Sandbox so autoriza os usuarios em Target users (hoje: michel8leal). App em Producao foi rejeitado 5 vezes pelo TikTok (ultima 13/05/2026).

@@ -32,7 +32,10 @@ export default function TikTokIntegration() {
 
   const exchangeCode = (trpc as any).integrations?.exchangeTikTokCode?.useMutation?.({
     onSuccess: () => {
-      toast.success("✅ TikTok Ads conectado com sucesso!");
+      // O login do TikTok (Login Kit) conecta o PERFIL, nao a conta de anuncios.
+      // Anuncios usam a Marketing API: precisam de Access Token + Advertiser ID.
+      toast.success("TikTok conectado (login do perfil). Para anúncios, informe também o Access Token e o Advertiser ID da Marketing API.");
+      setShowManual(true);
       refetch();
       setOauthLoading(false);
     },
