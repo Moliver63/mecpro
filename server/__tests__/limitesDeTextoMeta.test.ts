@@ -171,3 +171,35 @@ test("804 corrigida: oferta na frente resolve o aviso do preco", () => {
   assert.equal(r.bloqueios.length, 0);
   assert.deepEqual(r.avisos, [], "sem aviso: o que importa esta visivel");
 });
+
+// ── O aviso tem que CHEGAR a quem publica ────────────────────────────────
+// Na primeira versao o modulo calculava os avisos e nenhum consumidor os lia:
+// o publish_campaign so olhava `ok`, e com texto cortado `ok` e true, entao
+// seguia direto pra publicacao e o aviso morria. Feature invisivel e o mesmo
+// defeito do `if (!capiConfigurado()) return;` silencioso. Estes testes
+// travam a travessia, nao so o calculo.
+test("preflight devolve aviso e ainda assim libera a publicacao", async () => {
+  const { pendenciasLocaisParaPublicar } = await import("../publishPreflight");
+  const campanha = {
+    adSets: JSON.stringify([{ name: "conjunto", audience: "Adultos. Faixa etaria: 45-65 anos." }]),
+    creatives: JSON.stringify([{
+      copy: COPY_804, headline: "Uma aula do método", description: "Pagamento único",
+      format: "Carrossel", needsReview: false,
+      feedImageUrl: "https://exemplo/img.jpg", squareImageUrl: "https://exemplo/img.jpg",
+    }]),
+  };
+  const r = pendenciasLocaisParaPublicar(campanha as any);
+  assert.ok(Array.isArray(r.avisos), "o campo avisos precisa existir no retorno");
+  assert.ok(r.avisos!.some((a) => /Ver mais/.test(a)), "o aviso do preco escondido tem que atravessar");
+});
+
+test("preflight transforma texto acima do maximo em pendencia que bloqueia", async () => {
+  const { pendenciasLocaisParaPublicar } = await import("../publishPreflight");
+  const campanha = {
+    adSets: JSON.stringify([{ name: "conjunto", audience: "Adultos." }]),
+    creatives: JSON.stringify([{ copy: "Por R$ 19,90.", headline: "x".repeat(45), format: "unico" }]),
+  };
+  const r = pendenciasLocaisParaPublicar(campanha as any);
+  assert.equal(r.ok, false);
+  assert.ok((r.pendencias || []).some((p: any) => p.tipo === "texto_acima_do_limite"));
+});

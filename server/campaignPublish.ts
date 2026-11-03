@@ -114,11 +114,13 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
   // `antesDeTocarNaMeta` porque nada foi escrito na Meta ainda: quem reservou
   // idempotencia pode liberar a reserva e permitir nova tentativa.
   const local = pendenciasLocaisParaPublicar(campaign);
+  const avisosDeTexto = local.avisos ?? [];
   if (!local.ok) {
     return {
       ok: false, erro: local.erro, antesDeTocarNaMeta: true,
       ...(local.issues ? { issues: local.issues } : {}),
       ...(local.pendencias?.length ? { pendencias: local.pendencias } : {}),
+      ...(avisosDeTexto.length ? { avisos: avisosDeTexto } : {}),
     };
   }
 
@@ -204,7 +206,13 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
 
   const successCount = results.filter((r) => r.success).length;
   const summary = results.map((r) => (r.success ? `✅ ${r.adSetName}` : `❌ ${r.adSetName}: ${r.error}`)).join("\n");
-  const summaryText = `${successCount}/${results.length} conjunto(s) de anúncio publicado(s) na Meta (pausados — ative manualmente depois de revisar).\n\n${summary}`;
+  // Avisos entram no texto do sucesso de proposito: depois de publicado, copy
+  // na Meta nao se edita, entao este e o ultimo lugar onde o usuario ainda ve
+  // o problema a tempo de recriar o anuncio em vez de descobrir no relatorio.
+  const blocoDeAvisos = avisosDeTexto.length
+    ? `\n\n⚠️ Atenção ao texto (não impediu a publicação):\n${avisosDeTexto.map((a) => `- ${a}`).join("\n")}`
+    : "";
+  const summaryText = `${successCount}/${results.length} conjunto(s) de anúncio publicado(s) na Meta (pausados — ative manualmente depois de revisar).\n\n${summary}${blocoDeAvisos}`;
 
   if (successCount !== results.length) {
     await db.updateCampaign(opts.campaignId, {
@@ -213,5 +221,5 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
     } as any).catch(() => {});
   }
 
-  return { ok: true, successCount, total: results.length, results, metaCampaignId: sharedMetaCampaignId, summaryText };
+  return { ok: true, successCount, total: results.length, results, metaCampaignId: sharedMetaCampaignId, summaryText, ...(avisosDeTexto.length ? { avisos: avisosDeTexto } : {}) };
 }
