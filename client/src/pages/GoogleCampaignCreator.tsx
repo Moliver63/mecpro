@@ -1,3 +1,4 @@
+import { dividirEmFrases, prepararTextosGoogle, GOOGLE_TITULO_MAX, GOOGLE_DESCRICAO_MAX } from "~shared/googleAdsTexto";
 import React, { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -79,14 +80,7 @@ function buildAdsFromCreatives(creatives: any[], finalUrl: string, campaignType:
     return [{ headlines: ["", "", ""], descriptions: ["", ""], finalUrl }];
   }
   return creatives.slice(0, 3).map(cr => {
-    // Headline principal — proposta de valor (máx 30 chars)
-    const h1 = (cr.headline || cr.title || "").trim().slice(0, 30);
-
-    // Hook como 2º headline — gancho de abertura (máx 30 chars)
     const hookRaw = (cr.hook || "").replace(/^["']|["']$/g, "").trim();
-    const h2 = hookRaw.slice(0, 30) || (cr.cta || "Saiba Mais").slice(0, 30);
-
-    // CTA como 3º headline (máx 30 chars)
     const ctaMap: Record<string, string> = {
       LEARN_MORE:       "Saiba Mais",
       SIGN_UP:          "Cadastre-se",
@@ -99,20 +93,21 @@ function buildAdsFromCreatives(creatives: any[], finalUrl: string, campaignType:
       CALL_NOW:         "Ligue Agora",
     };
     const ctaLabel = ctaMap[(cr.cta || "").toUpperCase()] || cr.cta || "Saiba Mais";
-    const h3 = ctaLabel.slice(0, 30);
 
-    // Copy principal — argumentação (máx 90 chars)
-    const copyFull = (cr.copy || cr.description || "").trim();
-    const d1 = copyFull.slice(0, 90) || h1;
-
-    // 2ª description — CTA como frase (máx 90 chars)
-    const d2 = hookRaw
-      ? hookRaw.slice(0, 90)
-      : `${ctaLabel} e descubra como podemos ajudar.`.slice(0, 90);
+    // Texto inteiro ou encurtado em palavra; o que nao couber e descartado
+    // (nunca cortado no meio, para nao perder o preco).
+    const headlines = prepararTextosGoogle(
+      [cr.headline || cr.title, hookRaw, cr.shortDescription, ctaLabel],
+      GOOGLE_TITULO_MAX, 15,
+    );
+    const descriptions = prepararTextosGoogle(
+      [...dividirEmFrases(cr.copy || cr.description || ""), hookRaw, ...dividirEmFrases(cr.solution || "")],
+      GOOGLE_DESCRICAO_MAX, 4,
+    );
 
     return {
-      headlines:    [h1, h2, h3].map(h => h.slice(0, 30)).filter(Boolean),
-      descriptions: [d1, d2].map(d => d.slice(0, 90)).filter(Boolean),
+      headlines,
+      descriptions,
       finalUrl,
       // Asset visual — usado em Display/PMax
       imagePath: cr.feedImageUrl || cr.storyImageUrl || cr.imageUrl || "",

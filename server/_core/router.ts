@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { CAMPOS_DE_TRAFEGO_META, trafegoDaLinha, taxasDeTrafego } from "../metaTrafficMetrics";
 import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
+import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
 import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
 import { faixaEtariaDoAdSet } from "../metaTargeting";
@@ -6219,7 +6220,8 @@ const campaignsRouter = router({
         const cleaned: Array<{ text: string }> = [];
         for (const raw of values ?? []) {
           // Remove emojis ANTES de truncar — evita TOO_LONG no Google gRPC
-          const text = stripEmojis(String(raw ?? "")).slice(0, maxChars);
+          // Inteiro ou encurtado em palavra; nunca corta preco/numero no meio.
+          const text = ajustarTextoGoogle(stripEmojis(String(raw ?? "")), maxChars, maxChars <= 30 ? 1 : 3) ?? "";
           if (!text || text.length < 2) continue;
           const key = text.toLowerCase();
           if (seen.has(key)) continue;
