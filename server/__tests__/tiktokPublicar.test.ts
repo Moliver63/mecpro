@@ -29,7 +29,6 @@ function falso() {
   const c: ClienteTikTok = {
     async post(path: string, body: any) {
       chamadas.push({ m: "POST", path, body });
-      if (path === "identity/create/") return { identity_id: "ID1" };
       if (path === "campaign/create/") return { campaign_id: "C1" };
       if (path === "adgroup/create/") return { adgroup_id: "G1" };
       if (path === "file/image/ad/upload/") return { image_id: "IMG1" };
@@ -39,7 +38,8 @@ function falso() {
     },
     async get(path: string, params: any) {
       chamadas.push({ m: "GET", path, body: params });
-      if (path === "identity/get/") return { identity_list: [] };
+      if (path === "identity/get/") return params.identity_type === "TT_USER" ? { identity_list: [{ identity_id: "ID1", identity_type: "TT_USER", display_name: "Shadia Hasan" }] } : { identity_list: [] };
+      if (path === "campaign/get/" || path === "adgroup/get/") return { list: [] };
       if (path === "file/video/ad/info/") return [{ video_cover_url: "https://c/x.jpg" }];
       throw new Error("inesperado " + path);
     },
@@ -60,6 +60,7 @@ test("tudo nasce PAUSADO, Brasil por ID e um anuncio por video", async () => {
   for (const a of chamadas.filter((x) => x.path === "ad/create/")) {
     assert.equal(a.body.operation_status, "DISABLE");
     assert.equal(a.body.creatives[0].identity_id, "ID1");
+    assert.equal(a.body.creatives[0].identity_type, "TT_USER");
     assert.deepEqual(a.body.creatives[0].image_ids, ["IMG1"]);
   }
   assert.equal(chamadas.find((x) => x.path === "file/video/ad/upload/")!.body.upload_type, "UPLOAD_BY_URL");
@@ -67,7 +68,28 @@ test("tudo nasce PAUSADO, Brasil por ID e um anuncio por video", async () => {
 
 test("erro do TikTok interrompe e nao cria o resto", async () => {
   const { c, chamadas } = falso();
-  (c as any).post = async (path: string, body: any) => { chamadas.push({ m: "POST", path, body }); if (path === "adgroup/create/") throw new Error("TikTok [adgroup/create/] 40002: budget too low"); return path === "campaign/create/" ? { campaign_id: "C1" } : { identity_id: "I" }; };
+  (c as any).post = async (path: string, body: any) => { chamadas.push({ m: "POST", path, body }); if (path === "adgroup/create/") throw new Error("TikTok [adgroup/create/] 40002: budget too low"); return { campaign_id: "C1" }; };
   await assert.rejects(publicarCampanhaTikTok(c, base), /budget too low/);
   assert.equal(chamadas.some((x) => x.path === "ad/create/"), false);
+});
+
+test("sem conta de TikTok autorizada: erro claro e nada criado", async () => {
+  const { c, chamadas } = falso();
+  (c as any).get = async (path: string) => { chamadas.push({ m: "GET", path, body: {} }); return { identity_list: [] }; };
+  await assert.rejects(publicarCampanhaTikTok(c, base), /autorizar uma conta de TikTok/);
+  assert.equal(chamadas.some((x) => x.path === "campaign/create/"), false);
+});
+
+test("reaproveita campanha e grupo existentes em vez de criar de novo", async () => {
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => {
+    if (path === "campaign/get/") return { list: [{ campaign_id: "CX", campaign_name: base.campaignName }] };
+    if (path === "adgroup/get/") return { list: [{ adgroup_id: "GX" }] };
+    return getOrig(path, params);
+  };
+  const r = await publicarCampanhaTikTok(c, base);
+  assert.equal(r.campaignId, "CX");
+  assert.equal(r.adGroupId, "GX");
+  assert.equal(chamadas.some((x) => x.path === "campaign/create/" || x.path === "adgroup/create/"), false);
 });

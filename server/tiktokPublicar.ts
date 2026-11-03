@@ -93,25 +93,45 @@ export interface ResultadoTikTok {
   avisos: string[];
 }
 
+export interface IdentidadeTikTok { identity_id: string; identity_type: string; identity_authorized_bc_id?: string; display_name?: string }
+
+/** Conta de TikTok autorizada na conta de anuncios. Prefere a que tem o nome pedido. */
+export async function acharIdentidadeAutorizada(c: ClienteTikTok, adv: string, nome: string, avisos: string[] = []): Promise<IdentidadeTikTok | null> {
+  const todas: IdentidadeTikTok[] = [];
+  for (const tipo of ["TT_USER", "BC_AUTH_TT", "AUTH_CODE"]) {
+    try {
+      const d: any = await c.get("identity/get/", { advertiser_id: adv, identity_type: tipo, page_size: 100 });
+      for (const i of d?.identity_list || []) {
+        if (i?.identity_id) todas.push({ identity_id: String(i.identity_id), identity_type: i.identity_type || tipo, identity_authorized_bc_id: i.identity_authorized_bc_id || i.bc_id, display_name: i.display_name });
+      }
+    } catch (err: any) { avisos.push(`Identidades ${tipo}: ${err.message}`); }
+  }
+  const alvo = nome.toLowerCase();
+  return todas.find((i) => String(i.display_name || "").toLowerCase().includes(alvo)) || todas[0] || null;
+}
+
+/** Campanha ja criada com o mesmo nome (evita duplicar numa nova tentativa). */
+export async function acharCampanhaExistente(c: ClienteTikTok, adv: string, nome: string): Promise<{ campaignId: string; adGroupId: string } | null> {
+  try {
+    const d: any = await c.get("campaign/get/", { advertiser_id: adv, filtering: { campaign_name: nome }, page_size: 20 });
+    const camp = (d?.list || []).find((x: any) => x?.campaign_name === nome);
+    if (!camp?.campaign_id) return null;
+    const g: any = await c.get("adgroup/get/", { advertiser_id: adv, filtering: { campaign_ids: [String(camp.campaign_id)] }, page_size: 20 });
+    const grupo = (g?.list || [])[0];
+    return grupo?.adgroup_id ? { campaignId: String(camp.campaign_id), adGroupId: String(grupo.adgroup_id) } : null;
+  } catch { return null; }
+}
+
 export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}): Promise<ResultadoTikTok> {
   const avisos: string[] = [];
   const adv = e.advertiserId;
 
-  // 1. Identidade (perfil que aparece como autor do anuncio)
+  // 1. Identidade: o TikTok nao aceita mais identidade personalizada; precisa ser
+  //    uma conta de TikTok autorizada (TT_USER / BC_AUTH_TT / AUTH_CODE).
   passo("identidade");
-  let identityId = "";
-  try {
-    const d: any = await c.get("identity/get/", { advertiser_id: adv });
-    const lista: any[] = d?.identity_list || [];
-    const achada = lista.find((i) => i.identity_type === "CUSTOMIZED_USER" && String(i.display_name || "").toLowerCase() === e.displayName.toLowerCase())
-      || lista.find((i) => i.identity_type === "CUSTOMIZED_USER");
-    if (achada) identityId = String(achada.identity_id);
-  } catch (err: any) { avisos.push(`Nao consegui listar identidades: ${err.message}`); }
-  if (!identityId) {
-    const novo: any = await c.post("identity/create/", { advertiser_id: adv, display_name: e.displayName.slice(0, 40) });
-    identityId = String(novo?.identity_id || "");
-    if (!identityId) throw new Error("TikTok nao devolveu identity_id ao criar a identidade.");
-  }
+  const ident = await acharIdentidadeAutorizada(c, adv, e.displayName, avisos);
+  if (!ident) throw new Error("Nenhuma conta de TikTok autorizada na conta de anuncios. No Ads Manager: Ativos > Identidades > autorizar uma conta de TikTok, e tente de novo.");
+  const identityId = ident.identity_id;
 
   // 2. Videos -> video_id (biblioteca por nome, ou upload por URL)
   passo("videos");
@@ -136,30 +156,35 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
     videoIds.push(String(id));
   }
 
-  // 3. Campanha (orcamento fica no grupo)
+  // 3-4. Campanha e grupo (reaproveita os que ja existem com o mesmo nome, sem duplicar)
   passo("campanha");
-  const camp: any = await c.post("campaign/create/", {
-    advertiser_id: adv, campaign_name: e.campaignName, objective_type: "TRAFFIC",
-    budget_mode: "BUDGET_MODE_INFINITE", operation_status: "DISABLE",
-  });
-  const campaignId = String(camp?.campaign_id || "");
-  if (!campaignId) throw new Error("TikTok nao devolveu campaign_id.");
-
-  // 4. Grupo de anuncios, PAUSADO
+  let campaignId = "", adGroupId = "";
+  const existente = await acharCampanhaExistente(c, adv, e.campaignName);
+  if (existente) { campaignId = existente.campaignId; adGroupId = existente.adGroupId; avisos.push(`Reaproveitei a campanha ${campaignId}.`); }
+  if (!campaignId) {
+    const camp: any = await c.post("campaign/create/", {
+      advertiser_id: adv, campaign_name: e.campaignName, objective_type: "TRAFFIC",
+      budget_mode: "BUDGET_MODE_INFINITE", operation_status: "DISABLE",
+    });
+    campaignId = String(camp?.campaign_id || "");
+    if (!campaignId) throw new Error("TikTok nao devolveu campaign_id.");
+  }
   passo("grupo");
-  const grupo: any = await c.post("adgroup/create/", {
-    advertiser_id: adv, campaign_id: campaignId, adgroup_name: `${e.campaignName} | Grupo`.slice(0, 512),
-    promotion_type: "WEBSITE",
-    placement_type: "PLACEMENT_TYPE_NORMAL", placements: ["PLACEMENT_TIKTOK"],
-    location_ids: [TIKTOK_BRASIL_LOCATION_ID], languages: ["pt"],
-    age_groups: e.ageGroups?.length ? e.ageGroups : ["AGE_25_34", "AGE_35_44", "AGE_45_54", "AGE_55_100"],
-    budget_mode: "BUDGET_MODE_DAY", budget: Number(e.dailyBudgetReais.toFixed(2)),
-    schedule_type: "SCHEDULE_FROM_NOW", schedule_start_time: inicioTikTok(e.inicio),
-    billing_event: "CPC", optimization_goal: "CLICK", bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH",
-    operation_status: "DISABLE",
-  });
-  const adGroupId = String(grupo?.adgroup_id || "");
-  if (!adGroupId) throw new Error("TikTok nao devolveu adgroup_id.");
+  if (!adGroupId) {
+    const grupo: any = await c.post("adgroup/create/", {
+      advertiser_id: adv, campaign_id: campaignId, adgroup_name: `${e.campaignName} | Grupo`.slice(0, 512),
+      promotion_type: "WEBSITE",
+      placement_type: "PLACEMENT_TYPE_NORMAL", placements: ["PLACEMENT_TIKTOK"],
+      location_ids: [TIKTOK_BRASIL_LOCATION_ID], languages: ["pt"],
+      age_groups: e.ageGroups?.length ? e.ageGroups : ["AGE_25_34", "AGE_35_44", "AGE_45_54", "AGE_55_100"],
+      budget_mode: "BUDGET_MODE_DAY", budget: Number(e.dailyBudgetReais.toFixed(2)),
+      schedule_type: "SCHEDULE_FROM_NOW", schedule_start_time: inicioTikTok(e.inicio),
+      billing_event: "CPC", optimization_goal: "CLICK", bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH",
+      operation_status: "DISABLE",
+    });
+    adGroupId = String(grupo?.adgroup_id || "");
+    if (!adGroupId) throw new Error("TikTok nao devolveu adgroup_id.");
+  }
 
   // 5. Anuncios (um por video), PAUSADOS
   passo("anuncios");
@@ -177,7 +202,8 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
 
     const criativo: Record<string, unknown> = {
       ad_name: `${e.campaignName} | V${i + 1}`.slice(0, 512),
-      identity_type: "CUSTOMIZED_USER", identity_id: identityId,
+      identity_type: ident.identity_type, identity_id: identityId,
+      ...(ident.identity_authorized_bc_id ? { identity_authorized_bc_id: ident.identity_authorized_bc_id } : {}),
       ad_format: "SINGLE_VIDEO", video_id: videoId,
       ad_text: e.adText, call_to_action: e.callToAction, landing_page_url: e.landingPageUrl,
     };
