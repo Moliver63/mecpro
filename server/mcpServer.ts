@@ -24,6 +24,7 @@ import { appRouter } from "./_core/router";
 import { uploadBase64ImageToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
 import { analisarFaixaEtaria } from "./analiseDeFaixaEtaria";
+import { analisarTextosDaCampanha } from "./limitesDeTextoMeta";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
 import { classifyCampaignPhoto } from "./campaignPhotoClassification";
@@ -894,6 +895,67 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         content: [{ type: "text", text: JSON.stringify(rows, null, 2) }],
         structuredContent: { campaignId, days: days || 30, metrics: rows },
       };
+    }
+  );
+
+  server.registerTool(
+    "verificar_texto_da_campanha",
+    {
+      title: "Conferir se a copy vai sair cortada no anúncio",
+      description:
+        "Mede os textos de uma campanha contra os limites da Meta ANTES de " +
+        "publicar, e diz o que ficaria escondido atrás do \"Ver mais\". Existe " +
+        "porque a Meta aceita texto que o feed corta: a API devolve sucesso e " +
+        "nenhuma validação falha, então só uma checagem deliberada pega isso. " +
+        "Separa dois casos: acima do máximo rígido a Meta recusaria a " +
+        "publicação; acima da dobra visível o anúncio publica mas o texto some " +
+        "da tela. Também confere ONDE o preço aparece, que foi o problema real " +
+        "da campanha 804, onde nenhum campo estourava limite e mesmo assim o " +
+        "preço ficava invisível. Não altera nada. Use antes de publicar, e " +
+        "sempre que o usuário perguntar se a copy está boa para o anúncio.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID local da campanha no MecProAI, ex: 804."),
+      },
+    },
+    async ({ campaignId }) => {
+      const campaign: any = await db.getCampaignById(campaignId);
+      if (!campaign) {
+        return { content: [{ type: "text", text: `Campanha ${campaignId} nao encontrada.` }], isError: true };
+      }
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${campaignId} nao pertence a este usuario.` }], isError: true };
+      }
+      const criativos: any[] = (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })();
+      if (!criativos.length) {
+        return {
+          content: [{ type: "text", text: `Campanha ${campaignId} nao tem criativos gerados; nao ha texto para conferir.` }],
+          structuredContent: { ok: true, bloqueios: [], avisos: [] },
+        };
+      }
+
+      const analise = analisarTextosDaCampanha(criativos);
+      const linhas: string[] = [];
+      if (analise.bloqueios.length) {
+        linhas.push("BLOQUEIA a publicação (a Meta recusaria):", ...analise.bloqueios.map((b) => `- ${b}`), "");
+      }
+      if (analise.avisos.length) {
+        linhas.push("NÃO bloqueia, mas o texto some da tela:", ...analise.avisos.map((a) => `- ${a}`), "");
+      }
+      if (!analise.bloqueios.length && !analise.avisos.length) {
+        linhas.push("Nenhum texto seria cortado nem recusado.", "");
+      }
+      for (const c of analise.porCriativo) {
+        const campos = c.achados
+          .map((a) => `${a.rotulo} ${a.comprimento}/${a.visivel} visíveis (máx ${a.maximo})`)
+          .join("; ");
+        const preco = c.oferta.encontrado
+          ? ` | preço ${c.oferta.texto} no caractere ${c.oferta.posicao}${c.oferta.antesDaDobra ? "" : " (DEPOIS da dobra)"}`
+          : " | sem preço no texto";
+        linhas.push(`Criativo ${c.indice}: ${campos}${preco}`);
+      }
+
+      return { content: [{ type: "text", text: linhas.join("\n") }], structuredContent: analise as any };
     }
   );
 
@@ -2738,9 +2800,12 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const local = pendenciasLocaisParaPublicar(campaign);
       if (!local.ok) {
         const pendencias = local.pendencias ?? [];
+        const avisosDeTexto = local.avisos ?? [];
         const message = [
           "Publicação bloqueada antes de tocar na Meta. Pendências desta campanha:",
           ...pendencias.map((p) => [`- ${p.titulo}`, ...p.detalhes.map((d) => `    ${d}`)].join("\n")),
+          // Aproveita a volta: quem ja vai mexer no texto resolve os dois de uma vez.
+          ...(avisosDeTexto.length ? ["", "Aproveite para corrigir também (não bloqueia):", ...avisosDeTexto.map((a) => `- ${a}`)] : []),
         ].join("\n");
         await db.failMcpIdempotencyKey(idempotencyRecordId, message);
         return {
@@ -2752,6 +2817,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             stage: "pre_publish_local_checks",
             issues: local.issues ?? [],
             pendencias,
+            ...(avisosDeTexto.length ? { avisos: avisosDeTexto } : {}),
           },
           isError: true,
         };

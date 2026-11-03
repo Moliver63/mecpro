@@ -3705,7 +3705,7 @@ const campaignsRouter = router({
       }
       const { pendenciasLocaisParaPublicar } = await import("../publishPreflight");
       const local = pendenciasLocaisParaPublicar(campaign);
-      return { ok: local.ok, pendencias: local.pendencias ?? [] };
+      return { ok: local.ok, pendencias: local.pendencias ?? [], avisos: local.avisos ?? [] };
     }),
 
   publishToMeta: protectedProcedure
