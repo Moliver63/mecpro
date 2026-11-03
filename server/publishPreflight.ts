@@ -1,6 +1,7 @@
 import { auditCarouselCreatives, orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
 import { verificarIntegridadeParaPublicar } from "./campaignPublishIntegrity";
 import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha } from "./creativeReview";
+import { analisarTextosDaCampanha } from "./limitesDeTextoMeta";
 
 /**
  * Pre-checagem LOCAL de publicacao: so leitura, sem rede e sem banco.
@@ -47,6 +48,17 @@ export interface PendenciaDePublicacao {
   issues?: string[];
   /** TODAS as pendencias, nao so a primeira. Ver o comentario de `tipo`. */
   pendencias?: ItemDePendencia[];
+  /**
+   * Problemas que NAO impedem publicar (25/10).
+   *
+   * Canal separado de proposito. Copy cortada no feed e um anuncio pior, nao um
+   * anuncio invalido: a Meta aceita o texto e nenhuma validacao falha. Virar
+   * pendencia bloquearia publicacao por questao de qualidade, repetindo a parede
+   * que a 799 criou. Mas calar tambem nao serve, porque copy publicada na Meta
+   * nao se edita — so criando anuncio novo, que gasta e reinicia aprendizado.
+   * Entao avisa alto, no ultimo momento em que ainda e de graca mudar.
+   */
+  avisos?: string[];
 }
 
 /**
@@ -64,6 +76,7 @@ export interface PendenciaDePublicacao {
 export type TipoDePendencia =
   | "sem_conjuntos"
   | "copy_carrossel"
+  | "texto_acima_do_limite"
   | "sem_imagem"
   | "revisao_aprovavel"
   | "revisao_bloqueada"
@@ -116,6 +129,17 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
       tipo: "sem_conjuntos", criativos: [], acao: "regenerar_campanha",
       titulo: "Essa campanha não tem conjuntos de anúncios gerados.",
       detalhes: [],
+    });
+  }
+
+  // Limites de texto da Meta. Estourar o maximo e recusa dela e entra como
+  // pendencia; passar da dobra visivel e aviso. Ver limitesDeTextoMeta.ts.
+  const textos = analisarTextosDaCampanha(creatives);
+  if (textos.bloqueios.length) {
+    pendencias.push({
+      tipo: "texto_acima_do_limite", criativos: [], acao: "editar_texto",
+      titulo: "Há textos acima do limite que a Meta aceita; a publicação seria recusada.",
+      detalhes: textos.bloqueios,
     });
   }
 
@@ -197,7 +221,11 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
     });
   }
 
-  if (!pendencias.length) return { ok: true, pendencias: [] };
+  // Avisos acompanham os dois desfechos: quem publica com tudo em ordem
+  // tambem precisa saber que o preco vai ficar escondido.
+  const avisos = textos.avisos;
+
+  if (!pendencias.length) return { ok: true, pendencias: [], ...(avisos.length ? { avisos } : {}) };
 
   const primeira = pendencias[0];
   return {
@@ -205,5 +233,6 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
     erro: primeira.titulo,
     ...(primeira.detalhes.length ? { issues: primeira.detalhes } : {}),
     pendencias,
+    ...(avisos.length ? { avisos } : {}),
   };
 }
