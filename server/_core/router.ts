@@ -3,6 +3,7 @@ import { CAMPOS_DE_TRAFEGO_META, trafegoDaLinha, taxasDeTrafego } from "../metaT
 import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
+import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
 import { faixaEtariaDoAdSet } from "../metaTargeting";
@@ -5943,6 +5944,60 @@ const campaignsRouter = router({
         tiktokAdIds: adIds,
         message: `Campanha TikTok "${input.campaignName}" criada (ID: ${tiktokCampaignId})`,
       };
+    }),
+
+  /**
+   * Envia um video ao YouTube pela Google Ads API e cria o asset de video.
+   * Nao cria campanha nem gasta verba: so deixa o video pronto para PMax/Demand Gen.
+   * Se o processamento passar do tempo, o erro traz o uploadResourceName; mande-o de
+   * volta em "retomarUpload" para concluir sem reenviar o arquivo.
+   */
+  uploadGoogleVideo: protectedProcedure
+    .input(z.object({
+      videoUrl:           z.string().url().optional(),
+      retomarUpload:      z.string().optional(),
+      title:              z.string().min(1).max(100),
+      description:        z.string().max(5000).optional(),
+      channelId:          z.string().optional(),
+      generativeContent:  z.boolean().default(true),
+    }).refine((v) => !!v.videoUrl || !!v.retomarUpload, { message: "Informe videoUrl ou retomarUpload" }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = (ctx as any).user?.id;
+      if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      const googleCheck = await db.checkPlanLimit(userId, "google");
+      if (!googleCheck.allowed) throw new TRPCError({ code: "FORBIDDEN", message: googleCheck.reason });
+
+      const _drz = await getDb();
+      const [integration] = await _drz!.select().from(integrations)
+        .where(and(eq(integrations.userId, userId), eq(integrations.provider, "google"), eq(integrations.isActive, 1)));
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+
+      const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+      if (runtime.isManager && !runtime.childCustomerIds?.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A conta Google configurada é uma conta gerente (MCC) sem conta de anunciante. Vídeo só pode ser enviado a uma conta de anunciante." });
+      }
+      const gctx = {
+        accessToken: runtime.accessToken, developerToken: runtime.developerToken,
+        customerId: runtime.customerId, loginCustomerId: runtime.loginCustomerId,
+      };
+      const entrada = {
+        titulo: input.title, descricao: input.description, canalId: input.channelId,
+        conteudoGenerativo: input.generativeContent,
+      };
+      try {
+        const r = input.retomarUpload
+          ? await retomarVideoDoGoogle(gctx, input.retomarUpload, input.title, { tentativas: 12, intervaloMs: 5000 })
+          : await enviarVideoParaOGoogle(gctx, { url: input.videoUrl! }, entrada, { tentativas: 12, intervaloMs: 5000 });
+        log.info("google", "video enviado", { customerId: runtime.customerId, youtubeVideoId: r.youtubeVideoId, asset: r.assetResourceName });
+        return r;
+      } catch (e: any) {
+        if (e instanceof ErroVideoGoogle) {
+          log.warn("google", "upload de video falhou", { etapa: e.etapa, error: e.message });
+          const retomar = e.uploadResourceName ? ` (retomarUpload: ${e.uploadResourceName})` : "";
+          throw new TRPCError({ code: e.etapa === "validacao" || e.etapa === "download" ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR", message: e.message + retomar });
+        }
+        throw e;
+      }
     }),
 
   publishToGoogle: protectedProcedure

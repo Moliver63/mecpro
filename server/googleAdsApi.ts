@@ -81,3 +81,16 @@ export function urlDoClienteComMetodo(customerId: string, metodo: string, versao
 export function urlListarContasAcessiveis(versao: string = GOOGLE_ADS_API_VERSION): string {
   return `${BASE}/${versao}/customers:listAccessibleCustomers`;
 }
+
+/**
+ * Versao usada so no envio de video. O servico YouTubeVideoUpload e o campo de
+ * divulgacao de conteudo gerado por IA (video_content_metadata) estao
+ * documentados na v26; os exemplos do Google para estas chamadas sao v26.
+ */
+export const GOOGLE_ADS_API_VERSION_VIDEO = "v26";
+
+/** Inicio da sessao de upload resumable: .../resumable/upload/vN/customers/{id}/youTubeVideoUploads:create. */
+export function urlUploadDeVideo(customerId: string, versao: string = GOOGLE_ADS_API_VERSION_VIDEO): string {
+  const id = String(customerId ?? "").replace(/\D/g, "");
+  return `${BASE}/resumable/upload/${versao}/customers/${id}/youTubeVideoUploads:create`;
+}

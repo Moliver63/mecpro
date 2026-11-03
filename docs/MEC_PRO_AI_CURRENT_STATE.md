@@ -3255,3 +3255,11 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
   relatorio, assinatura Kiwify/Hotmart, e-mail fora do `raw`.
 - **Nao confirmado em producao:** formato real dos payloads, aceitacao de
   `url_tags` pela Meta neste fluxo, repasse de UTM pela pagina de venda.
+
+## Google: envio de video (2026-11-03)
+- `server/googleAdsVideo.ts` envia video ao YouTube pela propria Google Ads API (YouTubeVideoUploadService, v26) e cria o asset de video. Usa o mesmo login `adwords`; nao conecta o YouTube.
+- Rota tRPC `uploadGoogleVideo` (so envia e cria o asset; nao cria campanha nem gasta verba). Erro de tempo esgotado devolve `retomarUpload` para concluir sem reenviar.
+- Sem canal, o video vai para canal gerenciado pelo Google como NAO LISTADO. PUBLIC exige canal de marca e login de usuario.
+- Declara conteudo gerado por IA por padrao (`video_content_metadata`, v26+).
+- PENDENTE: nao existe campanha Demand Gen no MecProAI, e o `publishToGoogle` de DISPLAY/VIDEO manda URL onde a API exige resource name de asset. Videos so servem para PMax/Demand Gen, nunca para Pesquisa.
+- Nao testado contra a API real (so com fetch simulado). Primeiro envio real deve ser conferido pelo usuario.
