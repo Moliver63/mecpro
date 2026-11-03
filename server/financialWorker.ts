@@ -12,6 +12,7 @@
 import pg from "pg";
 import { runFinancialEngine } from "./financialEngine.js";
 import { log } from "./logger.js";
+import { urlDoCliente } from "./googleAdsApi.js";
 import * as db from "./db.js";
 import { getDb } from "./db.js";
 import { apiIntegrations as integrations } from "./schema.js";
@@ -24,8 +25,7 @@ async function resolveGoogleAdsRuntimeContext(integration: any): Promise<any> {
 }
 
 function buildGoogleAdsUrl(customerId: string, path: string): string {
-  const version = process.env.GOOGLE_ADS_API_VERSION || "v23";
-  return `https://googleads.googleapis.com/${version}/customers/${customerId}/${path}`;
+  return urlDoCliente(customerId, path);
 }
 
 function getTikTokRuntimeConfig(integration: any) {

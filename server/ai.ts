@@ -1,6 +1,7 @@
 import "dotenv/config";
 import crypto from "crypto";
 import { log } from "./logger";
+import { urlDoCliente, urlDoClienteComMetodo } from "./googleAdsApi";
 import { GeminiCredentialHealth, redactProviderSecrets } from "./providerSafety";
 import { logTokens, estimateTokens } from "./tokenTelemetry";
 import { buildCacheKey, getCachedResponse, setCachedResponse, cleanExpiredCache, type CacheMeta } from "./aiCache";
@@ -110,7 +111,7 @@ async function fetchGoogleCompetitorInsights(
     seeds.push({ keyword: compName });
     if (seeds.length === 0) return false;
 
-    const kpUrl = `https://googleads.googleapis.com/v19/customers/${customerId}:generateKeywordIdeas`;
+    const kpUrl = urlDoClienteComMetodo(customerId, "generateKeywordIdeas");
     const kpBody = {
       keywordSeed:        { keywords: [compName] },
       urlSeed:            websiteUrl ? { url: websiteUrl } : undefined,
@@ -359,7 +360,7 @@ async function fetchGoogleTransparencyInsights(
       const auctionQuery = `SELECT auction_insight.display_name, auction_insight.impression_share, auction_insight.overlap_rate, auction_insight.outranking_share FROM auction_insight_campaign WHERE segments.date DURING LAST_30_DAYS LIMIT 20`;
 
       const auctionRes = await fetch(
-        `https://googleads.googleapis.com/v19_1/customers/${customerId}/googleAds:search`,
+        urlDoCliente(customerId, "googleAds:search"),
         {
           method: "POST",
           headers: {
