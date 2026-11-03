@@ -75,7 +75,7 @@ function extractKeywordsFromAdSets(adSets: any[]): string[] {
 }
 
 /** Build responsive search ad from AI creatives */
-function buildAdsFromCreatives(creatives: any[], finalUrl: string, campaignType: string): GoogleAd[] {
+function buildAdsFromCreatives(creatives: any[], finalUrl: string, _campaignType?: string): GoogleAd[] {
   if (!Array.isArray(creatives) || creatives.length === 0) {
     return [{ headlines: ["", "", ""], descriptions: ["", ""], finalUrl }];
   }
