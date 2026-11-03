@@ -28,14 +28,12 @@ export default function TikTokIntegration() {
     i => i.provider === "tiktok" && i.isActive
   );
 
-  const getAuthUrl = (trpc as any).integrations?.getTikTokAuthUrl?.useMutation?.();
+  const getAuthUrl = (trpc as any).integrations?.getTikTokAdsAuthUrl?.useMutation?.();
 
-  const exchangeCode = (trpc as any).integrations?.exchangeTikTokCode?.useMutation?.({
-    onSuccess: () => {
-      // O login do TikTok (Login Kit) conecta o PERFIL, nao a conta de anuncios.
-      // Anuncios usam a Marketing API: precisam de Access Token + Advertiser ID.
-      toast.success("TikTok conectado (login do perfil). Para anúncios, informe também o Access Token e o Advertiser ID da Marketing API.");
-      setShowManual(true);
+  const exchangeCode = (trpc as any).integrations?.exchangeTikTokAdsCode?.useMutation?.({
+    onSuccess: (d: any) => {
+      const n = d?.advertiserIds?.length || 1;
+      toast.success(`TikTok Ads conectado! ${n > 1 ? n + " contas liberadas." : "Conta de anúncios salva."}`);
       refetch();
       setOauthLoading(false);
     },
@@ -65,6 +63,7 @@ export default function TikTokIntegration() {
     try {
       const result = await (getAuthUrl as any)?.mutateAsync({ redirectUri: REDIRECT_URI });
       const url    = result?.url;
+      const oauthState: string = result?.state;
       if (!url) throw new Error("Não foi possível obter a URL de autorização. Verifique as configurações do App TikTok.");
 
       const popup = window.open(url, "tiktok_oauth", "width=620,height=700,left=200,top=80");
@@ -88,8 +87,8 @@ export default function TikTokIntegration() {
 
         if (e.data?.code) {
           await (exchangeCode as any)?.mutateAsync({
-            code:        e.data.code,
-            redirectUri: REDIRECT_URI,
+            authCode: e.data.code,
+            state:    e.data.state || oauthState,
           });
         }
       };

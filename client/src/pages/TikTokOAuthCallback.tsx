@@ -11,7 +11,7 @@ export default function TikTokOAuthCallback() {
 
   useEffect(() => {
     const params  = new URLSearchParams(window.location.search);
-    const code    = params.get("code");
+    const code    = params.get("auth_code") || params.get("code");
     const state   = params.get("state");
     const error   = params.get("error");
     const errorDesc = params.get("error_description");

@@ -3275,3 +3275,9 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - Escopos do login agora vem de `server/tiktokOAuth.ts`: padrao `user.info.basic,user.info.profile` (os unicos do Sandbox). `user.info.stats` e `video.list` sao do produto Display API, que o app nao tem; pedi-los fazia a autorizacao inteira falhar. Apos aprovacao em Producao: `TIKTOK_OAUTH_SCOPES=user.info.basic,user.info.profile,user.info.stats,video.list`.
 - Redirect URI cadastrado no TikTok: `https://www.mecproai.com/auth/tiktok/callback`. O cliente monta `window.location.origin + /auth/tiktok/callback`; abrir em mecproai.com (sem www) gera URI nao cadastrada.
 - Sandbox so autoriza os usuarios em Target users (hoje: michel8leal). App em Producao foi rejeitado 5 vezes pelo TikTok (ultima 13/05/2026).
+
+## TikTok Ads (Marketing API) — login que conecta a conta de anuncios
+- Fluxo: `getTikTokAdsAuthUrl` -> `business-api.tiktok.com/portal/auth?app_id&redirect_uri&state` -> retorno `?auth_code&state` em `/auth/tiktok/callback` -> `exchangeTikTokAdsCode` troca em `/open_api/v1.3/oauth2/access_token/` e salva token + `advertiser_ids` em `integrations` (provider tiktok, accountId = primeira conta ou a ja escolhida).
+- Env no servidor: `TIKTOK_MARKETING_APP_ID` e `TIKTOK_MARKETING_APP_SECRET` (nao confundir com `TIKTOK_CLIENT_KEY/SECRET`, do Login Kit).
+- Modulo: `server/tiktokMarketingAuth.ts` (state por usuario com validade de 30 min; resposta lida de forma tolerante, refresh_token/expires_in opcionais). Formulario manual continua como alternativa.
+- Pendente: migrar publicacao de Vendas/Leads para as APIs Smart+ antes de 01/01/2027.

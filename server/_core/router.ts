@@ -3,6 +3,7 @@ import { CAMPOS_DE_TRAFEGO_META, trafegoDaLinha, taxasDeTrafego } from "../metaT
 import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
+import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode } from "../tiktokMarketingAuth";
 import { escoposTikTok } from "../tiktokOAuth";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
@@ -7884,6 +7885,56 @@ const integrationsRouter = router({
       const state = `mecpro_${(ctx as any).user?.id}_${Date.now()}`;
       const url = getTikTokAuthUrl(input.redirectUri, state);
       return { url, state };
+    }),
+
+  // -- TikTok Ads (Marketing API) -- login que conecta a conta de anuncios ------
+  getTikTokAdsAuthUrl: protectedProcedure
+    .input(z.object({ redirectUri: z.string().url() }))
+    .mutation(({ ctx, input }) => {
+      const appId = process.env.TIKTOK_MARKETING_APP_ID || "";
+      if (!appId) throw new TRPCError({ code: "BAD_REQUEST", message: "TikTok Ads não configurado no servidor (TIKTOK_MARKETING_APP_ID ausente)." });
+      const state = criarStateAds((ctx as any).user.id);
+      return { url: montarUrlAutorizacaoAds(appId, input.redirectUri, state), state };
+    }),
+
+  exchangeTikTokAdsCode: protectedProcedure
+    .input(z.object({ authCode: z.string().min(4), state: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = (ctx as any).user?.id;
+      if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+      if (!stateAdsValido(input.state, userId)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Autorização expirada ou inválida. Clique em conectar de novo." });
+      }
+      let token;
+      try {
+        token = await trocarAuthCode(input.authCode, {
+          appId: process.env.TIKTOK_MARKETING_APP_ID || "",
+          secret: process.env.TIKTOK_MARKETING_APP_SECRET || "",
+        });
+      } catch (e: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e?.message || "Falha ao trocar o código do TikTok." });
+      }
+      if (!token.advertiserIds.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "O TikTok não liberou nenhuma conta de anúncios. Autorize de novo marcando a conta." });
+      }
+      const _d = await getDb();
+      const [existing] = await _d!.select().from(integrations)
+        .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok")));
+      // Mantém a conta já escolhida se continuar autorizada; senão usa a primeira.
+      const escolhida = existing?.accountId && token.advertiserIds.includes(existing.accountId)
+        ? existing.accountId : token.advertiserIds[0];
+      const valores: any = {
+        accessToken: token.accessToken,
+        refreshToken: token.refreshToken ?? null,
+        appId: process.env.TIKTOK_MARKETING_APP_ID || null,
+        accountId: escolhida,
+        isActive: 1,
+        tokenExpiry: token.expiraEm ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        updatedAt: new Date(),
+      };
+      if (existing) await _d!.update(integrations).set(valores).where(eq(integrations.id, existing.id));
+      else await _d!.insert(integrations).values({ userId, provider: "tiktok", ...valores });
+      return { success: true, advertiserIds: token.advertiserIds, accountId: escolhida };
     }),
 
   upsertTikTok: protectedProcedure
