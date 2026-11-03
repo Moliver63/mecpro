@@ -3,6 +3,7 @@ import { CAMPOS_DE_TRAFEGO_META, trafegoDaLinha, taxasDeTrafego } from "../metaT
 import { assertCampaignEnriched } from "../basicCampaignDraft";
 import { parseDailyBudget } from "../../shared/dailyBudget";
 import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
+import { escoposTikTok } from "../tiktokOAuth";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
@@ -580,7 +581,7 @@ function clampNumber(value: number, min: number, max: number): number {
 function getTikTokAuthUrl(redirectUri: string, state: string): string {
   const params = new URLSearchParams({
     client_key:    process.env.TIKTOK_CLIENT_KEY || "",
-    scope:         "user.info.profile,user.info.stats,video.list",
+    scope:         escoposTikTok(process.env.TIKTOK_OAUTH_SCOPES),
     response_type: "code",
     redirect_uri:  redirectUri,
     state,
