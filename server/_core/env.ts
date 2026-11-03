@@ -30,6 +30,8 @@ const envSchema = z.object({
   GOOGLE_ADS_DEVELOPER_TOKEN: z.string().optional(),
   TIKTOK_CLIENT_KEY: z.string().optional(),
   TIKTOK_CLIENT_SECRET: z.string().optional(),
+  TIKTOK_MARKETING_APP_ID: z.string().optional(),
+  TIKTOK_MARKETING_APP_SECRET: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
   MECPRO_AI_URL: z.string().optional(),
