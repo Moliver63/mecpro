@@ -152,6 +152,11 @@ test("escolherMusica ignora faixa indisponivel", () => {
 
 test("carrossel com musicUrl sobe a musica e usa o music_id devolvido", async () => {
   const { c, chamadas } = falso();
-  await publicarCampanhaTikTok(c, { ...base, videos: [], imagens: ["https://h/1.jpg", "https://h/2.jpg"], musicUrl: "https://h/m.mp3" });
+  let form: any = null;
+  (c as any).postForm = async (path: string, campos: any, arq: any) => { form = { path, campos, arq }; return { music_id: "MUP" }; };
+  const fetchFalso = (async () => new Response(Buffer.from("abc"))) as any;
+  await publicarCampanhaTikTok(c, { ...base, videos: [], imagens: ["https://h/1.jpg", "https://h/2.jpg"], musicUrl: "https://h/m.mp3" }, () => {}, fetchFalso);
+  assert.equal(form.campos.upload_type, "UPLOAD_BY_FILE");
+  assert.equal(form.campos.music_signature, "900150983cd24fb0d6963f7d28e17f72");
   assert.equal(chamadas.find((x) => x.path === "ad/create/")!.body.creatives[0].music_id, "MUP");
 });
