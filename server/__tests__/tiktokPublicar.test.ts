@@ -183,3 +183,13 @@ test("extrairListaMusicas e escolherMusica: FORBID e sem music_id sao descartado
 test("musicUrl http e recusada na conferencia", () => {
   assert.equal(conferirEntradaTikTok({ ...base, musicUrl: "http://h/m.mp3" }).length, 1);
 });
+
+test("mudarStatusTikTok manda ads, grupo e campanha com o status pedido", async () => {
+  const chamadas: Array<{ path: string; body: any }> = [];
+  const c: any = { async post(path: string, body: any) { chamadas.push({ path, body }); return {}; }, async get() { return {}; } };
+  const { mudarStatusTikTok } = await import("../tiktokPublicar");
+  const r = await mudarStatusTikTok(c, "123", { campaignId: "C", adGroupId: "G", adIds: ["A1", "A2"] }, "ENABLE");
+  assert.equal(r.anuncios, 2);
+  assert.deepEqual(chamadas.map((x) => x.path), ["ad/status/update/", "adgroup/status/update/", "campaign/status/update/"]);
+  assert.ok(chamadas.every((x) => x.body.operation_status === "ENABLE"));
+});
