@@ -51,6 +51,8 @@ export interface EntradaTikTok {
   videos: EntradaVideo[];
   /** URLs https de imagens (9:16) para um anuncio em carrossel, no mesmo grupo dos videos. */
   imagens?: string[];
+  /** Musica liberada para anuncio (obrigatoria no carrossel). Sem ela, busca na biblioteca da conta. */
+  musicId?: string;
   displayName: string;
   ageGroups?: string[];
   inicio?: Date;
@@ -98,6 +100,13 @@ export interface ResultadoTikTok {
   ads: Array<{ adId: string; videoId: string }>;
   carrossel?: { adId: string; imageIds: string[] };
   avisos: string[];
+}
+
+/** Escolhe uma faixa utilizavel da lista de musicas do TikTok (campos variam; descarta as marcadas como indisponiveis). */
+export function escolherMusica(lista: any[]): { id: string; nome: string } | null {
+  const ok = (lista || []).filter((m) => m?.music_id && m?.available !== false && m?.is_valid !== false && !/invalid|unavailable|expired/i.test(String(m?.status || m?.music_status || "")));
+  const m = ok[0];
+  return m ? { id: String(m.music_id), nome: String(m.name || m.music_name || m.file_name || m.music_id) } : null;
 }
 
 export interface IdentidadeTikTok { identity_id: string; identity_type: string; identity_authorized_bc_id?: string; display_name?: string }
@@ -257,11 +266,19 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       if (!id) throw new Error(`Upload da imagem ${i + 1} sem image_id: ${JSON.stringify(img).slice(0, 200)}`);
       imageIds.push(String(id));
     }
+    let musicId = e.musicId || "";
+    if (!musicId) {
+      const d: any = await c.get("file/music/get/", { advertiser_id: adv, page_size: 50 });
+      const lista = Array.isArray(d) ? d : d?.list || d?.music_list || [];
+      const m = escolherMusica(lista);
+      if (!m) throw new Error(`Carrossel exige musica e a biblioteca da conta nao devolveu nenhuma faixa utilizavel (resposta: ${JSON.stringify(d).slice(0, 300)}). Suba uma musica na Creative library e informe o musicId.`);
+      musicId = m.id; avisos.push(`Musica usada no carrossel: ${m.nome} (${m.id}).`);
+    }
     const montarCarrossel = (id: IdentidadeTikTok) => ({
       ad_name: `${e.campaignName} | Carrossel`.slice(0, 512),
       identity_type: id.identity_type, identity_id: id.identity_id,
       ...(id.identity_authorized_bc_id ? { identity_authorized_bc_id: id.identity_authorized_bc_id } : {}),
-      ad_format: "CAROUSEL_ADS", image_ids: imageIds,
+      ad_format: "CAROUSEL_ADS", image_ids: imageIds, music_id: musicId,
       ad_text: e.adText, call_to_action: e.callToAction, landing_page_url: e.landingPageUrl,
     });
     const ad = await criarComIdentidade(montarCarrossel);

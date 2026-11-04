@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conferirEntradaTikTok, inicioTikTok, acharVideoPorNome, publicarCampanhaTikTok, TIKTOK_BRASIL_LOCATION_ID, type ClienteTikTok } from "../tiktokPublicar";
+import { escolherMusica, conferirEntradaTikTok, inicioTikTok, acharVideoPorNome, publicarCampanhaTikTok, TIKTOK_BRASIL_LOCATION_ID, type ClienteTikTok } from "../tiktokPublicar";
 
 const base = {
   advertiserId: "123", campaignName: "Shadia | Trafego", dailyBudgetReais: 30, landingPageUrl: "https://shadiahasan.com",
@@ -40,6 +40,7 @@ function falso() {
       chamadas.push({ m: "GET", path, body: params });
       if (path === "identity/get/") return params.identity_type === "TT_USER" ? { identity_list: [{ identity_id: "ID1", identity_type: "TT_USER", display_name: "Shadia Hasan" }] } : { identity_list: [] };
       if (path === "campaign/get/" || path === "adgroup/get/") return { list: [] };
+      if (path === "file/music/get/") return { list: [{ music_id: "M0", available: false }, { music_id: "M1", name: "Calma" }] };
       if (path === "file/video/ad/info/") return [{ video_cover_url: "https://c/x.jpg" }];
       throw new Error("inesperado " + path);
     },
@@ -132,6 +133,7 @@ test("carrossel: sobe as imagens e cria UM anuncio CAROUSEL_ADS pausado, sem rec
   assert.equal(ads[0].body.operation_status, "DISABLE");
   assert.equal(cr.ad_format, "CAROUSEL_ADS");
   assert.equal(cr.image_ids.length, 3);
+  assert.equal(cr.music_id, "M1");
   assert.equal(cr.call_to_action, "LEARN_MORE");
   assert.equal(cr.landing_page_url, "https://shadiahasan.com");
 });
@@ -140,4 +142,9 @@ test("carrossel exige 2 a 10 imagens https", () => {
   assert.equal(conferirEntradaTikTok({ ...base, videos: [], imagens: ["https://h/1.jpg"] }).length, 1);
   assert.equal(conferirEntradaTikTok({ ...base, videos: [], imagens: ["http://h/1.jpg", "https://h/2.jpg"] }).length, 1);
   assert.deepEqual(conferirEntradaTikTok({ ...base, videos: [], imagens: ["https://h/1.jpg", "https://h/2.jpg"] }), []);
+});
+
+test("escolherMusica ignora faixa indisponivel", () => {
+  assert.equal(escolherMusica([{ music_id: "a", available: false }, { music_id: "b" }])?.id, "b");
+  assert.equal(escolherMusica([]), null);
 });
