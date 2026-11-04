@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { escolherMusica, conferirEntradaTikTok, inicioTikTok, acharVideoPorNome, publicarCampanhaTikTok, TIKTOK_BRASIL_LOCATION_ID, type ClienteTikTok } from "../tiktokPublicar";
+import { escolherMusica, lerMusicaComLimite, pareceMp3, extrairListaMusicas, conferirEntradaTikTok, inicioTikTok, acharVideoPorNome, publicarCampanhaTikTok, TIKTOK_BRASIL_LOCATION_ID, type ClienteTikTok } from "../tiktokPublicar";
 
 const base = {
   advertiserId: "123", campaignName: "Shadia | Trafego", dailyBudgetReais: 30, landingPageUrl: "https://shadiahasan.com",
@@ -154,9 +154,32 @@ test("carrossel com musicUrl sobe a musica e usa o music_id devolvido", async ()
   const { c, chamadas } = falso();
   let form: any = null;
   (c as any).postForm = async (path: string, campos: any, arq: any) => { form = { path, campos, arq }; return { music_id: "MUP" }; };
-  const fetchFalso = (async () => new Response(Buffer.from("abc"))) as any;
+  const fetchFalso = (async () => new Response(Buffer.from("ID3abc"))) as any;
   await publicarCampanhaTikTok(c, { ...base, videos: [], imagens: ["https://h/1.jpg", "https://h/2.jpg"], musicUrl: "https://h/m.mp3" }, () => {}, fetchFalso);
   assert.equal(form.campos.upload_type, "UPLOAD_BY_FILE");
-  assert.equal(form.campos.music_signature, "900150983cd24fb0d6963f7d28e17f72");
+  assert.equal(form.campos.music_scene, "CAROUSEL_ADS");
+  assert.equal(form.campos.music_signature, "8cc5093c7a6f9d4c3f1c44d5d3472ca7");
   assert.equal(chamadas.find((x) => x.path === "ad/create/")!.body.creatives[0].music_id, "MUP");
+});
+
+test("pareceMp3 aceita ID3 e frame MPEG, recusa o resto", () => {
+  assert.equal(pareceMp3(Buffer.from("ID3xxxx")), true);
+  assert.equal(pareceMp3(Buffer.from([0xff, 0xfb, 0x90])), true);
+  assert.equal(pareceMp3(Buffer.from("<html>")), false);
+  assert.equal(pareceMp3(Buffer.from("ab")), false);
+});
+
+test("lerMusicaComLimite barra arquivo acima do limite", async () => {
+  await assert.rejects(() => lerMusicaComLimite(new Response(Buffer.alloc(20)), 10), /10 MB/);
+  assert.equal((await lerMusicaComLimite(new Response(Buffer.from("ID3ok")), 10)).length, 5);
+});
+
+test("extrairListaMusicas e escolherMusica: FORBID e sem music_id sao descartados", () => {
+  assert.equal(extrairListaMusicas({ musics: [1] }).length, 1);
+  assert.equal(extrairListaMusicas({ music_list_info: [1, 2] }).length, 2);
+  assert.equal(escolherMusica([{ music_id: "a", copyright: "MUSIC_FORBID_VIDEO_ALLOW" }, { material_id: "x" }, { music_id: "b", copyright: "OK" }])?.id, "b");
+});
+
+test("musicUrl http e recusada na conferencia", () => {
+  assert.equal(conferirEntradaTikTok({ ...base, musicUrl: "http://h/m.mp3" }).length, 1);
 });
