@@ -78,6 +78,7 @@ export function conferirEntradaTikTok(e: Partial<EntradaTikTok>): string[] {
   if (!(Number(e.dailyBudgetReais) > 0)) p.push("Orcamento diario deve ser maior que zero.");
   else if (Number(e.dailyBudgetReais) > 500) p.push("Orcamento diario acima de R$ 500: confirme com o usuario e reduza.");
   if (!e.landingPageUrl || !/^https:\/\//i.test(e.landingPageUrl)) p.push("A pagina de destino precisa ser https.");
+  if (e.musicUrl && !/^https:\/\//i.test(e.musicUrl)) p.push("A URL da musica precisa ser https.");
   if (!e.adText || e.adText.trim().length < 3) p.push("Texto do anuncio ausente.");
   else if (e.adText.length > 100) p.push(`Texto do anuncio com ${e.adText.length} caracteres: o limite do TikTok e 100.`);
   if (!e.videos?.length && !e.imagens?.length) p.push("Informe ao menos um video ou as imagens do carrossel.");
@@ -114,7 +115,42 @@ export interface ResultadoTikTok {
   avisos: string[];
 }
 
-/** Escolhe uma faixa utilizavel da lista de musicas do TikTok (campos variam; descarta as marcadas como indisponiveis). */
+const TIKTOK_MAX_MUSIC_BYTES = 10 * 1024 * 1024;
+
+/** Lê o stream com limite para não baixar arquivos arbitrariamente grandes. */
+export async function lerMusicaComLimite(res: Response, limite = TIKTOK_MAX_MUSIC_BYTES): Promise<Buffer> {
+  const contentLength = Number(res.headers.get("content-length") || 0);
+  if (contentLength > limite) throw new Error("A musica excede o limite de 10 MB do TikTok.");
+  if (!res.body) {
+    const dados = Buffer.from(await res.arrayBuffer());
+    if (dados.length > limite) throw new Error("A musica excede o limite de 10 MB do TikTok.");
+    return dados;
+  }
+  const reader = res.body.getReader(); const partes: Uint8Array[] = []; let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      total += value.byteLength;
+      if (total > limite) { await reader.cancel(); throw new Error("A musica excede o limite de 10 MB do TikTok."); }
+      partes.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  return Buffer.concat(partes.map((parte) => Buffer.from(parte)), total);
+}
+
+/** Aceita MP3 com tag ID3 ou início de frame MPEG. */
+export function pareceMp3(dados: Buffer): boolean {
+  if (dados.length < 3) return false;
+  if (dados.subarray(0, 3).toString("ascii") === "ID3") return true;
+  return dados[0] === 0xff && (dados[1] & 0xe0) === 0xe0;
+}
+
+export function extrairListaMusicas(d: any): any[] {
+  if (Array.isArray(d)) return d;
+  return d?.musics || d?.list || d?.music_list || d?.music_list_info || [];
+}
+
+/** ad/create exige music_id; material_id não é substituto. */
 export function escolherMusica(lista: any[]): { id: string; nome: string } | null {
   const ok = (lista || []).filter((m) => m?.music_id && m?.available !== false && m?.is_valid !== false && !/invalid|unavailable|expired/i.test(String(m?.status || m?.music_status || "")) && !/FORBID/i.test(String(m?.copyright || "")));
   const m = ok[0];
@@ -283,18 +319,19 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       // O TikTok so aceita UPLOAD_BY_FILE (multipart): baixa o mp3 e envia o arquivo.
       const res = await (fetchArquivo || fetch)(e.musicUrl);
       if (!res.ok) throw new Error(`Nao consegui baixar a musica (${res.status}).`);
-      const dados = Buffer.from(await res.arrayBuffer());
+      const dados = await lerMusicaComLimite(res);
+      if (!pareceMp3(dados)) throw new Error("O arquivo indicado não parece ser MP3; o TikTok exige MP3 para música de carrossel.");
       const assinatura = createHash("md5").update(dados).digest("hex");
       if (!c.postForm) throw new Error("Cliente sem upload multipart.");
       const nomeArq = `mecpro_musica_${Date.now()}.mp3`;
-      const up: any = await c.postForm("file/music/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_FILE", file_name: nomeArq, music_signature: assinatura, file_signature: assinatura }, { campo: "music_file", nome: nomeArq, dados, tipo: "audio/mpeg" });
-      const id = Array.isArray(up) ? up[0]?.music_id : up?.music_id;
-      if (!id) throw new Error(`Upload da musica sem music_id: ${JSON.stringify(up).slice(0, 300)}`);
-      musicId = String(id); avisos.push(`Musica enviada: ${musicId}.`);
+      const up: any = await c.postForm("file/music/upload/", { advertiser_id: adv, music_scene: "CAROUSEL_ADS", upload_type: "UPLOAD_BY_FILE", file_name: nomeArq, music_signature: assinatura, file_signature: assinatura }, { campo: "music_file", nome: nomeArq, dados, tipo: "audio/mpeg" });
+      const item = Array.isArray(up) ? up[0] : up, id = item?.music_id;
+      if (!id) throw new Error(`Upload sem music_id para anúncio (campos retornados: ${Object.keys(item || {}).join(", ") || "nenhum"}).`);
+      musicId = String(id); avisos.push(`Musica enviada para carrossel: ${musicId}.`);
     }
     if (!musicId) {
-      const d: any = await c.get("file/music/get/", { advertiser_id: adv, page_size: 50 });
-      const lista = Array.isArray(d) ? d : d?.musics || d?.list || d?.music_list || [];
+      const d: any = await c.get("file/music/get/", { advertiser_id: adv, music_scene: "CAROUSEL_ADS", search_type: "SEARCH_BY_SOURCE", sources: ["USER"], page_size: 50 });
+      const lista = extrairListaMusicas(d);
       const m = escolherMusica(lista);
       if (!m) throw new Error(`Carrossel exige musica e a biblioteca da conta nao devolveu nenhuma faixa utilizavel (resposta: ${JSON.stringify(d).slice(0, 300)}). Suba uma musica na Creative library e informe o musicId.`);
       musicId = m.id; avisos.push(`Musica usada no carrossel: ${m.nome} (${m.id}).`);
@@ -312,8 +349,8 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       if (!/music/i.test(String(err?.message))) throw err;
       let resumo = "";
       try {
-        const d: any = await c.get("file/music/get/", { advertiser_id: adv, page_size: 50 });
-        resumo = (Array.isArray(d) ? d : d?.musics || d?.list || []).map((m: any) => `${m.music_id}/${m.name || m.file_name}/${m.copyright || "?"}`).join("; ");
+        const d: any = await c.get("file/music/get/", { advertiser_id: adv, music_scene: "CAROUSEL_ADS", search_type: "SEARCH_BY_SOURCE", sources: ["USER"], page_size: 50 });
+        resumo = extrairListaMusicas(d).map((m: any) => `${m.music_id || "(sem music_id)"}/${m.name || m.music_name || m.file_name || "sem nome"}/${m.copyright || "?"}`).join("; ");
       } catch (e2: any) { resumo = `lista indisponivel: ${e2.message}`; }
       throw new Error(`${err.message} Musica usada: ${musicId}. Biblioteca da conta: ${resumo}`);
     }
