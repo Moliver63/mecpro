@@ -31,6 +31,7 @@ function falso() {
       chamadas.push({ m: "POST", path, body });
       if (path === "campaign/create/") return { campaign_id: "C1" };
       if (path === "adgroup/create/") return { adgroup_id: "G1" };
+      if (path === "file/music/upload/") return { music_id: "MUP" };
       if (path === "file/image/ad/upload/") return { image_id: "IMG1" };
       if (path === "file/video/ad/upload/") return [{ video_id: "VUP" }];
       if (path === "ad/create/") return { ad_ids: ["A" + chamadas.length] };
@@ -147,4 +148,10 @@ test("carrossel exige 2 a 10 imagens https", () => {
 test("escolherMusica ignora faixa indisponivel", () => {
   assert.equal(escolherMusica([{ music_id: "a", available: false }, { music_id: "b" }])?.id, "b");
   assert.equal(escolherMusica([]), null);
+});
+
+test("carrossel com musicUrl sobe a musica e usa o music_id devolvido", async () => {
+  const { c, chamadas } = falso();
+  await publicarCampanhaTikTok(c, { ...base, videos: [], imagens: ["https://h/1.jpg", "https://h/2.jpg"], musicUrl: "https://h/m.mp3" });
+  assert.equal(chamadas.find((x) => x.path === "ad/create/")!.body.creatives[0].music_id, "MUP");
 });

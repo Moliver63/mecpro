@@ -53,6 +53,8 @@ export interface EntradaTikTok {
   imagens?: string[];
   /** Musica liberada para anuncio (obrigatoria no carrossel). Sem ela, busca na biblioteca da conta. */
   musicId?: string;
+  /** mp3 https proprio (com direitos) para subir na biblioteca de musicas da conta. */
+  musicUrl?: string;
   displayName: string;
   ageGroups?: string[];
   inicio?: Date;
@@ -267,9 +269,15 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       imageIds.push(String(id));
     }
     let musicId = e.musicId || "";
+    if (!musicId && e.musicUrl) {
+      const up: any = await c.post("file/music/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", music_url: e.musicUrl, file_name: `mecpro_musica_${Date.now()}` });
+      const id = Array.isArray(up) ? up[0]?.music_id : up?.music_id;
+      if (!id) throw new Error(`Upload da musica sem music_id: ${JSON.stringify(up).slice(0, 300)}`);
+      musicId = String(id); avisos.push(`Musica enviada: ${musicId}.`);
+    }
     if (!musicId) {
       const d: any = await c.get("file/music/get/", { advertiser_id: adv, page_size: 50 });
-      const lista = Array.isArray(d) ? d : d?.list || d?.music_list || [];
+      const lista = Array.isArray(d) ? d : d?.musics || d?.list || d?.music_list || [];
       const m = escolherMusica(lista);
       if (!m) throw new Error(`Carrossel exige musica e a biblioteca da conta nao devolveu nenhuma faixa utilizavel (resposta: ${JSON.stringify(d).slice(0, 300)}). Suba uma musica na Creative library e informe o musicId.`);
       musicId = m.id; avisos.push(`Musica usada no carrossel: ${m.nome} (${m.id}).`);
