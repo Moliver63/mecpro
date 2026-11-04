@@ -118,3 +118,26 @@ test("todas as contas recusadas: erro lista as contas testadas", async () => {
   };
   await assert.rejects(publicarCampanhaTikTok(c, base), /contas testadas: Shadia Hasan\/TT_USER/);
 });
+
+test("carrossel: sobe as imagens e cria UM anuncio CAROUSEL_ADS pausado, sem recriar videos", async () => {
+  const { c, chamadas } = falso();
+  const imgs = ["https://h/1.jpg", "https://h/2.jpg", "https://h/3.jpg"];
+  const r = await publicarCampanhaTikTok(c, { ...base, videos: [], imagens: imgs });
+  assert.equal(r.ads.length, 0);
+  assert.ok(r.carrossel?.adId);
+  assert.equal(chamadas.filter((x) => x.path === "file/image/ad/upload/").length, 3);
+  const ads = chamadas.filter((x) => x.path === "ad/create/");
+  assert.equal(ads.length, 1);
+  const cr = ads[0].body.creatives[0];
+  assert.equal(ads[0].body.operation_status, "DISABLE");
+  assert.equal(cr.ad_format, "CAROUSEL_ADS");
+  assert.equal(cr.image_ids.length, 3);
+  assert.equal(cr.call_to_action, "LEARN_MORE");
+  assert.equal(cr.landing_page_url, "https://shadiahasan.com");
+});
+
+test("carrossel exige 2 a 10 imagens https", () => {
+  assert.equal(conferirEntradaTikTok({ ...base, videos: [], imagens: ["https://h/1.jpg"] }).length, 1);
+  assert.equal(conferirEntradaTikTok({ ...base, videos: [], imagens: ["http://h/1.jpg", "https://h/2.jpg"] }).length, 1);
+  assert.deepEqual(conferirEntradaTikTok({ ...base, videos: [], imagens: ["https://h/1.jpg", "https://h/2.jpg"] }), []);
+});
