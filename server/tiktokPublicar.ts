@@ -95,8 +95,8 @@ export interface ResultadoTikTok {
 
 export interface IdentidadeTikTok { identity_id: string; identity_type: string; identity_authorized_bc_id?: string; display_name?: string }
 
-/** Conta de TikTok autorizada na conta de anuncios. Prefere a que tem o nome pedido. */
-export async function acharIdentidadeAutorizada(c: ClienteTikTok, adv: string, nome: string, avisos: string[] = []): Promise<IdentidadeTikTok | null> {
+/** Todas as contas de TikTok autorizadas na conta de anuncios, a de nome parecido primeiro. */
+export async function listarIdentidadesAutorizadas(c: ClienteTikTok, adv: string, nome: string, avisos: string[] = []): Promise<IdentidadeTikTok[]> {
   const todas: IdentidadeTikTok[] = [];
   for (const tipo of ["TT_USER", "BC_AUTH_TT", "AUTH_CODE"]) {
     try {
@@ -107,7 +107,13 @@ export async function acharIdentidadeAutorizada(c: ClienteTikTok, adv: string, n
     } catch (err: any) { avisos.push(`Identidades ${tipo}: ${err.message}`); }
   }
   const alvo = nome.toLowerCase();
-  return todas.find((i) => String(i.display_name || "").toLowerCase().includes(alvo)) || todas[0] || null;
+  const unicas = todas.filter((i, n) => todas.findIndex((o) => o.identity_id === i.identity_id) === n);
+  return unicas.sort((a, b) => Number(String(b.display_name || "").toLowerCase().includes(alvo)) - Number(String(a.display_name || "").toLowerCase().includes(alvo)));
+}
+
+/** Erro de identidade sem permissao: vale tentar a proxima conta. */
+export function erroDePermissaoDaIdentidade(msg: string): boolean {
+  return /permission to manage videos|select another identity|identity/i.test(msg);
 }
 
 /** Campanha ja criada com o mesmo nome (evita duplicar numa nova tentativa). */
@@ -129,9 +135,10 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   // 1. Identidade: o TikTok nao aceita mais identidade personalizada; precisa ser
   //    uma conta de TikTok autorizada (TT_USER / BC_AUTH_TT / AUTH_CODE).
   passo("identidade");
-  const ident = await acharIdentidadeAutorizada(c, adv, e.displayName, avisos);
-  if (!ident) throw new Error("Nenhuma conta de TikTok autorizada na conta de anuncios. No Ads Manager: Ativos > Identidades > autorizar uma conta de TikTok, e tente de novo.");
-  const identityId = ident.identity_id;
+  const identidades = await listarIdentidadesAutorizadas(c, adv, e.displayName, avisos);
+  if (!identidades.length) throw new Error("Nenhuma conta de TikTok autorizada na conta de anuncios. No Ads Manager: Ativos > Identidades > autorizar uma conta de TikTok, e tente de novo.");
+  let ident = identidades[0];
+  let identityId = ident.identity_id;
 
   // 2. Videos -> video_id (biblioteca por nome, ou upload por URL)
   passo("videos");
@@ -200,15 +207,28 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       }
     } catch (err: any) { avisos.push(`Capa do video ${i + 1}: ${err.message}`); }
 
-    const criativo: Record<string, unknown> = {
+    const montar = (id: IdentidadeTikTok) => ({
       ad_name: `${e.campaignName} | V${i + 1}`.slice(0, 512),
-      identity_type: ident.identity_type, identity_id: identityId,
-      ...(ident.identity_authorized_bc_id ? { identity_authorized_bc_id: ident.identity_authorized_bc_id } : {}),
+      identity_type: id.identity_type, identity_id: id.identity_id,
+      ...(id.identity_authorized_bc_id ? { identity_authorized_bc_id: id.identity_authorized_bc_id } : {}),
       ad_format: "SINGLE_VIDEO", video_id: videoId,
       ad_text: e.adText, call_to_action: e.callToAction, landing_page_url: e.landingPageUrl,
-    };
-    if (capaId) criativo.image_ids = [capaId];
-    const ad: any = await c.post("ad/create/", { advertiser_id: adv, adgroup_id: adGroupId, creatives: [criativo], operation_status: "DISABLE" } as any);
+      ...(capaId ? { image_ids: [capaId] } : {}),
+    });
+    let ad: any = null;
+    const ordem = [ident, ...identidades.filter((x) => x.identity_id !== ident.identity_id)];
+    let ultimoErro: any = null;
+    for (const cand of ordem) {
+      try {
+        ad = await c.post("ad/create/", { advertiser_id: adv, adgroup_id: adGroupId, creatives: [montar(cand)], operation_status: "DISABLE" } as any);
+        ident = cand; identityId = cand.identity_id; ultimoErro = null; break;
+      } catch (err: any) {
+        ultimoErro = err;
+        if (!erroDePermissaoDaIdentidade(String(err?.message))) throw err;
+        avisos.push(`Conta ${cand.display_name || cand.identity_id} (${cand.identity_type}) recusada: ${String(err.message).slice(0, 120)}`);
+      }
+    }
+    if (ultimoErro) throw new Error(`${ultimoErro.message} (contas testadas: ${ordem.map((x) => `${x.display_name || x.identity_id}/${x.identity_type}`).join(", ")})`);
     const adId = String(ad?.ad_ids?.[0] || "");
     if (!adId) throw new Error(`TikTok nao devolveu ad_id do video ${i + 1}: ${JSON.stringify(ad).slice(0, 200)}`);
     ads.push({ adId, videoId });

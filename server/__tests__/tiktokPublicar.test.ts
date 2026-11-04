@@ -93,3 +93,28 @@ test("reaproveita campanha e grupo existentes em vez de criar de novo", async ()
   assert.equal(r.adGroupId, "GX");
   assert.equal(chamadas.some((x) => x.path === "campaign/create/" || x.path === "adgroup/create/"), false);
 });
+
+test("conta sem permissao de video: tenta a proxima conta autorizada", async () => {
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "identity/get/" && params.identity_type === "TT_USER"
+    ? { identity_list: [{ identity_id: "RUIM", identity_type: "TT_USER", display_name: "Outra" }, { identity_id: "BOA", identity_type: "TT_USER", display_name: "Michel" }] }
+    : getOrig(path, params);
+  const postOrig = c.post.bind(c);
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "ad/create/" && body.creatives[0].identity_id === "RUIM") throw new Error("TikTok [ad/create/] 40002: The selected TikTok account doesn't have permission to manage videos.");
+    return postOrig(path, body);
+  };
+  const r = await publicarCampanhaTikTok(c, base);
+  assert.equal(r.identityId, "BOA");
+  assert.equal(r.ads.length, 1);
+});
+
+test("todas as contas recusadas: erro lista as contas testadas", async () => {
+  const { c } = falso();
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "ad/create/") throw new Error("TikTok [ad/create/] 40002: The selected TikTok account doesn't have permission to manage videos.");
+    return path === "campaign/create/" ? { campaign_id: "C" } : path === "adgroup/create/" ? { adgroup_id: "G" } : { image_id: "I" };
+  };
+  await assert.rejects(publicarCampanhaTikTok(c, base), /contas testadas: Shadia Hasan\/TT_USER/);
+});
