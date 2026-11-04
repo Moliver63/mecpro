@@ -49,6 +49,8 @@ export interface EntradaTikTok {
   adText: string;
   callToAction: string;
   videos: EntradaVideo[];
+  /** URLs https de imagens (9:16) para um anuncio em carrossel, no mesmo grupo dos videos. */
+  imagens?: string[];
   displayName: string;
   ageGroups?: string[];
   inicio?: Date;
@@ -64,8 +66,12 @@ export function conferirEntradaTikTok(e: Partial<EntradaTikTok>): string[] {
   if (!e.landingPageUrl || !/^https:\/\//i.test(e.landingPageUrl)) p.push("A pagina de destino precisa ser https.");
   if (!e.adText || e.adText.trim().length < 3) p.push("Texto do anuncio ausente.");
   else if (e.adText.length > 100) p.push(`Texto do anuncio com ${e.adText.length} caracteres: o limite do TikTok e 100.`);
-  if (!e.videos?.length) p.push("Informe ao menos um video.");
-  else if (e.videos.length > 5) p.push("No maximo 5 videos por grupo.");
+  if (!e.videos?.length && !e.imagens?.length) p.push("Informe ao menos um video ou as imagens do carrossel.");
+  else if ((e.videos?.length || 0) > 5) p.push("No maximo 5 videos por grupo.");
+  if (e.imagens?.length) {
+    if (e.imagens.length < 2 || e.imagens.length > 10) p.push("Carrossel precisa de 2 a 10 imagens.");
+    e.imagens.forEach((u, i) => { if (!/^https:\/\//i.test(u)) p.push(`Imagem ${i + 1}: a URL precisa ser https.`); });
+  }
   e.videos?.forEach((v, i) => {
     if (!v.videoId && !v.videoUrl && !v.nomeNaBiblioteca) p.push(`Video ${i + 1}: informe videoId, videoUrl ou nomeNaBiblioteca.`);
     if (v.videoUrl && !/^https:\/\//i.test(v.videoUrl)) p.push(`Video ${i + 1}: a URL precisa ser https.`);
@@ -90,6 +96,7 @@ export function acharVideoPorNome(lista: any[], nome: string): string | null {
 export interface ResultadoTikTok {
   campaignId: string; adGroupId: string; identityId: string;
   ads: Array<{ adId: string; videoId: string }>;
+  carrossel?: { adId: string; imageIds: string[] };
   avisos: string[];
 }
 
@@ -193,6 +200,24 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
     if (!adGroupId) throw new Error("TikTok nao devolveu adgroup_id.");
   }
 
+  // Cria o anuncio com a primeira conta autorizada que aceitar; erro de permissao tenta a proxima.
+  const criarComIdentidade = async (montar: (id: IdentidadeTikTok) => Record<string, unknown>): Promise<any> => {
+    const ordem = [ident, ...identidades.filter((x) => x.identity_id !== ident.identity_id)];
+    let ultimoErro: any = null;
+    for (const cand of ordem) {
+      try {
+        const ad = await c.post("ad/create/", { advertiser_id: adv, adgroup_id: adGroupId, creatives: [montar(cand)], operation_status: "DISABLE" } as any);
+        ident = cand; identityId = cand.identity_id;
+        return ad;
+      } catch (err: any) {
+        ultimoErro = err;
+        if (!erroDePermissaoDaIdentidade(String(err?.message))) throw err;
+        avisos.push(`Conta ${cand.display_name || cand.identity_id} (${cand.identity_type}) recusada: ${String(err.message).slice(0, 120)}`);
+      }
+    }
+    throw new Error(`${ultimoErro.message} (contas testadas: ${ordem.map((x) => `${x.display_name || x.identity_id}/${x.identity_type}`).join(", ")})`);
+  };
+
   // 5. Anuncios (um por video), PAUSADOS
   passo("anuncios");
   const ads: ResultadoTikTok["ads"] = [];
@@ -215,23 +240,34 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       ad_text: e.adText, call_to_action: e.callToAction, landing_page_url: e.landingPageUrl,
       ...(capaId ? { image_ids: [capaId] } : {}),
     });
-    let ad: any = null;
-    const ordem = [ident, ...identidades.filter((x) => x.identity_id !== ident.identity_id)];
-    let ultimoErro: any = null;
-    for (const cand of ordem) {
-      try {
-        ad = await c.post("ad/create/", { advertiser_id: adv, adgroup_id: adGroupId, creatives: [montar(cand)], operation_status: "DISABLE" } as any);
-        ident = cand; identityId = cand.identity_id; ultimoErro = null; break;
-      } catch (err: any) {
-        ultimoErro = err;
-        if (!erroDePermissaoDaIdentidade(String(err?.message))) throw err;
-        avisos.push(`Conta ${cand.display_name || cand.identity_id} (${cand.identity_type}) recusada: ${String(err.message).slice(0, 120)}`);
-      }
-    }
-    if (ultimoErro) throw new Error(`${ultimoErro.message} (contas testadas: ${ordem.map((x) => `${x.display_name || x.identity_id}/${x.identity_type}`).join(", ")})`);
+    const ad = await criarComIdentidade(montar);
     const adId = String(ad?.ad_ids?.[0] || "");
     if (!adId) throw new Error(`TikTok nao devolveu ad_id do video ${i + 1}: ${JSON.stringify(ad).slice(0, 200)}`);
     ads.push({ adId, videoId });
   }
-  return { campaignId, adGroupId, identityId, ads, avisos };
+
+  // 6. Carrossel de imagens (opcional), no mesmo grupo, com o mesmo texto, botao e destino
+  let carrossel: ResultadoTikTok["carrossel"];
+  if (e.imagens?.length) {
+    passo("carrossel");
+    const imageIds: string[] = [];
+    for (const [i, url] of e.imagens.entries()) {
+      const img: any = await c.post("file/image/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", image_url: url, file_name: `mecpro_carrossel_${Date.now()}_${i + 1}` });
+      const id = Array.isArray(img) ? img[0]?.image_id : img?.image_id;
+      if (!id) throw new Error(`Upload da imagem ${i + 1} sem image_id: ${JSON.stringify(img).slice(0, 200)}`);
+      imageIds.push(String(id));
+    }
+    const montarCarrossel = (id: IdentidadeTikTok) => ({
+      ad_name: `${e.campaignName} | Carrossel`.slice(0, 512),
+      identity_type: id.identity_type, identity_id: id.identity_id,
+      ...(id.identity_authorized_bc_id ? { identity_authorized_bc_id: id.identity_authorized_bc_id } : {}),
+      ad_format: "CAROUSEL_ADS", image_ids: imageIds,
+      ad_text: e.adText, call_to_action: e.callToAction, landing_page_url: e.landingPageUrl,
+    });
+    const ad = await criarComIdentidade(montarCarrossel);
+    const adId = String(ad?.ad_ids?.[0] || "");
+    if (!adId) throw new Error(`TikTok nao devolveu ad_id do carrossel: ${JSON.stringify(ad).slice(0, 200)}`);
+    carrossel = { adId, imageIds };
+  }
+  return { campaignId, adGroupId, identityId, ads, ...(carrossel ? { carrossel } : {}), avisos };
 }

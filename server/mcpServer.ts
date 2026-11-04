@@ -3146,7 +3146,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           videoId: z.string().optional(),
           videoUrl: z.string().url().optional(),
           nomeNaBiblioteca: z.string().optional(),
-        })).min(1).max(5),
+        })).max(5).default([]).describe("Vídeos (um anúncio cada). Pode ficar vazio se só quiser o carrossel."),
+        imagens: z.array(z.string().url()).min(2).max(10).optional().describe("URLs https de imagens 9:16 para UM anúncio em carrossel, no mesmo grupo, com o mesmo texto, botão e destino."),
         ageGroups: z.array(z.enum(["AGE_18_24", "AGE_25_34", "AGE_35_44", "AGE_45_54", "AGE_55_100"])).optional(),
         confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário confirmar orçamento, texto, vídeos e destino."),
         idempotencyKey: z.string().min(8).max(200),
@@ -3169,7 +3170,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const entrada = {
         advertiserId: String(integracao.accountId), campaignName: input.campaignName, dailyBudgetReais: input.dailyBudgetReais,
         landingPageUrl: input.landingPageUrl, adText: input.adText, callToAction: input.callToAction, displayName: input.displayName,
-        videos: input.videos, ageGroups: input.ageGroups,
+        videos: input.videos, imagens: input.imagens, ageGroups: input.ageGroups,
       };
       const problemas = conferirEntradaTikTok(entrada);
       if (problemas.length) {
@@ -3202,7 +3203,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         } catch (e: any) { log.warn("tiktok", "campanha criada, mas falhou ao registrar ids", { error: e?.message }); }
         const summaryText =
           `Campanha criada no TikTok Ads, PAUSADA (nada será gasto até você ativar).\n` +
-          `Campanha: ${r.campaignId} | Grupo: ${r.adGroupId} | Anúncios: ${r.ads.map((a) => a.adId).join(", ")}\n` +
+          `Campanha: ${r.campaignId} | Grupo: ${r.adGroupId} | Anúncios: ${r.ads.map((a) => a.adId).join(", ") || "(nenhum vídeo)"}` +
+          (r.carrossel ? ` | Carrossel: ${r.carrossel.adId} (${r.carrossel.imageIds.length} imagens)` : "") + `\n` +
           `Orçamento: R$ ${input.dailyBudgetReais}/dia. Revise no TikTok Ads Manager antes de ativar.` +
           (r.avisos.length ? `\nAvisos: ${r.avisos.join(" | ")}` : "");
         const payload = { summaryText, isError: false, ...r };
