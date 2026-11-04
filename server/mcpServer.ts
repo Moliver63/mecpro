@@ -3121,6 +3121,51 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── set_tiktok_status (ativar / pausar campanha criada pelo MecProAI) ───
+  server.registerTool(
+    "set_tiktok_status",
+    {
+      title: "Ativar ou pausar campanha no TikTok Ads",
+      description:
+        "ATIVA (ENABLE) ou PAUSA (DISABLE) uma campanha do TikTok Ads: anúncios, grupo e campanha de uma vez. " +
+        "ATIVAR começa a gastar o orçamento diário. Só chame com confirmadoPeloUsuario=true depois de o usuário pedir explicitamente para ativar, " +
+        "ciente do orçamento. Pausar é sempre seguro.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID do rascunho no MecProAI (valida que a campanha é do usuário)."),
+        tiktokCampaignId: z.string().regex(/^\d+$/),
+        tiktokAdGroupId: z.string().regex(/^\d+$/),
+        tiktokAdIds: z.array(z.string().regex(/^\d+$/)).max(20).default([]),
+        status: z.enum(["ENABLE", "DISABLE"]),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário pedir explicitamente."),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      const campaign: any = await db.getCampaignById(input.campaignId);
+      if (!campaign) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+      if (campaign.tiktokCampaignId && String(campaign.tiktokCampaignId) !== input.tiktokCampaignId) {
+        return { content: [{ type: "text", text: `A campanha ${input.campaignId} está ligada à campanha TikTok ${campaign.tiktokCampaignId}, não a ${input.tiktokCampaignId}. Nada foi alterado.` }], isError: true };
+      }
+      const integracao: any = await db.getApiIntegration(userId, "tiktok");
+      if (!integracao?.isActive || !integracao.accessToken || !integracao.accountId) {
+        return { content: [{ type: "text", text: "TikTok Ads não está conectado." }], isError: true };
+      }
+      const { criarClienteTikTok, mudarStatusTikTok } = await import("./tiktokPublicar");
+      try {
+        const r = await mudarStatusTikTok(criarClienteTikTok(String(integracao.accessToken)), String(integracao.accountId),
+          { campaignId: input.tiktokCampaignId, adGroupId: input.tiktokAdGroupId, adIds: input.tiktokAdIds }, input.status);
+        const texto = `${input.status === "ENABLE" ? "ATIVADA" : "PAUSADA"} no TikTok: campanha ${r.campanha}, grupo ${r.grupo}, ${r.anuncios} anúncio(s).`;
+        return { content: [{ type: "text", text: texto }], structuredContent: { ok: true, ...r, status: input.status } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao mudar o status no TikTok: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── publish_tiktok_campaign (Trafego, sempre PAUSADA) ──────────────────
   server.registerTool(
     "publish_tiktok_campaign",

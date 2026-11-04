@@ -360,3 +360,15 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   }
   return { campaignId, adGroupId, identityId, ads, ...(carrossel ? { carrossel } : {}), avisos };
 }
+
+export type StatusTikTok = "ENABLE" | "DISABLE";
+
+/** Ativa ou pausa anuncios, grupo e campanha (idempotente: repetir nao tem efeito extra). */
+export async function mudarStatusTikTok(
+  c: ClienteTikTok, adv: string, ids: { campaignId: string; adGroupId: string; adIds: string[] }, status: StatusTikTok,
+): Promise<{ anuncios: number; grupo: string; campanha: string }> {
+  if (ids.adIds.length) await c.post("ad/status/update/", { advertiser_id: adv, ad_ids: ids.adIds, operation_status: status });
+  await c.post("adgroup/status/update/", { advertiser_id: adv, adgroup_ids: [ids.adGroupId], operation_status: status });
+  await c.post("campaign/status/update/", { advertiser_id: adv, campaign_ids: [ids.campaignId], operation_status: status });
+  return { anuncios: ids.adIds.length, grupo: ids.adGroupId, campanha: ids.campaignId };
+}
