@@ -116,7 +116,7 @@ export interface ResultadoTikTok {
 
 /** Escolhe uma faixa utilizavel da lista de musicas do TikTok (campos variam; descarta as marcadas como indisponiveis). */
 export function escolherMusica(lista: any[]): { id: string; nome: string } | null {
-  const ok = (lista || []).filter((m) => m?.music_id && m?.available !== false && m?.is_valid !== false && !/invalid|unavailable|expired/i.test(String(m?.status || m?.music_status || "")));
+  const ok = (lista || []).filter((m) => m?.music_id && m?.available !== false && m?.is_valid !== false && !/invalid|unavailable|expired/i.test(String(m?.status || m?.music_status || "")) && !/FORBID/i.test(String(m?.copyright || "")));
   const m = ok[0];
   return m ? { id: String(m.music_id), nome: String(m.name || m.music_name || m.file_name || m.music_id) } : null;
 }
@@ -306,7 +306,17 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       ad_format: "CAROUSEL_ADS", image_ids: imageIds, music_id: musicId,
       ad_text: e.adText, call_to_action: e.callToAction, landing_page_url: e.landingPageUrl,
     });
-    const ad = await criarComIdentidade(montarCarrossel);
+    let ad: any;
+    try { ad = await criarComIdentidade(montarCarrossel); }
+    catch (err: any) {
+      if (!/music/i.test(String(err?.message))) throw err;
+      let resumo = "";
+      try {
+        const d: any = await c.get("file/music/get/", { advertiser_id: adv, page_size: 50 });
+        resumo = (Array.isArray(d) ? d : d?.musics || d?.list || []).map((m: any) => `${m.music_id}/${m.name || m.file_name}/${m.copyright || "?"}`).join("; ");
+      } catch (e2: any) { resumo = `lista indisponivel: ${e2.message}`; }
+      throw new Error(`${err.message} Musica usada: ${musicId}. Biblioteca da conta: ${resumo}`);
+    }
     const adId = String(ad?.ad_ids?.[0] || "");
     if (!adId) throw new Error(`TikTok nao devolveu ad_id do carrossel: ${JSON.stringify(ad).slice(0, 200)}`);
     carrossel = { adId, imageIds };
