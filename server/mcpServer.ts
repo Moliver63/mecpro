@@ -3148,6 +3148,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           nomeNaBiblioteca: z.string().optional(),
         })).max(5).default([]).describe("Vídeos (um anúncio cada). Pode ficar vazio se só quiser o carrossel."),
         imagens: z.array(z.string().url()).min(2).max(10).optional().describe("URLs https de imagens 9:16 para UM anúncio em carrossel, no mesmo grupo, com o mesmo texto, botão e destino."),
+        musicId: z.string().optional().describe("ID de música liberada para anúncio (carrossel exige música). Sem ele, usa a primeira faixa utilizável da biblioteca da conta."),
         ageGroups: z.array(z.enum(["AGE_18_24", "AGE_25_34", "AGE_35_44", "AGE_45_54", "AGE_55_100"])).optional(),
         confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário confirmar orçamento, texto, vídeos e destino."),
         idempotencyKey: z.string().min(8).max(200),
@@ -3170,7 +3171,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const entrada = {
         advertiserId: String(integracao.accountId), campaignName: input.campaignName, dailyBudgetReais: input.dailyBudgetReais,
         landingPageUrl: input.landingPageUrl, adText: input.adText, callToAction: input.callToAction, displayName: input.displayName,
-        videos: input.videos, imagens: input.imagens, ageGroups: input.ageGroups,
+        videos: input.videos, imagens: input.imagens, musicId: input.musicId, ageGroups: input.ageGroups,
       };
       const problemas = conferirEntradaTikTok(entrada);
       if (problemas.length) {
