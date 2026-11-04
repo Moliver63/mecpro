@@ -12,12 +12,16 @@
  * Todas as chamadas devolvem o erro do TikTok sem mascarar, para ajuste rapido.
  */
 
+import { createHash } from "node:crypto";
+
 export const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3/";
 export const TIKTOK_BRASIL_LOCATION_ID = "3469034";
 
 export interface ClienteTikTok {
   post<T = any>(path: string, body: Record<string, unknown>): Promise<T>;
   get<T = any>(path: string, params: Record<string, unknown>): Promise<T>;
+  /** multipart/form-data (upload de arquivo). */
+  postForm?<T = any>(path: string, campos: Record<string, string>, arquivo: { campo: string; nome: string; dados: Buffer; tipo: string }): Promise<T>;
 }
 
 export function criarClienteTikTok(token: string, fetchImpl: typeof fetch = fetch): ClienteTikTok {
@@ -32,6 +36,12 @@ export function criarClienteTikTok(token: string, fetchImpl: typeof fetch = fetc
     post: (path, body) => chamar(path, {
       method: "POST", headers: { "Content-Type": "application/json", "Access-Token": token }, body: JSON.stringify(body),
     }),
+    postForm: (path, campos, arquivo) => {
+      const f = new FormData();
+      for (const [k, v] of Object.entries(campos)) f.append(k, v);
+      f.append(arquivo.campo, new Blob([arquivo.dados], { type: arquivo.tipo }), arquivo.nome);
+      return chamar(path, { method: "POST", headers: { "Access-Token": token }, body: f });
+    },
     get: (path, params) => {
       const q = new URLSearchParams();
       for (const [k, v] of Object.entries(params)) q.set(k, typeof v === "string" ? v : JSON.stringify(v));
@@ -146,7 +156,7 @@ export async function acharCampanhaExistente(c: ClienteTikTok, adv: string, nome
   } catch { return null; }
 }
 
-export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}): Promise<ResultadoTikTok> {
+export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}, fetchArquivo?: typeof fetch): Promise<ResultadoTikTok> {
   const avisos: string[] = [];
   const adv = e.advertiserId;
 
@@ -270,7 +280,14 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
     }
     let musicId = e.musicId || "";
     if (!musicId && e.musicUrl) {
-      const up: any = await c.post("file/music/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", music_url: e.musicUrl, file_name: `mecpro_musica_${Date.now()}` });
+      // O TikTok so aceita UPLOAD_BY_FILE (multipart): baixa o mp3 e envia o arquivo.
+      const res = await (fetchArquivo || fetch)(e.musicUrl);
+      if (!res.ok) throw new Error(`Nao consegui baixar a musica (${res.status}).`);
+      const dados = Buffer.from(await res.arrayBuffer());
+      const assinatura = createHash("md5").update(dados).digest("hex");
+      if (!c.postForm) throw new Error("Cliente sem upload multipart.");
+      const nomeArq = `mecpro_musica_${Date.now()}.mp3`;
+      const up: any = await c.postForm("file/music/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_FILE", file_name: nomeArq, music_signature: assinatura, file_signature: assinatura }, { campo: "music_file", nome: nomeArq, dados, tipo: "audio/mpeg" });
       const id = Array.isArray(up) ? up[0]?.music_id : up?.music_id;
       if (!id) throw new Error(`Upload da musica sem music_id: ${JSON.stringify(up).slice(0, 300)}`);
       musicId = String(id); avisos.push(`Musica enviada: ${musicId}.`);
