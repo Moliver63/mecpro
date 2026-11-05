@@ -305,6 +305,7 @@ router.get("/mcp", (_req: Request, res: Response) => {
       "publish_google_campaign",
       "publish_tiktok_campaign",
       "set_tiktok_status",
+      "list_google_campaigns",
     ],
   });
 });
