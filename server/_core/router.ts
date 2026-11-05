@@ -58,6 +58,7 @@ import {
   syncCreativePublishMediaToV2,
 } from "../../shared/campaignCreative.sync";
 import { evaluateCampaignBriefingReadiness } from "../../shared/campaignBriefingReadiness";
+import { tikTokReportGet } from "../tiktokRelatorio";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -10618,23 +10619,20 @@ const tiktokCampaignsRouter = router({
 
       const period = input?.period ?? "30d";
       const days = period === "7d" ? 7 : period === "90d" ? 90 : 30;
-      const reportResp = await fetch(`https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/`, {
-        method: "POST",
-        headers: { "Access-Token": token, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          advertiser_id: advertiserId,
-          report_type: "BASIC",
+      const metricsById = new Map<string, any>();
+      try {
+        const reportRows = await tikTokReportGet({
+          advertiserId: String(advertiserId),
+          accessToken: token,
           dimensions: ["campaign_id"],
           metrics: ["spend", "impressions", "clicks", "cpc", "cpm", "ctr"],
-          start_date: daysAgo(days),
-          end_date: today(),
-          page_size: 100,
-        }),
-      });
-      const reportData: any = await reportResp.json().catch(() => ({}));
-      const metricsById = new Map<string, any>();
-      if (reportResp.ok && reportData.code === 0) {
-        for (const row of reportData.data?.list || []) metricsById.set(String(row.dimensions?.campaign_id || row.campaign_id || ""), row.metrics || {});
+          startDate: daysAgo(days),
+          endDate: today(),
+          pageSize: 100,
+        });
+        for (const row of reportRows) metricsById.set(String(row.dimensions?.campaign_id || row.campaign_id || ""), row.metrics || {});
+      } catch (e: any) {
+        log.warn("tiktok", "list: relatorio de metricas TikTok falhou", { error: String(e?.message || "").slice(0, 120) });
       }
 
       const campaigns = (listData.data?.list || []).map((c: any) => ({
@@ -10854,29 +10852,24 @@ const unifiedRouter = router({
       const listData: any = await listResp.json();
       if (listData.code !== 0) throw new TRPCError({ code: "BAD_REQUEST", message: listData.message });
       const camps = (listData.data?.list || []) as any[];
-      const reportResp = await fetch(
-        `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/`, {
-          method: "POST",
-          headers: { "Access-Token": token, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            advertiser_id: advertiserId,
-            report_type:   "BASIC",
-            dimensions:    ["campaign_id"],
-            metrics:       ["spend","impressions","clicks","cpc","cpm","ctr"],
-            start_date:    daysAgo(days),
-            end_date:      today(),
-            page_size:     100,
-          }),
-        }
-      );
-      const reportData: any = await reportResp.json();
       let spend=0, impressions=0, clicks=0;
-      if (reportData.code === 0) {
-        (reportData.data?.list || []).forEach((r: any) => {
+      try {
+        const reportRows = await tikTokReportGet({
+          advertiserId: String(advertiserId),
+          accessToken: token,
+          dimensions: ["campaign_id"],
+          metrics: ["spend","impressions","clicks","cpc","cpm","ctr"],
+          startDate: daysAgo(days),
+          endDate: today(),
+          pageSize: 100,
+        });
+        reportRows.forEach((r: any) => {
           spend       += Number(r.metrics?.spend       || 0) * 100;
           impressions += Number(r.metrics?.impressions || 0);
           clicks      += Number(r.metrics?.clicks      || 0);
         });
+      } catch (e: any) {
+        log.warn("tiktok", "tiktokMetrics: relatorio TikTok falhou", { error: String(e?.message || "").slice(0, 120) });
       }
       const cpc = clicks > 0 ? spend/clicks : 0;
       const cpm = impressions > 0 ? (spend/impressions)*1000 : 0;
@@ -11085,21 +11078,15 @@ const unifiedRouter = router({
             const token = tikTokConfig.accessToken;
             const advertiserId = tikTokConfig.accountId;
 
-            const fetchReport = async (dimensions: string[]) => {
-              const res = await fetch(`https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/`, {
-                method: "POST",
-                headers: { "Access-Token": token, "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  advertiser_id: advertiserId, report_type: "BASIC", dimensions,
-                  metrics: ["campaign_name", "spend", "impressions", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion"],
-                  start_date: since, end_date: until, page_size: 500,
-                }),
-                signal: AbortSignal.timeout(15000),
-              });
-              const data: any = await res.json();
-              if (data.code !== 0) throw new Error(data.message || "Erro TikTok Ads API");
-              return (data.data?.list || []) as any[];
-            };
+            const fetchReport = (dimensions: string[]) => tikTokReportGet({
+              advertiserId: String(advertiserId),
+              accessToken: token,
+              dimensions,
+              metrics: ["campaign_name", "spend", "impressions", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion"],
+              startDate: since,
+              endDate: until,
+              pageSize: 500,
+            });
 
             const [summary, byAgeGender] = await Promise.all([
               fetchReport(["campaign_id"]),
@@ -13660,16 +13647,20 @@ const mediaBudgetRouter = router({
             .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok"), eq(integrations.isActive, 1)));
           const ttCfg = getTikTokRuntimeConfig(ttInt as any);
           if (ttCfg.configured) {
-            const ttIns = await fetch(
-              `https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/?advertiser_id=${ttCfg.accountId}&report_type=BASIC&data_level=AUCTION_CAMPAIGN&dimensions=["campaign_id"]&metrics=["campaign_name","spend","clicks","impressions","ctr"]&start_date=${since}&end_date=${today()}&page_size=100`,
-              { headers: { "Access-Token": ttCfg.accessToken! } }
-            );
-            const ttInsData: any = await ttIns.json();
-            const ttWithData = new Set((ttInsData.data?.list || []).map((r: any) => String(r.dimensions?.campaign_id)));
+            const ttRows = await tikTokReportGet({
+              advertiserId: String(ttCfg.accountId),
+              accessToken: ttCfg.accessToken,
+              dimensions: ["campaign_id"],
+              metrics: ["campaign_name", "spend", "clicks", "impressions", "ctr"],
+              startDate: since,
+              endDate: today(),
+              pageSize: 100,
+            });
+            const ttWithData = new Set(ttRows.map((r: any) => String(r.dimensions?.campaign_id)));
 
             // Inclui todas as campanhas MECPro, com ou sem dados
             tiktokIds.forEach(id => {
-              const insRow = (ttInsData.data?.list || []).find((r: any) => String(r.dimensions?.campaign_id) === id);
+              const insRow = ttRows.find((r: any) => String(r.dimensions?.campaign_id) === id);
               const spend  = Number(insRow?.metrics?.spend || 0);
               const clicks = Number(insRow?.metrics?.clicks || 0);
               const ctr    = Number(insRow?.metrics?.ctr || 0);
