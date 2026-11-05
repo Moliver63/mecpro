@@ -58,7 +58,8 @@ import {
   syncCreativePublishMediaToV2,
 } from "../../shared/campaignCreative.sync";
 import { evaluateCampaignBriefingReadiness } from "../../shared/campaignBriefingReadiness";
-import { tikTokReportGet } from "../tiktokRelatorio";
+import { tikTokReportGet, tikTokReportTentar, TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS } from "../tiktokRelatorio";
+import { aplicarFunil } from "../funilDeTrafego";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -11088,10 +11089,64 @@ const unifiedRouter = router({
               pageSize: 500,
             });
 
-            const [summary, byAgeGender] = await Promise.all([
-              fetchReport(["campaign_id"]),
-              fetchReport(["campaign_id", "age", "gender"]).catch((e: any) => { log.warn("unified", "TikTok breakdown age/gender falhou", { error: e.message?.slice(0, 80) }); return []; }),
+            const METRICAS_DE_RESUMO = ["campaign_name", "spend", "impressions", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion"];
+            const tentar = (dimensions: string[], extra?: { reportType?: string; metrics?: string[]; timeoutMs?: number }) => tikTokReportTentar({
+              advertiserId: String(advertiserId),
+              accessToken: token,
+              dimensions,
+              metrics: extra?.metrics || METRICAS_DE_RESUMO,
+              startDate: since,
+              endDate: until,
+              reportType: extra?.reportType,
+              pageSize: 500,
+              timeoutMs: extra?.timeoutMs,
+            });
+
+            // O resumo e obrigatorio: se ele falhar, o bloco inteiro vira erro,
+            // como antes. Tudo o que vem depois e acessorio e nunca derruba o
+            // resumo.
+            const summary = await fetchReport(["campaign_id"]);
+
+            // Quebra por idade/genero. A tentativa em BASIC e a que o codigo ja
+            // fazia e continua sendo a primeira. Ela vinha voltando vazia sem
+            // dizer por que, porque o erro era engolido. Agora cada tentativa
+            // fica registrada em diagnostico.ageGender, com os parametros e a
+            // resposta da API, e AUDIENCE so e tentada se BASIC nao trouxer
+            // linha nenhuma. Nada e trocado as cegas: o relatorio passa a dizer
+            // qual combinacao a API aceita.
+            // Sondagem das metricas de funil, uma por chamada isolada: um nome
+            // invalido faz a TikTok recusar a requisicao inteira, entao sondar
+            // em grupo esconderia as que existem. Tudo em paralelo e com
+            // timeout curto, para nao somar segundos ao relatorio; nenhuma
+            // delas afeta os totais.
+            const [idadeBasic, ...resultadosDeSondagem] = await Promise.all([
+              tentar(["campaign_id", "age", "gender"], { reportType: "BASIC", timeoutMs: 8000 }),
+              ...TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS.map((metrica) =>
+                tentar(["campaign_id"], { metrics: ["spend", metrica], timeoutMs: 8000 })
+                  .then((t) => ({ metrica, t }))),
             ]);
+
+            const tentativasDeIdade: any[] = [
+              { reportType: "BASIC", dimensions: idadeBasic.dimensions, linhas: idadeBasic.linhas, erro: idadeBasic.erro },
+            ];
+            let byAgeGender: any[] = idadeBasic.rows;
+            if (!idadeBasic.ok) log.warn("unified", "TikTok quebra age/gender falhou", { reportType: "BASIC", error: (idadeBasic.erro || "").slice(0, 80) });
+            // AUDIENCE so entra em cena se BASIC nao trouxer linha nenhuma, e o
+            // que ela responder fica registrado do mesmo jeito. Nada e trocado
+            // as cegas: o relatorio passa a dizer qual combinacao a API aceita.
+            if (byAgeGender.length === 0) {
+              const idadeAudience = await tentar(["campaign_id", "age", "gender"], { reportType: "AUDIENCE", timeoutMs: 8000 });
+              tentativasDeIdade.push({ reportType: "AUDIENCE", dimensions: idadeAudience.dimensions, linhas: idadeAudience.linhas, erro: idadeAudience.erro });
+              if (!idadeAudience.ok) log.warn("unified", "TikTok quebra age/gender falhou", { reportType: "AUDIENCE", error: (idadeAudience.erro || "").slice(0, 80) });
+              byAgeGender = idadeAudience.rows;
+            }
+
+            const sondagens: any[] = [];
+            const metricasDeFunil: Record<string, number> = {};
+            for (const { metrica, t } of resultadosDeSondagem as any[]) {
+              sondagens.push({ metrica, aceita: t.ok, linhas: t.linhas, erro: t.erro });
+              if (t.ok) metricasDeFunil[metrica] = t.rows.reduce((acc: number, r: any) => acc + Number(r.metrics?.[metrica] || 0), 0);
+            }
 
             const totals = summary.reduce((acc: any, r: any) => {
               acc.spend       += Number(r.metrics?.spend || 0);
@@ -11111,6 +11166,24 @@ const unifiedRouter = router({
                 cpm: totals.impressions > 0 ? (totals.spend / totals.impressions) * 1000 : 0,
               },
               campaignCount: summary.length,
+              // Por campanha, no mesmo formato do bloco da Meta. Os dados ja
+              // vinham na resposta do resumo e simplesmente nao eram expostos,
+              // o que impedia saber quanto cada campanha gastou.
+              campaigns: summary.map((r: any) => {
+                const spend       = Number(r.metrics?.spend || 0);
+                const impressions = Number(r.metrics?.impressions || 0);
+                const clicks      = Number(r.metrics?.clicks || 0);
+                const conversions = Number(r.metrics?.conversion || 0);
+                return {
+                  campaignId: String(r.dimensions?.campaign_id ?? ""),
+                  campaignName: r.metrics?.campaign_name || null,
+                  spend, impressions, clicks, conversions,
+                  ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+                  cpc: clicks > 0 ? spend / clicks : 0,
+                  cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+                  costPerConversion: conversions > 0 ? spend / conversions : 0,
+                };
+              }),
               breakdowns: {
                 ageGender: byAgeGender.map((r: any) => ({
                   age: r.dimensions?.age, gender: r.dimensions?.gender,
@@ -11118,6 +11191,8 @@ const unifiedRouter = router({
                   spend: Number(r.metrics?.spend || 0),
                 })),
               },
+              metricasDeFunil,
+              diagnostico: { ageGender: tentativasDeIdade, sondagemDeMetricas: sondagens },
             };
           }
         } catch (e: any) {
@@ -11126,6 +11201,10 @@ const unifiedRouter = router({
           report.tiktok = { configured: true, error: message.slice(0, 200) || "Erro ao buscar dados TikTok." };
         }
       }
+
+      // Funil normalizado entre plataformas: cada uma chama "clique" uma coisa
+      // diferente, entao comparar cpc entre elas engana. Ver server/funilDeTrafego.ts.
+      aplicarFunil(report as any);
 
       // ── RESUMO CONSOLIDADO CROSS-PLATAFORMA ──────────────────────────────────
       const platformsOk = Object.values(report).filter((p: any) => p?.configured && !p?.error);
