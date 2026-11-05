@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { tikTokReportGet } from "../tiktokRelatorio";
+import { tikTokReportGet, tikTokReportTentar, TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS } from "../tiktokRelatorio";
 
 const BASE = {
   advertiserId: "7620004082",
@@ -75,4 +75,43 @@ test("sem access token avisa antes de chamar a rede", async () => {
 test("lista vazia quando a conta nao tem dados no periodo", async () => {
   respostaFalsa(JSON.stringify({ code: 0, data: {} }));
   assert.deepEqual(await tikTokReportGet(BASE), []);
+});
+
+// ── tikTokReportTentar: as chamadas acessorias nao podem derrubar o resumo ──
+
+test("tentar devolve ok e as linhas quando a API responde", async () => {
+  respostaFalsa(JSON.stringify({ code: 0, data: { list: [{ dimensions: { campaign_id: "1" }, metrics: { spend: "2" } }] } }));
+  const t = await tikTokReportTentar(BASE);
+  assert.equal(t.ok, true);
+  assert.equal(t.linhas, 1);
+  assert.equal(t.erro, undefined);
+});
+
+test("tentar nao lanca: devolve o erro da API em vez de estourar", async () => {
+  respostaFalsa(JSON.stringify({ code: 40002, message: "dimension age is not supported for report_type BASIC" }));
+  const t = await tikTokReportTentar(BASE);
+  assert.equal(t.ok, false);
+  assert.equal(t.linhas, 0);
+  assert.match(t.erro!, /not supported for report_type BASIC/);
+});
+
+test("tentar registra os parametros usados, para o diagnostico dizer o que foi pedido", async () => {
+  respostaFalsa(JSON.stringify({ code: 0, data: { list: [] } }));
+  const t = await tikTokReportTentar({ ...BASE, reportType: "AUDIENCE", dimensions: ["campaign_id", "age", "gender"] });
+  assert.equal(t.reportType, "AUDIENCE");
+  assert.deepEqual(t.dimensions, ["campaign_id", "age", "gender"]);
+  assert.equal(t.ok, true);
+  assert.equal(t.linhas, 0, "aceita porem vazia e diferente de recusada");
+});
+
+test("tentar tambem segura o corpo HTML, sem deixar escapar", async () => {
+  respostaFalsa("<!DOCTYPE html><html><body>erro</body></html>", 500);
+  const t = await tikTokReportTentar(BASE);
+  assert.equal(t.ok, false);
+  assert.match(t.erro!, /HTTP 500/);
+});
+
+test("a lista de metricas sondadas nao vem vazia nem com repetidas", () => {
+  assert.ok(TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS.length > 0);
+  assert.equal(new Set(TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS).size, TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS.length);
 });

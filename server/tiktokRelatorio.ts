@@ -47,3 +47,59 @@ export async function tikTokReportGet(params: {
   if (data.code !== 0) throw new Error(data.message || `Erro TikTok Ads API (code ${data.code})`);
   return (data.data?.list || []) as any[];
 }
+
+// Metricas de funil cujos nomes exatos na API v1.3 NAO foram confirmados na
+// documentacao da TikTok: as paginas do portal so renderizam por JavaScript e
+// ads.tiktok.com redireciona para elas. Fontes de terceiros (Supermetrics,
+// Funnel) indicam que `engagements` e o "Clicks (All)" (todos os toques) e que
+// existe um contador de "Landing page views (website)", sem dar a grafia da
+// API. Em vez de adivinhar, cada candidata e sondada em uma chamada isolada e o
+// que a API responder vai para o diagnostico do relatorio. Quando souber quais
+// existem, reduza esta lista as que valem.
+export const TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS = [
+  "engagements",
+  "landing_page_view",
+  "total_landing_page_view",
+];
+
+export type TikTokTentativaDeRelatorio = {
+  ok: boolean;
+  reportType: string;
+  dimensions: string[];
+  metrics: string[];
+  linhas: number;
+  rows: any[];
+  erro?: string;
+};
+
+// Igual a tikTokReportGet, mas nunca lanca: devolve o que aconteceu. Serve para
+// as chamadas acessorias do relatorio (quebras e sondagens), onde uma falha nao
+// pode derrubar o resumo e o motivo dela precisa ficar visivel em vez de ser
+// engolido por um .catch(() => []).
+export async function tikTokReportTentar(params: {
+  advertiserId: string;
+  accessToken?: string;
+  dimensions: string[];
+  metrics: string[];
+  startDate: string;
+  endDate: string;
+  reportType?: string;
+  dataLevel?: string;
+  pageSize?: number;
+  timeoutMs?: number;
+}): Promise<TikTokTentativaDeRelatorio> {
+  const base = {
+    ok: false,
+    reportType: params.reportType || "BASIC",
+    dimensions: params.dimensions,
+    metrics: params.metrics,
+    linhas: 0,
+    rows: [] as any[],
+  };
+  try {
+    const rows = await tikTokReportGet(params);
+    return { ...base, ok: true, linhas: rows.length, rows };
+  } catch (e: any) {
+    return { ...base, erro: String(e?.message || "erro desconhecido").slice(0, 200) };
+  }
+}

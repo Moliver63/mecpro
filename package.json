@@ -24,6 +24,7 @@
     "test:creative-scoring": "tsx --test server/__tests__/creativeScoringEngine.test.ts",
     "test:new-segments": "tsx --test server/__tests__/newSegments.test.ts",
     "test:tiktok-report": "tsx --test server/__tests__/tiktokRelatorio.test.ts",
+    "test:funil": "tsx --test server/__tests__/funilDeTrafego.test.ts",
     "test:watch": "tsx --test --watch client/src/lib/__tests__/placementGuidance.test.ts",
     "db:push": "drizzle-kit push:pg",
     "db:generate": "drizzle-kit generate",
