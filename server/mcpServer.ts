@@ -3121,6 +3121,35 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── list_google_campaigns (somente leitura: id, nome, status e metricas) ──
+  server.registerTool(
+    "list_google_campaigns",
+    {
+      title: "Listar campanhas do Google Ads com status real",
+      description:
+        "SOMENTE LEITURA. Lista as campanhas da conta Google Ads conectada com id, nome, status (ENABLED/PAUSED/REMOVED) e métricas do período. " +
+        "Use para saber se uma campanha está pausada ou entregando e para obter o googleCampaignId antes de set_google_status.",
+      inputSchema: { period: z.enum(["7d", "30d", "90d"]).default("30d") },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const integracao: any = await db.getApiIntegration(userId, "google");
+      if (!integracao?.isActive) {
+        return { content: [{ type: "text", text: "Google Ads não está conectado. Conecte em Integrações → Google Ads." }], isError: true };
+      }
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.list({ period: input.period });
+        const linhas = (r.campaigns || []).slice(0, 30).map((c: any) =>
+          `${c.id} | ${c.name} | ${c.status} | impr ${c.metrics?.impressions ?? 0} | cliques ${c.metrics?.clicks ?? 0} | gasto R$ ${((c.metrics?.costMicros ?? 0) / 1_000_000).toFixed(2)}`);
+        const texto = linhas.length ? `Campanhas Google (${input.period}):\n${linhas.join("\n")}` : "Nenhuma campanha encontrada na conta Google conectada.";
+        return { content: [{ type: "text", text: texto }], structuredContent: { total: r.total, campaigns: (r.campaigns || []).slice(0, 30) } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao listar campanhas do Google: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── set_google_status (ativar / pausar campanha de Pesquisa) ──────────
   server.registerTool(
     "set_google_status",
