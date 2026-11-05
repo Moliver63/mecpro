@@ -20,6 +20,7 @@
 10. [Símbolos duplicados no ai.ts](#10-símbolos-duplicados-no-aits)
 11. [Gemini quota esgotada](#11-gemini-quota-esgotada)
 12. [Meta Ads Library sem permissão](#12-meta-ads-library-sem-permissão)
+13. [Preview TikTok — "URL de destino não encontrada"](#13-preview-tiktok--url-de-destino-não-encontrada)
 
 ---
 
@@ -977,3 +978,41 @@ return u === raw || u === rawSimple || n === companySlug; // match exato
 - Developer Token: configurado no Render
 - OAuth: Client ID + Secret do projeto `mecproai` no Google Cloud
 
+---
+
+## 13. Preview TikTok — "URL de destino não encontrada"
+
+### ❌ Erro
+No `LiveAdPreviewModal` com `platform="tiktok"`, o botão "Saiba mais" sempre abria o alerta
+`URL de destino não encontrada neste anúncio TikTok.` e o rodapé do preview mostrava
+`⚠️ URL não encontrada`, mesmo em campanhas ativas, entregando e com `landing_page_url`
+gravada no anúncio pela publicação (`server/tiktokPublicar.ts`).
+
+### 🔍 Causa
+O preview do TikTok nunca chamou a API. Em `client/src/components/LiveAdPreviewModal.tsx`:
+
+- `const tiktokAds: TikTokAd[] = [];` — a lista era um stub fixo, vazio.
+- O `useEffect` só disparava `googleCampaigns.details` e `metaCampaigns.details`; não havia
+  procedure equivalente para TikTok.
+- O render passava um objeto montado na hora,
+  `ad={{ id: campaignId, name: campaignName, status: "ACTIVE" }}`, sem `landingUrl`,
+  `headline` nem `coverUrl`.
+
+Como `ad.landingUrl` era sempre `undefined`, o aviso aparecia 100% das vezes. O rodapé ainda
+dizia "dados da API TikTok Business • AO VIVO", o que mascarava o stub.
+
+### ✅ Correção
+1. `server/_core/router.ts`: helper `tikTokGet` (GET da Business API, serializando
+   `filtering`/`video_ids` como JSON) e nova procedure `tiktokCampaigns.details`, que busca
+   `adgroup/get/` + `ad/get/` filtrando por `campaign_ids` e complementa capa e preview via
+   `file/video/ad/info/`. Retorna `{ adGroups, ads, total }` com
+   `landingUrl` (de `landing_page_url`), `headline` (de `ad_text`), `coverUrl`, `videoUrl`,
+   `status`, `adFormat` e `callToAction`.
+2. `client/src/components/LiveAdPreviewModal.tsx`: hook `tiktokDetails` disparado no
+   `useEffect`, `tiktokAds` montado a partir da resposta, `isLoading`/`adCount`/seletor lateral
+   cobrindo TikTok e render usando o anúncio real, com `EmptyState` quando a API não devolve
+   anúncios.
+
+### 🧪 Validação
+Abrir o preview de uma campanha TikTok ativa: o botão deve abrir a landing page real; sem
+anúncios na campanha, aparece "Nenhum anúncio encontrado" em vez do alerta de URL.
