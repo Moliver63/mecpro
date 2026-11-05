@@ -276,6 +276,21 @@ async function tikTokPost<T>(path: string, body: unknown, accessToken: string): 
   return data.data as T;
 }
 
+// GET da TikTok Ads API. Arrays e objetos viram JSON na query string, como a API exige
+// para filtering/video_ids/fields.
+async function tikTokGet<T>(path: string, params: Record<string, unknown>, accessToken: string): Promise<T> {
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+    qs.set(key, typeof value === "object" ? JSON.stringify(value) : String(value));
+  }
+  const url = `https://business-api.tiktok.com/open_api/v1.3/${path}?${qs.toString()}`;
+  const resp = await fetch(url, { headers: { "Access-Token": accessToken } });
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok || data.code !== 0) throw new Error(`TikTok API [${path}]: ${data.message || `HTTP ${resp.status}`}`);
+  return data.data as T;
+}
+
 // ── buildAdCopy: extrai copy direcionado dos criativos da campanha ──────────
 // Usa hook + headline + copy + cta dos criativos gerados pela IA
 // em vez de cair no texto de estratégia interna (c.strategy)
@@ -10482,6 +10497,66 @@ const googleCampaignsRouter = router({
       };
     }),
 
+  // Liga ou desliga a campanha E os grupos/anuncios dela. Campanhas criadas pelo
+  // MecProAI nascem com campanha E anuncio pausados; mexer so no nivel de campanha
+  // deixa o anuncio parado e a campanha segue sem entregar.
+  setFullStatus: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1), status: z.enum(["ENABLED", "PAUSED"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+      const cid = runtime.customerId.replace(/\D/g, "");
+      const chamar = (path: string, operations: unknown[]) => googleAdsPost<any>(
+        path, { operations }, runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId,
+      );
+      const buscar = (query: string) => googleAdsPost<any>(
+        "googleAds:search", { query }, runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId,
+      );
+
+      await chamar("campaigns:mutate", [{
+        update: { resourceName: `customers/${cid}/campaigns/${input.campaignId}`, status: input.status },
+        updateMask: "status",
+      }]);
+
+      let adGroupIds: string[] = [];
+      try {
+        const data = await buscar(`SELECT ad_group.id FROM ad_group WHERE campaign.id = ${input.campaignId} LIMIT 200`);
+        adGroupIds = (data.results || []).map((r: any) => String(r.adGroup?.id || r.ad_group?.id || "")).filter(Boolean);
+        if (adGroupIds.length) {
+          await chamar("adGroups:mutate", adGroupIds.map((id) => ({
+            update: { resourceName: `customers/${cid}/adGroups/${id}`, status: input.status },
+            updateMask: "status",
+          })));
+        }
+      } catch (error: any) {
+        log.warn("google", "setFullStatus: grupos nao atualizados", { campaignId: input.campaignId, error: error.message });
+      }
+
+      let adCount = 0;
+      try {
+        const data = await buscar(`SELECT ad_group.id, ad_group_ad.ad.id FROM ad_group_ad WHERE campaign.id = ${input.campaignId} LIMIT 200`);
+        const operations = (data.results || []).map((r: any) => {
+          const grupo = String(r.adGroup?.id || r.ad_group?.id || "");
+          const anuncio = String(r.adGroupAd?.ad?.id || r.ad_group_ad?.ad?.id || "");
+          if (!grupo || !anuncio) return null;
+          return {
+            update: { resourceName: `customers/${cid}/adGroupAds/${grupo}~${anuncio}`, status: input.status },
+            updateMask: "status",
+          };
+        }).filter(Boolean);
+        if (operations.length) {
+          await chamar("adGroupAds:mutate", operations);
+          adCount = operations.length;
+        }
+      } catch (error: any) {
+        log.warn("google", "setFullStatus: anuncios nao atualizados", { campaignId: input.campaignId, error: error.message });
+      }
+
+      return { success: true, campaignId: input.campaignId, status: input.status, adGroups: adGroupIds.length, ads: adCount };
+    }),
+
+
   rename: protectedProcedure
     .input(z.object({ campaignId: z.string().min(1), name: z.string().trim().min(2).max(255) }))
     .mutation(async ({ ctx, input }) => {
@@ -10658,6 +10733,67 @@ const tiktokCampaignsRouter = router({
       }));
 
       return { campaigns, total: campaigns.length };
+    }),
+
+  // Anuncios reais de uma campanha TikTok, para o preview "visao do cliente".
+  // Sem isto o preview nao tem landing_page_url e o botao do anuncio cai no aviso
+  // "URL de destino nao encontrada".
+  details: protectedProcedure
+    .input(z.object({ campaignId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "tiktok");
+      const tikTokConfig = getTikTokRuntimeConfig(integration as any);
+      if (!tikTokConfig.configured) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Integração TikTok não configurada. Salve access token + advertiser ID nas Configurações ou defina TIKTOK_ACCESS_TOKEN e TIKTOK_ADVERTISER_ID no ambiente." });
+      }
+      const advertiserId = String(tikTokConfig.accountId);
+      const token = tikTokConfig.accessToken;
+      const filtering = { campaign_ids: [String(input.campaignId)] };
+
+      let adGroups: any[] = [];
+      try {
+        const data = await tikTokGet<any>("adgroup/get/", { advertiser_id: advertiserId, filtering, page_size: 100 }, token);
+        adGroups = data?.list || [];
+      } catch (error: any) {
+        log.warn("tiktok", "details: adgroup/get falhou", { campaignId: input.campaignId, error: String(error?.message || "").slice(0, 160) });
+      }
+
+      let rawAds: any[] = [];
+      try {
+        const data = await tikTokGet<any>("ad/get/", { advertiser_id: advertiserId, filtering, page_size: 100 }, token);
+        rawAds = data?.list || [];
+      } catch (error: any) {
+        log.warn("tiktok", "details: ad/get falhou", { campaignId: input.campaignId, error: String(error?.message || "").slice(0, 160) });
+      }
+
+      // Capa e preview do video, que o ad/get nao devolve.
+      const videoIds = Array.from(new Set(rawAds.map((a: any) => String(a.video_id || "")).filter(Boolean)));
+      const videoById = new Map<string, any>();
+      if (videoIds.length) {
+        try {
+          const data = await tikTokGet<any>("file/video/ad/info/", { advertiser_id: advertiserId, video_ids: videoIds }, token);
+          for (const v of (Array.isArray(data) ? data : data?.list || [])) videoById.set(String(v.video_id || ""), v);
+        } catch (error: any) {
+          log.warn("tiktok", "details: file/video/ad/info falhou", { campaignId: input.campaignId, error: String(error?.message || "").slice(0, 160) });
+        }
+      }
+
+      const ads = rawAds.map((a: any) => {
+        const video = videoById.get(String(a.video_id || ""));
+        return {
+          id: String(a.ad_id || a.id || ""),
+          name: a.ad_name || "Anúncio TikTok",
+          status: String(a.operation_status || a.secondary_status || "UNKNOWN"),
+          adFormat: a.ad_format || null,
+          headline: a.ad_text || "",
+          callToAction: a.call_to_action || null,
+          landingUrl: a.landing_page_url || a.deeplink || "",
+          coverUrl: video?.video_cover_url || (a.image_urls || [])[0] || "",
+          videoUrl: video?.preview_url || "",
+        };
+      });
+
+      return { adGroups, ads, total: ads.length };
     }),
 
   updateStatus: protectedProcedure

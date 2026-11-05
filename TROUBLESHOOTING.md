@@ -20,6 +20,8 @@
 10. [Símbolos duplicados no ai.ts](#10-símbolos-duplicados-no-aits)
 11. [Gemini quota esgotada](#11-gemini-quota-esgotada)
 12. [Meta Ads Library sem permissão](#12-meta-ads-library-sem-permissão)
+13. [Preview TikTok — "URL de destino não encontrada"](#13-preview-tiktok--url-de-destino-não-encontrada)
+14. [Google Ads sem como ativar campanha](#14-google-ads-sem-como-ativar-campanha)
 
 ---
 
@@ -977,3 +979,77 @@ return u === raw || u === rawSimple || n === companySlug; // match exato
 - Developer Token: configurado no Render
 - OAuth: Client ID + Secret do projeto `mecproai` no Google Cloud
 
+---
+
+## 13. Preview TikTok — "URL de destino não encontrada"
+
+### ❌ Erro
+No `LiveAdPreviewModal` com `platform="tiktok"`, o botão "Saiba mais" sempre abria o alerta
+`URL de destino não encontrada neste anúncio TikTok.` e o rodapé do preview mostrava
+`⚠️ URL não encontrada`, mesmo em campanhas ativas, entregando e com `landing_page_url`
+gravada no anúncio pela publicação (`server/tiktokPublicar.ts`).
+
+### 🔍 Causa
+O preview do TikTok nunca chamou a API. Em `client/src/components/LiveAdPreviewModal.tsx`:
+
+- `const tiktokAds: TikTokAd[] = [];` — a lista era um stub fixo, vazio.
+- O `useEffect` só disparava `googleCampaigns.details` e `metaCampaigns.details`; não havia
+  procedure equivalente para TikTok.
+- O render passava um objeto montado na hora,
+  `ad={{ id: campaignId, name: campaignName, status: "ACTIVE" }}`, sem `landingUrl`,
+  `headline` nem `coverUrl`.
+
+Como `ad.landingUrl` era sempre `undefined`, o aviso aparecia 100% das vezes. O rodapé ainda
+dizia "dados da API TikTok Business • AO VIVO", o que mascarava o stub.
+
+### ✅ Correção
+1. `server/_core/router.ts`: helper `tikTokGet` (GET da Business API, serializando
+   `filtering`/`video_ids` como JSON) e nova procedure `tiktokCampaigns.details`, que busca
+   `adgroup/get/` + `ad/get/` filtrando por `campaign_ids` e complementa capa e preview via
+   `file/video/ad/info/`. Retorna `{ adGroups, ads, total }` com
+   `landingUrl` (de `landing_page_url`), `headline` (de `ad_text`), `coverUrl`, `videoUrl`,
+   `status`, `adFormat` e `callToAction`.
+2. `client/src/components/LiveAdPreviewModal.tsx`: hook `tiktokDetails` disparado no
+   `useEffect`, `tiktokAds` montado a partir da resposta, `isLoading`/`adCount`/seletor lateral
+   cobrindo TikTok e render usando o anúncio real, com `EmptyState` quando a API não devolve
+   anúncios.
+
+### 🧪 Validação
+Abrir o preview de uma campanha TikTok ativa: o botão deve abrir a landing page real; sem
+anúncios na campanha, aparece "Nenhum anúncio encontrado" em vez do alerta de URL.
+
+---
+
+## 14. Google Ads sem como ativar campanha
+
+### ❌ Erro
+Campanha de Pesquisa publicada com `publishStatus: success` ficava com zero impressões e zero
+gasto indefinidamente. Nenhuma ferramenta do MCP conseguia ligá-la.
+
+### 🔍 Causa
+Duas falhas somadas:
+
+1. **Faltava a ferramenta.** O MCP tinha `update_live_meta_campaign` (Meta) e `set_tiktok_status`
+   (TikTok), mas nada equivalente para o Google. `publish_google_campaign` só cria, e cria
+   PAUSADA. Não havia caminho nenhum para ativar sem abrir o Google Ads.
+2. **Ativar só a campanha não bastaria.** A publicação cria campanha E anúncio pausados. O
+   `googleCampaigns.updateStatus` existente mexe apenas no nível de campanha, então mesmo
+   ativando por ele o anúncio continuaria parado e a campanha seguiria sem entregar.
+
+Detalhe que confundia o diagnóstico: o `get_full_ads_report` consulta o Google com filtro de
+data e métricas, então campanha sem impressão não aparece — o relatório mostra
+`campaignCount: 0` mesmo existindo a campanha. Já o `googleCampaigns.list` consulta sem filtro
+de data e mostra a campanha com o status real.
+
+### ✅ Correção
+1. `server/_core/router.ts`: procedure `googleCampaigns.setFullStatus`, que aplica o status na
+   campanha, nos grupos (`adGroups:mutate`) e nos anúncios (`adGroupAds:mutate`), resolvendo os
+   IDs por GAQL. Falha em grupo ou anúncio vira log, não derruba a chamada.
+2. `server/mcpServer.ts`: ferramenta `set_google_status`, no mesmo padrão de `set_tiktok_status`
+   — valida dono da campanha, confere o `googleCampaignId` salvo contra o informado e exige
+   `confirmadoPeloUsuario`.
+
+### 🧪 Validação
+`set_google_status` com status ENABLED numa campanha recém-publicada: o retorno deve informar
+quantos grupos e anúncios foram ativados, e a campanha passa a registrar impressões no
+relatório no dia seguinte.

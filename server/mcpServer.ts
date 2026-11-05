@@ -3121,6 +3121,55 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── set_google_status (ativar / pausar campanha de Pesquisa) ──────────
+  server.registerTool(
+    "set_google_status",
+    {
+      title: "Ativar ou pausar campanha no Google Ads",
+      description:
+        "ATIVA (ENABLED) ou PAUSA (PAUSED) uma campanha do Google Ads junto com os grupos e anúncios dela. " +
+        "Campanhas criadas por publish_google_campaign nascem PAUSADAS, no nível de campanha E de anúncio, " +
+        "e só entregam depois desta chamada — mexer só na campanha deixa o anúncio parado. " +
+        "ATIVAR começa a gastar o orçamento diário. Só chame com confirmadoPeloUsuario=true depois de o usuário " +
+        "pedir explicitamente para ativar, ciente do orçamento. Pausar é sempre seguro.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID do rascunho no MecProAI (valida que a campanha é do usuário)."),
+        googleCampaignId: z.string().regex(/^\d+$/).optional().describe("ID da campanha no Google. Omitido, usa o googleCampaignId salvo na campanha."),
+        status: z.enum(["ENABLED", "PAUSED"]),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário pedir explicitamente."),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      const campaign: any = await db.getCampaignById(input.campaignId);
+      if (!campaign) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+      const salvo = campaign.googleCampaignId ? String(campaign.googleCampaignId) : "";
+      if (salvo && input.googleCampaignId && salvo !== input.googleCampaignId) {
+        return { content: [{ type: "text", text: `A campanha ${input.campaignId} está ligada à campanha Google ${salvo}, não a ${input.googleCampaignId}. Nada foi alterado.` }], isError: true };
+      }
+      const alvo = input.googleCampaignId || salvo;
+      if (!alvo) {
+        return { content: [{ type: "text", text: `A campanha ${input.campaignId} não tem googleCampaignId salvo. Publique no Google primeiro, ou informe googleCampaignId.` }], isError: true };
+      }
+      const integracao: any = await db.getApiIntegration(userId, "google");
+      if (!integracao?.isActive) {
+        return { content: [{ type: "text", text: "Google Ads não está conectado. Conecte em Integrações → Google Ads." }], isError: true };
+      }
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.setFullStatus({ campaignId: alvo, status: input.status });
+        const texto = `${input.status === "ENABLED" ? "ATIVADA" : "PAUSADA"} no Google Ads: campanha ${alvo}, ${r.adGroups} grupo(s), ${r.ads} anúncio(s).`;
+        return { content: [{ type: "text", text: texto }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao mudar o status no Google: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── set_tiktok_status (ativar / pausar campanha criada pelo MecProAI) ───
   server.registerTool(
     "set_tiktok_status",

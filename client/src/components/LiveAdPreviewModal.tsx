@@ -437,10 +437,12 @@ export default function LiveAdPreviewModal({ platform, campaignId, campaignName,
   // ── Buscar dados reais ──
   const googleDetails = trpc.googleCampaigns.details.useMutation();
   const metaDetails   = trpc.metaCampaigns.details.useMutation();
+  const tiktokDetails = trpc.tiktokCampaigns.details.useMutation();
 
   useEffect(() => {
     if (platform === "google")  googleDetails.mutate({ campaignId });
     if (platform === "meta")    metaDetails.mutate({ campaignId });
+    if (platform === "tiktok")  tiktokDetails.mutate({ campaignId });
   }, [campaignId, platform]);
 
   // ── Normalizar anúncios ──
@@ -497,14 +499,24 @@ export default function LiveAdPreviewModal({ platform, campaignId, campaignName,
     };
   });
 
-  const tiktokAds: TikTokAd[] = []; // TikTok retorna via adGroups; usa dados da campanha
+  const tiktokAds: TikTokAd[] = (tiktokDetails.data?.ads || []).map((ad: any) => ({
+    id: String(ad.id || ""),
+    name: ad.name || "Anúncio TikTok",
+    status: ad.status || "UNKNOWN",
+    coverUrl: ad.coverUrl || undefined,
+    videoUrl: ad.videoUrl || undefined,
+    headline: ad.headline || undefined,
+    landingUrl: ad.landingUrl || undefined,
+  }));
 
   const isLoading =
     (platform === "google" && googleDetails.isPending) ||
-    (platform === "meta"   && metaDetails.isPending);
+    (platform === "meta"   && metaDetails.isPending)   ||
+    (platform === "tiktok" && tiktokDetails.isPending);
 
   const googleAd  = googleAds[selectedAdIdx];
   const metaAd    = metaAds[selectedAdIdx];
+  const tiktokAd  = tiktokAds[selectedAdIdx];
 
   // ── Métricas rápidas ──
   const metaInsights = metaDetails.data?.adSets?.[0]?.insights?.data?.[0] as any;
@@ -523,7 +535,7 @@ export default function LiveAdPreviewModal({ platform, campaignId, campaignName,
     { id: "ig_reels", label: "Instagram Reels",   icon: "🎬" },
   ];
 
-  const adCount = platform === "google" ? googleAds.length : platform === "meta" ? metaAds.length : 0;
+  const adCount = platform === "google" ? googleAds.length : platform === "meta" ? metaAds.length : tiktokAds.length;
 
   return (
     <div style={{
@@ -623,6 +635,8 @@ export default function LiveAdPreviewModal({ platform, campaignId, campaignName,
                   }}>
                     {platform === "google"
                       ? `Anúncio ${i + 1}${googleAds[i]?.status === "ENABLED" ? " ✅" : " ⏸️"}`
+                      : platform === "tiktok"
+                      ? `${tiktokAds[i]?.name || `Anúncio ${i + 1}`}`.slice(0, 24)
                       : `${metaAds[i]?.name || `Anúncio ${i + 1}`}`.slice(0, 24)
                     }
                   </button>
@@ -710,11 +724,10 @@ export default function LiveAdPreviewModal({ platform, campaignId, campaignName,
               ) : (
                 <EmptyState platform={platform} />
               )
+            ) : tiktokAd ? (
+              <TikTokPreview ad={tiktokAd} device={device} />
             ) : (
-              <TikTokPreview
-                ad={{ id: campaignId, name: campaignName, status: "ACTIVE" }}
-                device={device}
-              />
+              <EmptyState platform={platform} />
             )}
           </div>
         </div>
@@ -746,7 +759,7 @@ function EmptyState({ platform }: { platform: string }) {
       <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
       <div style={{ fontSize: 15, fontWeight: 700, color: "#475569" }}>Nenhum anúncio encontrado</div>
       <div style={{ fontSize: 13, marginTop: 6, color: "#94a3b8", lineHeight: 1.5 }}>
-        A {platform === "google" ? "Google Ads API" : "Meta Graph API"} não retornou anúncios ativos para esta campanha.
+        A {platform === "google" ? "Google Ads API" : platform === "tiktok" ? "TikTok Business API" : "Meta Graph API"} não retornou anúncios ativos para esta campanha.
         <br />Verifique se a campanha possui anúncios criados e se a integração está configurada.
       </div>
     </div>
