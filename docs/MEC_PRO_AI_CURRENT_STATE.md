@@ -351,7 +351,7 @@ Capacidade atual:
 
 - Meta Ads: quando ha OAuth/token valido e `adAccountId`, o MCP ja consegue publicar campanha com `publish_campaign`, sempre exigindo confirmacao explicita.
 - Google Ads: a base de OAuth/refresh token, `developerToken` e `Customer ID` existe para API e relatorios, mas ainda falta uma tool MCP dedicada para publicar campanhas Google.
-- TikTok Ads: a base de OAuth/token e `Advertiser ID` existe para API e relatorios, mas ainda falta uma tool MCP dedicada para publicar campanhas TikTok.
+- TikTok Ads: OAuth/token e `Advertiser ID` existem; publicacao de trafego (video e carrossel) via `publish_tiktok_campaign` e ativar/pausar via `set_tiktok_status` (ver secoes TikTok no fim deste arquivo).
 
 Regra pratica: antes de tentar relatorio, otimizacao ou publicacao por agente, chamar `get_platform_connections`. Se a plataforma nao estiver pronta, o agente deve orientar o usuario a abrir a URL de conexao retornada, em vez de pedir credenciais no chat.
 
@@ -3288,3 +3288,27 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - Videos: `videoId`, `nomeNaBiblioteca` (arquivo ja enviado ao Ads Manager) ou `videoUrl` (https, MP4 H.264 vertical).
 - Campos da Marketing API v1.3 foram escritos sem acesso a doc oficial renderizada: o primeiro envio real pode devolver erro do TikTok em alguma etapa (mensagem volta crua); como nasce pausado, ajustar e repetir nao gasta verba.
 - TikTok: identidade personalizada nao e mais aceita ("Custom identities are no longer supported"). `publish_tiktok_campaign` usa conta de TikTok autorizada (identity/get por TT_USER, BC_AUTH_TT, AUTH_CODE) e reaproveita campanha/grupo existentes com o mesmo nome. Conta de anuncios exige forma de pagamento valida antes de campaign/create.
+
+## TikTok Ads — carrossel de imagens e musica (2026-11-04)
+- `publish_tiktok_campaign` aceita `imagens` (2 a 10 URLs https, 720x1280) e cria UM anuncio `CAROUSEL_ADS` no mesmo grupo dos videos, com o mesmo texto, CTA e destino. `videos` pode ser `[]` para criar so o carrossel (a campanha/grupo existentes sao reaproveitados pelo nome; videos nao sao recriados).
+- Carrossel exige MUSICA (`music_id`) valida para anuncio. Opcoes: `musicId` (ja na biblioteca) ou `musicUrl` (mp3 https; o servidor baixa e envia por multipart). Sem nenhum dos dois, escolhe a primeira faixa utilizavel da biblioteca da conta.
+- Fatos comprovados na API (validados em producao, campanha Shadia 805):
+  - `file/music/upload/` so aceita `UPLOAD_BY_FILE` (multipart; `UPLOAD_BY_URL` e recusado). Precisa de `music_scene: "CAROUSEL_ADS"`, senao o TikTok devolve `music_id` que o `ad/create` recusa ("Please select valid music for Carousel Ads").
+  - `file/music/get/` devolve a lista em `musics` e, sem `music_scene`, traz faixas `MUSIC_FORBID_VIDEO_ALLOW` (nao servem para anuncio). A biblioteca comercial do Ads Manager nao e acessivel por essa API.
+  - Imagens de carrossel devem ficar em 720x1280 (as ampliadas para 1080x1920 foram recusadas: "selected creative isn't available for this ad type").
+  - `50001 System error` no upload de musica e transitorio: repetir.
+- Upload de musica: limite de 10 MB, valida que e MP3 (ID3 ou frame MPEG), URL https. Na falha por musica o erro lista a biblioteca da conta (id/nome/copyright) para diagnostico (`lerMusicaComLimite`, `pareceMp3`, `extrairListaMusicas`, `escolherMusica` em `server/tiktokPublicar.ts`; descarta `FORBID`).
+- Trilha usada na Shadia: Preludio em Do Maior (Bach, dominio publico) sintetizado em piano, 52 s, enviado como musica propria. Direitos: composicao em dominio publico, execucao sintetizada pelo proprio usuario.
+
+## TikTok Ads — ativar e pausar (set_tiktok_status, 2026-11-04)
+- Tool `set_tiktok_status` (`ENABLE`/`DISABLE`): atua em anuncios (`ad/status/update/`), grupo (`adgroup/status/update/`) e campanha (`campaign/status/update/`) de uma vez. Exige `confirmadoPeloUsuario=true`; ativar comeca a gastar o orcamento diario.
+- Valida que a campanha MecProAI pertence ao usuario e que `tiktokCampaignId` bate com o salvo em `campaigns.tiktokCampaignId`.
+- Nenhum conector externo (Windsor) estava ligado, por isso a ativacao ficou no proprio MCP. O Ads Manager continua sendo o lugar para conferir revisao/reprovacao dos anuncios.
+- Campanha Shadia (campaignId 805): ativada em 2026-11-04 16:54 (BRT), 3 videos + 1 carrossel, R$ 30/dia no grupo. Revisao do TikTok pendente na hora do registro.
+
+## TikTok Ads — lembretes operacionais
+- Tool nova no servidor so aparece para o agente depois de reconectar o conector do MecProAI; mudar parametro de tool existente funciona logo (o servidor valida com o schema novo).
+- Identidade: usar a conta de TikTok autorizada com permissao de video (no caso, "Michel Leal"); `Michel8Leal` foi recusada por falta de permissao de gerenciar videos. O recurso "Promover" do app do TikTok e outro produto (impulsiona post organico, cobra a parte): nao confundir com a campanha do Ads Manager.
+- Relatorio de TikTok: corrigido por outra sessao em #66 (`tikTokReportGet`, relatorio por GET) e #67 (campanhas do TikTok, diagnostico da quebra por idade, funil normalizado).
+- Search Ads Toggle (anuncios nas buscas) e TikTok Shop: Toggle vem ligado em campanhas In-Feed, mas a disponibilidade no Brasil nao esta confirmada pelo TikTok para a conta; Shop e para vendedores de produtos, nao para trafego a site.
+- Pendente: apagar a branch temporaria `tmp/videos-shadia` (hospeda videos, imagens e musica da Shadia) depois que os anuncios forem aprovados e rodarem sem erro.
