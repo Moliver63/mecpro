@@ -10576,22 +10576,46 @@ const googleCampaignsRouter = router({
     }),
 
   updateBudget: protectedProcedure
-    .input(z.object({ campaignId: z.string().min(1), dailyBudget: z.number().min(1) }))
+    // recusarSeCompartilhado: no Google o orcamento e um recurso separado e pode servir
+    // varias campanhas. Quem chama de fora da tela (MCP) passa true para nao alterar o
+    // orcamento de campanhas que o usuario nem citou. A tela segue com o default false.
+    .input(z.object({
+      campaignId: z.string().min(1),
+      dailyBudget: z.number().min(1),
+      recusarSeCompartilhado: z.boolean().default(false),
+    }))
     .mutation(async ({ ctx, input }) => {
       const integration = await db.getApiIntegration(ctx.user.id, "google");
       if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
       const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
-
-      const budgetLookup = await googleAdsPost<any>(
-        "googleAds:search",
-        { query: `SELECT campaign.campaign_budget FROM campaign WHERE campaign.id = ${input.campaignId} LIMIT 1` },
-        runtime.accessToken,
-        runtime.developerToken,
-        runtime.customerId,
-        runtime.loginCustomerId,
+      const buscar = (query: string) => googleAdsPost<any>(
+        "googleAds:search", { query }, runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId,
       );
+
+      const budgetLookup = await buscar(`SELECT campaign.campaign_budget FROM campaign WHERE campaign.id = ${input.campaignId} LIMIT 1`);
       const budgetResourceName = String(budgetLookup.results?.[0]?.campaign?.campaignBudget || budgetLookup.results?.[0]?.campaign?.campaign_budget || "");
       if (!budgetResourceName) throw new TRPCError({ code: "BAD_REQUEST", message: "Budget da campanha não encontrado no Google Ads" });
+
+      // Quem mais usa este orcamento (campanhas removidas nao contam).
+      let compartilhadoCom: { id: string; name: string }[] = [];
+      try {
+        const vizinhas = await buscar(
+          `SELECT campaign.id, campaign.name FROM campaign WHERE campaign.campaign_budget = '${budgetResourceName}' AND campaign.status != 'REMOVED' LIMIT 50`,
+        );
+        compartilhadoCom = (vizinhas.results || [])
+          .map((r: any) => ({ id: String(r.campaign?.id || ""), name: String(r.campaign?.name || "") }))
+          .filter((c: { id: string }) => c.id && c.id !== String(input.campaignId));
+      } catch (error: any) {
+        log.warn("google", "updateBudget: checagem de orcamento compartilhado falhou", { campaignId: input.campaignId, error: error.message });
+      }
+
+      if (input.recusarSeCompartilhado && compartilhadoCom.length) {
+        const lista = compartilhadoCom.map((c) => `${c.name} (${c.id})`).join(", ");
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Este orçamento é compartilhado com ${compartilhadoCom.length} outra(s) campanha(s): ${lista}. Alterar aqui mudaria o orçamento delas também. Nada foi alterado.`,
+        });
+      }
 
       await googleAdsPost<any>(
         "campaignBudgets:mutate",
@@ -10601,7 +10625,7 @@ const googleCampaignsRouter = router({
         runtime.customerId,
         runtime.loginCustomerId,
       );
-      return { success: true, budgetResourceName };
+      return { success: true, budgetResourceName, dailyBudget: input.dailyBudget, compartilhadoCom };
     }),
 
   details: protectedProcedure

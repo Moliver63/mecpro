@@ -22,6 +22,7 @@
 12. [Meta Ads Library sem permissão](#12-meta-ads-library-sem-permissão)
 13. [Preview TikTok — "URL de destino não encontrada"](#13-preview-tiktok--url-de-destino-não-encontrada)
 14. [Google Ads sem como ativar campanha](#14-google-ads-sem-como-ativar-campanha)
+15. [Google Ads sem como definir orçamento](#15-google-ads-sem-como-definir-orçamento)
 
 ---
 
@@ -1053,3 +1054,36 @@ de data e mostra a campanha com o status real.
 `set_google_status` com status ENABLED numa campanha recém-publicada: o retorno deve informar
 quantos grupos e anúncios foram ativados, e a campanha passa a registrar impressões no
 relatório no dia seguinte.
+
+---
+
+## 15. Google Ads sem como definir orçamento
+
+### ❌ Erro
+Depois de ativar uma campanha de Pesquisa pelo MCP (`set_google_status`), não havia como
+definir quanto ela podia gastar por dia. A campanha entrava no ar com o orçamento que
+estivesse vinculado, sem forma de ler nem de alterar esse valor fora da interface.
+
+### 🔍 Causa
+`dailyBudgetReais` só existe em `publish_google_campaign`, na criação. O
+`googleCampaigns.updateBudget` já existia e era usado pela tela de edição, mas não tinha
+ferramenta MCP equivalente — o mesmo buraco que o item 14 tinha para status.
+
+Agravante: no Google o orçamento é um recurso separado (`campaignBudget`) e **pode ser
+compartilhado entre campanhas**. O `updateBudget` alterava o recurso direto, sem verificar
+quem mais o usava, então uma troca feita pensando em uma campanha mudava silenciosamente o
+orçamento das outras que dividiam o mesmo recurso.
+
+### ✅ Correção
+1. `server/_core/router.ts`: `googleCampaigns.updateBudget` ganhou a entrada opcional
+   `recusarSeCompartilhado` (default `false`, para a tela seguir como estava). Quando `true`,
+   consulta quais campanhas não removidas usam o mesmo `campaignBudget` e **recusa a alteração**
+   listando-as, em vez de mudar o orçamento de todas. A resposta passa a incluir
+   `dailyBudget` e `compartilhadoCom`.
+2. `server/mcpServer.ts`: ferramenta `set_google_budget`, no padrão do `set_google_status` —
+   valida dono, confere o `googleCampaignId` salvo e chama o procedure com
+   `recusarSeCompartilhado: true`.
+
+### 🧪 Validação
+`set_google_budget` numa campanha com orçamento exclusivo grava o valor. Numa campanha cujo
+orçamento serve outras, a chamada falha nomeando as campanhas e nada é alterado.
