@@ -10570,7 +10570,7 @@ const googleCampaignsRouter = router({
         try {
           const d = await googleAdsPost<any>("googleAds:search", { query }, runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId);
           return { rows: (d.results || []) as any[] };
-        } catch (e: any) { return { rows: [] as any[], erro: `${nome}: ${String(e.message).slice(0, 220)}` }; }
+        } catch (e: any) { return { rows: [] as any[], erro: `${nome}: ${String(e.message).slice(0, 900)}` }; }
       };
       const id = input.campaignId;
       const [camp, grupos, anuncios, palavras, imagens] = await Promise.all([
@@ -10578,7 +10578,11 @@ const googleCampaignsRouter = router({
         buscar("ad_group", `SELECT ad_group.id, ad_group.name, ad_group.status FROM ad_group WHERE campaign.id = ${id}`),
         buscar("ad_group_ad", `SELECT ad_group.id, ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, ad_group_ad.policy_summary.review_status, ad_group_ad.ad.type FROM ad_group_ad WHERE campaign.id = ${id} AND ad_group_ad.status != 'REMOVED'`),
         buscar("keywords", `SELECT ad_group.id, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.status, ad_group_criterion.system_serving_status FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = false AND ad_group_criterion.status != 'REMOVED'`),
-        buscar("campaign_asset", `SELECT campaign_asset.asset, campaign_asset.field_type, campaign_asset.status, asset.name, asset.type, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels, asset.policy_summary.approval_status FROM campaign_asset WHERE campaign.id = ${id} AND campaign_asset.field_type = 'AD_IMAGE'`),
+        (async () => {
+          const completa = await buscar("campaign_asset", `SELECT campaign_asset.asset, campaign_asset.status, asset.name, asset.type, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels, asset.policy_summary.approval_status FROM campaign_asset WHERE campaign.id = ${id} AND campaign_asset.field_type = 'AD_IMAGE'`);
+          if (!(completa as any).erro) return completa;
+          return buscar("campaign_asset(min)", `SELECT campaign_asset.asset, campaign_asset.status, asset.name FROM campaign_asset WHERE campaign.id = ${id} AND campaign_asset.field_type = 'AD_IMAGE'`);
+        })(),
       ]);
       const c = camp.rows[0] || {};
       return {
@@ -10592,7 +10596,7 @@ const googleCampaignsRouter = router({
         anuncios: anuncios.rows.map((r) => ({ grupo: r.adGroup?.id, id: r.adGroupAd?.ad?.id, tipo: r.adGroupAd?.ad?.type, status: r.adGroupAd?.status, aprovacao: r.adGroupAd?.policySummary?.approvalStatus, revisao: r.adGroupAd?.policySummary?.reviewStatus })),
         palavrasChave: palavras.rows.map((r) => ({ grupo: r.adGroup?.id, texto: r.adGroupCriterion?.keyword?.text, correspondencia: r.adGroupCriterion?.keyword?.matchType, status: r.adGroupCriterion?.status, veiculacao: r.adGroupCriterion?.systemServingStatus })),
         imagens: imagens.rows.map((r) => ({ nome: r.asset?.name, status: r.campaignAsset?.status, aprovacao: r.asset?.policySummary?.approvalStatus, largura: r.asset?.imageAsset?.fullSize?.widthPixels, altura: r.asset?.imageAsset?.fullSize?.heightPixels })),
-        erros: [camp, grupos, anuncios, palavras, imagens].map((x: any) => x.erro).filter(Boolean),
+        erros: [camp, grupos, anuncios, palavras, imagens].map((x: any) => x.erro).filter(Boolean).map((e: string) => e.slice(0, 700)),
       };
     }),
 
