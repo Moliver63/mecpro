@@ -6,6 +6,7 @@ import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
 import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode } from "../tiktokMarketingAuth";
 import { escoposTikTok } from "../tiktokOAuth";
 import { prepararGaql, limitarResposta } from "../googleAdsGaql";
+import { resolverConfigMcc, urlAutorizacaoMcc, mccEstaNaLista, SEGREDO_MCC_TOKEN, SEGREDO_MCC_ID, normalizarCustomerId, lerConfigMcc, operacaoConvite, gaqlVinculo, interpretarVinculo, decidirPosse } from "../googleAdsMcc";
 import { baixarImagem, operacaoAsset, operacaoVinculo, conferirConjunto, GOOGLE_IMAGENS_MAX } from "../googleAdsImagens";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
@@ -677,6 +678,19 @@ async function getGoogleAccessToken(integration: {
   const data: any = await resp.json();
   if (!data.access_token) throw new Error("Google OAuth falhou: " + JSON.stringify(data));
   return data.access_token;
+}
+
+
+async function carregarConfigMcc() {
+  const pool = await db.getPool();
+  const banco: Record<string, string> = {};
+  if (pool) {
+    try {
+      const r = await pool.query(`SELECT key, value FROM platform_secrets WHERE key = ANY($1)`, [[SEGREDO_MCC_TOKEN, SEGREDO_MCC_ID]]);
+      for (const row of r.rows) banco[row.key] = row.value;
+    } catch { /* tabela ainda nao existe: segue so com o ambiente */ }
+  }
+  return resolverConfigMcc(process.env, banco);
 }
 
 function buildGoogleAdsUrl(customerId: string, path: string): string {
@@ -10558,6 +10572,117 @@ const googleCampaignsRouter = router({
       return { success: true, campaignId: input.campaignId, status: input.status, adGroups: adGroupIds.length, ads: adCount };
     }),
 
+
+  // ── Autorização do login da MCC (admin). O token fica em platform_secrets e nunca é devolvido. ──
+  mccAutorizarUrl: adminProcedure
+    .input(z.object({ redirectUri: z.string().url() }))
+    .query(({ input }) => {
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      if (!clientId) throw new TRPCError({ code: "BAD_REQUEST", message: "Google OAuth não configurado (GOOGLE_ADS_CLIENT_ID)." });
+      return { url: urlAutorizacaoMcc(clientId, input.redirectUri, "mcc") };
+    }),
+
+  mccAutorizarCodigo: adminProcedure
+    .input(z.object({ code: z.string().min(10).max(2000), redirectUri: z.string().url(), mccCustomerId: z.string().min(1).max(20) }))
+    .mutation(async ({ input }) => {
+      const mcc = normalizarCustomerId(input.mccCustomerId);
+      if (!mcc) throw new TRPCError({ code: "BAD_REQUEST", message: "ID da MCC inválido." });
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+      if (!clientId || !clientSecret) throw new TRPCError({ code: "BAD_REQUEST", message: "Google OAuth não configurado no servidor." });
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ code: input.code, client_id: clientId, client_secret: clientSecret, redirect_uri: input.redirectUri, grant_type: "authorization_code" }).toString(),
+      });
+      const t: any = await tokenRes.json();
+      if (!tokenRes.ok || t.error) throw new TRPCError({ code: "BAD_REQUEST", message: `Falha ao trocar o código: ${t.error_description || t.error || "erro desconhecido"}` });
+      if (!t.refresh_token) throw new TRPCError({ code: "BAD_REQUEST", message: "O Google não devolveu refresh_token. Revogue o acesso em myaccount.google.com/permissions e autorize de novo." });
+      // So guarda se o login realmente enxerga a MCC: evita gravar token de um login sem acesso.
+      const lista = await fetch(urlListarContasAcessiveis(), {
+        headers: { Authorization: `Bearer ${t.access_token}`, ...(process.env.GOOGLE_ADS_DEVELOPER_TOKEN ? { "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN } : {}) },
+        signal: AbortSignal.timeout(8000),
+      });
+      const ld: any = await lista.json();
+      const contas: string[] = ld.resourceNames || ld.resource_names || [];
+      if (!mccEstaNaLista(contas, mcc)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Este login não tem acesso à MCC ${mcc}. Nada foi salvo.` });
+      }
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      for (const [k, v] of [[SEGREDO_MCC_TOKEN, t.refresh_token], [SEGREDO_MCC_ID, mcc]] as const) {
+        await pool.query(`INSERT INTO platform_secrets (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "updatedAt" = NOW()`, [k, v]);
+      }
+      return { success: true, mccCustomerId: mcc, contasAcessiveis: contas.length };
+    }),
+
+  // ── Vínculo com a MCC do MecPro (convite automático) ───────────────────
+  // A MCC age com credenciais da plataforma. O cliente precisa ACEITAR o convite no Google Ads.
+  mccConvidar: protectedProcedure
+    .input(z.object({ customerId: z.string().min(1).max(20) }))
+    .mutation(async ({ ctx, input }) => {
+      const cliente = normalizarCustomerId(input.customerId);
+      if (!cliente) throw new TRPCError({ code: "BAD_REQUEST", message: "ID inválido: informe os 10 dígitos da conta Google Ads." });
+      const cfg = await carregarConfigMcc();
+      if ("erro" in cfg) throw new TRPCError({ code: "PRECONDITION_FAILED", message: cfg.erro });
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const dono = await pool.query(`SELECT "userId" FROM google_account_links WHERE "customerId" = $1`, [cliente]);
+      const decisao = decidirPosse(dono.rows[0]?.userId ?? null, ctx.user.id);
+      if (decisao === "de_outro") throw new TRPCError({ code: "CONFLICT", message: "Esta conta Google Ads já está vinculada a outro usuário do MecPro." });
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+      const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
+      const accessToken = await getGoogleAccessToken({ refreshToken: cfg.config.refreshToken, appId: clientId, appSecret: clientSecret });
+      const mcc = cfg.config.customerId;
+      const chamar = (path: string, body: unknown) => googleAdsPost<any>(path, body, accessToken, devToken, mcc, mcc);
+      // Reserva a posse antes de falar com o Google: dois pedidos simultâneos para o mesmo ID não passam.
+      if (decisao === "criar") {
+        const r = await pool.query(
+          `INSERT INTO google_account_links ("userId","customerId","managerCustomerId",status) VALUES ($1,$2,$3,'PENDENTE') ON CONFLICT ("customerId") DO NOTHING RETURNING id`,
+          [ctx.user.id, cliente, mcc],
+        );
+        if (!r.rows.length) throw new TRPCError({ code: "CONFLICT", message: "Esta conta Google Ads já está vinculada a outro usuário do MecPro." });
+      }
+      const atual = await chamar("googleAds:search", { query: gaqlVinculo(cliente) });
+      const status = interpretarVinculo(atual.results || []);
+      if (status === "ATIVO" || status === "PENDENTE") {
+        await pool.query(`UPDATE google_account_links SET status = $2, "updatedAt" = NOW() WHERE "customerId" = $1`, [cliente, status]);
+        return { customerId: cliente, status, convidou: false };
+      }
+      try {
+        await chamar("customerClientLinks:mutate", operacaoConvite(cliente));
+      } catch (e: any) {
+        if (decisao === "criar") await pool.query(`DELETE FROM google_account_links WHERE "customerId" = $1 AND "userId" = $2`, [cliente, ctx.user.id]);
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Falha ao enviar o convite: ${String(e.message).slice(0, 300)}` });
+      }
+      await pool.query(`UPDATE google_account_links SET status = 'PENDENTE', "updatedAt" = NOW() WHERE "customerId" = $1`, [cliente]);
+      return { customerId: cliente, status: "PENDENTE" as const, convidou: true };
+    }),
+
+  mccStatus: protectedProcedure
+    .input(z.object({ customerId: z.string().min(1).max(20) }))
+    .query(async ({ ctx, input }) => {
+      const cliente = normalizarCustomerId(input.customerId);
+      if (!cliente) throw new TRPCError({ code: "BAD_REQUEST", message: "ID inválido: informe os 10 dígitos da conta Google Ads." });
+      const cfg = await carregarConfigMcc();
+      if ("erro" in cfg) throw new TRPCError({ code: "PRECONDITION_FAILED", message: cfg.erro });
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const dono = await pool.query(`SELECT "userId" FROM google_account_links WHERE "customerId" = $1`, [cliente]);
+      if (decidirPosse(dono.rows[0]?.userId ?? null, ctx.user.id) !== "ja_meu") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Esta conta não foi vinculada por você. Envie o convite primeiro." });
+      }
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+      const accessToken = await getGoogleAccessToken({ refreshToken: cfg.config.refreshToken, appId: clientId, appSecret: clientSecret });
+      const mcc = cfg.config.customerId;
+      const d = await googleAdsPost<any>("googleAds:search", { query: gaqlVinculo(cliente) }, accessToken, process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "", mcc, mcc);
+      const status = interpretarVinculo(d.results || []);
+      if (status !== "NENHUM" && status !== "OUTRO") {
+        await pool.query(`UPDATE google_account_links SET status = $2, "updatedAt" = NOW() WHERE "customerId" = $1`, [cliente, status]);
+      }
+      return { customerId: cliente, status };
+    }),
 
   // Consulta GAQL livre, SOMENTE LEITURA (googleAds:search). Nao altera nada.
   queryGaql: protectedProcedure

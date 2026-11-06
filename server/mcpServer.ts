@@ -3264,6 +3264,98 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── mcc_authorize_url / mcc_authorize_code (admin: autoriza o login da MCC da plataforma) ──
+  server.registerTool(
+    "mcc_authorize_url",
+    {
+      title: "Gerar o link para autorizar o login da MCC do MecPro",
+      description: "SOMENTE ADMIN. Devolve o link do Google para o administrador da MCC autorizar o MecPro. Depois da autorização o navegador abre a página /auth/google/callback com ?code= na barra de endereço; esse code vai para mcc_authorize_code.",
+      inputSchema: { redirectUri: z.string().url().describe("Ex.: https://www.mecproai.com/auth/google/callback (precisa estar cadastrada no cliente OAuth).") },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.mccAutorizarUrl({ redirectUri: input.redirectUri });
+        return { content: [{ type: "text", text: r.url }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "mcc_authorize_code",
+    {
+      title: "Concluir a autorização do login da MCC",
+      description: "SOMENTE ADMIN. Troca o code do Google por um token e o guarda no servidor, só se o login tiver acesso à MCC informada. O token nunca é devolvido. O code vale uma vez e expira em minutos.",
+      inputSchema: {
+        code: z.string().min(10).max(2000),
+        redirectUri: z.string().url(),
+        mccCustomerId: z.string().min(1).max(20).describe("ID da MCC, 10 dígitos."),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário pedir para salvar."),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.mccAutorizarCodigo({ code: input.code, redirectUri: input.redirectUri, mccCustomerId: input.mccCustomerId });
+        return { content: [{ type: "text", text: `Login da MCC ${r.mccCustomerId} autorizado e guardado no servidor (${r.contasAcessiveis} conta(s) acessível(is)).` }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  // ── link_google_account / google_link_status (convite para a MCC do MecPro) ──
+  server.registerTool(
+    "link_google_account",
+    {
+      title: "Convidar uma conta Google Ads para a MCC do MecPro",
+      description:
+        "Envia o convite para a conta Google Ads informada passar a ser gerenciada pela MCC do MecPro. NÃO gasta verba. " +
+        "O dono da conta precisa ACEITAR o convite no Google Ads (Administração > Acesso e segurança > Gerentes). " +
+        "Recusa IDs já vinculados a outro usuário. Só chame com confirmadoPeloUsuario=true depois de o usuário informar o ID e pedir o convite.",
+      inputSchema: {
+        customerId: z.string().min(1).max(20).describe("ID da conta Google Ads, 10 dígitos (com ou sem traços)."),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário pedir o convite."),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.mccConvidar({ customerId: input.customerId });
+        const texto = r.convidou
+          ? `Convite enviado para a conta ${r.customerId}. O dono precisa aceitar no Google Ads (Administração > Acesso e segurança > Gerentes).`
+          : `A conta ${r.customerId} já está com vínculo ${r.status}. Nenhum convite novo foi enviado.`;
+        return { content: [{ type: "text", text: texto }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao convidar: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "google_link_status",
+    {
+      title: "Status do vínculo de uma conta Google Ads com a MCC",
+      description: "SOMENTE LEITURA. Informa se o convite está PENDENTE, ATIVO, RECUSADO ou CANCELADO. Só responde para contas vinculadas pelo próprio usuário.",
+      inputSchema: { customerId: z.string().min(1).max(20).describe("ID da conta Google Ads, 10 dígitos.") },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.mccStatus({ customerId: input.customerId });
+        return { content: [{ type: "text", text: `Conta ${r.customerId}: vínculo ${r.status}.` }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao consultar: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── query_google_ads (GAQL livre, somente leitura) ─────────────────────
   server.registerTool(
     "query_google_ads",

@@ -3332,3 +3332,12 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
   4. A tabela guarda uma conta por usuário (`api_integrations.accountId`); não há conta Google por projeto. `loginCustomerId` é lido da integração mas a coluna não existe (só vale a variável de ambiente).
   5. Tokens em texto puro em `api_integrations`; falta detectar token revogado (`invalid_grant`) e pedir reconexão.
 - Requisito do dono: toda solução precisa ser dinâmica e reutilizável por outros usuários, sem IDs ou contas de um cliente no código.
+
+## Google Ads: convite para a MCC do MecPro (2026-11-06, branch feat/google-mcc-convite)
+- MCC oficial: **MECPro IA, 385-699-2760** (developer token e e-mail de contato da API `contato@mecproai.com`). Login administrador usado: `mixavier31@gmail.com`. Existem também as MCCs MecProaAI (723-157-8425) e CONTA DE ANÚNCIO TESTE (441-076-8486), esta última boa para testar o convite.
+- Novas ferramentas MCP: `link_google_account` (envia o convite; exige `confirmadoPeloUsuario`) e `google_link_status` (somente leitura). Procedures `googleCampaigns.mccConvidar` / `mccStatus`; módulo `server/googleAdsMcc.ts`.
+- Tabela nova `google_account_links` (userId, customerId UNIQUE, managerCustomerId, status). Um ID só pode pertencer a UM usuário; ID já ligado a outro é recusado (evita assumir conta alheia).
+- Credenciais da MCC ficam só no servidor: variáveis `GOOGLE_MCC_CUSTOMER_ID` / `GOOGLE_MCC_REFRESH_TOKEN` (têm precedência) OU tabela `platform_secrets` (NÃO `app_settings`, que o painel admin lista inteira). Sem elas as ferramentas respondem "não configurada".
+- Autorização do login da MCC sem colar token: admin usa `mcc_authorize_url` (link do Google) e depois `mcc_authorize_code` (troca o `code` da barra de endereço; só salva se o login enxerga a MCC; o token nunca é devolvido). Redirect URI: `https://www.mecproai.com/auth/google/callback`, já cadastrada no cliente OAuth.
+- O cliente precisa ACEITAR o convite no Google Ads. PENDENTE → ATIVO.
+- NÃO FEITO ainda: usar o vínculo para operar (o runtime ainda usa o OAuth do usuário); botão "Vincular conta" na tela do Google Ads.
