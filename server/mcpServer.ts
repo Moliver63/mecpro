@@ -3252,6 +3252,37 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── query_google_ads (GAQL livre, somente leitura) ─────────────────────
+  server.registerTool(
+    "query_google_ads",
+    {
+      title: "Consultar o Google Ads com GAQL (somente leitura)",
+      description:
+        "SOMENTE LEITURA. Roda UMA consulta GAQL (SELECT ... FROM ...) na conta Google Ads conectada e devolve as linhas. " +
+        "Não altera nada. Máx. 200 linhas (LIMIT 50 se omitido), sem ponto e vírgula. " +
+        "Exemplos: termos de pesquisa (search_term_view: search_term_view.search_term, metrics.impressions, metrics.clicks), " +
+        "índice de qualidade (ad_group_criterion.quality_info.quality_score), participação em impressões (metrics.search_impression_share), " +
+        "histórico de alterações (change_event), recomendações (recommendation). Filtros de data: segments.date DURING LAST_7_DAYS. " +
+        "Ao filtrar por campaign.id, inclua campaign.id no SELECT.",
+      inputSchema: { query: z.string().min(1).max(4000).describe("Consulta GAQL: SELECT ... FROM <recurso> [WHERE ...] [LIMIT n]") },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const integracao: any = await db.getApiIntegration(userId, "google");
+      if (!integracao?.isActive) {
+        return { content: [{ type: "text", text: "Google Ads não está conectado." }], isError: true };
+      }
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.queryGaql({ query: input.query });
+        const aviso = r.cortada ? " (resposta cortada por tamanho)" : "";
+        return { content: [{ type: "text", text: `${r.total} linha(s)${aviso}.\n${JSON.stringify(r.linhas)}` }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha na consulta: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── audit_google_campaign (somente leitura) ────────────────────────────
   server.registerTool(
     "audit_google_campaign",

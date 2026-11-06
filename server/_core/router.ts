@@ -5,6 +5,7 @@ import { parseDailyBudget } from "../../shared/dailyBudget";
 import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
 import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode } from "../tiktokMarketingAuth";
 import { escoposTikTok } from "../tiktokOAuth";
+import { prepararGaql, limitarResposta } from "../googleAdsGaql";
 import { baixarImagem, operacaoAsset, operacaoVinculo, conferirConjunto, GOOGLE_IMAGENS_MAX } from "../googleAdsImagens";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
@@ -10557,6 +10558,21 @@ const googleCampaignsRouter = router({
       return { success: true, campaignId: input.campaignId, status: input.status, adGroups: adGroupIds.length, ads: adCount };
     }),
 
+
+  // Consulta GAQL livre, SOMENTE LEITURA (googleAds:search). Nao altera nada.
+  queryGaql: protectedProcedure
+    .input(z.object({ query: z.string().min(1).max(4000) }))
+    .query(async ({ ctx, input }) => {
+      const prep = prepararGaql(input.query);
+      if ("erro" in prep) throw new TRPCError({ code: "BAD_REQUEST", message: prep.erro });
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+      const d = await googleAdsPost<any>("googleAds:search", { query: prep.query }, runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId);
+      const todas: unknown[] = d.results || [];
+      const { linhas, cortada } = limitarResposta(todas);
+      return { query: prep.query, total: todas.length, cortada, linhas };
+    }),
 
   // Auditoria somente leitura: status real de campanha, grupos, anuncios (aprovacao),
   // palavras-chave e imagens vinculadas. Nao altera nada nem gasta.

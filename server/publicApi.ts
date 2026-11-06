@@ -308,6 +308,7 @@ router.get("/mcp", (_req: Request, res: Response) => {
       "list_google_campaigns",
       "add_google_images",
       "audit_google_campaign",
+      "query_google_ads",
     ],
   });
 });
