@@ -3199,6 +3199,59 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── set_google_budget (orcamento diario da campanha de Pesquisa) ──────
+  server.registerTool(
+    "set_google_budget",
+    {
+      title: "Definir o orçamento diário de uma campanha no Google Ads",
+      description:
+        "Altera o ORÇAMENTO DIÁRIO de uma campanha do Google Ads, em reais. " +
+        "No Google o orçamento é um recurso separado da campanha e pode servir várias: se este for compartilhado, " +
+        "a chamada é RECUSADA e nada é alterado, listando as campanhas que dividem o mesmo orçamento. " +
+        "Aumentar o orçamento de uma campanha ativa aumenta o gasto. Só chame com confirmadoPeloUsuario=true " +
+        "depois de o usuário informar o valor.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID do rascunho no MecProAI (valida que a campanha é do usuário)."),
+        googleCampaignId: z.string().regex(/^\d+$/).optional().describe("ID da campanha no Google. Omitido, usa o googleCampaignId salvo na campanha."),
+        dailyBudgetReais: z.number().min(1).describe("Novo orçamento diário em reais."),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário informar o valor."),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      const campaign: any = await db.getCampaignById(input.campaignId);
+      if (!campaign) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+      const salvo = campaign.googleCampaignId ? String(campaign.googleCampaignId) : "";
+      if (salvo && input.googleCampaignId && salvo !== input.googleCampaignId) {
+        return { content: [{ type: "text", text: `A campanha ${input.campaignId} está ligada à campanha Google ${salvo}, não a ${input.googleCampaignId}. Nada foi alterado.` }], isError: true };
+      }
+      const alvo = input.googleCampaignId || salvo;
+      if (!alvo) {
+        return { content: [{ type: "text", text: `A campanha ${input.campaignId} não tem googleCampaignId salvo. Publique no Google primeiro, ou informe googleCampaignId.` }], isError: true };
+      }
+      const integracao: any = await db.getApiIntegration(userId, "google");
+      if (!integracao?.isActive) {
+        return { content: [{ type: "text", text: "Google Ads não está conectado. Conecte em Integrações → Google Ads." }], isError: true };
+      }
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.updateBudget({
+          campaignId: alvo,
+          dailyBudget: input.dailyBudgetReais,
+          recusarSeCompartilhado: true,
+        });
+        const texto = `Orçamento diário da campanha ${alvo} definido em R$ ${input.dailyBudgetReais.toFixed(2)}/dia.`;
+        return { content: [{ type: "text", text: texto }], structuredContent: { ok: true, googleCampaignId: alvo, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao mudar o orçamento no Google: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── set_tiktok_status (ativar / pausar campanha criada pelo MecProAI) ───
   server.registerTool(
     "set_tiktok_status",
