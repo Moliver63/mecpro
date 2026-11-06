@@ -221,6 +221,16 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS google_account_links_user_idx ON google_account_links ("userId");
   `);
 
+  // ── Segredos da plataforma (ex.: login da MCC). Tabela própria: NÃO é app_settings,
+  //    que o painel admin lista por inteiro. Nunca devolver o valor por API. ──────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS platform_secrets (
+      key         VARCHAR(100) PRIMARY KEY,
+      value       TEXT NOT NULL,
+      "updatedAt" TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
   // ── Rateios aprovados — rastreamento de distribuição por plataforma ─────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS media_distributions (

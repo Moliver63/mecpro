@@ -309,6 +309,8 @@ router.get("/mcp", (_req: Request, res: Response) => {
       "add_google_images",
       "audit_google_campaign",
       "query_google_ads",
+      "mcc_authorize_url",
+      "mcc_authorize_code",
       "link_google_account",
       "google_link_status",
     ],

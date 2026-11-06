@@ -59,3 +59,28 @@ export function decidirPosse(donoAtualUserId: number | null, userId: number): "c
   if (donoAtualUserId === null) return "criar";
   return donoAtualUserId === userId ? "ja_meu" : "de_outro";
 }
+
+export const SEGREDO_MCC_TOKEN = "google_mcc_refresh_token";
+export const SEGREDO_MCC_ID = "google_mcc_customer_id";
+
+/** Junta ambiente e segredos salvos no banco; o ambiente tem precedência. */
+export function resolverConfigMcc(env: Record<string, string | undefined>, banco: Record<string, string | undefined>): { config: ConfigMcc } | { erro: string } {
+  return lerConfigMcc({
+    GOOGLE_MCC_CUSTOMER_ID: env.GOOGLE_MCC_CUSTOMER_ID || banco[SEGREDO_MCC_ID],
+    GOOGLE_MCC_REFRESH_TOKEN: env.GOOGLE_MCC_REFRESH_TOKEN || banco[SEGREDO_MCC_TOKEN],
+  });
+}
+
+/** URL de consentimento do Google para autorizar o login da MCC. */
+export function urlAutorizacaoMcc(clientId: string, redirectUri: string, state: string): string {
+  const p = new URLSearchParams({
+    client_id: clientId, redirect_uri: redirectUri, response_type: "code",
+    scope: "https://www.googleapis.com/auth/adwords", access_type: "offline", prompt: "consent", state,
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${p.toString()}`;
+}
+
+/** A MCC precisa estar entre as contas que o login consegue acessar. */
+export function mccEstaNaLista(resourceNames: string[], mccId: string): boolean {
+  return (resourceNames || []).some((r) => String(r).replace(/\D/g, "") === mccId);
+}

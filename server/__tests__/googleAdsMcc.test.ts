@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizarCustomerId, lerConfigMcc, operacaoConvite, gaqlVinculo, interpretarVinculo, decidirPosse, urlConvite } from "../googleAdsMcc";
+import { resolverConfigMcc, urlAutorizacaoMcc, mccEstaNaLista, normalizarCustomerId, lerConfigMcc, operacaoConvite, gaqlVinculo, interpretarVinculo, decidirPosse, urlConvite } from "../googleAdsMcc";
 
 test("normalizarCustomerId aceita 10 digitos com ou sem traco", () => {
   assert.equal(normalizarCustomerId("418-018-4854"), "4180184854");
@@ -29,4 +29,20 @@ test("decidirPosse impede conta de outro usuario", () => {
   assert.equal(decidirPosse(null, 2), "criar");
   assert.equal(decidirPosse(2, 2), "ja_meu");
   assert.equal(decidirPosse(7, 2), "de_outro");
+});
+
+test("resolverConfigMcc: ambiente vence o banco", () => {
+  assert.deepEqual(resolverConfigMcc({}, { google_mcc_customer_id: "3856992760", google_mcc_refresh_token: "db" }), { config: { customerId: "3856992760", refreshToken: "db" } });
+  assert.deepEqual(resolverConfigMcc({ GOOGLE_MCC_REFRESH_TOKEN: "env" }, { google_mcc_customer_id: "3856992760", google_mcc_refresh_token: "db" }), { config: { customerId: "3856992760", refreshToken: "env" } });
+  assert.ok("erro" in resolverConfigMcc({}, {}));
+});
+test("urlAutorizacaoMcc pede escopo adwords e refresh token", () => {
+  const u = new URL(urlAutorizacaoMcc("cid", "https://x/cb", "st"));
+  assert.equal(u.searchParams.get("scope"), "https://www.googleapis.com/auth/adwords");
+  assert.equal(u.searchParams.get("access_type"), "offline");
+  assert.equal(u.searchParams.get("prompt"), "consent");
+});
+test("mccEstaNaLista", () => {
+  assert.equal(mccEstaNaLista(["customers/3856992760", "customers/1"], "3856992760"), true);
+  assert.equal(mccEstaNaLista(["customers/1"], "3856992760"), false);
 });

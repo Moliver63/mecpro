@@ -3264,6 +3264,50 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── mcc_authorize_url / mcc_authorize_code (admin: autoriza o login da MCC da plataforma) ──
+  server.registerTool(
+    "mcc_authorize_url",
+    {
+      title: "Gerar o link para autorizar o login da MCC do MecPro",
+      description: "SOMENTE ADMIN. Devolve o link do Google para o administrador da MCC autorizar o MecPro. Depois da autorização o navegador abre a página /auth/google/callback com ?code= na barra de endereço; esse code vai para mcc_authorize_code.",
+      inputSchema: { redirectUri: z.string().url().describe("Ex.: https://www.mecproai.com/auth/google/callback (precisa estar cadastrada no cliente OAuth).") },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.mccAutorizarUrl({ redirectUri: input.redirectUri });
+        return { content: [{ type: "text", text: r.url }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
+  server.registerTool(
+    "mcc_authorize_code",
+    {
+      title: "Concluir a autorização do login da MCC",
+      description: "SOMENTE ADMIN. Troca o code do Google por um token e o guarda no servidor, só se o login tiver acesso à MCC informada. O token nunca é devolvido. O code vale uma vez e expira em minutos.",
+      inputSchema: {
+        code: z.string().min(10).max(2000),
+        redirectUri: z.string().url(),
+        mccCustomerId: z.string().min(1).max(20).describe("ID da MCC, 10 dígitos."),
+        confirmadoPeloUsuario: z.literal(true).describe("Só true depois de o usuário pedir para salvar."),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.mccAutorizarCodigo({ code: input.code, redirectUri: input.redirectUri, mccCustomerId: input.mccCustomerId });
+        return { content: [{ type: "text", text: `Login da MCC ${r.mccCustomerId} autorizado e guardado no servidor (${r.contasAcessiveis} conta(s) acessível(is)).` }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── link_google_account / google_link_status (convite para a MCC do MecPro) ──
   server.registerTool(
     "link_google_account",
