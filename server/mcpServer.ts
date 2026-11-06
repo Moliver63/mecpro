@@ -3252,6 +3252,34 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── audit_google_campaign (somente leitura) ────────────────────────────
+  server.registerTool(
+    "audit_google_campaign",
+    {
+      title: "Auditar uma campanha de Pesquisa no Google Ads",
+      description:
+        "SOMENTE LEITURA. Devolve o status real da campanha (primary status e motivos), grupos, anúncios com status e aprovação, " +
+        "palavras-chave com status de veiculação e imagens vinculadas. Use para saber se a campanha está apta a veicular e achar grupo sem anúncio.",
+      inputSchema: {
+        googleCampaignId: z.string().regex(/^\d+$/).describe("ID da campanha no Google."),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const integracao: any = await db.getApiIntegration(userId, "google");
+      if (!integracao?.isActive) {
+        return { content: [{ type: "text", text: "Google Ads não está conectado." }], isError: true };
+      }
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.auditCampaign({ campaignId: input.googleCampaignId });
+        return { content: [{ type: "text", text: JSON.stringify(r) }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha na auditoria: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── add_google_images (extensao de imagem em campanha de Pesquisa) ─────
   server.registerTool(
     "add_google_images",

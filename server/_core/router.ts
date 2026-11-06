@@ -10558,6 +10558,44 @@ const googleCampaignsRouter = router({
     }),
 
 
+  // Auditoria somente leitura: status real de campanha, grupos, anuncios (aprovacao),
+  // palavras-chave e imagens vinculadas. Nao altera nada nem gasta.
+  auditCampaign: protectedProcedure
+    .input(z.object({ campaignId: z.string().regex(/^\d+$/) }))
+    .query(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+      const buscar = async (nome: string, query: string) => {
+        try {
+          const d = await googleAdsPost<any>("googleAds:search", { query }, runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId);
+          return { rows: (d.results || []) as any[] };
+        } catch (e: any) { return { rows: [] as any[], erro: `${nome}: ${String(e.message).slice(0, 220)}` }; }
+      };
+      const id = input.campaignId;
+      const [camp, grupos, anuncios, palavras, imagens] = await Promise.all([
+        buscar("campaign", `SELECT campaign.id, campaign.name, campaign.status, campaign.primary_status, campaign.primary_status_reasons, campaign.serving_status, campaign.bidding_strategy_type, campaign_budget.amount_micros FROM campaign WHERE campaign.id = ${id}`),
+        buscar("ad_group", `SELECT ad_group.id, ad_group.name, ad_group.status FROM ad_group WHERE campaign.id = ${id}`),
+        buscar("ad_group_ad", `SELECT ad_group.id, ad_group_ad.ad.id, ad_group_ad.status, ad_group_ad.policy_summary.approval_status, ad_group_ad.policy_summary.review_status, ad_group_ad.ad.type FROM ad_group_ad WHERE campaign.id = ${id} AND ad_group_ad.status != 'REMOVED'`),
+        buscar("keywords", `SELECT ad_group.id, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.status, ad_group_criterion.system_serving_status FROM ad_group_criterion WHERE campaign.id = ${id} AND ad_group_criterion.type = 'KEYWORD' AND ad_group_criterion.negative = false AND ad_group_criterion.status != 'REMOVED'`),
+        buscar("campaign_asset", `SELECT campaign_asset.asset, campaign_asset.field_type, campaign_asset.status, asset.name, asset.type, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels, asset.policy_summary.approval_status FROM campaign_asset WHERE campaign.id = ${id} AND campaign_asset.field_type = 'AD_IMAGE'`),
+      ]);
+      const c = camp.rows[0] || {};
+      return {
+        campaignId: id,
+        campanha: {
+          nome: c.campaign?.name, status: c.campaign?.status, primaryStatus: c.campaign?.primaryStatus,
+          motivos: c.campaign?.primaryStatusReasons || [], servingStatus: c.campaign?.servingStatus,
+          lance: c.campaign?.biddingStrategyType, orcamentoDiarioReais: Number(c.campaignBudget?.amountMicros || 0) / 1e6,
+        },
+        grupos: grupos.rows.map((r) => ({ id: r.adGroup?.id, nome: r.adGroup?.name, status: r.adGroup?.status })),
+        anuncios: anuncios.rows.map((r) => ({ grupo: r.adGroup?.id, id: r.adGroupAd?.ad?.id, tipo: r.adGroupAd?.ad?.type, status: r.adGroupAd?.status, aprovacao: r.adGroupAd?.policySummary?.approvalStatus, revisao: r.adGroupAd?.policySummary?.reviewStatus })),
+        palavrasChave: palavras.rows.map((r) => ({ grupo: r.adGroup?.id, texto: r.adGroupCriterion?.keyword?.text, correspondencia: r.adGroupCriterion?.keyword?.matchType, status: r.adGroupCriterion?.status, veiculacao: r.adGroupCriterion?.systemServingStatus })),
+        imagens: imagens.rows.map((r) => ({ nome: r.asset?.name, status: r.campaignAsset?.status, aprovacao: r.asset?.policySummary?.approvalStatus, largura: r.asset?.imageAsset?.fullSize?.widthPixels, altura: r.asset?.imageAsset?.fullSize?.heightPixels })),
+        erros: [camp, grupos, anuncios, palavras, imagens].map((x: any) => x.erro).filter(Boolean),
+      };
+    }),
+
   // Anexa imagens (extensao de imagem AD_IMAGE) a uma campanha de Pesquisa. Nao gasta mais:
   // so melhora o anuncio. Valida proporcao e tamanho antes de falar com o Google.
   addImages: protectedProcedure
