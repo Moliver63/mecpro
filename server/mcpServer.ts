@@ -3107,6 +3107,18 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
           negativeKeywords: input.negativeKeywords,
           ads: input.ads,
         } as any);
+        // Grava os IDs do Google na campanha do MecProAI. O router tenta o mesmo, mas engole o erro
+        // e, na pratica, o ID ficou nulo; aqui a falha aparece no log em vez de sumir.
+        if (result?.googleCampaignId) {
+          try {
+            await db.updateCampaign(input.campaignId, {
+              googleCampaignId: String(result.googleCampaignId),
+              googleAdGroupId: result.googleAdGroupId ? String(result.googleAdGroupId) : null,
+            } as any);
+          } catch (e: any) {
+            console.warn("[mcp] publish_google_campaign: IDs do Google nao salvos na campanha", { campaignId: input.campaignId, error: e?.message });
+          }
+        }
         const summaryText =
           `Campanha criada no Google Ads, PAUSADA (nada será gasto até você ativar).\n` +
           `Campanha: ${result.googleCampaignId} | Grupo: ${result.googleAdGroupId} | Anúncios: ${(result.googleAdIds || []).join(", ") || "nenhum"}\n` +
