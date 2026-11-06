@@ -6,6 +6,7 @@ import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
 import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode } from "../tiktokMarketingAuth";
 import { escoposTikTok } from "../tiktokOAuth";
 import { prepararGaql, limitarResposta } from "../googleAdsGaql";
+import { normalizarCustomerId, lerConfigMcc, operacaoConvite, gaqlVinculo, interpretarVinculo, decidirPosse } from "../googleAdsMcc";
 import { baixarImagem, operacaoAsset, operacaoVinculo, conferirConjunto, GOOGLE_IMAGENS_MAX } from "../googleAdsImagens";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
@@ -10558,6 +10559,75 @@ const googleCampaignsRouter = router({
       return { success: true, campaignId: input.campaignId, status: input.status, adGroups: adGroupIds.length, ads: adCount };
     }),
 
+
+  // ── Vínculo com a MCC do MecPro (convite automático) ───────────────────
+  // A MCC age com credenciais da plataforma. O cliente precisa ACEITAR o convite no Google Ads.
+  mccConvidar: protectedProcedure
+    .input(z.object({ customerId: z.string().min(1).max(20) }))
+    .mutation(async ({ ctx, input }) => {
+      const cliente = normalizarCustomerId(input.customerId);
+      if (!cliente) throw new TRPCError({ code: "BAD_REQUEST", message: "ID inválido: informe os 10 dígitos da conta Google Ads." });
+      const cfg = lerConfigMcc();
+      if ("erro" in cfg) throw new TRPCError({ code: "PRECONDITION_FAILED", message: cfg.erro });
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const dono = await pool.query(`SELECT "userId" FROM google_account_links WHERE "customerId" = $1`, [cliente]);
+      const decisao = decidirPosse(dono.rows[0]?.userId ?? null, ctx.user.id);
+      if (decisao === "de_outro") throw new TRPCError({ code: "CONFLICT", message: "Esta conta Google Ads já está vinculada a outro usuário do MecPro." });
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+      const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "";
+      const accessToken = await getGoogleAccessToken({ refreshToken: cfg.config.refreshToken, appId: clientId, appSecret: clientSecret });
+      const mcc = cfg.config.customerId;
+      const chamar = (path: string, body: unknown) => googleAdsPost<any>(path, body, accessToken, devToken, mcc, mcc);
+      // Reserva a posse antes de falar com o Google: dois pedidos simultâneos para o mesmo ID não passam.
+      if (decisao === "criar") {
+        const r = await pool.query(
+          `INSERT INTO google_account_links ("userId","customerId","managerCustomerId",status) VALUES ($1,$2,$3,'PENDENTE') ON CONFLICT ("customerId") DO NOTHING RETURNING id`,
+          [ctx.user.id, cliente, mcc],
+        );
+        if (!r.rows.length) throw new TRPCError({ code: "CONFLICT", message: "Esta conta Google Ads já está vinculada a outro usuário do MecPro." });
+      }
+      const atual = await chamar("googleAds:search", { query: gaqlVinculo(cliente) });
+      const status = interpretarVinculo(atual.results || []);
+      if (status === "ATIVO" || status === "PENDENTE") {
+        await pool.query(`UPDATE google_account_links SET status = $2, "updatedAt" = NOW() WHERE "customerId" = $1`, [cliente, status]);
+        return { customerId: cliente, status, convidou: false };
+      }
+      try {
+        await chamar("customerClientLinks:mutate", operacaoConvite(cliente));
+      } catch (e: any) {
+        if (decisao === "criar") await pool.query(`DELETE FROM google_account_links WHERE "customerId" = $1 AND "userId" = $2`, [cliente, ctx.user.id]);
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Falha ao enviar o convite: ${String(e.message).slice(0, 300)}` });
+      }
+      await pool.query(`UPDATE google_account_links SET status = 'PENDENTE', "updatedAt" = NOW() WHERE "customerId" = $1`, [cliente]);
+      return { customerId: cliente, status: "PENDENTE" as const, convidou: true };
+    }),
+
+  mccStatus: protectedProcedure
+    .input(z.object({ customerId: z.string().min(1).max(20) }))
+    .query(async ({ ctx, input }) => {
+      const cliente = normalizarCustomerId(input.customerId);
+      if (!cliente) throw new TRPCError({ code: "BAD_REQUEST", message: "ID inválido: informe os 10 dígitos da conta Google Ads." });
+      const cfg = lerConfigMcc();
+      if ("erro" in cfg) throw new TRPCError({ code: "PRECONDITION_FAILED", message: cfg.erro });
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB indisponível" });
+      const dono = await pool.query(`SELECT "userId" FROM google_account_links WHERE "customerId" = $1`, [cliente]);
+      if (decidirPosse(dono.rows[0]?.userId ?? null, ctx.user.id) !== "ja_meu") {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Esta conta não foi vinculada por você. Envie o convite primeiro." });
+      }
+      const clientId = process.env.GOOGLE_ADS_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+      const clientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+      const accessToken = await getGoogleAccessToken({ refreshToken: cfg.config.refreshToken, appId: clientId, appSecret: clientSecret });
+      const mcc = cfg.config.customerId;
+      const d = await googleAdsPost<any>("googleAds:search", { query: gaqlVinculo(cliente) }, accessToken, process.env.GOOGLE_ADS_DEVELOPER_TOKEN || "", mcc, mcc);
+      const status = interpretarVinculo(d.results || []);
+      if (status !== "NENHUM" && status !== "OUTRO") {
+        await pool.query(`UPDATE google_account_links SET status = $2, "updatedAt" = NOW() WHERE "customerId" = $1`, [cliente, status]);
+      }
+      return { customerId: cliente, status };
+    }),
 
   // Consulta GAQL livre, SOMENTE LEITURA (googleAds:search). Nao altera nada.
   queryGaql: protectedProcedure

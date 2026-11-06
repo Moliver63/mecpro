@@ -207,6 +207,20 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "tiktokAdGroupId"  VARCHAR(100);
   `);
 
+  // ── Vínculo de contas Google Ads com a MCC do MecPro (quem é dono de qual conta) ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS google_account_links (
+      id                SERIAL PRIMARY KEY,
+      "userId"          INTEGER NOT NULL REFERENCES users(id),
+      "customerId"      VARCHAR(20) NOT NULL UNIQUE,
+      "managerCustomerId" VARCHAR(20) NOT NULL,
+      status            VARCHAR(20) NOT NULL DEFAULT 'PENDENTE',
+      "createdAt"       TIMESTAMPTZ DEFAULT NOW(),
+      "updatedAt"       TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS google_account_links_user_idx ON google_account_links ("userId");
+  `);
+
   // ── Rateios aprovados — rastreamento de distribuição por plataforma ─────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS media_distributions (
