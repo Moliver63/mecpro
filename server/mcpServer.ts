@@ -3252,6 +3252,53 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
   );
 
+  // ── add_google_images (extensao de imagem em campanha de Pesquisa) ─────
+  server.registerTool(
+    "add_google_images",
+    {
+      title: "Adicionar imagens a uma campanha de Pesquisa no Google Ads",
+      description:
+        "Anexa imagens (extensão de imagem) a uma campanha de Pesquisa do Google Ads. NÃO aumenta o gasto. " +
+        "Cada imagem precisa ser JPEG ou PNG de até 5 MB, em URL https pública, e quadrada 1:1 (mín. 300x300) " +
+        "ou paisagem 1,91:1 (mín. 600x314); arte vertical 9:16 é recusada e nada é enviado. " +
+        "Use fotos sem texto e sem preço: o Google reprova imagem com texto sobreposto. Envie ao menos 1 quadrada e 1 paisagem.",
+      inputSchema: {
+        campaignId: z.number().int().positive().describe("ID do rascunho no MecProAI (valida que a campanha é do usuário)."),
+        googleCampaignId: z.string().regex(/^\d+$/).optional().describe("ID da campanha no Google. Omitido, usa o googleCampaignId salvo."),
+        imagens: z.array(z.object({ url: z.string().url(), nome: z.string().max(60).optional() })).min(1).max(20),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+      const campaign: any = await db.getCampaignById(input.campaignId);
+      if (!campaign) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada.` }], isError: true };
+      const project: any = await db.getProjectById(campaign.projectId);
+      if (!project || project.userId !== userId) {
+        return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+      const salvo = campaign.googleCampaignId ? String(campaign.googleCampaignId) : "";
+      if (salvo && input.googleCampaignId && salvo !== input.googleCampaignId) {
+        return { content: [{ type: "text", text: `A campanha ${input.campaignId} está ligada à campanha Google ${salvo}, não a ${input.googleCampaignId}. Nada foi alterado.` }], isError: true };
+      }
+      const alvo = input.googleCampaignId || salvo;
+      if (!alvo) {
+        return { content: [{ type: "text", text: `A campanha ${input.campaignId} não tem googleCampaignId salvo. Informe googleCampaignId.` }], isError: true };
+      }
+      const integracao: any = await db.getApiIntegration(userId, "google");
+      if (!integracao?.isActive) {
+        return { content: [{ type: "text", text: "Google Ads não está conectado. Conecte em Integrações → Google Ads." }], isError: true };
+      }
+      try {
+        const caller = await getCaller();
+        const r: any = await caller.googleCampaigns.addImages({ campaignId: alvo, imagens: input.imagens });
+        const av = r.avisos?.length ? ` Avisos: ${r.avisos.join(" ")}` : "";
+        return { content: [{ type: "text", text: `${r.anexadas} imagem(ns) anexada(s) à campanha ${alvo} (${r.quadradas} quadrada(s), ${r.paisagem} paisagem).${av}` }], structuredContent: { ok: true, ...r } };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Falha ao anexar imagens no Google: ${e.message}` }], isError: true };
+      }
+    }
+  );
+
   // ── set_tiktok_status (ativar / pausar campanha criada pelo MecProAI) ───
   server.registerTool(
     "set_tiktok_status",

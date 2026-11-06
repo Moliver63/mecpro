@@ -3312,3 +3312,9 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - Relatorio de TikTok: corrigido por outra sessao em #66 (`tikTokReportGet`, relatorio por GET) e #67 (campanhas do TikTok, diagnostico da quebra por idade, funil normalizado).
 - Search Ads Toggle (anuncios nas buscas) e TikTok Shop: Toggle vem ligado em campanhas In-Feed, mas a disponibilidade no Brasil nao esta confirmada pelo TikTok para a conta; Shop e para vendedores de produtos, nao para trafego a site.
 - Pendente: apagar a branch temporaria `tmp/videos-shadia` (hospeda videos, imagens e musica da Shadia) depois que os anuncios forem aprovados e rodarem sem erro.
+
+## Google Ads — imagens e leitura (2026-11-06)
+- `list_google_campaigns` (somente leitura): status e métricas por campanha. `googleCampaignId` NÃO é salvo na tabela `campaigns`; os IDs ficam em `mcp_idempotency_keys.result_json` (tool_name `publish_google_campaign`).
+- `add_google_images` (router `googleCampaigns.addImages`, módulo `server/googleAdsImagens.ts`): cria assets `IMAGE` (`assets:mutate`) e vincula à campanha com `fieldType: AD_IMAGE` (`campaignAssets:mutate`). Aceita só JPEG/PNG até 5 MB, quadrada 1:1 (mín. 300x300) ou paisagem 1,91:1 (mín. 600x314), em URL https pública. Arte 9:16 é recusada antes de chamar o Google. Não aumenta gasto.
+- Google reprova imagem com texto/preço sobreposto: usar recortes só da foto.
+- Auditoria Shadia (2026-11-05): relatório lista só campanhas com impressões, então 0 não significa quebrada. Aviso "grupo sem anúncios" do app deve ser verificado por GAQL (`ad_group_ad`).

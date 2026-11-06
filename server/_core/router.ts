@@ -5,6 +5,7 @@ import { parseDailyBudget } from "../../shared/dailyBudget";
 import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
 import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode } from "../tiktokMarketingAuth";
 import { escoposTikTok } from "../tiktokOAuth";
+import { baixarImagem, operacaoAsset, operacaoVinculo, conferirConjunto, GOOGLE_IMAGENS_MAX } from "../googleAdsImagens";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
@@ -10556,6 +10557,42 @@ const googleCampaignsRouter = router({
       return { success: true, campaignId: input.campaignId, status: input.status, adGroups: adGroupIds.length, ads: adCount };
     }),
 
+
+  // Anexa imagens (extensao de imagem AD_IMAGE) a uma campanha de Pesquisa. Nao gasta mais:
+  // so melhora o anuncio. Valida proporcao e tamanho antes de falar com o Google.
+  addImages: protectedProcedure
+    .input(z.object({
+      campaignId: z.string().regex(/^\d+$/),
+      imagens: z.array(z.object({ url: z.string().url(), nome: z.string().max(60).optional() })).min(1).max(GOOGLE_IMAGENS_MAX),
+      prefixoNome: z.string().max(60).default("MecProAI"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "google");
+      if (!integration) throw new TRPCError({ code: "NOT_FOUND", message: "Integração Google Ads não configurada" });
+      const validadas = [];
+      for (let i = 0; i < input.imagens.length; i++) {
+        const it = input.imagens[i];
+        try { validadas.push(await baixarImagem(it.url, it.nome || `imagem ${i + 1}`)); }
+        catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e.message }); }
+      }
+      const avisos = conferirConjunto(validadas);
+      const runtime = await resolveGoogleAdsRuntimeContext(integration as any);
+      const chamar = (path: string, operations: unknown[]) => googleAdsPost<any>(
+        path, { operations }, runtime.accessToken, runtime.developerToken, runtime.customerId, runtime.loginCustomerId,
+      );
+      const assets = await chamar("assets:mutate", validadas.map((v) => operacaoAsset(v, input.prefixoNome)));
+      const recursos: string[] = (assets.results || []).map((r: any) => String(r.resourceName || ""));
+      if (recursos.length !== validadas.length || recursos.some((r) => !r)) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Google devolveu ${recursos.length} assets para ${validadas.length} imagens.` });
+      }
+      await chamar("campaignAssets:mutate", recursos.map((r) => operacaoVinculo(runtime.customerId, input.campaignId, r)));
+      return {
+        success: true, campaignId: input.campaignId, anexadas: recursos.length,
+        quadradas: validadas.filter((v) => v.tipo === "QUADRADA").length,
+        paisagem: validadas.filter((v) => v.tipo === "PAISAGEM").length,
+        avisos,
+      };
+    }),
 
   rename: protectedProcedure
     .input(z.object({ campaignId: z.string().min(1), name: z.string().trim().min(2).max(255) }))
