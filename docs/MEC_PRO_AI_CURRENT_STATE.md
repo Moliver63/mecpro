@@ -3321,3 +3321,14 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - `audit_google_campaign` (somente leitura): status real da campanha (primary status), grupos, anúncios (status + aprovação), palavras-chave (veiculação), imagens AD_IMAGE e métricas de hoje/7 dias, direto do Google. Lição: anúncio criado pelo MecProAI nasce PAUSADO; `set_google_status` ativa campanha, grupos e anúncios.
 - `query_google_ads` (somente leitura): consulta GAQL livre (`server/googleAdsGaql.ts`): uma única SELECT, sem `;`, LIMIT padrão 50 e máx. 200. Em GAQL, filtrar por `campaign.id` exige `campaign.id` no SELECT.
 - O MCP oficial do Google Ads (googleads/google-ads-mcp) é só leitura (search, list_accessible_customers, get_resource_metadata); o developer token foi aposentado em 2026-09-09 segundo a documentação do Google (não verificado o efeito no token do MecPro).
+
+## Google Ads: modelo de autorização (decisão de 2026-11-06)
+- DECISÃO: manter OAuth por usuário ("Conectar com Google", escopo `adwords`, refresh token por usuário em `api_integrations`). Não exige MCC: o developer token da plataforma vale para qualquer conta que o usuário autorizar. O usuário revoga em myaccount.google.com/permissions.
+- Alternativa descartada por ora: vínculo com uma MCC do MecPro (cliente aceita convite). Seria uma segunda via para agências.
+- PENDÊNCIAS conhecidas, sem mudar a estrutura:
+  1. Tela de consentimento OAuth no Google Cloud: se estiver em "Teste", o refresh token expira em 7 dias e só testadores conectam. Para outros usuários precisa estar publicada e verificada. Conferir no console.
+  2. Nível de acesso do developer token/projeto (Explorer, Basic, Standard). O Google informa que o developer token foi aposentado em 2026-09-09 e o acesso passou a depender do projeto; efeito no token atual não verificado.
+  3. `exchangeGoogleAdsCode` grava `customerIds[0]` como conta principal e `resolveGoogleAdsRuntimeContext` usa a primeira conta filha de uma MCC, sem o usuário escolher. Com várias contas pode operar na errada. Melhoria: seletor de conta após a autorização.
+  4. A tabela guarda uma conta por usuário (`api_integrations.accountId`); não há conta Google por projeto. `loginCustomerId` é lido da integração mas a coluna não existe (só vale a variável de ambiente).
+  5. Tokens em texto puro em `api_integrations`; falta detectar token revogado (`invalid_grant`) e pedir reconexão.
+- Requisito do dono: toda solução precisa ser dinâmica e reutilizável por outros usuários, sem IDs ou contas de um cliente no código.
