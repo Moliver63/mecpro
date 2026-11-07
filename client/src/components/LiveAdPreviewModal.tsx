@@ -392,7 +392,7 @@ function TikTokPreview({ ad, device }: { ad: TikTokAd; device: DeviceMode }) {
       {/* Side actions */}
       <div style={{ position: "absolute", right: 10, bottom: 80, display: "flex", flexDirection: "column", gap: 16, alignItems: "center" }}>
         {[
-          { icon: "❤️", label: "12K" }, { icon: "💬", label: "340" }, { icon: "↗️", label: "Comp." },
+          { icon: "❤️", label: "exemplo" }, { icon: "💬", label: "exemplo" }, { icon: "↗️", label: "Comp." },
         ].map(a => (
           <div key={a.icon} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
             <span style={{ fontSize: 22 }}>{a.icon}</span>
@@ -412,13 +412,16 @@ function TikTokPreview({ ad, device }: { ad: TikTokAd; device: DeviceMode }) {
           <div style={{ fontSize: 13, color: "#fff", lineHeight: 1.4, marginBottom: 6 }}>{truncate(ad.headline, 80)}</div>
         )}
         <button
-          onClick={() => ad.landingUrl ? window.open(ad.landingUrl, "_blank", "noopener,noreferrer") : alert("URL de destino não encontrada neste anúncio TikTok.")}
-          style={{ display: "block", width: "100%", background: "#ff0050", borderRadius: 4, padding: "7px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#fff", border: "none", cursor: "pointer" }}
+          disabled={!ad.landingUrl}
+          onClick={() => { if (ad.landingUrl) window.open(ad.landingUrl, "_blank", "noopener,noreferrer"); }}
+          style={{ display: "block", width: "100%", background: "#ff0050", borderRadius: 4, padding: "7px 0", textAlign: "center", fontSize: 13, fontWeight: 700, color: "#fff", border: "none", cursor: ad.landingUrl ? "pointer" : "default", opacity: ad.landingUrl ? 1 : 0.6 }}
         >
-          Saiba mais {ad.landingUrl ? "↗" : "◬"}
+          Saiba mais {ad.landingUrl ? "↗" : ""}
         </button>
-        <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.5)" }}>
-          {ad.landingUrl ? "👆 Clique para testar destino" : "⚠️ URL não encontrada"}
+        <div style={{ textAlign: "center", marginTop: 4, fontSize: 9, color: "rgba(255,255,255,.6)" }}>
+          {ad.landingUrl
+            ? "👆 Clique para testar destino"
+            : "URL não retornada pela API (comum em Smart+). Confira no Gerenciador do TikTok."}
         </div>
       </div>
     </div>
@@ -739,11 +742,11 @@ export default function LiveAdPreviewModal({ platform, campaignId, campaignName,
           justifyContent: "space-between", flexShrink: 0,
         }}>
           <div style={{ fontSize: 12, color: "#94a3b8" }}>
-            Preview em tempo real • dados da API {platform === "google" ? "Google Ads" : platform === "meta" ? "Meta Graph" : "TikTok Business"}
+            Pré-visualização • textos e destinos vêm da API {platform === "google" ? "Google Ads" : platform === "meta" ? "Meta Graph" : "TikTok Business"}; curtidas e perfil são ilustrativos
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ fontSize: 11, color: "#10b981", fontWeight: 700, background: "#f0fdf4", borderRadius: 6, padding: "3px 8px", border: "1px solid #bbf7d0" }}>
-              ● AO VIVO
+            <div style={{ fontSize: 11, color: "#475569", fontWeight: 700, background: "#f1f5f9", borderRadius: 6, padding: "3px 8px", border: "1px solid #e2e8f0" }}>
+              PRÉVIA
             </div>
           </div>
         </div>

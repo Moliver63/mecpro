@@ -6,6 +6,7 @@ import { ajustarTextoGoogle } from "../../shared/googleAdsTexto";
 import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode } from "../tiktokMarketingAuth";
 import { escoposTikTok } from "../tiktokOAuth";
 import { prepararGaql, limitarResposta } from "../googleAdsGaql";
+import { extrairUrlDestino } from "../tiktokDestino";
 import { resolverConfigMcc, urlAutorizacaoMcc, mccEstaNaLista, SEGREDO_MCC_TOKEN, SEGREDO_MCC_ID, normalizarCustomerId, lerConfigMcc, operacaoConvite, gaqlVinculo, interpretarVinculo, decidirPosse } from "../googleAdsMcc";
 import { baixarImagem, operacaoAsset, operacaoVinculo, conferirConjunto, GOOGLE_IMAGENS_MAX } from "../googleAdsImagens";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
@@ -11026,8 +11027,25 @@ const tiktokCampaignsRouter = router({
         }
       }
 
+      // Smart+ e anuncios criados no Gerenciador nao devolvem a URL no ad/get comum.
+      // Se algum anuncio ficou sem destino, tenta o endpoint Smart+ (falha vira log, nunca erro).
+      const semUrl = rawAds.some((a: any) => !extrairUrlDestino(a));
+      const smartPorId = new Map<string, any>();
+      if (semUrl) {
+        try {
+          const data = await tikTokGet<any>("smart_plus/ad/get/", { advertiser_id: advertiserId, filtering: { campaign_ids: [String(input.campaignId)] }, page_size: 100 }, token);
+          for (const s of (data?.list || [])) {
+            const id = String(s.smart_plus_ad_id || s.ad_id || s.id || "");
+            if (id) smartPorId.set(id, s);
+          }
+        } catch (error: any) {
+          log.warn("tiktok", "details: smart_plus/ad/get indisponivel", { campaignId: input.campaignId, error: String(error?.message || "").slice(0, 160) });
+        }
+      }
+
       const ads = rawAds.map((a: any) => {
         const video = videoById.get(String(a.video_id || ""));
+        const smart = smartPorId.get(String(a.ad_id || a.id || ""));
         return {
           id: String(a.ad_id || a.id || ""),
           name: a.ad_name || "Anúncio TikTok",
@@ -11035,7 +11053,7 @@ const tiktokCampaignsRouter = router({
           adFormat: a.ad_format || null,
           headline: a.ad_text || "",
           callToAction: a.call_to_action || null,
-          landingUrl: a.landing_page_url || a.deeplink || "",
+          landingUrl: extrairUrlDestino(a, smart),
           coverUrl: video?.video_cover_url || (a.image_urls || [])[0] || "",
           videoUrl: video?.preview_url || "",
         };
