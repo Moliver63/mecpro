@@ -166,6 +166,7 @@ import { fileURLToPath } from 'url';
 import { runMigrations } from './migrations.js';
 import { getActiveIntegrationByToken, maskToken, recordSaleEvent, verifyProviderSignature } from '../salesAttribution.js';
 import { parseSalesPayload } from '../salesWebhookParsing.js';
+import { assinaturaValida, extrairComentarios, processarComentarios } from '../metaComentarios.js';
 import { loadLLMModeFromDB, loadCopyEngineFromDB } from '../ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -236,6 +237,34 @@ app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Webhook da Meta (comentarios da pagina) — auto-resposta em modo sugestao ─────────
+// GET: verificacao do endpoint (hub.verify_token = META_WEBHOOK_VERIFY_TOKEN).
+// POST: corpo bruto + assinatura X-Hub-Signature-256 com META_APP_SECRET (registrado antes do json parser).
+// Responde 200 logo e processa depois, para a Meta nao reenviar o evento.
+app.get('/api/webhook/meta', (req: Request, res: Response) => {
+  const esperado = process.env.META_WEBHOOK_VERIFY_TOKEN;
+  if (esperado && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === esperado) {
+    return res.status(200).send(String(req.query['hub.challenge'] || ''));
+  }
+  return res.sendStatus(403);
+});
+app.post('/api/webhook/meta', express.raw({ type: '*/*', limit: '1mb' }), (req: Request, res: Response) => {
+  const raw: Buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+  if (!assinaturaValida(raw, req.header('x-hub-signature-256'), process.env.META_APP_SECRET)) {
+    log.warn('meta-webhook', 'Assinatura rejeitada', { ip: req.ip });
+    return res.sendStatus(401);
+  }
+  res.sendStatus(200);
+  try {
+    const comentarios = extrairComentarios(JSON.parse(raw.toString('utf8') || '{}'));
+    if (comentarios.length) {
+      processarComentarios(comentarios).catch((err: any) => log.warn('meta-webhook', 'Erro ao processar comentarios', { error: String(err?.message || '').slice(0, 160) }));
+    }
+  } catch {
+    log.warn('meta-webhook', 'Corpo invalido');
   }
 });
 
