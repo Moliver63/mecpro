@@ -3341,3 +3341,25 @@ antes de qualquer preset. Detalhe em `docs/sales-attribution.md`.
 - Autorização do login da MCC sem colar token: admin usa `mcc_authorize_url` (link do Google) e depois `mcc_authorize_code` (troca o `code` da barra de endereço; só salva se o login enxerga a MCC; o token nunca é devolvido). Redirect URI: `https://www.mecproai.com/auth/google/callback`, já cadastrada no cliente OAuth.
 - O cliente precisa ACEITAR o convite no Google Ads. PENDENTE → ATIVO.
 - NÃO FEITO ainda: usar o vínculo para operar (o runtime ainda usa o OAuth do usuário); botão "Vincular conta" na tela do Google Ads.
+
+## Auto-resposta de comentarios Meta (2026-11-08) - modo sugestao
+
+Objetivo: responder comentarios de posts/anuncios da pagina com texto util e sem parecer spam. Curtidas NAO
+sao tratadas: a Meta nao permite responder a quem so curtiu.
+
+- `server/comentariosAutoResposta.ts` (puro, testado): `classificarComentario` (sensivel, spam, critica, preco,
+  interesse, duvida, elogio, curto, outro), `decidir` (responder/ignorar/escalar), `montarResposta`.
+  Regras: sensivel e critica SEMPRE escalam (sem resposta automatica); elogio nunca recebe link; link e preco so
+  vem da configuracao do usuario (sem dado configurado, escala); nunca devolve `{placeholder}` nem frase repetida;
+  uma resposta por pessoa por post; atraso sugerido de 2 a 10 min.
+- `server/metaComentarios.ts`: `assinaturaValida` (X-Hub-Signature-256 com META_APP_SECRET), `extrairComentarios`
+  (so comentario novo de primeiro nivel, evita loop com respostas), `obterTokenPagina`, `responderComentario`,
+  `processarComentarios` (grava decisao em `comment_autoreply_log`, idempotente por commentId).
+- Webhook: `GET/POST /api/webhook/meta` em `server/_core/index.ts` (antes do json parser). Env novo:
+  `META_WEBHOOK_VERIFY_TOKEN`. Precisa assinar o campo `feed` da pagina no app da Meta.
+- Tabelas: `comment_autoreply_settings` (por pageId, UNIQUE, modo fixo 'sugestao'), `comment_autoreply_log`.
+- tRPC `comentarios.*`: `config`, `salvarConfig` (ativar exige administrar a pagina), `simular` (sem tocar na Meta),
+  `listar`, `aprovar` (UNICO ponto que publica na Meta, so por acao do usuario), `ignorar`.
+- NAO feito: modo automatico (falta fila com atraso que sobreviva a restart), tela de aprovacao, ferramentas MCP,
+  mensagem privada (DM), permissao `pages_manage_engagement` no login Meta (hoje o scope nao a pede; precisa App
+  Review), confirmar se comentarios de anuncios patrocinados chegam pelo webhook `feed`.

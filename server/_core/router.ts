@@ -7,6 +7,8 @@ import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode 
 import { escoposTikTok } from "../tiktokOAuth";
 import { prepararGaql, limitarResposta } from "../googleAdsGaql";
 import { extrairUrlDestino } from "../tiktokDestino";
+import { decidir as decidirComentario } from "../comentariosAutoResposta";
+import { obterTokenPagina, responderComentario } from "../metaComentarios";
 import { resolverConfigMcc, urlAutorizacaoMcc, mccEstaNaLista, SEGREDO_MCC_TOKEN, SEGREDO_MCC_ID, normalizarCustomerId, lerConfigMcc, operacaoConvite, gaqlVinculo, interpretarVinculo, decidirPosse } from "../googleAdsMcc";
 import { baixarImagem, operacaoAsset, operacaoVinculo, conferirConjunto, GOOGLE_IMAGENS_MAX } from "../googleAdsImagens";
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
@@ -10923,6 +10925,100 @@ const googleCampaignsRouter = router({
     }),
 });
 
+// ── Auto-resposta de comentarios (Meta). Modo sugestao: o usuario aprova cada resposta. ──
+const comentariosRouter = router({
+  config: protectedProcedure
+    .input(z.object({ pageId: z.string().min(1).max(40) }))
+    .query(async ({ ctx, input }) => {
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível." });
+      const r = await pool.query(`SELECT enabled, mode, link, preco FROM comment_autoreply_settings WHERE "pageId" = $1 AND "userId" = $2`, [input.pageId, ctx.user.id]);
+      return r.rows[0] || { enabled: false, mode: "sugestao", link: null, preco: null };
+    }),
+
+  salvarConfig: protectedProcedure
+    .input(z.object({
+      pageId: z.string().min(1).max(40),
+      enabled: z.boolean(),
+      link: z.string().url().max(500).optional().or(z.literal("")),
+      preco: z.string().max(60).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível." });
+      const dono = await pool.query(`SELECT "userId" FROM comment_autoreply_settings WHERE "pageId" = $1`, [input.pageId]);
+      if (dono.rows[0] && dono.rows[0].userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Esta página já está vinculada a outro usuário." });
+      }
+      // Quem liga a funcao precisa administrar a pagina (o ID da pagina e publico).
+      if (input.enabled) {
+        const integration = await db.getApiIntegration(ctx.user.id, "meta").catch(() => null) as any;
+        if (!integration?.accessToken) throw new TRPCError({ code: "BAD_REQUEST", message: "Conecte sua conta Meta antes de ativar." });
+        const token = await obterTokenPagina(integration.accessToken, input.pageId).catch(() => null);
+        if (!token) throw new TRPCError({ code: "FORBIDDEN", message: "Não encontrei esta página entre as que você administra." });
+      }
+      await pool.query(
+        `INSERT INTO comment_autoreply_settings ("userId","pageId",enabled,link,preco) VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT ("pageId") DO UPDATE SET enabled = EXCLUDED.enabled, link = EXCLUDED.link, preco = EXCLUDED.preco, "updatedAt" = NOW()`,
+        [ctx.user.id, input.pageId, input.enabled, input.link || null, input.preco?.trim() || null],
+      );
+      return { ok: true, mode: "sugestao" as const };
+    }),
+
+  // Testa a classificacao e a resposta sem tocar na Meta.
+  simular: protectedProcedure
+    .input(z.object({ texto: z.string().min(1).max(2000), nome: z.string().max(100).optional(), link: z.string().max(500).optional(), preco: z.string().max(60).optional() }))
+    .mutation(({ input }) => decidirComentario({ texto: input.texto, nomeAutor: input.nome, commentId: `simulacao-${input.texto.length}`, config: { link: input.link, preco: input.preco } })),
+
+  listar: protectedProcedure
+    .input(z.object({ status: z.enum(["pendente", "escalada", "enviada", "ignorada", "erro"]).optional(), limit: z.number().int().min(1).max(100).default(50) }))
+    .query(async ({ ctx, input }) => {
+      const pool = await db.getPool();
+      if (!pool) return [];
+      const r = await pool.query(
+        `SELECT id, "pageId", "postId", "commentId", "fromName", message, categoria, acao, resposta, motivo, status, erro, "createdAt", "repliedAt"
+           FROM comment_autoreply_log WHERE "userId" = $1 AND ($2::text IS NULL OR status = $2) ORDER BY "createdAt" DESC LIMIT $3`,
+        [ctx.user.id, input.status ?? null, input.limit],
+      );
+      return r.rows;
+    }),
+
+  // Publica a resposta na Meta. So roda quando o usuario aprova (pode editar o texto antes).
+  aprovar: protectedProcedure
+    .input(z.object({ id: z.number().int(), texto: z.string().min(1).max(500).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível." });
+      const r = await pool.query(`SELECT * FROM comment_autoreply_log WHERE id = $1 AND "userId" = $2`, [input.id, ctx.user.id]);
+      const item = r.rows[0];
+      if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Comentário não encontrado." });
+      if (item.status === "enviada") throw new TRPCError({ code: "BAD_REQUEST", message: "Esta resposta já foi enviada." });
+      const texto = (input.texto ?? item.resposta ?? "").trim();
+      if (!texto) throw new TRPCError({ code: "BAD_REQUEST", message: "Escreva a resposta antes de aprovar." });
+      if (/[{}]/.test(texto)) throw new TRPCError({ code: "BAD_REQUEST", message: "A resposta tem um campo sem preencher ({...})." });
+      const integration = await db.getApiIntegration(ctx.user.id, "meta").catch(() => null) as any;
+      if (!integration?.accessToken) throw new TRPCError({ code: "BAD_REQUEST", message: "Conecte sua conta Meta." });
+      const pageToken = await obterTokenPagina(integration.accessToken, item.pageId).catch(() => null);
+      if (!pageToken) throw new TRPCError({ code: "FORBIDDEN", message: "Não encontrei esta página entre as que você administra." });
+      const envio = await responderComentario(pageToken, item.commentId, texto);
+      if (!envio.ok) {
+        await pool.query(`UPDATE comment_autoreply_log SET status = 'erro', erro = $2 WHERE id = $1`, [item.id, envio.erro || "erro"]);
+        throw new TRPCError({ code: "BAD_REQUEST", message: `A Meta recusou a resposta: ${envio.erro}` });
+      }
+      await pool.query(`UPDATE comment_autoreply_log SET status = 'enviada', resposta = $2, erro = NULL, "repliedAt" = NOW() WHERE id = $1`, [item.id, texto]);
+      return { ok: true };
+    }),
+
+  ignorar: protectedProcedure
+    .input(z.object({ id: z.number().int() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = await db.getPool();
+      if (!pool) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Banco indisponível." });
+      await pool.query(`UPDATE comment_autoreply_log SET status = 'ignorada' WHERE id = $1 AND "userId" = $2 AND status <> 'enviada'`, [input.id, ctx.user.id]);
+      return { ok: true };
+    }),
+});
+
 const tiktokCampaignsRouter = router({
   list: protectedProcedure
     .input(z.object({ period: z.enum(["7d", "30d", "90d"]).default("30d") }).optional())
@@ -14961,6 +15057,7 @@ export const appRouter = router({
   metaCampaigns: metaCampaignsRouter,
   googleCampaigns: googleCampaignsRouter,
   tiktokCampaigns: tiktokCampaignsRouter,
+  comentarios: comentariosRouter,
   tiktokBulk: tiktokBulkRouter,
   agent: autonomousAgentRouter,
   llm: llmToggleRouter,

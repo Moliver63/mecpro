@@ -221,6 +221,40 @@ export async function runMigrations(): Promise<void> {
     CREATE INDEX IF NOT EXISTS google_account_links_user_idx ON google_account_links ("userId");
   `);
 
+  // ── Auto-resposta de comentarios (Meta): configuracao por pagina + fila de sugestoes ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS comment_autoreply_settings (
+      id          SERIAL PRIMARY KEY,
+      "userId"    INTEGER NOT NULL REFERENCES users(id),
+      "pageId"    VARCHAR(40) NOT NULL UNIQUE,
+      enabled     BOOLEAN NOT NULL DEFAULT FALSE,
+      mode        VARCHAR(20) NOT NULL DEFAULT 'sugestao',
+      link        TEXT,
+      preco       TEXT,
+      "updatedAt" TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS comment_autoreply_log (
+      id          SERIAL PRIMARY KEY,
+      "userId"    INTEGER NOT NULL REFERENCES users(id),
+      "pageId"    VARCHAR(40) NOT NULL,
+      "postId"    VARCHAR(80) NOT NULL,
+      "commentId" VARCHAR(80) NOT NULL UNIQUE,
+      "fromId"    VARCHAR(40),
+      "fromName"  VARCHAR(200),
+      message     TEXT,
+      categoria   VARCHAR(20),
+      acao        VARCHAR(20),
+      resposta    TEXT,
+      motivo      TEXT,
+      status      VARCHAR(20) NOT NULL DEFAULT 'pendente',
+      erro        TEXT,
+      "createdAt" TIMESTAMPTZ DEFAULT NOW(),
+      "repliedAt" TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS comment_autoreply_log_user_idx ON comment_autoreply_log ("userId", status, "createdAt" DESC);
+    CREATE INDEX IF NOT EXISTS comment_autoreply_log_person_idx ON comment_autoreply_log ("pageId", "postId", "fromId");
+  `);
+
   // ── Segredos da plataforma (ex.: login da MCC). Tabela própria: NÃO é app_settings,
   //    que o painel admin lista por inteiro. Nunca devolver o valor por API. ──────────
   await pool.query(`
