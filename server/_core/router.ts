@@ -782,14 +782,19 @@ async function resolveGoogleAdsRuntimeContext(integration: any) {
   let loginCustomerId = configuredLoginCustomerId || undefined;
 
   try {
-    const identity = await googleAdsPost<any>(
-      "googleAds:search",
-      { query: "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1" },
-      accessToken,
-      developerToken,
-      customerId,
-      loginCustomerId,
-    );
+    const identityQuery = { query: "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1" };
+    let identity: any;
+    try {
+      identity = await googleAdsPost<any>("googleAds:search", identityQuery, accessToken, developerToken, customerId, loginCustomerId);
+    } catch (firstError: any) {
+      // Um login-customer-id que nao administra esta conta (ex.: variavel global apontando
+      // para um MCC sem a conta vinculada) gera 403 USER_PERMISSION_DENIED. Tenta acesso direto.
+      const negado = /USER_PERMISSION_DENIED|PERMISSION_DENIED/i.test(String(firstError?.message || ""));
+      if (!loginCustomerId || !negado) throw firstError;
+      log.warn("google", "login-customer-id sem permissao; tentando sem ele", { customerId, loginCustomerId });
+      loginCustomerId = undefined;
+      identity = await googleAdsPost<any>("googleAds:search", identityQuery, accessToken, developerToken, customerId, undefined);
+    }
 
     const isManager = Boolean(identity.results?.[0]?.customer?.manager);
     if (!isManager) {
