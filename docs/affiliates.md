@@ -9,6 +9,9 @@ Parceiro indica a MecProAI e recebe comissao sobre a assinatura do indicado.
 - Reembolso total (`charge.refunded`): comissao pendente e cancelada; se ja paga, vira `clawback` e e descontada do proximo repasse. Reembolso parcial so gera nota para revisao manual.
 - Credito de midia (`wallet_deposit`) nao gera comissao: so faturas de assinatura (`invoice.payment_succeeded`).
 
+## Regras editaveis
+Percentual (`commissionPct`), numero de pagamentos (`maxPayments`) e carencia (`holdDays`, minimo 7) sao definidos por parceiro: na criacao e depois em `/admin/affiliates` ("Editar regras", `trpc.affiliates.update`). A mudanca vale so para comissoes futuras; as ja geradas mantem valor e data de liberacao.
+
 ## Fluxo
 1. Admin cria o parceiro (`trpc.affiliates.create`) e recebe o link `https://www.mecproai.com/register?ref=CODIGO`.
 2. `main.tsx` guarda `?ref=` em localStorage (`mp_ref`); `Register.tsx` envia `ref` em `auth.register`; `attachReferral` vincula o usuario (1 parceiro por usuario, sem auto-indicacao, nunca bloqueia cadastro).

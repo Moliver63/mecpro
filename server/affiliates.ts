@@ -111,6 +111,32 @@ export async function createAffiliate(input: {
 }
 
 /**
+ * Edita regras e dados do parceiro. Percentual, numero de pagamentos e carencia
+ * valem para comissoes FUTURAS: as ja geradas guardam o valor e a data de
+ * liberacao calculados na epoca (nao muda retroativamente o que foi combinado).
+ */
+export async function updateAffiliate(id: number, input: {
+  name?: string; email?: string | null; pixKey?: string | null;
+  commissionPct?: number; maxPayments?: number; holdDays?: number;
+}) {
+  const pool = await getPool();
+  if (!pool) throw new Error("Banco indisponivel");
+  const sets: string[] = [];
+  const vals: any[] = [id];
+  const add = (col: string, v: any) => { vals.push(v); sets.push(`"${col}" = $${vals.length}`); };
+  if (input.name !== undefined) add("name", input.name.trim());
+  if (input.email !== undefined) add("email", input.email || null);
+  if (input.pixKey !== undefined) add("pixKey", input.pixKey || null);
+  if (input.commissionPct !== undefined) add("commissionPct", input.commissionPct);
+  if (input.maxPayments !== undefined) add("maxPayments", input.maxPayments);
+  if (input.holdDays !== undefined) add("holdDays", Math.max(7, input.holdDays));
+  if (!sets.length) throw new Error("Nada para atualizar");
+  const r = await pool.query(`UPDATE affiliates SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, vals);
+  if (!r.rows[0]) throw new Error("Parceiro nao encontrado");
+  return r.rows[0];
+}
+
+/**
  * Vincula o usuario ao parceiro do codigo. Nunca lanca erro: indicacao nao pode
  * bloquear cadastro. Ignora codigo inexistente/inativo, usuario ja vinculado e
  * auto-indicacao (mesmo e-mail do parceiro).

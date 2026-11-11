@@ -14,6 +14,7 @@ import {
   createAffiliate,
   listCommissions,
   markAffiliatePaid,
+  updateAffiliate,
   MIN_PAYOUT_CENTS,
 } from "../affiliates";
 import { getPool } from "../db";
@@ -57,6 +58,25 @@ export const affiliatesRouter = router({
         return await markAffiliatePaid(input.affiliateId, input.payoutRef);
       } catch (e: any) {
         throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "Nao foi possivel registrar o repasse" });
+      }
+    }),
+
+  update: adminProcedure
+    .input(z.object({
+      affiliateId: z.number().int().positive(),
+      name: z.string().min(2).max(200).optional(),
+      email: z.string().email().or(z.literal("")).optional(),
+      pixKey: z.string().max(255).optional(),
+      commissionPct: z.number().int().min(1).max(50).optional(),
+      maxPayments: z.number().int().min(1).max(36).optional(),
+      holdDays: z.number().int().min(7).max(90).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { affiliateId, ...rest } = input;
+      try {
+        return await updateAffiliate(affiliateId, rest);
+      } catch (e: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "Nao foi possivel atualizar" });
       }
     }),
 
