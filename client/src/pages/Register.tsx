@@ -18,7 +18,7 @@ export default function Register() {
   const [done, setDone] = useState(false);
 
   const register = trpc.auth.register.useMutation({
-    onSuccess: () => setDone(true),
+    onSuccess: () => { try { window.localStorage.removeItem("mp_ref"); } catch { /* ok */ } setDone(true); },
     onError: (err: any) => setError(err.message || "Erro ao criar conta"),
   });
 

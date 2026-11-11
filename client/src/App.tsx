@@ -105,6 +105,7 @@ import AdminPrograms from "@/pages/AdminPrograms";
 import AdminAppointments from "@/pages/AdminAppointments";
 import AdminCashbackRequests from "@/pages/AdminCashbackRequests";
 import AdminAffiliates from "@/pages/AdminAffiliates";
+import ReferralClaimer from "@/components/ReferralClaimer";
 import Afiliados from "@/pages/Afiliados";
 import AdminAccountSettings from "@/pages/AdminAccountSettings";
 import AdminRoles from "@/pages/AdminRoles";
@@ -310,6 +311,7 @@ export default function App() {
           <CampaignChat />
           <UIConfigLoader />
           <PWAInstallBanner />
+          <ReferralClaimer />
           <Toaster richColors position="top-right" />
         </QueryClientProvider>
       </trpc.Provider>
