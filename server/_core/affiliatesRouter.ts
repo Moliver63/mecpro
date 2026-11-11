@@ -10,8 +10,13 @@ import { z } from "zod";
 import { router, protectedProcedure, adminProcedure } from "./trpc";
 import {
   affiliateReport,
+  affiliateDashboard,
   attachReferral,
   createAffiliate,
+  getAffiliateByUser,
+  joinAsAffiliate,
+  updateMyAffiliate,
+  suggestCode,
   listCommissions,
   markAffiliatePaid,
   updateAffiliate,
@@ -86,6 +91,53 @@ export const affiliatesRouter = router({
       const pool = await getPool();
       await pool?.query(`UPDATE affiliates SET active = $2 WHERE id = $1`, [input.affiliateId, input.active]);
       return { success: true };
+    }),
+
+  /** Usuario logado: seu perfil de parceiro (se houver) e o painel de comissoes. */
+  me: protectedProcedure.query(async ({ ctx }) => {
+    const aff = await getAffiliateByUser(ctx.user.id);
+    if (!aff) {
+      return { affiliate: null, suggestedCode: suggestCode(String((ctx.user as any).name || "")), minPayoutCents: MIN_PAYOUT_CENTS };
+    }
+    return {
+      affiliate: {
+        code: aff.code, name: aff.name, pixKey: aff.pixKey, active: aff.active,
+        commissionPct: aff.commissionPct, maxPayments: aff.maxPayments, holdDays: aff.holdDays,
+        link: `https://www.mecproai.com/register?ref=${aff.code}`,
+      },
+      dashboard: await affiliateDashboard(aff.id),
+      minPayoutCents: MIN_PAYOUT_CENTS,
+    };
+  }),
+
+  /** Qualquer usuario logado vira parceiro (uma vez), com as regras padrao. */
+  join: protectedProcedure
+    .input(z.object({
+      name: z.string().min(2).max(200),
+      pixKey: z.string().min(3).max(255),
+      code: z.string().min(3).max(40).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const a = await joinAsAffiliate(ctx.user.id, {
+          name: input.name, pixKey: input.pixKey, code: input.code,
+          email: (ctx.user as any).email ?? null,
+        });
+        return { code: a.code, link: `https://www.mecproai.com/register?ref=${a.code}` };
+      } catch (e: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "Nao foi possivel cadastrar" });
+      }
+    }),
+
+  updateMine: protectedProcedure
+    .input(z.object({ name: z.string().min(2).max(200).optional(), pixKey: z.string().min(3).max(255).optional() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        await updateMyAffiliate(ctx.user.id, input);
+        return { success: true };
+      } catch (e: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "Nao foi possivel atualizar" });
+      }
     }),
 
   /** Usuario logado ainda sem indicacao e sem plano pago informa o codigo. */

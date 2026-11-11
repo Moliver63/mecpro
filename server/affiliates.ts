@@ -37,6 +37,9 @@ export const AFFILIATES_MIGRATION = `
     "createdAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
+  ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS "userId" INTEGER REFERENCES users(id) ON DELETE SET NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_affiliates_user ON affiliates("userId") WHERE "userId" IS NOT NULL;
+
   CREATE TABLE IF NOT EXISTS affiliate_referrals (
     id            SERIAL PRIMARY KEY,
     "affiliateId" INTEGER NOT NULL REFERENCES affiliates(id) ON DELETE CASCADE,
@@ -147,8 +150,9 @@ export async function attachReferral(userId: number, rawCode: string | null | un
     if (!code) return false;
     const pool = await getPool();
     if (!pool) return false;
-    const aff = await pool.query(`SELECT id, email FROM affiliates WHERE code = $1 AND active = TRUE LIMIT 1`, [code]);
+    const aff = await pool.query(`SELECT id, email, "userId" FROM affiliates WHERE code = $1 AND active = TRUE LIMIT 1`, [code]);
     if (!aff.rows[0]) return false;
+    if (aff.rows[0].userId && Number(aff.rows[0].userId) === Number(userId)) return false;
     const usr = await pool.query(`SELECT email FROM users WHERE id = $1 LIMIT 1`, [userId]);
     const userEmail = String(usr.rows[0]?.email || "").toLowerCase();
     if (aff.rows[0].email && userEmail && String(aff.rows[0].email).toLowerCase() === userEmail) return false;
@@ -327,4 +331,81 @@ export async function markAffiliatePaid(affiliateId: number, payoutRef: string) 
   } finally {
     client.release();
   }
+}
+
+
+// ── Area do proprio afiliado (autoatendimento) ────────────────────────────
+
+/** Gera um codigo livre a partir do nome (ex.: "Maria Souza" -> MARIASOUZA, MARIASOUZA2...). */
+export function suggestCode(name: string): string {
+  const base = normalizeCode(
+    String(name || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ""),
+  ).slice(0, 20);
+  return base.length >= 3 ? base : "PARCEIRO";
+}
+
+export async function getAffiliateByUser(userId: number) {
+  const pool = await getPool();
+  if (!pool) return null;
+  const r = await pool.query(`SELECT * FROM affiliates WHERE "userId" = $1 LIMIT 1`, [userId]);
+  return r.rows[0] ?? null;
+}
+
+/**
+ * Qualquer usuario logado pode virar parceiro, uma vez. Entra com as regras padrao
+ * (10%, 3 pagamentos, 7 dias de carencia); o admin ajusta por parceiro depois.
+ */
+export async function joinAsAffiliate(userId: number, input: { name: string; email?: string | null; pixKey?: string | null; code?: string }) {
+  const pool = await getPool();
+  if (!pool) throw new Error("Banco indisponivel");
+  if (await getAffiliateByUser(userId)) throw new Error("Voce ja e parceiro");
+  const wanted = input.code ? normalizeCode(input.code) : "";
+  if (input.code && wanted.length < 3) throw new Error("Codigo invalido (minimo 3 caracteres)");
+  const base = wanted || suggestCode(input.name);
+  for (let i = 0; i < 20; i++) {
+    const code = i === 0 ? base : `${base.slice(0, 36)}${i + 1}`;
+    try {
+      const r = await pool.query(
+        `INSERT INTO affiliates (code, name, email, "pixKey", "userId") VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        [code, input.name.trim(), input.email ?? null, input.pixKey ?? null, userId],
+      );
+      return r.rows[0];
+    } catch (e: any) {
+      const dup = String(e?.message).includes("duplicate key");
+      if (!dup) throw e;
+      if (String(e?.message).includes("idx_affiliates_user")) throw new Error("Voce ja e parceiro");
+      if (wanted) throw new Error("Codigo ja existe, escolha outro");
+    }
+  }
+  throw new Error("Nao foi possivel gerar um codigo livre");
+}
+
+/** O parceiro so edita nome e Pix. Percentual e carencia sao do admin. */
+export async function updateMyAffiliate(userId: number, input: { name?: string; pixKey?: string | null }) {
+  const mine = await getAffiliateByUser(userId);
+  if (!mine) throw new Error("Voce ainda nao e parceiro");
+  return updateAffiliate(mine.id, { name: input.name, pixKey: input.pixKey });
+}
+
+/** Resumo para o painel do parceiro. Nao expoe dados dos indicados (so contagens e valores). */
+export async function affiliateDashboard(affiliateId: number) {
+  const pool = await getPool();
+  if (!pool) return null;
+  const rep = (await affiliateReport()).find((x: any) => x.id === affiliateId);
+  if (!rep) return null;
+  const recent = await pool.query(
+    `SELECT "paymentNumber", "commissionCents", status, "releaseAt", "paidAt", clawback, "createdAt"
+       FROM affiliate_commissions WHERE "affiliateId" = $1 ORDER BY "createdAt" DESC LIMIT 20`,
+    [affiliateId],
+  );
+  return {
+    referrals: rep.referrals,
+    carenciaCents: rep.carenciaCents,
+    liberadoCents: rep.liberadoCents,
+    pagoCents: rep.pagoCents,
+    descontarCents: rep.descontarCents,
+    aPagarCents: rep.aPagarCents,
+    atingeMinimo: rep.atingeMinimo,
+    commissions: recent.rows,
+  };
 }

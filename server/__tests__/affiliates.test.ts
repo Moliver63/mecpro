@@ -28,3 +28,12 @@ test("normalizeCode limpa e padroniza", () => {
   assert.equal(normalizeCode("  joao silva!! "), "JOAOSILVA");
   assert.equal(normalizeCode("abc_123-x"), "ABC_123-X");
 });
+
+import { suggestCode } from "../affiliates";
+
+test("suggestCode gera codigo valido a partir do nome", () => {
+  assert.equal(suggestCode("Maria Souza"), "MARIASOUZA");
+  assert.equal(suggestCode("João da Conceição"), "JOAODACONCEICAO");
+  assert.equal(suggestCode("A"), "PARCEIRO");
+  assert.equal(suggestCode(""), "PARCEIRO");
+});
