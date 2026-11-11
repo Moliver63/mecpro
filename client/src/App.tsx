@@ -105,6 +105,7 @@ import AdminPrograms from "@/pages/AdminPrograms";
 import AdminAppointments from "@/pages/AdminAppointments";
 import AdminCashbackRequests from "@/pages/AdminCashbackRequests";
 import AdminAffiliates from "@/pages/AdminAffiliates";
+import Afiliados from "@/pages/Afiliados";
 import AdminAccountSettings from "@/pages/AdminAccountSettings";
 import AdminRoles from "@/pages/AdminRoles";
 import AdminPlanRequests from "@/pages/AdminPlanRequests";
@@ -224,6 +225,7 @@ export default function App() {
             <Route path="/profile"><ProtectedRoute><Profile /></ProtectedRoute></Route>
             <Route path="/edit-profile"><ProtectedRoute><EditProfile /></ProtectedRoute></Route>
             <Route path="/settings"><ProtectedRoute><Settings /></ProtectedRoute></Route>
+            <Route path="/afiliados"><ProtectedRoute><Afiliados /></ProtectedRoute></Route>
             <Route path="/settings/meta"><ProtectedRoute><MetaIntegration /></ProtectedRoute></Route>
             <Route path="/settings/google"><ProtectedRoute><GoogleAdsIntegration /></ProtectedRoute></Route>
             <Route path="/google-campaign/new"><ProtectedRoute><GoogleCampaignCreator /></ProtectedRoute></Route>

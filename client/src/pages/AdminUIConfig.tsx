@@ -39,7 +39,7 @@ const DEFAULTS: Record<string, boolean> = {
   showAcademy:         true,
   showAutonomousAgent: true,
   showLeaderboard:     true,
-  showAffiliate:       false,
+  showAffiliate:       true,
   showCashback:        false,
   enableMarketplace:   true,
   enableTikTok:        true,
