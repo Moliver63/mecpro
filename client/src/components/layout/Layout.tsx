@@ -35,6 +35,7 @@ const NAV_ADMIN = [
   { icon: "📋", label: "Pedidos Plano",      path: "/admin/plan-requests" },
   { icon: "◉",  label: "Financeiro",        path: "/admin/financeiro" },
   { icon: "✉",  label: "Caixa de Email",     path: "/admin/emails" },
+  { icon: "🤝", label: "Afiliados",          path: "/admin/affiliates" },
   { icon: "◷",  label: "Admins",            path: "/admin/manage-admins" },
   { icon: "🔑", label: "Permissões",         path: "/admin/roles" },
   { icon: "◻",  label: "Convites",          path: "/admin/invites" },
@@ -409,6 +410,10 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
               <NavItem
                 item={{ icon: "🔭", label: "Tokens IA", path: "/admin/tokens" }}
                 active={location.startsWith("/admin/tokens")}
+              />
+              <NavItem
+                item={{ icon: "🤝", label: "Afiliados", path: "/admin/affiliates" }}
+                active={location.startsWith("/admin/affiliates")}
               />
             </>
           )}
