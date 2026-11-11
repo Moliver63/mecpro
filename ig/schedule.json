@@ -29,7 +29,7 @@
   "urls": [
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-12-reels-sinais/video.mp4"
   ],
-  "status": "aguardando_aprovacao"
+  "status": "aprovado"
  },
  {
   "slug": "2026-11-13-checklist-publicar",
@@ -54,7 +54,7 @@
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-13-checklist-publicar/06.jpg",
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-13-checklist-publicar/07.jpg"
   ],
-  "status": "aguardando_aprovacao"
+  "status": "aprovado"
  },
  {
   "slug": "2026-11-14-ganchos",
@@ -67,7 +67,7 @@
   "urls": [
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-14-ganchos/01.jpg"
   ],
-  "status": "aguardando_aprovacao"
+  "status": "aprovado"
  },
  {
   "slug": "2026-11-15-bastidores",
@@ -90,7 +90,7 @@
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-15-bastidores/05.jpg",
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-15-bastidores/06.jpg"
   ],
-  "status": "aguardando_aprovacao"
+  "status": "aprovado"
  },
  {
   "slug": "2026-11-16-reels-mito",
@@ -103,7 +103,7 @@
   "urls": [
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-16-reels-mito/video.mp4"
   ],
-  "status": "aguardando_aprovacao"
+  "status": "aprovado"
  },
  {
   "slug": "2026-11-17-objetivo",
@@ -126,6 +126,6 @@
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-17-objetivo/05.jpg",
    "https://raw.githubusercontent.com/Moliver63/mecpro/social-assets/ig/2026-11-17-objetivo/06.jpg"
   ],
-  "status": "aguardando_aprovacao"
+  "status": "aprovado"
  }
 ]
