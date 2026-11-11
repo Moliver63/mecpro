@@ -24,6 +24,32 @@
 import { getPool } from "./db";
 
 export const AFFILIATES_MIGRATION = `
+  -- Esquema legado de afiliados (snake_case, coluna ref_code): existia no banco antes
+  -- do programa atual. Com ele presente, os CREATE IF NOT EXISTS abaixo eram pulados e
+  -- os indices falhavam, revertendo a migracao inteira. Se o legado estiver VAZIO,
+  -- remove para dar lugar ao esquema atual. Com dados, nada e apagado: a migracao
+  -- volta a falhar e o aviso aparece no log para tratarmos manualmente.
+  DO $mig$
+  DECLARE
+    n BIGINT := 0;
+    m BIGINT := 0;
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'affiliates' AND column_name = 'ref_code') THEN
+      EXECUTE 'SELECT COUNT(*) FROM affiliates' INTO n;
+      IF to_regclass('public.affiliate_commissions') IS NOT NULL THEN
+        EXECUTE 'SELECT COUNT(*) FROM affiliate_commissions' INTO m;
+      END IF;
+      IF n = 0 AND m = 0 THEN
+        DROP TABLE IF EXISTS affiliate_clicks;
+        DROP TABLE IF EXISTS affiliate_commissions;
+        DROP TABLE IF EXISTS affiliates CASCADE;
+        RAISE NOTICE 'affiliates: esquema legado vazio removido';
+      END IF;
+    END IF;
+  END
+  $mig$;
+
   CREATE TABLE IF NOT EXISTS affiliates (
     id              SERIAL PRIMARY KEY,
     code            VARCHAR(40) NOT NULL UNIQUE,
