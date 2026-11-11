@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 
+// Codigo de parceiro: vem de ?ref= (guardado por captureReferral no main.tsx) ou da URL atual.
+function readReferral(): string | undefined {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("ref");
+    const code = fromUrl || window.localStorage.getItem("mp_ref") || "";
+    return code ? code.slice(0, 60) : undefined;
+  } catch { return undefined; }
+}
+
 export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -18,7 +27,7 @@ export default function Register() {
     setError("");
     if (!name || !email || !password) return setError("Preencha todos os campos");
     if (password.length < 8) return setError("Senha deve ter no mínimo 8 caracteres");
-    register.mutate({ name, email, password });
+    register.mutate({ name, email, password, ref: readReferral() });
   };
 
   if (done) return (

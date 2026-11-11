@@ -38,6 +38,7 @@ import { siteAnalyticsRouter } from "./siteAnalyticsRouter";
 import { vslRouter } from "./vslRouter";
 import { fineTuningRouter } from "./fineTuningRouter";
 import { salesRouter } from "./salesRouter";
+import { affiliatesRouter } from "./affiliatesRouter";
 import { buildMecproUrlTags, shouldApplyUrlTags } from "../salesWebhookParsing";
 import { scoreCreative } from "../creativeScoringEngine";
 import { getCarouselEditorialIssues } from "../../shared/campaignCopyQuality";
@@ -893,12 +894,16 @@ export const rhProcedure = t.procedure.use(({ ctx, next }) => {
 // ============ AUTH ROUTER ============
 const authRouter = router({
   register: publicProcedure
-    .input(z.object({ email: z.string().email(), password: z.string().min(8), name: z.string().min(2) }))
+    .input(z.object({ email: z.string().email(), password: z.string().min(8), name: z.string().min(2), ref: z.string().max(60).optional() }))
     .mutation(async ({ input }) => {
       log.auth("register", "Attempt", { email: input.email });
       const user = await db.registerUser(input.email, input.password, input.name);
       log.auth("register", "User created", { userId: (user as any)!.id });
       if (!user) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      if (input.ref) {
+        const { attachReferral } = await import("../affiliates");
+        await attachReferral((user as any).id, input.ref); // nunca bloqueia o cadastro
+      }
       try {
         const verifyToken = await db.createEmailVerificationToken((user as any)!.id);
         const { sendVerificationEmail } = await import("../email");
@@ -15076,6 +15081,7 @@ export const appRouter = router({
   academy: academyRouter,
   fineTuning: fineTuningRouter,
   sales: salesRouter,
+  affiliates: affiliatesRouter,
   intelligence:   adminIntelligenceRouter,
   siteAnalytics:  siteAnalyticsRouter,
   vsl:            vslRouter,   // ← ADICIONAR ESTA LINHA

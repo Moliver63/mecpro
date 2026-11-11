@@ -104,6 +104,7 @@ import AdminCourseLessons from "@/pages/AdminCourseLessons";
 import AdminPrograms from "@/pages/AdminPrograms";
 import AdminAppointments from "@/pages/AdminAppointments";
 import AdminCashbackRequests from "@/pages/AdminCashbackRequests";
+import AdminAffiliates from "@/pages/AdminAffiliates";
 import AdminAccountSettings from "@/pages/AdminAccountSettings";
 import AdminRoles from "@/pages/AdminRoles";
 import AdminPlanRequests from "@/pages/AdminPlanRequests";
@@ -281,6 +282,7 @@ export default function App() {
             <Route path="/admin/programs"><ProtectedRoute role="admin"><AdminPrograms /></ProtectedRoute></Route>
             <Route path="/admin/appointments"><ProtectedRoute role="admin"><AdminAppointments /></ProtectedRoute></Route>
             <Route path="/admin/cashback-requests"><ProtectedRoute role="admin"><AdminCashbackRequests /></ProtectedRoute></Route>
+            <Route path="/admin/affiliates"><ProtectedRoute role="admin"><AdminAffiliates /></ProtectedRoute></Route>
             <Route path="/admin/account-settings"><ProtectedRoute role="admin"><AdminAccountSettings /></ProtectedRoute></Route>
             <Route path="/admin/roles"><ProtectedRoute role="admin"><AdminRoles /></ProtectedRoute></Route>
             <Route path="/admin/plan-requests"><ProtectedRoute role="admin"><AdminPlanRequests /></ProtectedRoute></Route>
