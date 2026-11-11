@@ -409,10 +409,12 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
               />
               <NavItem
                 item={{ icon: "🔭", label: "Tokens IA", path: "/admin/tokens" }}
+                collapsed={collapsed}
                 active={location.startsWith("/admin/tokens")}
               />
               <NavItem
                 item={{ icon: "🤝", label: "Afiliados", path: "/admin/affiliates" }}
+                collapsed={collapsed}
                 active={location.startsWith("/admin/affiliates")}
               />
             </>
