@@ -877,6 +877,38 @@ app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async
       }
     }
 
+    // ── Programa de parceiros: comissao da fatura paga (nunca bloqueia o webhook) ──
+    if (event.type === 'invoice.payment_succeeded') {
+      try {
+        const { recordCommissionFromInvoice } = await import('../affiliates.js');
+        const inv = event.data.object as any;
+        const created = await recordCommissionFromInvoice({
+          id: inv.id, customer: typeof inv.customer === 'string' ? inv.customer : inv.customer?.id,
+          amount_paid: inv.amount_paid,
+          payment_intent: typeof inv.payment_intent === 'string' ? inv.payment_intent : inv.payment_intent?.id,
+          created: inv.status_transitions?.paid_at ?? inv.created,
+        });
+        if (created) log.info('stripe', '🤝 Comissao de parceiro registrada', { invoiceId: inv.id, commissionCents: created.commissionCents });
+      } catch (err: any) {
+        log.warn('stripe', 'Falha ao registrar comissao de parceiro', { error: err?.message });
+      }
+    }
+
+    // ── Programa de parceiros: reembolso cancela/estorna a comissao ──
+    if (event.type === 'charge.refunded') {
+      try {
+        const { handleChargeRefunded } = await import('../affiliates.js');
+        const ch = event.data.object as any;
+        await handleChargeRefunded({
+          invoice: typeof ch.invoice === 'string' ? ch.invoice : ch.invoice?.id,
+          payment_intent: typeof ch.payment_intent === 'string' ? ch.payment_intent : ch.payment_intent?.id,
+          amount: ch.amount, amount_refunded: ch.amount_refunded, refunded: ch.refunded,
+        });
+      } catch (err: any) {
+        log.warn('stripe', 'Falha ao tratar reembolso de parceiro', { error: err?.message });
+      }
+    }
+
     // ── Assinatura cancelada ou com falha ─────────────────────────────────
     if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
       const obj = event.data.object as any;

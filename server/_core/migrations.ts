@@ -1186,5 +1186,12 @@ export async function runMigrations(): Promise<void> {
     } catch (err: any) {
       console.warn('[migrations] sales tables skipped:', err?.message);
     }
+    // ── Programa de parceiros (comissao sobre mensalidade) — aditiva, nao derruba o boot ──
+    try {
+      const { AFFILIATES_MIGRATION } = await import('../affiliates');
+      await pool.query(AFFILIATES_MIGRATION);
+    } catch (err: any) {
+      console.warn('[migrations] affiliates tables skipped:', err?.message);
+    }
     console.log('[migrations] ✅ Migrations applied successfully');
 }
