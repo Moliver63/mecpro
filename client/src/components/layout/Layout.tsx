@@ -16,6 +16,7 @@ const NAV_USER = [
   { icon: "🛒", label: "Marketplace",        path: "/marketplace",       key: "showMarketplace",        alwaysVisible: false },
   { icon: "⊙",  label: "Academia",          path: "/academy",           key: "showAcademy",            alwaysVisible: false },
   { icon: "🤝", label: "Afiliados",         path: "/afiliados",         key: "showAffiliate",          alwaysVisible: false },
+  { icon: "💬", label: "Comentários",       path: "/comentarios",       key: "showComentarios",        alwaysVisible: false },
   { icon: "◻",  label: "Notificações",      path: "/notifications",     key: "notifications",          alwaysVisible: false },
   { icon: "◷",  label: "Mensagens",         path: "/messages",          key: "messages",               alwaysVisible: false },
   { icon: "⊘",  label: "Assinatura",        path: "/my-subscription",   key: "my-subscription",        alwaysVisible: false },
@@ -298,7 +299,7 @@ export default function Layout({ children, public: isPublic }: LayoutProps) {
   const VISIBLE_BY_DEFAULT = new Set([
     "showMarketplace", "showAcademy", "showAutonomousAgent",
     "enableTikTok", "enableGoogle", "financeiro",
-    "notifications", "messages", "my-subscription", "meta-campaigns", "showAffiliate",
+    "notifications", "messages", "my-subscription", "meta-campaigns", "showAffiliate", "showComentarios",
   ]);
   const allUserItems = NAV_USER.filter(item => {
     if (item.alwaysVisible) return true;

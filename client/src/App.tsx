@@ -107,6 +107,7 @@ import AdminCashbackRequests from "@/pages/AdminCashbackRequests";
 import AdminAffiliates from "@/pages/AdminAffiliates";
 import ReferralClaimer from "@/components/ReferralClaimer";
 import Afiliados from "@/pages/Afiliados";
+import Comentarios from "@/pages/Comentarios";
 import AdminAccountSettings from "@/pages/AdminAccountSettings";
 import AdminRoles from "@/pages/AdminRoles";
 import AdminPlanRequests from "@/pages/AdminPlanRequests";
@@ -227,6 +228,7 @@ export default function App() {
             <Route path="/edit-profile"><ProtectedRoute><EditProfile /></ProtectedRoute></Route>
             <Route path="/settings"><ProtectedRoute><Settings /></ProtectedRoute></Route>
             <Route path="/afiliados"><ProtectedRoute><Afiliados /></ProtectedRoute></Route>
+            <Route path="/comentarios"><ProtectedRoute><Comentarios /></ProtectedRoute></Route>
             <Route path="/settings/meta"><ProtectedRoute><MetaIntegration /></ProtectedRoute></Route>
             <Route path="/settings/google"><ProtectedRoute><GoogleAdsIntegration /></ProtectedRoute></Route>
             <Route path="/google-campaign/new"><ProtectedRoute><GoogleCampaignCreator /></ProtectedRoute></Route>

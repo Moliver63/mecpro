@@ -45,6 +45,13 @@ export function extrairComentarios(body: any): ComentarioRecebido[] {
   return saida;
 }
 
+/** Paginas que o usuario administra (id e nome), para a tela de comentarios. */
+export async function listarPaginas(userToken: string): Promise<Array<{ id: string; nome: string }>> {
+  const res = await fetch(`${GRAPH}/me/accounts?fields=id,name&limit=100&access_token=${encodeURIComponent(userToken)}`, { signal: AbortSignal.timeout(8000) });
+  const data: any = await res.json().catch(() => ({}));
+  return (data?.data || []).map((p: any) => ({ id: String(p.id), nome: String(p.name || p.id) }));
+}
+
 export async function obterTokenPagina(userToken: string, pageId: string): Promise<string | null> {
   const res = await fetch(`${GRAPH}/me/accounts?fields=id,access_token&limit=100&access_token=${encodeURIComponent(userToken)}`, { signal: AbortSignal.timeout(8000) });
   const data: any = await res.json().catch(() => ({}));
