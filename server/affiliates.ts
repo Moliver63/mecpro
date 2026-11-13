@@ -326,29 +326,44 @@ export async function markAffiliatePaid(affiliateId: number, payoutRef: string) 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const sums = await client.query(
-      `SELECT
-         COALESCE(SUM("commissionCents") FILTER (WHERE status = 'pending' AND "releaseAt" <= NOW()), 0)::int AS liberado,
-         COALESCE(SUM("commissionCents") FILTER (WHERE status = 'paid' AND clawback), 0)::int AS descontar
-       FROM affiliate_commissions WHERE "affiliateId" = $1`,
+    // Trava as linhas do parceiro antes de somar: duas chamadas simultaneas (duplo
+    // clique, duas abas) nao podem ler o mesmo saldo. A segunda espera a primeira
+    // terminar, recalcula sobre o que sobrou e falha no minimo, em vez de responder
+    // sucesso sem ter marcado nada e de limpar clawbacks duas vezes.
+    const locked = await client.query(
+      `SELECT id, "commissionCents", status, clawback
+         FROM affiliate_commissions
+        WHERE "affiliateId" = $1
+          AND ((status = 'pending' AND "releaseAt" <= NOW()) OR (status = 'paid' AND clawback))
+        FOR UPDATE`,
       [affiliateId],
     );
-    const aPagar = Math.max(0, sums.rows[0].liberado - sums.rows[0].descontar);
+    const pendentes = locked.rows.filter((r: any) => r.status === "pending");
+    const clawbacks = locked.rows.filter((r: any) => r.status === "paid" && r.clawback);
+    const liberado = pendentes.reduce((acc: number, r: any) => acc + Number(r.commissionCents), 0);
+    const descontar = clawbacks.reduce((acc: number, r: any) => acc + Number(r.commissionCents), 0);
+    const aPagar = Math.max(0, liberado - descontar);
     if (aPagar < MIN_PAYOUT_CENTS) {
       await client.query("ROLLBACK");
       throw new Error(`Valor a pagar abaixo do minimo (R$ ${(MIN_PAYOUT_CENTS / 100).toFixed(2)})`);
     }
+    // Marca por id (somente as linhas travadas acima), nunca por predicado solto.
     const upd = await client.query(
       `UPDATE affiliate_commissions SET status = 'paid', "paidAt" = NOW(), "payoutRef" = $2
-        WHERE "affiliateId" = $1 AND status = 'pending' AND "releaseAt" <= NOW()`,
-      [affiliateId, payoutRef.slice(0, 255)],
+        WHERE id = ANY($1::int[]) AND status = 'pending'`,
+      [pendentes.map((r: any) => r.id), payoutRef.slice(0, 255)],
     );
-    // clawbacks ja descontados neste repasse deixam de contar
-    await client.query(
-      `UPDATE affiliate_commissions SET clawback = FALSE, note = COALESCE(note || E'\\n','') || 'Descontada no repasse ' || $2
-        WHERE "affiliateId" = $1 AND status = 'paid' AND clawback = TRUE`,
-      [affiliateId, payoutRef.slice(0, 100)],
-    );
+    if ((upd.rowCount ?? 0) !== pendentes.length) {
+      await client.query("ROLLBACK");
+      throw new Error("Estado das comissoes mudou durante o repasse; recarregue e tente de novo");
+    }
+    if (clawbacks.length) {
+      await client.query(
+        `UPDATE affiliate_commissions SET clawback = FALSE, note = COALESCE(note || E'\\n','') || 'Descontada no repasse ' || $2
+          WHERE id = ANY($1::int[]) AND clawback = TRUE`,
+        [clawbacks.map((r: any) => r.id), payoutRef.slice(0, 100)],
+      );
+    }
     await client.query("COMMIT");
     return { paidCents: aPagar, commissions: upd.rowCount ?? 0 };
   } catch (e) {
