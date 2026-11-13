@@ -7,6 +7,7 @@ import { criarStateAds, montarUrlAutorizacaoAds, stateAdsValido, trocarAuthCode 
 import { escoposTikTok } from "../tiktokOAuth";
 import { prepararGaql, limitarResposta } from "../googleAdsGaql";
 import { extrairUrlDestino } from "../tiktokDestino";
+import { escolherContaFilha } from "../googleContas";
 import { decidir as decidirComentario } from "../comentariosAutoResposta";
 import { obterTokenPagina, responderComentario } from "../metaComentarios";
 import { resolverConfigMcc, urlAutorizacaoMcc, mccEstaNaLista, SEGREDO_MCC_TOKEN, SEGREDO_MCC_ID, normalizarCustomerId, lerConfigMcc, operacaoConvite, gaqlVinculo, interpretarVinculo, decidirPosse } from "../googleAdsMcc";
@@ -680,7 +681,16 @@ async function getGoogleAccessToken(integration: {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
   const data: any = await resp.json();
-  if (!data.access_token) throw new Error("Google OAuth falhou: " + JSON.stringify(data));
+  if (!data.access_token) {
+    if (String(data?.error || "") === "invalid_grant") {
+      // Refresh token revogado ou expirado: pedir reconexao, nao um erro generico.
+      throw new TRPCError({
+        code: "UNAUTHORIZED",
+        message: "🔑 Acesso ao Google revogado ou expirado. Reconecte a conta Google em Configuracoes → Google Ads e tente novamente.",
+      });
+    }
+    throw new Error("Google OAuth falhou: " + JSON.stringify(data));
+  }
   return data.access_token;
 }
 
@@ -813,21 +823,32 @@ async function resolveGoogleAdsRuntimeContext(integration: any) {
       loginCustomerId || customerId,
     );
 
-    const childCustomerIds = (hierarchy.results || [])
-      .map((row: any) => String(row.customerClient?.id ?? row.customer_client?.id ?? "").replace(/\D/g, ""))
-      .filter(Boolean);
+    const contasFilhas = (hierarchy.results || [])
+      .map((row: any) => {
+        const c = row.customerClient ?? row.customer_client ?? {};
+        return { id: String(c.id ?? "").replace(/\D/g, ""), nome: c.descriptiveName ?? c.descriptive_name };
+      })
+      .filter((c: any) => c.id);
+    const childCustomerIds = contasFilhas.map((c: any) => c.id);
 
-    if (childCustomerIds[0]) {
-      return {
-        accessToken,
-        developerToken,
-        customerId: childCustomerIds[0],
-        loginCustomerId: customerId,
-        isManager: true,
-        managerCustomerId: customerId,
-        childCustomerIds,
-      };
+    // Nunca assumir uma conta que o usuario nao escolheu: com uma filha unica segue
+    // automatico; com varias, exige childCustomerId na integracao; escolha invalida falha.
+    const escolha = escolherContaFilha(contasFilhas, (integration as any).childCustomerId);
+    if (!escolha.ok) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: escolha.mensagem });
     }
+    if (escolha.automatica) {
+      log.info("google", "MCC com conta filha unica; usando-a", { mcc: customerId, conta: escolha.id });
+    }
+    return {
+      accessToken,
+      developerToken,
+      customerId: escolha.id,
+      loginCustomerId: customerId,
+      isManager: true,
+      managerCustomerId: customerId,
+      childCustomerIds,
+    };
 
     return {
       accessToken,
@@ -839,6 +860,7 @@ async function resolveGoogleAdsRuntimeContext(integration: any) {
       childCustomerIds,
     };
   } catch (error: any) {
+    if (error instanceof TRPCError) throw error; // decisao de conta e reconexao nunca degradam em silencio
     log.warn("google", "resolveGoogleAdsRuntimeContext fallback", {
       customerId,
       preview: String(error?.message || "").slice(0, 200),
