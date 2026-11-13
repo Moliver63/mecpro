@@ -10959,6 +10959,15 @@ const googleCampaignsRouter = router({
 
 // ── Auto-resposta de comentarios (Meta). Modo sugestao: o usuario aprova cada resposta. ──
 const comentariosRouter = router({
+  /** Paginas Meta que o usuario administra, para escolher onde ativar a funcao. */
+  paginas: protectedProcedure.query(async ({ ctx }) => {
+    const integration = await db.getApiIntegration(ctx.user.id, "meta").catch(() => null) as any;
+    if (!integration?.accessToken) return { conectado: false, paginas: [] as Array<{ id: string; nome: string }> };
+    const { listarPaginas } = await import("../metaComentarios");
+    const paginas = await listarPaginas(integration.accessToken).catch(() => []);
+    return { conectado: true, paginas };
+  }),
+
   config: protectedProcedure
     .input(z.object({ pageId: z.string().min(1).max(40) }))
     .query(async ({ ctx, input }) => {
