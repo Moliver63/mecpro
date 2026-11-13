@@ -3363,3 +3363,10 @@ sao tratadas: a Meta nao permite responder a quem so curtiu.
 - NAO feito: modo automatico (falta fila com atraso que sobreviva a restart), tela de aprovacao, ferramentas MCP,
   mensagem privada (DM), permissao `pages_manage_engagement` no login Meta (hoje o scope nao a pede; precisa App
   Review), confirmar se comentarios de anuncios patrocinados chegam pelo webhook `feed`.
+
+
+## Afiliados: autoatendimento e correcoes (2026-11-13)
+- Area do usuario em `/afiliados` (cadastro proprio, link, painel, Pix); detalhes em docs/affiliates.md.
+- Migracao convive com esquema legado (remove apenas quando vazio); aplicada e verificada em producao em 11/11.
+- `markAffiliatePaid` idempotente sob concorrencia (FOR UPDATE, marcacao por id).
+- docs/affiliates.md reconciliado: menu e captura de ref no login Google ja existem.
