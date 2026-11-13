@@ -21,7 +21,16 @@ Percentual (`commissionPct`), numero de pagamentos (`maxPayments`) e carencia (`
 ## Tabelas (aditivas, `AFFILIATES_MIGRATION` no boot)
 `affiliates`, `affiliate_referrals` (userId unico), `affiliate_commissions` (stripeInvoiceId unico).
 
+## Autoatendimento do parceiro (11/11/2026)
+Qualquer usuario logado pode virar parceiro sozinho, com as regras padrao (10%, 3 pagamentos, carencia 7):
+- Pagina `/afiliados` (item "Afiliados" no menu lateral, chave de visibilidade `showAffiliate`): formulario "Quero ser afiliado" (nome, Pix, codigo opcional), link de indicacao, painel (indicados, carencia, liberado, pago) e ultimas comissoes.
+- tRPC: `affiliates.me` (perfil + painel), `affiliates.join` (cadastro unico por usuario; `affiliates.userId`, migracao aditiva), `affiliates.updateMine` (parceiro so edita nome e Pix; percentual e carencia continuam so no admin).
+- Auto-indicacao bloqueada tambem por `userId`, nao so por e-mail.
+- Admin: `/admin/affiliates` tem link no menu do painel admin e no atalho Admin da sidebar comum.
+- Login Google captura o `ref` guardado em `mp_ref` (ReferralClaimer chama `affiliates.claim`; PR #72).
+- Migracao: o banco de producao tinha tabelas legadas de afiliados (snake_case, `ref_code`) que faziam o lote inteiro ser revertido. A `AFFILIATES_MIGRATION` remove o legado apenas quando vazio (confirmado aplicado em producao em 11/11; tabelas novas verificadas no banco).
+- `markAffiliatePaid` trava as linhas (`FOR UPDATE`) e marca por id: chamadas simultaneas nao geram repasse fantasma nem limpam clawback duas vezes.
+
 ## Pontos nao confirmados
 - Confirmar com um evento real que `invoice.customer` encontra o usuario por `users.stripeCustomerId`, e que `charge.invoice` / `charge.payment_intent` casam com a comissao no reembolso (a API do Stripe varia por versao).
-- Entrada por Google OAuth ainda nao captura `ref` automaticamente (usar `claim`).
-- Tela admin ainda sem link no menu lateral: acessar `/admin/affiliates`.
+- Fluxo de ponta a ponta ainda sem teste real: cadastro via `/afiliados`, indicacao por link, primeira fatura paga e repasse.
