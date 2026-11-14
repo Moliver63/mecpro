@@ -16,6 +16,8 @@ Para tarefas focadas, depois da leitura minima faca busca direcionada em `docs/`
 rg -n "termo_do_fluxo|nome_da_funcao|campanha|MCP|Meta|criativo|carrossel|learning|upload" docs
 ```
 
+Mudancas em schema/banco, guardas de verdade (Fact Guard, quality gates), publicacao, OAuth/MCP, dinheiro ou dados entre clientes passam pela revisao sem historico descrita em `docs/GOLDFISH_REVIEW.md` antes do commit.
+
 Regra pratica: exemplos, memoria e padroes vencedores podem orientar estrutura e estrategia, mas nunca devem emprestar fatos especificos de outra campanha, como preco, endereco, metragem, quantidade de suites, vagas, imagens, oferta ou publico.
 
 Nunca publicar ou republicar na Meta sem confirmacao explicita do usuario.
