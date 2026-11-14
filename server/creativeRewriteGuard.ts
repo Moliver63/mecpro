@@ -139,6 +139,77 @@ export function repairCreativeFields(original: any, response: unknown, facts: Ca
 }
 
 /**
+ * Escolhe a melhor reescrita entre candidatos de provedores diferentes.
+ *
+ * Cada candidato ja passou por `repairCreativeFields` (schema, placeholder e
+ * Fact Guard campo a campo), sempre a partir da MESMA base. Aqui so se
+ * ordena, de forma determinística:
+ *   1. Fact Guard do criativo INTEIRO aprovado (campo rejeitado preserva o
+ *      original, que pode ser justamente o que tinha a alegacao — por isso o
+ *      criativo inteiro vem antes da contagem de rejeitados)
+ *   2. menos campos rejeitados
+ *   3. menos problemas extras (headline/description repetida de outro card,
+ *      vocabulario de outro segmento) — no reparo de irmaos do carrossel, a
+ *      repeticao e o motivo da chamada
+ *   4. menos problemas de comprimento/formato (`creativeTextIssues`)
+ *   5. maior score
+ *   6. empate: a ordem de entrada (o primeiro e o provedor primario)
+ * Score e problemas extras entram por parametro pra funcao nao depender do
+ * motor de scoring nem do contexto da campanha.
+ * Ver docs/specs/2026-11-14-reescrita-multi-provedor.md.
+ */
+export type CandidatoReescrita = {
+  provedor: string;
+  candidate: any;
+  rejected: CreativeTextField[];
+  issues: string[];
+  accepted: string[];
+};
+
+export type ReescritaAvaliada = CandidatoReescrita & {
+  score: number; factOk: boolean; textIssues: number; extras: number;
+};
+
+export function avaliarReescrita(
+  c: CandidatoReescrita,
+  facts: CampaignFacts,
+  pontuar: (creative: any) => number,
+  problemasExtras: (creative: any) => number = () => 0,
+): ReescritaAvaliada {
+  return {
+    ...c,
+    score: pontuar(c.candidate),
+    factOk: validateCampaignFactIntegrity([c.candidate], facts).status === "passed",
+    textIssues: creativeTextIssues(c.candidate).length,
+    extras: problemasExtras(c.candidate),
+  };
+}
+
+/** Reescrita boa o bastante pra nao esperar o segundo provedor. */
+export function reescritaSuficiente(r: ReescritaAvaliada, limiarScore: number): boolean {
+  return r.factOk && !r.rejected.length && !r.extras && !r.textIssues && r.score >= limiarScore;
+}
+
+export function escolherMelhorReescrita(
+  candidatos: CandidatoReescrita[],
+  facts: CampaignFacts,
+  pontuar: (creative: any) => number,
+  problemasExtras: (creative: any) => number = () => 0,
+): ReescritaAvaliada | null {
+  if (!candidatos.length) return null;
+  const avaliados = candidatos.map((c, ordem) => ({ ...avaliarReescrita(c, facts, pontuar, problemasExtras), ordem }));
+  avaliados.sort((a, b) =>
+    Number(b.factOk) - Number(a.factOk)
+    || a.rejected.length - b.rejected.length
+    || a.extras - b.extras
+    || a.textIssues - b.textIssues
+    || b.score - a.score
+    || a.ordem - b.ordem);
+  const { ordem: _ordem, ...melhor } = avaliados[0];
+  return melhor;
+}
+
+/**
  * Corta texto no limite sem deixar fragmento feio.
  *
  * Preferencia: fim de frase; depois fronteira de palavra; nunca no meio da

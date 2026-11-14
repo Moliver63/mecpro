@@ -26,7 +26,7 @@ import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageForma
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { alinharObjetivosAninhados, formatoDeMidiaParaAuditoria } from "./campaignRuleRetrieval";
-import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, truncarCamposNoLimite, type CreativeTextField } from "./creativeRewriteGuard";
+import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, truncarCamposNoLimite, escolherMelhorReescrita, avaliarReescrita, reescritaSuficiente, type CandidatoReescrita, type CreativeTextField } from "./creativeRewriteGuard";
 import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
@@ -2617,6 +2617,68 @@ async function callGroqAPI(
   }
 
   return null;
+}
+
+// ── Groq como segundo candidato de reescrita de criativo ───────────────────
+// Diferente de callGroqAPI de proposito (revisao Goldfish, 14/11):
+//  - modelo fixo 120b, SEM cair no gpt-oss-20b: o 20b trunca o prompt em 800
+//    caracteres e perde fatos, limites e "mantenha a oferta"; um texto
+//    generico e limpo venceria o Gemini por score.
+//  - sem retry nem espera de 5s em 429: e candidato extra, nao fallback.
+//  - cancelavel de verdade (AbortSignal), pra quem chama poder desistir.
+//  - no maximo 2 em voo: geracao com 8 cards fracos nao pode secar as chaves
+//    que o fallback do gemini() usa.
+// Ver docs/specs/2026-11-14-reescrita-multi-provedor.md.
+const GROQ_REWRITE_MODEL = "openai/gpt-oss-120b";
+const GROQ_REWRITE_MAX_EM_VOO = 2;
+let _groqRewriteEmVoo = 0;
+
+export function multiProviderRewriteEnabled(): boolean {
+  return String(process.env.COPY_MULTI_PROVIDER_REWRITE || "on").toLowerCase() !== "off"
+    && getLLMMode() !== "off";
+}
+
+async function callGroqRewriteCandidate(prompt: string, signal: AbortSignal): Promise<{ texto: string | null; motivo: string }> {
+  if (_groqRewriteEmVoo >= GROQ_REWRITE_MAX_EM_VOO) return { texto: null, motivo: "limite_em_voo" };
+  const apiKey = getAvailableGroqKey();
+  if (!apiKey) return { texto: null, motivo: "sem_chave" };
+  if (prompt.length > 25000) return { texto: null, motivo: "prompt_grande" };
+  _groqRewriteEmVoo++;
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: GROQ_REWRITE_MODEL,
+        temperature: 0.3,
+        // gpt-oss raciocina antes de responder: 2048 cortava o JSON (revisao 14/11)
+        max_tokens: 8192,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM_MECPRO },
+          { role: "user", content: prompt },
+        ],
+      }),
+      signal,
+    });
+    if (res.status === 429) { _groqRateLimited.set(apiKey, Date.now()); return { texto: null, motivo: "429" }; }
+    if (!res.ok) return { texto: null, motivo: `http_${res.status}` };
+    const data: any = await res.json().catch(() => null);
+    const text = data?.choices?.[0]?.message?.content || "";
+    if (!text) return { texto: null, motivo: `vazio_${data?.choices?.[0]?.finish_reason || "sem_motivo"}` };
+    trackLLMCall((data.usage?.prompt_tokens || 0) + (data.usage?.completion_tokens || 0));
+    logTokens({
+      provider: "groq", model: GROQ_REWRITE_MODEL, endpoint: "improve_creative_groq",
+      promptTokens: data.usage?.prompt_tokens || 0, completionTokens: data.usage?.completion_tokens || 0,
+      latencyMs: 0, temperature: 0.3, cacheHit: false, cacheType: "none", copyEngine: getCopyEngine(),
+    });
+    return { texto: text, motivo: "ok" };
+  } catch {
+    // abort ou rede: candidato extra simplesmente nao existe
+    return { texto: null, motivo: signal.aborted ? "abortado" : "rede" };
+  } finally {
+    _groqRewriteEmVoo--;
+  }
 }
 
 // ── Genspark API — fallback OpenAI-compatível com modelos avançados ─────────
@@ -9556,7 +9618,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
       // de erro — sem isso, não dava pra saber SE era JSON malformado,
       // resposta vazia, ou outra coisa, da próxima vez que acontecer.
       try {
-        const raw = await gemini(
+        const rewritePrompt =
           `Melhore este criativo de anúncio Meta Ads seguindo EXATAMENTE as recomendações.\n` +
           `RECOMENDAÇÕES: ${recs}\n\n` +
           repairFeedback +
@@ -9575,11 +9637,63 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
           `- script: SÓ se o criativo atual já tiver esse campo (roteiro de vídeo) — máx 900 caracteres, mire em até 780 pra ter folga. Mesma regra: nunca invente urgência, escassez ou exclusividade não confirmada aqui também.\n` +
           `- Mantenha o mesmo produto/oferta, apenas melhore a execução\n` +
           `- NUNCA invente números de vagas, unidades, contagens ou prazos específicos (ex: "apenas 50 vagas", "somente até sexta-feira", "últimas 48 horas") que não foram fornecidos pelo cliente. Se a recomendação pedir mais urgência, use gatilhos legítimos SEM dados numéricos inventados (benefício concreto, especificidade real da oferta, clareza do próximo passo) — jamais fabrique escassez ou prazo.\n` +
-          `Retorne APENAS um objeto JSON com headline, description, copy, hook, cta, pain e solution (mais script SE o criativo atual tiver esse campo): todos strings nao vazias. Nenhum outro campo, sem markdown.`,
-          { temperature: 0.3, jsonMode: true, maxOutputTokens: 1600, useCache: false, responseSchema: CREATIVE_REWRITE_RESPONSE_SCHEMA, _endpoint: "improve_creative" },
-        );
-        const improved = parseCreativeRewrite(String(raw));
-        const repair = repairCreativeFields(current, improved, facts, pendingFields);
+          `Retorne APENAS um objeto JSON com headline, description, copy, hook, cta, pain e solution (mais script SE o criativo atual tiver esse campo): todos strings nao vazias. Nenhum outro campo, sem markdown.`;
+        // Dois provedores, mesma base, mesma validacao; vence o melhor por
+        // criterio deterministico. Ver docs/specs/2026-11-14-reescrita-multi-provedor.md.
+        const base = current;
+        const extrasDe = (cand: any) =>
+          duplicateCreativeFields([...siblings, cand], siblings.length).length
+          + auditCreativeSegmentAlignment(cand, segment).length;
+        const pontuar = (cand: any) => scoreCreative(cand).finalScore;
+        const montar = (provedor: string, raw: string): CandidatoReescrita => {
+          const r = repairCreativeFields(base, parseCreativeRewrite(String(raw)), facts, pendingFields);
+          return { provedor, ...r };
+        };
+        const groqAbort = new AbortController();
+        const groqTeto = setTimeout(() => groqAbort.abort(), 12000);
+        const multi = multiProviderRewriteEnabled();
+        const groqPromise = multi
+          ? callGroqRewriteCandidate(rewritePrompt, groqAbort.signal).catch(() => ({ texto: null, motivo: "erro" }))
+          : Promise.resolve({ texto: null as string | null, motivo: "desligado" });
+        const candidatos: CandidatoReescrita[] = [];
+        let erroGemini: unknown = null;
+        let groqMotivo = "nao_esperado";
+        let escolhido: ReturnType<typeof escolherMelhorReescrita> = null;
+        try {
+          try {
+            const raw = await gemini(rewritePrompt,
+              { temperature: 0.3, jsonMode: true, maxOutputTokens: 1600, useCache: false, responseSchema: CREATIVE_REWRITE_RESPONSE_SCHEMA, _endpoint: "improve_creative" },
+            );
+            candidatos.push(montar("gemini", raw));
+          } catch (e) { erroGemini = e; }
+          // Gemini ja resolveu tudo: cancela o Groq e nao espera por ele. A
+          // requisicao ja enviada ainda pode ser cobrada pelo Groq.
+          if (candidatos.length && reescritaSuficiente(avaliarReescrita(candidatos[0], facts, pontuar, extrasDe), SCORE_THRESHOLD)) {
+            groqAbort.abort();
+            groqMotivo = "cancelado_gemini_suficiente";
+          } else {
+            const groq = await groqPromise;
+            groqMotivo = groq.motivo;
+            if (groq.texto) {
+              try { candidatos.push(montar("groq", groq.texto)); }
+              catch (e) { groqMotivo = `invalido: ${String((e as Error)?.message || e).slice(0, 120)}`; }
+            }
+          }
+          escolhido = escolherMelhorReescrita(candidatos, facts, pontuar, extrasDe);
+        } finally {
+          clearTimeout(groqTeto);
+        }
+        if (multi) {
+          // Sem texto de criativo no log. E a medicao da spec: quem venceu,
+          // e por que o Groq nao participou quando nao participou.
+          log.info("ai", "Reescrita escolhida", {
+            index, attempt, provedor: escolhido?.provedor || "nenhum", groq: groqMotivo,
+            gemini: erroGemini ? "falhou" : "ok",
+            candidatos: candidatos.map(c => ({ provedor: c.provedor, rejeitados: c.rejected.length, score: pontuar(c.candidate) })),
+          });
+        }
+        if (!escolhido) throw erroGemini ?? new Error("rewrite_invalid_json: nenhum provedor devolveu resposta");
+        const repair = escolhido;
         current = repair.candidate;
         current.segmentAlignmentIssues = auditCreativeSegmentAlignment(current, segment);
         const duplicateFields = duplicateCreativeFields([...siblings, current], siblings.length);

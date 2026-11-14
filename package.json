@@ -21,6 +21,7 @@
     "eval:pipeline": "cross-env NODE_OPTIONS=--import=tsx promptfoo eval -c eval/promptfooconfig.pipeline.yaml",
     "eval:rawmodel": "promptfoo eval -c eval/promptfooconfig.rawmodel.yaml",
     "eval:view": "promptfoo view",
+    "test:rewrite-selection": "tsx --test server/__tests__/creativeRewriteSelection.test.ts",
     "test:creative-scoring": "tsx --test server/__tests__/creativeScoringEngine.test.ts",
     "test:new-segments": "tsx --test server/__tests__/newSegments.test.ts",
     "test:tiktok-report": "tsx --test server/__tests__/tiktokRelatorio.test.ts",
