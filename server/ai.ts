@@ -24,9 +24,10 @@ import { deriveNicheFromProfile, nicheToHumanLabel } from "./nicheResolver";
 import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
+import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado } from "./ai-providers/cloudflareWorkersAI";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { alinharObjetivosAninhados, formatoDeMidiaParaAuditoria } from "./campaignRuleRetrieval";
-import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, truncarCamposNoLimite, escolherMelhorReescrita, avaliarReescrita, reescritaSuficiente, type CandidatoReescrita, type CreativeTextField } from "./creativeRewriteGuard";
+import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, truncarCamposNoLimite, escolherMelhorReescrita, avaliarReescrita, reescritaSuficiente, camposComErroObjetivo, extrairJsonDeResposta, motivoParaRecusarConserto, manterMelhorVersao, textoDeFatosConfirmados, CREATIVE_TEXT_LIMITS, type CandidatoReescrita, type CreativeTextField } from "./creativeRewriteGuard";
 import { completeGeminiText } from "./geminiResponse";
 import { buildOperationalLessonsContext } from "./systemMemory";
 import { evaluateCampaignQualityGates } from "../shared/campaignQualityGate";
@@ -2678,6 +2679,56 @@ async function callGroqRewriteCandidate(prompt: string, signal: AbortSignal): Pr
     return { texto: null, motivo: signal.aborted ? "abortado" : "rede" };
   } finally {
     _groqRewriteEmVoo--;
+  }
+}
+
+// ── Cloudflare Workers AI: conserto dirigido de campo ──────────────────────
+// So recebe os campos com erro objetivo (comprimento, placeholder, alegacao
+// nao confirmada, repeticao entre cards) e devolve so esses campos. A cota
+// gratis da Cloudflare (~10 mil neurons/dia) e a MESMA do FLUX (imagens) e do
+// fallback do chat: limite diario proprio, 3 em voo, 12s.
+// Ver docs/specs/2026-11-14-conserto-dirigido-cloudflare.md.
+const CF_FIX_MAX_EM_VOO = 3;
+let _cfFixEmVoo = 0;
+let _cfFixDia = "";
+let _cfFixUsadas = 0;
+
+export function targetedFixEnabled(): boolean {
+  return String(process.env.COPY_TARGETED_FIX || "on").toLowerCase() !== "off"
+    && getLLMMode() !== "off"
+    && cloudflareWorkersAIConfigurado();
+}
+
+function cfFixLimiteDiario(): number {
+  // Vazia no Render nao pode virar 0 e desligar em silencio.
+  const bruto = String(process.env.CLOUDFLARE_FIX_DAILY_LIMIT ?? "").trim();
+  const n = Number(bruto);
+  return bruto && Number.isFinite(n) && n >= 0 ? n : 40;
+}
+
+async function callCloudflareFieldFix(prompt: string): Promise<{ texto: string | null; motivo: string }> {
+  const hoje = new Date().toISOString().slice(0, 10);
+  if (_cfFixDia !== hoje) { _cfFixDia = hoje; _cfFixUsadas = 0; }
+  if (_cfFixUsadas >= cfFixLimiteDiario()) return { texto: null, motivo: "limite_diario" };
+  if (_cfFixEmVoo >= CF_FIX_MAX_EM_VOO) return { texto: null, motivo: "limite_em_voo" };
+  _cfFixEmVoo++;
+  _cfFixUsadas++;
+  try {
+    const data = await chamarCloudflareWorkersAI({
+      messages: [
+        { role: "system", content: "Voce corrige campos de anuncio Meta Ads em portugues do Brasil. Responda somente com um objeto JSON." },
+        { role: "user", content: prompt },
+      ],
+      maxTokens: 1024,
+      timeoutMs: 12000,
+    });
+    const texto = String(data?.choices?.[0]?.message?.content || "");
+    if (!texto.trim()) return { texto: null, motivo: "vazio" };
+    return { texto, motivo: "ok" };
+  } catch (e: any) {
+    return { texto: null, motivo: e?.name === "TimeoutError" || e?.name === "AbortError" ? "timeout" : `erro_${e?.status || "rede"}` };
+  } finally {
+    _cfFixEmVoo--;
   }
 }
 
@@ -9586,7 +9637,84 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     let attempts = 0;
     let repairFeedback = feedback;
     let pendingFields: CreativeTextField[] | undefined = fields;
+    const pontuar = (cand: any) => scoreCreative(cand).finalScore;
+    const extrasDe = (cand: any) =>
+      duplicateCreativeFields([...siblings, cand], siblings.length).length
+      + auditCreativeSegmentAlignment(cand, segment).length
+      + (hasResidualPlaceholder(cand) ? 1 : 0);
+    // Melhor versao entre tentativas (log real, campanha 810, 14/11: o card
+    // chegou a 73 na tentativa 1 e terminou em 65 porque a ultima versao
+    // sempre vencia). Mesma ordem da escolha entre provedores; pendentes no
+    // lugar de "rejeitados"; empate fica com a versao ja guardada.
+    // Ver docs/specs/2026-11-14-conserto-dirigido-cloudflare.md.
+    let melhor: { criativo: any; pendentes?: CreativeTextField[] } = { criativo: current, pendentes: pendingFields };
+    const registrarVersao = (cand: any, pend?: CreativeTextField[]) => {
+      melhor = manterMelhorVersao(melhor, { criativo: cand, pendentes: pend }, facts, pontuar, extrasDe);
+    };
+    // ── Conserto dirigido: so os campos com erro objetivo, via Cloudflare ──
+    // No maximo 2 por card (cota da Cloudflare e dividida com o FLUX).
+    const CONSERTOS_POR_CARD = 2;
+    let consertosUsados = 0;
+    const fatosTexto = formatCampaignFactsForPrompt(facts);
+    const fatosConfirmados = textoDeFatosConfirmados(facts);
+    const consertoDirigido = async (etapa: string | number) => {
+      if (consertosUsados >= CONSERTOS_POR_CARD || !targetedFixEnabled()) return;
+      const dups = duplicateCreativeFields([...siblings, current], siblings.length);
+      const erros = camposComErroObjetivo(current, facts, dups);
+      if (!erros.length) return;
+      const campos = erros.map(e => e.campo);
+      const outrosCards = dups.length
+        ? `Nao repita estes textos de outros cards: ${JSON.stringify(siblings.map(c => ({ headline: c.headline, description: c.description })))}\n`
+        : "";
+      const promptConserto =
+        `Corrija SOMENTE os campos abaixo de um anuncio Meta Ads. Mantenha o produto, a oferta, o sentido e o tom.\n` +
+        `CAMPOS COM ERRO:\n` +
+        erros.map(e => `- ${e.campo} (max ${CREATIVE_TEXT_LIMITS[e.campo]} caracteres): ${JSON.stringify(String(current[e.campo] ?? ""))} -> problema: ${e.motivos.join("; ")}`).join("\n") + "\n\n" +
+        `FATOS CONFIRMADOS (unica fonte de fatos):\n${fatosTexto}\n` +
+        `REGRAS: nunca invente numeros, vagas, unidades, prazos ("ate sexta", "ultimas 48 horas"), escassez, exclusividade ou prova social. ` +
+        `Nao use numero que nao esteja no texto atual ou nos fatos. Se o texto atual tem negacao ("nao", "nunca", "sem"), mantenha. ` +
+        `Para remover uma alegacao, reescreva sem ela.\n` +
+        outrosCards +
+        `Retorne APENAS um objeto JSON com exatamente estas chaves: ${campos.join(", ")}. Cada valor e o texto corrigido, dentro do limite.\n/no_think`;
+      const cf = await callCloudflareFieldFix(promptConserto);
+      // So conta chamada que aconteceu: recusa por limite nao gasta a vez do card.
+      if (!["limite_diario", "limite_em_voo"].includes(cf.motivo)) consertosUsados++;
+      let aceitos: string[] = [];
+      let rejeitados: string[] = campos;
+      const travados: string[] = [];
+      let desfecho = cf.motivo;
+      if (cf.texto) {
+        try {
+          const bruto = parseCreativeRewrite(extrairJsonDeResposta(cf.texto)) as Record<string, unknown>;
+          const soPedidos: Record<string, unknown> = {};
+          for (const c of campos) {
+            if (typeof bruto?.[c] !== "string") continue;
+            const recusa = motivoParaRecusarConserto(String(current[c] ?? ""), String(bruto[c]), fatosConfirmados);
+            if (recusa) { travados.push(`${c}:${recusa}`); continue; }
+            soPedidos[c] = bruto[c];
+          }
+          const r = repairCreativeFields(current, soPedidos, facts, campos);
+          aceitos = r.accepted; rejeitados = r.rejected;
+          if (r.accepted.length) {
+            current = r.candidate;
+            current.segmentAlignmentIssues = auditCreativeSegmentAlignment(current, segment);
+            // Pendentes de antes ficam, menos os que o conserto resolveu; campo
+            // que o conserto nao resolveu NAO entra (restringiria a reescrita a
+            // ele e jogaria fora a melhora de score; o erro segue nas
+            // recomendacoes). Duplicatas restantes entram.
+            const dupsRestantes = duplicateCreativeFields([...siblings, current], siblings.length);
+            const restantes = [...new Set([...(pendingFields || []).filter(f => !r.accepted.includes(f)), ...dupsRestantes])];
+            pendingFields = restantes.length ? restantes : undefined;
+            registrarVersao(current, pendingFields);
+          }
+        } catch (e) {
+          desfecho = `invalido: ${String((e as Error)?.message || e).slice(0, 120)}`;
+        }
+      }
+      log.info("ai", "Conserto dirigido", { index, etapa, campos, cloudflare: desfecho, aceitos, rejeitados, travados });
+    };
     for (let attempt = 1; attempt <= MAX_IMPROVE_ATTEMPTS; attempt++) {
+      await consertoDirigido(attempt);
       const score = scoreCreative(current);
       const placeholder = hasResidualPlaceholder(current);
       // Placeholder é bloqueante: mesmo com score alto, precisa regenerar
@@ -9641,10 +9769,6 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         // Dois provedores, mesma base, mesma validacao; vence o melhor por
         // criterio deterministico. Ver docs/specs/2026-11-14-reescrita-multi-provedor.md.
         const base = current;
-        const extrasDe = (cand: any) =>
-          duplicateCreativeFields([...siblings, cand], siblings.length).length
-          + auditCreativeSegmentAlignment(cand, segment).length;
-        const pontuar = (cand: any) => scoreCreative(cand).finalScore;
         const montar = (provedor: string, raw: string): CandidatoReescrita => {
           const r = repairCreativeFields(base, parseCreativeRewrite(String(raw)), facts, pendingFields);
           return { provedor, ...r };
@@ -9699,6 +9823,7 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         const duplicateFields = duplicateCreativeFields([...siblings, current], siblings.length);
         pendingFields = [...new Set([...repair.rejected, ...duplicateFields])];
         if (!pendingFields.length) pendingFields = undefined;
+        registrarVersao(current, pendingFields);
         repairFeedback = feedback + (repair.issues.length
           ? `Corrija SOMENTE estes campos: ${repair.issues.join("; ")}. Os demais campos foram aprovados e serao preservados. Retorne o JSON completo, sem inventar fatos.\n`
           : "");
@@ -9712,6 +9837,17 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
         });
         continue;
       }
+    }
+    // A saida da ultima reescrita tambem pode ter erro objetivo (ex: headline
+    // com 43 caracteres): um conserto final antes de cair no corte.
+    await consertoDirigido("final");
+    if (melhor.criativo !== current) {
+      log.info("ai", "Melhor versão mantida", {
+        index, scoreUltima: pontuar(current), scoreMelhor: pontuar(melhor.criativo),
+        pendentesUltima: pendingFields?.length || 0, pendentesMelhor: melhor.pendentes?.length || 0,
+      });
+      current = melhor.criativo;
+      pendingFields = melhor.pendentes;
     }
     // Último recurso: se AINDA há placeholder após os retries, remove por sanitização
     // (regenerar falhou — melhor uma frase enxuta que um [cidade] visível no anúncio)

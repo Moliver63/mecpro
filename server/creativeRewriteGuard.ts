@@ -210,6 +210,102 @@ export function escolherMelhorReescrita(
 }
 
 /**
+ * Erros OBJETIVOS por campo: comprimento, placeholder, Fact Guard do campo
+ * isolado e repeticao entre cards. Score baixo (hook fraco, falta de urgencia)
+ * nao entra aqui de proposito: isso e qualidade, nao erro, e "consertar"
+ * urgencia sem fato confirmado seria inventar prazo.
+ * Espelhos: bodyText → copy, shortDescription → description.
+ * Ver docs/specs/2026-11-14-conserto-dirigido-cloudflare.md.
+ */
+const ESPELHOS: Partial<Record<CreativeTextField, CreativeTextField>> = { bodyText: "copy", shortDescription: "description" };
+// Mesma definicao do hasResidualPlaceholder de ai.ts (aceita [] vazio), pra o
+// conserto e a saida antecipada do laco concordarem sobre "tem placeholder".
+const PLACEHOLDER_RE = /\[[^\]]*?\]|\{[^}]*?\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i;
+
+export function camposComErroObjetivo(
+  creative: any,
+  facts: CampaignFacts,
+  duplicados: CreativeTextField[] = [],
+): Array<{ campo: CreativeTextField; motivos: string[] }> {
+  const porCampo = new Map<CreativeTextField, string[]>();
+  const anotar = (campo: CreativeTextField, motivo: string) => {
+    // Espelho vira o principal so quando carrega o mesmo texto; senao o
+    // pedido mostraria o texto do principal com o motivo do espelho.
+    const principal = ESPELHOS[campo];
+    const alvo = principal && typeof creative?.[principal] === "string" && String(creative[principal]).trim() === String(creative[campo]).trim() ? principal : campo;
+    const lista = porCampo.get(alvo) || [];
+    if (!lista.includes(motivo)) lista.push(motivo);
+    porCampo.set(alvo, lista);
+  };
+  for (const campo of Object.keys(CREATIVE_TEXT_LIMITS) as CreativeTextField[]) {
+    const valor = creative?.[campo];
+    if (typeof valor !== "string") continue;
+    const limite = CREATIVE_TEXT_LIMITS[campo];
+    const texto = valor.trim();
+    if (!texto) { anotar(campo, "vazio"); continue; }
+    if (texto.length > limite) anotar(campo, `acima de ${limite} caracteres (tem ${texto.length})`);
+    if (PLACEHOLDER_RE.test(texto)) anotar(campo, "placeholder nao substituido");
+    const audit = validateCampaignFactIntegrity([{ [campo]: texto }], facts);
+    if (audit.status !== "passed") {
+      for (const c of audit.conflicts) anotar(campo, `alegacao nao confirmada: "${c.value}" (${c.reason})`);
+    }
+  }
+  for (const campo of duplicados) anotar(campo, "repetido em outro card");
+  return [...porCampo.entries()].map(([campo, motivos]) => ({ campo, motivos }));
+}
+
+/**
+ * Travas deterministicas para campo devolvido pelo conserto dirigido, alem do
+ * Fact Guard (revisao Goldfish, 14/11):
+ *  - negacao perdida reprova (mesma trava do truncarCamposNoLimite: encurtar
+ *    "Nao garantimos aprovacao" pode virar "Garantimos aprovacao")
+ *  - numero novo reprova: o Fact Guard nao pega "ultimas 10 vagas" nem prazo
+ *    com numero; todo numero do texto novo precisa existir no texto original
+ *    ou nos fatos confirmados.
+ */
+export function textoDeFatosConfirmados(facts: CampaignFacts): string {
+  // SO o que o cliente confirmou. Nunca formatCampaignFactsForPrompt: ele
+  // inclui a lista PROIBIDO ("3 suites", "4 vagas", "24h") e liberaria
+  // justamente esses numeros (revisao Goldfish do diff, 14/11).
+  return [...(facts.offerAnchor || []), ...(facts.verifiedFacts || []), facts.confirmedClaimsRaw || ""].join(" ");
+}
+
+export function motivoParaRecusarConserto(original: string, novo: string, fatosConfirmados: string): string | null {
+  if (contarNegacoes(novo) < contarNegacoes(original)) return "negacao_perdida";
+  const numeros = (t: string) => String(t).match(/\d+(?:[.,]\d+)*/g) || [];
+  const formas = (n: string) => [n, n.replace(",", "."), n.replace(/\D/g, "")];
+  const conhecidos = new Set([...numeros(original), ...numeros(fatosConfirmados)].flatMap(formas));
+  const novos = numeros(novo).filter(n => !formas(n).some(f => conhecidos.has(f)));
+  return novos.length ? `numero_novo:${novos.join(",")}` : null;
+}
+
+/**
+ * Melhor versao entre tentativas. Mesma ordem da escolha entre provedores,
+ * sem contar pendentes; empate fica com a versao guardada.
+ */
+export function manterMelhorVersao<T extends { criativo: any; pendentes?: CreativeTextField[] }>(
+  guardada: T, nova: T, facts: CampaignFacts,
+  pontuar: (creative: any) => number, problemasExtras: (creative: any) => number = () => 0,
+): T {
+  // Pendentes NAO entram no ranking: campo rejeitado mantem o original, que
+  // costuma estar limpo, e contar isso descartava reescrita de score 88 por
+  // uma de 55 (revisao do diff, 14/11). Duplicata ja conta em problemasExtras
+  // e erro de verdade aparece em Fact Guard/limites.
+  const comoCandidato = (v: T): CandidatoReescrita =>
+    ({ provedor: "versao", candidate: v.criativo, rejected: [], issues: [], accepted: [] });
+  const r = escolherMelhorReescrita([comoCandidato(guardada), comoCandidato(nova)], facts, pontuar, problemasExtras);
+  return r && r.candidate === nova.criativo && nova.criativo !== guardada.criativo ? nova : guardada;
+}
+
+/** Tira raciocinio (<think>) e texto em volta do JSON. Sem JSON, devolve o texto limpo. */
+export function extrairJsonDeResposta(texto: string): string {
+  const semThink = String(texto ?? "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<think>[\s\S]*$/i, "").trim();
+  const ini = semThink.indexOf("{");
+  const fim = semThink.lastIndexOf("}");
+  return ini >= 0 && fim > ini ? semThink.slice(ini, fim + 1) : semThink;
+}
+
+/**
  * Corta texto no limite sem deixar fragmento feio.
  *
  * Preferencia: fim de frase; depois fronteira de palavra; nunca no meio da
