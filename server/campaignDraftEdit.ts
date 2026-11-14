@@ -196,7 +196,7 @@ export function ajustarRascunhoCampanha(campaign: any, entrada: EntradaRascunho,
       return { erro: `approveLowScoreCreatives tem indice inexistente (ha ${creatives.length} criativos).` };
     }
     if (triagem.bloqueados.length) {
-      avisos.push(...triagem.bloqueados.map((r) => `Nao aprovado (so score baixo e aprovavel): ${r}`));
+      avisos.push(...triagem.bloqueados.map((r) => `Nao aprovado (so score baixo e promessa com prazo sao aprovaveis): ${r}`));
     }
     if (triagem.liberaveis.length) {
       const aprovados = triagem.liberaveis.map((x) => x.index);

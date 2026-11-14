@@ -133,7 +133,9 @@ function buildRecommendations(parts: {
     recommendations.push("Adicione urgência legítima com prazo, condição limitada ou benefício temporal verificável.");
   }
   if (parts.specificity < 55) {
-    recommendations.push("Inclua números, benefício concreto, prazo ou prova específica para aumentar credibilidade.");
+    // Sem "prazo" aqui: pedir prazo empurrava o modelo a inventar ou a
+    // transformar prazo de acesso em promessa de resultado (campanha 811).
+    recommendations.push("Inclua números, benefício concreto ou prova específica que estejam confirmados no briefing.");
   }
   if (parts.complianceRisk === "Alto") {
     recommendations.push("Reduza risco de compliance removendo promessas absolutas, linguagem sensível e urgência exagerada.");
@@ -145,6 +147,52 @@ function buildRecommendations(parts: {
   }
 
   return unique(recommendations);
+}
+
+// ── Urgencia so conta quando a oferta tem condicao real ──────────────────────
+// Achado real (campanhas 806, 810 e 811, projeto 49): a oferta (aula R$ 19,90,
+// sem prazo) nunca passava de 75 porque a urgencia valia 20% da nota e a
+// unica forma de subir era inventar prazo ou escassez, que o Fact Guard e o
+// prompt proibem. A urgencia ficava sempre na base 25, e a recomendacao
+// "adicione urgencia" empurrava o modelo para distorcer fato (ex.: "acesso
+// por 7 dias" virou "transforme-se em 7 dias").
+// Quando a geracao sabe que o cliente NAO informou condicao de urgencia,
+// grava `urgencyApplicable: false` no criativo; o flag vai junto no JSON e
+// toda repontuacao depois (edicao na tela, chat, MCP) usa o mesmo criterio.
+// Ver docs/specs/2026-11-14-urgencia-e-resultado-com-prazo.md.
+// So condicao que ACABA conta. Palavra solta nao: "sem prazo de validade",
+// "lote de 360m2", "lancamento" (imovel na planta), "bonus de material",
+// "inscricoes abertas", "desconto a vista" e "atendimento 24/7" disparavam a
+// primeira versao (revisao Goldfish, 14/11).
+const URGENCIA_CONFIRMADA = [
+  /\bate o dia\b/, /\bate dia\b/, /\bvalid[oa]s? (somente |so )?ate\b/, /\bso ate\b/, /\bsomente ate\b/,
+  /\bpor tempo limitado\b/, /\bultimas? vagas\b/, /\bvagas limitadas\b/, /\bultimas? unidades\b/,
+  /\b(promocao|desconto|oferta|condicao especial|inscricoes|matriculas|vendas)\b[^.]{0,40}\b(ate|encerra|termina|acaba)\b/,
+  /\b(encerra|termina|acaba)(m)? (em|na|no|no dia|dia|amanha|hoje|domingo|segunda|sexta|sabado)\b/,
+  /\bblack friday\b/, /\bcupom\b/, /\bpre[- ]?venda\b/, /\bfeirao\b/,
+  /\b(1|2|3|primeiro|segundo|terceiro|ultimo|virada de) ?o? lote\b/, /\blote (1|2|3|promocional)\b/,
+  // data dd/mm (nao "24/7", que e horario de atendimento)
+  /(?<![\d/])(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/\d{2,4})?(?![\d/])/,
+];
+const NAO_E_URGENCIA = /\b24\/7\b/g;
+
+export function ofertaTemUrgenciaConfirmada(textoConfirmado: string): boolean {
+  const n = normalize(String(textoConfirmado || "")).replace(NAO_E_URGENCIA, " ");
+  return URGENCIA_CONFIRMADA.some(re => re.test(n));
+}
+
+/**
+ * Grava o flag em cada criativo da geracao. Sem fatos da campanha, REMOVE
+ * qualquer `urgencyApplicable` que tenha vindo no JSON do modelo: so a
+ * geracao com fatos decide isso (revisao Goldfish: flag forjavel).
+ */
+export function aplicarFlagDeUrgencia(creatives: any[], confirmedClaimsRaw: string | undefined): any[] {
+  const aplicavel = confirmedClaimsRaw === undefined ? undefined : ofertaTemUrgenciaConfirmada(confirmedClaimsRaw);
+  return (Array.isArray(creatives) ? creatives : []).map(cr => {
+    if (!cr || typeof cr !== "object") return cr;
+    const { urgencyApplicable: _ignorado, ...resto } = cr;
+    return aplicavel === undefined ? resto : { ...resto, urgencyApplicable: aplicavel };
+  });
 }
 
 export function scoreCreative(creative: any): CreativeScoreResult {
@@ -219,14 +267,25 @@ export function scoreCreative(creative: any): CreativeScoreResult {
   urgency = clamp(urgency);
   specificity = clamp(specificity);
 
+  // Sem condicao real de urgencia informada: a urgencia nunca fica abaixo de
+  // 60 (piso neutro), mas mantem o valor calculado quando ele e maior.
+  // Revisao Goldfish rodada 2 (14/11): com valor fixo 60, promocao real que o
+  // detector nao reconhece ("50% de desconto so hoje") caia de 100 para 60 e o
+  // card legitimo perdia nota. Tirar a urgencia da conta (rodada 1) afrouxava
+  // o portao demais. So `false` explicito vale; criativo antigo sem o flag
+  // continua como antes.
+  const urgenciaConta = creative?.urgencyApplicable !== false;
+  const URGENCIA_PISO_SEM_CONDICAO = 60;
+  const urgenciaNaNota = urgenciaConta ? urgency : Math.max(urgency, URGENCIA_PISO_SEM_CONDICAO);
   const finalScore = clamp(
-    hookStrength * 0.3 + clarity * 0.3 + urgency * 0.2 + specificity * 0.2 - compliancePenalty,
+    hookStrength * 0.3 + clarity * 0.3 + urgenciaNaNota * 0.2 + specificity * 0.2 - compliancePenalty,
   );
 
   const recommendations = buildRecommendations({
     hookStrength,
     clarity,
-    urgency,
+    // nao aplicavel: nao gera recomendacao de "adicione urgencia"
+    urgency: urgenciaConta ? urgency : 100,
     specificity,
     complianceRisk,
     finalScore,

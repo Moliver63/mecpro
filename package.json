@@ -22,6 +22,7 @@
     "eval:rawmodel": "promptfoo eval -c eval/promptfooconfig.rawmodel.yaml",
     "eval:view": "promptfoo view",
     "test:rewrite-selection": "tsx --test server/__tests__/creativeRewriteSelection.test.ts",
+    "test:creative-review": "tsx --test server/__tests__/creativeReview.test.ts server/__tests__/campaignDraftEdit.test.ts server/__tests__/chatCreativeEdit.test.ts",
     "test:creative-scoring": "tsx --test server/__tests__/creativeScoringEngine.test.ts",
     "test:new-segments": "tsx --test server/__tests__/newSegments.test.ts",
     "test:tiktok-report": "tsx --test server/__tests__/tiktokRelatorio.test.ts",

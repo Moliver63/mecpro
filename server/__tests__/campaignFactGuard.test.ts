@@ -846,3 +846,83 @@ test("informal price without R$ near locacao/aluguel keywords still matches (reg
   });
   assert.ok(facts.realEstate.price && /2\.?500/.test(facts.realEstate.price), `preço informal legítimo deveria continuar sendo detectado: ${facts.realEstate.price}`);
 });
+
+// ── Resultado com prazo (campanha 811, 14/11). Ver docs/specs/2026-11-14-urgencia-e-resultado-com-prazo.md
+import { detectTimeboundResultClaims, alegacaoComPrazoConfirmada } from "../campaignFactGuard";
+
+const fatosShadia = buildCampaignFacts({
+  input: { objective: "traffic", extraContext: "Aula completa por R$ 19,90, pagamento unico, acesso por 7 dias." },
+  clientProfile: { niche: "autoconhecimento", productService: "Cursos online de autoconhecimento. Acesso vale por 7 dias." },
+  segment: "infoprodutos",
+} as any);
+
+test("detecta promessa de resultado com prazo (frases reais da 811 e variacoes)", () => {
+  for (const texto of [
+    "Transforme-se em 7 dias", "Transforme sua relação consigo mesmo em 7 dias!",
+    "Transforme-se em apenas 7 dias", "Mude sua vida em menos de 30 dias", "Resolva em 48h",
+    "Em 30 dias você muda sua vida", "Em poucos dias você transforma sua rotina",
+    "Em 7 dias, transforme sua vida", "Em apenas 7 dias, você muda sua relação consigo mesmo",
+    "7 dias para transformar sua vida", "7 dias que vão mudar sua vida",
+    "Resultados até 2 semanas", "Supere a ansiedade em três semanas",
+  ]) assert.ok(detectTimeboundResultClaims(texto).length > 0, texto);
+});
+
+test("promessa com prazo NAO derruba o Fact Guard (vira alerta de revisao em creativeReview)", () => {
+  const audit = validateCampaignFactIntegrity([{ description: "Transforme-se em 7 dias" }], fatosShadia);
+  assert.ok(!audit.conflicts.some(c => String(c.reason).includes("timebound")));
+});
+
+test("cada raiz de resultado e pega (um caso por raiz)", () => {
+  for (const texto of [
+    "Resolva sua dor em 2 semanas", "Supere o medo em 10 dias", "A cura em 3 meses", "Emagreça em 30 dias",
+    "Melhore sua postura em 4 semanas", "Evolua em 15 dias", "Conquiste o corpo em 90 dias", "Domine o inglês em 6 meses",
+    "Liberte-se em 21 dias", "Vença a timidez em 1 mês", "Perca 10 kg em 2 meses", "Elimine a ansiedade em 7 dias",
+    "Fature R$ 10 mil em 30 dias", "Ganhe confiança em 5 dias", "Aprenda inglês em 6 meses", "Fluente em 6 meses",
+    "Resultados em quarenta dias", "Transforme-se em doze semanas",
+    "Pele renovada em 7 dias", "Recupere sua autoestima em 7 dias", "Destrave sua vida em 7 dias",
+    "Quebre padrões emocionais em 7 dias", "Acabe com a ansiedade em 7 dias", "Livre da ansiedade em 21 dias",
+    "Sinta a diferença em 7 dias", "Uma nova versão de você em 7 dias", "Sorriso perfeito em 7 dias",
+    "Barriga chapada em 30 dias", "Seque 5 kg em 2 semanas",
+  ]) assert.ok(detectTimeboundResultClaims(texto).length > 0, texto);
+});
+
+test("nao acusa prazo de pagamento, entrega, acesso, curso ou frase sem prazo (falsos positivos da revisao)", () => {
+  for (const texto of [
+    "Conquiste seu apê com entrada parcelada em 60 meses",
+    "Melhores condições: parcele em até 12 meses",
+    "Transforme seu sorriso com a clínica e pague em 12 meses",
+    "Resultado do exame em 24 horas",
+    "Faça sua mudança em até 3 horas",
+    "Resultados em até 5 dias úteis",
+    "Evolua no seu ritmo, aulas novas em 2 semanas",
+    "Transforme sua rotina com a aula, acesso liberado em 2 horas",
+    "Acesso por 7 dias à aula completa",
+    "Curso em 7 módulos",
+    "Transforme sua relação com o dinheiro",
+    "Aula prática R$19,90. Resultados variam.",
+    "Experimente por 7 dias",
+    "Entrega em 30 dias para você transformar seu espaço",
+    "Os melhores professores em 2 semanas de imersão",
+  ]) assert.deepEqual(detectTimeboundResultClaims(texto), [], texto);
+});
+
+test("promessa com prazo confirmada pelo cliente com o mesmo prazo, mesmo com outras palavras", () => {
+  const facts = buildCampaignFacts({
+    input: { objective: "leads", extraContext: "Programa de mentoria: resultados em 30 dias, comprovados pelos alunos." },
+    clientProfile: { niche: "mentoria" },
+    segment: "infoprodutos",
+  } as any);
+  assert.equal(alegacaoComPrazoConfirmada("Resultados em 30 dias", facts.confirmedClaimsRaw), true);
+  assert.equal(alegacaoComPrazoConfirmada("Veja sua evolução em 30 dias", facts.confirmedClaimsRaw), true);
+  assert.equal(alegacaoComPrazoConfirmada("Veja sua evolução em 60 dias", facts.confirmedClaimsRaw), false);
+});
+
+test("distancia e comercio com 'em N minutos/dias' nao viram promessa (rodada 3)", () => {
+  for (const texto of [
+    "Localização perfeita em 5 minutos do centro",
+    "Sua casa perfeita em 10 minutos de carro da praia",
+    "Apartamento perfeito em 3 minutos a pé do mar",
+    "Ganhe 10% de desconto em 3 dias de feira",
+    "Recupere seu pedido em 2 dias",
+  ]) assert.deepEqual(detectTimeboundResultClaims(texto), [], texto);
+});

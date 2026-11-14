@@ -1,4 +1,4 @@
-import { validateCampaignFactIntegrity, type CampaignFacts } from "./campaignFactGuard";
+import { validateCampaignFactIntegrity, detectTimeboundResultClaims, alegacaoComPrazoConfirmada, type CampaignFacts } from "./campaignFactGuard";
 import { CREATIVE_TEXT_LIMITS } from "./creativeRewriteGuard";
 import { scoreCreative } from "./creativeScoringEngine";
 
@@ -32,17 +32,21 @@ export type MotivoRevisao =
   | "fatos"
   | "depoimento_inventado"
   | "texto_longo"
+  | "promessa_com_prazo"
   | "nao_identificado";
 
 export interface DiagnosticoRevisao {
   motivos: MotivoRevisao[];
   detalhes: string[];
   score: number;
-  /** true so quando o unico motivo e score_baixo. */
+  /** true quando todos os motivos sao liberaveis (score baixo e/ou promessa com prazo). */
   liberavelPorAprovacao: boolean;
 }
 
 const CAMPOS_DE_TEXTO = ["headline", "description", "copy", "hook", "cta"] as const;
+
+/** Motivos que a aprovacao explicita do usuario pode liberar sem editar texto. */
+export const MOTIVOS_LIBERAVEIS: ReadonlySet<MotivoRevisao> = new Set<MotivoRevisao>(["score_baixo", "promessa_com_prazo"]);
 
 // Mesmo padrao do auditCopy de ai.ts (inclui a palavra "placeholder").
 const PLACEHOLDER_RE = /\[[^\]]*?\]|\{[^}]*?\}|placeholder|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i;
@@ -57,6 +61,25 @@ const PERSONA_COM_IDADE_RE = /\b[A-ZÀ-Ý][a-zà-ÿ]+(?:\s+[A-ZÀ-Ý][a-zà-ÿ]+
 
 export function textoDoCriativo(c: any): string {
   return CAMPOS_DE_TEXTO.map((k) => c?.[k]).filter(Boolean).join(" ");
+}
+
+/** Promessas de resultado com prazo no texto, menos as que o cliente confirmou. */
+export function promessasComPrazo(creative: any, facts?: CampaignFacts | null): string[] {
+  return detectTimeboundResultClaims(textoDoCriativo(creative))
+    .filter((c) => !facts || !alegacaoComPrazoConfirmada(c, facts.confirmedClaimsRaw));
+}
+
+/**
+ * Marca para revisao (needsReview + promessasComPrazo) os criativos com
+ * promessa de resultado com prazo. Devolve o MESMO objeto quando nao ha nada a
+ * marcar, pra quem chama saber o que mudou.
+ */
+export function marcarPromessasParaRevisao(creatives: any[], facts?: CampaignFacts | null): any[] {
+  return (Array.isArray(creatives) ? creatives : []).map((cr) => {
+    if (!cr || typeof cr !== "object") return cr;
+    const promessas = promessasComPrazo(cr, facts);
+    return promessas.length ? { ...cr, needsReview: true, promessasComPrazo: promessas } : cr;
+  });
 }
 
 export function diagnosticarRevisao(creative: any, facts?: CampaignFacts | null): DiagnosticoRevisao {
@@ -99,6 +122,16 @@ export function diagnosticarRevisao(creative: any, facts?: CampaignFacts | null)
       : "a propria geracao marcou o texto como depoimento ficticio");
   }
 
+  // Promessa de resultado com prazo ("transforme-se em 7 dias"): alerta, nao
+  // bloqueio. Liberavel por aprovacao de quem leu a frase (decisao do Michel,
+  // 14/11; ver docs/specs/2026-11-14-urgencia-e-resultado-com-prazo.md).
+  // Sem fatos da campanha, toda promessa encontrada vira alerta.
+  const promessas = promessasComPrazo(creative, facts);
+  if (promessas.length) {
+    motivos.push("promessa_com_prazo");
+    detalhes.push(...promessas.slice(0, 3).map((c) => `promessa de resultado com prazo: "${c}" (confirme que o cliente garante isso ou reescreva)`));
+  }
+
   if (facts) {
     const auditoria = validateCampaignFactIntegrity([creative], facts);
     // segmentAlignmentIssues ja vira motivo "segmento" acima; aqui so o resto.
@@ -117,7 +150,8 @@ export function diagnosticarRevisao(creative: any, facts?: CampaignFacts | null)
     detalhes.push("motivo da revisao nao ficou registrado; reescreva o texto com editar_criativo para recalcular");
   }
 
-  return { motivos, detalhes, score, liberavelPorAprovacao: motivos.length === 1 && motivos[0] === "score_baixo" };
+  const liberavelPorAprovacao = motivos.length > 0 && motivos.every((m) => MOTIVOS_LIBERAVEIS.has(m));
+  return { motivos, detalhes, score, liberavelPorAprovacao };
 }
 
 const ROTULO: Record<MotivoRevisao, string> = {
@@ -127,6 +161,7 @@ const ROTULO: Record<MotivoRevisao, string> = {
   fatos: "alegacao nao confirmada no briefing",
   depoimento_inventado: "depoimento inventado",
   texto_longo: "campo acima do limite",
+  promessa_com_prazo: "promessa de resultado com prazo",
   nao_identificado: "motivo nao registrado",
 };
 
@@ -149,7 +184,7 @@ export function descreverDiagnostico(index: number, d: DiagnosticoRevisao): stri
 export interface CriativoLiberavel { index: number; score: number; }
 
 export interface TriagemDeAprovacao {
-  /** Em revisao e liberavel: o unico motivo e score baixo. */
+  /** Em revisao e liberavel: todos os motivos sao liberaveis (score baixo, promessa com prazo). */
   liberaveis: CriativoLiberavel[];
   /** Em revisao e bloqueado, ja descrito pra mostrar a quem pediu. */
   bloqueados: string[];
@@ -211,7 +246,9 @@ export function aplicarAprovacaoPorScore(
       needsReview: false,
       reviewApprovedAt: momento,
       reviewApprovedBy: aprovadoPor,
-      reviewApprovalReason: "score_baixo",
+      // Motivos liberaveis presentes no momento da aprovacao (sem fatos: a
+      // triagem ja filtrou o que precisava deles).
+      reviewApprovalReason: diagnosticarRevisao(c).motivos.filter((m) => MOTIVOS_LIBERAVEIS.has(m)).join(",") || "score_baixo",
       reviewApprovedScore: c?.finalScore ?? null,
     };
   });

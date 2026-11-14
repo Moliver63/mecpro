@@ -21,7 +21,8 @@ import { isAbsenceAnswer } from "../shared/pendencyQuestions";
 import { resolveCampaignProfile } from "./campaignProfile";
 import { deriveNicheFromProfile, nicheToHumanLabel } from "./nicheResolver";
 // inferSubsegment, SUBSEGMENTS, inferOfferType: Migrados para campaignProfile.ts
-import { scoreCreativeList, scoreCreative } from "./creativeScoringEngine";
+import { scoreCreativeList, scoreCreative, aplicarFlagDeUrgencia } from "./creativeScoringEngine";
+import { marcarPromessasParaRevisao, factsDaCampanha } from "./creativeReview";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado } from "./ai-providers/cloudflareWorkersAI";
@@ -9451,6 +9452,10 @@ Gere copies para 3 estágios do funil com linguagem humana e persuasiva. Respond
     const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsed.creatives, {
       objective,
       segment: input.extraContext || niche || c.name || "segmento geral",
+      // So para urgencia e promessa com prazo (nao liga o Fact Guard aqui, que
+      // mudaria o comportamento da regeneracao). Sem isso a regeneracao perdia
+      // o flag de urgencia e marcava promessa ja confirmada pelo cliente.
+      reviewFacts: factsDaCampanha(c) || undefined,
     });
     const creativesWithV2 = enrichedCreatives.map((rawCreative: any) => {
       let creative = rawCreative as CampaignCreative;
@@ -9551,6 +9556,8 @@ function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string
 
 async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   campaignFacts?: CampaignFacts;
+  /** Fatos usados SO para urgencia e promessa com prazo, sem ligar a auditoria do Fact Guard. */
+  reviewFacts?: CampaignFacts;
   objective: string;
   segment: string;
   productName?: string;
@@ -9890,7 +9897,13 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     return { ...current, ...finalScoreResult, needsReview: stillWeak || finalPlaceholder || !!truncados.length || !!pendingFields?.length || validateCampaignFactIntegrity([current], facts).status !== "passed" };
   }
 
-  const rawList = Array.isArray(creatives) ? creatives : [];
+  // Urgencia so conta se o cliente informou condicao real (prazo, desconto,
+  // lote...). O flag vai no criativo e vale em toda repontuacao depois.
+  // Ver docs/specs/2026-11-14-urgencia-e-resultado-com-prazo.md.
+  // Sem campaignFacts (ex.: regeneracao parcial) o flag e removido, nunca
+  // herdado do JSON do modelo.
+  const fatosDeRevisao = context.campaignFacts || context.reviewFacts;
+  const rawList = aplicarFlagDeUrgencia(creatives, fatosDeRevisao ? (fatosDeRevisao.confirmedClaimsRaw || "") : undefined);
   const improvedList = context.skipAIGeneration
     ? rawList
     : await Promise.all(rawList.map((cr, i) => improveCreativeIfWeak(cr, i)));
@@ -9912,6 +9925,15 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
     ]);
     if (issues.length) throw new Error(`CREATIVE_REPAIR_REQUIRED: ${issues.join("; ")}`);
   }
+
+  // Promessa de resultado com prazo ("transforme-se em 7 dias"): marca para
+  // revisao humana, liberavel com um clique (creativeReview.ts). Nao derruba a
+  // geracao. Ver docs/specs/2026-11-14-urgencia-e-resultado-com-prazo.md.
+  const marcados = marcarPromessasParaRevisao(improvedList, fatosDeRevisao || null);
+  marcados.forEach((cr, i) => {
+    if (cr !== improvedList[i]) log.info("ai", "Promessa com prazo marcada para revisão", { index: i, quantidade: cr.promessasComPrazo?.length || 0 });
+    improvedList[i] = cr;
+  });
 
   if (context.campaignFacts) {
     const audit = validateCampaignFactIntegrity(improvedList, context.campaignFacts);

@@ -516,6 +516,81 @@ function detectScarcityOrExclusivityClaims(text: string): string[] {
   return unique(found);
 }
 
+// ── Resultado com prazo: ALERTA de revisao, nao bloqueio ──────────────────
+// Achado real (campanha 811, projeto 49, 14/11): "Transforme-se em 7 dias" e
+// "Transforme sua relacao consigo mesmo em 7 dias!" passaram no Fact Guard.
+// Os 7 dias eram o prazo de ACESSO a aula; a copy virou promessa de
+// resultado em 7 dias, em nome de uma psicologa.
+// Decisao do Michel (14/11, "versao reduzida"), depois de duas revisoes
+// Goldfish mostrarem que regex erra para os dois lados (barrava "Mude-se em
+// 30 dias", "parcele em ate 12 meses"; deixava passar "Pele renovada em 7
+// dias"): este detector NAO entra em validateCampaignFactIntegrity (que
+// derruba geracao e publicacao). Ele marca o criativo para revisao humana,
+// liberavel com um clique (creativeReview.ts, motivo "promessa_com_prazo").
+// Falso positivo custa um clique; falso negativo e o mesmo de antes.
+// \p{L} com flag "u" em vez de \b: \b falha com acento ("mudança", "até").
+const NUMERO_PRAZO = String.raw`(?:\d+|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove|dez|doze|quinze|vinte|trinta|quarenta|sessenta|noventa|poucos|poucas)`;
+const UNIDADE_PRAZO = String.raw`(?:dias?|semanas?|horas?|minutos?|m[eê]s(?:es)?|h)`;
+const PREPOSICAO_PRAZO = String.raw`(?:em|at[eé]|ap[oó]s|dentro\s+de)`;
+const MODIFICADOR_PRAZO = String.raw`(?:(?:apenas|s[oó]|somente|menos\s+de|pouco\s+mais\s+de|at[eé]|cerca\s+de|no\s+m[aá]ximo)\s+)?`;
+// "5 dias uteis" e prazo de servico, nao de resultado.
+// "em 5 minutos do centro" / "de carro" / "a pé" e distancia, nao prazo de resultado.
+const PRAZO = String.raw`(?<!\p{L})${PREPOSICAO_PRAZO}\s+${MODIFICADOR_PRAZO}${NUMERO_PRAZO}\s*${UNIDADE_PRAZO}(?!\p{L})(?!\s+[uú]teis)(?!\s+(?:d[oa]s?|de\s+(?:carro|caminhada|carona|dist[aâ]ncia)|a\s+p[eé])(?!\p{L}))`;
+// Raizes de RESULTADO. Verbos fechados com (?!\p{L}) quando o radical sozinho
+// pegaria outra palavra: "melhores" (adjetivo de condicao comercial), "curso",
+// "mudanca" (servico de mudanca), "perdao".
+const RESULTADO_RAIZ = String.raw`(?:transform\p{L}*|mud(?:e|a|ar|ou|ar[aá]|am|ar[aã]o)(?!\p{L})|result\p{L}*|resolv\p{L}*|super(?:a|e|ar|ou|ar[aá]|a[cç][aã]o)(?!\p{L})|cur(?:a|ar|ado|ada|e)(?!\p{L})|emagre\p{L}*|melhor(?:a|e|ar|ou|ar[aá])(?!\p{L})|evolu\p{L}*|conquist\p{L}*|domin(?:a|e|ar)(?!\p{L})|libert\p{L}*|livre\s+d[aoe]s?|ven[cç]a(?!\p{L})|perc[ae](?!\p{L})|perd(?:a|er)(?!\p{L})|elimin\p{L}*|fatur\p{L}*|ganh(?:e|a|ar)(?!\p{L})|aprend(?:a|er|e)(?!\p{L})|fluente|renovad\p{L}*|recuper\p{L}*|destrav\p{L}*|quebr(?:e|ar)(?!\p{L})|acab(?:e|ar)\s+com|sinta\s+a\s+diferen[cç]a|nova\s+vers[aã]o|perfeit\p{L}*|chapad\p{L}*|sequ(?:e|ar)(?!\p{L}))`;
+// Resultado → prazo: janela sem virgula, dois-pontos ou ponto e virgula ("Transforme
+// sua rotina, acesso em 2h" separa duas coisas). Prazo → resultado aceita
+// virgula: "Em 7 dias, transforme sua vida" e a forma mais natural da frase.
+const JANELA = String.raw`[^.!?\n,;:]`;
+const JANELA_COM_VIRGULA = String.raw`[^.!?\n;:]`;
+const timeboundResultClaimPatterns: RegExp[] = [
+  // resultado ... em N dias  ("Transforme-se em apenas 7 dias")
+  new RegExp(String.raw`(?<!\p{L})${RESULTADO_RAIZ}${JANELA}{0,60}?${PRAZO}`, "iu"),
+  // em N dias ... resultado  ("Em 7 dias, transforme sua vida")
+  new RegExp(String.raw`${PRAZO}${JANELA_COM_VIRGULA}{0,40}?(?<!\p{L})${RESULTADO_RAIZ}`, "iu"),
+  // N dias para/que vao resultado  ("7 dias para transformar", "7 dias que vao mudar")
+  new RegExp(String.raw`(?<!\p{L})${NUMERO_PRAZO}\s*${UNIDADE_PRAZO}\s+(?:para|que\s+(?:v[aã]o|vai|podem|pode))\s+(?:voc[eê]\s+)?${RESULTADO_RAIZ}`, "iu"),
+];
+// Prazo de condicao comercial, entrega, atendimento ou acesso nao e promessa
+// de resultado: "parcele em ate 12 meses", "resultado do exame em 24 horas".
+const PRAZO_COMERCIAL = /parcel|pag(?:a|ue|amento|ar)|financ|entrada|presta[cç]|juros|[aà]\s+vista|boleto|cart[aã]o|mensalidade|frete|entreg|exame|atendimento|[uú]teis|acesso|liberad|garantia\s+de|devolu|reembols|\btroca|desconto|cupom|pedido|feira/i;
+
+export function detectTimeboundResultClaims(text: string): string[] {
+  const found: string[] = [];
+  const fonte = String(text || "");
+  for (const pattern of timeboundResultClaimPatterns) {
+    const match = fonte.match(pattern);
+    if (!match?.[0] || match.index === undefined) continue;
+    // O termo comercial pode vir logo ANTES do trecho ("Entrega em 30 dias
+    // para voce transformar"): olha ate 30 caracteres antes, na mesma oracao.
+    const antes = fonte.slice(Math.max(0, match.index - 30), match.index);
+    const corte = Math.max(...[".", "!", "?", "\n", ",", ";", ":"].map(p => antes.lastIndexOf(p)));
+    const contexto = antes.slice(corte + 1) + match[0];
+    if (!PRAZO_COMERCIAL.test(contexto)) found.push(compactText(match[0]));
+  }
+  return unique(found);
+}
+
+/**
+ * A alegacao com prazo passa se o proprio cliente afirmou uma promessa com o
+ * MESMO prazo no briefing/perfil, mesmo com outras palavras ("resultados em
+ * 30 dias" no briefing libera "Veja resultados em 30 dias" na copy).
+ */
+const PRAZO_RE = new RegExp(String.raw`${PREPOSICAO_PRAZO}\s+${MODIFICADOR_PRAZO}(${NUMERO_PRAZO})\s*(${UNIDADE_PRAZO})(?!\p{L})`, "iu");
+function prazoDe(texto: string): string | null {
+  const m = normalizeText(texto).match(PRAZO_RE);
+  return m ? `${m[1]} ${m[2].replace(/s$/, "")}` : null;
+}
+export function alegacaoComPrazoConfirmada(claim: string, confirmedClaimsRaw: string): boolean {
+  if (!confirmedClaimsRaw) return false;
+  if (confirmedClaimsRaw.includes(normalizeText(claim))) return true;
+  const prazo = prazoDe(claim);
+  if (!prazo) return false;
+  return detectTimeboundResultClaims(confirmedClaimsRaw).some(c => prazoDe(c) === prazo);
+}
+
 // ── Linguagem de compra/moradia propria (regra estrutural, so imoveis) ──
 // Achado real (campanha 747): sala comercial para LOCACAO recebeu "O lar que
 // voce sempre sonhou esta aqui" e "transforma o sonho da casa propria em

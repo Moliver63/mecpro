@@ -288,7 +288,7 @@ Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao so
 
 Depois de selecionar um projeto existente, consulte suas campanhas. Apresente nova do zero, usar existente como modelo ou editar existente; nao repita escolhas ja feitas.
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
-Se publicar_campanha recusar por criativo em revisao: score baixo sozinho o usuario pode aprovar com aprovar_revisao_criativo (mostre os textos e o score antes); placeholder, texto fora do segmento, alegacao nao confirmada ou depoimento inventado exigem reescrever com editar_criativo. Nunca invente prova social pra subir score.
+Se publicar_campanha recusar por criativo em revisao: score baixo e/ou promessa de resultado com prazo o usuario pode aprovar com aprovar_revisao_criativo (mostre os textos, o score e a frase da promessa antes); placeholder, texto fora do segmento, alegacao nao confirmada ou depoimento inventado exigem reescrever com editar_criativo. Nunca invente prova social pra subir score.
 
 PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
 - A ferramenta primeiro devolve uma pre-confirmacao. Mostre o resumo e a frase CONFIRMAR PUBLICACAO exatamente como retornada. Apenas essa frase na mensagem atual autoriza executar; "sim" sozinho nao executa. Repita os mesmos parametros depois da confirmacao. Nunca altere destino ou orcamento silenciosamente.
@@ -483,7 +483,8 @@ const PARAMETROS_APROVAR_REVISAO = {
   required: ["campaignId"],
 };
 const DESCRICAO_APROVAR_REVISAO =
-  "Aprova criativos marcados para revisao SO quando o unico motivo e score abaixo de 75. Primeira chamada nao aprova: " +
+  "Aprova criativos marcados para revisao SO quando os motivos sao score abaixo de 75 e/ou promessa de resultado com prazo " +
+  "(ex.: \"transforme-se em 7 dias\"; mostre a frase e pergunte se o cliente garante isso). Primeira chamada nao aprova: " +
   "devolve os textos e a frase APROVAR CRIATIVOS; mostre os textos e o score e espere o usuario enviar a frase exata, " +
   "depois repita a chamada com os mesmos argumentos. Placeholder, texto fora do segmento, fato nao confirmado ou " +
   "depoimento inventado NAO sao aprovaveis: corrija com editar_criativo.";

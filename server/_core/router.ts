@@ -19,7 +19,7 @@ import { faixaEtariaDoAdSet } from "../metaTargeting";
 import { mesclarTargeting, temIntencaoDePlacement } from "../metaTargetingMerge";
 import { GOOGLE_ADS_API_VERSION, urlDoCliente, urlListarContasAcessiveis } from "../googleAdsApi";
 import {
-  diagnosticarRevisao, factsDaCampanha,
+  diagnosticarRevisao, factsDaCampanha, promessasComPrazo,
   triarParaAprovacao, aplicarAprovacaoPorScore,
 } from "../creativeReview";
 import { recordLedger } from "../financialEngine";
@@ -2888,8 +2888,13 @@ const campaignsRouter = router({
       // libera. Se sobrou, devolve o motivo em vez de so salvar em silencio.
       const fatosDaCampanha = factsDaCampanha(campaign);
       const diagnostico = diagnosticarRevisao({ ...(nextCreative as any), needsReview: false }, fatosDaCampanha);
-      if ((currentCreative as any)?.needsReview === true && !diagnostico.motivos.length) {
-        (nextCreative as any).needsReview = false;
+      // Mesma regra do chat nos dois sentidos: texto editado com motivo de
+      // revisao (ex.: promessa de resultado com prazo) VOLTA a marcar e perde a
+      // aprovacao anterior, que valia para o texto antigo. Antes a tela so
+      // limpava, e uma promessa digitada aqui ia para a Meta sem aprovacao
+      // (revisao Goldfish, 14/11).
+      (nextCreative as any).needsReview = diagnostico.motivos.length > 0;
+      if ((currentCreative as any)?.needsReview === true || diagnostico.motivos.length) {
         delete (nextCreative as any).reviewApprovedAt;
         delete (nextCreative as any).reviewApprovedBy;
         delete (nextCreative as any).reviewApprovalReason;
@@ -2958,11 +2963,13 @@ const campaignsRouter = router({
             headline: creatives[index]?.headline ?? null,
             description: creatives[index]?.description ?? null,
             copy: creatives[index]?.copy ?? null,
+            hook: creatives[index]?.hook ?? null,
             cta: creatives[index]?.cta ?? null,
+            promessas: promessasComPrazo(creatives[index], factsDaCampanha(campaign)),
           })),
           bloqueados: triagem.bloqueados,
           message: triagem.liberaveis.length
-            ? "Score abaixo de 75 significa que a IA achou o texto fraco, não que ele viole alguma regra. Confirme para publicar assim mesmo."
+            ? "Score abaixo de 75 significa que a IA achou o texto fraco. Promessa de resultado com prazo (ex.: \"em 7 dias\") só deve ser aprovada se o cliente garante isso. Confirme para publicar assim mesmo."
             : "Nenhum destes pode ser aprovado como está: corrija o texto.",
         };
       }

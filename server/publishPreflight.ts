@@ -185,7 +185,7 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
         criativos: indices,
         // Os indices entram no titulo de proposito: em texto corrido o modelo
         // do chat perdeu um dos quatro ("4 criativos (0, 2, 3)").
-        titulo: `${liberaveis.length} criativo(s) ficaram em revisão só por score baixo: ${indices.join(", ")}. Você pode aprovar como está.`,
+        titulo: `${liberaveis.length} criativo(s) ficaram em revisão por motivo aprovável (score baixo e/ou promessa de resultado com prazo): ${indices.join(", ")}. Você pode aprovar como está se o cliente garante o que o texto promete.`,
         detalhes: liberaveis.map((x) => descreverDiagnostico(x.index, x.d)),
         textos: textosDe(creatives, indices, scores),
       });

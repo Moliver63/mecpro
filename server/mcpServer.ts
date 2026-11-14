@@ -2417,7 +2417,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         solution: z.string().optional(), script: z.string().optional(), complianceNotes: z.string().optional(),
       })).optional(),
       strategyReplacements: z.array(z.object({ from: z.string().min(1), to: z.string() })).optional().describe("Trocas literais dentro dos textos do resumo/estrategia."),
-      approveLowScoreCreatives: z.array(z.number().int().min(0)).optional().describe("Indices de criativos que o USUARIO aprovou EXPLICITAMENTE nesta conversa apesar do score abaixo de 75. So libera quando o unico motivo de revisao e score baixo; nunca envie sem a aprovacao dele."),
+      approveLowScoreCreatives: z.array(z.number().int().min(0)).optional().describe("Indices de criativos que o USUARIO aprovou EXPLICITAMENTE nesta conversa apesar do score abaixo de 75 e/ou de uma promessa de resultado com prazo (ex.: \"em 7 dias\") que ele confirmou ler. So libera quando todos os motivos de revisao sao esses dois; nunca envie sem a aprovacao dele."),
       forbiddenTerms: z.array(z.string()).optional().describe("Termos que nao podem sobrar nos criativos nem no resumo; a resposta lista onde ainda aparecem."),
     },
   };

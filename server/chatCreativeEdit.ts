@@ -6,7 +6,7 @@ import { validateCampaignFactIntegrity } from "./campaignFactGuard";
 import { syncCreativeTextToV2 } from "../shared/campaignCreative.sync";
 import {
   diagnosticarRevisao, descreverDiagnostico, factsDaCampanha, textoDoCriativo,
-  triarParaAprovacao, aplicarAprovacaoPorScore,
+  triarParaAprovacao, aplicarAprovacaoPorScore, promessasComPrazo,
 } from "./creativeReview";
 
 /**
@@ -187,7 +187,7 @@ export async function editarCriativo(
     scope: "mecpro_only", syncedToMeta: false,
     message: proximo.needsReview
       ? (diagnostico.liberavelPorAprovacao
-        ? "Texto salvo. Score ainda abaixo de 75: o usuario pode aprovar assim mesmo (aprovar_revisao_criativo) ou pedir outra versao."
+        ? "Texto salvo. Continua em revisao por motivo aprovavel (score abaixo de 75 e/ou promessa de resultado com prazo, ver `pendencia`): o usuario pode aprovar assim mesmo (aprovar_revisao_criativo) ou pedir outra versao."
         : "Texto salvo, mas o criativo continua bloqueado pelo motivo em `pendencia`.")
       : "Texto salvo e criativo liberado para publicar.",
   };
@@ -238,7 +238,7 @@ export async function aprovarRevisaoCriativo(
   if (!liberaveis.length) {
     return {
       ok: false, campaignId: campaign.id,
-      erro: "Nenhum criativo pode ser aprovado assim: a aprovacao no chat so libera score baixo. Corrija o texto com editar_criativo.",
+      erro: "Nenhum criativo pode ser aprovado assim: a aprovacao no chat so libera score baixo e promessa de resultado com prazo. Corrija o texto com editar_criativo.",
       bloqueados: bloqueadosDescritos,
     };
   }
@@ -250,10 +250,11 @@ export async function aprovarRevisaoCriativo(
       ok: false, confirmationRequired: true, campaignId: campaign.id,
       paraAprovar: liberaveis.map(({ index, score, c }) => ({
         index, score,
-        headline: c.headline, description: c.description, copy: c.copy, cta: c.cta,
+        headline: c.headline, description: c.description, copy: c.copy, hook: c.hook, cta: c.cta,
+        promessas: promessasComPrazo(c, facts),
       })),
       ...(bloqueadosDescritos.length ? { bloqueados: bloqueadosDescritos } : {}),
-      erro: `Nada foi aprovado ainda. Mostre ao usuario o texto completo de cada criativo em paraAprovar e o score (abaixo de 75 = a IA achou fraco). Se ele quiser aprovar assim mesmo, deve enviar exatamente: ${frase}. Se preferir melhorar, use editar_criativo.`,
+      erro: `Nada foi aprovado ainda. Mostre ao usuario o texto completo de cada criativo em paraAprovar, o score (abaixo de 75 = a IA achou fraco) e, quando houver, cada frase em promessas (promessa de resultado com prazo: pergunte se o cliente garante isso). Se ele quiser aprovar assim mesmo, deve enviar exatamente: ${frase}. Se preferir melhorar, use editar_criativo.`,
     };
   }
 

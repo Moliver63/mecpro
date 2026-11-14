@@ -3865,7 +3865,7 @@ ${sc.cta}`); }}
                     )}
                     {aprovavel && (
                       <p style={{ fontSize: 12, color: cor.texto, margin: "8px 0 0", lineHeight: 1.5, opacity: .85 }}>
-                        Score abaixo de 75 quer dizer que a IA achou o texto fraco, não que ele quebre regra da Meta.
+                        Score abaixo de 75 quer dizer que a IA achou o texto fraco. Promessa de resultado com prazo só deve ser aprovada se o cliente garante isso.
                       </p>
                     )}
                     {p.acao === "editar_texto" && !aprovavel && (
