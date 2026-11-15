@@ -7591,6 +7591,24 @@ const adminRouter = router({
 });
 
 // ============ PLAN CHANGE REQUESTS ROUTER ============
+// Guarda os ids do GA4 do checkout (cookie _ga) pela referencia do Asaas, para o
+// purchase enviado pelo servidor na confirmacao herdar a origem da visita.
+// Nunca derruba o checkout. Ver docs/specs/2026-11-15-asaas-ativacao-de-plano.md.
+async function registrarAtribuicaoCheckout(ref: unknown, userId: number, ga?: { clientId?: string; sessionId?: string }) {
+  if (!ref || !ga?.clientId || !/^\d+\.\d+$/.test(ga.clientId)) return;
+  try {
+    const pool = await getPool();
+    if (!pool) return;
+    await pool.query(
+      `INSERT INTO checkout_attribution (ref, "userId", "gaClientId", "gaSessionId")
+       VALUES ($1, $2, $3, $4) ON CONFLICT (ref) DO NOTHING`,
+      [String(ref).slice(0, 80), userId, ga.clientId, ga.sessionId && /^\d+$/.test(ga.sessionId) ? ga.sessionId : null],
+    );
+  } catch (err: any) {
+    log.warn("payment", "Atribuicao do checkout nao gravada", { error: err?.message });
+  }
+}
+
 const planRequestsRouter = router({
   // Financeiro: solicitar mudança de plano
   request: financeiroProcedure
@@ -9453,6 +9471,9 @@ const subscriptionsRouter = router({
       billing:        z.enum(["monthly", "yearly"]).default("monthly"),
       cpfCnpj:        z.string().optional(),
       paymentMethod:  z.enum(["pix", "credit_card"]).default("pix"),
+      // Ids do GA4 do navegador (cookies _ga), para o purchase do servidor
+      // herdar a origem da visita. Opcional; sem ele o plano ativa igual.
+      ga: z.object({ clientId: z.string().max(100), sessionId: z.string().max(40).optional() }).optional(),
       card: z.object({
         holderName:  z.string(),
         number:      z.string(),
@@ -9478,6 +9499,7 @@ const subscriptionsRouter = router({
           card:          input.card as any,
         });
         log.info("payment", "Checkout criado", { gateway: provider.name, userId: ctx.user.id, planSlug: input.planSlug });
+        await registrarAtribuicaoCheckout((result as any)?.invoiceId, ctx.user.id, input.ga);
         return result;
       } catch (err: any) {
         log.error("payment", `${provider.name} createSubscription falhou`, { error: err.message, userId: ctx.user.id });
@@ -9490,6 +9512,9 @@ const subscriptionsRouter = router({
     .input(z.object({
       planSlug: z.enum(["basic", "premium", "vip"]),
       cpfCnpj:  z.string().min(11).max(18),
+      // Ids do GA4 do navegador (cookies _ga), para o purchase do servidor
+      // herdar a origem da visita. Opcional; sem ele o plano ativa igual.
+      ga: z.object({ clientId: z.string().max(100), sessionId: z.string().max(40).optional() }).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const pool     = await getPool();
@@ -9606,6 +9631,7 @@ const subscriptionsRouter = router({
         ]
       );
 
+      await registrarAtribuicaoCheckout(asaasPayment.id, ctx.user.id, input.ga);
       log.info("asaas-annual", "Cobrança anual criada", {
         userId: ctx.user.id, planSlug: input.planSlug,
         annualPrice, creditNet, asaasId: asaasPayment.id,

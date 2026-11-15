@@ -5,6 +5,7 @@
 import { useState, useEffect } from "react";
 import { useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { gaIdsDoNavegador } from "@/lib/analytics";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -58,6 +59,7 @@ export default function CheckoutAsaas() {
         planSlug: plan, billing, cpfCnpj: cpf,
         paymentMethod: method,
         card: method === "credit_card" ? card : undefined,
+        ga: gaIdsDoNavegador(),
       }) as any;
       if (result.pixCode) {
         setPix({ code: result.pixCode, qr: result.pixQr || "", expires: result.expiresAt || "" });

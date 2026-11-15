@@ -1,3 +1,5 @@
+import { idsDoGa } from "../../../shared/gaCookies";
+
 // Eventos de funil no GA4 (tag G-JJ1H7MV9B7 carregada no index.html).
 // A tag ja registra a origem da visita (UTM do link da bio) na sessao; o
 // evento disparado no mesmo navegador herda essa origem no GA4. No cadastro
@@ -30,5 +32,15 @@ export function trackGoogleSignUpFromUrl(): void {
     window.history.replaceState(null, "", url.pathname + (url.search ? url.search : "") + url.hash);
   } catch {
     /* ok */
+  }
+}
+
+
+/** Ids do GA4 para mandar junto do checkout (purchase sai do servidor). */
+export function gaIdsDoNavegador(): { clientId: string; sessionId?: string } | undefined {
+  try {
+    return idsDoGa(document.cookie) ?? undefined;
+  } catch {
+    return undefined;
   }
 }

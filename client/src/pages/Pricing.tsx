@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { gaIdsDoNavegador } from "@/lib/analytics";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 const plans = [
@@ -65,7 +66,7 @@ export default function Pricing() {
         window.location.href = `/checkout/asaas?plan=${slug}&billing=${billing}`;
       } else {
         // Stripe: abre checkout hospedado
-        const result = await createCheckout.mutateAsync({ planSlug: slug, billing } as any);
+        const result = await createCheckout.mutateAsync({ planSlug: slug, billing, ga: gaIdsDoNavegador() } as any);
         if ((result as any).url) window.open((result as any).url, "_blank");
       }
     } catch (e: any) {

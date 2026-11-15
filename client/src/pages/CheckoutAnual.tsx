@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { gaIdsDoNavegador } from "@/lib/analytics";
 import { toast } from "sonner";
 
 // ─── Planos ───────────────────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ export default function CheckoutAnual() {
     const clean = doc.replace(/\D/g, "");
     if (clean.length < 11) { toast.error("Informe um CPF ou CNPJ válido"); return; }
     setTermsErr(false);
-    mutation.mutate({ planSlug, cpfCnpj: clean });
+    mutation.mutate({ planSlug, cpfCnpj: clean, ga: gaIdsDoNavegador() });
   }
 
   function copyPix() {

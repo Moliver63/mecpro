@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
+import { gaIdsDoNavegador } from "@/lib/analytics";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -231,7 +232,7 @@ export default function Billing() {
                     <button
                       className={`btn btn-md btn-full ${p.highlight ? "btn-green" : "btn-outline"}`}
                       disabled={isCurrent}
-                      onClick={() => { if (!isCurrent) createCheckout.mutate({ planSlug: p.slug as any, billing }); }}>
+                      onClick={() => { if (!isCurrent) createCheckout.mutate({ planSlug: p.slug as any, billing, ga: gaIdsDoNavegador() }); }}>
                       {isCurrent ? "✓ Plano atual" : "Assinar"}
                     </button>
 

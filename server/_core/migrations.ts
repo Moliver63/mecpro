@@ -1193,5 +1193,13 @@ export async function runMigrations(): Promise<void> {
     } catch (err: any) {
       console.warn('[migrations] affiliates tables skipped:', err?.message);
     }
+    // ── Ativacao de plano por pagamento Asaas + atribuicao GA4 do checkout ──
+    // Aditiva (CREATE ... IF NOT EXISTS). Falha aqui nao derruba o boot.
+    try {
+      const { PAYMENT_EVENTS_MIGRATION } = await import('../asaasPlanPayments');
+      await pool.query(PAYMENT_EVENTS_MIGRATION);
+    } catch (err: any) {
+      console.warn('[migrations] payment_events skipped:', err?.message);
+    }
     console.log('[migrations] ✅ Migrations applied successfully');
 }

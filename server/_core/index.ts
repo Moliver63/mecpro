@@ -1419,6 +1419,44 @@ app.post('/api/meta/upload-media', upload.single('file'), async (req: Request, r
   }
 });
 
+// Ativa plano a partir de um pagamento Asaas.
+//  - Exige ASAAS_WEBHOOK_TOKEN configurado (fail-closed): sem token, qualquer um
+//    poderia reenviar o id de um pagamento antigo e reativar plano.
+//  - Erro devolve { erro: true } e o webhook responde 500, para o Asaas
+//    REENVIAR (com 200 ele nao reenvia e o cliente que pagou ficava no free).
+//    O processamento e idempotente por paymentId, entao reenvio e seguro.
+// Ver docs/specs/2026-11-15-asaas-ativacao-de-plano.md.
+async function ativarPlanoPorPagamentoAsaas(pool: any, paymentId: string): Promise<{ erro?: true; ativou?: boolean } | null> {
+  if (!process.env.ASAAS_WEBHOOK_TOKEN) {
+    log.warn('asaas-plano', 'ASAAS_WEBHOOK_TOKEN ausente — ativação automática de plano desligada', { paymentId });
+    return null;
+  }
+  try {
+    const { processarPagamentoDePlano, dependenciasDeProducao } = await import('../asaasPlanPayments.js');
+    const r = await processarPagamentoDePlano(paymentId, dependenciasDeProducao(
+      pool,
+      (nivel, msg, dados) => (nivel === 'warn' ? log.warn : log.info)('asaas-plano', msg, dados),
+      async (userId, plano) => {
+        // Ativar nunca rebaixa: renovacao de assinatura menor nao derruba
+        // plano maior (VIP dado pelo admin, upgrade com a antiga ainda ativa).
+        const { planoResultante } = await import('../asaasPlanPayments.js');
+        const atual = (await db.getUserById(userId) as any)?.plan;
+        const alvo = planoResultante(atual, plano);
+        if (alvo !== atual) await db.updateUserPlan(userId, alvo);
+        else log.info('asaas-plano', 'Plano atual igual ou maior — mantido', { userId, atual, pago: plano });
+      },
+    ));
+    return r.acao === 'ignorado' ? null : { ativou: r.acao === 'ativado' };
+  } catch (err: any) {
+    log.error('asaas-plano', 'Falha ao ativar plano por pagamento — Asaas vai reenviar', { paymentId, error: err?.message });
+    return { erro: true };
+  }
+}
+
+// Estorno ou chargeback de pagamento que ativou plano: o rebaixamento ainda e
+// manual, entao o minimo e um alerta claro no log.
+const EVENTOS_DE_ESTORNO = new Set(['PAYMENT_REFUNDED', 'PAYMENT_CHARGEBACK_REQUESTED', 'PAYMENT_CHARGEBACK_DISPUTE', 'PAYMENT_REFUND_IN_PROGRESS']);
+
 // ─── Webhook Asaas — confirmação automática de Pix ──────────
 app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Response) => {
   try {
@@ -1436,6 +1474,18 @@ app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Respons
 
     const event = req.body;
     log.info('asaas-webhook', 'Evento recebido', { event: event?.event, paymentId: event?.payment?.id });
+
+    if (EVENTOS_DE_ESTORNO.has(event?.event) && event?.payment?.id) {
+      try {
+        const pool = await getPool();
+        const r = pool ? await pool.query(`SELECT "userId", "planSlug" FROM payment_events WHERE "paymentId" = $1`, [event.payment.id]) : { rows: [] };
+        if (r.rows[0]) {
+          log.error('asaas-plano', 'ESTORNO de pagamento que ativou plano — rebaixar manualmente', {
+            paymentId: event.payment.id, evento: event.event, userId: r.rows[0].userId, plano: r.rows[0].planSlug,
+          });
+        }
+      } catch { /* tabela ausente: nada a alertar */ }
+    }
 
     // Só processa pagamentos confirmados
     if (event?.event !== 'PAYMENT_RECEIVED' && event?.event !== 'PAYMENT_CONFIRMED') {
@@ -1456,7 +1506,13 @@ app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Respons
     );
 
     if (!depRes.rows[0]) {
-      log.warn('asaas-webhook', 'Depósito não encontrado ou já processado', { asaasId });
+      // Nao e deposito pendente: pode ser mensalidade/anuidade de assinatura
+      // (referencia user_<id>_<plano>) ou repeticao de um plano anual ja
+      // creditado. Ativa o plano se o pagamento, conferido na API do Asaas,
+      // for de plano. Ver docs/specs/2026-11-15-asaas-ativacao-de-plano.md.
+      const plano = await ativarPlanoPorPagamentoAsaas(pool, asaasId);
+      if (plano?.erro) return res.status(500).json({ error: 'retry' });
+      if (!plano) log.warn('asaas-webhook', 'Depósito não encontrado ou já processado', { asaasId });
       return res.json({ received: true });
     }
 
@@ -1529,6 +1585,12 @@ app.post('/api/webhook/asaas', express.json(), async (req: Request, res: Respons
         message: `Pix R$ ${paidValue} confirmado para userId ${dep.userId}. Saldo creditado: R$ ${Number(dep.netAmount)/100}`,
       });
     } catch {}
+
+    // Plano anual: alem do credito, ativa o plano (antes so creditava saldo).
+    // Se falhar, 500: o reenvio encontra o deposito ja 'approved', cai no ramo
+    // sem deposito acima e so ativa o plano (sem creditar de novo).
+    const planoAnual = dep.category === 'annual_plan' ? await ativarPlanoPorPagamentoAsaas(pool, asaasId) : null;
+    if (planoAnual?.erro) return res.status(500).json({ error: 'retry' });
 
     return res.json({ received: true, credited: Number(dep.netAmount) / 100 });
   } catch (err: any) {
