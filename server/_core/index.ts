@@ -1263,9 +1263,15 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         // checar), senão cai no /dashboard normal.
         const returnedState = typeof req.query.state === 'string' ? req.query.state : undefined;
         const appUrl = process.env.APP_URL || 'https://www.mecproai.com';
+        // Conta criada agora pelo Google: marca ?cadastro=google so no destino
+        // padrao, para o navegador disparar sign_up no GA4 (o servidor nao tem
+        // a sessao do GA com a UTM). Destino vindo de state (ex.: /authorize do
+        // MCP) nao recebe parametro extra. Ver docs/specs/2026-11-15-ga4-sign-up.md.
+        const { contaCriadaAgora } = await import('../signupTracking.js');
+        const criadoAgora = contaCriadaAgora(user.createdAt);
         const dest = returnedState && (returnedState.startsWith('/') || returnedState.startsWith(appUrl))
           ? returnedState
-          : '/dashboard';
+          : (criadoAgora ? '/dashboard?cadastro=google' : '/dashboard');
         log.info('oauth', 'Google callback — redirecionando após login', { userId: user.id, temState: !!returnedState, dest: dest.slice(0, 100) });
         res.redirect(dest);
       } catch (err: any) {

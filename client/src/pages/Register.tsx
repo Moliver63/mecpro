@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { trackSignUp } from "@/lib/analytics";
 
 // Codigo de parceiro: vem de ?ref= (guardado por captureReferral no main.tsx) ou da URL atual.
 function readReferral(): string | undefined {
@@ -18,7 +19,11 @@ export default function Register() {
   const [done, setDone] = useState(false);
 
   const register = trpc.auth.register.useMutation({
-    onSuccess: () => { try { window.localStorage.removeItem("mp_ref"); } catch { /* ok */ } setDone(true); },
+    onSuccess: () => {
+      try { window.localStorage.removeItem("mp_ref"); } catch { /* ok */ }
+      trackSignUp("email");
+      setDone(true);
+    },
     onError: (err: any) => setError(err.message || "Erro ao criar conta"),
   });
 
