@@ -35,7 +35,14 @@ export type OfferClaimConflict = {
   // null quando nao ha fato confirmado para propor troca: pedir confirmacao.
   suggestion: OfferClaimSuggestion | null;
   needsOfferConfirmation: boolean;
+  // Por que a gratuidade nao foi aceita e o que o usuario precisa confirmar:
+  // - briefing_campanha: so o perfil da conta cita gratuidade; o briefing da campanha informa preco.
+  // - snapshot_antigo: rascunho gerado antes da checagem por campanha; a origem da gratuidade nao da para verificar.
+  // - oferta_ambigua: o briefing chama o mesmo produto de pago e de gratuito sem diferenciar.
+  confirmacao?: ConfirmacaoDeOferta;
 };
+
+export type ConfirmacaoDeOferta = "briefing_campanha" | "snapshot_antigo" | "oferta_ambigua";
 
 export type OfferGuardContext = {
   // Texto normalizado (sem acento, minusculo) de todo briefing + perfil.
@@ -44,12 +51,31 @@ export type OfferGuardContext = {
   price?: string;
   // Texto normalizado SO do briefing desta campanha (sem o perfil da conta) e
   // dos campos de produto dela. O perfil descreve a conta inteira e pode citar
-  // OUTRA oferta ("workshop gratuito"); com preco positivo nesta campanha, a
-  // gratuidade do mesmo produto precisa estar no briefing dela. Snapshots
-  // antigos nao trazem esses campos e seguem a regra anterior.
+  // OUTRA oferta ("aula gratuita"); com preco positivo nesta campanha, so este
+  // texto confirma gratuidade. Snapshots gravados antes dessa checagem nao o
+  // trazem (undefined): sem como separar perfil de briefing, a gratuidade nao
+  // e aceita ate o briefing da campanha confirma-la (rascunho novo).
   campaignClaimsRaw?: string;
   campaignProductRaw?: string;
 };
+
+type FatosParaOferta = {
+  confirmedClaimsRaw: string;
+  campaignClaimsRaw?: string;
+  campaignProductRaw?: string;
+  genericProductPrice?: string;
+  realEstate?: { price?: string };
+};
+
+/** Contexto do guarda de oferta a partir do snapshot de fatos da propria campanha. */
+export function contextoDeOferta(facts: FatosParaOferta): OfferGuardContext {
+  return {
+    confirmedClaimsRaw: facts.confirmedClaimsRaw,
+    price: facts.realEstate?.price || facts.genericProductPrice,
+    campaignClaimsRaw: facts.campaignClaimsRaw,
+    campaignProductRaw: facts.campaignProductRaw,
+  };
+}
 
 type Match = { raw: string; index: number; end: number; groups: string[] };
 
@@ -170,29 +196,89 @@ const SUJEITOS_DA_OFERTA = new Set([
   "aula-teste", "experiencia", "palestra", "encontro", "turma", "ingresso",
 ]);
 
-// Gratuidade so e confirmada quando o briefing diz "gratis/gratuito" colado no
-// MESMO sujeito (ate ~18 caracteres de distancia). Quando nao ha preco positivo
-// e o briefing afirma gratuidade, claims sobre o proprio produto (vaga, aula,
-// acesso...) tambem passam. Preco positivo confirmado nunca autoriza "gratis"
-// para o produto principal.
-function gratuidadeConfirmadaPara(confirmedTodo: string, sujeito: string | null, preco: string | undefined, ctx?: OfferGuardContext): boolean {
-  let confirmed = confirmedTodo;
-  if (
-    sujeito && precoPositivo(preco) && ctx?.campaignClaimsRaw !== undefined && ctx.campaignProductRaw
-    && ctx.campaignProductRaw.includes(stem(sujeito))
-  ) {
-    // Mesmo produto desta campanha, que tem preco: so o briefing dela confirma gratuidade.
-    confirmed = ctx.campaignClaimsRaw;
+// Gratuidade: so o briefing da PROPRIA campanha confirma quando ela tem preco.
+// Perfil da conta, outra campanha e o texto misturado de snapshot antigo nao.
+//
+// - Sem preco confirmado: vale o texto confirmado inteiro (briefing + perfil),
+//   como antes: nao ha preco para contradizer o perfil.
+// - Com preco positivo: vale so o briefing da campanha. "Gratis" passa quando o
+//   briefing diz "gratis/gratuito" colado no MESMO sujeito (mesma frase, ate ~18
+//   caracteres). Gratuidade de brinde ("bonus gratuito") nao vale para o produto.
+// - Se o briefing chama o produto anunciado de pago (preco) e de gratuito, sem
+//   qualificar a parte gratuita ("introdutoria", "demonstracao", "bonus"...),
+//   pede esclarecimento em vez de decidir.
+// - Snapshot antigo (campaignClaimsRaw ausente): nada confirma; pede confirmacao.
+// Tipo plano: com strict:false uniao discriminada nao estreita.
+type VereditoGratuidade = { ok: boolean; confirmacao?: ConfirmacaoDeOferta };
+
+const FIM_DE_FRASE = /[.;!?\n]/;
+const QUALIFICADOR_DE_PARTE_GRATUITA = /(?<![a-z])(?:introdutori[ao]s?|demonstrativ[ao]s?|demonstracao|experimental|experiencia|primeira|amostra|degustacao|teste|trecho|modulo|bonus|brinde|brindes)(?![a-z])/;
+
+function marcasDeGratuidade(t: string): Match[] {
+  return matchesOf(t, GRATIS_RE).filter((m) => !negadoAntes(t, m.index));
+}
+
+function limitesDaFrase(t: string, index: number, end: number): [number, number] {
+  let ini = index;
+  while (ini > 0 && !FIM_DE_FRASE.test(t[ini - 1])) ini--;
+  let fim = end;
+  while (fim < t.length && !FIM_DE_FRASE.test(t[fim])) fim++;
+  return [ini, fim];
+}
+
+function avaliarGratuidade(sujeito: string | null, ctx: OfferGuardContext): VereditoGratuidade {
+  const positivo = precoPositivo(ctx.price);
+  const todo = ctx.confirmedClaimsRaw;
+  const campanha = ctx.campaignClaimsRaw;
+  if (campanha === undefined) {
+    return { ok: false, ...(marcasDeGratuidade(todo).length ? { confirmacao: "snapshot_antigo" as const } : {}) };
   }
-  const marcas = matchesOf(confirmed, GRATIS_RE).filter((m) => !negadoAntes(confirmed, m.index));
+  const base = positivo ? campanha : todo;
+  const donoBrinde = (m: Match) => SUJEITOS_BRINDE.has(sujeitoDoGratis(base, m.index, m.end) ?? "");
+  const marcas = marcasDeGratuidade(base).filter((m) => !donoBrinde(m));
+
+  if (positivo && sujeito && ctx.campaignProductRaw?.includes(stem(sujeito))) {
+    const s = stem(sujeito);
+    const contraditorio = marcas.some((m) => {
+      const [ini, fim] = limitesDaFrase(base, m.index, m.end);
+      const frase = base.slice(ini, fim);
+      return frase.includes(s) && !QUALIFICADOR_DE_PARTE_GRATUITA.test(frase);
+    });
+    if (contraditorio) return { ok: false, confirmacao: "oferta_ambigua" };
+  }
+
+  if (marcas.length) {
+    if (sujeito) {
+      const s = stem(sujeito);
+      const colada = marcas.some((m) => {
+        const [ini, fim] = limitesDaFrase(base, m.index, m.end);
+        return base.slice(Math.max(ini, m.index - 18), Math.min(fim, m.end + 18)).includes(s);
+      });
+      if (colada) return { ok: true };
+      if (!positivo && SUJEITOS_DA_OFERTA.has(sujeito)) return { ok: true };
+    } else if (!positivo) {
+      return { ok: true };
+    }
+  }
+  // Nao confirmado. Com preco, gratuidade que existe so fora do briefing da campanha
+  // (perfil da conta) pede a confirmacao no briefing da campanha.
+  if (positivo && marcasDeGratuidade(todo).length && !marcasDeGratuidade(campanha).filter((m) => !SUJEITOS_BRINDE.has(sujeitoDoGratis(campanha, m.index, m.end) ?? "")).length) {
+    return { ok: false, confirmacao: "briefing_campanha" };
+  }
+  return { ok: false };
+}
+
+// Item/material gratuito (e-book, checklist...) confirmado no briefing: a regra de
+// bonus decide se o ITEM e citado. Nao decide a gratuidade do produto anunciado
+// (ver avaliarGratuidade).
+function itemGratuitoConfirmado(confirmed: string, sujeito: string | null, preco: string | undefined): boolean {
+  const marcas = marcasDeGratuidade(confirmed);
   if (!marcas.length) return false;
   if (sujeito) {
     const s = stem(sujeito);
     if (marcas.some((m) => confirmed.slice(Math.max(0, m.index - 18), m.end + 18).includes(s))) return true;
     return !precoPositivo(preco) && SUJEITOS_DA_OFERTA.has(sujeito);
   }
-  // Sem sujeito claro: refere-se a oferta toda. So vale se nao ha preco
-  // positivo confirmado.
   return !precoPositivo(preco);
 }
 
@@ -218,18 +304,25 @@ function detectGratuidade(texto: string, n: string, ctx: OfferGuardContext, out:
       out.push(c);
     }
   };
+  // Conflito de gratuidade. Preco so entra na sugestao quando e o preco confirmado
+  // da campanha; em oferta ambigua nao ha sugestao (nao se decide pelo usuario).
+  const conflito = (trecho: string, v: VereditoGratuidade, parcial = false): OfferClaimConflict => {
+    const confirmacao = v.confirmacao;
+    return {
+      kind: "gratuidade",
+      value: trecho,
+      reason: "offer_free_claim_not_confirmed",
+      suggestion: parcial || confirmacao === "oferta_ambigua" ? null : sugestaoDePreco(trecho, ctx.price),
+      needsOfferConfirmation: parcial || !!confirmacao || !precoPositivo(ctx.price),
+      ...(confirmacao ? { confirmacao } : {}),
+    };
+  };
 
   for (const re of OFERTA_TODA_GRATIS) {
     for (const m of matchesOf(n, re)) {
-      if (gratuidadeConfirmadaPara(confirmed, null, ctx.price, ctx) || zeroConfirmado(confirmed, ctx.price)) continue;
-      const trecho = trechoOriginal(texto, n, m.index, m.end);
-      push({
-        kind: "gratuidade",
-        value: trecho,
-        reason: "offer_free_claim_not_confirmed",
-        suggestion: sugestaoDePreco(trecho, ctx.price),
-        needsOfferConfirmation: !precoPositivo(ctx.price),
-      });
+      const v = avaliarGratuidade(null, ctx);
+      if (v.ok || zeroConfirmado(confirmed, ctx.price)) continue;
+      push(conflito(trechoOriginal(texto, n, m.index, m.end), v));
     }
   }
 
@@ -238,28 +331,15 @@ function detectGratuidade(texto: string, n: string, ctx: OfferGuardContext, out:
     const sujeito = sujeitoDoGratis(n, m.index, m.end);
     // Brinde/bonus gratis e tratado na regra de bonus.
     if (sujeito && SUJEITOS_BRINDE.has(sujeito)) continue;
-    if (gratuidadeConfirmadaPara(confirmed, sujeito, ctx.price, ctx)) continue;
-    const trecho = trechoOriginal(texto, n, m.index, m.end);
-    push({
-      kind: "gratuidade",
-      value: trecho,
-      reason: "offer_free_claim_not_confirmed",
-      suggestion: sugestaoDePreco(trecho, ctx.price),
-      needsOfferConfirmation: !precoPositivo(ctx.price),
-    });
+    const v = avaliarGratuidade(sujeito, ctx);
+    if (v.ok) continue;
+    push(conflito(trechoOriginal(texto, n, m.index, m.end), v));
   }
 
   for (const m of matchesOf(n, PARCIAL_SEM_PAGAR)) {
-    const sujeito = m.groups[0];
-    if (gratuidadeConfirmadaPara(confirmed, sujeito, ctx.price, ctx)) continue;
-    const trecho = trechoOriginal(texto, n, m.index, m.end);
-    push({
-      kind: "gratuidade",
-      value: trecho,
-      reason: "offer_free_claim_not_confirmed",
-      suggestion: null,
-      needsOfferConfirmation: true,
-    });
+    const v = avaliarGratuidade(m.groups[0], ctx);
+    if (v.ok) continue;
+    push(conflito(trechoOriginal(texto, n, m.index, m.end), v, true));
   }
 }
 
@@ -396,7 +476,7 @@ function detectBonus(texto: string, n: string, ctx: OfferGuardContext, out: Offe
   for (const m of matchesOf(n, SUBSTANTIVO_GRATIS_RE)) {
     if (negadoAntes(n, m.index)) continue;
     const item = (m.groups[0] || m.groups[1] || "").replace(/\s+/g, " ");
-    const livre = gratuidadeConfirmadaPara(confirmed, item.split(" ")[0], ctx.price);
+    const livre = itemGratuitoConfirmado(confirmed, item.split(" ")[0], ctx.price);
     if (livre) continue;
     if (temBonus && confirmed.includes(stem(item))) continue;
     registrar(m, "material gratuito nao confirmado no briefing");

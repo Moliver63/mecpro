@@ -1,5 +1,5 @@
 import { validateCampaignFactIntegrity, type CampaignFacts, type CampaignFactConflict } from "./campaignFactGuard";
-import type { OfferClaimKind, OfferClaimSuggestion } from "./campaignOfferGuard";
+import type { ConfirmacaoDeOferta, OfferClaimKind, OfferClaimSuggestion } from "./campaignOfferGuard";
 import { assertObjectiveUnchanged } from "./campaignRuleRetrieval";
 
 /**
@@ -34,6 +34,10 @@ export type DivergenciaDeOferta = {
   /** Troca baseada em fato confirmado (ou remocao segura). null = pedir confirmacao da oferta. */
   sugestao: OfferClaimSuggestion | null;
   precisaConfirmarOferta: boolean;
+  /** Quando a gratuidade nao foi aceita por falta de confirmacao no briefing da campanha. */
+  confirmacao?: ConfirmacaoDeOferta;
+  /** Orientacao ao usuario para esse caso (o que confirmar e onde). */
+  orientacao?: string;
   /** Texto atual do campo no rascunho, para a tela mostrar o trecho em contexto e pre-preencher a edicao. */
   textoAtual?: string | null;
 };
@@ -79,8 +83,20 @@ export function paraDivergencia(conflito: CampaignFactConflict, totalCriativos: 
     tipo: conflito.kind,
     sugestao: conflito.suggestion ?? null,
     precisaConfirmarOferta: conflito.needsOfferConfirmation === true,
+    ...(conflito.confirmacao ? { confirmacao: conflito.confirmacao, orientacao: ORIENTACAO_POR_CONFIRMACAO[conflito.confirmacao] } : {}),
   };
 }
+
+// Textos dizem so o que confirmar e onde; nao citam preco nem desconto (a
+// sugestao, quando existe, traz apenas o preco confirmado da campanha).
+export const ORIENTACAO_POR_CONFIRMACAO: Record<ConfirmacaoDeOferta, string> = {
+  briefing_campanha:
+    "A gratuidade aparece só no perfil da conta; o briefing desta campanha informa preço. Confirme no briefing da campanha que o produto é gratuito, ou use o preço confirmado.",
+  snapshot_antigo:
+    "Este rascunho foi gerado antes da checagem por campanha e não permite verificar de onde veio a gratuidade. Confirme no briefing da campanha que o produto é gratuito e gere o rascunho de novo, ou reescreva sem \"grátis\".",
+  oferta_ambigua:
+    "O briefing desta campanha chama o mesmo produto de pago e de gratuito. Esclareça no briefing qual produto ou parte é gratuita e qual é paga.",
+};
 
 export function descreverDivergencia(d: DivergenciaDeOferta): string {
   const sugestao = d.sugestao
@@ -89,7 +105,8 @@ export function descreverDivergencia(d: DivergenciaDeOferta): string {
       : ` Sugestão: remover o trecho (${d.sugestao.basis}).`
     : "";
   const confirmar = d.precisaConfirmarOferta ? " Falta confirmar essa condição na oferta do briefing." : "";
-  return `${d.campoRotulo}: "${d.trecho}" ${d.motivoTexto}.${sugestao}${confirmar}`;
+  const orientacao = d.orientacao ? ` ${d.orientacao}` : "";
+  return `${d.campoRotulo}: "${d.trecho}" ${d.motivoTexto}.${sugestao}${orientacao || confirmar}`;
 }
 
 /**

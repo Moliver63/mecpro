@@ -176,16 +176,20 @@ test("perfil da conta com o MESMO produto gratuito nao libera 'grátis' numa cam
   assert.deepEqual(razoes(campanha(mista, [criativo("Primeira aula do workshop gratuita")], 3, 100)), []);
 });
 
-test("perfil gratuito de OUTRO produto da conta continua valendo; snapshot antigo segue a regra anterior", () => {
+test("perfil gratuito de OUTRO produto da conta não libera campanha com preço; confirmando no briefing da campanha, passa", () => {
   const perfil = { productDifferentials: "Primeira consulta gratuita" };
   const o: Oferta = { conta: "A", produto: "Mentoria em grupo", preco: "R$ 297,00", perfil };
-  assert.deepEqual(razoes(campanha(o, [criativo("Primeira consulta gratuita")], 1, 100)), []);
-  // Snapshot gravado antes desta regra (sem os campos novos): comportamento anterior, sem erro.
-  const antigo = campanha({ ...o, perfil: { productService: "Workshop gratuito de anúncios" }, produto: "Workshop de anúncios" }, [criativo("Workshop grátis de anúncios")], 2, 100);
+  // Gratuidade só no perfil: bloqueia e pede confirmação no briefing da campanha.
+  assert.ok(razoes(campanha(o, [criativo("Primeira consulta gratuita")], 1, 100)).includes("offer_free_claim_not_confirmed"));
+  // Confirmada no briefing da própria campanha: passa.
+  const confirmada: Oferta = { ...o, extra: "Primeira consulta gratuita, antes de contratar a mentoria." };
+  assert.deepEqual(razoes(campanha(confirmada, [criativo("Primeira consulta gratuita")], 2, 100)), []);
+  // Snapshot sem os campos novos (gerado antes da checagem por campanha): a origem não dá para verificar.
+  const antigo = campanha(o, [criativo("Primeira consulta gratuita")], 3, 100);
   const resp = JSON.parse(antigo.aiResponse);
   delete resp.campaignFacts.campaignClaimsRaw; delete resp.campaignFacts.campaignProductRaw;
   antigo.aiResponse = JSON.stringify(resp);
-  assert.doesNotThrow(() => avaliarIntegridade(antigo));
+  assert.ok(razoes(antigo).includes("offer_free_claim_not_confirmed"));
 });
 
 test("fonte: nenhum id, preco ou conta fixos nos arquivos da regra", () => {
