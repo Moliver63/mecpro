@@ -1,7 +1,7 @@
 import { resolverPaginaMetaComLista, destinoDaPagina, type ResolucaoPaginaMeta } from "./metaPageResolution";
 import { appRouter } from "./_core/router";
 import * as db from "./db";
-import { orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
+import { orderedCreativesForCarousel, getCreativeMedia, campanhaTemMidiaPublicavel } from "./carouselAudit";
 import { pendenciasLocaisParaPublicar } from "./publishPreflight";
 
 /**
@@ -141,8 +141,10 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
 
   // `pendenciasLocaisParaPublicar` ja garantiu que existe imagem; esta checagem
   // fica como rede contra divergencia entre as duas formas de contar media.
-  if (uniqueImages.length === 0) {
-    return { ok: false, erro: "Nenhuma imagem encontrada nos criativos — não é possível publicar sem imagem.", antesDeTocarNaMeta: true };
+  // Criativo so de video nao tem imagem para subir: a publicacao usa o videoId
+  // salvo no criativo (buildPublishMediaFromCreative).
+  if (uniqueImages.length === 0 && !campanhaTemMidiaPublicavel(creatives)) {
+    return { ok: false, erro: "Nenhuma imagem ou vídeo encontrado nos criativos — não é possível publicar sem mídia.", antesDeTocarNaMeta: true };
   }
 
   async function resolveToHash(tagged: string): Promise<string> {
@@ -162,7 +164,7 @@ export async function publicarCampanhaNaMeta(userId: number, opts: PublicarCampa
   try {
     if (uniqueImages.length === 1) {
       imageHash = await resolveToHash(uniqueImages[0]);
-    } else {
+    } else if (uniqueImages.length >= 2) {
       imageHashes = await Promise.all(uniqueImages.map(resolveToHash));
     }
   } catch (e: any) {
