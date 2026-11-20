@@ -128,3 +128,22 @@ export function auditCarouselCreatives(creatives: any[]) {
 
   return { ok: issues.length === 0, issues, orderedCreatives: mediaCreatives };
 }
+
+/**
+ * Funil com 1 criativo por conjunto: devolve o indice do criativo que o conjunto deve usar,
+ * ou null para manter a regra antiga (melhor criativo com midia).
+ * So se aplica quando o chamador nao fixou creativeIndex, ha 2+ conjuntos e 2+ criativos,
+ * e o criativo de mesmo indice do conjunto tem midia publicavel.
+ */
+export function escolherIndiceDoCriativoDoConjunto(args: {
+  creativeIndex?: number | null;
+  adSetIndex?: number | null;
+  adSetsCount: number;
+  creatives: any[];
+}): number | null {
+  if (typeof args.creativeIndex === "number") return null;
+  if (args.adSetsCount < 2 || (args.creatives?.length ?? 0) < 2) return null;
+  const idx = args.adSetIndex ?? 0;
+  const candidato = args.creatives[idx];
+  return candidato && criativoTemMidia(candidato) ? idx : null;
+}
