@@ -1,5 +1,6 @@
 import { auditCarouselCreatives, orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
-import { verificarIntegridadeParaPublicar } from "./campaignPublishIntegrity";
+import { lerTextoDoCriativo } from "./offerDivergenceFix";
+import { avaliarIntegridade, paraDivergencia, descreverDivergencia, type DivergenciaDeOferta } from "./campaignPublishIntegrity";
 import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha } from "./creativeReview";
 import { analisarTextosDaCampanha } from "./limitesDeTextoMeta";
 
@@ -80,6 +81,7 @@ export type TipoDePendencia =
   | "sem_imagem"
   | "revisao_aprovavel"
   | "revisao_bloqueada"
+  | "oferta_divergente"
   | "integridade";
 
 export type AcaoDePendencia =
@@ -106,6 +108,12 @@ export interface ItemDePendencia {
    * escrito; e quem vai aprovar precisa ver o que esta aprovando.
    */
   textos?: Array<{ index: number; score: number; headline: string | null; description: string | null; copy: string | null; cta: string | null }>;
+  /**
+   * Divergencias entre a copy e a oferta confirmada (tipo `oferta_divergente`):
+   * campo, trecho, motivo e sugestao baseada em fato confirmado. O rascunho
+   * continua editavel; aplicar uma sugestao so salva o rascunho.
+   */
+  divergencias?: DivergenciaDeOferta[];
 }
 
 function textosDe(creatives: any[], indices: number[], scores: Record<number, number>) {
@@ -212,13 +220,37 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
   const campanhaSemRevisao = emRevisao.length
     ? { ...campaign, creatives: JSON.stringify(creatives.map((c: any) => ({ ...c, needsReview: false }))) }
     : campaign;
-  const integridade = verificarIntegridadeParaPublicar(campanhaSemRevisao);
-  if (!integridade.ok) {
+  const integridade = avaliarIntegridade(campanhaSemRevisao);
+  if (integridade.erroEstrutural) {
     pendencias.push({
       tipo: "integridade", criativos: [], acao: "editar_texto",
-      titulo: String(integridade.erro || "").replace(/^CAMPAIGN_INTEGRITY:\s*/, "") || "Integridade da campanha reprovada.",
+      titulo: String(integridade.erroEstrutural).replace(/^CAMPAIGN_INTEGRITY:\s*/, "") || "Integridade da campanha reprovada.",
       detalhes: [],
     });
+  } else if (integridade.conflitos.length) {
+    const divergencias = integridade.conflitos
+      .map((c) => paraDivergencia(c, integridade.totalCriativos))
+      .filter((d): d is DivergenciaDeOferta => !!d)
+      .map((d) => ({ ...d, textoAtual: d.criativo === null ? null : lerTextoDoCriativo(creatives[d.criativo], d.caminho) }));
+    const demais = integridade.conflitos.filter((c) => !c.kind);
+    if (divergencias.length) {
+      const afetados = [...new Set(divergencias.map((d) => d.criativo).filter((i): i is number => i !== null))];
+      const exemplos = divergencias.slice(0, 3).map((d) => `"${d.trecho}"`).join(", ");
+      pendencias.push({
+        tipo: "oferta_divergente", acao: "editar_texto",
+        criativos: afetados,
+        titulo: `${divergencias.length} trecho(s) prometem algo que a oferta confirmada não sustenta: ${exemplos}. Aplique a sugestão ou edite o texto.`,
+        detalhes: divergencias.map(descreverDivergencia),
+        divergencias,
+      });
+    }
+    if (demais.length) {
+      pendencias.push({
+        tipo: "integridade", criativos: [], acao: "editar_texto",
+        titulo: demais.slice(0, 5).map((c) => `${c.field}: ${c.reason}`).join("; "),
+        detalhes: [],
+      });
+    }
   }
 
   // Avisos acompanham os dois desfechos: quem publica com tudo em ordem

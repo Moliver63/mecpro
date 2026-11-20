@@ -2822,6 +2822,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
         adSetIndexes: z.array(z.number().int().min(0)).optional().describe("Quais ad sets publicar (por índice, começando em 0). Se omitido, publica todos."),
         idempotencyKey: z.string().min(8).max(200)
           .describe("Identificador único desta tentativa de publicação (ex: UUID v4). Reenvie o MESMO valor em caso de retry para evitar publicar a campanha duas vezes."),
+        confirmationToken: z.string().max(80).optional()
+          .describe("Token de confirmação explícita. Sem ele a ferramenta só valida e devolve o resumo com o token; NÃO publica. Só reenvie com o token depois que o usuário confirmar em linguagem clara."),
       },
     },
     async (input) => {
@@ -2833,6 +2835,38 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const project: any = await db.getProjectById(campaign.projectId);
       if (!project || project.userId !== userId) {
         return { content: [{ type: "text", text: `Campanha ${input.campaignId} não pertence a este usuário.` }], isError: true };
+      }
+
+      // Confirmacao explicita ANTES de reservar a idempotencyKey: a pre-checagem
+      // local (a mesma da tela e do chat, inclusive divergencias de oferta)
+      // roda primeiro e, passando, a ferramenta devolve o resumo e um token que
+      // depende do estado atual da campanha. So um segundo envio com esse token
+      // cria a campanha pausada. Se o rascunho mudar, o token deixa de valer.
+      {
+        const { pendenciasLocaisParaPublicar: preflightMcp } = await import("./publishPreflight");
+        const antes = preflightMcp(campaign);
+        if (!antes.ok) {
+          const pendencias = antes.pendencias ?? [];
+          const message = [
+            "Publicação bloqueada antes de tocar na Meta. Pendências desta campanha:",
+            ...pendencias.map((p) => [`- ${p.titulo}`, ...p.detalhes.map((d) => `    ${d}`)].join("\n")),
+          ].join("\n");
+          return {
+            content: [{ type: "text", text: message }],
+            structuredContent: { errorType: "pre_publish_blocked", stage: "pre_publish_local_checks", issues: antes.issues ?? [], pendencias },
+            isError: true,
+          };
+        }
+        const token = crypto.createHash("sha256")
+          .update(JSON.stringify({ userId, campaign, pageId: input.pageId, destination: input.destination || "website", leadGenFormId: input.leadGenFormId || null, linkUrl: input.linkUrl || null, adSetIndexes: input.adSetIndexes ?? null }))
+          .digest("hex").slice(0, 16);
+        if (input.confirmationToken !== token) {
+          const resumo = `Campanha ${campaign.id} "${campaign.name}" validada. Nada foi publicado. Para criar a campanha PAUSADA na Meta, peça a confirmação explícita do usuário e reenvie com confirmationToken="${token}" (e a mesma idempotencyKey).`;
+          return {
+            content: [{ type: "text", text: resumo }],
+            structuredContent: { confirmationRequired: true, confirmationToken: token, campaignId: campaign.id, name: campaign.name, pageId: input.pageId, destination: input.destination || "website", adSetIndexes: input.adSetIndexes ?? null },
+          };
+        }
       }
 
       const requestKey = `publish_campaign:${input.idempotencyKey}`;

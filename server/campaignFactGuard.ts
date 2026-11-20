@@ -8,6 +8,7 @@ import {
 } from "./factNormalizer";
 
 import { retrieveCampaignRules, canonicalObjective } from "./campaignRuleRetrieval";
+import { detectUnconfirmedOfferClaims, REGRA_OFERTA_PARA_PROMPT, type OfferClaimKind, type OfferClaimSuggestion } from "./campaignOfferGuard";
 
 type FactSource = Record<string, unknown>;
 
@@ -30,8 +31,16 @@ export type OfferFacts = {
 
 export type CampaignFactConflict = {
   field: string;
+  // Trecho exato do texto que gerou o conflito.
   value: string;
   reason: string;
+  // Preenchidos pelo guarda de oferta (gratuidade, desconto, bonus, acesso,
+  // garantia, prazo da oferta). `suggestion` so existe quando ha fato
+  // confirmado (ou remocao segura) para propor; `needsOfferConfirmation`
+  // indica que falta informacao no briefing e o usuario deve confirmar a oferta.
+  kind?: OfferClaimKind;
+  suggestion?: OfferClaimSuggestion | null;
+  needsOfferConfirmation?: boolean;
 };
 
 export type CampaignFacts = {
@@ -54,6 +63,12 @@ export type CampaignFacts = {
   // nicho. Mais amplo que socialProofRaw (que so olha productProofPoints)
   // porque escassez/exclusividade pode vir de qualquer campo do briefing.
   confirmedClaimsRaw: string;
+  // Só o briefing DESTA campanha (sem o perfil da conta), normalizado, e os
+  // campos de produto dela. Opcionais: snapshots antigos não os têm. Usados
+  // pela regra de gratuidade para o perfil não liberar "grátis" num produto
+  // que esta campanha vende por preço. Ver campaignOfferGuard.ts.
+  campaignClaimsRaw?: string;
+  campaignProductRaw?: string;
   // Cláusulas curtas extraídas literalmente do briefing/perfil — o que o
   // cliente disse que o produto/serviço TEM (característica), não o que
   // isso PRODUZ (benefício). Ex.: "dois aparelhos de ar-condicionado" é uma
@@ -807,6 +822,8 @@ export function buildCampaignFacts({
     intent: { segment: segment || "", objective: canonicalObjective(input.objective) },
     socialProofRaw,
     confirmedClaimsRaw: n,
+    campaignClaimsRaw: normalizeText(currentRaw),
+    campaignProductRaw: normalizeText(compactText([input?.["productName"], input?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     confirmedCharacteristics,
     genericProductPrice,
     genericAddress,
@@ -976,6 +993,25 @@ export function validateCampaignFactIntegrity(
       if (!substantiated) {
         conflicts.push({ field, value: claim, reason: "unverified_benefit_claim" });
       }
+    }
+
+    // Oferta comercial sem lastro no briefing: gratuidade, desconto, bonus,
+    // prazo de acesso, garantia e prazo da oferta. Qualquer nicho e objetivo:
+    // leads nao autoriza presumir oferta gratuita. Ver campaignOfferGuard.ts.
+    for (const claim of detectUnconfirmedOfferClaims(text, {
+      confirmedClaimsRaw: facts.confirmedClaimsRaw,
+      price: facts.realEstate.price || facts.genericProductPrice,
+      campaignClaimsRaw: facts.campaignClaimsRaw,
+      campaignProductRaw: facts.campaignProductRaw,
+    })) {
+      conflicts.push({
+        field,
+        value: claim.value,
+        reason: claim.reason,
+        kind: claim.kind,
+        suggestion: claim.suggestion,
+        needsOfferConfirmation: claim.needsOfferConfirmation,
+      });
     }
 
     // Linguagem de compra/moradia própria — só faz sentido para VENDA de
@@ -1162,6 +1198,7 @@ export function formatCampaignFactsForPrompt(facts: CampaignFacts): string {
     facts.allowedInferences.length ? `\nINFERENCIAS PERMITIDAS:\n${facts.allowedInferences.map((fact) => `- ${fact}`).join("\n")}` : "",
     facts.forbiddenClaims.length ? `\nPROIBIDO NESTA CAMPANHA:\n${facts.forbiddenClaims.slice(0, 30).map((claim) => `- ${claim}`).join("\n")}` : "",
     "\nREGRA: padroes vencedores e exemplos podem emprestar estrutura persuasiva, mas nunca fatos, numeros, enderecos, precos, metragem ou caracteristicas de outro projeto.",
+    "\n" + REGRA_OFERTA_PARA_PROMPT,
     "\nREGRA ABSOLUTA: use SOMENTE os FATOS VERIFICADOS acima. NUNCA infira nem adicione: clinica, consultorio, numero de vagas, disponibilidade limitada, urgencia, escassez, descontos, equipamentos ou qualquer caracteristica nao fornecida. Se uma informacao nao estiver nos FATOS VERIFICADOS, OMITA — nao substitua por suposicao.",
     "\nCONTRATO UNICO DE CRIATIVO: todas as variações de copy e imagem devem representar a mesma oferta descrita na ÂNCORA DA OFERTA. A âncora identifica o assunto; só FATOS VERIFICADOS autorizam afirmações objetivas. Não troque o produto/serviço por um cenário genérico do segmento nem invente benefícios, resultados, objetos, instalações ou características.",
   ].filter(Boolean).join("\n");

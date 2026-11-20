@@ -26,6 +26,7 @@ import { marcarPromessasParaRevisao, factsDaCampanha } from "./creativeReview";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado } from "./ai-providers/cloudflareWorkersAI";
+import { ctasSemPromessaNaoConfirmada, REGRA_OFERTA_PARA_PROMPT } from "./campaignOfferGuard";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { alinharObjetivosAninhados, formatoDeMidiaParaAuditoria } from "./campaignRuleRetrieval";
 import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, truncarCamposNoLimite, escolherMelhorReescrita, avaliarReescrita, reescritaSuficiente, camposComErroObjetivo, extrairJsonDeResposta, motivoParaRecusarConserto, manterMelhorVersao, textoDeFatosConfirmados, CREATIVE_TEXT_LIMITS, type CandidatoReescrita, type CreativeTextField } from "./creativeRewriteGuard";
@@ -1400,14 +1401,21 @@ export function inferOfferType(text: string, segment?: string): OfferInference {
 }
 
 // Gera instrução de CTA para o Groq/motor híbrido
-export function getSegmentInstruction(segment: string, niche: string, objective: string): string {
+export function getSegmentInstruction(
+  segment: string,
+  niche: string,
+  objective: string,
+  // Fatos confirmados do rascunho. Sem eles, CTAs que prometem gratuidade,
+  // desconto ou urgencia sao descartados (padrao seguro).
+  offer: { confirmedClaimsRaw: string; price?: string } = { confirmedClaimsRaw: "" },
+): string {
   const seg = segment && SEGMENT_COPY_RULES[segment]
     ? segment
     : detectSegmentFromNiche(niche);
   const rules = SEGMENT_COPY_RULES[seg];
   if (!rules) return "";
 
-  const ctas = objective === "sales" ? rules.ctaSales : rules.ctaLeads;
+  const ctas = ctasSemPromessaNaoConfirmada(objective === "sales" ? rules.ctaSales : rules.ctaLeads, offer);
   const forbidden = rules.forbidden.slice(0, 4).join(", ");
 
   // Usa promptContext do shared/segmentConfig se disponível (mais detalhado)
@@ -1427,6 +1435,7 @@ export function getSegmentInstruction(segment: string, niche: string, objective:
       promptCtx,
       "CTAs PARA USAR: " + ctas.slice(0, 3).join(" | "),
       "PALAVRAS PROIBIDAS: " + forbidden,
+      REGRA_OFERTA_PARA_PROMPT,
     ];
     return "\n" + lines.join("\n");
   }
@@ -1438,6 +1447,7 @@ export function getSegmentInstruction(segment: string, niche: string, objective:
     "PROIBIDO usar: " + forbidden,
     "HOOK: foque em " + rules.copyHook,
     "COMPLIANCE: " + rules.compliance,
+    REGRA_OFERTA_PARA_PROMPT,
   ];
   return "\n" + lines.join("\n");
 }
@@ -3804,7 +3814,10 @@ export async function buildCampaignFromAds(
   const detectedSeg = detectSegmentFromNiche(niche);
   const segRulesHybrid = SEGMENT_COPY_RULES[detectedSeg] || null;
   const segCtas = segRulesHybrid
-    ? (objective === "sales" ? segRulesHybrid.ctaSales : segRulesHybrid.ctaLeads)
+    ? ctasSemPromessaNaoConfirmada(
+        objective === "sales" ? segRulesHybrid.ctaSales : segRulesHybrid.ctaLeads,
+        { confirmedClaimsRaw: opts?.campaignFacts?.confirmedClaimsRaw ?? "", price: opts?.campaignFacts?.realEstate?.price || opts?.campaignFacts?.genericProductPrice },
+      )
     : realCtas.length > 0 ? realCtas : ["Saiba mais", "Entre em contato"];
   let topCta  = segCtas[0] || realCtas[0] || "Saiba mais";
   const activeAds = ads.filter((a:any) => a.isActive);
@@ -7030,6 +7043,7 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     resolvedSegment,
     [(clientProfile as any)?.niche, (clientProfile as any)?.productService, input.extraContext, input.name].filter(Boolean).join(" "),
     input.objective,
+    { confirmedClaimsRaw: campaignFacts.confirmedClaimsRaw, price: campaignFacts.realEstate.price || campaignFacts.genericProductPrice },
   );
   campaignFacts.intent = { segment: resolvedSegment, objective: input.objective === "branding" ? "awareness" : input.objective };
   const isGenericCommercialRoom =
@@ -8132,6 +8146,10 @@ ${creativeSlotInstructions}
         resolvedSegment,
         [p?.niche, p?.productService, p?.productName, input.extraContext, input.name].filter(Boolean).join(" "),
         input.objective,
+        (() => {
+          const f = buildCampaignFacts({ input: input as any, clientProfile: (p || {}) as any, segment: resolvedSegment });
+          return { confirmedClaimsRaw: f.confirmedClaimsRaw, price: f.realEstate.price || f.genericProductPrice };
+        })(),
       );
 
       // Ancora do produto (Modulo 1) para alinhamento das copies
@@ -9126,7 +9144,7 @@ ${input.extraContext ? `\\nContexto adicional: ${input.extraContext}` : ""}
 
 Gere 5 criativos NOVOS e DIFERENTES dos anteriores. Responda SOMENTE em JSON:
 {
-  "INSTRUCAO_CRIATIVOS": "IMPORTANTE: O objetivo desta campanha e ${objective}. Para LEADS: copies focados em cadastro, material gratuito, sem compromisso, CTA de baixo atrito. Para SALES: copies focados em oferta, preco, urgencia, garantia, CTA de compra direta. NUNCA use placeholders como [problema], [resultado], [marca] — use textos REAIS baseados no nicho e perfil do cliente.",
+  "INSTRUCAO_CRIATIVOS": "IMPORTANTE: O objetivo desta campanha e ${objective}. Para LEADS: copies focados em cadastro e conversa, CTA de baixo atrito; leads NAO significa oferta gratuita, so cite gratuidade, desconto, bonus, garantia ou prazo se estiver nos fatos verificados. Para SALES: copies focados em oferta, preco, urgencia, garantia, CTA de compra direta. NUNCA use placeholders como [problema], [resultado], [marca] — use textos REAIS baseados no nicho e perfil do cliente.",
   "creatives": [
     {
       "type": "testimonial|storytelling|authority|lead_magnet|social_proof|direct_offer",
