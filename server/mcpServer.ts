@@ -2964,7 +2964,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       try {
         if (uniqueImages.length === 1) {
           imageHash = await resolveToHash(uniqueImages[0]);
-        } else {
+        } else if (uniqueImages.length >= 2) {
+          // [] quebrava o schema (imageHashes min 2) em criativo so de video.
           imageHashes = await Promise.all(uniqueImages.map(resolveToHash));
         }
       } catch (e: any) {

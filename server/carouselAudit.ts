@@ -23,6 +23,36 @@ export function getCreativeMedia(c: any) {
   };
 }
 
+/**
+ * Video ja enviado para a Meta e vinculado ao criativo (upload_creative_video /
+ * updateCreativeImage). A publicacao real resolve esse videoId via
+ * buildPublishMediaFromCreative; as checagens de "tem midia" precisam contar
+ * com ele, senao um criativo so de video e recusado como "sem imagem"
+ * (campanha 817, 20/11/2026).
+ */
+export function getCreativeVideoId(c: any): string | null {
+  const direto = c?.storyVideoId || c?.feedVideoId || c?.squareVideoId
+    || c?.publishMedia?.videoId
+    || c?.creativeSystemV2?.legacyProjection?.publishMedia?.videoId;
+  if (direto) return String(direto);
+  const placements = c?.creativeSystemV2?.channels?.meta?.placements;
+  if (placements && typeof placements === "object") {
+    for (const p of Object.values(placements) as any[]) {
+      const vid = p?.legacyProjection?.publishMedia?.videoId;
+      if (vid) return String(vid);
+    }
+  }
+  return null;
+}
+
+/** Imagens (hash/url) ou videos aptos a publicar, em qualquer criativo. */
+export function campanhaTemMidiaPublicavel(creatives: any[]): boolean {
+  return (creatives || []).some((c: any) => {
+    const m = getCreativeMedia(c);
+    return !!(m.hash || m.url || getCreativeVideoId(c));
+  });
+}
+
 export function orderedCreativesForCarousel(creatives: any[]): any[] {
   return creatives
     .map((creative, index) => ({ creative, index }))

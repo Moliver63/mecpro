@@ -220,7 +220,7 @@ test("campanha sem imagem e recusada antes do token, sem gastar reserva", async 
   };
   const r: any = await publishChatAds(1, options, deps);
   assert.equal(r.ok, false);
-  assert.match(r.erro, /Nenhuma imagem encontrada/);
+  assert.match(r.erro, /Nenhuma imagem ou vídeo encontrado/);
   assert.equal(r.confirmationRequired, undefined, "nao pede confirmacao do impossivel");
   assert.doesNotMatch(String(r.erro), /CONFIRMAR PUBLICACAO/, "nao emite token");
   assert.equal(reservas, 0, "nao reserva idempotencia para pendencia local");

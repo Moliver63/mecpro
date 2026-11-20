@@ -1,4 +1,4 @@
-import { auditCarouselCreatives, orderedCreativesForCarousel, getCreativeMedia } from "./carouselAudit";
+import { auditCarouselCreatives, campanhaTemMidiaPublicavel } from "./carouselAudit";
 import { lerTextoDoCriativo } from "./offerDivergenceFix";
 import { avaliarIntegridade, paraDivergencia, descreverDivergencia, type DivergenciaDeOferta } from "./campaignPublishIntegrity";
 import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha } from "./creativeReview";
@@ -160,13 +160,12 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
     });
   }
 
-  const temImagem = orderedCreativesForCarousel(creatives)
-    .map((c: any) => getCreativeMedia(c))
-    .some((x: any) => x?.hash || x?.url);
-  if (!temImagem) {
+  // Video vinculado tambem conta: a publicacao real usa o videoId (video_data).
+  const temMidia = campanhaTemMidiaPublicavel(creatives);
+  if (!temMidia) {
     pendencias.push({
       tipo: "sem_imagem", criativos: [], acao: "enviar_imagem",
-      titulo: "Nenhuma imagem encontrada nos criativos — não é possível publicar sem imagem.",
+      titulo: "Nenhuma imagem ou vídeo encontrado nos criativos — não é possível publicar sem mídia.",
       detalhes: [],
     });
   }
