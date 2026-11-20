@@ -28,3 +28,13 @@ not a new provider or SDK migration.
 Local regression tests do not certify live provider behavior. Production smoke
 testing with the actual campaign is still needed; no Meta publication is part
 of these tests. Missing facts must be collected from the user, not fabricated.
+
+## Campos opcionais vazios (2026-11-20)
+
+`pain`, `solution`, `script` e `shortDescription` sao opcionais no schema.
+Quando o provedor os devolve vazios (`"pain": ""`), contam como nao enviados:
+nao geram `CREATIVE_REPAIR_REQUIRED` nem pedido de conserto por IA, e o texto
+nao e inventado. `headline`, `description`, `copy`, `hook`, `cta` e `bodyText`
+seguem obrigatorios. Caso real: campanha da Shadia Hasan, Groq devolveu os
+quatro criativos sem `pain`/`solution` e, com Gemini 403 e Cloudflare 410, nao
+havia quem consertasse; a geracao era barrada por um campo que nao e exigido.
