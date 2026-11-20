@@ -42,7 +42,7 @@ import { salesRouter } from "./salesRouter";
 import { affiliatesRouter } from "./affiliatesRouter";
 import { buildMecproUrlTags, shouldApplyUrlTags } from "../salesWebhookParsing";
 import { scoreCreative } from "../creativeScoringEngine";
-import { escolherCriativoComMidia } from "../carouselAudit";
+import { escolherCriativoComMidia, escolherIndiceDoCriativoDoConjunto } from "../carouselAudit";
 import { getCarouselEditorialIssues } from "../../shared/campaignCopyQuality";
 import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
@@ -311,6 +311,8 @@ function buildAdCopy(campaign: any, opts: {
   placement?: "feed" | "stories" | "reels";
   objective?: string;
   hasPixel?: boolean;
+  /** Criativo que o conjunto deve usar (funil: 1 criativo por conjunto). */
+  preferredCreative?: any;
 } = {}) {
   const {
     maxMessage     = 2000,
@@ -346,11 +348,13 @@ function buildAdCopy(campaign: any, opts: {
   const feedCreative = escolherCriativoComMidia(creatives, isFeedLike, scoreValue) ?? pickBest((creative) => isFeedLike(creative));
   const storiesCreative = pickBest((creative) => isStoriesLike(creative), feedCreative);
   const reelsCreative = pickBest((creative) => isReelsLike(creative), storiesCreative || feedCreative);
-  const selectedCreative = placement === "stories"
-    ? storiesCreative
-    : placement === "reels"
-      ? reelsCreative
-      : feedCreative;
+  const selectedCreative = opts.preferredCreative
+    ? opts.preferredCreative
+    : placement === "stories"
+      ? storiesCreative
+      : placement === "reels"
+        ? reelsCreative
+        : feedCreative;
 
   const fallbackHook = Array.isArray(hooks_) && hooks_[0]
     ? String(hooks_[0]?.text || hooks_[0]).slice(0, 150)
@@ -4445,8 +4449,23 @@ const campaignsRouter = router({
         : "feed";
       // Prioriza objetivo do input (passado pelo frontend) sobre o salvo no banco
       const objective = (input as any).objective || c.objective || "leads";
-      const adCopy = buildAdCopy(c, { placement: placementKey, objective, hasPixel: !!input.pixelId });
-      const creative = placementKey === "stories"
+      // Funil: com 2+ conjuntos e 2+ criativos com midia, cada conjunto usa o criativo de mesmo indice
+      // (antes todos os conjuntos publicavam o criativo de maior nota).
+      const indiceDoCriativoDoConjunto = escolherIndiceDoCriativoDoConjunto({
+        creativeIndex: input.creativeIndex,
+        adSetIndex: input.adSetIndex,
+        adSetsCount: Array.isArray(adSets) ? adSets.length : 0,
+        creatives: creativeList,
+      });
+      const adCopy = buildAdCopy(c, {
+        placement: placementKey,
+        objective,
+        hasPixel: !!input.pixelId,
+        preferredCreative: indiceDoCriativoDoConjunto != null ? creativeList[indiceDoCriativoDoConjunto] : undefined,
+      });
+      const creative = indiceDoCriativoDoConjunto != null
+        ? creativeList[indiceDoCriativoDoConjunto]
+        : placementKey === "stories"
         ? (adCopy as any).stories?.creative || creativeList[0]
         : placementKey === "reels"
           ? (adCopy as any).reels?.creative || (adCopy as any).stories?.creative || creativeList[0]
@@ -4455,7 +4474,7 @@ const campaignsRouter = router({
       // CRÍTICO: garantir que feedImageHash/storyImageHash dos uploads manuais
       // não sejam perdidos quando adCopy.feed.creative sobrescreve o criativo do banco
       // Merge: dados do adCopy + dados de mídia do banco (que têm os hashes upados)
-      const creativeFromBank = creativeList[input.creativeIndex ?? 0] ?? creativeList[0];
+      const creativeFromBank = creativeList[input.creativeIndex ?? indiceDoCriativoDoConjunto ?? 0] ?? creativeList[0];
       const mergedCreative = creative ? {
         ...creative,
         // Preserva hashes de imagem do banco se o adCopy não trouxer
@@ -5872,6 +5891,8 @@ const campaignsRouter = router({
         const inferredCreativeIndex = creativeList.findIndex((item) => item === selectedCreativeRaw);
         const creativeIndex = typeof input.creativeIndex === "number"
           ? input.creativeIndex
+          : indiceDoCriativoDoConjunto != null
+            ? indiceDoCriativoDoConjunto
           : inferredCreativeIndex >= 0
             ? inferredCreativeIndex
             : 0;
