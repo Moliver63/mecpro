@@ -12,9 +12,9 @@ import { auditCreativeSegmentAlignment } from "../ai";
 const C0 = {
   headline: "Transforme Padrões Emocionais com VR",
   description: "Autoconhecimento Imersivo", shortDescription: "Autoconhecimento Imersivo",
-  copy: "Preso em padrões que te limitam? Descubra o Método Shadia Hasan, uma jornada única de autoconhecimento e desenvolvimento pessoal em Realidade Virtual. Acesse a aula grátis e dê o primeiro passo para compreender e transformar seus comportamentos. Aprofunde sua clareza e melhore seus relacionamentos. Inicie sua transformação hoje mesmo!",
+  copy: "Preso em padrões que te limitam? Descubra o Método Shadia Hasan, uma jornada única de autoconhecimento e desenvolvimento pessoal em Realidade Virtual. Acesse a aula e dê o primeiro passo para compreender e transformar seus comportamentos. Aprofunde sua clareza e melhore seus relacionamentos. Inicie sua transformação hoje mesmo!",
   bodyText: "texto antigo",
-  cta: "Acessar Aula Grátis Agora",
+  cta: "Acessar Aula Agora",
   hook: "Cansado de se sentir preso em padrões emocionais repetitivos? Comece a mudar agora!",
   segmentAlignmentIssues: [], segmentAlignment: "infoprodutos", hasPlaceholder: false,
   finalScore: 68, needsReview: true, feedImageUrl: "https://res.cloudinary.com/x/a.jpg",
@@ -172,7 +172,7 @@ test("aprovar e editar: campanha de outra conta e recusada", async () => {
 
 test("editar: tira o depoimento inventado, sincroniza alias e V2, e o criativo vira aprovavel ou livre", async () => {
   const l = loja([C0, C1]);
-  const copy = "Sente que repete os mesmos padrões emocionais? O Método Shadia Hasan une autoconhecimento e desenvolvimento pessoal numa jornada prática em realidade virtual. Comece pela aula gratuita e entenda de onde vêm seus bloqueios.";
+  const copy = "Sente que repete os mesmos padrões emocionais? O Método Shadia Hasan une autoconhecimento e desenvolvimento pessoal numa jornada prática em realidade virtual. Comece pela aula e entenda de onde vêm seus bloqueios.";
   const r: any = await editarCriativo(1, { campaignId: 799, creativeIndex: 1, copy }, l.store, auditCreativeSegmentAlignment);
   assert.equal(r.ok, true, JSON.stringify(r));
   const c = criativos(l)[1];
@@ -187,11 +187,11 @@ test("editar: tira o depoimento inventado, sincroniza alias e V2, e o criativo v
 
 test("editar: alias bodyText/shortDescription acompanham copy/description", async () => {
   const l = loja([C0]);
-  const r: any = await editarCriativo(1, { campaignId: 799, creativeIndex: 0, description: "Aula grátis em VR", copy: C0.copy.replace("hoje mesmo", "agora") }, l.store, auditCreativeSegmentAlignment);
+  const r: any = await editarCriativo(1, { campaignId: 799, creativeIndex: 0, description: "Aula imersiva em VR", copy: C0.copy.replace("hoje mesmo", "agora") }, l.store, auditCreativeSegmentAlignment);
   assert.equal(r.ok, true, JSON.stringify(r));
   const c = criativos(l)[0];
   assert.equal(c.bodyText, c.copy);
-  assert.equal(c.shortDescription, "Aula grátis em VR");
+  assert.equal(c.shortDescription, "Aula imersiva em VR");
 });
 
 test("editar: recusa sem gravar texto acima do limite, placeholder ou prova social inventada", async () => {
@@ -207,8 +207,22 @@ test("editar: recusa sem gravar texto acima do limite, placeholder ou prova soci
 
 test("editar invalida aprovacao anterior: aprovacao valia para o texto antigo", async () => {
   const l = loja([{ ...C0, needsReview: false, reviewApprovedAt: "x", reviewApprovedBy: 1, reviewApprovalReason: "score_baixo" }]);
-  await editarCriativo(1, { campaignId: 799, creativeIndex: 0, cta: "Quero a aula grátis" }, l.store, auditCreativeSegmentAlignment);
+  await editarCriativo(1, { campaignId: 799, creativeIndex: 0, cta: "Quero a aula" }, l.store, auditCreativeSegmentAlignment);
   const c = criativos(l)[0];
   assert.equal(c.reviewApprovedAt, undefined);
   assert.equal(c.reviewApprovalReason, undefined);
+});
+
+// Texto real da 799 que motivou a regra de oferta: "aula gratis" numa oferta
+// de R$ 19,90. Antes so aparecia como score baixo (aprovavel); agora e fato
+// nao confirmado e exige corrigir o texto.
+test("diagnostico: 'aula gratis' sem gratuidade confirmada vira motivo de fatos, nao aprovavel", () => {
+  const f = buildCampaignFacts({
+    input: { objective: "leads", productPrice: "R$ 19,90" },
+    clientProfile: { niche: "infoprodutos", productService: "Aula de autoconhecimento. Acesso por 7 dias." },
+    segment: "infoprodutos",
+  });
+  const d = diagnosticarRevisao({ ...C0, copy: "Acesse a aula grátis por R$ 19,90.", cta: "Acessar Aula Grátis Agora" }, f);
+  assert.ok(d.motivos.includes("fatos"), JSON.stringify(d));
+  assert.equal(d.liberavelPorAprovacao, false);
 });

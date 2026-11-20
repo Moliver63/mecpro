@@ -14,6 +14,7 @@ import PixelPanel from "@/components/PixelPanel";
 import FineTuningFeedback from "@/components/FineTuningFeedback";
 import { trpc } from "@/lib/trpc";
 import WhatsAppField from "@/components/WhatsAppField";
+import OfertaDivergenciaCard from "@/components/OfertaDivergenciaCard";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
 import {
@@ -3856,19 +3857,35 @@ ${sc.cta}`); }}
                 return (
                   <div key={i} style={{ border: `1px solid ${cor.borda}`, background: cor.fundo, borderRadius: 12, padding: 14, marginBottom: 12 }}>
                     <p style={{ fontSize: 13, fontWeight: 700, color: cor.texto, margin: 0, lineHeight: 1.5 }}>{p.titulo}</p>
-                    {!!p.detalhes?.length && (
+                    {!!p.detalhes?.length && p.tipo !== "oferta_divergente" && (
                       <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                         {p.detalhes.map((d: string, j: number) => (
                           <li key={j} style={{ fontSize: 12, color: cor.texto, lineHeight: 1.5, marginBottom: 3 }}>{d}</li>
                         ))}
                       </ul>
                     )}
+                    {p.tipo === "oferta_divergente" && (
+                      <div style={{ marginTop: 10 }}>
+                        {(p.divergencias ?? []).map((d: any, k: number) => (
+                          <OfertaDivergenciaCard
+                            key={`${d.criativo}-${d.caminho}-${d.trecho}-${k}`}
+                            campaignId={(c as any).id}
+                            divergencia={d}
+                            onSalvo={async (restantes: any[]) => {
+                              await refetchCampaign?.();
+                              if (restantes.length) setRevisaoGate({ pendencias: restantes, liberaveis: [] });
+                              else { setRevisaoGate(null); toast.success("◎ Textos conferidos com a oferta. Pode publicar quando quiser."); }
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
                     {aprovavel && (
                       <p style={{ fontSize: 12, color: cor.texto, margin: "8px 0 0", lineHeight: 1.5, opacity: .85 }}>
                         Score abaixo de 75 quer dizer que a IA achou o texto fraco. Promessa de resultado com prazo só deve ser aprovada se o cliente garante isso.
                       </p>
                     )}
-                    {p.acao === "editar_texto" && !aprovavel && (
+                    {p.acao === "editar_texto" && !aprovavel && p.tipo !== "oferta_divergente" && (
                       <p style={{ fontSize: 12, color: cor.texto, margin: "8px 0 0", lineHeight: 1.5, opacity: .85 }}>
                         Edite o criativo e salve: a revisão é recalculada no salvamento.
                       </p>

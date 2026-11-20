@@ -2917,6 +2917,41 @@ const campaignsRouter = router({
     }),
 
   /**
+   * Resolve UMA divergencia entre a copy e a oferta confirmada, so no rascunho.
+   *
+   * `modo: "sugestao"` recalcula a sugestao aqui, a partir dos fatos
+   * confirmados; o cliente nao envia o texto novo. `modo: "manual"` grava o
+   * texto que o usuario digitou. Nenhum dos dois publica, aprova revisao ou
+   * fala com a Meta: aplicar uma correcao apenas salva o rascunho. Depois de
+   * gravar, devolve a pre-checagem atualizada.
+   */
+  resolveOfferDivergence: protectedProcedure
+    .input(z.object({
+      campaignId: z.number().int().positive(),
+      criativo: z.number().int().min(0),
+      caminho: z.string().min(1).max(200),
+      modo: z.enum(["sugestao", "manual"]),
+      novoTexto: z.string().max(2000).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
+      const projeto = await db.getProjectById(campaign.projectId);
+      if (!projeto || (projeto as any).userId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Campanha indisponivel para esta conta." });
+      }
+      const { resolverDivergenciaNoRascunho } = await import("../offerDivergenceFix");
+      const r = resolverDivergenciaNoRascunho(campaign, {
+        criativo: input.criativo, caminho: input.caminho, modo: input.modo, novoTexto: input.novoTexto,
+      });
+      if (!r.ok) throw new TRPCError({ code: "BAD_REQUEST", message: r.erro });
+      await db.updateCampaignField(input.campaignId, "creatives", JSON.stringify(r.creatives));
+      const { pendenciasLocaisParaPublicar } = await import("../publishPreflight");
+      const depois = pendenciasLocaisParaPublicar({ ...campaign, creatives: JSON.stringify(r.creatives) });
+      return { ok: true, salvo: true, publicado: false, antes: r.antes, depois: r.depois, pendencias: depois.pendencias ?? [] };
+    }),
+
+  /**
    * Aprovar criativo em revisao pela TELA (22/10, campanha 799).
    *
    * Michel tentou publicar tres vezes e levou "criativos ainda precisam de
@@ -4348,8 +4383,33 @@ const campaignsRouter = router({
         });
       }
 
+      // Trava de duplicidade da tela. Clique duplo, nova tentativa e as chamadas
+      // do chat/MCP (que passam por aqui, uma por conjunto) usam a mesma
+      // reserva por campanha + conjunto + pagina: a segunda chamada devolve o
+      // resultado da primeira (ja publicada) ou recusa enquanto a primeira
+      // roda. Falha antes de terminar libera a reserva para nova tentativa.
+      // A reserva vem ANTES de qualquer escrita de status, para um clique
+      // repetido nunca sobrescrever o "success" da primeira publicacao.
+      const reservaUi: any = await db.reserveMcpIdempotencyKey(
+        ctx.user.id, "ui_meta_publish", `${input.campaignId}:${input.adSetIndex ?? 0}:${input.pageId}`,
+      );
+      if (reservaUi.kind === "cached_result") {
+        return { ...(reservaUi.result || {}), jaPublicada: true, warnings: [...(reservaUi.result?.warnings || []), "Este conjunto já foi publicado; nenhuma campanha nova foi criada."] };
+      }
+      if (reservaUi.kind === "duplicate_in_progress") {
+        throw new TRPCError({ code: "CONFLICT", message: "Já existe uma publicação deste conjunto em andamento. Aguarde terminar; nada foi duplicado." });
+      }
+      const liberarReservaUi = async (motivo: string) => {
+        if (reservaUi.kind === "proceed") await db.failMcpIdempotencyKey(reservaUi.recordId, motivo).catch(() => {});
+      };
+
       // Marca como processing antes de iniciar
-      await db.updateCampaign(input.campaignId, { publishStatus: "processing" } as any);
+      try {
+        await db.updateCampaign(input.campaignId, { publishStatus: "processing" } as any);
+      } catch (e: any) {
+        await liberarReservaUi(e?.message || "falha ao iniciar");
+        throw e;
+      }
 
       function parseJson(s: string | null) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
       try {
@@ -4471,7 +4531,7 @@ const campaignsRouter = router({
 
         // 4. Fallback contextual por objetivo (nunca vazio, nunca eco)
         const objFallbacks: Record<string, string> = {
-          sales:      "Condições especiais hoje",
+          sales:      "Conheça a oferta",
           leads:      "Atendimento personalizado",
           engagement: "Converse com a gente",
           traffic:    "Veja todos os detalhes",
@@ -4552,6 +4612,20 @@ const campaignsRouter = router({
       }
 
       // Bloqueia publicação se houver erros críticos
+      // Versao EXATA que vai para a Meta. Titulo, texto e descricao passam por
+      // dedupe, deslopify, persona do conjunto e correcao da auditoria DEPOIS da
+      // integridade dos criativos salvos; revalida aqui, antes de qualquer
+      // escrita na Meta. Vale para tela, chat e MCP (todos chamam esta rota).
+      {
+        const { assertOutgoingMetaTexts } = await import("../metaOutgoingTextGuard");
+        assertOutgoingMetaTexts(c, [
+          { path: "message", text: auditedMessage },
+          { path: "headline", text: auditedHeadline },
+          { path: "description", text: auditedDescription },
+          { path: "cta", text: String(adCopy.feed?.cta || "") },
+        ]);
+      }
+
       if (creativeAudit.blockPublish) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -5760,6 +5834,13 @@ const campaignsRouter = router({
         // Meta expuser esse controle, reintroduzir usando só as chaves do enum acima.
       };
 
+      // Ultima linha: o corpo REAL do criativo (inclui carrossel, criativo
+      // dinamico, video e variacoes), exatamente como segue para a Meta.
+      {
+        const { assertOutgoingMetaTexts, collectOutgoingCreativeTexts } = await import("../metaOutgoingTextGuard");
+        assertOutgoingMetaTexts(c, collectOutgoingCreativeTexts(creativeBody), { somenteOferta: true });
+      }
+
       // Injeta pixel_id quando fornecido
       if (input.pixelId) {
         // Não usar degrees_of_freedom_spec — descontinuado pela Meta (erro 3858504)
@@ -5848,7 +5929,7 @@ const campaignsRouter = router({
         metaAdId:       adData.id,
       } as any);
 
-      return {
+      const resultadoPublicacao = {
         campaignId: metaCampaignId,
         adSetId:    metaAdSetId,
         creativeId: metaCreativeId,
@@ -5858,8 +5939,11 @@ const campaignsRouter = router({
         creativeScore,
         placementUsed: placementKey,
       };
+      if (reservaUi.kind === "proceed") await db.completeMcpIdempotencyKey(reservaUi.recordId, resultadoPublicacao).catch(() => {});
+      return resultadoPublicacao;
 
       } catch (err: any) {
+        await liberarReservaUi(err?.message || "erro desconhecido");
         // Salva erro e marca como falha
         await db.updateCampaign(input.campaignId, {
           publishStatus: "error",
