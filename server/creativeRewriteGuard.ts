@@ -84,8 +84,22 @@ export function duplicateCreativeFields(creatives: any[], index: number): Creati
   });
 }
 
+/**
+ * Campos descritivos que o schema ja declara opcionais. Quando o provedor os
+ * devolve como string vazia ("pain": ""), isso equivale a nao ter enviado: o
+ * criativo e publicavel sem eles e inventar o texto violaria a regra de nao
+ * fabricar fato (docs/creative-rewrite-safety.md). Vazio nesses campos nao
+ * barra a geracao nem dispara reescrita por IA. Headline, description, copy,
+ * hook, cta e bodyText continuam obrigatorios.
+ */
+export const CAMPOS_OPCIONAIS_VAZIOS_OK = ["pain", "solution", "script", "shortDescription"] as const;
+export function opcionalVazio(creative: any, campo: string): boolean {
+  return (CAMPOS_OPCIONAIS_VAZIOS_OK as readonly string[]).includes(campo)
+    && typeof creative?.[campo] === "string" && !creative[campo].trim();
+}
+
 export function creativeTextIssues(creative: any): string[] {
-  const texts = Object.fromEntries(Object.keys(CREATIVE_TEXT_LIMITS).filter(k => creative[k] !== undefined).map(k => [k, creative[k]]));
+  const texts = Object.fromEntries(Object.keys(CREATIVE_TEXT_LIMITS).filter(k => creative[k] !== undefined && !opcionalVazio(creative, k)).map(k => [k, creative[k]]));
   const result = rewriteSchema.safeParse(texts);
   return result.success ? [] : result.error.issues.map(i => `${i.path.join(".")}: ${i.message}`);
 }
@@ -240,6 +254,7 @@ export function camposComErroObjetivo(
   for (const campo of Object.keys(CREATIVE_TEXT_LIMITS) as CreativeTextField[]) {
     const valor = creative?.[campo];
     if (typeof valor !== "string") continue;
+    if (opcionalVazio(creative, campo)) continue; // opcional vazio = nao enviado
     const limite = CREATIVE_TEXT_LIMITS[campo];
     const texto = valor.trim();
     if (!texto) { anotar(campo, "vazio"); continue; }

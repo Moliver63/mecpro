@@ -91,9 +91,10 @@ test("fiação em ai.ts: ordem preservada (Claude, depois OpenRouter, depois moc
   const src = readFileSync(new URL("../ai.ts", import.meta.url), "utf8");
   const i = (t: string) => src.indexOf(t);
   const claude = i("Claude fallback direto OK (quota Gemini)");
-  const or = i("callOpenRouterFallback({");
-  const mock = i("usando mock response (quota Gemini esgotada)");
-  assert.ok(claude > 0 && or > claude && mock > or);
+  const chamada = i('ultimoRecursoDaGeracao(prompt, opts, "quota Gemini esgotada")');
+  assert.ok(claude > 0 && chamada > claude, "no atalho de quota, o fim da cadeia vem depois do Claude");
+  const helper = src.slice(i("async function ultimoRecursoDaGeracao"), i("export async function gemini("));
+  assert.ok(helper.indexOf("callOpenRouterFallback({") > 0 && helper.indexOf("callOpenRouterFallback({") < helper.indexOf("return mockResponse(prompt)"), "OpenRouter antes do mock");
   assert.ok(!src.includes("llama-3.1-8b-instruct:free"));
   assert.ok(!/openrouter\.ai\/api\/v1\/chat\/completions/.test(src), "chamada deve ficar só no módulo do fallback");
   const mod = readFileSync(new URL("../openRouterFallback.ts", import.meta.url), "utf8");
