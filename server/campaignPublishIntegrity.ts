@@ -91,7 +91,7 @@ export function paraDivergencia(conflito: CampaignFactConflict, totalCriativos: 
 // sugestao, quando existe, traz apenas o preco confirmado da campanha).
 export const ORIENTACAO_POR_CONFIRMACAO: Record<ConfirmacaoDeOferta, string> = {
   briefing_campanha:
-    "A gratuidade aparece só no perfil da conta; o briefing desta campanha informa preço. Confirme no briefing da campanha que o produto é gratuito, ou use o preço confirmado.",
+    "A gratuidade não está confirmada no briefing desta campanha (aparece só no perfil da conta). Confirme no briefing da campanha que o produto anunciado é gratuito, ou reescreva sem \"grátis\".",
   snapshot_antigo:
     "Este rascunho foi gerado antes da checagem por campanha e não permite verificar de onde veio a gratuidade. Confirme no briefing da campanha que o produto é gratuito e gere o rascunho de novo, ou reescreva sem \"grátis\".",
   oferta_ambigua:

@@ -196,14 +196,15 @@ const SUJEITOS_DA_OFERTA = new Set([
   "aula-teste", "experiencia", "palestra", "encontro", "turma", "ingresso",
 ]);
 
-// Gratuidade: so o briefing da PROPRIA campanha confirma quando ela tem preco.
+// Gratuidade: so o briefing da PROPRIA campanha confirma, com ou sem preco.
 // Perfil da conta, outra campanha e o texto misturado de snapshot antigo nao.
 //
-// - Sem preco confirmado: vale o texto confirmado inteiro (briefing + perfil),
-//   como antes: nao ha preco para contradizer o perfil.
-// - Com preco positivo: vale so o briefing da campanha. "Gratis" passa quando o
-//   briefing diz "gratis/gratuito" colado no MESMO sujeito (mesma frase, ate ~18
-//   caracteres). Gratuidade de brinde ("bonus gratuito") nao vale para o produto.
+// - Base unica: o briefing da campanha (campaignClaimsRaw). "Gratis" passa quando
+//   o briefing diz "gratis/gratuito" colado no MESMO sujeito (mesma frase, ate ~18
+//   caracteres) ou, sem preco, quando a gratuidade e da oferta em geral.
+//   Gratuidade de brinde ("bonus gratuito") nao vale para o produto.
+// - Gratuidade que existe so fora do briefing da campanha (perfil) pede
+//   confirmacao no briefing, tenha a campanha preco ou nao.
 // - Se o briefing chama o produto anunciado de pago (preco) e de gratuito, sem
 //   qualificar a parte gratuita ("introdutoria", "demonstracao", "bonus"...),
 //   pede esclarecimento em vez de decidir.
@@ -233,7 +234,7 @@ function avaliarGratuidade(sujeito: string | null, ctx: OfferGuardContext): Vere
   if (campanha === undefined) {
     return { ok: false, ...(marcasDeGratuidade(todo).length ? { confirmacao: "snapshot_antigo" as const } : {}) };
   }
-  const base = positivo ? campanha : todo;
+  const base = campanha;
   const donoBrinde = (m: Match) => SUJEITOS_BRINDE.has(sujeitoDoGratis(base, m.index, m.end) ?? "");
   const marcas = marcasDeGratuidade(base).filter((m) => !donoBrinde(m));
 
@@ -260,9 +261,9 @@ function avaliarGratuidade(sujeito: string | null, ctx: OfferGuardContext): Vere
       return { ok: true };
     }
   }
-  // Nao confirmado. Com preco, gratuidade que existe so fora do briefing da campanha
+  // Nao confirmado. Gratuidade que existe so fora do briefing da campanha
   // (perfil da conta) pede a confirmacao no briefing da campanha.
-  if (positivo && marcasDeGratuidade(todo).length && !marcasDeGratuidade(campanha).filter((m) => !SUJEITOS_BRINDE.has(sujeitoDoGratis(campanha, m.index, m.end) ?? "")).length) {
+  if (marcasDeGratuidade(todo).length && !marcasDeGratuidade(campanha).filter((m) => !SUJEITOS_BRINDE.has(sujeitoDoGratis(campanha, m.index, m.end) ?? "")).length) {
     return { ok: false, confirmacao: "briefing_campanha" };
   }
   return { ok: false };

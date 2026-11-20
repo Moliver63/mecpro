@@ -81,7 +81,7 @@ test("oferta gratuita confirmada no briefing da campanha: 'grátis' passa", () =
 // ── 3. Produto pago + bonus gratuito ─────────────────────────────────────────
 test("produto pago com bônus gratuito: 'grátis' passa no bônus e bloqueia no produto pago", () => {
   const f = fatos({ produto: "Curso de fotografia", preco: "R$ 200,00", extra: "Bônus gratuito: e-book de composição." });
-  assert.equal(bloqueia(f, "Ganhe um bônus grátis: e-book de composição"), false);
+  assert.equal(bloqueia(f, "Bônus grátis: e-book de composição"), false);
   assert.equal(bloqueia(f, "Curso de fotografia por R$ 200,00"), false);
   assert.equal(bloqueia(f, "Curso de fotografia grátis"), true);
   const g = fatos({ produto: "Curso de fotografia", preco: "R$ 200,00", extra: "Bônus gratuito do curso: e-book de composição." });
@@ -210,3 +210,94 @@ for (const [rotulo, montar] of [
     assert.doesNotThrow(() => assertCampaignPublishIntegrity(bom));
   });
 }
+
+// ── 10. Sem preço no briefing: perfil da conta não confirma gratuidade ───────
+// Editor, pré-voo, integridade e publicação (Meta simulada) usam a mesma regra.
+async function emTodasAsCamadas(f: CampaignFacts, titulo: string) {
+  const base = campanha(f, "Conheça a oferta");
+  const ed: any = ajustarRascunhoCampanha(base, { campaignId: 12, creativeEdits: [{ index: 0, headline: titulo }] } as any, auditCreativeSegmentAlignment as any);
+  const ruim = campanha(f, titulo);
+  const pre = !!pendenciasLocaisParaPublicar(ruim).pendencias?.some((p) => p.tipo === "oferta_divergente");
+  let integ = false;
+  try { assertCampaignPublishIntegrity(ruim); } catch { integ = true; }
+  const fx = chatFixture(ruim);
+  const r: any = await publishChatAds(1, { campaignId: 12, pageId: "123", linkUrl: "https://example.com" }, fx.db);
+  return { editorRecusou: !!ed.erro, erro: String(ed.erro || ""), pre, integ, publicou: r.ok === true, meta: fx.calls(), confirmacaoEmitida: r.confirmationRequired === true };
+}
+
+for (const k of [
+  { produto: "Aula de gestão de tráfego", titulo: "Aula grátis", perfil: "Aula gratuita de gestão de tráfego" },
+  { produto: "Consultoria de energia solar", titulo: "Consultoria grátis", perfil: "Consultoria gratuita de energia solar" },
+  { produto: "Pizza grande de calabresa", titulo: "Pizza grátis", perfil: "Pizza gratuita para novos clientes" },
+]) {
+  for (const [rotulo, montar] of [
+    ["snapshot antigo", (b: Briefing) => antigo(fatos(b))],
+    ["snapshot novo", (b: Briefing) => fatos(b)],
+  ] as const) {
+    test(`sem preço no briefing, "grátis" só no perfil (${k.produto}, ${rotulo}): pede confirmação no briefing e não avança`, async () => {
+      const f = montar({ produto: k.produto, extra: "Descrição geral da oferta.", perfil: { productService: k.perfil } });
+      const c = conflitos(f, k.titulo)[0] as any;
+      assert.ok(c, "deveria bloquear");
+      assert.equal(c.confirmacao, rotulo === "snapshot antigo" ? "snapshot_antigo" : "briefing_campanha");
+      assert.match(msg(f, k.titulo), /briefing/);
+      assert.ok(!/R\$/.test(msg(f, k.titulo)), "sem preço no briefing, a mensagem não inventa valor");
+      const r = await emTodasAsCamadas(f, k.titulo);
+      assert.equal(r.editorRecusou, true, "editor");
+      assert.match(r.erro, /briefing/);
+      assert.equal(r.pre, true, "pré-voo");
+      assert.equal(r.integ, true, "integridade");
+      assert.equal(r.publicou, false);
+      assert.equal(r.confirmacaoEmitida, false, "não emite token para texto indevido");
+      assert.equal(r.meta, 0);
+    });
+  }
+}
+
+test("sem preço: gratuidade no perfil de OUTRA campanha/conta não vale (mesmo ID, briefings diferentes)", () => {
+  const livre = fatos({ produto: "Aula de gestão de tráfego", extra: "Aula gratuita e aberta ao público." });
+  const silenciosa = fatos({ produto: "Aula de gestão de tráfego", extra: "Aula prática.", perfil: { productService: "Aula gratuita" } });
+  for (let i = 0; i < 10; i++) {
+    const a = avaliarIntegridade(campanha(livre, "Aula grátis", 7, 100)).conflitos.length;
+    const b = avaliarIntegridade(campanha(silenciosa, "Aula grátis", 7, 200)).conflitos.length;
+    assert.equal(a, 0); assert.ok(b > 0);
+  }
+});
+
+// ── 11. Oferta realmente gratuita confirmada no briefing ─────────────────────
+for (const produto of ["Aula de gestão de tráfego", "Consultoria de energia solar", "Pizza grande de calabresa"]) {
+  test(`briefing confirma que o produto é gratuito (${produto}): "grátis" passa em todas as camadas; antigo pede regenerar`, async () => {
+    const nome = produto.split(" ")[0];
+    const b: Briefing = { produto, extra: `${nome} gratuita, sem custo para participar.`, perfil: { productService: `${produto} gratuita` } };
+    const novo = fatos(b);
+    const ok = await emTodasAsCamadas(novo, `${nome} grátis`);
+    assert.deepEqual([ok.editorRecusou, ok.pre, ok.integ], [false, false, false]);
+    assert.equal(ok.meta >= 0, true);
+    // Snapshot antigo não prova a origem: bloqueia e orienta a regenerar.
+    const velho = antigo(novo);
+    const r = await emTodasAsCamadas(velho, `${nome} grátis`);
+    assert.equal(r.editorRecusou, true); assert.equal(r.pre, true); assert.equal(r.meta, 0);
+    assert.match(r.erro, /gere o rascunho de novo|briefing da campanha/i);
+    // Rascunho regenerado com o briefing correto (formato novo) passa de novo.
+    const regenerado = fatos(b);
+    assert.ok((regenerado as any).campaignClaimsRaw !== undefined);
+    const again = await emTodasAsCamadas(regenerado, `${nome} grátis`);
+    assert.deepEqual([again.editorRecusou, again.pre, again.integ], [false, false, false]);
+  });
+}
+
+// ── 12. Produto pago com bônus gratuito (com e sem preço no briefing) ────────
+test("produto pago + bônus gratuito: 'grátis' passa no bônus, bloqueia no produto; preço confirmado passa (editor e publicação)", async () => {
+  for (const preco of ["R$ 200,00", undefined]) {
+    const f = fatos({ produto: "Curso de fotografia", ...(preco ? { preco } : {}), extra: "Bônus gratuito: e-book de composição.", perfil: { productService: "Curso de fotografia" } });
+    assert.equal(bloqueia(f, "Bônus grátis: e-book de composição"), false, `bônus (${preco})`);
+    assert.equal(bloqueia(f, "Curso de fotografia grátis"), true, `produto (${preco})`);
+    const r = await emTodasAsCamadas(f, "Curso de fotografia grátis");
+    assert.equal(r.editorRecusou, true); assert.equal(r.pre, true); assert.equal(r.meta, 0);
+    const bonus = await emTodasAsCamadas(f, "Bônus grátis: e-book de composição");
+    assert.deepEqual([bonus.editorRecusou, bonus.pre, bonus.integ], [false, false, false]);
+    if (preco) {
+      const p = await emTodasAsCamadas(f, `Curso de fotografia por ${preco}`);
+      assert.deepEqual([p.editorRecusou, p.pre, p.integ], [false, false, false]);
+    }
+  }
+});

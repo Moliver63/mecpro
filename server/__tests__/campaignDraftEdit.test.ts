@@ -26,7 +26,8 @@ const C0 = { headline: "Transforme Padrões Emocionais com VR", description: "Au
 
 function campanha(extra: any = {}) {
   const facts = buildCampaignFacts({
-    input: { objective: "leads" },
+    // A gratuidade da aula introdutoria precisa estar no briefing da PROPRIA campanha (o perfil nao confirma).
+    input: { objective: "leads", extraContext: "Aula introdutória gratuita do Método Shadia Hasan." },
     clientProfile: { niche: "infoprodutos", productService: "Curso e jornada de autoconhecimento pelo Método Shadia Hasan com aula introdutória gratuita" },
     segment: "infoprodutos",
   });
