@@ -42,6 +42,13 @@ export type OfferGuardContext = {
   confirmedClaimsRaw: string;
   // Preco confirmado (qualquer nicho). Ex.: "R$ 19,90".
   price?: string;
+  // Texto normalizado SO do briefing desta campanha (sem o perfil da conta) e
+  // dos campos de produto dela. O perfil descreve a conta inteira e pode citar
+  // OUTRA oferta ("workshop gratuito"); com preco positivo nesta campanha, a
+  // gratuidade do mesmo produto precisa estar no briefing dela. Snapshots
+  // antigos nao trazem esses campos e seguem a regra anterior.
+  campaignClaimsRaw?: string;
+  campaignProductRaw?: string;
 };
 
 type Match = { raw: string; index: number; end: number; groups: string[] };
@@ -168,7 +175,15 @@ const SUJEITOS_DA_OFERTA = new Set([
 // e o briefing afirma gratuidade, claims sobre o proprio produto (vaga, aula,
 // acesso...) tambem passam. Preco positivo confirmado nunca autoriza "gratis"
 // para o produto principal.
-function gratuidadeConfirmadaPara(confirmed: string, sujeito: string | null, preco: string | undefined): boolean {
+function gratuidadeConfirmadaPara(confirmedTodo: string, sujeito: string | null, preco: string | undefined, ctx?: OfferGuardContext): boolean {
+  let confirmed = confirmedTodo;
+  if (
+    sujeito && precoPositivo(preco) && ctx?.campaignClaimsRaw !== undefined && ctx.campaignProductRaw
+    && ctx.campaignProductRaw.includes(stem(sujeito))
+  ) {
+    // Mesmo produto desta campanha, que tem preco: so o briefing dela confirma gratuidade.
+    confirmed = ctx.campaignClaimsRaw;
+  }
   const marcas = matchesOf(confirmed, GRATIS_RE).filter((m) => !negadoAntes(confirmed, m.index));
   if (!marcas.length) return false;
   if (sujeito) {
@@ -206,7 +221,7 @@ function detectGratuidade(texto: string, n: string, ctx: OfferGuardContext, out:
 
   for (const re of OFERTA_TODA_GRATIS) {
     for (const m of matchesOf(n, re)) {
-      if (gratuidadeConfirmadaPara(confirmed, null, ctx.price) || zeroConfirmado(confirmed, ctx.price)) continue;
+      if (gratuidadeConfirmadaPara(confirmed, null, ctx.price, ctx) || zeroConfirmado(confirmed, ctx.price)) continue;
       const trecho = trechoOriginal(texto, n, m.index, m.end);
       push({
         kind: "gratuidade",
@@ -223,7 +238,7 @@ function detectGratuidade(texto: string, n: string, ctx: OfferGuardContext, out:
     const sujeito = sujeitoDoGratis(n, m.index, m.end);
     // Brinde/bonus gratis e tratado na regra de bonus.
     if (sujeito && SUJEITOS_BRINDE.has(sujeito)) continue;
-    if (gratuidadeConfirmadaPara(confirmed, sujeito, ctx.price)) continue;
+    if (gratuidadeConfirmadaPara(confirmed, sujeito, ctx.price, ctx)) continue;
     const trecho = trechoOriginal(texto, n, m.index, m.end);
     push({
       kind: "gratuidade",
@@ -236,7 +251,7 @@ function detectGratuidade(texto: string, n: string, ctx: OfferGuardContext, out:
 
   for (const m of matchesOf(n, PARCIAL_SEM_PAGAR)) {
     const sujeito = m.groups[0];
-    if (gratuidadeConfirmadaPara(confirmed, sujeito, ctx.price)) continue;
+    if (gratuidadeConfirmadaPara(confirmed, sujeito, ctx.price, ctx)) continue;
     const trecho = trechoOriginal(texto, n, m.index, m.end);
     push({
       kind: "gratuidade",

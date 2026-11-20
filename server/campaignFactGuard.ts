@@ -63,6 +63,12 @@ export type CampaignFacts = {
   // nicho. Mais amplo que socialProofRaw (que so olha productProofPoints)
   // porque escassez/exclusividade pode vir de qualquer campo do briefing.
   confirmedClaimsRaw: string;
+  // Só o briefing DESTA campanha (sem o perfil da conta), normalizado, e os
+  // campos de produto dela. Opcionais: snapshots antigos não os têm. Usados
+  // pela regra de gratuidade para o perfil não liberar "grátis" num produto
+  // que esta campanha vende por preço. Ver campaignOfferGuard.ts.
+  campaignClaimsRaw?: string;
+  campaignProductRaw?: string;
   // Cláusulas curtas extraídas literalmente do briefing/perfil — o que o
   // cliente disse que o produto/serviço TEM (característica), não o que
   // isso PRODUZ (benefício). Ex.: "dois aparelhos de ar-condicionado" é uma
@@ -816,6 +822,8 @@ export function buildCampaignFacts({
     intent: { segment: segment || "", objective: canonicalObjective(input.objective) },
     socialProofRaw,
     confirmedClaimsRaw: n,
+    campaignClaimsRaw: normalizeText(currentRaw),
+    campaignProductRaw: normalizeText(compactText([input?.["productName"], input?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     confirmedCharacteristics,
     genericProductPrice,
     genericAddress,
@@ -993,6 +1001,8 @@ export function validateCampaignFactIntegrity(
     for (const claim of detectUnconfirmedOfferClaims(text, {
       confirmedClaimsRaw: facts.confirmedClaimsRaw,
       price: facts.realEstate.price || facts.genericProductPrice,
+      campaignClaimsRaw: facts.campaignClaimsRaw,
+      campaignProductRaw: facts.campaignProductRaw,
     })) {
       conflicts.push({
         field,
