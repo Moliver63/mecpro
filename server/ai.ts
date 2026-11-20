@@ -1948,6 +1948,37 @@ function _compressPromptLight(prompt: string, maxChars: number): string {
   return c.slice(0, maxChars) + "\n\n[CONTEXTO TRUNCADO — gere JSON completo com base nos dados acima]";
 }
 
+export class ProvidersUnavailableError extends Error {
+  code = "PROVIDERS_UNAVAILABLE";
+  constructor() {
+    super("PROVIDERS_UNAVAILABLE: não foi possível gerar o texto porque os provedores de IA estão indisponíveis no momento. Nada foi salvo e nenhum rascunho genérico foi criado. Tente novamente em alguns minutos.");
+    this.name = "ProvidersUnavailableError";
+  }
+}
+
+// Fim da cadeia de texto, usado por TODOS os caminhos de falha do Gemini na mesma geracao:
+// OpenRouter (gratuito) como ultimo provedor; sem resposta, erro claro quando o chamador
+// pediu semMock (geracao de campanha) e o mock de sempre para os demais chamadores.
+async function ultimoRecursoDaGeracao(prompt: string, opts: { systemInstruction?: string; temperature?: number; semMock?: boolean }, motivo: string): Promise<string> {
+  if (process.env.OPENROUTER_API_KEY) {
+    const orText = await callOpenRouterFallback({
+      system: opts.systemInstruction || SYSTEM_MECPRO,
+      user: _compressPromptLight(prompt, 8000),
+      temperature: opts.temperature,
+    });
+    if (orText) {
+      log.info("ai", "✅ OpenRouter fallback OK (provedores anteriores indisponíveis)", { model: OPENROUTER_FALLBACK_MODEL, motivo });
+      return orText;
+    }
+  }
+  if (opts.semMock) {
+    log.warn("ai", "PROVIDERS_UNAVAILABLE: todos os provedores falharam; sem mock para esta geração", { motivo });
+    throw new ProvidersUnavailableError();
+  }
+  log.warn("ai", "Todos os LLMs indisponíveis — usando mock response", { motivo });
+  return mockResponse(prompt);
+}
+
 export async function gemini(
   prompt: string,
   opts: {
@@ -1955,6 +1986,8 @@ export async function gemini(
     maxOutputTokens?: number;
     systemInstruction?: string;
     jsonMode?: boolean;
+    /** true: se nenhum provedor responder, lanca ProvidersUnavailableError em vez de devolver o texto de mock. */
+    semMock?: boolean;
     useCache?: boolean;
     cacheAs?: string;
     cacheMeta?: CacheMeta;
@@ -1982,6 +2015,8 @@ async function _geminiImpl(
     maxOutputTokens?: number;
     systemInstruction?: string;
     jsonMode?: boolean;
+    /** true: se nenhum provedor responder, lanca ProvidersUnavailableError em vez de devolver o texto de mock. */
+    semMock?: boolean;
     useCache?: boolean;
     cacheAs?: string;
     cacheMeta?: CacheMeta;
@@ -2015,20 +2050,7 @@ async function _geminiImpl(
         const clR = await callClaudeAPI(_compressedForGroq, opts.systemInstruction, opts.temperature).catch(() => null);
         if (clR) { log.info("ai", "✅ Claude fallback direto OK (quota Gemini)"); return clR; }
       }
-      // Último recurso: tenta OpenRouter (acesso a modelos gratuitos sem rate limit agressivo)
-      if (process.env.OPENROUTER_API_KEY) {
-        const orText = await callOpenRouterFallback({
-          system: opts.systemInstruction || SYSTEM_MECPRO,
-          user: _compressPromptLight(prompt, 8000),
-          temperature: opts.temperature,
-        });
-        if (orText) {
-          log.info("ai", "✅ OpenRouter fallback OK (quota Gemini + Groq esgotados)", { model: OPENROUTER_FALLBACK_MODEL });
-          return orText;
-        }
-      }
-      log.warn("ai", "Todos os LLMs indisponíveis — usando mock response (quota Gemini esgotada)");
-      return mockResponse(prompt);
+      return await ultimoRecursoDaGeracao(prompt, opts, "quota Gemini esgotada");
     }
   }
 
@@ -2046,8 +2068,8 @@ async function _geminiImpl(
       const gsResult = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature);
       if (gsResult) { log.info("ai", "✅ Genspark fallback OK (modo OFF)"); return gsResult; }
     } catch { /* silencioso */ }
-    log.warn("ai", "Groq e Genspark indisponíveis no modo OFF — usando mock");
-    return mockResponse(prompt);
+    log.warn("ai", "Groq e Genspark indisponíveis no modo OFF");
+    return await ultimoRecursoDaGeracao(prompt, opts, "modo OFF");
   }
 
   // Cache DB persistente — sobrevive a deploys (verifica apenas na 1ª tentativa)
@@ -2100,7 +2122,7 @@ async function _geminiImpl(
     if (groqResult) return groqResult;
     const gsResult2 = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature);
     if (gsResult2) { log.info("ai", "✅ Genspark fallback OK (sem Gemini key)"); return gsResult2; }
-    return mockResponse(prompt);
+    return await ultimoRecursoDaGeracao(prompt, opts, "sem chave Gemini");
   }
 
   const temperature       = opts.temperature       ?? 0.3;
@@ -2194,7 +2216,7 @@ async function _geminiImpl(
         if (groqFast) { log.info("ai", "✅ Groq fast-fallback OK (todas chaves Gemini esgotadas)"); return groqFast; }
         const gsFast = await callGensparkAPI(prompt, opts.systemInstruction, opts.temperature).catch(() => null);
         if (gsFast) { log.info("ai", "✅ Genspark fast-fallback OK"); return gsFast; }
-        return mockResponse(prompt);
+        return await ultimoRecursoDaGeracao(prompt, opts, "chaves Gemini esgotadas na tentativa");
       }
     }
 
@@ -2265,8 +2287,7 @@ async function _geminiImpl(
       }
     }
 
-    log.warn("ai", "Todos os LLMs indisponíveis — usando mock response");
-    return mockResponse(prompt);
+    return await ultimoRecursoDaGeracao(prompt, opts, "falha do Gemini na tentativa");
   }
 
   if (data.error) throw new Error(redactProviderSecrets(String(data.error.message)));
@@ -8017,7 +8038,7 @@ ${creativeSlotInstructions}
         raw = groqRaw;
       } else {
         log.warn("ai", "Groq falhou na campanha principal — fallback Gemini");
-        raw = await gemini(prompt, { temperature: 0.8,
+        raw = await gemini(prompt, { temperature: 0.8, semMock: true,
           _endpoint: "generateCampaign_groq_fallback",
           _projectId: input.projectId,
           _userId: input.userId,
@@ -8025,9 +8046,9 @@ ${creativeSlotInstructions}
       }
     } else if (copyEngine === "ml_first") {
       log.info("ai", "✍️ Copy Engine: ML-First (campanha principal)", { projectId: input.projectId });
-      raw = await gemini(prompt, { temperature: 0.5, maxOutputTokens: dynamicMaxOutputTokens });
+      raw = await gemini(prompt, { temperature: 0.5, maxOutputTokens: dynamicMaxOutputTokens, semMock: true });
     } else {
-      raw = await gemini(prompt, { temperature: 0.6,
+      raw = await gemini(prompt, { temperature: 0.6, semMock: true,
       _endpoint: "generateCampaign",
       _projectId: input.projectId,
       _userId: input.userId,
@@ -8350,9 +8371,9 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
           aiResponse       = JSON.stringify({ metrics: hybrid.metrics, generatedBy: "hybrid_engine", _isMock: false });
           log.info("ai", "✅ Motor híbrido gerou campanha completa", { projectId: input.projectId, creatives: hybrid.creatives.length, hasFunnel: !!(hybrid.conversionFunnel?.length), hasPlan: !!(hybrid.executionPlan?.length) });
         } catch {
-          const mock=JSON.parse(mockResponse("campanha"));
-          strategy=mock.strategy; adSets=JSON.stringify(mock.adSets); creatives=JSON.stringify(mock.creatives);
-          conversionFunnel=JSON.stringify([]); executionPlan=JSON.stringify([]);
+          // Sem provedor de IA e sem motor hibrido: erro claro, nunca um rascunho generico de mock.
+          log.error("ai", "PROVIDERS_UNAVAILABLE: geração de campanha sem nenhum provedor disponível", { projectId: input.projectId });
+          throw new ProvidersUnavailableError();
         }
       }
     } // fim catchch groqErr
