@@ -45,6 +45,7 @@ import { scoreCreative } from "../creativeScoringEngine";
 import { getCarouselEditorialIssues } from "../../shared/campaignCopyQuality";
 import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
+import { carregarCampanhaDoUsuario } from "../campanhaDoUsuario";
 import { buildEnhancedCloudinaryImageUrl, generateAdImage, getImageGenerationDiagnostics, generateVideoFromImage, type CreativeImageFormat, type ImageProvider } from "../imageGeneration";
 import {
   updateCreativeInputSchema,
@@ -3035,9 +3036,9 @@ const campaignsRouter = router({
 
   updateCreativeImage: protectedProcedure
     .input(updateCreativeImageInputSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       // Validação já feita pelo superRefine do schema
-      const campaign = await db.getCampaignById(input.campaignId) as any;
+      const campaign = await carregarCampanhaDoUsuario(db, input.campaignId, ctx.user?.id);
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
 
       const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
@@ -3127,8 +3128,8 @@ const campaignsRouter = router({
   // foto primeiro, ou usá-la como imagem principal fora de carrossel.
   setFeaturedPhoto: protectedProcedure
     .input(setFeaturedPhotoInputSchema)
-    .mutation(async ({ input }) => {
-      const campaign = await db.getCampaignById(input.campaignId) as any;
+    .mutation(async ({ input, ctx }) => {
+      const campaign = await carregarCampanhaDoUsuario(db, input.campaignId, ctx.user?.id);
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
 
       const creatives = JSON.parse(campaign.creatives || "[]") as any[];
@@ -3327,8 +3328,8 @@ const campaignsRouter = router({
       creativeIndex: z.number().int().min(0),
       format: z.enum(["feed", "stories", "square"]).default("feed"),
     }))
-    .mutation(async ({ input }) => {
-      const campaign = await db.getCampaignById(input.campaignId) as any;
+    .mutation(async ({ input, ctx }) => {
+      const campaign = await carregarCampanhaDoUsuario(db, input.campaignId, ctx.user?.id);
       if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada" });
 
       const creatives = JSON.parse(campaign.creatives || "[]") as CampaignCreative[];
