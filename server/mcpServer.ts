@@ -1901,7 +1901,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     }
 
     try {
-      const uploadResult: any = await caller.campaigns.uploadVideoToMeta({
+      const uploadResult: any = await caller.integrations.uploadVideoToMeta({
         videoBase64: buffer.toString("base64"),
         fileName: fileName || "ad_video.mp4",
         mimeType: effectiveMime,
