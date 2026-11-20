@@ -1,6 +1,7 @@
 import "dotenv/config";
 import crypto from "crypto";
 import { log } from "./logger";
+import { callOpenRouterFallback, OPENROUTER_FALLBACK_MODEL } from "./openRouterFallback";
 import { urlDoCliente, urlDoClienteComMetodo } from "./googleAdsApi";
 import { GeminiCredentialHealth, redactProviderSecrets } from "./providerSafety";
 import { logTokens, estimateTokens } from "./tokenTelemetry";
@@ -2016,36 +2017,14 @@ async function _geminiImpl(
       }
       // Último recurso: tenta OpenRouter (acesso a modelos gratuitos sem rate limit agressivo)
       if (process.env.OPENROUTER_API_KEY) {
-        try {
-          const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Content-Type":  "application/json",
-              "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-              "HTTP-Referer":  "https://mecproai.com",
-              "X-Title":       "MecProAI",
-            },
-            body: JSON.stringify({
-              model:       "meta-llama/llama-3.1-8b-instruct:free",
-              temperature: opts.temperature ?? 0.3,
-              max_tokens:  4096,
-              messages: [
-                { role: "system", content: opts.systemInstruction || SYSTEM_MECPRO },
-                { role: "user",   content: _compressPromptLight(prompt, 8000) },
-              ],
-            }),
-            signal: AbortSignal.timeout(25000),
-          });
-          if (orRes.ok) {
-            const orData: any = await orRes.json();
-            const orText = orData?.choices?.[0]?.message?.content || "";
-            if (orText) {
-              log.info("ai", "✅ OpenRouter fallback OK (quota Gemini + Groq esgotados)");
-              return orText;
-            }
-          }
-        } catch (orErr: any) {
-          log.warn("ai", "OpenRouter fallback falhou", { error: orErr.message?.slice(0,60) });
+        const orText = await callOpenRouterFallback({
+          system: opts.systemInstruction || SYSTEM_MECPRO,
+          user: _compressPromptLight(prompt, 8000),
+          temperature: opts.temperature,
+        });
+        if (orText) {
+          log.info("ai", "✅ OpenRouter fallback OK (quota Gemini + Groq esgotados)", { model: OPENROUTER_FALLBACK_MODEL });
+          return orText;
         }
       }
       log.warn("ai", "Todos os LLMs indisponíveis — usando mock response (quota Gemini esgotada)");
