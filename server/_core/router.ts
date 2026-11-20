@@ -69,6 +69,7 @@ import {
 import { evaluateCampaignBriefingReadiness } from "../../shared/campaignBriefingReadiness";
 import { tikTokReportGet, tikTokReportTentar, TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS } from "../tiktokRelatorio";
 import { aplicarFunil } from "../funilDeTrafego";
+import { withMetaVideoThumbnail } from "../metaVideoCreative";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -5743,10 +5744,14 @@ const campaignsRouter = router({
                 ? { type: "WHATSAPP_MESSAGE" }
                 : { type: ctaType, value: ctaValue },
             };
-            if (videoThumbHash) {
-              videoDataPayload.image_hash = videoThumbHash;
+            const videoDataWithThumbnail = withMetaVideoThumbnail(videoDataPayload, videoThumbHash, videoThumbUrl);
+            if (!videoDataWithThumbnail) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Não foi possível publicar o vídeo sem uma miniatura. Reenvie o vídeo com uma capa ou miniatura válida.",
+              });
             }
-            // Nota: 'picture' não é aceito em video_data — apenas image_hash
+            Object.assign(videoDataPayload, videoDataWithThumbnail);
             storySpec = {
               page_id: input.pageId,
               video_data: videoDataPayload,
