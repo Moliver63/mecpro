@@ -26,7 +26,7 @@ import { marcarPromessasParaRevisao, factsDaCampanha } from "./creativeReview";
 import { generateAdImage, getImageGenerationDiagnostics, type CreativeImageFormat, type ImageProvider } from "./imageGeneration";
 import { hasUsefulLearningMetrics, normalizeLearningNiche } from "./campaignIntelligenceEngine";
 import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado } from "./ai-providers/cloudflareWorkersAI";
-import { ctasSemPromessaNaoConfirmada, REGRA_OFERTA_PARA_PROMPT } from "./campaignOfferGuard";
+import { contextoDeOferta, ctasSemPromessaNaoConfirmada, REGRA_OFERTA_PARA_PROMPT, type OfferGuardContext } from "./campaignOfferGuard";
 import { buildCampaignFacts, formatCampaignFactsForPrompt, validateCampaignFactIntegrity, resolveIsRealEstate, type CampaignFacts } from "./campaignFactGuard";
 import { alinharObjetivosAninhados, formatoDeMidiaParaAuditoria } from "./campaignRuleRetrieval";
 import { acceptCreativeRewrite, CREATIVE_REWRITE_RESPONSE_SCHEMA, parseCreativeRewrite, creativeRewriteFeedback, repairCreativeFields, duplicateCreativeFields, creativeTextIssues, erroDeEnriquecimentoDeveSubir, truncarCamposNoLimite, escolherMelhorReescrita, avaliarReescrita, reescritaSuficiente, camposComErroObjetivo, extrairJsonDeResposta, motivoParaRecusarConserto, manterMelhorVersao, textoDeFatosConfirmados, CREATIVE_TEXT_LIMITS, type CandidatoReescrita, type CreativeTextField } from "./creativeRewriteGuard";
@@ -1407,7 +1407,7 @@ export function getSegmentInstruction(
   objective: string,
   // Fatos confirmados do rascunho. Sem eles, CTAs que prometem gratuidade,
   // desconto ou urgencia sao descartados (padrao seguro).
-  offer: { confirmedClaimsRaw: string; price?: string } = { confirmedClaimsRaw: "" },
+  offer: OfferGuardContext = { confirmedClaimsRaw: "" },
 ): string {
   const seg = segment && SEGMENT_COPY_RULES[segment]
     ? segment
@@ -3816,7 +3816,7 @@ export async function buildCampaignFromAds(
   const segCtas = segRulesHybrid
     ? ctasSemPromessaNaoConfirmada(
         objective === "sales" ? segRulesHybrid.ctaSales : segRulesHybrid.ctaLeads,
-        { confirmedClaimsRaw: opts?.campaignFacts?.confirmedClaimsRaw ?? "", price: opts?.campaignFacts?.realEstate?.price || opts?.campaignFacts?.genericProductPrice },
+        opts?.campaignFacts ? contextoDeOferta(opts.campaignFacts) : { confirmedClaimsRaw: "" },
       )
     : realCtas.length > 0 ? realCtas : ["Saiba mais", "Entre em contato"];
   let topCta  = segCtas[0] || realCtas[0] || "Saiba mais";
@@ -7043,7 +7043,7 @@ INSTRUÇÃO: quando relevante para o nicho, adapte hooks e copies ao contexto te
     resolvedSegment,
     [(clientProfile as any)?.niche, (clientProfile as any)?.productService, input.extraContext, input.name].filter(Boolean).join(" "),
     input.objective,
-    { confirmedClaimsRaw: campaignFacts.confirmedClaimsRaw, price: campaignFacts.realEstate.price || campaignFacts.genericProductPrice },
+    contextoDeOferta(campaignFacts),
   );
   campaignFacts.intent = { segment: resolvedSegment, objective: input.objective === "branding" ? "awareness" : input.objective };
   const isGenericCommercialRoom =
@@ -8148,7 +8148,7 @@ ${creativeSlotInstructions}
         input.objective,
         (() => {
           const f = buildCampaignFacts({ input: input as any, clientProfile: (p || {}) as any, segment: resolvedSegment });
-          return { confirmedClaimsRaw: f.confirmedClaimsRaw, price: f.realEstate.price || f.genericProductPrice };
+          return contextoDeOferta(f);
         })(),
       );
 

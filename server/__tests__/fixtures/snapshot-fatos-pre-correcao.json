@@ -1,0 +1,57 @@
+{
+ "offerAnchor": [
+  "Nome do produto/serviço: Aula de gestão de tráfego pago",
+  "Produto/serviço: Aula de gestão de tráfego pago"
+ ],
+ "verifiedFacts": [
+  "Preco: R$ 19,90",
+  "Preco do produto/servico: R$ 19,90",
+  "Caracteristica confirmada: Aula | Campanha de teste",
+  "Caracteristica confirmada: Pagamento único",
+  "Caracteristica confirmada: Acesso por 7 dias",
+  "Caracteristica confirmada: Aula paga",
+  "Caracteristica confirmada: Aula de gestão de tráfego pago",
+  "Caracteristica confirmada: R$ 19,90",
+  "Caracteristica confirmada: Aula gratuita de gestão de tráfego pago"
+ ],
+ "allowedInferences": [],
+ "forbiddenClaims": [
+  "190 m2",
+  "190 m²",
+  "tres pavimentos",
+  "três pavimentos",
+  "planta triplex",
+  "triplex",
+  "3 suites",
+  "3 suítes",
+  "praia brava",
+  "r$ 18.000",
+  "4 vagas",
+  "seguranca 24h",
+  "segurança 24h",
+  "fase final",
+  "processo avancado",
+  "processo avançado"
+ ],
+ "intent": {
+  "segment": "infoprodutos",
+  "objective": "leads"
+ },
+ "socialProofRaw": "",
+ "confirmedClaimsRaw": "aula | campanha de teste. pagamento unico. acesso por 7 dias. aula paga.. aula de gestao de trafego pago. aula de gestao de trafego pago. r$ 19,90. aula gratuita de gestao de trafego pago",
+ "confirmedCharacteristics": [
+  "Aula | Campanha de teste",
+  "Pagamento único",
+  "Acesso por 7 dias",
+  "Aula paga",
+  "Aula de gestão de tráfego pago",
+  "R$ 19,90",
+  "Aula gratuita de gestão de tráfego pago"
+ ],
+ "genericProductPrice": "R$ 19,90",
+ "realEstate": {
+  "price": "R$ 19,90",
+  "structuralFeatures": [],
+  "usagePossibilities": []
+ }
+}

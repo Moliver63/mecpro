@@ -8,7 +8,7 @@ import {
 } from "./factNormalizer";
 
 import { retrieveCampaignRules, canonicalObjective } from "./campaignRuleRetrieval";
-import { detectUnconfirmedOfferClaims, REGRA_OFERTA_PARA_PROMPT, type OfferClaimKind, type OfferClaimSuggestion } from "./campaignOfferGuard";
+import { contextoDeOferta, detectUnconfirmedOfferClaims, REGRA_OFERTA_PARA_PROMPT, type ConfirmacaoDeOferta, type OfferClaimKind, type OfferClaimSuggestion } from "./campaignOfferGuard";
 
 type FactSource = Record<string, unknown>;
 
@@ -41,6 +41,9 @@ export type CampaignFactConflict = {
   kind?: OfferClaimKind;
   suggestion?: OfferClaimSuggestion | null;
   needsOfferConfirmation?: boolean;
+  // Quando a gratuidade nao foi aceita por falta de confirmacao no briefing da
+  // campanha (perfil da conta, snapshot antigo ou briefing ambiguo).
+  confirmacao?: ConfirmacaoDeOferta;
 };
 
 export type CampaignFacts = {
@@ -998,12 +1001,7 @@ export function validateCampaignFactIntegrity(
     // Oferta comercial sem lastro no briefing: gratuidade, desconto, bonus,
     // prazo de acesso, garantia e prazo da oferta. Qualquer nicho e objetivo:
     // leads nao autoriza presumir oferta gratuita. Ver campaignOfferGuard.ts.
-    for (const claim of detectUnconfirmedOfferClaims(text, {
-      confirmedClaimsRaw: facts.confirmedClaimsRaw,
-      price: facts.realEstate.price || facts.genericProductPrice,
-      campaignClaimsRaw: facts.campaignClaimsRaw,
-      campaignProductRaw: facts.campaignProductRaw,
-    })) {
+    for (const claim of detectUnconfirmedOfferClaims(text, contextoDeOferta(facts))) {
       conflicts.push({
         field,
         value: claim.value,
@@ -1011,6 +1009,7 @@ export function validateCampaignFactIntegrity(
         kind: claim.kind,
         suggestion: claim.suggestion,
         needsOfferConfirmation: claim.needsOfferConfirmation,
+        ...(claim.confirmacao ? { confirmacao: claim.confirmacao } : {}),
       });
     }
 

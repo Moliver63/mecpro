@@ -16,6 +16,8 @@ export type DivergenciaDeOferta = {
   motivoTexto: string;
   sugestao: { find: string; replaceWith: string; basis: string } | null;
   precisaConfirmarOferta: boolean;
+  /** Orientacao quando a gratuidade precisa ser confirmada no briefing da campanha. */
+  orientacao?: string;
   textoAtual?: string | null;
 };
 
@@ -68,7 +70,13 @@ export default function OfertaDivergenciaCard({ campaignId, divergencia: d, onSa
         <strong>"{d.trecho}"</strong> {d.motivoTexto}.
       </p>
 
-      {d.precisaConfirmarOferta && (
+      {d.orientacao && (
+        <p style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "6px 10px", margin: "0 0 8px", lineHeight: 1.5 }}>
+          {d.orientacao}
+        </p>
+      )}
+
+      {d.precisaConfirmarOferta && !d.orientacao && (
         <p style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "6px 10px", margin: "0 0 8px", lineHeight: 1.5 }}>
           Essa condição não está confirmada na oferta do briefing. Confirme preço, gratuidade, bônus ou prazo no cliente, ou edite o texto.
         </p>

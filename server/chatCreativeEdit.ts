@@ -3,6 +3,7 @@ import { campanhaDoUsuario, type ChatWorkspaceStore } from "./chatWorkspace";
 import { CREATIVE_TEXT_LIMITS } from "./creativeRewriteGuard";
 import { scoreCreative } from "./creativeScoringEngine";
 import { validateCampaignFactIntegrity } from "./campaignFactGuard";
+import { ORIENTACAO_POR_CONFIRMACAO } from "./campaignPublishIntegrity";
 import { syncCreativeTextToV2 } from "../shared/campaignCreative.sync";
 import {
   diagnosticarRevisao, descreverDiagnostico, factsDaCampanha, textoDoCriativo,
@@ -79,8 +80,10 @@ export function aplicarEdicaoDeTexto(
   if (facts) {
     const auditoria = validateCampaignFactIntegrity([mudancas], facts);
     if (auditoria.status !== "passed") {
+      const comOrientacao = auditoria.conflicts.find((c) => c.confirmacao);
       return {
-        erro: "Nada foi salvo: o texto novo traz alegacao que nao esta no briefing da campanha.",
+        erro: "Nada foi salvo: o texto novo traz alegacao que nao esta no briefing da campanha."
+          + (comOrientacao?.confirmacao ? ` ${ORIENTACAO_POR_CONFIRMACAO[comOrientacao.confirmacao]}` : ""),
         conflitos: auditoria.conflicts.slice(0, 5).map((c) => `${c.field.replace(/^creatives\.\d+\./, "")}: ${c.reason} ("${c.value}")`),
         instruction: "Reescreva sem essa alegacao, ou peca ao usuario o dado real (com fonte) e atualize o briefing antes.",
       };
