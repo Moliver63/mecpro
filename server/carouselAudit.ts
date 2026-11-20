@@ -45,6 +45,30 @@ export function getCreativeVideoId(c: any): string | null {
   return null;
 }
 
+/** Este criativo tem imagem (hash/url) ou video para publicar? */
+export function criativoTemMidia(c: any): boolean {
+  const m = getCreativeMedia(c);
+  return !!(m.hash || m.url || getCreativeVideoId(c));
+}
+
+/**
+ * Criativo do Feed: entre os que TEM midia, o de maior score (preferindo os de formato feed).
+ * Sem nenhum com midia, devolve null para quem chama manter a regra antiga.
+ * Campanha 817 (20/11/2026): o carrossel sem midia (score 67) ganhava do video (65) e a
+ * Meta recusava o anuncio por falta de thumbnail.
+ */
+export function escolherCriativoComMidia(
+  creatives: any[],
+  isFeedLike: (c: any) => boolean,
+  score: (c: any) => number,
+): any | null {
+  const comMidia = (creatives || []).filter(criativoTemMidia);
+  if (comMidia.length === 0) return null;
+  const melhor = (lista: any[]) => [...lista].sort((a, b) => score(b) - score(a))[0];
+  const doFeed = comMidia.filter(isFeedLike);
+  return melhor(doFeed.length ? doFeed : comMidia);
+}
+
 /** Imagens (hash/url) ou videos aptos a publicar, em qualquer criativo. */
 export function campanhaTemMidiaPublicavel(creatives: any[]): boolean {
   return (creatives || []).some((c: any) => {

@@ -42,6 +42,7 @@ import { salesRouter } from "./salesRouter";
 import { affiliatesRouter } from "./affiliatesRouter";
 import { buildMecproUrlTags, shouldApplyUrlTags } from "../salesWebhookParsing";
 import { scoreCreative } from "../creativeScoringEngine";
+import { escolherCriativoComMidia } from "../carouselAudit";
 import { getCarouselEditorialIssues } from "../../shared/campaignCopyQuality";
 import { calculateScore, normalizeLearningNiche } from "../campaignIntelligenceEngine";
 import { auditCreative, assertCreativeValid, dedupeSentences, personalizeHeadlineForAdSet, deslopify } from "../adAudit";
@@ -341,7 +342,7 @@ function buildAdCopy(campaign: any, opts: {
     return (pool.sort((a, b) => scoreValue(b) - scoreValue(a))[0]) || fallback || creatives[0] || null;
   };
 
-  const feedCreative = pickBest((creative) => isFeedLike(creative));
+  const feedCreative = escolherCriativoComMidia(creatives, isFeedLike, scoreValue) ?? pickBest((creative) => isFeedLike(creative));
   const storiesCreative = pickBest((creative) => isStoriesLike(creative), feedCreative);
   const reelsCreative = pickBest((creative) => isReelsLike(creative), storiesCreative || feedCreative);
   const selectedCreative = placement === "stories"
