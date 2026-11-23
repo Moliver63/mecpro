@@ -5,6 +5,7 @@ import {
   triarParaAprovacao, aplicarAprovacaoPorScore,
 } from "./creativeReview";
 import { formatDailyBudget } from "../shared/dailyBudget";
+import { verificarOrcamentoDoRascunho, resumoDoOrcamento } from "../shared/orcamentoDoRascunho";
 
 /**
  * Ajuste de RASCUNHO de campanha, sem tocar na Meta.
@@ -239,12 +240,22 @@ export function ajustarRascunhoCampanha(campaign: any, entrada: EntradaRascunho,
     };
   });
 
+  // Soma dos conjuntos x total autorizado, com o rascunho como ficara depois do patch.
+  const verifOrcamento = verificarOrcamentoDoRascunho({
+    ...campaign,
+    adSets: patch.adSets ?? campaign.adSets,
+    suggestedBudgetDaily: patch.suggestedBudgetDaily ?? campaign.suggestedBudgetDaily,
+    suggestedBudgetMonthly: patch.suggestedBudgetMonthly ?? campaign.suggestedBudgetMonthly,
+  });
+  if (!verifOrcamento.publicavel && verifOrcamento.situacao !== "sem_conjuntos") avisos.push(resumoDoOrcamento(verifOrcamento));
+
   const termos = (entrada.forbiddenTerms || []).filter((t) => typeof t === "string" && t.trim());
   return {
     patch,
     relatorio: {
       alteracoes, avisos,
       revisao,
+      verificacaoDoOrcamento: { situacao: verifOrcamento.situacao, publicavel: verifOrcamento.publicavel, aprovadoDiario: verifOrcamento.aprovadoDiario, somaDiaria: verifOrcamento.somaDiaria, motivo: verifOrcamento.motivo ?? null },
       resumoOrcamento: {
         conjuntos: adSets.map((a: any, i: number) => ({ index: i, name: a?.name || null, budget: a?.budget || null })),
         suggestedBudgetDaily: patch.suggestedBudgetDaily ?? campaign.suggestedBudgetDaily ?? null,

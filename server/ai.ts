@@ -2,6 +2,7 @@ import "dotenv/config";
 import crypto from "crypto";
 import { log } from "./logger";
 import { totalDoPeriodoDaCampanha } from "../shared/adSetBudgetPlan";
+import { verificarOrcamentoDoRascunho, rebalancearConjuntos } from "../shared/orcamentoDoRascunho";
 import { callOpenRouterFallback, OPENROUTER_FALLBACK_MODEL } from "./openRouterFallback";
 import { urlDoCliente, urlDoClienteComMetodo } from "./googleAdsApi";
 import { GeminiCredentialHealth, redactProviderSecrets } from "./providerSafety";
@@ -8510,6 +8511,30 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
   creatives = JSON.stringify(conteudoAuditado.slice(0, -1));
   adSets = JSON.stringify(conteudoAuditado[conteudoAuditado.length - 1].adSets);
 
+  // Revisao final 23/11: a soma dos conjuntos so era conferida na publicacao. Aqui o
+  // rascunho ja nasce coerente: se os conjuntos divergem do diario aprovado, o diario
+  // aprovado e REDISTRIBUIDO entre eles (o total nunca muda nem sobe). Quando nao da
+  // (aprovado menor que o piso x conjuntos), o rascunho sai marcado e a publicacao
+  // continua bloqueada ate o usuario decidir.
+  let budgetPlan: Record<string, unknown> = {};
+  {
+    const rascunho = { adSets, suggestedBudgetDaily: budgetDaily, suggestedBudgetMonthly: requestedBudget, durationDays: campaignDurationDays };
+    const antes = verificarOrcamentoDoRascunho(rascunho);
+    budgetPlan = { situacao: antes.situacao, aprovadoDiario: antes.aprovadoDiario, somaDiaria: antes.somaDiaria };
+    if (antes.situacao === "divergente") {
+      const r = rebalancearConjuntos(rascunho);
+      if (r.ok === true) {
+        adSets = JSON.stringify(r.adSets);
+        const depois = verificarOrcamentoDoRascunho({ ...rascunho, adSets });
+        budgetPlan = { ...budgetPlan, rebalanceado: true, antes: r.antes, depois: r.depois, situacaoFinal: depois.situacao, somaDiaria: depois.somaDiaria };
+        log.info("ai", "Conjuntos redistribuidos para fechar no diario aprovado (total inalterado)", { antes: r.antes, depois: r.depois, aprovado: budgetDaily });
+      } else {
+        budgetPlan = { ...budgetPlan, rebalanceado: false, motivo: r.erro, situacaoFinal: "divergente" };
+        log.warn("ai", "Conjuntos divergem do diario aprovado e nao cabem no piso — publicacao fica bloqueada", { motivo: r.erro });
+      }
+    }
+  }
+
   const parsedForQualityGate = (() => {
     try { return JSON.parse(creatives || "[]"); } catch { return []; }
   })();
@@ -8573,6 +8598,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
       factValidation,
       postGenerationQualityGate: postGenerationGate,
       budgetViability,
+      budgetPlan,
       campaignFacts: {
         ...campaignFacts,
       },

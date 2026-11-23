@@ -96,13 +96,14 @@ test("F5: conta fora da lista autorizada, inativa ou em formato invalido e rejei
   assert.equal(a.guardada(), null);
 });
 
-test("F5: ao criar o rascunho a conta escolhida e associada, a conexao muda so entao, e o resultado persiste no rascunho", async () => {
+test("F5: ao criar o rascunho a conta da conversa entra como SUGESTAO: conexao intacta, nao confirmada, resto do aiResponse preservado", async () => {
   const a = ambiente({ conexao: C1.id });
   a.sessao.gravar({ id: C2.id, nome: C2.nome, moeda: "BRL", escolhidaEm: "x" });
   const r = await aplicarContaDaSessaoAoRascunho(1, 12, a.sessao, a.deps);
-  assert.equal(r.status, "aplicada");
-  assert.deepEqual(a.estado.trocas, [C2.id]);
+  assert.equal(r.status, "sugerida");
+  assert.deepEqual(a.estado.trocas, [], "a conexao Meta nao muda na sugestao");
   assert.equal(contaDoRascunho(a.campaign)?.id, C2.id);
+  assert.equal(contaDoRascunho(a.campaign)?.confirmada, false);
   assert.deepEqual(JSON.parse(a.campaign.aiResponse).campaignFacts, { x: 1 }, "o resto do aiResponse e preservado");
 });
 
@@ -201,11 +202,14 @@ test("F6: o portao de publicacao fala em recomendacao do MecProAI, nao em minimo
   assert.match(comConta, /conta de anuncios informa minimo diario de 7\.00/);
 });
 
-test("Goldfish: a conta da conversa nao e reaplicada em silencio na segunda campanha", () => {
+test("revisao final: a conta da conversa nunca vira autorizacao automatica nem troca a conexao ao gerar o rascunho", () => {
   const chat = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
-  assert.match(chat, /usadaNaCampanha !== campanha\.id/);
-  assert.match(chat, /Confirme qual conta usar nesta campanha/);
-  assert.match(chat, /state\.metaAdAccount\.usadaNaCampanha = campanha\.id/);
+  assert.doesNotMatch(chat, /usadaNaCampanha/);
+  assert.match(chat, /apenas como SUGESTAO/);
+  assert.match(chat, /Ainda NAO confirmada para esta campanha/);
+  const choice = readFileSync(new URL("../metaAdAccountChoice.ts", import.meta.url), "utf8");
+  const trecho = choice.slice(choice.indexOf("export async function aplicarContaDaSessaoAoRascunho"), choice.indexOf("export async function exigirContaDoRascunho"));
+  assert.doesNotMatch(trecho, /aplicar\(/, "a sugestao nao chama o caminho que troca a conexao");
 });
 
 test("Goldfish: tolerancia de centavos nao bloqueia soma correta de conjuntos arredondados", () => {
