@@ -115,10 +115,14 @@ export function planoDeOrcamento(campaign: any): PlanoDeOrcamento {
       // O texto pode mostrar um valor em reais que nao e o que vai para a
       // Meta (795: "R$ 40/dia (100% do total)" com R$ 90 aprovados publica
       // R$ 90). Quem aprova le o R$; a divergencia vira erro do conjunto.
-      const mostrado = bruto.match(/R\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
+      // So compara quando o texto diz "/dia" ("R$ 100 (33%)" legado era
+      // mensal). Tolerancia de R$ 1: o gerador arredonda o valor mostrado e o
+      // calculo arredonda o diario (Goldfish 23/11: "R$ 16/dia (33%)" de 50).
+      const mostrado = /\/dia/i.test(bruto) ? bruto.match(/R\$\s*(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/) : null;
       if (mostrado) {
         const valorMostrado = parseDailyBudget(mostrado[1]);
-        if (valorMostrado !== null && Math.abs(valorMostrado - calculado) > 0.5) {
+        const exato = base * (parseFloat(pct[1]) / 100);
+        if (valorMostrado !== null && Math.abs(valorMostrado - exato) > 1) {
           erro = `o texto mostra ${reais(valorMostrado)}/dia, mas ${pct[1]}% do aprovado dá ${reais(calculado)}/dia`;
         }
       }
@@ -182,6 +186,10 @@ export function somaComoAprovado(campaign: any): { erro: string } | { suggestedB
   if (plano.conjuntos.length === 0) return { erro: "A campanha não tem conjuntos de anúncios." };
   const invalidos = plano.conjuntos.filter((c) => c.erro);
   if (invalidos.length) return { erro: `Corrija antes o orçamento inválido: ${invalidos.map((c) => `${c.nome} (${c.erro})`).join("; ")}.` };
+  // Conjunto em percentual (ou sem valor) depende do proprio aprovado: usar a
+  // soma como aprovado mudaria a soma de novo a cada clique (Goldfish 23/11).
+  const relativos = plano.conjuntos.filter((c) => c.origem === "percentual" || c.origem === "numero_percentual" || c.origem === "divisao_igual");
+  if (relativos.length) return { erro: `Defina antes um valor diário fixo (ex.: "R$ 6/dia") nos conjuntos em percentual: ${relativos.map((c) => c.nome).join(", ")}.` };
   const dias = numeroPositivo(campaign?.durationDays) ?? 30;
   return {
     // Colunas inteiras no banco (schema.ts): reais sem centavos. O

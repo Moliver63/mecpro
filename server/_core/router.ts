@@ -12687,7 +12687,8 @@ const mediaBudgetRouter = router({
       const budgetRes = await pool.query(`
         SELECT c.platform,
                COALESCE(SUM(c."suggestedBudgetDaily"), 0)   AS budget_daily,
-               COALESCE(SUM(c."suggestedBudgetMonthly"), 0) AS budget_monthly,
+               -- total do periodo = diario x dias (a coluna Monthly e legada; ver shared/adSetBudgetPlan.ts)
+               COALESCE(SUM(c."suggestedBudgetDaily" * COALESCE(NULLIF(c."durationDays", 0), 30)), 0) AS budget_monthly,
                COUNT(*)::int                                  AS campaign_count
         FROM campaigns c
         JOIN projects p ON p.id = c."projectId"

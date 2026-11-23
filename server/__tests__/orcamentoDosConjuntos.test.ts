@@ -149,3 +149,28 @@ test("tela tem a saida approveAdSetBudgetSum e o MCP nao grava diario x 30", () 
   assert.match(ROTA, /approveAdSetBudgetSum: protectedProcedure/);
   assert.doesNotMatch(MCP, /dailyBudget \* 30/);
 });
+
+// Revisao Goldfish do diff (23/11), riscos 1, 3 e 5.
+test("usar a soma como aprovado recusa conjunto em percentual (cada clique mudaria a soma)", () => {
+  const c = camp(1, 10, 140, 14, ["20%", "40%", "40%"]);
+  const r = somaComoAprovado(c);
+  assert.ok("erro" in r && /valor diário fixo/.test(r.erro));
+  const s = camp(2, 20, 280, 14, ["50%", "50%", "50%"]);
+  assert.ok("erro" in somaComoAprovado(s));
+});
+
+test("texto do gerador arredondado ('R$ 16/dia (33%)' de R$ 50) nao e erro; legado sem /dia nao e comparado", () => {
+  const p = planoDeOrcamento(camp(3, 50, 700, 14, ["R$ 16/dia (33% do total)", "R$ 17/dia (34% do total)", "R$ 16/dia (33% do total)"]));
+  assert.ok(p.conjuntos.every((c) => !c.erro), p.detalhes.join(" | "));
+  assert.equal(p.ok, true, p.motivo);
+  const legado = planoDeOrcamento(camp(4, 50, 1500, 30, ["R$ 100 (33% do total)", "R$ 100 (33% do total)", "R$ 100 (34% do total)"]));
+  assert.ok(legado.conjuntos.every((c) => !c.erro));
+});
+
+test("update_live_meta_campaign so reescreve o aprovado com um conjunto", () => {
+  const ini = MCP.indexOf("caller.metaCampaigns.updateBudget({ adSetId: resolvedAdSetId");
+  const trecho = MCP.slice(ini, ini + 1600);
+  assert.match(trecho, /if \(qtdConjuntos === 1\)/);
+  assert.match(trecho, /input\.dailyBudget \* dias/);
+  assert.match(trecho, /o orcamento aprovado no MecProAI nao foi alterado/);
+});

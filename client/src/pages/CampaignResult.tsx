@@ -17,7 +17,7 @@ import WhatsAppField from "@/components/WhatsAppField";
 import OfertaDivergenciaCard from "@/components/OfertaDivergenciaCard";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
-import { diarioAprovadoDaCampanha, totalDoPeriodoDaCampanha } from "../../../shared/adSetBudgetPlan";
+import { diarioAprovadoDaCampanha, totalDoPeriodoDaCampanha, planoDeOrcamento, PISO_DIARIO_POR_CONJUNTO } from "../../../shared/adSetBudgetPlan";
 import {
   buildPublishMediaFromCreative,
   mergeCreativeWithProjectedLegacy,
@@ -1011,30 +1011,12 @@ export default function CampaignResult() {
       : selectedAdSets.map(i => Array.isArray(adSets) ? adSets[i] : null).filter(Boolean);
     const adSetsCountForCheck = adSetsForBudgetCheck.length || 1;
 
-    if (adSetsCountForCheck > 1) {
-      // Calcula budget real somando os adSets selecionados
-      const totalDailyFromAdSets = adSetsForBudgetCheck.reduce((sum: number, s: any) => {
-        if (!s) return sum;
-        const raw = String(s?.budget || s?.rawBudget || "0");
-        // Extrai valor numérico: "R$ 13/dia" → 13, "R$ 35/dia" → 35
-        const m = raw.match(/R\$?\s*([\d,\.]+)/);
-        return sum + (m ? parseFloat(m[1].replace(",", ".")) : 0);
-      }, 0);
-
-      // Fallback para suggestedBudgetDaily da campanha
-      const campCheck = campaign as any;
-      const dailyCheck = totalDailyFromAdSets > 0
-        ? totalDailyFromAdSets
-        : (diarioAprovadoDaCampanha(campCheck) ?? 0);
-
-      const minCheck = Math.ceil(5.11 * adSetsCountForCheck);
-      if (dailyCheck > 0 && dailyCheck < minCheck) {
-        const maxOk = Math.floor(dailyCheck / 5.11);
-        toast.error(
-          `⚠️ Orçamento insuficiente para ${adSetsCountForCheck} conjuntos. ` +
-          `Mínimo: R$${minCheck}/dia. Atual: R$${Math.round(dailyCheck)}/dia. ` +
-          (maxOk > 0 ? `Selecione até ${maxOk} conjunto(s).` : `Aumente o orçamento no Módulo 4.`)
-        );
+    // Mesmo plano que o servidor usa para recusar (shared/adSetBudgetPlan.ts):
+    // a tela nao calcula com outro parser nem outro piso (Goldfish 23/11).
+    {
+      const plano = planoDeOrcamento(campaign as any);
+      if (!plano.ok && adSetsCountForCheck > 0) {
+        toast.error(`⚠️ ${plano.motivo}`);
         return; // Para ANTES do upload
       }
     }
@@ -4156,20 +4138,20 @@ ${sc.cta}`); }}
                     {(publishAllMode || selectedAdSets.length > 1) && (() => {
                       const count = publishAllMode ? adSets.length : selectedAdSets.length;
                       const cmp = campaign as any;
-                      const dailyBudget = diarioAprovadoDaCampanha(cmp) ?? 0;
-                      const minRequired = Math.ceil(5.11 * count);
-                      const perAdSet = dailyBudget > 0 ? (dailyBudget / count).toFixed(2) : null;
-                      const budgetOk = dailyBudget === 0 || dailyBudget >= minRequired;
+                      const plano = planoDeOrcamento(cmp);
+                      const dailyBudget = plano.aprovadoDiario ?? 0;
+                      const minRequired = Math.ceil(PISO_DIARIO_POR_CONJUNTO * count);
+                      const budgetOk = plano.ok;
                       return (
                         <div style={{ marginTop: 6 }}>
                           <p style={{ fontSize: 11, color: budgetOk ? "#16a34a" : "#dc2626", fontWeight: 600, margin: 0 }}>
                             {budgetOk
                               ? `✓ ${count} conjuntos serão publicados em sequência.`
-                              : `⚠️ Orçamento insuficiente para ${count} conjuntos. Mínimo: R$${minRequired}/dia. Atual: R$${dailyBudget}/dia.`}
+                              : `⚠️ ${plano.motivo ?? `Orçamento dos conjuntos não bate. Mínimo para ${count} conjuntos: R$${minRequired}/dia. Aprovado: R$${dailyBudget}/dia.`}`}
                           </p>
                           {!budgetOk && (
                             <p style={{ fontSize: 11, color: "#78350f", margin: "4px 0 0" }}>
-                              💡 Selecione {Math.floor(dailyBudget / 5.11)} ou menos conjuntos, ou aumente o orçamento no Módulo 4.
+                              💡 Ajuste o orçamento de cada conjunto (ex.: "R$ 6/dia") ou use a soma como orçamento aprovado.
                             </p>
                           )}
                         </div>

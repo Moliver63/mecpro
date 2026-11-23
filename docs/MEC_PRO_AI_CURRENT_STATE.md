@@ -3370,3 +3370,28 @@ sao tratadas: a Meta nao permite responder a quem so curtiu.
 - Migracao convive com esquema legado (remove apenas quando vazio); aplicada e verificada em producao em 11/11.
 - `markAffiliatePaid` idempotente sob concorrencia (FOR UPDATE, marcacao por id).
 - docs/affiliates.md reconciliado: menu e captura de ref no login Google ja existem.
+
+## 23/11 — Isolamento entre clientes e orçamento dos conjuntos (branch, sem deploy)
+
+Branch `fix/isolamento-e-orcamento-dos-conjuntos`, spec
+`docs/specs/2026-11-23-isolamento-e-orcamento-dos-conjuntos.md`, duas rodadas
+Goldfish. **Não está no main nem em produção** até decisão do Michel.
+
+- **Dono conferido no `protectedProcedure`** (`server/ownership.ts`): a tela
+  lia/gravava campanha e projeto de outro cliente pelo número
+  (`campaigns.get`, `campaigns.list`, `updateAdSet`, `projects.delete`,
+  `clientProfile.*`...). MCP e chat já conferiam. Admin/superadmin passam.
+  Fora do escopo: rotas por id de outros recursos (`competitors.delete`).
+- **Plano de orçamento único** (`shared/adSetBudgetPlan.ts`): publicação e
+  pré-checagem recusam quando a soma dos conjuntos não bate com o diário
+  aprovado, ou o texto mostra outro valor em reais. Saída explícita "usar a
+  soma como aprovado" (só valores diários fixos). Impacto lido no banco:
+  47 de 113 rascunhos não publicados desde agosto ficam bloqueados até
+  ajuste (ex.: "16%/14%/10%" = 40% do aprovado).
+- **"Mensal" → total do período**: coluna mantida, exibição = diário × dias
+  (308 de 707 linhas tinham a coluna diferente disso). Dashboard e
+  Financeiro dividiam reais por 100.
+- Validado: suíte 931/931, `tsc` igual à base (43 servidor, 64 total).
+- Achado só de leitura, não corrigido: a 819 tem 25–45 anos aprovado e ~90%
+  do gasto foi para 45+ (público Advantage+ trata idade como sugestão).
+

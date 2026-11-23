@@ -149,7 +149,9 @@ Três falhas ativas no commit `486ecae` (deploy no ar desde 20/11):
 ## Dados
 
 Nenhuma tabela ou coluna nova; nenhuma migração. Leitura extra por chamada
-tRPC com `campaignId`/`projectId` (uma consulta indexada por chave primária).
+tRPC com `campaignId`/`projectId`: até duas consultas por chave primária
+(campanha e projeto). `getCampaignById` traz a linha inteira; otimizar com
+consulta só de `projectId`/`userId` se o tráfego pedir.
 
 ## Como provar
 
@@ -167,3 +169,4 @@ tRPC com `campaignId`/`projectId` (uma consulta indexada por chave primária).
 | Rodada | Fase | Bloqueantes | Riscos | Resultado |
 |---|---|---|---|---|
 | 1 | Especificação | 1 (A7: tela sem saída quando aprovado < R$ 6 × conjuntos) | 8 | Corrigido: saída `approveAdSetBudgetSum`/chat/MCP; divisores, piso, admin, banco fora, contrato de `get`, fallbacks ÷30 e linhas antigas descritos acima |
+| 2 | Diff | 0 | 7 | Corrigidos: soma como aprovado recusa conjunto em percentual; texto "/dia" com tolerância de R$ 1 e legado sem "/dia" não comparado; Financeiro e AdminProjects por diário × dias; pré-checagem da tela usa o mesmo plano; teste de `update_live_meta_campaign`. Aceitos: rotas reais testadas só por fonte (importar o router exige env), agente autônomo sem teste (modo observe), duas consultas por chamada. Commit `f7cd455` feito antes da decisão do Michel por exigência do ambiente; nada foi para `main` nem deploy. |

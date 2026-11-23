@@ -1,3 +1,4 @@
+import { totalDoPeriodoDaCampanha } from "../../../shared/adSetBudgetPlan";
 import { useState } from "react";
 import Layout from "@/components/layout/Layout";
 import { trpc } from "@/lib/trpc";
@@ -71,9 +72,9 @@ function CampaignPanel({ projectId }: { projectId: number }) {
                   {c.metaCampaignId ? ` · ID: ${c.metaCampaignId}` : ""}
                 </div>
               </div>
-              {c.suggestedBudgetMonthly > 0 && (
+              {totalDoPeriodoDaCampanha(c) && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", flexShrink: 0 }}>
-                  R${c.suggestedBudgetMonthly} no período
+                  R${totalDoPeriodoDaCampanha(c)!.total} no período
                 </span>
               )}
               <span style={{ color: "#94a3b8" }}>{isOpen ? "▲" : "▼"}</span>
