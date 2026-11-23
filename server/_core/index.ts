@@ -48,7 +48,8 @@ if (_geminiForaDoPool.length) {
 {
   const _cfConta = !!String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const _cfToken = !!String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
-  const _cfModelo = process.env.CLOUDFLARE_CHAT_MODEL || '@cf/qwen/qwen3-30b-a3b-fp8';
+  const _cfRes = resolverModeloCloudflare(process.env.CLOUDFLARE_CHAT_MODEL);
+  const _cfModelo = _cfRes.substituiu ? `${_cfRes.modelo} (CLOUDFLARE_CHAT_MODEL=${_cfRes.substituiu} esta aposentado desde 20/11; ajuste a variavel no Render)` : _cfRes.modelo;
   console.log(
     '[BOOT] Cloudflare Workers AI (2º provedor do chat):',
     _cfConta && _cfToken ? `✅ ${_cfModelo}` : `— desativado (account_id: ${_cfConta ? 'ok' : 'FALTA'}, token: ${_cfToken ? 'ok' : 'FALTA'})`,
@@ -141,6 +142,8 @@ if (process.env.SENTRY_DSN) {
 
 
 import 'dotenv/config';
+import { resolverModeloCloudflare } from '../ai-providers/cloudflareWorkersAI';
+import { encerrarSessao } from '../authSession';
 import express, { type Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
@@ -1816,6 +1819,8 @@ app.post('/api/auth/resend-verification', async (req: Request, res: Response) =>
     return res.status(500).json({ success: false, error: 'Erro ao reenviar.' });
   }
 });
+
+app.post('/api/auth/logout', encerrarSessao);
 
 app.get('/api/auth/me', async (req: Request, res: Response) => {
   try {
