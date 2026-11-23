@@ -1619,10 +1619,11 @@ export async function addPendingChatPhoto(sessionId: number, photo: { url: strin
     SET "pendingPhotoUrls" = (
       SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
       FROM (
-        SELECT elem, ord
-        FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novoItem}::jsonb) WITH ORDINALITY AS t(elem, ord)
-        ORDER BY ord DESC
-        LIMIT 10
+        SELECT elem, ord FROM (
+          SELECT elem, ord, row_number() OVER (PARTITION BY (elem->>'kind' = 'video') ORDER BY ord DESC) AS rn
+          FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novoItem}::jsonb) WITH ORDINALITY AS t(elem, ord)
+        ) numerados
+        WHERE rn <= 10
       ) recentes
     ),
     "updatedAt" = NOW()
@@ -1642,9 +1643,15 @@ export async function getPendingChatPhotos(sessionId: number): Promise<Array<{ u
 /** Limpa as fotos pendentes da sessão — chamado após uma geração de campanha bem-sucedida consumi-las. Videos seguem guardados (F7). */
 export async function clearPendingChatPhotos(sessionId: number) {
   const db = await getDb(); if (!db) return;
-  const r = await db.select({ p: chatSessions.pendingPhotoUrls }).from(chatSessions).where(eq(chatSessions.id, sessionId)).limit(1);
-  const videos = somenteVideos(r[0]?.p);
-  await db.update(chatSessions).set({ pendingPhotoUrls: videos.length ? videos : null } as any).where(eq(chatSessions.id, sessionId));
+  await db.execute(sql`
+    UPDATE chat_sessions
+    SET "pendingPhotoUrls" = (
+      SELECT CASE WHEN count(*) = 0 THEN NULL ELSE jsonb_agg(elem ORDER BY ord) END
+      FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb)) WITH ORDINALITY AS t(elem, ord)
+      WHERE elem->>'kind' = 'video'
+    )
+    WHERE id = ${sessionId}
+  `);
 }
 
 /** Videos guardados na sessão (F7). */
@@ -1669,10 +1676,11 @@ export async function addPendingChatVideo(sessionId: number, video: { url: strin
     SET "pendingPhotoUrls" = (
       SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
       FROM (
-        SELECT elem, ord
-        FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novo}::jsonb) WITH ORDINALITY AS t(elem, ord)
-        ORDER BY ord DESC
-        LIMIT 10
+        SELECT elem, ord FROM (
+          SELECT elem, ord, row_number() OVER (PARTITION BY (elem->>'kind' = 'video') ORDER BY ord DESC) AS rn
+          FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novo}::jsonb) WITH ORDINALITY AS t(elem, ord)
+        ) numerados
+        WHERE rn <= 10
       ) recentes
     ),
     "updatedAt" = NOW()

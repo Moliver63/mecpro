@@ -124,3 +124,30 @@ test("F2: o segmento e inferido pelo briefing inteiro, sem acento, e 'outro' so 
   assert.equal(inferirSegmento({}).origem, "nenhuma");
   assert.equal(resolveInitialCampaignSegment(undefined, { niche: "medico dermatologista", productService: "consulta" }, "", "Consulta"), "saude_estetica");
 });
+
+// ── Regressao da revisao Goldfish (F1/F2) ───────────────────────────────────
+import { unverifiedFactualClaims as _nv } from "../factualClaimGate";
+import { buildCampaignFacts as _bf, validateCampaignFactIntegrity as _vi } from "../campaignFactGuard";
+
+test("Goldfish: linguagem comum de atendimento nao vira cliente nomeado nem garantia", () => {
+  for (const t of ["Atendemos Segunda a Sexta", "Atendemos Via WhatsApp", "Atendemos Todo o Brasil", "Teste grátis, sem riscos", "Sem risco de arrependimento"]) {
+    assert.deepEqual(_nv(t, ""), [], t);
+  }
+});
+
+test("Goldfish: numeros com mil/milhao e outras invencoes nao passam sem confirmacao", () => {
+  for (const t of ["Mais de 10 mil clientes", "+10 mil alunos", "Mais de 2 milhões de usuários", "100% de satisfação garantida", "Parceiro oficial da Apple", "Trabalhamos com marcas como Nike", "Somos a maior imobiliária de BC", "Registro no CRECI 12345", "Vencedor do Prêmio Top of Mind"]) {
+    assert.ok(_nv(t, "").length > 0, t);
+  }
+  assert.deepEqual(_nv("Mais de 10 mil clientes", "mais de 10 mil clientes atendidos"), []);
+});
+
+test("Goldfish: area regulada vem do que o anunciante vende, nao de qualquer palavra do briefing", () => {
+  const creative = [{ headline: "Sala comercial com desconto de 10% à vista", body: "Ideal para sua clínica." }];
+  const facts = _bf({ input: { niche: "imoveis", productService: "sala comercial ideal para escritorio de advocacia ou clinica, desconto de 10% a vista confirmado", name: "x" } as any, clientProfile: {} as any, segment: "imoveis_venda" });
+  const r: any = _vi(creative as any, facts);
+  assert.ok(!(r.conflicts ?? r).some?.((c: any) => c.reason === "regulated_advertising_claim"));
+  const adv = _bf({ input: { niche: "advocacia", productService: "escritorio de advocacia trabalhista" } as any, clientProfile: {} as any, segment: "outro" });
+  const r2: any = _vi([{ headline: "Desconto de 20% na consulta" }] as any, adv);
+  assert.ok((r2.conflicts ?? r2).some((c: any) => c.reason === "regulated_advertising_claim"));
+});

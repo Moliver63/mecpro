@@ -34,3 +34,13 @@ Publicar, alterar campanha publicada (819 intacta), mexer em orcamento, segredos
 ## Tabela Goldfish
 | # | Classe | Apontamento | Decisao |
 |---|---|---|---|
+| 1 | BLOQUEANTE | `cliente_nomeado` bloqueava "Atendemos Via WhatsApp/Segunda a Sexta"; "sem riscos" tratado como garantia | Corrigido: lista de palavras que nao sao cliente; "sem risco" removido da garantia. Teste de regressao. |
+| 2 | BLOQUEANTE | Area regulada detectada por qualquer palavra do briefing | Corrigido: segmento conhecido manda; so `outro` olha o que o anunciante vende (`negocioRaw`). Teste. |
+| 3 | BLOQUEANTE | "+10 mil alunos", "milhoes", "satisfacao garantida", parceiro oficial, marcas como X, "somos a maior", registro, premio passavam | Corrigido nos padroes. Teste. |
+| 4 | RISCO | Soma dos conjuntos e piso da conta nao ligados a porta de qualidade (nada preenche os campos) | PENDENTE: a regra existe e e testada, falta ligar na geracao de rascunho; tolerancia de centavos. Nao e regressao (antes nao existia). |
+| 5 | RISCO | Saude dos provedores global entre usuarios; teto so checado antes de cada provedor | PENDENTE, documentado. |
+| 6 | RISCO | Livro de ferramentas: mesmos argumentos repetidos depois de outro valor devolvem "ja executado" | PENDENTE, documentado. |
+| 7 | RISCO | `clearPendingChatPhotos` nao atomico; 10 fotos expulsavam o video | Corrigido: UPDATE unico; limite de 10 por tipo. |
+| 8 | RISCO | `/upload-video` com sessao invalida criava sessao nova; upload antes do dedupe | Corrigido: 400/404, dedupe por sha antes do upload. |
+| 9 | RISCO | Nota de retomada contradizia nova campanha e usava campos errados | Corrigido. |
+| 10 | RISCO | Conta da sessao aplicada a cada `gerar_campanha` sem reconfirmar | PENDENTE: decisao do Michel (reconfirmar por campanha?). |

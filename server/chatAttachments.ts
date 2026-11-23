@@ -51,8 +51,8 @@ export function notaDeRetomada(e: EntradaEtapa): string {
   const base: Record<EtapaDaConversa, string> = {
     coletando_briefing: "Etapa: coletando o briefing. Peca so o que ainda falta; nao repita o que ja esta no contexto.",
     pronto_para_gerar: "Etapa: briefing completo. Nao refaca perguntas; gere o rascunho.",
-    rascunho_criado: "Etapa: rascunho ja criado. Nao crie outro; falta escolher a conta Meta e revisar antes de publicar.",
-    conta_escolhida: "Etapa: rascunho criado e conta Meta escolhida. Nao crie outro rascunho; revise e peca confirmacao para publicar.",
+    rascunho_criado: "Etapa: ja existe um rascunho nesta conversa. Nao crie outro a menos que o usuario peca uma nova campanha; falta escolher a conta Meta e revisar antes de publicar.",
+    conta_escolhida: "Etapa: rascunho criado e conta Meta escolhida. Nao crie outro a menos que o usuario peca uma nova campanha; revise e peca confirmacao para publicar.",
   };
   return anexos ? `${base[etapa]} Anexos guardados nesta conversa: ${anexos}. Nao peca o reenvio.` : base[etapa];
 }

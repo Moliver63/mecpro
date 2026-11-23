@@ -64,6 +64,9 @@ export type CampaignFacts = {
   // nicho. Mais amplo que socialProofRaw (que so olha productProofPoints)
   // porque escassez/exclusividade pode vir de qualquer campo do briefing.
   confirmedClaimsRaw: string;
+  // O que o anunciante VENDE (nicho, produto, nome), normalizado. A area regulada
+  // sai daqui, nao do briefing inteiro: "sala para escritorio de advocacia" e imovel.
+  negocioRaw?: string;
   // Só o briefing DESTA campanha (sem o perfil da conta), normalizado, e os
   // campos de produto dela. Opcionais: snapshots antigos não os têm. Usados
   // pela regra de gratuidade para o perfil não liberar "grátis" num produto
@@ -823,6 +826,7 @@ export function buildCampaignFacts({
     intent: { segment: segment || "", objective: canonicalObjective(input.objective) },
     socialProofRaw,
     confirmedClaimsRaw: n,
+    negocioRaw: normalizeText(compactText([input?.["niche"] || clientProfile?.["niche"], input?.["productName"] || clientProfile?.["productName"], input?.["productService"] || clientProfile?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     campaignClaimsRaw: normalizeText(currentRaw),
     campaignProductRaw: normalizeText(compactText([input?.["productName"], input?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     confirmedCharacteristics,
@@ -935,8 +939,13 @@ export function validateCampaignFactIntegrity(
   visit(creatives, "creatives");
 
   // Area regulamentada vem do conteudo confirmado do briefing, nao so do segmento.
-  const areaRegulada = detectRegulatedArea(facts.confirmedClaimsRaw)
-    ?? (facts.intent?.segment === "saude_estetica" ? "saude" : facts.intent?.segment === "financeiro" ? "financeiro" : null);
+  // Segmento conhecido manda; so em `outro`/vazio olha o que o anunciante vende.
+  // Imoveis, educacao etc. citando "clinica" ou "advocacia" como publico NAO viram area regulada.
+  const seg = facts.intent?.segment || "";
+  const areaRegulada = seg === "saude_estetica" ? "saude"
+    : seg === "financeiro" ? "financeiro"
+    : (!seg || seg === "outro") ? detectRegulatedArea(facts.negocioRaw ?? "")
+    : null;
   for (const { field, text } of fields) {
     const n = normalizeText(text);
     for (const term of rules.forbidden) {

@@ -47,7 +47,7 @@ test("F7: nota de retomada manda nao repetir briefing nem pedir reenvio, sem exp
   assert.match(n, /2 foto\(s\) e 1 video\(s\)/);
   assert.match(n, /Nao peca o reenvio/);
   assert.doesNotMatch(n, /https?:/);
-  assert.match(notaDeRetomada({ briefingCompleto: true, temRascunho: true, contaEscolhida: false, fotos: 0, videos: 0 }), /Nao crie outro/);
+  assert.match(notaDeRetomada({ briefingCompleto: true, temRascunho: true, contaEscolhida: false, fotos: 0, videos: 0 }), /Nao crie outro a menos que/);
 });
 
 // ── Autorizacao do anexo depois de reiniciar o servidor ─────────────────────

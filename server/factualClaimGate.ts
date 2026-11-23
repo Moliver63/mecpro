@@ -43,7 +43,7 @@ export type FactualClaim = {
 export type RegulatedClaim = { area: RegulatedArea; value: string; reason: string };
 
 const L = String.raw`[a-z]`; // texto ja normalizado (sem acento)
-const UNIDADES_QUANTIDADE = String.raw`(?:empresas?|profissionais|negocios?|lojas?|escritorios?|clinicas?|advogados?|medicos?|dentistas?|produtores?|motoristas?|transportadoras?|usuarios?|assinantes?|parceiros?|casos?|causas?|processos?|obras?|cirurgias?|atendimentos?|entregas?|viagens?|hectares?|clientes?|alunos?|pacientes?|familias?|pessoas?|pedidos?|vendas?|projetos?|imoveis|negocios)`;
+const UNIDADES_QUANTIDADE = String.raw`(?:empresas?|profissionais|negocios?|lojas?|escritorios?|clinicas?|advogados?|medicos?|dentistas?|produtores?|motoristas?|transportadoras?|usuarios?|assinantes?|parceiros?|casos?|causas?|processos?|obras?|cirurgias?|atendimentos?|entregas?|viagens?|hectares?|mil|milhao|milhoes|clientes?|alunos?|pacientes?|familias?|pessoas?|pedidos?|vendas?|projetos?|imoveis|negocios)`;
 
 type Padrao = { kind: FactualClaimKind; re: RegExp };
 
@@ -51,17 +51,17 @@ type Padrao = { kind: FactualClaimKind; re: RegExp };
 // normalizado nao tem acento, entao \b e seguro aqui.
 const PADROES: Padrao[] = [
   // Certificacao, selo, aprovacao ou registro por um orgao/entidade.
-  { kind: "credencial", re: /\b(?:certificad[oa]s?\s+(?:pel[oa]s?|por|iso|em)\s*[a-z0-9]+|certificad[oa]s?\b|certificacao\s+[a-z0-9]+|homologad[oa]s?\b|iso\s*-?\s*\d{3,5}|aprovad[oa]s?\s+(?:pel[oa]s?|por)\s+[a-z0-9]+|credenciad[oa]s?\s+(?:pel[oa]s?|por|no|na)\s+[a-z0-9]+|recomendad[oa]s?\s+(?:pel[oa]s?|por)\s+[a-z0-9]+|registrad[oa]s?\s+(?:no|na|pel[oa])\s+[a-z0-9]+|selo\s+[a-z0-9]+|premiad[oa]s?\b|ganhador(?:a)?\s+d[oa]\s+premio)/g },
+  { kind: "credencial", re: /\b(?:certificad[oa]s?\s+(?:pel[oa]s?|por|iso|em)\s*[a-z0-9]+|certificad[oa]s?\b|certificacao\s+[a-z0-9]+|homologad[oa]s?\b|iso\s*-?\s*\d{3,5}|aprovad[oa]s?\s+(?:pel[oa]s?|por)\s+[a-z0-9]+|credenciad[oa]s?\s+(?:pel[oa]s?|por|no|na)\s+[a-z0-9]+|recomendad[oa]s?\s+(?:pel[oa]s?|por)\s+[a-z0-9]+|registrad[oa]s?\s+(?:no|na|pel[oa])\s+[a-z0-9]+|selo\s+[a-z0-9]+|premiad[oa]s?\b|ganhador(?:a)?\s+d[oa]\s+premio|vencedor(?:a)?\s+d[oa]\s+premio(?:\s+[a-z0-9]+){0,3}|parceir[oa]s?\s+oficial(?:\s+d[aeo]s?\s+[a-z0-9]+)?|revendedor(?:a)?\s+autorizad[oa](?:\s+d[aeo]s?\s+[a-z0-9]+)?|registro\s+(?:no|na|do|da)?\s*[a-z]{2,10}\s*[-:n.o]*\s*\d{3,})/g },
   // Resultado percentual. Desconto, juros e entrada pertencem ao guarda de oferta.
   { kind: "resultado_percentual", re: /\b\d{1,3}(?:[.,]\d+)?\s*%(?!\s*(?:de\s+)?(?:desconto|off|juros|entrada|cashback|de\s+entrada|ao\s+mes|ao\s+ano))(?:\s+(?:das?|dos|de|a\s+mais|a\s+menos|mais|menos)\b)?/g },
   // Garantia de resultado (distinta de garantia comercial, que e do guarda de oferta).
-  { kind: "garantia_resultado", re: /\b(?:resultados?\s+garantid[oa]s?|sucesso\s+garantido|aprovacao\s+garantida|vitoria\s+garantida|cura\s+garantida|indenizacao\s+garantida|ganho\s+garantido|lucro\s+garantido|garantimos\s+(?:o\s+|a\s+|seu\s+|sua\s+)?(?:resultado|sucesso|aprovacao|vitoria|indenizacao|ganho|lucro|cura)|garantia\s+de\s+(?:resultado|sucesso|aprovacao|vitoria|ganho|cura)|100\s*%\s*(?:garantid[oa]s?|seguro|eficaz|de\s+(?:sucesso|aprovacao|resultado))|(?:risco\s+zero|zero\s+risco|sem\s+riscos?)\b)/g },
+  { kind: "garantia_resultado", re: /\b(?:resultados?\s+garantid[oa]s?|sucesso\s+garantido|aprovacao\s+garantida|vitoria\s+garantida|cura\s+garantida|indenizacao\s+garantida|ganho\s+garantido|lucro\s+garantido|garantimos\s+(?:o\s+|a\s+|seu\s+|sua\s+)?(?:resultado|sucesso|aprovacao|vitoria|indenizacao|ganho|lucro|cura)|garantia\s+de\s+(?:resultado|sucesso|aprovacao|vitoria|ganho|cura)|100\s*%\s*(?:garantid[oa]s?|seguro|eficaz|de\s+(?:sucesso|aprovacao|resultado))|(?:risco\s+zero|zero\s+risco)\b|satisfacao\s+garantida)/g },
   // Quantidade de pessoas/empresas/casos atendidos (amplia a prova social existente).
-  { kind: "prova_social_quantidade", re: new RegExp(String.raw`\b(?:mais\s+de\s+\d[\d.,]*\s+(?:de\s+)?${UNIDADES_QUANTIDADE}|(?:milhares?|centenas?)\s+de\s+${UNIDADES_QUANTIDADE}|\d[\d.,]*\s+${UNIDADES_QUANTIDADE}\s+(?:atendid|satisfeit|confi|ja\s+(?:atendid|escolh|usam|confi))${L}*|(?:usad[oa]|escolhid[oa]|adotad[oa]|confiad[oa]|aprovad[oa])\s+por\s+(?:mais\s+de\s+)?\d[\d.,]*)`, "g") },
+  { kind: "prova_social_quantidade", re: new RegExp(String.raw`(?<![a-z0-9])\+\s*\d[\d.,]*(?:\s*(?:mil|milhao|milhoes|k))?\s+(?:de\s+)?${UNIDADES_QUANTIDADE}|\b(?:mais\s+de\s+\d[\d.,]*(?:\s*(?:mil|milhao|milhoes|k))?\s+(?:de\s+)?${UNIDADES_QUANTIDADE}|(?:milhares?|centenas?)\s+de\s+${UNIDADES_QUANTIDADE}|\d[\d.,]*\s+${UNIDADES_QUANTIDADE}\s+(?:atendid|satisfeit|confi|ja\s+(?:atendid|escolh|usam|confi))${L}*|(?:usad[oa]|escolhid[oa]|adotad[oa]|confiad[oa]|aprovad[oa])\s+por\s+(?:mais\s+de\s+)?\d[\d.,]*)`, "g") },
   // Tempo de mercado.
   { kind: "tempo_mercado", re: /\b(?:ha\s+(?:mais\s+de\s+)?\d{1,3}\s+anos?\b|(?:com\s+)?(?:mais\s+de\s+)?\d{1,3}\s+anos?\s+(?:de\s+(?:mercado|experiencia|tradicao|historia|atuacao)|no\s+mercado|atuando|cuidando|servindo|transformando|ajudando)|tradicao\s+de\s+\d{1,3}\s+anos?|desde\s+(?:19|20)\d{2}\b)/g },
   // Ranking explicito (superlativo com comparador de mercado/lugar).
-  { kind: "ranking", re: /\b(?:numero\s*(?:1|um)\b|n(?:o|º|°)\.?\s*1\b|lider(?:es)?\s+(?:de|em|no|na|do|da)\s+[a-z]+|eleit[oa]s?\s+(?:a\s+|o\s+)?(?:melhor|numero)|(?:o|a)\s+(?:melhor|maior|mais\s+[a-z]+)\s+(?:[a-z]+\s+){0,2}d[aeo]s?\s+(?:cidade|regiao|brasil|pais|estado|mercado|categoria|segmento|sul|norte|nordeste|centro-oeste|sudeste)|mais\s+(?:vendid[oa]|premiad[oa]|procurad[oa]|indicad[oa])\s+d[aeo]s?\s+[a-z]+|(?:melhor|maior)\s+(?:[a-z]+\s+){0,2}d[aeo]s?\s+(?:cidade|regiao|brasil|pais))/g },
+  { kind: "ranking", re: /\b(?:somos\s+(?:a|o|as|os)\s+(?:maior|melhor|unic[oa]|primeir[oa]|mais\s+[a-z]+)\b(?:\s+[a-z0-9]+){0,4}|numero\s*(?:1|um)\b|n(?:o|º|°)\.?\s*1\b|lider(?:es)?\s+(?:de|em|no|na|do|da)\s+[a-z]+|eleit[oa]s?\s+(?:a\s+|o\s+)?(?:melhor|numero)|(?:o|a)\s+(?:melhor|maior|mais\s+[a-z]+)\s+(?:[a-z]+\s+){0,2}d[aeo]s?\s+(?:cidade|regiao|brasil|pais|estado|mercado|categoria|segmento|sul|norte|nordeste|centro-oeste|sudeste)|mais\s+(?:vendid[oa]|premiad[oa]|procurad[oa]|indicad[oa])\s+d[aeo]s?\s+[a-z]+|(?:melhor|maior)\s+(?:[a-z]+\s+){0,2}d[aeo]s?\s+(?:cidade|regiao|brasil|pais))/g },
 ];
 
 // Palavras que nao identificam um dado verificavel.
@@ -78,7 +78,7 @@ function ancorasDoTrecho(trecho: string): string[] {
     if (limpo) ancoras.push(limpo);
   }
   for (const palavra of trecho.match(/[a-z]{3,}/g) || []) {
-    if (!PALAVRAS_SEM_DADO.has(palavra) && !/^(?:certificad|homologad|aprovad|credenciad|recomendad|registrad|premiad|garantid|garantia|garantimos|resultado|sucesso|vitoria|cura|ganho|lucro|indenizacao|aprovacao|risco|riscos|zero|seguro|eficaz|clientes?|alunos?|pacientes?|empresas?|profissionais|atendimentos?|satisfeit|confi|experiencia|mercado|tradicao|historia|atuacao|atuando|cuidando|servindo|transformando|ajudando|selo|cidade|regiao|brasil|pais|estado|categoria|segmento|usad|escolhid|adotad|confiad|milhares?|centenas?|vendid|procurad|indicad|ganhador|premio)/.test(palavra)) {
+    if (!PALAVRAS_SEM_DADO.has(palavra) && !/^(?:certificad|homologad|aprovad|credenciad|recomendad|registrad|premiad|garantid|garantia|garantimos|resultado|sucesso|vitoria|cura|ganho|lucro|indenizacao|aprovacao|risco|riscos|zero|seguro|eficaz|clientes?|alunos?|pacientes?|empresas?|profissionais|atendimentos?|satisfeit|confi|experiencia|mercado|tradicao|historia|atuacao|atuando|cuidando|servindo|transformando|ajudando|selo|oficial|revendedor|autorizad|vencedor|registro|cidade|regiao|brasil|pais|estado|categoria|segmento|usad|escolhid|adotad|confiad|milhares?|centenas?|vendid|procurad|indicad|ganhador|premio)/.test(palavra)) {
       ancoras.push(palavra);
     }
   }
@@ -93,14 +93,15 @@ function temPalavra(raw: string, palavra: string): boolean {
  * Cliente nomeado: precisa do texto ORIGINAL (a caixa alta distingue nome proprio).
  * "Cliente: Magazine Luiza", "trabalhamos com Natura", "usado pela Embrapa".
  */
-const NOME_GENERICO = new Set(["novo", "nova", "vip", "premium", "especial", "exclusivo", "antigo", "fiel", "satisfeito", "feliz", "ideal", "final", "unico", "unica", "em", "de", "da", "do"]);
+const NOME_GENERICO = new Set(["segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo", "via", "todo", "toda", "todos", "todas", "grande", "regiao", "cidade", "bairro", "whatsapp", "instagram", "facebook", "brasil", "online", "presencial", "domicilio", "novo", "nova", "vip", "premium", "especial", "exclusivo", "antigo", "fiel", "satisfeito", "feliz", "ideal", "final", "unico", "unica", "em", "de", "da", "do"]);
 function detectarClientesNomeados(textoOriginal: string): FactualClaim[] {
   const achados: FactualClaim[] = [];
-  const re = /(?<![\p{L}])(?:[Cc]lientes?|[Pp]arceir[oa]s?|[Cc]ases?|[Aa]tendemos|[Aa]tendeu|[Tt]rabalhamos\s+com|[Tt]rabalhou\s+com|[Uu]sad[oa]s?\s+(?:pel[oa]s?|por)|[Jj][aá]\s+atendemos)\s*:?\s*(?:a\s+|o\s+|com\s+|da\s+|do\s+)?([A-ZÀ-Ý][\p{L}0-9&.]+(?:\s+[A-ZÀ-Ý][\p{L}0-9&.]+){0,3})/gu;
+  const re = /(?<![\p{L}])(?:[Cc]lientes?|[Pp]arceir[oa]s?|[Cc]ases?|[Aa]tendemos|[Aa]tendeu|[Tt]rabalhamos\s+com|[Tt]rabalhou\s+com|[Uu]sad[oa]s?\s+(?:pel[oa]s?|por)|[Jj][aá]\s+atendemos|[Mm]arcas?\s+como|[Cc]lientes?\s+como|[Ee]mpresas?\s+como)\s*:?\s*(?:a\s+|o\s+|com\s+|da\s+|do\s+)?([A-ZÀ-Ý][\p{L}0-9&.]+(?:\s+[A-ZÀ-Ý][\p{L}0-9&.]+){0,3})/gu;
   for (const m of textoOriginal.matchAll(re)) {
     const nome = normalizeText(m[1] || "");
     const primeira = nome.split(" ")[0];
-    if (!nome || NOME_GENERICO.has(primeira) || nome.length < 3) continue;
+    // Dia da semana, canal ou abrangencia ("Atendemos Via WhatsApp") nao e cliente.
+    if (!nome || NOME_GENERICO.has(primeira) || nome.split(" ").some((p) => NOME_GENERICO.has(p)) || nome.length < 3) continue;
     achados.push({ kind: "cliente_nomeado", value: normalizeText(m[0]), anchors: nome.split(" ").filter((p) => p.length >= 3 && !PALAVRAS_SEM_DADO.has(p)) });
   }
   return achados;

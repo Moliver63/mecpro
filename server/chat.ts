@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { notaDeRetomada } from "./chatAttachments";
+import { CAMPOS_PARA_RASCUNHO } from "./chatReasoning";
 /**
  * server/chat.ts — Assistente de Campanhas do MecProAI (via chat)
  *
@@ -1878,30 +1879,37 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
     return res.status(400).json({ erro: `Formato de vídeo não suportado (${file.mimetype}). Use MP4, MOV, WEBM, AVI ou MKV.` });
   }
   try {
+    // F7: a sessao precisa ser do proprio usuario; id invalido nao cria sessao nova em silencio.
+    let sessionIdEfetivo: number | null = null;
+    const sessionIdRecebido = Number(req.body?.sessionId);
+    if (req.body?.sessionId !== undefined && req.body?.sessionId !== "" && !(Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0)) {
+      return res.status(400).json({ erro: "Conversa invalida." });
+    }
+    if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
+      const sessao = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
+      if (!sessao || (sessao as any).userId !== userId) return res.status(404).json({ erro: "Conversa não encontrada." });
+      sessionIdEfetivo = sessionIdRecebido;
+    } else {
+      sessionIdEfetivo = await db.createChatSession(userId, "Nova conversa").catch(() => null);
+    }
+    // Mesmo conteudo ja enviado nesta conversa: reaproveita, sem novo upload.
+    const sha = crypto.createHash("sha256").update(file.buffer).digest("hex");
+    if (sessionIdEfetivo !== null) {
+      const existente = (await db.getPendingChatVideos(sessionIdEfetivo).catch(() => [])).find((v) => v.sha === sha);
+      if (existente) {
+        registrarVideoDoChat(userId, existente.url);
+        return res.json({ videoUrl: existente.url, fileName: existente.fileName, sessionId: sessionIdEfetivo, persistido: true, reaproveitado: true });
+      }
+    }
     const videoUrl = await uploadVideoBufferToCloudinary(file.buffer, file.originalname || `chat-video-${Date.now()}.mp4`);
     if (!videoUrl) {
       return res.status(502).json({ erro: "Não foi possível salvar o vídeo agora. Tente novamente em instantes." });
     }
     registrarVideoDoChat(userId, videoUrl);
-    // F7: guarda a referencia na sessao (sobrevive a recarregar a pagina e a
-    // reiniciar o servidor). A sessao precisa ser do proprio usuario.
-    let sessionIdEfetivo: number | null = null;
-    const sessionIdRecebido = Number(req.body?.sessionId);
-    if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
-      const sessao = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
-      if (sessao && (sessao as any).userId === userId) sessionIdEfetivo = sessionIdRecebido;
-    }
-    if (sessionIdEfetivo === null) sessionIdEfetivo = await db.createChatSession(userId, "Nova conversa").catch(() => null);
     let persistido = false;
     if (sessionIdEfetivo !== null) {
-      const sha = crypto.createHash("sha256").update(file.buffer).digest("hex");
       const r = await db.addPendingChatVideo(sessionIdEfetivo, { url: videoUrl, fileName: file.originalname, sha }).catch(() => ({ salvo: false, duplicado: null }));
       persistido = r.salvo;
-      if (r.duplicado && r.duplicado.url !== videoUrl) {
-        // Mesmo conteudo ja enviado nesta conversa: reaproveita a referencia existente.
-        registrarVideoDoChat(userId, r.duplicado.url);
-        return res.json({ videoUrl: r.duplicado.url, fileName: r.duplicado.fileName, sessionId: sessionIdEfetivo, persistido, reaproveitado: true });
-      }
     }
     log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size, persistido });
     res.json({ videoUrl, fileName: file.originalname, sessionId: sessionIdEfetivo, persistido });
@@ -2195,9 +2203,9 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     const temAlgo = Object.keys(b).length > 0 || !!state.lastCampaign || fotosGuardadas.length > 0 || videosGuardados.length > 0;
     if (temAlgo) {
       const nota = notaDeRetomada({
-        briefingCompleto: !!(b.objective && b.productService && b.budget && b.durationDays),
+        briefingCompleto: CAMPOS_PARA_RASCUNHO.every((k) => b[k] != null && String(b[k]).trim() !== ""),
         temRascunho: !!state.lastCampaign,
-        contaEscolhida: !!(state.metaAdAccount || state.lastCampaign?.contaMeta),
+        contaEscolhida: !!state.metaAdAccount,
         fotos: fotosGuardadas.length,
         videos: videosGuardados.length,
       });

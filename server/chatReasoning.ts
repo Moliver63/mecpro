@@ -52,7 +52,7 @@ const ROTULOS_DO_BRIEFING: Record<string, string> = {
   durationDays: "Duracao (dias)", city: "Regiao",
 };
 // Campos minimos para gerar o rascunho (mesmos exigidos pela ferramenta gerar_campanha).
-const CAMPOS_PARA_RASCUNHO = ["projectName", "objective", "platform", "budget", "durationDays"];
+export const CAMPOS_PARA_RASCUNHO = ["projectName", "objective", "platform", "budget", "durationDays"];
 
 /** Inicio fixo das respostas sem IA: serve para contar quantas ja foram dadas na conversa. */
 export const INICIO_RESPOSTA_SEM_IA = "Estou sem a IA";
