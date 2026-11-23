@@ -49,6 +49,8 @@ export interface DepsContaMeta {
   contaDaConexao(userId: number): Promise<string | null>;
   /** Troca a conta da conexao (revalida o acesso na Meta). */
   selecionarNaConexao(userId: number, adAccountId: string): Promise<void>;
+  /** Rascunhos (nao publicados) do usuario com conta confirmada igual a `contaId`, fora `exceto`. Para avisar antes de trocar a conexao. */
+  rascunhosLigadosAConta?(userId: number, contaId: string, exceto: number): Promise<Array<{ id: number; name: string }>>;
 }
 
 export function digitosDaConta(valor: unknown): string {
@@ -63,11 +65,13 @@ function parseAiResponse(campaign: any): Record<string, any> {
 }
 
 /** Conta escolhida para este rascunho, ou null. */
-export function contaDoRascunho(campaign: any): { id: string; nome: string; escolhidaEm: string } | null {
+export function contaDoRascunho(campaign: any): { id: string; nome: string; escolhidaEm: string; confirmada: boolean } | null {
   const c = parseAiResponse(campaign).metaAdAccount;
   const id = digitosDaConta(c?.id);
   if (!id) return null;
-  return { id, nome: String(c?.nome || "Conta sem nome"), escolhidaEm: String(c?.escolhidaEm || "") };
+  // `confirmada` so vira true pela frase CONFIRMAR CONTA META desta campanha. Uma conta
+  // reaproveitada da conversa ou de outra campanha e SUGESTAO, nunca autorizacao.
+  return { id, nome: String(c?.nome || "Conta sem nome"), escolhidaEm: String(c?.escolhidaEm || ""), confirmada: c?.confirmada === true };
 }
 
 /**
@@ -117,7 +121,7 @@ function resumoDaConta(c: ContaMeta, atual: string | null, doRascunho: string | 
 }
 
 /** Grava a escolha em aiResponse preservando todo o resto do JSON. Relê antes de gravar. */
-async function gravarNoRascunho(campaignId: number, conta: ContaMeta, deps: DepsContaMeta): Promise<void> {
+async function gravarNoRascunho(campaignId: number, conta: ContaMeta, deps: DepsContaMeta, confirmada: boolean): Promise<void> {
   const fresca = await deps.getCampaignById(campaignId);
   // aiResponse guarda campaignFacts, briefing e validacoes: nunca regrava por cima de
   // conteudo que nao conseguimos ler.
@@ -128,11 +132,12 @@ async function gravarNoRascunho(campaignId: number, conta: ContaMeta, deps: Deps
     if (!ok) throw new Error("dados internos do rascunho ilegiveis; nada foi gravado");
   }
   const resposta = parseAiResponse(fresca);
-  resposta.metaAdAccount = { id: conta.id, nome: conta.nome, escolhidaEm: new Date().toISOString() };
+  resposta.metaAdAccount = { id: conta.id, nome: conta.nome, escolhidaEm: new Date().toISOString(), confirmada };
   await deps.updateCampaignField(campaignId, "aiResponse", JSON.stringify(resposta));
 }
 
 async function aplicar(userId: number, campaignId: number, conta: ContaMeta, deps: DepsContaMeta): Promise<{ mudouConexao: boolean }> {
+  // So e chamada depois da frase de confirmacao desta campanha.
   const atual = await deps.contaDaConexao(userId);
   let mudouConexao = false;
   if (atual !== conta.id) {
@@ -140,7 +145,7 @@ async function aplicar(userId: number, campaignId: number, conta: ContaMeta, dep
     mudouConexao = true;
   }
   try {
-    await gravarNoRascunho(campaignId, conta, deps);
+    await gravarNoRascunho(campaignId, conta, deps, true);
   } catch (e) {
     // Nao deixa a conexao numa conta que o rascunho nao registrou.
     if (mudouConexao && atual) { try { await deps.selecionarNaConexao(userId, atual); } catch { /* a divergencia bloqueia upload e publicacao */ } }
@@ -181,19 +186,15 @@ export async function selecionarContaMeta(userId: number, args: Record<string, u
 
   if (!pedido) {
     const ativas = contas.filter((c) => c.ativa);
-    // Uma unica conta utilizavel: nao ha escolha a fazer. Associa e mostra qual.
+    // Uma unica conta utilizavel: nao ha o que escolher, mas a confirmacao continua
+    // sendo explicita e por campanha (revisao final 23/11). Nada e associado aqui.
     if (podeAssociarSozinho(contas, ativas, lista.completa, atual)) {
       const unica = ativas[0];
-      try {
-        const { mudouConexao } = await aplicar(userId, Number(campaign.id), unica, deps);
-        return {
-          ok: true, campaignId: campaign.id, conta: { adAccountId: unica.id, nome: unica.nome },
-          unicaContaDisponivel: true, mudouConexao,
-          instruction: `Esta e a unica conta de anuncios disponivel (${unica.nome}); foi associada ao rascunho. Diga o nome ao usuario. Nada foi publicado.`,
-        };
-      } catch {
-        return { ok: false, erro: "Nao consegui associar a conta ao rascunho agora. Nada foi alterado; tente de novo." };
-      }
+      return {
+        ok: false, confirmationRequired: true, campaignId: campaign.id, unicaContaDisponivel: true,
+        conta: { adAccountId: unica.id, nome: unica.nome, moeda: unica.moeda },
+        erro: `Nada foi alterado. Esta e a unica conta de anuncios disponivel ("${unica.nome}"). Mostre o nome ao usuario e peca que envie exatamente: ${fraseDaEscolha(userId, Number(campaign.id), unica.id)}`,
+      };
     }
     return {
       ok: true, campaignId: campaign.id,
@@ -215,9 +216,15 @@ export async function selecionarContaMeta(userId: number, args: Record<string, u
   }
 
   const frase = fraseDaEscolha(userId, Number(campaign.id), alvo.id);
+  // Trocar a conta da conexao afeta o que outras campanhas do usuario usam: lista antes de confirmar.
+  const afetadas = atual && atual !== alvo.id && deps.rascunhosLigadosAConta
+    ? await deps.rascunhosLigadosAConta(userId, atual, Number(campaign.id)).catch(() => null)
+    : null;
   if (mensagemDoTurno.trim() !== frase) {
     return {
       ok: false, confirmationRequired: true, campaignId: campaign.id, conta: { adAccountId: alvo.id, nome: alvo.nome, moeda: alvo.moeda },
+      ...(afetadas && afetadas.length ? { rascunhosQueUsamAContaAtual: afetadas.slice(0, 10), instrucaoRascunhos: "Liste estes rascunhos ao usuario: ao confirmar, eles ficam bloqueados para subir midia e publicar ate ele confirmar a conta de cada um de novo." } : {}),
+      ...(afetadas === null && atual && atual !== alvo.id ? { avisoRascunhos: "Nao consegui listar os outros rascunhos que usam a conta atual; avise que eles podem ficar bloqueados ate a conta ser confirmada de novo." } : {}),
       ...(atual !== alvo.id ? { avisoConexao: "Esta conta e diferente da que a conexao Meta usa hoje. Ao confirmar, uploads de midia e publicacoes do MecProAI passam a usar esta conta. Campanhas ja publicadas continuam onde estao." } : {}),
       erro: `Nada foi alterado. Mostre o nome da conta "${alvo.nome}" ao usuario e peca que envie exatamente: ${frase}`,
     };
@@ -268,7 +275,7 @@ export async function selecionarContaMetaDaSessao(
       sessao.gravar({ id: unica.id, nome: unica.nome, moeda: unica.moeda, escolhidaEm: new Date().toISOString() });
       return {
         ok: true, conta: { adAccountId: unica.id, nome: unica.nome, moeda: unica.moeda }, unicaContaDisponivel: true,
-        instruction: `Esta e a unica conta de anuncios disponivel (${unica.nome}). Diga o nome ao usuario; ela sera associada ao rascunho quando ele for criado. Nada foi alterado na Meta.`,
+        instruction: `Esta e a unica conta de anuncios disponivel (${unica.nome}). Diga o nome ao usuario; ela entrara no rascunho so como sugestao, e cada campanha pede a confirmacao propria. Nada foi alterado na Meta.`,
       };
     }
     return {
@@ -294,14 +301,18 @@ export async function selecionarContaMetaDaSessao(
   sessao.gravar({ id: alvo.id, nome: alvo.nome, moeda: alvo.moeda, escolhidaEm: new Date().toISOString() });
   return {
     ok: true, conta: { adAccountId: alvo.id, nome: alvo.nome, moeda: alvo.moeda },
-    instruction: `Conta "${alvo.nome}" escolhida para esta conversa. Ela sera associada ao rascunho quando ele for criado; a conexao Meta so muda nesse momento. Nada foi publicado.`,
+    instruction: `Conta "${alvo.nome}" escolhida para esta conversa. Ela entrara em cada rascunho novo so como SUGESTAO; cada campanha pede a propria confirmacao e a conexao Meta nao muda aqui. Nada foi publicado.`,
   };
 }
 
-/** Chamada logo depois de criar o rascunho: associa a conta escolhida na conversa, revalidando. */
+/**
+ * Chamada logo depois de criar o rascunho: grava a conta da conversa como SUGESTAO do rascunho,
+ * revalidando que ela ainda esta autorizada e ativa. Nao confirma e nao toca na conexao Meta:
+ * a confirmacao e por campanha (frase CONFIRMAR CONTA META) e so ela libera upload e publicacao.
+ */
 export async function aplicarContaDaSessaoAoRascunho(
   userId: number, campaignId: number, sessao: SessaoDeConta, deps: DepsContaMeta,
-): Promise<{ status: "aplicada"; nome: string; mudouConexao: boolean } | { status: "sem_escolha" } | { status: "falhou"; erro: string }> {
+): Promise<{ status: "sugerida"; nome: string; frase: string; conexaoAtual: boolean } | { status: "sem_escolha" } | { status: "falhou"; erro: string }> {
   const escolhida = sessao.obter();
   if (!escolhida) return { status: "sem_escolha" };
   try {
@@ -315,8 +326,9 @@ export async function aplicarContaDaSessaoAoRascunho(
       sessao.gravar(null);
       return { status: "falhou", erro: `A conta "${escolhida.nome}" nao esta mais autorizada ou ativa na Meta. Escolha a conta de novo.` };
     }
-    const { mudouConexao } = await aplicar(userId, campaignId, alvo, deps);
-    return { status: "aplicada", nome: alvo.nome, mudouConexao };
+    await gravarNoRascunho(campaignId, alvo, deps, false);
+    const atual = await deps.contaDaConexao(userId);
+    return { status: "sugerida", nome: alvo.nome, frase: fraseDaEscolha(userId, campaignId, alvo.id), conexaoAtual: atual === alvo.id };
   } catch (e: any) {
     return { status: "falhou", erro: String(e?.message || "erro desconhecido").slice(0, 160) };
   }
@@ -339,21 +351,18 @@ export async function exigirContaDoRascunho(userId: number, campaign: any, deps:
   const escolhida = contaDoRascunho(campaign);
 
   if (!escolhida) {
-    const ativas = contas.filter((c) => c.ativa);
-    if (podeAssociarSozinho(contas, ativas, lista.completa, atual)) {
-      const unica = ativas[0];
-      try {
-        await aplicar(userId, Number(campaign.id), unica, deps);
-        const fresca = await deps.getCampaignById(Number(campaign.id));
-        return { ok: true, conta: { adAccountId: unica.id, nome: unica.nome, moeda: unica.moeda }, campaign: fresca ?? campaign };
-      } catch {
-        return { ok: false, erro: "Nao consegui associar a unica conta disponivel ao rascunho agora. Nada foi alterado.", acao: "selecionar_conta_meta" };
-      }
-    }
     return {
       ok: false, acao: "selecionar_conta_meta",
-      erro: "Este rascunho ainda nao tem conta de anuncios escolhida e ha mais de uma disponivel. Use selecionar_conta_meta, apresente as contas pelo nome e deixe o usuario escolher. Nada foi enviado nem publicado.",
+      erro: "Este rascunho ainda nao tem conta de anuncios CONFIRMADA. Use selecionar_conta_meta, apresente as contas pelo nome e peca a confirmacao explicita do usuario para esta campanha. Nada foi enviado nem publicado.",
       contas: contas.map((c) => resumoDaConta(c, atual, null)),
+    };
+  }
+  if (!escolhida.confirmada) {
+    const frase = fraseDaEscolha(userId, Number(campaign.id), escolhida.id);
+    return {
+      ok: false, acao: "selecionar_conta_meta",
+      erro: `A conta "${escolhida.nome}" esta apenas SUGERIDA para esta campanha (veio da conversa ou de outra campanha) e nao foi confirmada. Mostre o nome ao usuario e peca que envie exatamente: ${frase}. Nada foi enviado nem publicado.`,
+      contas: contas.map((c) => resumoDaConta(c, atual, escolhida.id)),
     };
   }
 
@@ -427,6 +436,19 @@ export async function depsContaMetaPadrao(db: any, injected?: any): Promise<Deps
         }
       } catch { completa = false; /* sem portfolios: so as contas diretas, e a lista nao e confiavel como completa */ }
       return { ok: true, contas: normalizarContasMeta(direto, portfolios), completa };
+    },
+    rascunhosLigadosAConta: async (userId, contaId, exceto) => {
+      const projetos: any[] = await db.getProjectsByUserId(userId);
+      const achados: Array<{ id: number; name: string }> = [];
+      for (const p of projetos) {
+        const campanhas: any[] = await db.getCampaignsByProjectId(p.id);
+        for (const c of campanhas) {
+          if (c.id === exceto || campanhaJaPublicada(c)) continue;
+          const conta = contaDoRascunho(c);
+          if (conta?.confirmada && conta.id === contaId) achados.push({ id: c.id, name: String(c.name || `Campanha ${c.id}`) });
+        }
+      }
+      return achados;
     },
     selecionarNaConexao: async (userId, adAccountId) => {
       const user = await db.getUserById(userId);

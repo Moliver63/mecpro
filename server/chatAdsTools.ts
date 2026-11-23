@@ -125,6 +125,22 @@ export async function listarFormulariosChat(userId: number, args: Record<string,
   } catch { return { erro: "Nao consegui consultar os formularios desta Pagina agora. Nada foi alterado." }; }
 }
 
+type InstagramDaPagina = { estado: "vinculado" | "sem_instagram" | "nao_verificado"; id?: string; username?: string };
+
+/** Instagram vinculado a Pagina escolhida, lido na Meta com o token do proprio usuario. Nunca inventa: sem resposta, "nao_verificado". */
+export async function instagramDaPagina(db: any, userId: number, pageId: string, injected?: any): Promise<InstagramDaPagina> {
+  if (injected) return injected.instagramDaPagina ? injected.instagramDaPagina(pageId) : { estado: "nao_verificado" };
+  try {
+    const integ: any = await db.getApiIntegration(userId, "meta");
+    if (!integ?.accessToken || !/^\d+$/.test(pageId)) return { estado: "nao_verificado" };
+    const res = await fetch(`https://graph.facebook.com/v20.0/${pageId}?fields=instagram_business_account%7Bid,username%7D&access_token=${integ.accessToken}`, { signal: AbortSignal.timeout(6000) });
+    const data: any = await res.json();
+    if (data?.error) return { estado: "nao_verificado" };
+    const ig = data?.instagram_business_account;
+    return ig?.id ? { estado: "vinculado", id: String(ig.id), ...(ig.username ? { username: String(ig.username) } : {}) } : { estado: "sem_instagram" };
+  } catch { return { estado: "nao_verificado" }; }
+}
+
 export async function publishChatAds(userId: number, options: any, injected?: any) {
   const db = injected ?? await import("./db");
   try {
@@ -225,14 +241,19 @@ export async function publishChatAds(userId: number, options: any, injected?: an
       ...(destination === "website" ? { linkUrl } : { leadGenFormId }),
       ...(options.adSetIndexes !== undefined ? { adSetIndexes: options.adSetIndexes } : {}),
     };
-    const snapshot = JSON.stringify({ userId, options: resolvedOptions, campaign, contaMeta: contaMeta?.adAccountId ?? null });
+    const instagram = await bounded(instagramDaPagina(db, userId, pagina.pageId, injected)).catch((): InstagramDaPagina => ({ estado: "nao_verificado" }));
+    const snapshot = JSON.stringify({ userId, options: resolvedOptions, campaign, contaMeta: contaMeta?.adAccountId ?? null, instagram: instagram.id ?? instagram.estado });
     const token = createHash("sha256").update(snapshot).digest("hex").slice(0, 16);
     const confirmation = `CONFIRMAR PUBLICACAO ${token}`;
     if (adsTurn.getStore()?.message.trim() !== confirmation) return {
       ok: false, confirmationRequired: true, campaignId: campaign.id, name: campaign.name,
       pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets,
       ...(contaMeta ? { contaDeAnuncios: { nome: contaMeta.nome, moeda: contaMeta.moeda } } : {}),
-      instagram: "Os posicionamentos incluem o Instagram; o MecProAI nao escolhe uma conta de Instagram, a Meta usa a identidade ligada a Pagina escolhida.",
+      instagram: instagram.estado === "vinculado"
+        ? { estado: "vinculado", ...(instagram.username ? { conta: `@${instagram.username}` } : {}), aviso: "Os anuncios no Instagram sairao por esta conta, vinculada a Pagina escolhida." }
+        : instagram.estado === "sem_instagram"
+          ? { estado: "sem_instagram", aviso: "Nenhum Instagram esta vinculado a esta Pagina. Os posicionamentos do Instagram usarao a identidade da Pagina. Avise o usuario antes de confirmar." }
+          : { estado: "nao_verificado", aviso: "Nao consegui conferir o Instagram vinculado a esta Pagina agora. Diga isso ao usuario antes de confirmar; a Meta usa a identidade ligada a Pagina." },
       criativos: resumoDosCriativos(campaign), orcamentoDiarioAprovado: campaign.suggestedBudgetDaily ?? null, destination: destination === "website" ? `${resolvedOptions.linkUrl} (${origemDestino})` : `Formulario instantaneo "${nomeFormulario}"`,
       erro: `Mostre ao usuario a conta de anuncios (contaDeAnuncios), a Pagina, o Instagram, os criativos (imagem ou video por formato), o publico e o orcamento dos conjuntos. Esta campanha AINDA NAO foi publicada; publicar vai cria-la na Meta com status PAUSADO, e ela nao comeca a rodar sozinha. Nao diga que a campanha esta pausada: pausado e o resultado da publicacao, nao o estado de agora. Para confirmar, o usuario deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
     };

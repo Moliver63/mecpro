@@ -105,7 +105,7 @@ test("1b. /chat/upload-video registra o video por usuario e a nota do chat apont
 
 test("2. o video entra so no criativo e formato pedidos; imagens e demais criativos ficam intactos", async () => {
   limparRegistroDeVideosDoChat(); registrarVideoDoChat(1, URL_A);
-  const f = fixture({ contas: [C1], aiResponse: { campaignFacts: { x: 1 } } });
+  const f = fixture({ contas: [C1], aiResponse: { campaignFacts: { x: 1 }, metaAdAccount: { id: C1.id, nome: C1.nome, escolhidaEm: "x", confirmada: true } } });
   const antes = JSON.parse(f.campaign.creatives);
   const r: any = await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 1, format: "stories", videoUrl: URL_A }, f.video);
   assert.equal(r.ok, true, JSON.stringify(r));
@@ -151,7 +151,7 @@ test("2c. falha de download, de envio ou de gravacao nao altera o rascunho", asy
     ["gravacao", (v) => ({ ...v, gravarNoCriativo: async () => { throw new Error("banco indisponivel"); } })],
   ];
   for (const [nome, ajustar] of casos) {
-    const f = fixture({ contas: [C1] });
+    const f = fixture({ contas: [C1], aiResponse: { campaignFacts: { x: 1 }, metaAdAccount: { id: C1.id, nome: C1.nome, escolhidaEm: "x", confirmada: true } } });
     const antes = f.campaign.creatives;
     const r: any = await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 0, format: "feed", videoUrl: URL_A }, ajustar(f.video));
     assert.equal(r.ok, false, nome);
@@ -223,18 +223,24 @@ test("3d. escolher a mesma conta da conexao grava no rascunho sem trocar a conex
   assert.equal(contaDoRascunho(f.campaign)?.id, C1.id);
 });
 
-test("3e. com uma unica conta disponivel ela e associada e mostrada, sem pedir escolha", async () => {
+test("3e. com uma unica conta disponivel ela e mostrada, mas so vale depois da confirmacao explicita da campanha", async () => {
   const f = fixture({ contas: [C1], conexao: null });
   const r: any = await selecionarContaMeta(1, { campaignId: 12 }, f.base, "");
-  assert.equal(r.ok, true);
+  assert.equal(r.ok, false);
+  assert.equal(r.confirmationRequired, true);
   assert.equal(r.unicaContaDisponivel, true);
   assert.equal(r.conta.nome, "Conta Morebem");
-  assert.deepEqual(f.estado.trocas, [C1.id]);
-  assert.equal(contaDoRascunho(f.campaign)?.id, C1.id);
+  assert.deepEqual(f.estado.trocas, [], "nada foi alterado sem confirmacao");
+  assert.equal(contaDoRascunho(f.campaign), null);
+  const frase = fraseDaEscolha(1, 12, C1.id);
+  assert.ok(String(r.erro).includes(frase));
+  const ok: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C1.id }, f.base, frase);
+  assert.equal(ok.ok, true);
+  assert.equal(contaDoRascunho(f.campaign)?.confirmada, true);
 });
 
 test("3f. a escolha persiste: trava libera quando rascunho e conexao apontam a mesma conta", async () => {
-  const f = fixture({ conexao: C2.id, aiResponse: { metaAdAccount: { id: C2.id, nome: "Conta Cliente", escolhidaEm: "2026-11-23T00:00:00Z" } } });
+  const f = fixture({ conexao: C2.id, aiResponse: { metaAdAccount: { id: C2.id, nome: "Conta Cliente", escolhidaEm: "2026-11-23T00:00:00Z", confirmada: true } } });
   const r = await exigirContaDoRascunho(1, f.campaign, f.base);
   assert.equal(r.ok, true);
   if (r.ok) assert.equal(r.conta.nome, "Conta Cliente");
@@ -333,7 +339,7 @@ test("video: com varias contas e nenhuma escolhida, nao baixa nem envia nada", a
 
 test("video: conexao em outra conta que nao a do rascunho bloqueia o envio", async () => {
   limparRegistroDeVideosDoChat(); registrarVideoDoChat(1, URL_A);
-  const f = fixture({ conexao: C1.id, aiResponse: { metaAdAccount: { id: C2.id, nome: "Conta Cliente" } } });
+  const f = fixture({ conexao: C1.id, aiResponse: { metaAdAccount: { id: C2.id, nome: "Conta Cliente", confirmada: true } } });
   const r: any = await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 0, format: "feed", videoUrl: URL_A }, f.video);
   assert.equal(r.ok, false);
   assert.match(r.erro, /outra conta/);
@@ -349,7 +355,7 @@ function fixturePublicar(opts: { contas?: ContaMeta[]; conexao?: string | null; 
     id: 12, projectId: 4, name: "Teste", adSets: '[{"budget":"R$ 12,00/dia"}]', suggestedBudgetDaily: 12, durationDays: 14, objective: "leads",
     aiResponse: JSON.stringify({
       campaignFacts: buildCampaignFacts({ input: { objective: "leads" }, clientProfile: { niche: "planejamento financeiro" }, segment: "financeiro" }),
-      ...(opts.escolhida ? { metaAdAccount: { id: opts.escolhida.id, nome: opts.escolhida.nome } } : {}),
+      ...(opts.escolhida ? { metaAdAccount: { id: opts.escolhida.id, nome: opts.escolhida.nome, confirmada: true } } : {}),
     }),
     creatives: JSON.stringify([
       { headline: "Planejamento financeiro com quem entende", description: "Fale com a nossa equipe hoje", copy: "Converse com um especialista sobre o seu caso e receba um plano claro, feito para a sua realidade e os seus objetivos.", feedImageUrl: "https://res.cloudinary.com/x/a.png" },
@@ -393,7 +399,8 @@ test("6b. com conta escolhida, a pre-confirmacao mostra conta, pagina, instagram
   assert.equal(r.confirmationRequired, true);
   assert.equal(r.contaDeAnuncios.nome, "Conta Morebem");
   assert.equal(r.pageName, "Empresa");
-  assert.match(r.instagram, /Instagram/);
+  assert.equal(r.instagram.estado, "nao_verificado");
+  assert.match(r.instagram.aviso, /Instagram/);
   assert.deepEqual(r.criativos.map((c: any) => [c.index, c.feed]), [[0, "imagem"], [1, "video"]]);
   assert.equal(r.orcamentoDiarioAprovado, 12);
   assert.match(String(r.adSets), /12,00/);
@@ -419,7 +426,7 @@ test("6d. trocar a conta do rascunho invalida a frase de confirmacao anterior", 
   const f = fixturePublicar({ escolhida: C1 });
   const prev: any = await publishChatAds(1, opcoes, f.db);
   const frase = prev.erro.match(/CONFIRMAR PUBLICACAO [a-f0-9]+/)[0];
-  f.campaign.aiResponse = JSON.stringify({ ...JSON.parse(f.campaign.aiResponse), metaAdAccount: { id: C2.id, nome: C2.nome } });
+  f.campaign.aiResponse = JSON.stringify({ ...JSON.parse(f.campaign.aiResponse), metaAdAccount: { id: C2.id, nome: C2.nome, confirmada: true } });
   f.estado.conexao = C2.id;
   const r: any = await adsTurn.run({ message: frase }, () => publishChatAds(1, opcoes, f.db));
   assert.equal(r.confirmationRequired, true);
@@ -445,14 +452,18 @@ test("6f. conta escolhida que perdeu a autorizacao na Meta bloqueia", async () =
 
 // ── 7. Compatibilidade com campanhas de imagem ─────────────────────────────────
 
-test("7. campanha so de imagens: usuario com uma conta publica pelo mesmo fluxo (associa a unica conta)", async () => {
+test("7. conta unica nao e associada sozinha: publicar pede a confirmacao da conta; confirmada, publica pelo mesmo fluxo", async () => {
   const f = fixturePublicar({ contas: [C1], conexao: C1.id });
-  const prev: any = await publishChatAds(1, opcoes, f.db);
+  const sem: any = await publishChatAds(1, opcoes, f.db);
+  assert.equal(sem.ok, false);
+  assert.equal(sem.acao, "selecionar_conta_meta");
+  assert.match(sem.erro, /CONFIRMADA/);
+  const g = fixturePublicar({ contas: [C1], conexao: C1.id, escolhida: C1 });
+  const prev: any = await publishChatAds(1, opcoes, g.db);
   assert.equal(prev.confirmationRequired, true);
   assert.equal(prev.contaDeAnuncios.nome, "Conta Morebem");
-  assert.equal(JSON.parse(f.campaign.aiResponse).metaAdAccount.id, C1.id);
   const frase = prev.erro.match(/CONFIRMAR PUBLICACAO [a-f0-9]+/)[0];
-  const ok: any = await adsTurn.run({ message: frase }, () => publishChatAds(1, opcoes, f.db));
+  const ok: any = await adsTurn.run({ message: frase }, () => publishChatAds(1, opcoes, g.db));
   assert.equal(ok.ok, true);
 });
 
@@ -466,7 +477,7 @@ test("7b. sem a dependencia de conta (fixtures antigos), o fluxo de publicacao e
 
 test("7c. anexar video nao mexe em imagens nem em outros formatos do mesmo criativo", async () => {
   limparRegistroDeVideosDoChat(); registrarVideoDoChat(1, URL_A);
-  const f = fixture({ contas: [C1] });
+  const f = fixture({ contas: [C1], aiResponse: { campaignFacts: { x: 1 }, metaAdAccount: { id: C1.id, nome: C1.nome, escolhidaEm: "x", confirmada: true } } });
   const antes = JSON.parse(f.campaign.creatives);
   await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 2, format: "feed", videoUrl: URL_A }, f.video);
   const depois = JSON.parse(f.campaign.creatives);
@@ -563,7 +574,7 @@ test("9f. R5: falha ao gravar o rascunho devolve a conexao a conta anterior", as
 });
 
 test("9g. R7: trocar de conta com midia ja enviada avisa que precisa reenviar", async () => {
-  const f = fixture({ contas: [C1, C2], conexao: C1.id, aiResponse: { metaAdAccount: { id: C1.id, nome: C1.nome, escolhidaEm: "x" } } });
+  const f = fixture({ contas: [C1, C2], conexao: C1.id, aiResponse: { metaAdAccount: { id: C1.id, nome: C1.nome, escolhidaEm: "x", confirmada: true } } });
   const lista = JSON.parse(f.campaign.creatives); lista[0].feedVideoId = "vid_1"; f.campaign.creatives = JSON.stringify(lista);
   const r: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C2.id }, f.base, fraseDaEscolha(1, 12, C2.id));
   assert.equal(r.ok, true);
@@ -577,4 +588,63 @@ test("9h. R8: campanha publicada durante o upload nao tem criativo alterado", as
   const r: any = await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 0, format: "feed", videoUrl: URL_A }, f.video);
   assert.equal(r.ok, false);
   assert.equal(f.estado.gravados.length, 0);
+});
+
+// ── Revisao final 23/11: conta por campanha, confirmacao explicita, sem troca silenciosa ──
+test("8. conta sugerida (da conversa ou de outra campanha) nao libera upload nem publicacao", async () => {
+  limparRegistroDeVideosDoChat(); registrarVideoDoChat(1, URL_A);
+  const f = fixture({ contas: [C1], aiResponse: { campaignFacts: { x: 1 }, metaAdAccount: { id: C1.id, nome: C1.nome, escolhidaEm: "x", confirmada: false } } });
+  const r: any = await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 0, format: "feed", videoUrl: URL_A }, f.video);
+  assert.equal(r.ok, false);
+  assert.equal(r.acao, "selecionar_conta_meta");
+  assert.ok(String(r.erro).includes(fraseDaEscolha(1, 12, C1.id)), "pede a frase desta campanha");
+  assert.equal(f.estado.enviados.length, 0, "nada foi enviado a Meta");
+  const p = fixturePublicar({ contas: [C1], conexao: C1.id });
+  p.campaign.aiResponse = JSON.stringify({ ...JSON.parse(p.campaign.aiResponse), metaAdAccount: { id: C1.id, nome: C1.nome, confirmada: false } });
+  const pub: any = await publishChatAds(1, opcoes, p.db);
+  assert.equal(pub.ok, false); assert.equal(pub.acao, "selecionar_conta_meta");
+});
+
+test("9. mudanca de conta entre campanhas: a conta da campanha A nao autoriza a B; trocar a conexao lista os rascunhos afetados antes", async () => {
+  const f = fixture({ contas: [C1, C2], conexao: C1.id, aiResponse: { campaignFacts: { x: 1 } } });
+  const outros = [{ id: 30, name: "Rascunho da conta 1" }];
+  const base: DepsContaMeta = { ...f.base, rascunhosLigadosAConta: async (_u, contaId, exceto) => (contaId === C1.id && exceto === 12 ? outros : []) };
+  const pede: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C2.id }, base, "");
+  assert.equal(pede.confirmationRequired, true);
+  assert.deepEqual(pede.rascunhosQueUsamAContaAtual, outros);
+  assert.match(pede.avisoConexao, /diferente da que a conexao Meta usa/);
+  assert.deepEqual(f.estado.trocas, [], "pedir confirmacao nao troca a conexao");
+  const ok: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C2.id }, base, fraseDaEscolha(1, 12, C2.id));
+  assert.equal(ok.ok, true); assert.equal(ok.mudouConexao, true);
+  assert.equal(contaDoRascunho(f.campaign)?.confirmada, true);
+  // a frase da campanha 12 nao serve para outra campanha
+  assert.notEqual(fraseDaEscolha(1, 12, C2.id), fraseDaEscolha(1, 13, C2.id));
+});
+
+test("10. sugestao da conversa: grava como nao confirmada, nao toca na conexao e entrega a frase", async () => {
+  const f = fixture({ contas: [C1, C2], conexao: C1.id, aiResponse: { campaignFacts: { x: 1 } } });
+  let guardada: any = { id: C2.id, nome: C2.nome, moeda: "BRL", escolhidaEm: "x" };
+  const sessao = { obter: () => guardada, gravar: (c: any) => { guardada = c; } };
+  const { aplicarContaDaSessaoAoRascunho } = await import("../metaAdAccountChoice");
+  const r: any = await aplicarContaDaSessaoAoRascunho(1, 12, sessao, f.base);
+  assert.equal(r.status, "sugerida");
+  assert.equal(r.frase, fraseDaEscolha(1, 12, C2.id));
+  assert.deepEqual(f.estado.trocas, [], "a conexao nao mudou");
+  assert.equal(contaDoRascunho(f.campaign)?.confirmada, false);
+  const bloqueio: any = await exigirContaDoRascunho(1, f.campaign, f.base);
+  assert.equal(bloqueio.ok, false);
+});
+
+test("11. Pagina e Instagram: a pre-confirmacao mostra o Instagram vinculado, avisa quando nao ha e quando nao deu para conferir", async () => {
+  for (const [estado, esperado] of [
+    [{ estado: "vinculado", id: "178", username: "morebem" }, /@morebem/],
+    [{ estado: "sem_instagram" }, /Nenhum Instagram/],
+    [undefined, /Nao consegui conferir/],
+  ] as const) {
+    const f = fixturePublicar({ escolhida: C1 });
+    const db = { ...f.db, ...(estado ? { instagramDaPagina: async () => estado } : {}) } as any;
+    const prev: any = await publishChatAds(1, opcoes, db);
+    assert.equal(prev.confirmationRequired, true);
+    assert.match(JSON.stringify(prev.instagram), esperado);
+  }
 });

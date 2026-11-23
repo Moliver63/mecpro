@@ -122,25 +122,63 @@ test("F4: primeiro que responde vence; os demais nao sao chamados; motivos dos p
   assert.deepEqual(chamados, ["gemini", "cloudflare"]);
 });
 
-test("F4: falha de modelo em QUALQUER provedor abre janela curta; erro de requisicao (400) nao abre", async () => {
+test("F4: um unico usuario falhando em serie NAO derruba o provedor dos outros", async () => {
   let t = 1_000;
   const saude = new SaudeDosProvedores(() => t, 90_000);
-  let cf = 0, groq = 0;
-  const cadeia = () => executarCadeia([
+  let cf = 0;
+  const cadeia = (usuario: number) => executarCadeia([
     prov("cloudflare", async () => { cf++; throw new Error("This operation was aborted"); }),
-    prov("groq", async () => { groq++; throw new Error("400 invalid request"); }),
     prov("openrouter", async () => "ok"),
-  ], { saude, agora: () => t });
-  await cadeia();
-  assert.equal(cf, 1);
-  await cadeia();
-  assert.equal(cf, 2, "uma falha isolada nao tira o provedor de todo mundo: segunda ainda tenta");
-  await cadeia();
-  assert.equal(cf, 2, "duas falhas seguidas abrem a espera curta");
-  assert.equal(groq, 3, "400 e defeito nosso: segue tentando");
+  ], { saude, agora: () => t, usuario });
+  for (let i = 0; i < 6; i++) await cadeia(1);
+  assert.equal(cf, 6, "mesmo usuario insistindo nao abre o circuito");
+  await cadeia(2);
+  assert.equal(cf, 7, "outro usuario ainda tenta o provedor");
+});
+
+test("F4: falhas de usuarios distintos abrem a espera; passada a janela, so uma sonda testa", async () => {
+  let t = 1_000;
+  const saude = new SaudeDosProvedores(() => t, 90_000);
+  let cf = 0; let falha = true;
+  const cadeia = (usuario: number) => executarCadeia([
+    prov("cloudflare", async () => { cf++; if (falha) throw new Error("503 UNAVAILABLE high demand"); return "cf"; }),
+    prov("openrouter", async () => "ok"),
+  ], { saude, agora: () => t, usuario });
+  await cadeia(1); await cadeia(2); await cadeia(3);
+  assert.equal(cf, 3);
+  await cadeia(4);
+  assert.equal(cf, 3, "circuito aberto: pulado");
   t += 91_000;
-  await cadeia();
-  assert.equal(cf, 3, "passada a janela, tenta de novo");
+  falha = false;
+  // duas requisicoes simultaneas: so uma testa o provedor
+  const [r1, r2] = await Promise.all([cadeia(5), cadeia(6)]);
+  assert.equal(cf, 4, "apenas uma sonda");
+  const provs = [r1, r2].map((r) => (r.ok === true ? r.provedor : "x")).sort();
+  assert.deepEqual(provs, ["cloudflare", "openrouter"]);
+  await cadeia(7);
+  assert.equal(cf, 5, "sucesso da sonda fecha o circuito");
+});
+
+test("F4: 429 com Retry-After abre na hora pelo tempo pedido; 400 nunca conta", async () => {
+  let t = 1_000;
+  const saude = new SaudeDosProvedores(() => t, 90_000, );
+  let g = 0, gr = 0;
+  const cadeia = (usuario: number) => executarCadeia([
+    prov("groq", async () => { gr++; throw new Error("400 invalid request"); }),
+    prov("openrouter", async () => "ok"),
+  ], { saude, agora: () => t, usuario });
+  for (let i = 0; i < 5; i++) await cadeia(i);
+  assert.equal(gr, 5, "400 e defeito nosso: segue tentando");
+  const s2 = new SaudeDosProvedores(() => t, { falhasParaAbrir: 3, usuariosDistintos: 2 });
+  s2.registrarFalha("gemini", new Error('429 RESOURCE_EXHAUSTED retry-after: 20'), 1);
+  s2.registrarFalha("gemini", new Error('429 RESOURCE_EXHAUSTED retry-after: 20'), 2);
+  s2.registrarFalha("gemini", new Error('429 RESOURCE_EXHAUSTED retry-after: 20'), 3);
+  assert.equal(s2.reservar("gemini"), "bloqueado");
+  assert.equal(s2.segundosRestantes("gemini"), 20);
+  t += 21_000;
+  assert.equal(s2.reservar("gemini"), "sonda");
+  assert.equal(s2.reservar("gemini"), "bloqueado");
+  void g;
 });
 
 test("F4: teto de tempo impede iniciar novos provedores e cada provedor e tentado uma vez", async () => {
@@ -236,4 +274,31 @@ test("F4 (Goldfish): executarCadeia avisa o inicio de cada provedor", async () =
     { id: "b", indisponivelPorque: () => null, tentar: async () => "ok" },
   ], { saude: new SaudeDosProvedores(), aoIniciarProvedor: (id) => iniciados.push(id) });
   assert.deepEqual(iniciados, ["a", "b"]);
+});
+
+test("Pendencia 3: pedidos em requisicoes separadas (100, 200, 100) executam todos; repeticao tecnica no mesmo turno nao duplica", async () => {
+  let valor = 0; let efeitos = 0;
+  const orc = (v: number) => executarUmaVez(1, "atualizar_orcamento_campanha", { campaignId: 1, budgetDaily: v }, async () => { efeitos++; valor = v; return { ok: true }; });
+  for (const v of [100, 200, 100]) await comLivroDeFerramentas(async () => { await orc(v); });
+  assert.equal(valor, 100); assert.equal(efeitos, 3, "cada pedido do usuario e uma operacao nova");
+  // dentro de um turno, o modelo chamando a mesma ferramenta duas vezes seguidas: so uma execucao
+  await comLivroDeFerramentas(async () => { await orc(300); await orc(300); });
+  assert.equal(efeitos, 4);
+});
+
+test("Pendencia 3: falha tecnica da ferramenta nao e memorizada; nova tentativa executa", async () => {
+  await comLivroDeFerramentas(async () => {
+    let chamadas = 0;
+    const f = () => executarUmaVez(1, "atualizar_orcamento_campanha", { campaignId: 1, budgetDaily: 50 }, async () => { chamadas++; if (chamadas === 1) throw new Error("timeout"); return { ok: true }; });
+    await assert.rejects(f());
+    const r: any = await f();
+    assert.equal(r.ok, true); assert.equal(chamadas, 2);
+  });
+});
+
+test("Pendencia 3: usuarios diferentes simultaneos nao compartilham o livro", async () => {
+  let efeitos = 0;
+  const op = (u: number) => comLivroDeFerramentas(() => executarUmaVez(u, "atualizar_orcamento_campanha", { campaignId: 1, budgetDaily: 100 }, async () => { efeitos++; await new Promise((r) => setTimeout(r, 5)); return { ok: true }; }));
+  await Promise.all([op(1), op(2), op(3)]);
+  assert.equal(efeitos, 3);
 });

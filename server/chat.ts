@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { notaDeRetomada } from "./chatAttachments";
+import { verificarOrcamentoDoRascunho, resumoDoOrcamento } from "../shared/orcamentoDoRascunho";
 import { CAMPOS_PARA_RASCUNHO } from "./chatReasoning";
 /**
  * server/chat.ts — Assistente de Campanhas do MecProAI (via chat)
@@ -264,6 +265,8 @@ export interface CampanhaGerada {
   coverFileName?: string;
   /** Linha de status da conta de anuncios associada ao rascunho (F5). */
   contaMeta?: string;
+  /** Situacao da soma dos conjuntos x orcamento aprovado, logo apos gerar (revisao final 23/11). */
+  orcamento?: string;
 }
 
 interface RespostaChat {
@@ -296,9 +299,9 @@ Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao so
 
 Depois de selecionar um projeto existente, consulte suas campanhas. Apresente nova do zero, usar existente como modelo ou editar existente; nao repita escolhas ja feitas.
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
-CONTA ANTES DO RASCUNHO: ao conduzir uma campanha nova, depois de definir o projeto e ANTES de gerar_campanha, chame selecionar_conta_meta sem campaignId para listar as contas de anuncios autorizadas. Com varias, apresente os nomes e deixe o usuario escolher (frase CONFIRMAR CONTA META); com uma so, diga qual e. A conta escolhida e associada ao rascunho quando ele for criado. Nunca use conta por suposicao.
+CONTA ANTES DO RASCUNHO: ao conduzir uma campanha nova, depois de definir o projeto e ANTES de gerar_campanha, chame selecionar_conta_meta sem campaignId para listar as contas de anuncios autorizadas. Com varias, apresente os nomes e deixe o usuario escolher (frase CONFIRMAR CONTA META); com uma so, diga qual e. A conta escolhida entra no rascunho apenas como SUGESTAO. Para cada campanha nova, mostre a conta sugerida pelo nome e peca a confirmacao explicita (selecionar_conta_meta com campaignId, adAccountId e a frase CONFIRMAR CONTA META da campanha) ANTES de subir midia ou publicar; conta usada antes nunca vale como autorizacao. Nunca use conta por suposicao.
 
-VIDEO E CONTA DE ANUNCIOS: quando o usuario anexar um video (nota "[Video anexado no chat: URL]") e quiser usa-lo, identifique o rascunho e o criativo com consultar_projetos_campanhas, pergunte em qual criativo e em qual formato (feed, stories/Reels ou square) e chame anexar_video_criativo com a URL exata da nota. Isso nao publica nada. Se a ferramenta pedir conta (acao=selecionar_conta_meta), use selecionar_conta_meta: com varias contas, apresente os nomes e deixe o usuario escolher, e peca a frase CONFIRMAR CONTA META retornada; com uma so, ela e usada e voce diz qual. Nunca use uma conta por suposicao.
+VIDEO E CONTA DE ANUNCIOS: quando o usuario anexar um video (nota "[Video anexado no chat: URL]") e quiser usa-lo, identifique o rascunho e o criativo com consultar_projetos_campanhas, pergunte em qual criativo e em qual formato (feed, stories/Reels ou square) e chame anexar_video_criativo com a URL exata da nota. Isso nao publica nada. Se a ferramenta pedir conta (acao=selecionar_conta_meta), use selecionar_conta_meta: com varias contas, apresente os nomes e deixe o usuario escolher, e peca a frase CONFIRMAR CONTA META retornada; com uma so, diga qual e e peca a mesma confirmacao. Nunca use uma conta por suposicao.
 Se publicar_campanha recusar por criativo em revisao: score baixo e/ou promessa de resultado com prazo o usuario pode aprovar com aprovar_revisao_criativo (mostre os textos, o score e a frase da promessa antes); placeholder, texto fora do segmento, alegacao nao confirmada ou depoimento inventado exigem reescrever com editar_criativo. Nunca invente prova social pra subir score.
 
 PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
@@ -431,6 +434,7 @@ const PARAMETROS_ATUALIZAR_ORCAMENTO = {
     budgetDaily: { type: "string", description: "Novo orcamento diario, como texto (ex: \"6\" ou \"R$ 6\"). So envie se o usuario pediu mudar o orcamento." },
     audience: { type: "string", description: "Novo texto de publico-alvo. So envie se o usuario pediu mudar o publico." },
     objective: { type: "string", description: "Novo objetivo do conjunto de anuncios. So envie se o usuario pediu mudar isso." },
+    redistribuirNoOrcamentoAprovado: { type: "boolean", description: "true SO quando o usuario pediu para redistribuir o orcamento diario aprovado entre os conjuntos (o total nao muda nem aumenta). Envie sozinho, sem outros campos." },
     usarSomaDosConjuntosComoAprovado: { type: "boolean", description: "true SO quando a publicacao recusou por orcamento_divergente e o usuario pediu explicitamente que a soma atual dos conjuntos vire o orcamento diario aprovado. Envie sozinho, sem outros campos." },
   },
   required: ["campaignId"],
@@ -1006,19 +1010,31 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       coverFileName: orderedAttachments[0]?.fileName,
     };
     log.info("chat", "campanha gerada via chat", { userId, campaignId: campanha.id, projectId });
+    try {
+      const salva = await db.getCampaignById(campanha.id);
+      if (salva) {
+        const verif = verificarOrcamentoDoRascunho(salva);
+        const plano: any = (() => { try { return JSON.parse(salva.aiResponse || "{}").budgetPlan; } catch { return null; } })();
+        campanha.orcamento = plano?.rebalanceado === true
+          ? `Orcamento: os conjuntos foram ajustados para fechar nos R$ ${verif.aprovadoDiario}/dia aprovados (${(plano.antes || []).join(" | ")} => ${(plano.depois || []).join(" | ")}). O total nao mudou.`
+          : resumoDoOrcamento(verif);
+      }
+    } catch { /* a conferencia nao derruba o rascunho; a publicacao confere de novo */ }
     // F5: a conta escolhida na conversa (antes do rascunho) passa para o rascunho
     // agora, revalidada. Falha aqui nao derruba o rascunho: o portao de upload e
     // publicacao continua exigindo a conta e pedira a escolha de novo.
-    if (state?.metaAdAccount && state.metaAdAccount.usadaNaCampanha && state.metaAdAccount.usadaNaCampanha !== campanha.id) {
-      // Segunda campanha na mesma conversa: a escolha anterior NAO e reaplicada em silencio
-      // (aplicar pode trocar a conta da conexao Meta). O usuario confirma a conta desta campanha.
-      campanha.contaMeta = `Conta de anuncios: a conta ${state.metaAdAccount.nome} foi usada na campanha anterior desta conversa. Confirme qual conta usar nesta campanha antes de subir midia ou publicar.`;
-    } else if (state?.metaAdAccount) {
-      const aplicada = await aplicarContaDaSessaoAoRascunho(userId, campanha.id, sessaoDeConta(state), await depsContaMetaPadrao(db));
-      if (aplicada.status === "aplicada") {
-        campanha.contaMeta = `Conta de anuncios: ${aplicada.nome}.`;
-        state.metaAdAccount.usadaNaCampanha = campanha.id;
-      } else if (aplicada.status === "falhou") campanha.contaMeta = `Conta de anuncios: nao consegui associar (${aplicada.erro}). Escolha a conta antes de subir midia ou publicar.`;
+    // F5: a conta da conversa (ou da campanha anterior) entra no rascunho como SUGESTAO,
+    // revalidada. Nunca autoriza nada e nao mexe na conexao Meta: a confirmacao e por
+    // campanha e so ela libera upload de midia e publicacao.
+    if (state?.metaAdAccount) {
+      const sugerida = await aplicarContaDaSessaoAoRascunho(userId, campanha.id, sessaoDeConta(state), await depsContaMetaPadrao(db));
+      if (sugerida.status === "sugerida") {
+        campanha.contaMeta = `Conta de anuncios sugerida: ${sugerida.nome}. Ainda NAO confirmada para esta campanha; para usar, envie exatamente: ${sugerida.frase}`;
+      } else if (sugerida.status === "falhou") {
+        campanha.contaMeta = `Conta de anuncios: nao consegui sugerir a conta da conversa (${sugerida.erro}). Escolha a conta desta campanha antes de subir midia ou publicar.`;
+      }
+    } else {
+      campanha.contaMeta = "Conta de anuncios: ainda nao escolhida para esta campanha. Escolha e confirme a conta antes de subir midia ou publicar.";
     }
     // Fotos consumidas por esta geração — limpa da sessão pra não serem
     // reaproveitadas silenciosamente numa campanha diferente mais tarde
@@ -2270,6 +2286,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   const cadeia = await executarCadeia(provedores, {
     saude: saudeDosProvedores,
     aoIniciarProvedor: () => iniciarNovaTentativaDoLivro(),
+    usuario: userId,
     aoRegistrar: ({ id, evento, detalhe }) => log.warn("chat", `Provedor ${id} ${evento}`, { userId, detalhe: redactProviderSecrets(detalhe) }),
   });
   if (cadeia.ok === true) return finish(cadeia.resultado);

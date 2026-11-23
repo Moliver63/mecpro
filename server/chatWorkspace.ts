@@ -1,4 +1,5 @@
 import { parseDailyBudget, formatDailyBudget } from "../shared/dailyBudget";
+import { verificarOrcamentoDoRascunho, rebalancearConjuntos, resumoDoOrcamento } from "../shared/orcamentoDoRascunho";
 type Project = { id: number; name: string };
 export interface ChatWorkspaceStore {
   getProjectsByUserId(userId: number): Promise<any[]>;
@@ -150,6 +151,10 @@ export async function campanhaDoUsuario(userId: number, campaignId: number, stor
   return { campaign };
 }
 
+function resumoParaFerramenta(v: ReturnType<typeof verificarOrcamentoDoRascunho>) {
+  return { situacao: v.situacao, publicavel: v.publicavel, aprovadoDiario: v.aprovadoDiario, somaDiaria: v.somaDiaria, ...(v.motivo ? { motivo: v.motivo } : {}), conjuntos: v.detalhes };
+}
+
 /** Atualiza orcamento/publico/objetivo de um conjunto de anuncios de uma campanha ja criada. */
 export async function atualizarOrcamentoCampanha(userId: number, args: Record<string, unknown>, store: ChatWorkspaceStore): Promise<Record<string, unknown>> {
   if (!Number.isSafeInteger(args.campaignId)) return { erro: "campaignId invalido." };
@@ -180,6 +185,19 @@ export async function atualizarOrcamentoCampanha(userId: number, args: Record<st
       scope: "mecpro_only", syncedToMeta: false,
       message: `Orcamento aprovado agora e R$ ${r.suggestedBudgetDaily}/dia (R$ ${r.suggestedBudgetMonthly} em ${r.dias} dias), somente no MecProAI.` };
   }
+  // Pedido explicito do usuario: redistribuir o diario APROVADO entre os conjuntos (o total nao muda nem sobe).
+  if (args.redistribuirNoOrcamentoAprovado === true) {
+    if (args.budgetDaily !== undefined || args.audience !== undefined || args.objective !== undefined || args.usarSomaDosConjuntosComoAprovado === true) {
+      return { erro: "Use redistribuirNoOrcamentoAprovado sozinho." };
+    }
+    const r = rebalancearConjuntos(campaign);
+    if (r.ok === false) return { erro: r.erro };
+    await store.updateCampaignField(campaign.id, "adSets", JSON.stringify(r.adSets));
+    const verif = verificarOrcamentoDoRascunho({ ...campaign, adSets: JSON.stringify(r.adSets) });
+    return { ok: true, campaignId: campaign.id, antes: r.antes, depois: r.depois, scope: "mecpro_only", syncedToMeta: false,
+      orcamento: resumoParaFerramenta(verif),
+      message: `Conjuntos redistribuidos dentro do orcamento aprovado de R$ ${verif.aprovadoDiario}/dia (total inalterado). Somente no MecProAI.` };
+  }
   if (args.budgetDaily !== undefined) {
     const daily = parseDailyBudget(args.budgetDaily);
     if (daily === null) return { erro: "Informe um valor diario positivo em reais, sem percentual ou valor mensal." };
@@ -194,8 +212,12 @@ export async function atualizarOrcamentoCampanha(userId: number, args: Record<st
   adSets[adSetIndex]._edited = true;
 
   await store.updateCampaignField(campaign.id, "adSets", JSON.stringify(adSets));
+  // A soma dos conjuntos e conferida AGORA, nao so na publicacao.
+  const verif = verificarOrcamentoDoRascunho({ ...campaign, adSets: JSON.stringify(adSets) });
   return { ok: true, campaignId: campaign.id, adSetIndex, adSet: adSets[adSetIndex], scope: "mecpro_only", syncedToMeta: false,
-    message: "Alteracao salva somente no MecProAI. Anuncios ativos na Meta nao foram alterados." };
+    orcamento: resumoParaFerramenta(verif),
+    message: "Alteracao salva somente no MecProAI. Anuncios ativos na Meta nao foram alterados." +
+      (verif.publicavel ? "" : ` ATENCAO: ${resumoDoOrcamento(verif)} Ofereca ao usuario ajustar os outros conjuntos (budgetDaily), redistribuir dentro do aprovado (redistribuirNoOrcamentoAprovado) ou usar a soma como aprovado (usarSomaDosConjuntosComoAprovado); nunca escolha sozinho.`) };
 }
 
 /** Define qual criativo (por indice) e a foto de destaque de uma campanha ja criada. */

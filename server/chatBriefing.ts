@@ -3,9 +3,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface ChatBriefingState {
   preparation?: { status: "collecting" | "awaiting_ai" };
   briefing: Record<string, unknown>;
-  lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string; contaMeta?: string };
+  lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string; contaMeta?: string; orcamento?: string };
   /** Conta de anuncios escolhida nesta conversa (so o servidor grava; nao passa por atualizar_briefing). */
-  metaAdAccount?: { id: string; nome: string; moeda: string | null; escolhidaEm: string; /** Campanha que ja usou esta escolha; a proxima campanha da conversa pede confirmacao de novo. */ usadaNaCampanha?: number };
+  metaAdAccount?: { id: string; nome: string; moeda: string | null; escolhidaEm: string };
 }
 export const briefingContext = new AsyncLocalStorage<ChatBriefingState>();
 const strings = ["projectName", "name", "objective", "platform", "niche", "productService", "targetAudience", "city", "mediaFormat", "whatsapp", "destinationUrl", "confirmedFacts"];
@@ -39,6 +39,7 @@ export function campaignResultText(campaign: NonNullable<ChatBriefingState["last
     (campaign.photoCount !== undefined ? `\nFotos encaminhadas ao gerador: ${campaign.photoCount}.` : "") +
     (campaign.coverFileName ? ` Capa solicitada: ${campaign.coverFileName}.` : "") +
     (campaign.contaMeta ? `\n${campaign.contaMeta}` : "") +
+    (campaign.orcamento ? `\n${campaign.orcamento}` : "") +
     "\nNada foi publicado na Meta.";
 }
 
