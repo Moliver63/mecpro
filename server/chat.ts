@@ -27,16 +27,17 @@ import { chatSessionMiddleware } from "./chatSession";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentConfig, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
 import { createChatRetryBudget } from "./chatRetryBudget";
-import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
+import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha as atualizarOrcamentoCampanhaBruto, definirFotoDestaque as definirFotoDestaqueBruto } from "./chatWorkspace";
 import { editarCriativo, aprovarRevisaoCriativo } from "./chatCreativeEdit";
 import { listarPaginasMetaConectadas } from "./campaignPublish";
-import { chatImageTool, generateChatImage } from "./chatImageTools";
+import { chatImageTool, generateChatImage as generateChatImageBruto } from "./chatImageTools";
 import { repairMetaPageReply } from "./chatMetaPageReply";
 import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
 import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
 import { respostaFinalDoPasso, RESPOSTA_SEM_CONCLUSAO } from "./chatRespostaFinal";
-import { modeloIndisponivel, esperaDeModeloGemini } from "./chatProviderCooldown";
-import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta, listarFormulariosChat } from "./chatAdsTools";
+import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMetaBruto, listarFormulariosChat } from "./chatAdsTools";
+import { toolLedger, executarUmaVez } from "./chatToolLedger";
+import { executarCadeia, saudeDosProvedores, type Provedor } from "./chatProviderChain";
 import { anexarVideoAoCriativo, depsVideoChatPadrao, registrarVideoDoChat } from "./chatCreativeVideo";
 import { selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
 import { confirmedChatContact } from "./chatContact";
@@ -49,7 +50,7 @@ import * as db from "./db";
 import multer from "multer";
 import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
-import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply } from "./chatReasoning";
+import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply, type FalhaDaIA } from "./chatReasoning";
 import { budgetChatMessages, COMPACT_CHAT_POLICY } from "./chatRequestBudget";
 import { missingCampaignIntake } from "./chatIntake";
 import { prepareChatWithoutAI } from "./chatPreparation";
@@ -822,12 +823,18 @@ async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId
 }
 
 // ── Execução real da ferramenta (chama o motor existente) ─────────────────
-async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
+async function executarGeracaoCampanhaBruta(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
   try {
     return await runChatDraftTask(userId, () => gerarRascunhoValidado(args, userId, attachments, sessionId), TIMEOUT_GERACAO_MS);
   } catch (error) {
     return { ok: false, erro: error instanceof Error ? error.message : "Falha ao acompanhar a tarefa." };
   }
+}
+
+// Um rascunho por atendimento: se o provedor A criou e falhou depois, o provedor B
+// recebe o mesmo rascunho em vez de gerar outro (mesmo com texto de pedido diferente).
+function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): ReturnType<typeof executarGeracaoCampanhaBruta> {
+  return executarUmaVez(userId, "gerar_campanha", args, () => executarGeracaoCampanhaBruta(args, userId, attachments, sessionId), { sessionId });
 }
 
 async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
@@ -1127,7 +1134,25 @@ export function janelaDaTentativa(limitePorTentativa: number, msRestantesDoPrazo
 // Um despacho so pras tres familias de provedor (Gemini, OpenAI-compativel,
 // DeepSeek): ferramenta nova registrada em um e esquecida em outro ja deixou o
 // chat mudo num fallback antes.
+// Ferramentas com efeito passam pelo livro do atendimento (chatToolLedger): se um
+// provedor executou e falhou depois, o proximo nao repete o efeito. F4, 23/11.
+const atualizarOrcamentoCampanha = (userId: number, args: Record<string, unknown>, store: any) =>
+  executarUmaVez(userId, "atualizar_orcamento_campanha", args, () => atualizarOrcamentoCampanhaBruto(userId, args, store));
+const definirFotoDestaque = (userId: number, args: Record<string, unknown>, store: any) =>
+  executarUmaVez(userId, "definir_foto_destaque", args, () => definirFotoDestaqueBruto(userId, args, store));
+const generateChatImage = (userId: number, args: any) =>
+  executarUmaVez(userId, chatImageTool.name, args, () => generateChatImageBruto(userId, args));
+const publicarCampanhaNaMeta = (userId: number, options: any) =>
+  executarUmaVez(userId, "publicar_campanha", options, () => publicarCampanhaNaMetaBruto(userId, options));
+
+const FERRAMENTAS_DE_CRIATIVO_E_CONTA = new Set(["editar_criativo", "aprovar_revisao_criativo", "anexar_video_criativo", "selecionar_conta_meta"]);
 async function executarEdicaoDeCriativo(name: string | undefined, args: unknown, userId: number): Promise<Record<string, unknown> | null> {
+  if (name && FERRAMENTAS_DE_CRIATIVO_E_CONTA.has(name)) {
+    return executarUmaVez(userId, name, limparArgsFerramenta(args as any), () => executarEdicaoDeCriativoBruto(name, args, userId));
+  }
+  return executarEdicaoDeCriativoBruto(name, args, userId);
+}
+async function executarEdicaoDeCriativoBruto(name: string | undefined, args: unknown, userId: number): Promise<Record<string, unknown> | null> {
   if (name === "editar_criativo") return editarCriativo(userId, limparArgsFerramenta(args as any), db, auditCreativeSegmentAlignment);
   if (name === "aprovar_revisao_criativo") return aprovarRevisaoCriativo(userId, limparArgsFerramenta(args as any), db, adsTurn.getStore()?.message || "");
   if (name === "anexar_video_criativo") {
@@ -1741,9 +1766,9 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
 
 /* ---------------- Provedor 4: resposta local (sem IA) ---------------- */
 
-function responderLocal(text = ""): RespostaChat {
+function responderLocal(text = "", mensagens: MensagemChat[] = [], falhas: FalhaDaIA[] = []): RespostaChat {
   return {
-    resposta: localConversationReply(text, briefingContext.getStore()?.briefing || {}),
+    resposta: localConversationReply(text, briefingContext.getStore()?.briefing || {}, { mensagens, falhas }),
     campanha: null,
     modo: "local",
   };
@@ -2002,10 +2027,11 @@ async function persistirTrocaEResponder(
 chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => {
   const messages = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
   const message = [...messages].reverse().find((m: any) => m?.role === "user")?.content;
-  adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
-    imageTurn.run({}, () =>
-      projectTurn.run({}, () =>
-        chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next))));
+  toolLedger.run(new Map(), () =>
+    adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
+      imageTurn.run({}, () =>
+        projectTurn.run({}, () =>
+          chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next)))));
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const state = briefingContext.getStore();
@@ -2142,86 +2168,31 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     }
   }
 
-  // `esperaDeModeloGemini`: depois de uma falha de MODELO (503 ou socket
-  // pendurado), pula o Gemini por 90s e vai direto pro Cloudflare. Nos logs de
-  // 15 e 16/10 toda troca observada caiu pro fallback, e o caso do socket
-  // pendurado custa 30s antes da primeira palavra. Pagar uma vez e descobrir;
-  // pagar em cada mensagem e desperdicio. Ver chatProviderCooldown.
-  if (proximaChaveGemini() && esperaDeModeloGemini.disponivel(MODELO_GEMINI)) {
-    try {
-      const resultado = await tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      // So falha de modelo abre a janela. Chave rejeitada, requisicao invalida e
-      // limite de taxa seguem tentando: pular por causa deles esconderia
-      // defeito nosso atras de um fallback silencioso.
-      if (modeloIndisponivel(erro)) esperaDeModeloGemini.bloquear(MODELO_GEMINI);
-      log.warn("chat", "Gemini indisponível, tentando Cloudflare Workers AI", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else if (proximaChaveGemini()) {
-    // Tem chave, mas o modelo esta na janela de espera. Motivo nomeado: sem
-    // isto o log diria "nenhuma chave disponivel", que seria falso.
-    log.warn("chat", "Gemini pulado — modelo em espera curta apos falha recente", {
-      userId, modelo: MODELO_GEMINI, faltamSegundos: esperaDeModeloGemini.segundosRestantes(MODELO_GEMINI),
-    });
-  } else {
-    // Achado real (Michel relatou o fallback local reaparecendo, 16/09):
-    // quando esta condição é falsa, NADA era logado — só o catch acima
-    // loga, e só quando uma tentativa de verdade falhou. Se o Gemini
-    // for pulado por falta de chave disponível (todas rejeitadas ou com
-    // cota esgotada), os logs do Render não mostravam isso — só que caiu
-    // no modo local no fim da cadeia, sem indicar qual provedor faltou e
-    // por quê. Com este log, a próxima ocorrência fica diagnosticável.
-    log.warn("chat", "Gemini pulado — nenhuma chave disponível (todas rejeitadas ou com cota esgotada)", { userId });
-  }
-
-  if (cloudflareWorkersAIConfigurado()) {
-    try {
-      const resultado = await tentarComCloudflare(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "Cloudflare Workers AI indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "Cloudflare Workers AI pulado — CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurado", { userId });
-  }
-
-  if (process.env.DEEPSEEK_API_KEY && deepSeekBillingCooldown.available(process.env.DEEPSEEK_API_KEY.trim())) {
-    try {
-      const resultado = await tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "DeepSeek pulado", {
-      userId,
-      motivo: !process.env.DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY não configurada" : "em cooldown de 15min após erro de saldo (402) — se persistir, o saldo da conta DeepSeek provavelmente está zerado",
-    });
-  }
-
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const resultado = await tentarComGroq(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "Groq indisponível, tentando OpenRouter", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "Groq pulado — GROQ_API_KEY não configurada", { userId });
-  }
-
-  if (process.env.OPENROUTER_API_KEY) {
-    try {
-      const resultado = await tentarComOpenRouter(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "OpenRouter indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "OpenRouter pulado — OPENROUTER_API_KEY não configurada", { userId });
-  }
-
-  log.error("chat", "TODOS os provedores de IA falharam ou foram pulados — caindo pro modo local", { userId });
-  return finish(responderLocal(ultimaMensagemUsuario || ""));
+  // Cadeia de provedores (F4, 23/11): ver chatProviderChain. Cada provedor e
+  // tentado no maximo uma vez por mensagem, falha de MODELO (503, socket
+  // pendurado, timeout) abre uma janela curta para ELE (antes so o Gemini tinha),
+  // e passado o teto de tempo nenhum provedor novo e iniciado. Ferramentas com
+  // efeito passam pelo livro do atendimento, entao a troca de provedor nao as repete.
+  const chaveDeepSeek = process.env.DEEPSEEK_API_KEY?.trim() || "";
+  const provedores: Array<Provedor<RespostaChat>> = [
+    { id: "gemini", indisponivelPorque: () => (proximaChaveGemini() ? null : "nenhuma chave disponivel (todas rejeitadas ou com cota esgotada)"),
+      tentar: () => tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "cloudflare", indisponivelPorque: () => (cloudflareWorkersAIConfigurado() ? null : "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN nao configurado"),
+      tentar: () => tentarComCloudflare(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "deepseek", indisponivelPorque: () => (!chaveDeepSeek ? "DEEPSEEK_API_KEY nao configurada" : deepSeekBillingCooldown.available(chaveDeepSeek) ? null : "em cooldown de 15min apos erro de saldo (402); se persistir, o saldo da conta provavelmente acabou"),
+      tentar: () => tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "groq", indisponivelPorque: () => (process.env.GROQ_API_KEY ? null : "GROQ_API_KEY nao configurada"),
+      tentar: () => tentarComGroq(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "openrouter", indisponivelPorque: () => (process.env.OPENROUTER_API_KEY ? null : "OPENROUTER_API_KEY nao configurada"),
+      tentar: () => tentarComOpenRouter(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+  ];
+  const cadeia = await executarCadeia(provedores, {
+    saude: saudeDosProvedores,
+    aoRegistrar: ({ id, evento, detalhe }) => log.warn("chat", `Provedor ${id} ${evento}`, { userId, detalhe: redactProviderSecrets(detalhe) }),
+  });
+  if (cadeia.ok === true) return finish(cadeia.resultado);
+  log.error("chat", "TODOS os provedores de IA falharam ou foram pulados — caindo pro modo local", {
+    userId, falhas: cadeia.falhas.map((f) => ({ id: f.id, motivo: f.motivo })), esgotouTempo: cadeia.esgotouTempo,
+  });
+  return finish(responderLocal(ultimaMensagemUsuario || "", mensagens, cadeia.falhas));
 });
