@@ -3,6 +3,7 @@
  * Valida todos os campos necessários para publicar no Meta Ads
  * antes de o usuário clicar em "Publicar" — evita erros da API
  */
+import { totalDoPeriodoDaCampanha } from "../../../shared/adSetBudgetPlan";
 import { useState } from "react";
 import { useLocation } from "wouter";
 
@@ -150,14 +151,15 @@ export function validateForPublish(params: {
   });
 
   // ── 6. ORÇAMENTO ──────────────────────────────────────────────────
-  const budget = c.suggestedBudgetDaily || Math.round((c.suggestedBudgetMonthly || 1000) / 30);
+  const periodo = totalDoPeriodoDaCampanha(c);
+  const budget = periodo?.diario ?? 0;
   const budgetOk = budget >= 5; // Meta exige mínimo ~R$5/dia
   items.push({
     id: "budget",
     label: "Orçamento diário",
     status: budgetOk ? "ok" : "error",
     message: budgetOk
-      ? `✓ R$ ${budget}/dia (R$ ${budget * 30}/mês)`
+      ? `✓ R$ ${budget}/dia (R$ ${periodo?.total ?? budget} em ${periodo?.dias ?? 30} dias)`
       : `R$ ${budget}/dia — Meta exige mínimo de R$ 5/dia por conjunto de anúncios`,
   });
 

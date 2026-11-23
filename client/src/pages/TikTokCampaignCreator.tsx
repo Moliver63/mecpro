@@ -162,7 +162,7 @@ export default function TikTokCampaignCreator() {
 
     const dailyBudget = c.suggestedBudgetDaily
       ? String(c.suggestedBudgetDaily)
-      : String(Math.round((c.suggestedBudgetMonthly || 1500) / 30));
+      : String(Math.round((c.suggestedBudgetMonthly || 1500) / (c.durationDays || 30)));
 
     setForm(f => ({
       ...f,

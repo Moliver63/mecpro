@@ -186,7 +186,7 @@ export default function GoogleCampaignCreator() {
     const ads           = buildAdsFromCreatives(Array.isArray(crs) ? crs : [], websiteUrl);
     const dailyBudget   = c.suggestedBudgetDaily
       ? String(c.suggestedBudgetDaily)
-      : String(Math.round((c.suggestedBudgetMonthly || 1500) / 30));
+      : String(Math.round((c.suggestedBudgetMonthly || 1500) / (c.durationDays || 30)));
 
     // Extrai negativeKeywords do aiResponse (gerado pela IA da campanha)
     const negKws: string[] = [];

@@ -17,6 +17,7 @@ import { z }          from "zod";
 import { TRPCError }  from "@trpc/server";
 import { router, protectedProcedure } from "./trpc";
 import { log }        from "../logger";
+import { jobVslDoUsuario } from "../ownership";
 import { gemini }     from "../ai";
 import { generateTTS, listElevenLabsVoices, estimateTTSChars, DEFAULT_VOICES } from "../elevenlabs";
 
@@ -25,6 +26,11 @@ import { generateTTS, listElevenLabsVoices, estimateTTSChars, DEFAULT_VOICES } f
 // ─────────────────────────────────────────────────────────────────────────────
 
 const VSL_SERVICE_URL = process.env.VSL_SERVICE_URL || "http://localhost:8000";
+
+// Job de video do proprio usuario (server/ownership.ts, jobVslDoUsuario).
+function assertJobDoUsuario(jobId: string, userId: number) {
+  if (!jobVslDoUsuario(jobId, userId)) throw new TRPCError({ code: "NOT_FOUND", message: "Job não encontrado." });
+}
 const VSL_SECRET_KEY  = process.env.VSL_SECRET_KEY  || "mecpro-vsl-secret";
 
 const VSL_HEADERS = {
@@ -302,8 +308,9 @@ export const vslRouter = router({
   // ── Consultar status do job ───────────────────────────────────────────────
   jobStatus: protectedProcedure
     .input(z.object({ jobId: z.string() }))
-    .query(async ({ input }) => {
-      const data = await callVslService(`/status/${input.jobId}`, "GET");
+    .query(async ({ input, ctx }) => {
+      assertJobDoUsuario(input.jobId, ctx.user.id);
+      const data = await callVslService(`/status/${encodeURIComponent(input.jobId)}`, "GET");
       return {
         jobId:      data.job_id,
         status:     data.status,        // queued | processing | done | error
@@ -413,8 +420,9 @@ export const vslRouter = router({
   // ── Deletar job ───────────────────────────────────────────────────────────
   deleteJob: protectedProcedure
     .input(z.object({ jobId: z.string() }))
-    .mutation(async ({ input }) => {
-      await callVslService(`/job/${input.jobId}`, "DELETE");
+    .mutation(async ({ input, ctx }) => {
+      assertJobDoUsuario(input.jobId, ctx.user.id);
+      await callVslService(`/job/${encodeURIComponent(input.jobId)}`, "DELETE");
       return { deleted: true };
     }),
 });

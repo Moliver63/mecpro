@@ -65,11 +65,12 @@ const PLATFORMS = [
 ];
 
 const BUDGETS = [
-  { value: 500,   label: "R$ 500/mês",    tier: "Starter" },
-  { value: 1500,  label: "R$ 1.500/mês",  tier: "Growth" },
-  { value: 3000,  label: "R$ 3.000/mês",  tier: "Pro" },
-  { value: 5000,  label: "R$ 5.000/mês",  tier: "Scale" },
-  { value: 10000, label: "R$ 10.000/mês", tier: "Enterprise" },
+  // Valor = total do periodo escolhido em "Duracao", nao mensal (auditoria 23/11).
+  { value: 500,   label: "R$ 500",    tier: "Starter" },
+  { value: 1500,  label: "R$ 1.500",  tier: "Growth" },
+  { value: 3000,  label: "R$ 3.000",  tier: "Pro" },
+  { value: 5000,  label: "R$ 5.000",  tier: "Scale" },
+  { value: 10000, label: "R$ 10.000", tier: "Enterprise" },
 ];
 
 const DURATIONS = [7, 14, 21, 30, 60, 90];
@@ -668,8 +669,8 @@ export default function CampaignBuilder() {
               {/* Step 4: Orçamento */}
               {step === 4 && (
                 <div>
-                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Orçamento mensal</h2>
-                  <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24 }}>Arraste o slider para definir seu orçamento. A IA vai sugerir a alocação ideal.</p>
+                  <h2 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: "var(--black)", marginBottom: 6 }}>Orçamento total do período</h2>
+                  <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 24 }}>Quanto investir durante toda a campanha (a duração está logo abaixo). A IA divide esse total por dia e entre os conjuntos.</p>
 
                   <div style={{ marginBottom: 28 }}>
                     <div style={{ textAlign: "center", marginBottom: 16 }}>
@@ -677,7 +678,7 @@ export default function CampaignBuilder() {
                         R$ {form.budget.toLocaleString("pt-BR")}
                       </p>
                       <p style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-                        ≈ <strong style={{ color: "var(--black)" }}>R$ {Math.round(form.budget / 30).toLocaleString("pt-BR")}/dia</strong>
+                        ≈ <strong style={{ color: "var(--black)" }}>R$ {Math.round(form.budget / (form.duration || 30)).toLocaleString("pt-BR")}/dia</strong> em {form.duration || 30} dias
                         {" · "}
                         {form.budget <= 500 ? "🌱 Starter" : form.budget <= 1500 ? "📈 Growth" : form.budget <= 3000 ? "⚡ Pro" : form.budget <= 5000 ? "🚀 Scale" : "🏆 Enterprise"}
                       </p>
@@ -1600,7 +1601,7 @@ export default function CampaignBuilder() {
                     ["Nome",       form.name || "—"],
                     ["Objetivo",   `${selectedObj?.icon} ${selectedObj?.label}`],
                     ["Plataforma", `${selectedPlat?.icon} ${selectedPlat?.label}`],
-                    ["Orçamento",  `${selectedBudget?.label ?? `R$ ${form.budget.toLocaleString()}/mês`} (${selectedBudget?.tier ?? ""})`],
+                    ["Orçamento",  `${selectedBudget?.label ?? `R$ ${form.budget.toLocaleString()}`} no período, ≈ R$ ${Math.round(form.budget / (form.duration || 30)).toLocaleString("pt-BR")}/dia (${selectedBudget?.tier ?? ""})`],
                     ["Duração",    `${form.duration} dias`],
                     ["Nicho",      currentNiche],
                     ...(clientProfile as any)?.copyStructure && (clientProfile as any)?.copyStructure !== "mixed"

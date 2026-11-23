@@ -20,6 +20,7 @@ import * as db from "./db";
 const _mpUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 import { gemini } from "./ai";
 import { log } from "./_core/logger";
+import { ehAdmin } from "./ownership";
 
 const router = Router();
 
@@ -699,7 +700,14 @@ Sugira melhorias ESPECÍFICAS e ACIONÁVEIS em JSON:
 });
 
 // POST /api/marketplace/order — Registra pedido (chamado pelo checkout)
+// Gravava pedido "pago" no anuncio de qualquer vendedor sem autenticacao
+// (revisao Goldfish, auditoria 23/11 rodada 2). Nenhum cliente do sistema
+// chama esta rota; ate existir um checkout com webhook assinado, so admin.
 router.post("/order", async (req: Request, res: Response) => {
+  const sessao = (req as any).user;
+  if (!sessao?.id) return res.status(401).json({ success: false, error: "Não autenticado" });
+  const quem: any = await (db as any).getUserById(Number(sessao.id)).catch(() => null);
+  if (!ehAdmin(quem)) return res.status(403).json({ success: false, error: "Sem permissão" });
   try {
     const { listingId, buyerEmail, buyerName, buyerPhone, paymentMethod, paymentId, amount } = req.body;
     const listing = await (db as any).getListingById(listingId);

@@ -393,8 +393,14 @@ Objetivo SALES + WhatsApp (NOVO, sessão 21):
 ### Budget por adSet
 
 ```
-Meta mínimo real: R$5,11/adSet/dia
+Meta mínimo real: R$5,11/adSet/dia (a publicação aplica piso de R$6)
 Validação backend: por adSet individual (não soma total)
+  ATUALIZADO 23/11/2026: além do mínimo, a SOMA dos conjuntos tem de bater
+  com o diário aprovado (shared/adSetBudgetPlan.ts, mesma função na
+  publicação e na pré-checagem). Casos reais: 814 publicou R$12/dia com R$6
+  aprovado; 816 publicaria ~R$167/dia. Nunca publicar valor diferente do
+  aprovado em silêncio. "suggestedBudgetMonthly" = TOTAL DO PERÍODO (não
+  mensal); exibir total como diário × dias (totalDoPeriodoDaCampanha).
 Validação frontend: ANTES do upload de vídeo/imagem
 Pre-flight: soma rawBudget dos adSets selecionados
 
