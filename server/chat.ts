@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import { notaDeRetomada } from "./chatAttachments";
 /**
  * server/chat.ts — Assistente de Campanhas do MecProAI (via chat)
  *
@@ -1881,8 +1883,28 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
       return res.status(502).json({ erro: "Não foi possível salvar o vídeo agora. Tente novamente em instantes." });
     }
     registrarVideoDoChat(userId, videoUrl);
-    log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size });
-    res.json({ videoUrl, fileName: file.originalname });
+    // F7: guarda a referencia na sessao (sobrevive a recarregar a pagina e a
+    // reiniciar o servidor). A sessao precisa ser do proprio usuario.
+    let sessionIdEfetivo: number | null = null;
+    const sessionIdRecebido = Number(req.body?.sessionId);
+    if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
+      const sessao = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
+      if (sessao && (sessao as any).userId === userId) sessionIdEfetivo = sessionIdRecebido;
+    }
+    if (sessionIdEfetivo === null) sessionIdEfetivo = await db.createChatSession(userId, "Nova conversa").catch(() => null);
+    let persistido = false;
+    if (sessionIdEfetivo !== null) {
+      const sha = crypto.createHash("sha256").update(file.buffer).digest("hex");
+      const r = await db.addPendingChatVideo(sessionIdEfetivo, { url: videoUrl, fileName: file.originalname, sha }).catch(() => ({ salvo: false, duplicado: null }));
+      persistido = r.salvo;
+      if (r.duplicado && r.duplicado.url !== videoUrl) {
+        // Mesmo conteudo ja enviado nesta conversa: reaproveita a referencia existente.
+        registrarVideoDoChat(userId, r.duplicado.url);
+        return res.json({ videoUrl: r.duplicado.url, fileName: r.duplicado.fileName, sessionId: sessionIdEfetivo, persistido, reaproveitado: true });
+      }
+    }
+    log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size, persistido });
+    res.json({ videoUrl, fileName: file.originalname, sessionId: sessionIdEfetivo, persistido });
   } catch (e: any) {
     log.warn("chat", "falha no upload de vídeo do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
     res.status(500).json({ erro: "Erro ao salvar o vídeo. Tente novamente." });
@@ -2159,6 +2181,28 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
     if (lastUser) {
       lastUser.content += `\n\n[Contexto da conversa: a campanha mais recente criada/discutida aqui é "${ultimaCampanhaDaSessao.name}" (campaignId ${ultimaCampanhaDaSessao.id}). Se o usuário disser "essa campanha", "a última" ou algo equivalente sem especificar outra, é provavelmente esta.]`;
+    }
+  }
+
+  // F7: retomada. Diz ao modelo em que etapa a conversa parou e quais anexos
+  // ja estao guardados, para nao repetir o briefing nem pedir reenvio.
+  if (state && req.chatSessionId && mensagens.length) {
+    const b: any = state.briefing || {};
+    const [fotosGuardadas, videosGuardados] = await Promise.all([
+      db.getPendingChatPhotos(req.chatSessionId).catch(() => []),
+      db.getPendingChatVideos(req.chatSessionId).catch(() => []),
+    ]);
+    const temAlgo = Object.keys(b).length > 0 || !!state.lastCampaign || fotosGuardadas.length > 0 || videosGuardados.length > 0;
+    if (temAlgo) {
+      const nota = notaDeRetomada({
+        briefingCompleto: !!(b.objective && b.productService && b.budget && b.durationDays),
+        temRascunho: !!state.lastCampaign,
+        contaEscolhida: !!(state.metaAdAccount || state.lastCampaign?.contaMeta),
+        fotos: fotosGuardadas.length,
+        videos: videosGuardados.length,
+      });
+      const lastUserR = [...mensagens].reverse().find((m) => m.role === "user");
+      if (lastUserR) lastUserR.content += `\n\n[${nota}]`;
     }
   }
 
