@@ -15,7 +15,7 @@ RODAR:
 VARIÁVEIS DE AMBIENTE:
   ELEVENLABS_API_KEY=sk_xxx
   HUGGINGFACE_API_KEY=hf_xxx
-  VSL_SECRET_KEY=chave-secreta-para-autenticar-mecproai
+  VSL_SECRET_KEY=<segredo proprio, 16+ caracteres; o servico nao sobe sem ele>
   MECPRO_WEBHOOK_URL=https://mecpro-ai.onrender.com/api/vsl-webhook
   OUTPUT_DIR=/data/vsl_outputs
 """
@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -45,7 +47,18 @@ from pydantic import BaseModel, Field
 # CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
 
-SECRET_KEY   = os.getenv("VSL_SECRET_KEY", "mecpro-vsl-secret")
+# Sem valor padrao: segredo ausente, curto ou um dos valores publicos do
+# repositorio impede o servico de subir (auditoria 23/11, rodada 3).
+SEGREDOS_PUBLICOS = {
+    "mecpro-vsl-secret", "mecpro-vsl-2026",
+    "chave-secreta-para-autenticar-mecproai", "TROQUE-ESTA-CHAVE-ANTES-DE-USAR",
+}
+SECRET_KEY = (os.getenv("VSL_SECRET_KEY") or "").strip()
+if len(SECRET_KEY) < 16 or SECRET_KEY in SEGREDOS_PUBLICOS:
+    raise RuntimeError(
+        "VSL_SECRET_KEY ausente ou inseguro: defina um segredo proprio (16+ caracteres) "
+        "igual ao VSL_SECRET_KEY do MecProAI."
+    )
 OUTPUT_DIR   = Path(os.getenv("OUTPUT_DIR", "/data/vsl_outputs"))
 WEBHOOK_URL  = os.getenv("MECPRO_WEBHOOK_URL", "")
 VSL_SCRIPT   = Path(__file__).parent / "vsl_forge_v2.py"
@@ -200,9 +213,14 @@ app.add_middleware(
 # AUTH
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _nome_seguro(valor: str) -> bool:
+    """Nome de job/arquivo sem separador de pasta nem '..' (evita sair de OUTPUT_DIR)."""
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", valor or "")) and ".." not in valor
+
+
 def verify_token(authorization: str = Header(...)) -> bool:
     token = authorization.replace("Bearer ", "").strip()
-    if token != SECRET_KEY:
+    if not hmac.compare_digest(token.encode("utf-8"), SECRET_KEY.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Token inválido")
     return True
 
@@ -472,8 +490,13 @@ async def generate_video(
 
     # Gera job_id único
     job_id = req.job_id or str(uuid.uuid4())
+    if not _nome_seguro(job_id):
+        raise HTTPException(400, "job_id invalido")
 
     with JOBS_LOCK:
+        existente = JOBS.get(job_id)
+        if existente is not None and existente.get("user_id") != req.user_id:
+            raise HTTPException(409, "job_id em uso")
         JOBS[job_id] = {
             "job_id":      job_id,
             "status":      "queued",
@@ -519,8 +542,10 @@ def get_status(job_id: str, authorization: str = Header(...)):
 def download_video(job_id: str, filename: str, authorization: str = Header(...)):
     """Faz download do vídeo gerado."""
     verify_token(authorization)
+    if not _nome_seguro(job_id) or not _nome_seguro(filename):
+        raise HTTPException(400, "Nome invalido")
     video_path = OUTPUT_DIR / job_id / filename
-    if not video_path.exists():
+    if not video_path.is_file():
         raise HTTPException(404, "Vídeo não encontrado")
     return FileResponse(
         path=str(video_path),
@@ -532,6 +557,8 @@ def download_video(job_id: str, filename: str, authorization: str = Header(...))
 def delete_job(job_id: str, authorization: str = Header(...)):
     """Remove um job e seus arquivos."""
     verify_token(authorization)
+    if not _nome_seguro(job_id):
+        raise HTTPException(400, "Nome invalido")
     with JOBS_LOCK:
         if job_id not in JOBS:
             raise HTTPException(404, "Job não encontrado")
@@ -544,11 +571,11 @@ def delete_job(job_id: str, authorization: str = Header(...)):
     return {"deleted": job_id}
 
 @app.get("/jobs")
-def list_jobs(authorization: str = Header(...)):
-    """Lista todos os jobs."""
+def list_jobs(user_id: int, authorization: str = Header(...)):
+    """Lista os jobs de UM usuario. user_id e obrigatorio: nao ha listagem de todos."""
     verify_token(authorization)
     with JOBS_LOCK:
-        jobs = list(JOBS.values())
+        jobs = [j for j in JOBS.values() if j.get("user_id") == user_id]
     return {"jobs": jobs, "total": len(jobs)}
 
 if __name__ == "__main__":

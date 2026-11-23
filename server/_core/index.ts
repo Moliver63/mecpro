@@ -394,8 +394,13 @@ app.get('/api/health', async (_req, res) => {
 // Testa providers reais com prompts mínimos e mede latência/fallback real
 app.get('/api/health/ai', async (req: any, res: any) => {
   const key = req.query.key as string;
-  // Protege contra acesso público — exige token de diagnóstico
-  if (key !== (process.env.DEBUG_TOKEN || 'mecpro-diag-2026')) {
+  // Teste completo (gasta cota de IA): sessao de admin/superadmin, ou DEBUG_TOKEN
+  // definido de proposito no ambiente. A chave padrao 'mecpro-diag-2026' esta no
+  // codigo e no bundle e NAO vale mais (auditoria 23/11, rodada 3).
+  const tokenExplicito = process.env.DEBUG_TOKEN;
+  let completo = !!tokenExplicito && tokenExplicito !== 'mecpro-diag-2026' && key === tokenExplicito;
+  if (!completo) completo = await sessaoDeAdmin(req);
+  if (!completo) {
     // Sem token: retorna status simplificado (sem dados internos)
     try {
       const ai = await import('../ai.js');

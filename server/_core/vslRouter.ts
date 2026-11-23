@@ -5,7 +5,7 @@
  * SETUP:
  *   1. Adicione ao .env:
  *      VSL_SERVICE_URL=https://seu-vps.com:8000
- *      VSL_SECRET_KEY=mecpro-vsl-secret
+ *      VSL_SECRET_KEY=<segredo proprio, 16+ caracteres, o mesmo do servico de video>
  *
  *   2. Adicione ao appRouter em router.ts:
  *      import { vslRouter } from "./vslRouter";
@@ -18,6 +18,7 @@ import { TRPCError }  from "@trpc/server";
 import { router, protectedProcedure } from "./trpc";
 import { log }        from "../logger";
 import { jobVslDoUsuario } from "../ownership";
+import { segredoVslValido } from "../vslSecret";
 import { gemini }     from "../ai";
 import { generateTTS, listElevenLabsVoices, estimateTTSChars, DEFAULT_VOICES } from "../elevenlabs";
 
@@ -31,12 +32,18 @@ const VSL_SERVICE_URL = process.env.VSL_SERVICE_URL || "http://localhost:8000";
 function assertJobDoUsuario(jobId: string, userId: number) {
   if (!jobVslDoUsuario(jobId, userId)) throw new TRPCError({ code: "NOT_FOUND", message: "Job não encontrado." });
 }
-const VSL_SECRET_KEY  = process.env.VSL_SECRET_KEY  || "mecpro-vsl-secret";
-
-const VSL_HEADERS = {
-  "Content-Type":  "application/json",
-  "Authorization": `Bearer ${VSL_SECRET_KEY}`,
-};
+// Sem valor padrao (server/vslSecret.ts): sem VSL_SECRET_KEY proprio o servico
+// de video nao e chamado.
+function vslHeaders(): Record<string, string> {
+  const segredo = segredoVslValido(process.env.VSL_SECRET_KEY);
+  if (!segredo) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Serviço de vídeo não configurado (VSL_SECRET_KEY ausente ou inseguro).",
+    });
+  }
+  return { "Content-Type": "application/json", "Authorization": `Bearer ${segredo}` };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FORMATOS DISPONÍVEIS
@@ -60,7 +67,7 @@ async function callVslService(path: string, method: string, body?: any): Promise
   try {
     const res = await fetch(url, {
       method,
-      headers: VSL_HEADERS,
+      headers: vslHeaders(),
       body:    body ? JSON.stringify(body) : undefined,
     });
 

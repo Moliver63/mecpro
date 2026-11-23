@@ -562,7 +562,7 @@ export default function VSLGeneratorPanel({
                       VSL_SERVICE_URL=https://arcane-embryologic-tiffiny.ngrok-free.dev
                     </code>
                     <code style={{ display: "block", background: "#fee2e2", padding: "4px 8px", borderRadius: 4, fontSize: 10 }}>
-                      VSL_SECRET_KEY=mecpro-vsl-2026
+                      VSL_SECRET_KEY=TROQUE-ESTA-CHAVE-ANTES-DE-USAR
                     </code>
                     <p style={{ margin: "6px 0 0", color: "#991b1b", fontSize: 10 }}>
                       E rode <strong>vsl_service.py + ngrok</strong> na sua máquina local.

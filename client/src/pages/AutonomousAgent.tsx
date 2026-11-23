@@ -411,7 +411,7 @@ export default function AutonomousAgentPage() {
   async function fetchAiHealth() {
     setAiHealthLoading(true);
     try {
-      const r = await fetch('/api/health/ai?key=mecpro-diag-2026', { credentials: 'include' });
+      const r = await fetch('/api/health/ai', { credentials: 'include' });
       const d = await r.json();
       setAiHealth(d);
     } catch { setAiHealth(null); }

@@ -43,7 +43,7 @@ image = (
 # Crie um secret chamado "mecpro-keys" com:
 #   ELEVENLABS_API_KEY = sk_xxx
 #   HUGGINGFACE_API_KEY = hf_xxx
-#   VSL_SECRET_KEY = mecpro-vsl-2026
+#   VSL_SECRET_KEY = TROQUE-ESTA-CHAVE-ANTES-DE-USAR
 
 secrets = [modal.Secret.from_name("mecpro-keys")]
 
@@ -222,7 +222,7 @@ def gerar(payload: dict):
 
     Exemplo de chamada:
     POST https://moliver63--mecpro-vsl-gerar.modal.run
-    Authorization: Bearer mecpro-vsl-2026
+    Authorization: Bearer TROQUE-ESTA-CHAVE-ANTES-DE-USAR
     { "title": "...", "scenes": [...] }
     """
     import os
