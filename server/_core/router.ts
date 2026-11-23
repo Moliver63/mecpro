@@ -70,7 +70,8 @@ import { evaluateCampaignBriefingReadiness } from "../../shared/campaignBriefing
 import { tikTokReportGet, tikTokReportTentar, TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS } from "../tiktokRelatorio";
 import { aplicarFunil } from "../funilDeTrafego";
 import { withMetaVideoThumbnail } from "../metaVideoCreative";
-import { assertInputOwnership, assertCampaignOwner, assertProjectOwner } from "../ownership";
+import { assertInputOwnership, assertCampaignOwner, assertProjectOwner, assertCompetitorOwner } from "../ownership";
+import { assinaturaAsaasDoUsuario } from "../asaasOwnership";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -1582,7 +1583,11 @@ const competitorsRouter = router({
       };
       return db.createCompetitor(clean as any);
     }),
-  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteCompetitor(input.id)),
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    // Concorrente de outro cliente pelo id (auditoria 23/11, rodada 2).
+    await assertCompetitorOwner(db as any, ctx.user as any, input.id);
+    return db.deleteCompetitor(input.id);
+  }),
   analyze: protectedProcedure
     .input(z.object({
       competitorId: z.number(),
@@ -2144,7 +2149,8 @@ const competitorsRouter = router({
       websiteUrl:      z.string().nullable().optional(),
       notes:           z.string().nullable().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await assertCompetitorOwner(db as any, ctx.user as any, input.id);
       const { id, ...raw } = input;
       const data = Object.fromEntries(
         Object.entries(raw).map(([k, v]) => [k, typeof v === "string" && v.trim() === "" ? null : v])
@@ -7737,7 +7743,8 @@ const planRequestsRouter = router({
 // ============ NOTIFICATIONS ROUTER ============
 const notificationsRouter = router({
   list: protectedProcedure.query(({ ctx }) => db.getNotificationsByUserId(ctx.user.id)),
-  markRead: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.markNotificationRead(input.id)),
+  // So a notificacao do proprio usuario (auditoria 23/11, rodada 2).
+  markRead: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ input, ctx }) => db.markNotificationReadForUser(input.id, ctx.user.id)),
 });
 
 // ============ INTEGRATIONS ROUTER ============
@@ -9506,13 +9513,23 @@ const subscriptionsRouter = router({
   // Busca Pix de uma assinatura Asaas já criada (para redirect do checkout)
   getCheckoutPix: protectedProcedure
     .input(z.object({ subId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const key = process.env.ASAAS_API_KEY;
       if (!key) { log.warn("asaas", "ASAAS_API_KEY não configurada"); return null; }
       try {
+        // A assinatura tem de ser do usuario logado: o subId vem da URL do
+        // checkout e qualquer usuario podia ver o Pix (valor e QR) de outra
+        // assinatura (auditoria 23/11, rodada 2). Sem confirmacao, nada volta.
+        const subRes = await fetch(`https://api.asaas.com/v3/subscriptions/${encodeURIComponent(input.subId)}`,
+          { headers: { "access_token": key }, signal: AbortSignal.timeout(5000) });
+        const subData: any = await subRes.json().catch(() => null);
+        if (!subRes.ok || !assinaturaAsaasDoUsuario(subData?.externalReference, ctx.user.id)) {
+          log.warn("asaas", "getCheckoutPix: assinatura nao pertence ao usuario", { subId: input.subId, userId: ctx.user.id });
+          return null;
+        }
         // Busca cobrança da assinatura — tenta PENDING e RECEIVED
         const paymentsRes = await fetch(
-          `https://api.asaas.com/v3/payments?subscription=${input.subId}&limit=5`,
+          `https://api.asaas.com/v3/payments?subscription=${encodeURIComponent(input.subId)}&limit=5`,
           { headers: { "access_token": key }, signal: AbortSignal.timeout(5000) }
         );
         const paymentsData: any = await paymentsRes.json();

@@ -159,6 +159,7 @@ import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as db from '../db.js';
 import { getPool } from '../db.js';
+import { assertCampaignOwner, assertCompetitorOwner, ehAdmin } from '../ownership';
 import log from './logger.js';
 import { motivoDeOrigemRecusada } from '../corsDiagnostico';
 import path from 'path';
@@ -222,6 +223,12 @@ app.get('/api/campaigns/:id', async (req: Request, res: Response) => {
     const secret = new TextEncoder().encode(process.env.JWT_SECRET!);
     const { payload } = await jwtVerify(token, secret).catch(() => ({ payload: null }));
     if (!payload) return res.status(401).json({ error: 'Token inválido' });
+    // Dono conferido (auditoria 23/11, rodada 2): qualquer usuario logado lia
+    // nome, nicho e produto da campanha de outro cliente pelo id.
+    const usuario: any = await db.getUserById(Number((payload as any).userId)).catch(() => null);
+    if (!usuario) return res.status(401).json({ error: 'Token inválido' });
+    try { await assertCampaignOwner(db as any, usuario, parseInt(req.params.id)); }
+    catch { return res.status(404).json({ error: 'Campanha não encontrada' }); }
     const campaign = await db.getCampaignById(parseInt(req.params.id));
     if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
     // Extrai nicho do clientProfile se disponível
@@ -549,6 +556,13 @@ app.get('/api/competitors/status', async (req: any, res: any) => {
     const after        = parseInt(req.query.after as string) || 0;
     if (!competitorId) return res.json({ ready: false });
 
+    // Concorrente do proprio usuario (auditoria 23/11, rodada 2), mesmo
+    // usuario que esta rota ja identifica pelo token.
+    const usuarioStatus: any = await db.getUserById(parseInt(String(payload.sub))).catch(() => null);
+    if (!usuarioStatus) return res.json({ ready: false });
+    try { await assertCompetitorOwner(db as any, usuarioStatus, competitorId); }
+    catch { return res.json({ ready: false }); }
+
     const pool = await getPool();
     if (!pool) return res.json({ ready: false });
 
@@ -574,8 +588,26 @@ app.get('/api/competitors/status', async (req: any, res: any) => {
 
 // ─── Diagnóstico Meta Ads (admin only) ────────────────────
 app.get('/api/diag/meta', async (req, res) => {
+  // Lista email, nome, conta de anuncios e inicio do token Meta de TODOS os
+  // clientes. A chave padrao 'mecpro-diag-2026' esta no codigo e no bundle do
+  // navegador (AutonomousAgent.tsx), entao valia como senha publica quando
+  // DEBUG_TOKEN nao estava definido (auditoria 23/11, rodada 2). Agora: sessao
+  // de admin/superadmin, ou DEBUG_TOKEN definido explicitamente no ambiente.
   const key = req.query.key as string;
-  if (key !== (process.env.DEBUG_TOKEN || 'mecpro-diag-2026')) {
+  const tokenExplicito = process.env.DEBUG_TOKEN;
+  let autorizado = !!tokenExplicito && tokenExplicito !== 'mecpro-diag-2026' && key === tokenExplicito;
+  if (!autorizado) {
+    try {
+      const sessao = (req as any).cookies?.token;
+      if (sessao) {
+        const { jwtVerify } = await import('jose');
+        const { payload } = await jwtVerify(sessao, new TextEncoder().encode(process.env.JWT_SECRET!));
+        const admin: any = await db.getUserById(Number((payload as any).userId));
+        autorizado = ehAdmin(admin);
+      }
+    } catch { autorizado = false; }
+  }
+  if (!autorizado) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
   try {

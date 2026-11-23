@@ -513,6 +513,11 @@ export async function getNotificationsByUserId(userId: number) {
   const db = await getDb(); if (!db) return [];
   return db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt));
 }
+/** Marca lida so se a notificacao for do usuario (sem efeito em notificacao alheia). */
+export async function markNotificationReadForUser(id: number, userId: number) {
+  const db = await getDb(); if (!db) return;
+  await db.update(notifications).set({ read: 1 }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
+}
 export async function markNotificationRead(id: number) {
   const db = await getDb(); if (!db) return;
   await db.update(notifications).set({ read: 1 }).where(eq(notifications.id, id));

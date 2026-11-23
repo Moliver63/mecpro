@@ -24,6 +24,8 @@ import { TRPCError } from "@trpc/server";
 export interface OwnershipStore {
   getProjectById(id: number): Promise<{ id: number; userId: number } | null | undefined>;
   getCampaignById(id: number): Promise<{ id: number; projectId: number } | null | undefined>;
+  /** Concorrente pertence a um projeto (competitors.projectId). */
+  getCompetitorById?(id: number): Promise<{ id: number; projectId: number } | null | undefined>;
 }
 
 export const PAPEIS_COM_ACESSO_ADMIN = ["admin", "superadmin"];
@@ -32,7 +34,7 @@ function idNumerico(valor: unknown): number | null {
   return typeof valor === "number" && Number.isSafeInteger(valor) && valor > 0 ? valor : null;
 }
 
-function naoEncontrado(oque: "Campanha" | "Projeto"): TRPCError {
+function naoEncontrado(oque: "Campanha" | "Projeto" | "Concorrente"): TRPCError {
   return new TRPCError({ code: "NOT_FOUND", message: `${oque} não encontrad${oque === "Campanha" ? "a" : "o"}.` });
 }
 
@@ -59,7 +61,22 @@ export async function assertCampaignOwner(store: OwnershipStore, user: { id: num
 }
 
 /**
- * Confere `campaignId` e `projectId` da entrada crua de uma rota protegida.
+ * Concorrente de um projeto do usuario ou NOT_FOUND (auditoria 23/11, rodada 2:
+ * `competitors.delete`, `update`, `analyze`, `reanalyze`, `estimateSpend`
+ * aceitavam id de concorrente de outro cliente).
+ */
+export async function assertCompetitorOwner(store: OwnershipStore, user: { id: number; role?: string | null }, competitorId: number) {
+  if (!store.getCompetitorById) throw naoEncontrado("Concorrente");
+  const concorrente = await store.getCompetitorById(competitorId);
+  if (!concorrente) throw naoEncontrado("Concorrente");
+  if (ehAdmin(user)) return concorrente;
+  const projeto = await store.getProjectById(concorrente.projectId);
+  if (!projeto || projeto.userId !== user.id) throw naoEncontrado("Concorrente");
+  return concorrente;
+}
+
+/**
+ * Confere `campaignId`, `projectId` e `competitorId` da entrada crua de uma rota protegida.
  * Entrada que nao e objeto, ou sem esses campos, passa sem consulta.
  */
 export async function assertInputOwnership(store: OwnershipStore, user: { id: number; role?: string | null }, rawInput: unknown): Promise<void> {
@@ -67,11 +84,26 @@ export async function assertInputOwnership(store: OwnershipStore, user: { id: nu
   const entrada = rawInput as Record<string, unknown>;
   const campaignId = idNumerico(entrada.campaignId);
   const projectId = idNumerico(entrada.projectId);
-  if (!campaignId && !projectId) return;
+  const competitorId = idNumerico(entrada.competitorId);
+  if (!campaignId && !projectId && !competitorId) return;
   if (ehAdmin(user)) return;
   if (projectId) await assertProjectOwner(store, user, projectId);
   if (campaignId) {
     const campanha = await assertCampaignOwner(store, user, campaignId);
     if (projectId && campanha.projectId !== projectId) throw naoEncontrado("Campanha");
   }
+  if (competitorId) {
+    const concorrente = await assertCompetitorOwner(store, user, competitorId);
+    if (projectId && concorrente.projectId !== projectId) throw naoEncontrado("Concorrente");
+  }
+}
+
+/**
+ * Job de video (VSL) do proprio usuario: `startGeneration` e
+ * `generateMultiFormat` criam o id como `mecpro_<userId>_...`. Sem isso,
+ * qualquer usuario consultava ou apagava o job de outro pelo id (auditoria
+ * 23/11, rodada 2).
+ */
+export function jobVslDoUsuario(jobId: unknown, userId: number): boolean {
+  return typeof jobId === "string" && Number.isSafeInteger(userId) && userId > 0 && jobId.startsWith(`mecpro_${userId}_`);
 }
