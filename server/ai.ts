@@ -45,6 +45,7 @@ import {
   isRedundantHookText,
 } from "../shared/campaignCopyQuality";
 import { buildRealEstateCarouselAngles } from "./carouselCopy";
+import { inferirSegmento } from "../shared/segmentInference";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -1185,7 +1186,15 @@ export function resolveInitialCampaignSegment(
   const profileParts = [clientProfile?.niche, clientProfile?.productService, clientProfile?.productName];
   const fromProfile = resolveSegmentFromCampaignContext(explicitSegment, ...profileParts);
   if (fromProfile !== "outro") return fromProfile;
-  return resolveSegmentFromCampaignContext(explicitSegment, ...profileParts, extraContext, campaignName);
+  const fromAll = resolveSegmentFromCampaignContext(explicitSegment, ...profileParts, extraContext, campaignName);
+  if (fromAll !== "outro") return fromAll;
+  // Auditoria 23/11 (F2): medico, dermatologista, psicologa, incorporadora e
+  // similares caiam em "outro" por falta de acento/palavra-chave no campo nicho.
+  const inferido = inferirSegmento({
+    niche: clientProfile?.niche, productService: clientProfile?.productService, productName: clientProfile?.productName,
+    extraContext, name: campaignName,
+  });
+  return inferido.segment !== "outro" && SEGMENT_COPY_RULES[inferido.segment] ? inferido.segment : "outro";
 }
 
 type SegmentAlignmentRule = {

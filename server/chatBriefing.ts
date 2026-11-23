@@ -58,6 +58,8 @@ const CATEGORIA_DE_CONFLITO: Array<[RegExp, string]> = [
   [/^commercial_property_residential_copy|^residential_feature_claim_conflict/, "caracteristica de imovel residencial num imovel comercial"],
   [/^unverified_social_proof/, "prova social (depoimento, numero de clientes) sem comprovacao"],
   [/^unverified_scarcity_or_exclusivity/, "escassez ou exclusividade sem comprovacao"],
+  [/^unverified_factual_claim/, "uma afirmacao verificavel (certificacao, resultado, numero de clientes, ranking, tempo de mercado) que nao esta no briefing"],
+  [/^regulated_advertising_claim/, "uma promessa que a publicidade da sua profissao nao permite"],
   [/^unverified_benefit/, "um beneficio que nao esta no briefing"],
   [/^unconfirmed_offer_claim|^forbidden_claim_not_in_current_briefing/, "uma oferta que nao esta no briefing atual"],
   [/^campaign_objective_conflict/, "um objetivo diferente do escolhido pra campanha"],

@@ -9,6 +9,7 @@ import {
 
 import { retrieveCampaignRules, canonicalObjective } from "./campaignRuleRetrieval";
 import { detectUnconfirmedOfferClaims, REGRA_OFERTA_PARA_PROMPT, type OfferClaimKind, type OfferClaimSuggestion } from "./campaignOfferGuard";
+import { unverifiedFactualClaims, detectRegulatedClaims, detectRegulatedArea } from "./factualClaimGate";
 
 type FactSource = Record<string, unknown>;
 
@@ -933,6 +934,9 @@ export function validateCampaignFactIntegrity(
   };
   visit(creatives, "creatives");
 
+  // Area regulamentada vem do conteudo confirmado do briefing, nao so do segmento.
+  const areaRegulada = detectRegulatedArea(facts.confirmedClaimsRaw)
+    ?? (facts.intent?.segment === "saude_estetica" ? "saude" : facts.intent?.segment === "financeiro" ? "financeiro" : null);
   for (const { field, text } of fields) {
     const n = normalizeText(text);
     for (const term of rules.forbidden) {
@@ -980,6 +984,19 @@ export function validateCampaignFactIntegrity(
       if (!substantiated) {
         conflicts.push({ field, value: claim, reason: "unverified_scarcity_or_exclusivity_claim" });
       }
+    }
+
+    // Alegacao factual sem lastro (certificacao, aprovacao por orgao, percentual
+    // de resultado, garantia de resultado, quantidade atendida, cliente nomeado,
+    // tempo de mercado, ranking). Auditoria 23/11 (F1/F2): vale para QUALQUER
+    // segmento, inclusive "outro". Passa so o que o cliente confirmou no
+    // briefing/perfil. Linguagem publicitaria comum nao entra.
+    for (const claim of unverifiedFactualClaims(text, facts.confirmedClaimsRaw)) {
+      conflicts.push({ field, value: claim.value, reason: `unverified_factual_claim_${claim.kind}` });
+    }
+    // Profissoes regulamentadas: formas vedadas mesmo com confirmacao do cliente.
+    for (const claim of detectRegulatedClaims(text, areaRegulada)) {
+      conflicts.push({ field, value: claim.value, reason: "regulated_advertising_claim" });
     }
 
     // Característica não comprova benefício — regra estrutural, qualquer
