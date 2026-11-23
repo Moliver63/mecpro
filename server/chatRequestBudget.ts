@@ -54,7 +54,7 @@ export const FERRAMENTAS_NUCLEO = ["atualizar_briefing", "consultar_projetos_cam
 /** Gatilhos por ferramenta, em ordem de prioridade (as mais arriscadas por ultimo: so entram se a conversa as pede). */
 const GATILHOS: Array<[string, RegExp]> = [
   ["selecionar_conta_meta", /conta|meta|CONFIRMAR CONTA/i],
-  ["publicar_campanha", /public|confirm|no ar|subir|colocar/i],
+  ["publicar_campanha", /public|confirm|no ar|s[ou]b(?:ir|a|e)\b|coloc|lan[cç]|\bativ(?:a|ar|e|o)\b|manda ver|pode ir|go live/i],
   ["consultar_paginas_meta", /p[aá]gina|page|facebook|instagram|public/i],
   ["consultar_formularios_meta", /formul[aá]rio|lead|cadastro/i],
   ["anexar_video_criativo", /v[ií]deo|reel|mp4/i],
@@ -88,7 +88,11 @@ export function budgetChatRequest<T extends Message, F extends Ferramenta>(
   for (const m of messages.slice(Math.max(latestUser, 0))) {
     for (const c of (m.tool_calls ?? []) as Array<{ function?: { name?: string } }>) if (c.function?.name) emUso.add(c.function.name);
   }
-  const recentes = messages.filter((m) => m.role === "user").slice(-2).map(textoDaMensagem).join("\n");
+  // Os dois ultimos pedidos do usuario MAIS a ultima fala do assistente: quando o assistente acabou de
+  // propor "posso publicar?" ou pedir "envie CONFIRMAR PUBLICACAO", o "sim" curto do usuario nao tem palavra
+  // nenhuma, e a intencao esta no que o assistente disse.
+  const ultimaDoAssistente = [...messages].reverse().find((m) => m.role === "assistant" && typeof m.content === "string" && m.content.trim());
+  const recentes = [...messages.filter((m) => m.role === "user").slice(-2).map(textoDaMensagem), ultimaDoAssistente ? textoDaMensagem(ultimaDoAssistente as Message) : ""].join("\n");
   const prioridade: string[] = [...FERRAMENTAS_NUCLEO, ...emUso];
   for (const [nome, re] of GATILHOS) if (re.test(recentes)) prioridade.push(nome);
 

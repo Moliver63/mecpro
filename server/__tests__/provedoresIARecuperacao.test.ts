@@ -172,3 +172,48 @@ test("cadeia: usuarios simultaneos nao se atrapalham e um 402 de um turno vale p
   await executarCadeia(provs(), { saude, agora: () => 1_000, usuario: 6 });
   assert.equal(chamadas.deepseek, antes);
 });
+
+test("Groq: intencao muda no meio da conversa; 'sim' curto herda a intencao da fala do assistente; toda ferramenta e alcancavel", async () => {
+  const { ferramentasGroq } = await import("../chat");
+  const sys = [{ role: "system", content: COMPACT_CHAT_POLICY }];
+  const nomes = (msgs: any[]) => budgetChatRequest([...sys, ...msgs], ferramentasGroq, 5400).tools.map((t: any) => t.function.name);
+  // 1) fala de orcamento, depois muda para publicar
+  const m1 = [{ role: "user", content: "ajusta o orcamento para 60" }, { role: "assistant", content: "Feito, R$ 60/dia." }, { role: "user", content: "agora sobe essa campanha" }];
+  assert.ok(nomes(m1).includes("publicar_campanha"));
+  // 2) assistente pergunta, usuario responde so "sim"
+  const m2 = [{ role: "user", content: "e a foto de capa?" }, { role: "assistant", content: "Quer que eu defina a foto de destaque como a terceira?" }, { role: "user", content: "sim" }];
+  assert.ok(nomes(m2).includes("definir_foto_destaque"));
+  const m3 = [{ role: "user", content: "pode ser" }, { role: "assistant", content: "Para publicar, envie exatamente: CONFIRMAR PUBLICACAO abc123" }, { role: "user", content: "CONFIRMAR PUBLICACAO abc123" }];
+  assert.ok(nomes(m3).includes("publicar_campanha"));
+  // 3) frase de confirmacao de conta
+  assert.ok(nomes([{ role: "user", content: "CONFIRMAR CONTA META a1b2c3" }]).includes("selecionar_conta_meta"));
+  // 4) cada ferramenta do catalogo e alcancavel por alguma frase natural
+  const frases: Record<string, string> = {
+    gerar_imagem_campanha: "gera uma imagem nova", consultar_metricas_campanha: "como estao as metricas", consultar_relatorio_anuncios: "me da o relatorio dos anuncios",
+    definir_foto_destaque: "usa essa foto como capa", editar_criativo: "troca o titulo do criativo", aprovar_revisao_criativo: "aprovo a revisao",
+    anexar_video_criativo: "usa o video que enviei", selecionar_conta_meta: "usa a conta de anuncios certa", consultar_paginas_meta: "qual pagina do facebook vou usar",
+    consultar_formularios_meta: "quais formularios de lead tenho", publicar_campanha: "pode publicar", pesquisar_web: "pesquisa na web sobre o mercado",
+  };
+  for (const [ferramenta, frase] of Object.entries(frases)) assert.ok(nomes([{ role: "user", content: frase }]).includes(ferramenta), `${ferramenta} <- "${frase}"`);
+});
+
+test("401/403: 401 e global; 403 de conteudo ou de um usuario so nao desliga o provedor para os outros", () => {
+  const q = new QuedaDeProvedor(() => 0);
+  assert.equal(q.registrar("openrouter", new Error("OpenRouter HTTP 403: input flagged by moderation"), 1), null, "moderacao nao e queda");
+  assert.equal(q.registrar("openrouter", new Error("OpenRouter HTTP 403: model not available in your region"), 1), null);
+  assert.equal(q.registrar("groq", new Error("Groq HTTP 403: invalid api key forbidden"), 1), null, "1 usuario: ainda nao");
+  assert.equal(q.registrar("groq", new Error("Groq HTTP 403: invalid api key forbidden"), 1), null, "mesmo usuario de novo: ainda nao");
+  assert.equal(q.motivo("groq"), null);
+  assert.equal(q.registrar("groq", new Error("Groq HTTP 403: invalid api key forbidden"), 2), "acesso", "2 usuarios distintos: credencial/conta");
+  assert.match(q.motivo("groq")!, /credencial/);
+  assert.equal(q.registrar("cloudflare", new Error("Cloudflare Workers AI HTTP 401: Unauthorized"), 1), "acesso", "401 vale na hora");
+});
+test("401/403 Gemini: 401 e chave individual (permanente); 403 de servico so tira a chave por janela, e todas negadas = provedor pulado por janela, nao para sempre", () => {
+  let t = 0; const h = new GeminiCredentialHealth(() => t);
+  const k = ["a", "b", "c"];
+  assert.equal(h.reject("a", 401, "Unauthorized"), true);
+  for (const x of ["b", "c"]) h.reject(x, -1, '{"error":{"message":"Permission denied on the service.","status":"PERMISSION_DENIED"}}');
+  assert.deepEqual(k.filter((x) => h.available(x)), []);
+  t += 31 * 60_000;
+  assert.deepEqual(k.filter((x) => h.available(x)), ["b", "c"], "projeto corrigido: voltam sozinhas; a chave 401 continua fora");
+});

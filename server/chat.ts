@@ -2286,7 +2286,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   // e passado o teto de tempo nenhum provedor novo e iniciado. Ferramentas com
   // efeito passam pelo livro do atendimento, entao a troca de provedor nao as repete.
   const chaveDeepSeek = process.env.DEEPSEEK_API_KEY?.trim() || "";
-  const comQueda = (id: string, fn: () => Promise<RespostaChat>) => envolverComQueda(quedaDeProvedor, id, fn);
+  const comQueda = (id: string, fn: () => Promise<RespostaChat>) => envolverComQueda(quedaDeProvedor, id, fn, userId);
   const provedores: Array<Provedor<RespostaChat>> = [
     { id: "gemini", indisponivelPorque: () => (proximaChaveGemini() ? null : "nenhuma chave disponivel (todas rejeitadas, negadas ou com cota esgotada)"),
       tentar: () => tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade) },

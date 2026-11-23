@@ -264,10 +264,12 @@ router.post("/mcp", authApiKey, mcpBurstLimiter, json({ limit: "50mb" }), async 
     // (reproduzido com o SDK 1.30) e o cabecalho MCP-Protocol-Version com versao que o servidor nao
     // conhece; sem o texto do erro nao da para separar isso de JSON-RPC invalido. Registra so metadados.
     if (res.statusCode >= 400 && res.statusCode < 500) {
+      // Somente metadados curtos e saneados (sem Authorization, sem params, sem corpo): os valores vem do cliente.
+      const limpo = (v: unknown, n: number) => String(v ?? "").slice(0, n).replace(/[^\w/.:;,=\- ]/g, "_");
       log.warn("mcp", "MCP respondeu 4xx", {
-        status: res.statusCode, method: req.body?.method ?? null,
-        protocolVersion: String(req.headers["mcp-protocol-version"] ?? ""), accept: String(req.headers.accept ?? "").slice(0, 80),
-        userAgent: String(req.headers["user-agent"] ?? "").slice(0, 60),
+        status: res.statusCode, method: limpo(req.body?.method, 40),
+        protocolVersion: limpo(req.headers["mcp-protocol-version"], 20), accept: limpo(req.headers.accept, 60),
+        userAgent: limpo(req.headers["user-agent"], 40),
       });
     }
   } catch (e: any) {

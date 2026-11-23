@@ -8,7 +8,14 @@ import type { Request, Response } from "express";
  * As opcoes do cookie precisam ser as mesmas do login (path, secure, sameSite) para o navegador
  * aceitar a remocao.
  */
-export function encerrarSessao(_req: Request, res: Response): void {
+export function encerrarSessao(req: Request, res: Response): void {
+  // Protecao contra logout forcado por outro site (CSRF): o navegador informa Sec-Fetch-Site em
+  // toda requisicao. "cross-site" nunca vem do nosso front (www.mecproai.com e mecproai.com sao
+  // "same-site"); clientes sem o cabecalho (curl, apps) seguem, pois nao carregam cookie de navegador.
+  if (String(req.headers?.["sec-fetch-site"] ?? "") === "cross-site") {
+    res.status(403).json({ success: false, error: "cross_site_logout_blocked" });
+    return;
+  }
   const opcoes = { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" };
   res.clearCookie("token", opcoes);
   // Variante sem `secure`, usada pelo login por senha fora de producao.
