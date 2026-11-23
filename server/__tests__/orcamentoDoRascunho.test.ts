@@ -107,3 +107,10 @@ test("orcamento: segmentos distintos (clinica, curso, e-commerce) seguem a mesma
     assert.equal(errado.publicavel, false, nome);
   }
 });
+
+test("Goldfish: soma acima do aprovado nunca e publicavel (12 com 7+6) e mensal defasado nao bloqueia", () => {
+  const acima = verificarOrcamentoDoRascunho(camp(conj("R$ 7,00/dia", "R$ 6,00/dia"), { suggestedBudgetDaily: 12, suggestedBudgetMonthly: 360, durationDays: 30 }));
+  assert.equal(acima.publicavel, false);
+  const velho = verificarOrcamentoDoRascunho(camp(conj("R$ 6,00/dia", "R$ 6,00/dia"), { suggestedBudgetDaily: 12, suggestedBudgetMonthly: 100, durationDays: 30 }));
+  assert.equal(velho.situacao, "ok");
+});

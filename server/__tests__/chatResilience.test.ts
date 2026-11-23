@@ -302,3 +302,18 @@ test("Pendencia 3: usuarios diferentes simultaneos nao compartilham o livro", as
   await Promise.all([op(1), op(2), op(3)]);
   assert.equal(efeitos, 3);
 });
+
+test("Goldfish: 429 abre na hora; sonda com erro 400 ou pedido antigo nao trava nem reabre o circuito", () => {
+  let t = 1_000;
+  const s = new SaudeDosProvedores(() => t, 90_000);
+  s.registrarFalha("gemini", new Error("429 quota exceeded"), 1);
+  assert.equal(s.reservar("gemini"), "bloqueado", "uma falha de limite ja vale para todos");
+  t += 91_000;
+  assert.equal(s.reservar("gemini"), "sonda");
+  s.registrarFalha("gemini", new Error("400 invalid"), 1, true);
+  assert.equal(s.reservar("gemini"), "sonda", "erro de requisicao libera a vaga de sonda");
+  // falha tardia de pedido que nao era sonda nao reabre
+  s.registrarSucesso("gemini");
+  s.registrarFalha("gemini", new Error("fetch failed"), 1, false);
+  assert.equal(s.reservar("gemini"), "livre");
+});

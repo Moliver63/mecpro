@@ -110,19 +110,23 @@ export class SaudeDosProvedores {
   disponivel(id: string): boolean { return this.c(id).abertoAte === 0 || this.agora() >= this.c(id).abertoAte; }
   segundosRestantes(id: string): number { return Math.max(0, Math.ceil((this.c(id).abertoAte - this.agora()) / 1000)); }
 
-  registrarFalha(id: string, erro: unknown, usuario?: number | string): void {
+  /** Libera a vaga de sonda sem veredito (erro de requisicao ou sem tempo para tentar). */
+  liberarSonda(id: string): void { const x = this.circuitos.get(id); if (x) x.sondaAte = 0; }
+
+  registrarFalha(id: string, erro: unknown, usuario?: number | string, eraSonda = false): void {
     const classe = classificarFalha(erro);
-    if (classe === "requisicao") return;
+    if (classe === "requisicao") { if (eraSonda) this.liberarSonda(id); return; }
     const x = this.c(id); const t = this.agora();
-    // Falha da sonda: reabre por mais uma janela.
-    if (x.abertoAte !== 0 && t >= x.abertoAte) {
+    // Falha da sonda: reabre por mais uma janela. Falha tardia de pedido antigo nao reabre.
+    if (eraSonda) {
       x.abertoAte = t + (esperaSugeridaPeloProvedorMs(erro) ?? this.duracaoMs); x.sondaAte = 0; return;
     }
     x.falhas = x.falhas.filter((f) => t - f.t <= this.janela);
     x.falhas.push({ t, usuario: usuario === undefined ? "anonimo" : String(usuario) });
     const distintos = new Set(x.falhas.map((f) => f.usuario)).size;
     const retry = esperaSugeridaPeloProvedorMs(erro);
-    if (x.falhas.length >= this.falhasParaAbrir && distintos >= this.usuariosDistintos) {
+    // Limite (429/quota) e da chave compartilhada do servidor: um unico aviso ja vale para todos.
+    if (classe === "limite" || (x.falhas.length >= this.falhasParaAbrir && distintos >= this.usuariosDistintos)) {
       x.abertoAte = t + (retry ?? this.duracaoMs); x.sondaAte = 0; x.falhas = [];
     }
   }
@@ -157,6 +161,7 @@ export async function executarCadeia<R>(
     }
     if (agora() - inicio >= teto) {
       esgotouTempo = true;
+      if (reserva === "sonda") saude.liberarSonda(p.id);
       falhas.push({ id: p.id, motivo: "sem_tempo", detalhe: "teto de tempo do atendimento atingido" });
       log({ id: p.id, evento: "sem_tempo", detalhe: "teto de tempo do atendimento atingido" });
       continue;
@@ -167,7 +172,7 @@ export async function executarCadeia<R>(
       saude.registrarSucesso(p.id);
       return { ok: true, resultado, provedor: p.id, falhas };
     } catch (erro) {
-      saude.registrarFalha(p.id, erro, opcoes.usuario);
+      saude.registrarFalha(p.id, erro, opcoes.usuario, reserva === "sonda");
       const detalhe = String((erro as any)?.message ?? erro).slice(0, 200);
       falhas.push({ id: p.id, motivo: "falhou", detalhe });
       log({ id: p.id, evento: "falhou", detalhe });

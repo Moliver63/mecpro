@@ -44,7 +44,9 @@ export function verificarOrcamentoDoRascunho(
   const aprovadoDiario = diarioAprovadoDaCampanha(campaign);
   const d = dias(campaign);
   const totalDeclarado = Number(campaign?.suggestedBudgetMonthly);
-  const totalAutorizado = aprovadoDiario === null ? null : (Number.isFinite(totalDeclarado) && totalDeclarado > 0 ? totalDeclarado : aprovadoDiario * d);
+  // O total do periodo vem do diario aprovado x dias: a coluna mensal esta defasada em parte das campanhas.
+  void totalDeclarado;
+  const totalAutorizado = aprovadoDiario === null ? null : Math.round(aprovadoDiario * d * 100) / 100;
   const base = { aprovadoDiario, somaDiaria: plano.soma, dias: d, totalAutorizado, somaNoPeriodo: Math.round(plano.soma * d * 100) / 100, detalhes: plano.detalhes, plano };
 
   if (plano.conjuntos.length === 0) {
@@ -64,6 +66,10 @@ export function verificarOrcamentoDoRascunho(
   }
   if (bloqueioDeRegra) {
     return { ...base, situacao: "divergente", publicavel: false, motivo: bloqueioDeRegra.mensagem, avisos };
+  }
+  // Tolerancia zero para quem publica: a soma dos conjuntos nunca passa do diario aprovado.
+  if (plano.soma > aprovadoDiario + 1e-9) {
+    return { ...base, situacao: "divergente", publicavel: false, motivo: `A soma dos conjuntos (R$ ${plano.soma}/dia) passa do orcamento aprovado (R$ ${aprovadoDiario}/dia).`, avisos };
   }
   return { ...base, situacao: "ok", publicavel: true, avisos };
 }

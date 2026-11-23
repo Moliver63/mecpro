@@ -190,6 +190,7 @@ export async function atualizarOrcamentoCampanha(userId: number, args: Record<st
     if (args.budgetDaily !== undefined || args.audience !== undefined || args.objective !== undefined || args.usarSomaDosConjuntosComoAprovado === true) {
       return { erro: "Use redistribuirNoOrcamentoAprovado sozinho." };
     }
+    if (campaign.metaCampaignId) return { erro: "Esta campanha ja esta publicada na Meta; redistribuir aqui deixaria o MecProAI diferente da Meta. Edite a campanha publicada pela ferramenta de campanha no ar." };
     const r = rebalancearConjuntos(campaign);
     if (r.ok === false) return { erro: r.erro };
     await store.updateCampaignField(campaign.id, "adSets", JSON.stringify(r.adSets));

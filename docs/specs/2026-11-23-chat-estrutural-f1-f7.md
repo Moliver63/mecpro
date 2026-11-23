@@ -44,3 +44,14 @@ Publicar, alterar campanha publicada (819 intacta), mexer em orcamento, segredos
 | 8 | RISCO | `/upload-video` com sessao invalida criava sessao nova; upload antes do dedupe | Corrigido: 400/404, dedupe por sha antes do upload. |
 | 9 | RISCO | Nota de retomada contradizia nova campanha e usava campos errados | Corrigido. |
 | 10 | RISCO | Conta da sessao aplicada a cada `gerar_campanha` sem reconfirmar | Corrigido: a escolha vale para a primeira campanha; a segunda pede confirmacao e nao troca a conta da conexao em silencio. |
+
+## Adendo 23/11 (final): segurança do chat antes do deploy
+
+| # | Pendência | Resolução | Evidência |
+|---|---|---|---|
+| 1 | Orçamento | `shared/orcamentoDoRascunho.ts` liga a soma dos conjuntos à geração (`ai.ts`, com rebalanceamento) e à edição (`chatWorkspace`, `campaignDraftEdit`). Tolerância zero acima do aprovado; total do período = diário × dias. | `orcamentoDoRascunho.test.ts` |
+| 2 | Conta Meta | Confirmação por campanha (`CONFIRMAR CONTA META`); conta anterior só como sugestão; conexão nunca muda em silêncio; Instagram vinculado exibido. | `chatVideoEContaMeta.test.ts` |
+| 3 | Comandos repetidos | Livro por tentativa: 100/200/100 executa; falha técnica não é memorizada; usuários isolados. | `chatResilience.test.ts` |
+| 4 | Saúde dos provedores | Circuito: 429 abre na hora (Retry-After), falhas de modelo exigem 3 falhas de ≥2 usuários, sonda única, sucesso fecha. Estado por instância. | `chatResilience.test.ts` |
+
+Riscos restantes: circuito não abre com um único usuário ativo e falha de modelo (teto de 75 s limita o custo); estado por instância; ordem do livro entre tentativas com ferramentas no mesmo campo; conexão Meta continua global por usuário (campanhas confirmadas em outra conta ficam bloqueadas até reconfirmar); rascunhos antigos sem `confirmada` pedem confirmação uma vez; Page x conta não verificadas como mesmo negócio.
