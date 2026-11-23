@@ -37,6 +37,8 @@ import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } fr
 import { respostaFinalDoPasso, RESPOSTA_SEM_CONCLUSAO } from "./chatRespostaFinal";
 import { modeloIndisponivel, esperaDeModeloGemini } from "./chatProviderCooldown";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta, listarFormulariosChat } from "./chatAdsTools";
+import { anexarVideoAoCriativo, depsVideoChatPadrao, registrarVideoDoChat } from "./chatCreativeVideo";
+import { selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask";
@@ -288,6 +290,7 @@ Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao so
 
 Depois de selecionar um projeto existente, consulte suas campanhas. Apresente nova do zero, usar existente como modelo ou editar existente; nao repita escolhas ja feitas.
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
+VIDEO E CONTA DE ANUNCIOS: quando o usuario anexar um video (nota "[Video anexado no chat: URL]") e quiser usa-lo, identifique o rascunho e o criativo com consultar_projetos_campanhas, pergunte em qual criativo e em qual formato (feed, stories/Reels ou square) e chame anexar_video_criativo com a URL exata da nota. Isso nao publica nada. Se a ferramenta pedir conta (acao=selecionar_conta_meta), use selecionar_conta_meta: com varias contas, apresente os nomes e deixe o usuario escolher, e peca a frase CONFIRMAR CONTA META retornada; com uma so, ela e usada e voce diz qual. Nunca use uma conta por suposicao.
 Se publicar_campanha recusar por criativo em revisao: score baixo e/ou promessa de resultado com prazo o usuario pode aprovar com aprovar_revisao_criativo (mostre os textos, o score e a frase da promessa antes); placeholder, texto fora do segmento, alegacao nao confirmada ou depoimento inventado exigem reescrever com editar_criativo. Nunca invente prova social pra subir score.
 
 PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
@@ -553,6 +556,33 @@ const PARAMETROS_PUBLICAR_CAMPANHA = {
   // usuario em vez de descobrir.
   required: ["campaignId"],
 };
+const PARAMETROS_ANEXAR_VIDEO = {
+  type: "object",
+  properties: {
+    campaignId: { type: "integer", description: "ID do rascunho (consultar_projetos_campanhas)." },
+    creativeIndex: { type: "integer", description: "Indice (creatives[].index) do criativo que recebe o video. Confirme com o usuario qual criativo; nunca adivinhe." },
+    format: { type: "string", enum: ["feed", "stories", "square"], description: "Onde o video vai: feed (4:5), stories (9:16, tambem serve para Reels) ou square (1:1). Pergunte ao usuario." },
+    videoUrl: { type: "string", description: "A URL do video recebida na nota [Video anexado no chat: ...]. Copie exatamente; so videos enviados por este usuario no chat sao aceitos." },
+    videoThumbnailUrl: { type: "string", description: "OPCIONAL. URL HTTPS de miniatura. Sem ela, usa a imagem do criativo ou a miniatura automatica da Meta." },
+  },
+  required: ["campaignId", "creativeIndex", "format", "videoUrl"],
+};
+const DESCRICAO_ANEXAR_VIDEO =
+  "Associa um video que o usuario enviou pelo chat a UM criativo de um RASCUNHO (sobe o video na conta Meta escolhida e grava no criativo). " +
+  "Nao publica nada e nao edita o video. Exige conta de anuncios escolhida para o rascunho (selecionar_conta_meta). " +
+  "Se a resposta trouxer acao=selecionar_conta_meta, resolva a conta primeiro. Informe ao usuario o criativo, o formato e a conta usados.";
+const PARAMETROS_CONTA_META = {
+  type: "object",
+  properties: {
+    campaignId: { type: "integer", description: "ID do rascunho." },
+    adAccountId: { type: "string", description: "OPCIONAL. adAccountId de uma conta devolvida pela listagem, ja ESCOLHIDA PELO USUARIO. Sem ele, so lista." },
+  },
+  required: ["campaignId"],
+};
+const DESCRICAO_CONTA_META =
+  "Lista as contas de anuncios Meta que o usuario pode usar e registra a escolhida no rascunho. " +
+  "Com varias contas, apresente os NOMES e pergunte qual usar; nunca escolha por ele nem use um numero que ele digitou sem listar. " +
+  "A escolha pede a frase CONFIRMAR CONTA META retornada pela ferramenta, enviada exatamente pelo usuario. Nao publica nada.";
 const DESCRICAO_PUBLICAR_CAMPANHA =
   "Primeira chamada prepara confirmacao, sem publicar. Mostre a frase CONFIRMAR PUBLICACAO retornada e espere o usuario envia-la exatamente; depois repita os mesmos argumentos. Para website, linkUrl HTTPS pode ser informada ou resolvida via WhatsApp/site da Pagina; se nao houver destino, peca uma URL HTTPS. Para lead_form, escolha o formulario com consultar_formularios_meta e passe o leadGenFormId; nunca peca esse numero ao usuario. " +
   "PUBLICA a campanha na Meta Ads DE VERDADE — a partir daqui, orcamento real do cliente comeca a ser gasto. " +
@@ -572,6 +602,8 @@ const declaracoesGemini: FunctionDeclaration[] = [
   { name: "definir_foto_destaque", description: DESCRICAO_FOTO_DESTAQUE, parametersJsonSchema: PARAMETROS_FOTO_DESTAQUE },
   { name: "editar_criativo", description: DESCRICAO_EDITAR_CRIATIVO, parametersJsonSchema: PARAMETROS_EDITAR_CRIATIVO },
   { name: "aprovar_revisao_criativo", description: DESCRICAO_APROVAR_REVISAO, parametersJsonSchema: PARAMETROS_APROVAR_REVISAO },
+  { name: "anexar_video_criativo", description: DESCRICAO_ANEXAR_VIDEO, parametersJsonSchema: PARAMETROS_ANEXAR_VIDEO },
+  { name: "selecionar_conta_meta", description: DESCRICAO_CONTA_META, parametersJsonSchema: PARAMETROS_CONTA_META },
   { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parametersJsonSchema: PARAMETROS_PAGINAS_META },
   { name: "consultar_formularios_meta", description: DESCRICAO_FORMULARIOS_META, parametersJsonSchema: PARAMETROS_FORMULARIOS_META },
   { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
@@ -602,6 +634,14 @@ const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "aprovar_revisao_criativo", description: DESCRICAO_APROVAR_REVISAO, parameters: PARAMETROS_APROVAR_REVISAO as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "anexar_video_criativo", description: DESCRICAO_ANEXAR_VIDEO, parameters: PARAMETROS_ANEXAR_VIDEO as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "selecionar_conta_meta", description: DESCRICAO_CONTA_META, parameters: PARAMETROS_CONTA_META as Record<string, unknown> },
   },
   {
     type: "function" as const,
@@ -1090,6 +1130,13 @@ export function janelaDaTentativa(limitePorTentativa: number, msRestantesDoPrazo
 async function executarEdicaoDeCriativo(name: string | undefined, args: unknown, userId: number): Promise<Record<string, unknown> | null> {
   if (name === "editar_criativo") return editarCriativo(userId, limparArgsFerramenta(args as any), db, auditCreativeSegmentAlignment);
   if (name === "aprovar_revisao_criativo") return aprovarRevisaoCriativo(userId, limparArgsFerramenta(args as any), db, adsTurn.getStore()?.message || "");
+  if (name === "anexar_video_criativo") {
+    const base = await depsContaMetaPadrao(db);
+    return anexarVideoAoCriativo(userId, limparArgsFerramenta(args as any), await depsVideoChatPadrao(db, base));
+  }
+  if (name === "selecionar_conta_meta") {
+    return selecionarContaMeta(userId, limparArgsFerramenta(args as any), await depsContaMetaPadrao(db), adsTurn.getStore()?.message || "");
+  }
   return null;
 }
 
@@ -1785,6 +1832,7 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
     if (!videoUrl) {
       return res.status(502).json({ erro: "Não foi possível salvar o vídeo agora. Tente novamente em instantes." });
     }
+    registrarVideoDoChat(userId, videoUrl);
     log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size });
     res.json({ videoUrl, fileName: file.originalname });
   } catch (e: any) {
@@ -2075,7 +2123,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   if (videoUrlRecebida && /^https?:\/\//i.test(videoUrlRecebida) && mensagens.length) {
     const lastUser = [...mensagens].reverse().find((m) => m.role === "user");
     if (lastUser) {
-      lastUser.content += `\n\n[Vídeo anexado no chat: ${videoUrlRecebida}. Você não consegue assistir o conteúdo do vídeo — apenas confirme que ele foi recebido e, se relevante, mencione que ele pode ser usado como material da campanha. Nunca descreva ou invente o que aparece no vídeo.]`;
+      lastUser.content += `\n\n[Vídeo anexado no chat: ${videoUrlRecebida}. Você não consegue assistir o conteúdo do vídeo — apenas confirme que ele foi recebido e, se relevante, mencione que ele pode ser usado como material da campanha (para usa-lo em um criativo do rascunho, use anexar_video_criativo com esta URL exata). Nunca descreva ou invente o que aparece no vídeo.]`;
     }
   }
 
