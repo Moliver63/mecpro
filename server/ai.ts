@@ -45,6 +45,8 @@ import {
   isRedundantHookText,
 } from "../shared/campaignCopyQuality";
 import { buildRealEstateCarouselAngles } from "./carouselCopy";
+import { inferirSegmento } from "../shared/segmentInference";
+import { RECOMENDACAO_COMERCIAL_BRL_POR_CONJUNTO_DIA } from "../shared/metaBudgetRules";
 
 // ── Google Ads API — busca keywords e insights do concorrente ────────────────
 async function fetchGoogleCompetitorInsights(
@@ -1185,7 +1187,15 @@ export function resolveInitialCampaignSegment(
   const profileParts = [clientProfile?.niche, clientProfile?.productService, clientProfile?.productName];
   const fromProfile = resolveSegmentFromCampaignContext(explicitSegment, ...profileParts);
   if (fromProfile !== "outro") return fromProfile;
-  return resolveSegmentFromCampaignContext(explicitSegment, ...profileParts, extraContext, campaignName);
+  const fromAll = resolveSegmentFromCampaignContext(explicitSegment, ...profileParts, extraContext, campaignName);
+  if (fromAll !== "outro") return fromAll;
+  // Auditoria 23/11 (F2): medico, dermatologista, psicologa, incorporadora e
+  // similares caiam em "outro" por falta de acento/palavra-chave no campo nicho.
+  const inferido = inferirSegmento({
+    niche: clientProfile?.niche, productService: clientProfile?.productService, productName: clientProfile?.productName,
+    extraContext, name: campaignName,
+  });
+  return inferido.segment !== "outro" && SEGMENT_COPY_RULES[inferido.segment] ? inferido.segment : "outro";
 }
 
 type SegmentAlignmentRule = {
@@ -6820,7 +6830,9 @@ export async function generateCampaign(input: {
   // efetivamente gerada) vira só um dado informativo (budgetViability,
   // anexado ao aiResponse mais abaixo) e uma pendência de PUBLICAÇÃO em
   // shared/campaignQualityGate.ts, nunca uma reescrita automática do valor.
-  const META_MIN_DAILY_PER_ADSET = 5.11;
+  // F6 (23/11): referencia COMERCIAL do MecProAI em reais, nao regra da Meta
+  // (shared/metaBudgetRules.ts). O piso real vem da conta de anuncios.
+  const META_MIN_DAILY_PER_ADSET = RECOMENDACAO_COMERCIAL_BRL_POR_CONJUNTO_DIA;
   const DEFAULT_ADSETS_FOR_VIABILITY = 3; // estrutura real (Frio/Morno/Remarketing)
   const campaignDurationDays = input.duration && input.duration > 0 ? input.duration : 30;
   const requestedBudget = input.budget;
@@ -6829,7 +6841,7 @@ export async function generateCampaign(input: {
   const recommendedMinimumDaily = Math.ceil(META_MIN_DAILY_PER_ADSET * DEFAULT_ADSETS_FOR_VIABILITY * 1.1);
   const meetsMetaBudgetMinimum = requestedBudget >= recommendedMinimumMonthly;
   if (!meetsMetaBudgetMinimum) {
-    log.warn("ai", "Orçamento solicitado abaixo do mínimo recomendado pela Meta — mantido como pedido, sinalizado para o cliente decidir", {
+    log.warn("ai", "Orçamento solicitado abaixo da recomendação comercial do MecProAI (não é exigência da Meta) — mantido como pedido, sinalizado para o cliente decidir", {
       solicitado: requestedBudget,
       recomendadoMinimo: recommendedMinimumMonthly,
       adSetsConsiderados: DEFAULT_ADSETS_FOR_VIABILITY,
@@ -6843,6 +6855,8 @@ export async function generateCampaign(input: {
     recommendedMinimumMonthly,
     recommendedMinimumDaily,
     meetsMetaBudgetMinimum,
+    // Origem: referencia comercial em reais, nao minimo da API da Meta.
+    origem: "recomendacao_comercial" as const,
   };
 
   // Helper: personas block para o prompt
@@ -8536,6 +8550,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     mediaUrls: input.realImages || [],
     hasImages: (input.realImages?.length || 0) > 0,
     factValidationStatus: factValidation.status,
+    adSets: adSets,
   }, clientProfile, { name: input.name });
   if (postGenerationGate.status === "blocked") {
     const blocking = postGenerationGate.blockedGates

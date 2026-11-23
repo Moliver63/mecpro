@@ -1,3 +1,6 @@
+import crypto from "node:crypto";
+import { notaDeRetomada } from "./chatAttachments";
+import { CAMPOS_PARA_RASCUNHO } from "./chatReasoning";
 /**
  * server/chat.ts — Assistente de Campanhas do MecProAI (via chat)
  *
@@ -27,18 +30,19 @@ import { chatSessionMiddleware } from "./chatSession";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentConfig, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
 import { createChatRetryBudget } from "./chatRetryBudget";
-import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha, definirFotoDestaque } from "./chatWorkspace";
+import { queryChatWorkspace, selectChatProject, atualizarOrcamentoCampanha as atualizarOrcamentoCampanhaBruto, definirFotoDestaque as definirFotoDestaqueBruto } from "./chatWorkspace";
 import { editarCriativo, aprovarRevisaoCriativo } from "./chatCreativeEdit";
 import { listarPaginasMetaConectadas } from "./campaignPublish";
-import { chatImageTool, generateChatImage } from "./chatImageTools";
+import { chatImageTool, generateChatImage as generateChatImageBruto } from "./chatImageTools";
 import { repairMetaPageReply } from "./chatMetaPageReply";
 import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn, registrarEstadoDeImagens } from "./chatImageReply";
 import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
 import { respostaFinalDoPasso, RESPOSTA_SEM_CONCLUSAO } from "./chatRespostaFinal";
-import { modeloIndisponivel, esperaDeModeloGemini } from "./chatProviderCooldown";
-import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMeta, listarFormulariosChat } from "./chatAdsTools";
+import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMetaBruto, listarFormulariosChat } from "./chatAdsTools";
+import { toolLedger, executarUmaVez, novoLivro, iniciarNovaTentativaDoLivro } from "./chatToolLedger";
+import { executarCadeia, saudeDosProvedores, type Provedor } from "./chatProviderChain";
 import { anexarVideoAoCriativo, depsVideoChatPadrao, registrarVideoDoChat } from "./chatCreativeVideo";
-import { selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
+import { selecionarContaMetaDaSessao, aplicarContaDaSessaoAoRascunho, type SessaoDeConta, selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask";
@@ -49,7 +53,7 @@ import * as db from "./db";
 import multer from "multer";
 import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
-import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply } from "./chatReasoning";
+import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply, type FalhaDaIA } from "./chatReasoning";
 import { budgetChatMessages, COMPACT_CHAT_POLICY } from "./chatRequestBudget";
 import { missingCampaignIntake } from "./chatIntake";
 import { prepareChatWithoutAI } from "./chatPreparation";
@@ -258,6 +262,8 @@ export interface CampanhaGerada {
   url: string;
   photoCount?: number;
   coverFileName?: string;
+  /** Linha de status da conta de anuncios associada ao rascunho (F5). */
+  contaMeta?: string;
 }
 
 interface RespostaChat {
@@ -290,6 +296,8 @@ Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao so
 
 Depois de selecionar um projeto existente, consulte suas campanhas. Apresente nova do zero, usar existente como modelo ou editar existente; nao repita escolhas ja feitas.
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
+CONTA ANTES DO RASCUNHO: ao conduzir uma campanha nova, depois de definir o projeto e ANTES de gerar_campanha, chame selecionar_conta_meta sem campaignId para listar as contas de anuncios autorizadas. Com varias, apresente os nomes e deixe o usuario escolher (frase CONFIRMAR CONTA META); com uma so, diga qual e. A conta escolhida e associada ao rascunho quando ele for criado. Nunca use conta por suposicao.
+
 VIDEO E CONTA DE ANUNCIOS: quando o usuario anexar um video (nota "[Video anexado no chat: URL]") e quiser usa-lo, identifique o rascunho e o criativo com consultar_projetos_campanhas, pergunte em qual criativo e em qual formato (feed, stories/Reels ou square) e chame anexar_video_criativo com a URL exata da nota. Isso nao publica nada. Se a ferramenta pedir conta (acao=selecionar_conta_meta), use selecionar_conta_meta: com varias contas, apresente os nomes e deixe o usuario escolher, e peca a frase CONFIRMAR CONTA META retornada; com uma so, ela e usada e voce diz qual. Nunca use uma conta por suposicao.
 Se publicar_campanha recusar por criativo em revisao: score baixo e/ou promessa de resultado com prazo o usuario pode aprovar com aprovar_revisao_criativo (mostre os textos, o score e a frase da promessa antes); placeholder, texto fora do segmento, alegacao nao confirmada ou depoimento inventado exigem reescrever com editar_criativo. Nunca invente prova social pra subir score.
 
@@ -574,13 +582,12 @@ const DESCRICAO_ANEXAR_VIDEO =
 const PARAMETROS_CONTA_META = {
   type: "object",
   properties: {
-    campaignId: { type: "integer", description: "ID do rascunho." },
+    campaignId: { type: "integer", description: "OPCIONAL. ID do rascunho. Sem ele, lista/escolhe a conta para a conversa e ela e associada ao rascunho quando ele for criado." },
     adAccountId: { type: "string", description: "OPCIONAL. adAccountId de uma conta devolvida pela listagem, ja ESCOLHIDA PELO USUARIO. Sem ele, so lista." },
   },
-  required: ["campaignId"],
 };
 const DESCRICAO_CONTA_META =
-  "Lista as contas de anuncios Meta que o usuario pode usar e registra a escolhida no rascunho. " +
+  "Lista as contas de anuncios Meta que o usuario pode usar e registra a escolhida. Pode ser chamada ANTES de existir rascunho (sem campaignId): a conta fica na conversa e e associada ao rascunho quando gerar_campanha o criar. " +
   "Com varias contas, apresente os NOMES e pergunte qual usar; nunca escolha por ele nem use um numero que ele digitou sem listar. " +
   "A escolha pede a frase CONFIRMAR CONTA META retornada pela ferramenta, enviada exatamente pelo usuario. Nao publica nada.";
 const DESCRICAO_PUBLICAR_CAMPANHA =
@@ -822,12 +829,18 @@ async function prepararFotosDoChat(attachments: ChatImageAttachment[], projectId
 }
 
 // ── Execução real da ferramenta (chama o motor existente) ─────────────────
-async function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
+async function executarGeracaoCampanhaBruta(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
   try {
     return await runChatDraftTask(userId, () => gerarRascunhoValidado(args, userId, attachments, sessionId), TIMEOUT_GERACAO_MS);
   } catch (error) {
     return { ok: false, erro: error instanceof Error ? error.message : "Falha ao acompanhar a tarefa." };
   }
+}
+
+// Um rascunho por atendimento: se o provedor A criou e falhou depois, o provedor B
+// recebe o mesmo rascunho em vez de gerar outro (mesmo com texto de pedido diferente).
+function executarGeracaoCampanha(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): ReturnType<typeof executarGeracaoCampanhaBruta> {
+  return executarUmaVez(userId, "gerar_campanha", args, () => executarGeracaoCampanhaBruta(args, userId, attachments, sessionId), { sessionId });
 }
 
 async function gerarRascunhoValidado(args: Record<string, unknown>, userId: number, attachments: ChatImageAttachment[] = [], sessionId: number | null = null): Promise<{ ok: true; campanha: CampanhaGerada } | { ok: false; erro: string; termosRejeitados?: string[] }> {
@@ -993,6 +1006,20 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       coverFileName: orderedAttachments[0]?.fileName,
     };
     log.info("chat", "campanha gerada via chat", { userId, campaignId: campanha.id, projectId });
+    // F5: a conta escolhida na conversa (antes do rascunho) passa para o rascunho
+    // agora, revalidada. Falha aqui nao derruba o rascunho: o portao de upload e
+    // publicacao continua exigindo a conta e pedira a escolha de novo.
+    if (state?.metaAdAccount && state.metaAdAccount.usadaNaCampanha && state.metaAdAccount.usadaNaCampanha !== campanha.id) {
+      // Segunda campanha na mesma conversa: a escolha anterior NAO e reaplicada em silencio
+      // (aplicar pode trocar a conta da conexao Meta). O usuario confirma a conta desta campanha.
+      campanha.contaMeta = `Conta de anuncios: a conta ${state.metaAdAccount.nome} foi usada na campanha anterior desta conversa. Confirme qual conta usar nesta campanha antes de subir midia ou publicar.`;
+    } else if (state?.metaAdAccount) {
+      const aplicada = await aplicarContaDaSessaoAoRascunho(userId, campanha.id, sessaoDeConta(state), await depsContaMetaPadrao(db));
+      if (aplicada.status === "aplicada") {
+        campanha.contaMeta = `Conta de anuncios: ${aplicada.nome}.`;
+        state.metaAdAccount.usadaNaCampanha = campanha.id;
+      } else if (aplicada.status === "falhou") campanha.contaMeta = `Conta de anuncios: nao consegui associar (${aplicada.erro}). Escolha a conta antes de subir midia ou publicar.`;
+    }
     // Fotos consumidas por esta geração — limpa da sessão pra não serem
     // reaproveitadas silenciosamente numa campanha diferente mais tarde
     // na mesma conversa (ex: usuário pede uma segunda campanha pra outro
@@ -1127,7 +1154,29 @@ export function janelaDaTentativa(limitePorTentativa: number, msRestantesDoPrazo
 // Um despacho so pras tres familias de provedor (Gemini, OpenAI-compativel,
 // DeepSeek): ferramenta nova registrada em um e esquecida em outro ja deixou o
 // chat mudo num fallback antes.
+// Ferramentas com efeito passam pelo livro do atendimento (chatToolLedger): se um
+// provedor executou e falhou depois, o proximo nao repete o efeito. F4, 23/11.
+const atualizarOrcamentoCampanha = (userId: number, args: Record<string, unknown>, store: any) =>
+  executarUmaVez(userId, "atualizar_orcamento_campanha", args, () => atualizarOrcamentoCampanhaBruto(userId, args, store));
+const definirFotoDestaque = (userId: number, args: Record<string, unknown>, store: any) =>
+  executarUmaVez(userId, "definir_foto_destaque", args, () => definirFotoDestaqueBruto(userId, args, store));
+const generateChatImage = (userId: number, args: any) =>
+  executarUmaVez(userId, chatImageTool.name, args, () => generateChatImageBruto(userId, args));
+const publicarCampanhaNaMeta = (userId: number, options: any) =>
+  executarUmaVez(userId, "publicar_campanha", options, () => publicarCampanhaNaMetaBruto(userId, options));
+
+function sessaoDeConta(estado: NonNullable<ReturnType<typeof briefingContext.getStore>>): SessaoDeConta {
+  return { obter: () => estado.metaAdAccount ?? null, gravar: (c) => { if (c) estado.metaAdAccount = c; else delete estado.metaAdAccount; } };
+}
+
+const FERRAMENTAS_DE_CRIATIVO_E_CONTA = new Set(["editar_criativo", "aprovar_revisao_criativo", "anexar_video_criativo", "selecionar_conta_meta"]);
 async function executarEdicaoDeCriativo(name: string | undefined, args: unknown, userId: number): Promise<Record<string, unknown> | null> {
+  if (name && FERRAMENTAS_DE_CRIATIVO_E_CONTA.has(name)) {
+    return executarUmaVez(userId, name, limparArgsFerramenta(args as any), () => executarEdicaoDeCriativoBruto(name, args, userId));
+  }
+  return executarEdicaoDeCriativoBruto(name, args, userId);
+}
+async function executarEdicaoDeCriativoBruto(name: string | undefined, args: unknown, userId: number): Promise<Record<string, unknown> | null> {
   if (name === "editar_criativo") return editarCriativo(userId, limparArgsFerramenta(args as any), db, auditCreativeSegmentAlignment);
   if (name === "aprovar_revisao_criativo") return aprovarRevisaoCriativo(userId, limparArgsFerramenta(args as any), db, adsTurn.getStore()?.message || "");
   if (name === "anexar_video_criativo") {
@@ -1135,7 +1184,15 @@ async function executarEdicaoDeCriativo(name: string | undefined, args: unknown,
     return anexarVideoAoCriativo(userId, limparArgsFerramenta(args as any), await depsVideoChatPadrao(db, base));
   }
   if (name === "selecionar_conta_meta") {
-    return selecionarContaMeta(userId, limparArgsFerramenta(args as any), await depsContaMetaPadrao(db), adsTurn.getStore()?.message || "");
+    const limpos = limparArgsFerramenta(args as any);
+    const deps = await depsContaMetaPadrao(db);
+    const mensagem = adsTurn.getStore()?.message || "";
+    if (limpos.campaignId === undefined) {
+      const estado = briefingContext.getStore();
+      if (!estado) return { ok: false, erro: "Conversa indisponivel." };
+      return selecionarContaMetaDaSessao(userId, limpos, deps, mensagem, sessaoDeConta(estado));
+    }
+    return selecionarContaMeta(userId, limpos, deps, mensagem);
   }
   return null;
 }
@@ -1741,9 +1798,9 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
 
 /* ---------------- Provedor 4: resposta local (sem IA) ---------------- */
 
-function responderLocal(text = ""): RespostaChat {
+function responderLocal(text = "", mensagens: MensagemChat[] = [], falhas: FalhaDaIA[] = []): RespostaChat {
   return {
-    resposta: localConversationReply(text, briefingContext.getStore()?.briefing || {}),
+    resposta: localConversationReply(text, briefingContext.getStore()?.briefing || {}, { mensagens, falhas }),
     campanha: null,
     modo: "local",
   };
@@ -1828,13 +1885,40 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
     return res.status(400).json({ erro: `Formato de vídeo não suportado (${file.mimetype}). Use MP4, MOV, WEBM, AVI ou MKV.` });
   }
   try {
+    // F7: a sessao precisa ser do proprio usuario; id invalido nao cria sessao nova em silencio.
+    let sessionIdEfetivo: number | null = null;
+    const sessionIdRecebido = Number(req.body?.sessionId);
+    if (req.body?.sessionId !== undefined && req.body?.sessionId !== "" && !(Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0)) {
+      return res.status(400).json({ erro: "Conversa invalida." });
+    }
+    if (Number.isFinite(sessionIdRecebido) && sessionIdRecebido > 0) {
+      const sessao = await db.getChatSessionById(sessionIdRecebido).catch(() => null);
+      if (!sessao || (sessao as any).userId !== userId) return res.status(404).json({ erro: "Conversa não encontrada." });
+      sessionIdEfetivo = sessionIdRecebido;
+    } else {
+      sessionIdEfetivo = await db.createChatSession(userId, "Nova conversa").catch(() => null);
+    }
+    // Mesmo conteudo ja enviado nesta conversa: reaproveita, sem novo upload.
+    const sha = crypto.createHash("sha256").update(file.buffer).digest("hex");
+    if (sessionIdEfetivo !== null) {
+      const existente = (await db.getPendingChatVideos(sessionIdEfetivo).catch(() => [])).find((v) => v.sha === sha);
+      if (existente) {
+        registrarVideoDoChat(userId, existente.url);
+        return res.json({ videoUrl: existente.url, fileName: existente.fileName, sessionId: sessionIdEfetivo, persistido: true, reaproveitado: true });
+      }
+    }
     const videoUrl = await uploadVideoBufferToCloudinary(file.buffer, file.originalname || `chat-video-${Date.now()}.mp4`);
     if (!videoUrl) {
       return res.status(502).json({ erro: "Não foi possível salvar o vídeo agora. Tente novamente em instantes." });
     }
     registrarVideoDoChat(userId, videoUrl);
-    log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size });
-    res.json({ videoUrl, fileName: file.originalname });
+    let persistido = false;
+    if (sessionIdEfetivo !== null) {
+      const r = await db.addPendingChatVideo(sessionIdEfetivo, { url: videoUrl, fileName: file.originalname, sha }).catch(() => ({ salvo: false, duplicado: null }));
+      persistido = r.salvo;
+    }
+    log.info("chat", "vídeo anexado no chat via upload genérico", { userId, fileName: file.originalname, size: file.size, persistido });
+    res.json({ videoUrl, fileName: file.originalname, sessionId: sessionIdEfetivo, persistido });
   } catch (e: any) {
     log.warn("chat", "falha no upload de vídeo do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
     res.status(500).json({ erro: "Erro ao salvar o vídeo. Tente novamente." });
@@ -2002,10 +2086,11 @@ async function persistirTrocaEResponder(
 chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => {
   const messages = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
   const message = [...messages].reverse().find((m: any) => m?.role === "user")?.content;
-  adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
-    imageTurn.run({}, () =>
-      projectTurn.run({}, () =>
-        chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next))));
+  toolLedger.run(novoLivro(), () =>
+    adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
+      imageTurn.run({}, () =>
+        projectTurn.run({}, () =>
+          chatTaskContext.run({ key: chatTaskKey({ mensagens: req.body?.mensagens, attachments: req.body?.attachments }) }, next)))));
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
   const state = briefingContext.getStore();
@@ -2113,6 +2198,28 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     }
   }
 
+  // F7: retomada. Diz ao modelo em que etapa a conversa parou e quais anexos
+  // ja estao guardados, para nao repetir o briefing nem pedir reenvio.
+  if (state && req.chatSessionId && mensagens.length) {
+    const b: any = state.briefing || {};
+    const [fotosGuardadas, videosGuardados] = await Promise.all([
+      db.getPendingChatPhotos(req.chatSessionId).catch(() => []),
+      db.getPendingChatVideos(req.chatSessionId).catch(() => []),
+    ]);
+    const temAlgo = Object.keys(b).length > 0 || !!state.lastCampaign || fotosGuardadas.length > 0 || videosGuardados.length > 0;
+    if (temAlgo) {
+      const nota = notaDeRetomada({
+        briefingCompleto: CAMPOS_PARA_RASCUNHO.every((k) => b[k] != null && String(b[k]).trim() !== ""),
+        temRascunho: !!state.lastCampaign,
+        contaEscolhida: !!state.metaAdAccount,
+        fotos: fotosGuardadas.length,
+        videos: videosGuardados.length,
+      });
+      const lastUserR = [...mensagens].reverse().find((m) => m.role === "user");
+      if (lastUserR) lastUserR.content += `\n\n[${nota}]`;
+    }
+  }
+
   // Achado real (pedido de Michel, 13/09): vídeo anexado no chat (upload
   // separado via /chat/upload-video — ver endpoint abaixo) chega aqui só
   // como uma URL, não como base64 dentro da mensagem. Diferente das
@@ -2142,86 +2249,32 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
     }
   }
 
-  // `esperaDeModeloGemini`: depois de uma falha de MODELO (503 ou socket
-  // pendurado), pula o Gemini por 90s e vai direto pro Cloudflare. Nos logs de
-  // 15 e 16/10 toda troca observada caiu pro fallback, e o caso do socket
-  // pendurado custa 30s antes da primeira palavra. Pagar uma vez e descobrir;
-  // pagar em cada mensagem e desperdicio. Ver chatProviderCooldown.
-  if (proximaChaveGemini() && esperaDeModeloGemini.disponivel(MODELO_GEMINI)) {
-    try {
-      const resultado = await tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      // So falha de modelo abre a janela. Chave rejeitada, requisicao invalida e
-      // limite de taxa seguem tentando: pular por causa deles esconderia
-      // defeito nosso atras de um fallback silencioso.
-      if (modeloIndisponivel(erro)) esperaDeModeloGemini.bloquear(MODELO_GEMINI);
-      log.warn("chat", "Gemini indisponível, tentando Cloudflare Workers AI", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else if (proximaChaveGemini()) {
-    // Tem chave, mas o modelo esta na janela de espera. Motivo nomeado: sem
-    // isto o log diria "nenhuma chave disponivel", que seria falso.
-    log.warn("chat", "Gemini pulado — modelo em espera curta apos falha recente", {
-      userId, modelo: MODELO_GEMINI, faltamSegundos: esperaDeModeloGemini.segundosRestantes(MODELO_GEMINI),
-    });
-  } else {
-    // Achado real (Michel relatou o fallback local reaparecendo, 16/09):
-    // quando esta condição é falsa, NADA era logado — só o catch acima
-    // loga, e só quando uma tentativa de verdade falhou. Se o Gemini
-    // for pulado por falta de chave disponível (todas rejeitadas ou com
-    // cota esgotada), os logs do Render não mostravam isso — só que caiu
-    // no modo local no fim da cadeia, sem indicar qual provedor faltou e
-    // por quê. Com este log, a próxima ocorrência fica diagnosticável.
-    log.warn("chat", "Gemini pulado — nenhuma chave disponível (todas rejeitadas ou com cota esgotada)", { userId });
-  }
-
-  if (cloudflareWorkersAIConfigurado()) {
-    try {
-      const resultado = await tentarComCloudflare(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "Cloudflare Workers AI indisponível, tentando DeepSeek", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "Cloudflare Workers AI pulado — CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN não configurado", { userId });
-  }
-
-  if (process.env.DEEPSEEK_API_KEY && deepSeekBillingCooldown.available(process.env.DEEPSEEK_API_KEY.trim())) {
-    try {
-      const resultado = await tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "DeepSeek indisponível, tentando Groq", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "DeepSeek pulado", {
-      userId,
-      motivo: !process.env.DEEPSEEK_API_KEY ? "DEEPSEEK_API_KEY não configurada" : "em cooldown de 15min após erro de saldo (402) — se persistir, o saldo da conta DeepSeek provavelmente está zerado",
-    });
-  }
-
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const resultado = await tentarComGroq(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "Groq indisponível, tentando OpenRouter", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "Groq pulado — GROQ_API_KEY não configurada", { userId });
-  }
-
-  if (process.env.OPENROUTER_API_KEY) {
-    try {
-      const resultado = await tentarComOpenRouter(mensagens, userId, attachments, req.chatSessionId, velocidade);
-      return finish(resultado);
-    } catch (erro) {
-      log.warn("chat", "OpenRouter indisponível, caindo pra resposta local", { erro: redactProviderSecrets(String((erro as any)?.message ?? "")) });
-    }
-  } else {
-    log.warn("chat", "OpenRouter pulado — OPENROUTER_API_KEY não configurada", { userId });
-  }
-
-  log.error("chat", "TODOS os provedores de IA falharam ou foram pulados — caindo pro modo local", { userId });
-  return finish(responderLocal(ultimaMensagemUsuario || ""));
+  // Cadeia de provedores (F4, 23/11): ver chatProviderChain. Cada provedor e
+  // tentado no maximo uma vez por mensagem, falha de MODELO (503, socket
+  // pendurado, timeout) abre uma janela curta para ELE (antes so o Gemini tinha),
+  // e passado o teto de tempo nenhum provedor novo e iniciado. Ferramentas com
+  // efeito passam pelo livro do atendimento, entao a troca de provedor nao as repete.
+  const chaveDeepSeek = process.env.DEEPSEEK_API_KEY?.trim() || "";
+  const provedores: Array<Provedor<RespostaChat>> = [
+    { id: "gemini", indisponivelPorque: () => (proximaChaveGemini() ? null : "nenhuma chave disponivel (todas rejeitadas ou com cota esgotada)"),
+      tentar: () => tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "cloudflare", indisponivelPorque: () => (cloudflareWorkersAIConfigurado() ? null : "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN nao configurado"),
+      tentar: () => tentarComCloudflare(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "deepseek", indisponivelPorque: () => (!chaveDeepSeek ? "DEEPSEEK_API_KEY nao configurada" : deepSeekBillingCooldown.available(chaveDeepSeek) ? null : "em cooldown de 15min apos erro de saldo (402); se persistir, o saldo da conta provavelmente acabou"),
+      tentar: () => tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "groq", indisponivelPorque: () => (process.env.GROQ_API_KEY ? null : "GROQ_API_KEY nao configurada"),
+      tentar: () => tentarComGroq(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+    { id: "openrouter", indisponivelPorque: () => (process.env.OPENROUTER_API_KEY ? null : "OPENROUTER_API_KEY nao configurada"),
+      tentar: () => tentarComOpenRouter(mensagens, userId, attachments, req.chatSessionId, velocidade) },
+  ];
+  const cadeia = await executarCadeia(provedores, {
+    saude: saudeDosProvedores,
+    aoIniciarProvedor: () => iniciarNovaTentativaDoLivro(),
+    aoRegistrar: ({ id, evento, detalhe }) => log.warn("chat", `Provedor ${id} ${evento}`, { userId, detalhe: redactProviderSecrets(detalhe) }),
+  });
+  if (cadeia.ok === true) return finish(cadeia.resultado);
+  log.error("chat", "TODOS os provedores de IA falharam ou foram pulados — caindo pro modo local", {
+    userId, falhas: cadeia.falhas.map((f) => ({ id: f.id, motivo: f.motivo })), esgotouTempo: cadeia.esgotouTempo,
+  });
+  return finish(responderLocal(ultimaMensagemUsuario || "", mensagens, cadeia.falhas));
 });

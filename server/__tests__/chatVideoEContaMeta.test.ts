@@ -93,9 +93,9 @@ test("1b. /chat/upload-video registra o video por usuario e a nota do chat apont
   const chat = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
   const i = chat.indexOf('chatRouter.post("/upload-video"');
   assert.ok(i > 0);
-  const trecho = chat.slice(i, i + 2600);
-  assert.match(trecho, /registrarVideoDoChat\(userId, videoUrl\)/);
-  assert.ok(trecho.indexOf("registrarVideoDoChat(") > trecho.indexOf("uploadVideoBufferToCloudinary("));
+  const trecho = chat.slice(i, i + 5200);
+  assert.match(trecho, /registrarVideoDoChat\(userId, videoUrl\)/); // reaproveitado (mesmo hash) registra a URL existente, antes do upload
+  assert.ok(trecho.lastIndexOf("registrarVideoDoChat(") > trecho.indexOf("uploadVideoBufferToCloudinary("));
   assert.match(chat, /use anexar_video_criativo com esta URL exata/);
   // limites e formatos existentes continuam
   assert.match(trecho, /100 \* 1024 \* 1024|limite é 100MB/);

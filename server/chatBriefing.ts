@@ -3,7 +3,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface ChatBriefingState {
   preparation?: { status: "collecting" | "awaiting_ai" };
   briefing: Record<string, unknown>;
-  lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string };
+  lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string; contaMeta?: string };
+  /** Conta de anuncios escolhida nesta conversa (so o servidor grava; nao passa por atualizar_briefing). */
+  metaAdAccount?: { id: string; nome: string; moeda: string | null; escolhidaEm: string; /** Campanha que ja usou esta escolha; a proxima campanha da conversa pede confirmacao de novo. */ usadaNaCampanha?: number };
 }
 export const briefingContext = new AsyncLocalStorage<ChatBriefingState>();
 const strings = ["projectName", "name", "objective", "platform", "niche", "productService", "targetAudience", "city", "mediaFormat", "whatsapp", "destinationUrl", "confirmedFacts"];
@@ -36,6 +38,7 @@ export function campaignResultText(campaign: NonNullable<ChatBriefingState["last
   return `Rascunho criado: ${campaign.name} (#${campaign.id}).\n${campaign.url}` +
     (campaign.photoCount !== undefined ? `\nFotos encaminhadas ao gerador: ${campaign.photoCount}.` : "") +
     (campaign.coverFileName ? ` Capa solicitada: ${campaign.coverFileName}.` : "") +
+    (campaign.contaMeta ? `\n${campaign.contaMeta}` : "") +
     "\nNada foi publicado na Meta.";
 }
 
@@ -58,6 +61,8 @@ const CATEGORIA_DE_CONFLITO: Array<[RegExp, string]> = [
   [/^commercial_property_residential_copy|^residential_feature_claim_conflict/, "caracteristica de imovel residencial num imovel comercial"],
   [/^unverified_social_proof/, "prova social (depoimento, numero de clientes) sem comprovacao"],
   [/^unverified_scarcity_or_exclusivity/, "escassez ou exclusividade sem comprovacao"],
+  [/^unverified_factual_claim/, "uma afirmacao verificavel (certificacao, resultado, numero de clientes, ranking, tempo de mercado) que nao esta no briefing"],
+  [/^regulated_advertising_claim/, "uma promessa que a publicidade da sua profissao nao permite"],
   [/^unverified_benefit/, "um beneficio que nao esta no briefing"],
   [/^unconfirmed_offer_claim|^forbidden_claim_not_in_current_briefing/, "uma oferta que nao esta no briefing atual"],
   [/^campaign_objective_conflict/, "um objetivo diferente do escolhido pra campanha"],

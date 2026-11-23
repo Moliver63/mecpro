@@ -6,6 +6,8 @@ import {
   normalizeCampaignObjective,
 } from "./campaignBriefingReadiness";
 import { getCarouselEditorialIssues, getCreativeEditorialIssues } from "./campaignCopyQuality";
+import { planoDeOrcamento } from "./adSetBudgetPlan";
+import { avaliarOrcamento } from "./metaBudgetRules";
 
 export type CampaignQualityGateStage = "generate" | "media" | "publish" | "optimize";
 export type CampaignQualityGateStatus = "passed" | "needs_info" | "blocked";
@@ -28,6 +30,11 @@ export interface CampaignQualityGateInput extends CampaignBriefingInput {
   // bloqueia geração/rascunho: o orçamento pedido pelo cliente nunca é
   // substituído automaticamente por este gate.
   adSetsCount?: number | null;
+  /** Conjuntos planejados (array ou JSON). Quando presentes, a soma diaria e checada contra o total autorizado. */
+  adSets?: unknown;
+  /** Moeda e minimo diario por conjunto lidos da conta Meta (so a API da Meta e fonte do minimo). */
+  metaAccountCurrency?: string | null;
+  metaMinDailyPerAdSet?: number | null;
 }
 
 export interface CampaignQualityGate {
@@ -380,17 +387,34 @@ export function evaluateCampaignQualityGates(
     // Meta por ad set ANTES de publicar, deixando a decisão explícita para
     // quem confirma a publicação (aumentar orçamento, reduzir ad sets ou
     // publicar mesmo assim).
-    const META_MIN_DAILY_PER_ADSET = 5.11;
     const requestedBudget = Number(input.budget) || 0;
     const durationDays = Number(input.duration) > 0 ? Number(input.duration) : 30;
     const adSetsCount = Number(input.adSetsCount) > 0 ? Number(input.adSetsCount) : 3;
     if (requestedBudget > 0) {
-      const requestedDaily = requestedBudget / durationDays;
-      const recommendedMinimumDaily = META_MIN_DAILY_PER_ADSET * adSetsCount;
-      if (requestedDaily < recommendedMinimumDaily) {
+      // F6 (23/11): cada aviso diz a ORIGEM da regra. So o minimo lido da conta e
+      // da Meta; os R$ 5,11 por conjunto sao recomendacao comercial do MecProAI.
+      // Soma dos conjuntos: o MESMO plano que a publicacao usa (adSetBudgetPlan).
+      const plano = input.adSets != null
+        ? planoDeOrcamento({ adSets: input.adSets, suggestedBudgetMonthly: requestedBudget, durationDays })
+        : null;
+      if (plano && plano.conjuntos.length && !plano.ok && plano.motivo) {
+        addSyntheticIssue(publishRequired, "budget_adsets_sum", "required",
+          `Regra do MecProAI: ${plano.motivo}`,
+          "A soma dos conjuntos nao pode passar do total autorizado. O orcamento nao foi alterado automaticamente.");
+      }
+      const { avisos } = avaliarOrcamento({
+        orcamentoTotal: requestedBudget, dias: durationDays, conjuntos: plano?.conjuntos.length || adSetsCount,
+        moedaDaConta: input.metaAccountCurrency ?? null,
+        minimoDiarioDaConta: input.metaMinDailyPerAdSet ?? null,
+        orcamentosDiariosDosConjuntos: plano && plano.ok ? plano.conjuntos.map((c) => c.diario) : undefined,
+      });
+      const aviso = avisos.find((a) => a.codigo === "abaixo_do_minimo_da_conta") || avisos.find((a) => a.codigo === "abaixo_da_recomendacao_comercial");
+      if (aviso) {
         addSyntheticIssue(publishRequired, "budget_viability", "required",
-          `O orcamento pedido (R$${requestedDaily.toFixed(2)}/dia) fica abaixo do minimo recomendado pela Meta para ${adSetsCount} conjunto(s) de anuncios (R$${recommendedMinimumDaily.toFixed(2)}/dia). Confirme se deseja publicar assim mesmo, aumentar o orcamento ou reduzir o numero de conjuntos.`,
-          "Orcamento abaixo do minimo por conjunto pode impedir entrega na Meta ou ser rejeitado na publicacao — o valor pedido nao foi alterado automaticamente.");
+          aviso.mensagem,
+          aviso.origem === "api_meta"
+            ? "Orcamento abaixo do minimo da conta pode ser rejeitado na publicacao. O valor pedido nao foi alterado automaticamente."
+            : "Recomendacao comercial do MecProAI, nao exigencia da Meta. O valor pedido nao foi alterado automaticamente.");
       }
     }
   }

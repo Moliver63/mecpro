@@ -246,7 +246,11 @@ export function useCampaignChat() {
       // usuário precisava reenviar tudo de novo. pendingPhotoUrls (ver
       // db.addPendingChatPhoto) sobrevive no servidor; aqui só restaura
       // pro estado local pra aparecer de novo na bandeja de anexos.
-      const pendentes = Array.isArray(data?.sessao?.pendingPhotoUrls) ? data.sessao.pendingPhotoUrls : [];
+      const todosPendentes = Array.isArray(data?.sessao?.pendingPhotoUrls) ? data.sessao.pendingPhotoUrls : [];
+      // Videos guardados na sessao (kind:"video") voltam como videoAttachment, nao como foto.
+      const videoGuardado = [...todosPendentes].reverse().find((p: { kind?: string }) => p?.kind === "video") as { url: string; fileName: string } | undefined;
+      if (videoGuardado) setVideoAttachment({ id: `restaurado-${id}`, fileName: videoGuardado.fileName || "video", mimeType: "video/mp4", size: 0, status: "done", videoUrl: videoGuardado.url });
+      const pendentes = todosPendentes.filter((p: { kind?: string }) => p?.kind !== "video");
       if (pendentes.length) {
         setAttachments(pendentes.map((p: { url: string; fileName: string }, i: number) => ({
           id: `restaurada-${id}-${i}-${p.url}`,
@@ -410,11 +414,16 @@ export function useCampaignChat() {
     try {
       const form = new FormData();
       form.append("file", file, file.name);
+      if (sessionId) form.append("sessionId", String(sessionId));
       const res = await fetch("/api/chat/upload-video", { method: "POST", credentials: "include", body: form });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.videoUrl) {
         setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: data?.erro || "Não foi possível enviar o vídeo." });
         return;
+      }
+      if (!sessionId && data.sessionId) {
+        setSessionId(data.sessionId);
+        localStorage.setItem(CHAVE_SESSAO_LOCAL, String(data.sessionId));
       }
       setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "done", videoUrl: data.videoUrl });
     } catch {
@@ -422,7 +431,15 @@ export function useCampaignChat() {
     }
   };
 
-  const removeVideoAttachment = () => setVideoAttachment(null);
+  const removeVideoAttachment = () => {
+    if (videoAttachment?.status === "done" && videoAttachment.videoUrl && sessionId) {
+      fetch("/api/chat/pending-photo", {
+        method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ sessionId, url: videoAttachment.videoUrl }),
+      }).catch(() => {});
+    }
+    setVideoAttachment(null);
+  };
 
   const send = async (textoOverride?: string) => {
     const texto = (textoOverride ?? input).trim();

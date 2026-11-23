@@ -68,6 +68,8 @@ export function urlDeVideoDoChatValida(url: unknown, env: { cloudName?: string; 
 }
 
 export interface DepsVideoChat extends DepsContaMeta {
+  /** Confere nas sessoes do usuario (banco) quando o registro em memoria nao tem o video. */
+  videoDoUsuarioPersistido?(userId: number, url: string): Promise<boolean>;
   baixar(url: string): Promise<{ ok: true; buffer: Buffer; contentType: string } | { ok: false; erro: string }>;
   /** integrations.uploadVideoToMeta */
   enviarParaMeta(userId: number, input: { videoBase64: string; fileName: string; mimeType: string }): Promise<{ videoId: string }>;
@@ -101,7 +103,11 @@ export async function anexarVideoAoCriativo(userId: number, args: Record<string,
   const criativo = criativos[creativeIndex];
 
   const videoUrl = args.videoUrl;
-  if (!urlDeVideoDoChatValida(videoUrl) || !videoDoChatDoUsuario(userId, videoUrl as string)) {
+  const doUsuario = urlDeVideoDoChatValida(videoUrl) && (
+    videoDoChatDoUsuario(userId, videoUrl as string) ||
+    (deps.videoDoUsuarioPersistido ? await deps.videoDoUsuarioPersistido(userId, videoUrl as string).catch(() => false) : false)
+  );
+  if (!doUsuario) {
     return { ok: false, erro: "Esse video nao esta entre os enviados por este usuario no chat. Peca que anexe o video de novo no chat. Nada foi alterado." };
   }
   let miniatura: string | undefined;
@@ -178,6 +184,7 @@ export async function depsVideoChatPadrao(db: any, base: DepsContaMeta, injected
   };
   return {
     ...base,
+    videoDoUsuarioPersistido: (userId, url) => db.userOwnsPendingChatVideo(userId, url),
     baixar: baixarVideoDoCloudinary,
     enviarParaMeta: async (userId, input) => (await caller(userId)).integrations.uploadVideoToMeta(input as any),
     gravarNoCriativo: async (userId, input) => (await caller(userId)).campaigns.updateCreativeImage(input as any),

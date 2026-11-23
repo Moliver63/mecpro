@@ -115,8 +115,8 @@ export function evaluateCampaignBriefingReadiness(
 
   if (!budget || budget <= 0) {
     addIssue(issues, "budget", "required", "Qual sera o orcamento total ou diario para esta campanha?", "Sem orcamento nao da para dividir verba por conjunto nem estimar volume minimo.");
-  } else if (dailyBudget > 0 && platform.includes("meta") && dailyBudget < 5.11) {
-    addIssue(issues, "budget", "required", "Podemos ajustar o orcamento para pelo menos R$ 5,11 por dia na Meta?", "A Meta exige um minimo diario pratico; abaixo disso a campanha tende a falhar ou nao entregar.");
+  } else if (dailyBudget > 0 && platform.includes("meta") && dailyBudget < 5.11 && (!(input as any).metaAccountCurrency || String((input as any).metaAccountCurrency).toUpperCase() === "BRL")) {
+    addIssue(issues, "budget", "required", "O orcamento diario esta abaixo de R$ 5,11, o minimo que o MecProAI recomenda para a campanha entregar. Quer ajustar o valor ou seguir assim mesmo?", "Recomendacao do MecProAI, nao exigencia da Meta: o minimo real da conta e confirmado pela Meta na publicacao. O valor informado nao sera alterado sem a sua confirmacao.");
   } else if (dailyBudget > 0 && dailyBudget < 20) {
     addIssue(issues, "budget", "recommended", "O orcamento diario esta baixo. Quer manter assim para teste ou aumentar para ganhar volume?", "Orcamento muito baixo limita aprendizado e leitura de performance.");
   }

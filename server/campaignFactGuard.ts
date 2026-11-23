@@ -9,6 +9,7 @@ import {
 
 import { retrieveCampaignRules, canonicalObjective } from "./campaignRuleRetrieval";
 import { detectUnconfirmedOfferClaims, REGRA_OFERTA_PARA_PROMPT, type OfferClaimKind, type OfferClaimSuggestion } from "./campaignOfferGuard";
+import { unverifiedFactualClaims, detectRegulatedClaims, detectRegulatedArea } from "./factualClaimGate";
 
 type FactSource = Record<string, unknown>;
 
@@ -63,6 +64,9 @@ export type CampaignFacts = {
   // nicho. Mais amplo que socialProofRaw (que so olha productProofPoints)
   // porque escassez/exclusividade pode vir de qualquer campo do briefing.
   confirmedClaimsRaw: string;
+  // O que o anunciante VENDE (nicho, produto, nome), normalizado. A area regulada
+  // sai daqui, nao do briefing inteiro: "sala para escritorio de advocacia" e imovel.
+  negocioRaw?: string;
   // Só o briefing DESTA campanha (sem o perfil da conta), normalizado, e os
   // campos de produto dela. Opcionais: snapshots antigos não os têm. Usados
   // pela regra de gratuidade para o perfil não liberar "grátis" num produto
@@ -822,6 +826,7 @@ export function buildCampaignFacts({
     intent: { segment: segment || "", objective: canonicalObjective(input.objective) },
     socialProofRaw,
     confirmedClaimsRaw: n,
+    negocioRaw: normalizeText(compactText([input?.["niche"] || clientProfile?.["niche"], input?.["productName"] || clientProfile?.["productName"], input?.["productService"] || clientProfile?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     campaignClaimsRaw: normalizeText(currentRaw),
     campaignProductRaw: normalizeText(compactText([input?.["productName"], input?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     confirmedCharacteristics,
@@ -933,6 +938,14 @@ export function validateCampaignFactIntegrity(
   };
   visit(creatives, "creatives");
 
+  // Area regulamentada vem do conteudo confirmado do briefing, nao so do segmento.
+  // Segmento conhecido manda; so em `outro`/vazio olha o que o anunciante vende.
+  // Imoveis, educacao etc. citando "clinica" ou "advocacia" como publico NAO viram area regulada.
+  const seg = facts.intent?.segment || "";
+  const areaRegulada = seg === "saude_estetica" ? "saude"
+    : seg === "financeiro" ? "financeiro"
+    : (!seg || seg === "outro") ? detectRegulatedArea(facts.negocioRaw ?? "")
+    : null;
   for (const { field, text } of fields) {
     const n = normalizeText(text);
     for (const term of rules.forbidden) {
@@ -980,6 +993,19 @@ export function validateCampaignFactIntegrity(
       if (!substantiated) {
         conflicts.push({ field, value: claim, reason: "unverified_scarcity_or_exclusivity_claim" });
       }
+    }
+
+    // Alegacao factual sem lastro (certificacao, aprovacao por orgao, percentual
+    // de resultado, garantia de resultado, quantidade atendida, cliente nomeado,
+    // tempo de mercado, ranking). Auditoria 23/11 (F1/F2): vale para QUALQUER
+    // segmento, inclusive "outro". Passa so o que o cliente confirmou no
+    // briefing/perfil. Linguagem publicitaria comum nao entra.
+    for (const claim of unverifiedFactualClaims(text, facts.confirmedClaimsRaw)) {
+      conflicts.push({ field, value: claim.value, reason: `unverified_factual_claim_${claim.kind}` });
+    }
+    // Profissoes regulamentadas: formas vedadas mesmo com confirmacao do cliente.
+    for (const claim of detectRegulatedClaims(text, areaRegulada)) {
+      conflicts.push({ field, value: claim.value, reason: "regulated_advertising_claim" });
     }
 
     // Característica não comprova benefício — regra estrutural, qualquer

@@ -21,7 +21,7 @@
  */
 import { parseDailyBudget } from "./dailyBudget";
 
-/** Piso que a publicacao aplica por conjunto (Meta exige R$ 5,11). */
+/** Piso interno que a publicacao aplica por conjunto (regra do MecProAI; nao e exigencia da Meta). */
 export const PISO_DIARIO_POR_CONJUNTO = 6;
 
 export type OrigemDoValor =

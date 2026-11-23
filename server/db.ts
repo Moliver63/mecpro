@@ -17,6 +17,7 @@ import {
 } from "./schema";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
+import { somenteFotos, somenteVideos, type AnexoDaSessao } from "./chatAttachments";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
@@ -1618,10 +1619,11 @@ export async function addPendingChatPhoto(sessionId: number, photo: { url: strin
     SET "pendingPhotoUrls" = (
       SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
       FROM (
-        SELECT elem, ord
-        FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novoItem}::jsonb) WITH ORDINALITY AS t(elem, ord)
-        ORDER BY ord DESC
-        LIMIT 10
+        SELECT elem, ord FROM (
+          SELECT elem, ord, row_number() OVER (PARTITION BY (elem->>'kind' = 'video') ORDER BY ord DESC) AS rn
+          FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novoItem}::jsonb) WITH ORDINALITY AS t(elem, ord)
+        ) numerados
+        WHERE rn <= 10
       ) recentes
     ),
     "updatedAt" = NOW()
@@ -1635,13 +1637,76 @@ export async function addPendingChatPhoto(sessionId: number, photo: { url: strin
 export async function getPendingChatPhotos(sessionId: number): Promise<Array<{ url: string; fileName: string }>> {
   const db = await getDb(); if (!db) return [];
   const r = await db.select({ pendingPhotoUrls: chatSessions.pendingPhotoUrls }).from(chatSessions).where(eq(chatSessions.id, sessionId)).limit(1);
-  return Array.isArray(r[0]?.pendingPhotoUrls) ? (r[0]!.pendingPhotoUrls as any) : [];
+  return somenteFotos(r[0]?.pendingPhotoUrls) as any;
 }
 
-/** Limpa as fotos pendentes da sessão — chamado após uma geração de campanha bem-sucedida consumi-las. */
+/** Limpa as fotos pendentes da sessão — chamado após uma geração de campanha bem-sucedida consumi-las. Videos seguem guardados (F7). */
 export async function clearPendingChatPhotos(sessionId: number) {
   const db = await getDb(); if (!db) return;
-  await db.update(chatSessions).set({ pendingPhotoUrls: null } as any).where(eq(chatSessions.id, sessionId));
+  await db.execute(sql`
+    UPDATE chat_sessions
+    SET "pendingPhotoUrls" = (
+      SELECT CASE WHEN count(*) = 0 THEN NULL ELSE jsonb_agg(elem ORDER BY ord) END
+      FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb)) WITH ORDINALITY AS t(elem, ord)
+      WHERE elem->>'kind' = 'video'
+    )
+    WHERE id = ${sessionId}
+  `);
+}
+
+/** Videos guardados na sessão (F7). */
+export async function getPendingChatVideos(sessionId: number): Promise<AnexoDaSessao[]> {
+  const db = await getDb(); if (!db) return [];
+  const r = await db.select({ p: chatSessions.pendingPhotoUrls }).from(chatSessions).where(eq(chatSessions.id, sessionId)).limit(1);
+  return somenteVideos(r[0]?.p);
+}
+
+/**
+ * Guarda a referencia do video na sessao. Atomico em um UPDATE: nao duplica
+ * (mesma URL ou mesmo hash) e mantem os 10 anexos mais recentes.
+ * Retorna o anexo ja existente quando o envio e repetido.
+ */
+export async function addPendingChatVideo(sessionId: number, video: { url: string; fileName: string; sha?: string }): Promise<{ salvo: boolean; duplicado: AnexoDaSessao | null }> {
+  const db = await getDb(); if (!db) return { salvo: false, duplicado: null };
+  const item: AnexoDaSessao = { url: video.url, fileName: video.fileName, kind: "video", ...(video.sha ? { sha: video.sha } : {}) };
+  const novo = JSON.stringify([item]);
+  const sha = video.sha ?? "";
+  const r: any = await db.execute(sql`
+    UPDATE chat_sessions
+    SET "pendingPhotoUrls" = (
+      SELECT COALESCE(jsonb_agg(elem ORDER BY ord), '[]'::jsonb)
+      FROM (
+        SELECT elem, ord FROM (
+          SELECT elem, ord, row_number() OVER (PARTITION BY (elem->>'kind' = 'video') ORDER BY ord DESC) AS rn
+          FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb) || ${novo}::jsonb) WITH ORDINALITY AS t(elem, ord)
+        ) numerados
+        WHERE rn <= 10
+      ) recentes
+    ),
+    "updatedAt" = NOW()
+    WHERE id = ${sessionId}
+      AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(COALESCE("pendingPhotoUrls", '[]'::jsonb)) e
+        WHERE e->>'kind' = 'video' AND (e->>'url' = ${video.url} OR (${sha} <> '' AND e->>'sha' = ${sha}))
+      )
+    RETURNING id
+  `);
+  if ((r as any).rowCount > 0) return { salvo: true, duplicado: null };
+  const existentes = await getPendingChatVideos(sessionId);
+  const duplicado = existentes.find((a) => a.url === video.url || (!!sha && a.sha === sha)) ?? null;
+  return { salvo: !!duplicado, duplicado };
+}
+
+/** O video é de uma sessao deste usuario? Vale depois de reiniciar o servidor (o registro em memoria some). */
+export async function userOwnsPendingChatVideo(userId: number, url: string): Promise<boolean> {
+  const db = await getDb(); if (!db) return false;
+  const filtro = JSON.stringify([{ url, kind: "video" }]);
+  const r: any = await db.execute(sql`
+    SELECT 1 FROM chat_sessions
+    WHERE "userId" = ${userId} AND COALESCE("pendingPhotoUrls", '[]'::jsonb) @> ${filtro}::jsonb
+    LIMIT 1
+  `);
+  return ((r as any).rowCount ?? (r as any).rows?.length ?? 0) > 0;
 }
 
 // Achado real (revisao apontada por Michel, 16/09): remover uma foto na
