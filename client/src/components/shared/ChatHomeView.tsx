@@ -70,13 +70,13 @@ export default function ChatHomeView() {
           input={chat.input}
           setInput={chat.setInput}
           attachments={chat.attachments}
-          addAttachments={chat.addAttachments}
+          addFiles={chat.addFiles}
+        substituirAnexo={chat.substituirAnexo}
           removeAttachment={chat.removeAttachment}
           attachmentError={chat.attachmentError}
           velocidade={chat.velocidade}
           escolherVelocidade={chat.escolherVelocidade}
-          videoAttachment={chat.videoAttachment}
-          addVideoAttachment={chat.addVideoAttachment}
+          videoAttachments={chat.videoAttachments}
           removeVideoAttachment={chat.removeVideoAttachment}
           send={chat.send}
           scrollRef={chat.scrollRef}

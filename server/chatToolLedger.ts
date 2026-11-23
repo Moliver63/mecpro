@@ -39,7 +39,7 @@ export function iniciarNovaTentativaDoLivro(): void { toolLedger.getStore()?.nov
 export const FERRAMENTAS_COM_EFEITO = new Set([
   "gerar_campanha", "atualizar_orcamento_campanha", "definir_foto_destaque", "editar_criativo",
   "aprovar_revisao_criativo", "anexar_video_criativo", "selecionar_conta_meta", "publicar_campanha",
-  "gerar_imagem", "gerar_imagem_campanha",
+  "gerar_imagem", "gerar_imagem_campanha", "adaptar_video",
 ]);
 
 export function chaveEstavel(valor: unknown): string {

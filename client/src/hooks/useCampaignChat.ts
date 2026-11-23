@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { estaAcompanhandoOFim } from "@/lib/chatScroll";
+import { LIMITES_PADRAO, separarArquivos, subirAnexo, type LimitesDeMidia } from "@/lib/chatUploads";
 
 /**
  * useCampaignChat — lógica compartilhada do assistente de campanhas via
@@ -37,6 +38,8 @@ export interface ChatImageAttachment {
   // existindo só pra preview instantâneo local, photoUrl é a referência
   // persistida de verdade.
   status: "uploading" | "done" | "error";
+  /** 0-100, progresso real do envio. */
+  progresso?: number;
   photoUrl?: string;
   erro?: string;
 }
@@ -54,7 +57,12 @@ export interface ChatVideoAttachment {
   mimeType: string;
   size: number;
   status: "uploading" | "done" | "error";
+  progresso?: number;
   videoUrl?: string;
+  /** Pre-visualizacao local (object URL) enquanto envia; depois vale a videoUrl. */
+  previewUrl?: string;
+  duracaoS?: number;
+  proporcao?: string;
   erro?: string;
 }
 
@@ -111,13 +119,6 @@ const CHAVE_SESSAO_LOCAL = "mecpro_chat_session_id";
 const CHAVE_VELOCIDADE_LOCAL = "mecpro_chat_velocidade";
 export type ChatVelocidade = "rapida" | "media" | "lenta";
 
-const MAX_CHAT_IMAGES = 10;
-const MAX_CHAT_IMAGE_BYTES = 6 * 1024 * 1024;
-const ACCEPTED_CHAT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-
-const MAX_CHAT_VIDEO_BYTES = 100 * 1024 * 1024; // mesmo limite do servidor (multer)
-const ACCEPTED_CHAT_VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska"]);
-
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -137,9 +138,18 @@ export function useCampaignChat() {
   });
   const [attachments, setAttachments] = useState<ChatImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const [videoAttachments, setVideoAttachments] = useState<ChatVideoAttachment[]>([]);
+  const [limites, setLimites] = useState<LimitesDeMidia>(LIMITES_PADRAO);
+  // A sessao precisa ser lida NA HORA de cada envio (estado de render fica velho dentro de um laco de uploads).
+  const sessaoRef = useRef<number | null>(null);
+  const cancelamentos = useRef(new Map<string, () => void>());
+  // Estado mais recente para decisoes assincronas (o closure de um envio em andamento enxerga um render antigo).
+  const anexosRef = useRef<{ fotos: ChatImageAttachment[]; videos: ChatVideoAttachment[] }>({ fotos: [], videos: [] });
+  anexosRef.current = { fotos: attachments, videos: videoAttachments };
   const [loading, setLoading] = useState(false);
   const [needsLogin, setNeedsLogin] = useState(false);
-  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [sessionId, setSessionIdState] = useState<number | null>(null);
+  const setSessionId = (id: number | null) => { sessaoRef.current = id; setSessionIdState(id); };
   const [sessoes, setSessoes] = useState<ChatSessionResumo[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -248,8 +258,8 @@ export function useCampaignChat() {
       // pro estado local pra aparecer de novo na bandeja de anexos.
       const todosPendentes = Array.isArray(data?.sessao?.pendingPhotoUrls) ? data.sessao.pendingPhotoUrls : [];
       // Videos guardados na sessao (kind:"video") voltam como videoAttachment, nao como foto.
-      const videoGuardado = [...todosPendentes].reverse().find((p: { kind?: string }) => p?.kind === "video") as { url: string; fileName: string } | undefined;
-      if (videoGuardado) setVideoAttachment({ id: `restaurado-${id}`, fileName: videoGuardado.fileName || "video", mimeType: "video/mp4", size: 0, status: "done", videoUrl: videoGuardado.url });
+      const videosGuardados = todosPendentes.filter((p: { kind?: string }) => p?.kind === "video") as Array<{ url: string; fileName: string }>;
+      setVideoAttachments(videosGuardados.slice(-limites.videosPorMensagem).map((v, i) => ({ id: `restaurado-${id}-${i}-${v.url}`, fileName: v.fileName || "video", mimeType: "video/mp4", size: 0, status: "done" as const, progresso: 100, videoUrl: v.url, previewUrl: v.url })));
       const pendentes = todosPendentes.filter((p: { kind?: string }) => p?.kind !== "video");
       if (pendentes.length) {
         setAttachments(pendentes.map((p: { url: string; fileName: string }, i: number) => ({
@@ -259,6 +269,7 @@ export function useCampaignChat() {
           size: 0,
           dataUrl: p.url,
           status: "done" as const,
+          progresso: 100,
           photoUrl: p.url,
         })));
       } else {
@@ -278,7 +289,7 @@ export function useCampaignChat() {
     setInput("");
     setAttachments([]);
     setAttachmentError("");
-    setVideoAttachment(null);
+    setVideoAttachments([]);
     setNeedsLogin(false);
   };
 
@@ -293,6 +304,14 @@ export function useCampaignChat() {
       return false;
     }
   };
+
+  // Limites tecnicos vem do servidor (configuraveis por ambiente); se falhar, vale o padrao.
+  useEffect(() => {
+    fetch("/api/chat/media-limits", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && d.fotoBytes > 0 && d.videoBytes > 0) setLimites({ fotoBytes: d.fotoBytes, videoBytes: d.videoBytes, fotosPorConversa: d.fotosPorConversa || LIMITES_PADRAO.fotosPorConversa, videosPorMensagem: d.videosPorMensagem || LIMITES_PADRAO.videosPorMensagem }); })
+      .catch(() => {});
+  }, []);
 
   // Restaura a conversa automaticamente ao carregar a página — resolve o
   // "ficar repetindo passos": sem isso, um reload perdia tudo que já tinha
@@ -312,59 +331,67 @@ export function useCampaignChat() {
     ? { id: sessaoComCampanha.lastCampaignId as number, name: sessaoComCampanha.lastCampaignName as string, url: sessaoComCampanha.lastCampaignUrl || "" }
     : null;
 
-  const addAttachments = async (files: FileList | File[]) => {
-    setAttachmentError("");
-    const selected = Array.from(files).filter(Boolean);
-    const availableSlots = Math.max(0, MAX_CHAT_IMAGES - attachments.length);
-    const accepted = selected.slice(0, availableSlots);
-
-    if (selected.length > availableSlots) {
-      setAttachmentError(`O chat aceita até ${MAX_CHAT_IMAGES} fotos por campanha.`);
-    }
-
-    for (const file of accepted) {
-      if (!ACCEPTED_CHAT_IMAGE_TYPES.has(file.type)) {
-        setAttachmentError("Envie apenas imagens nos formatos JPEG, PNG ou WEBP.");
-        continue;
-      }
-      if (file.size > MAX_CHAT_IMAGE_BYTES) {
-        setAttachmentError(`A foto "${file.name}" excede 6MB. Comprima antes de anexar.`);
-        continue;
-      }
-
-      const id = `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`;
-      // Preview instantâneo local (não espera o upload) — o upload real
-      // acontece em paralelo, status rastreia o progresso.
-      const dataUrl = await fileToDataUrl(file);
-      setAttachments((prev) => [...prev, {
-        id, fileName: file.name, mimeType: file.type, size: file.size, dataUrl, status: "uploading" as const,
-      }].slice(0, MAX_CHAT_IMAGES));
-
-      try {
-        const form = new FormData();
-        form.append("file", file, file.name);
-        if (sessionId) form.append("sessionId", String(sessionId));
-        const res = await fetch("/api/chat/upload-photo", { method: "POST", credentials: "include", body: form });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.photoUrl) {
-          setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "error", erro: data?.erro || "Não foi possível enviar a foto." } : a));
-          continue;
-        }
-        setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "done", photoUrl: data.photoUrl } : a));
-        // Achado real (revisao apontada por Michel, 16/09): se ainda nao
-        // havia sessao (primeira acao do usuario foi anexar foto, antes
-        // de mandar texto), o servidor agora cria uma e devolve o
-        // sessionId — captura aqui pra que essa MESMA sessao seja usada
-        // no envio da mensagem seguinte, e a foto nao fique orfa.
-        if (!sessionId && data.sessionId) {
-          setSessionId(data.sessionId);
-          localStorage.setItem(CHAVE_SESSAO_LOCAL, String(data.sessionId));
-        }
-      } catch {
-        setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, status: "error", erro: "Erro de conexão ao enviar a foto." } : a));
-      }
-    }
+  const contextoDeUpload = {
+    sessionId: () => sessaoRef.current,
+    adotarSessao: (id: number) => { setSessionId(id); localStorage.setItem(CHAVE_SESSAO_LOCAL, String(id)); },
   };
+
+  const enviarFoto = async (file: File) => {
+    const id = `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`;
+    // Preview instantâneo local (não espera o upload) — o upload real acontece em seguida, com progresso.
+    const dataUrl = await fileToDataUrl(file).catch(() => "");
+    setAttachments((prev) => [...prev, { id, fileName: file.name, mimeType: file.type, size: file.size, dataUrl, status: "uploading" as const, progresso: 0 }]);
+    let cancelado = false;
+    cancelamentos.current.set(id, () => { cancelado = true; });
+    const r = await subirAnexo("foto", file, contextoDeUpload, (pct) => setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, progresso: pct } : a))),
+      { abortado: false, aoAbortar: (cb) => cancelamentos.current.set(id, () => { cancelado = true; cb(); }) });
+    cancelamentos.current.delete(id);
+    if (cancelado) return;
+    // O servidor reconhece a mesma foto (mesmo conteudo, outro nome): nao entra duas vezes na campanha.
+    if (r.ok && r.reaproveitado && anexosRef.current.fotos.some((a) => a.id !== id && a.photoUrl === r.url)) {
+      setAttachments((prev) => prev.filter((a) => a.id !== id));
+      setAttachmentError(`"${file.name}" é a mesma foto que você já anexou; mantive uma só.`);
+      return;
+    }
+    setAttachments((prev) => prev.map((a) => (a.id !== id ? a : r.ok ? { ...a, status: "done", progresso: 100, photoUrl: r.url } : { ...a, status: "error", erro: r.erro })));
+  };
+
+  const enviarVideo = async (file: File) => {
+    const id = crypto.randomUUID();
+    const previewUrl = typeof URL !== "undefined" && URL.createObjectURL ? URL.createObjectURL(file) : undefined;
+    setVideoAttachments((prev) => [...prev, { id, fileName: file.name, mimeType: file.type || "video/mp4", size: file.size, status: "uploading", progresso: 0, previewUrl }]);
+    let cancelado = false;
+    const r = await subirAnexo("video", file, contextoDeUpload, (pct) => setVideoAttachments((prev) => prev.map((v) => (v.id === id ? { ...v, progresso: pct } : v))),
+      { abortado: false, aoAbortar: (cb) => cancelamentos.current.set(id, () => { cancelado = true; cb(); }) });
+    cancelamentos.current.delete(id);
+    if (cancelado) { if (previewUrl) URL.revokeObjectURL(previewUrl); return; }
+    if (r.ok && r.reaproveitado && anexosRef.current.videos.some((x) => x.id !== id && x.videoUrl === r.url)) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setVideoAttachments((prev) => prev.filter((x) => x.id !== id));
+      setAttachmentError(`"${file.name}" é o mesmo vídeo que você já anexou; mantive um só.`);
+      return;
+    }
+    setVideoAttachments((prev) => prev.map((v) => (v.id !== id ? v : r.ok
+      ? { ...v, status: "done", progresso: 100, videoUrl: r.url, duracaoS: typeof r.extra.duracaoS === "number" ? r.extra.duracaoS : undefined, proporcao: typeof r.extra.proporcao === "string" ? r.extra.proporcao : undefined }
+      : { ...v, status: "error", erro: r.erro })));
+  };
+
+  /** Ponto unico de entrada: botao, camera, arrastar e soltar, colar. Fotos e videos juntos. */
+  const addFiles = async (files: FileList | File[]) => {
+    setAttachmentError("");
+    const selecao = separarArquivos(
+      Array.from(files).filter(Boolean),
+      { fotos: Math.max(0, limites.fotosPorConversa - attachments.length), videos: Math.max(0, limites.videosPorMensagem - videoAttachments.length) },
+      limites,
+      [...attachments, ...videoAttachments],
+    );
+    if (selecao.erros.length) setAttachmentError(selecao.erros.join(" "));
+    // Em sequencia: o primeiro envio cria a conversa e os demais entram nela (ver subirAnexo).
+    for (const f of selecao.fotos) await enviarFoto(f);
+    for (const v of selecao.videos) await enviarVideo(v);
+  };
+  const addAttachments = addFiles;
+  const addVideoAttachment = (file: File) => addFiles([file]);
 
   const escolherVelocidade = (v: ChatVelocidade) => {
     setVelocidade(v);
@@ -372,6 +399,7 @@ export function useCampaignChat() {
   };
 
   const removeAttachment = (id: string) => {
+    cancelamentos.current.get(id)?.();
     // Achado real (revisao apontada por Michel, 16/09): antes, isso so
     // mexia no estado local — a foto continuava salva na sessao no
     // servidor, reaparecendo depois de um recarregamento mesmo tendo
@@ -380,12 +408,12 @@ export function useCampaignChat() {
     // deu erro, não há nada persistido pra remover no servidor.
     setAttachments((prev) => {
       const alvo = prev.find((item) => item.id === id);
-      if (alvo?.photoUrl && sessionId) {
+      if (alvo?.photoUrl && sessaoRef.current) {
         fetch("/api/chat/pending-photo", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ sessionId, url: alvo.photoUrl }),
+          body: JSON.stringify({ sessionId: sessaoRef.current, url: alvo.photoUrl }),
         }).catch(() => {
           // silencioso — a remoção local já aconteceu; pior caso, a foto
           // reaparece se a sessão for recarregada antes de uma nova troca
@@ -395,55 +423,31 @@ export function useCampaignChat() {
     });
   };
 
-  // Um vídeo por vez (diferente das fotos, que aceitam várias) — o upload
-  // já acontece aqui, assim que o arquivo é escolhido, não só quando a
-  // mensagem é enviada.
-  const [videoAttachment, setVideoAttachment] = useState<ChatVideoAttachment | null>(null);
-
-  const addVideoAttachment = async (file: File) => {
-    if (!ACCEPTED_CHAT_VIDEO_TYPES.has(file.type)) {
-      setVideoAttachment({ id: crypto.randomUUID(), fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: "Formato não suportado. Use MP4, MOV, WEBM, AVI ou MKV." });
-      return;
-    }
-    if (file.size > MAX_CHAT_VIDEO_BYTES) {
-      setVideoAttachment({ id: crypto.randomUUID(), fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: "Vídeo muito grande — o limite é 100MB." });
-      return;
-    }
-    const id = crypto.randomUUID();
-    setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "uploading" });
-    try {
-      const form = new FormData();
-      form.append("file", file, file.name);
-      if (sessionId) form.append("sessionId", String(sessionId));
-      const res = await fetch("/api/chat/upload-video", { method: "POST", credentials: "include", body: form });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.videoUrl) {
-        setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: data?.erro || "Não foi possível enviar o vídeo." });
-        return;
+  const removeVideoAttachment = (id: string) => {
+    cancelamentos.current.get(id)?.();
+    setVideoAttachments((prev) => {
+      const alvo = prev.find((v) => v.id === id);
+      if (alvo?.status === "done" && alvo.videoUrl && sessaoRef.current) {
+        fetch("/api/chat/pending-photo", {
+          method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ sessionId: sessaoRef.current, url: alvo.videoUrl }),
+        }).catch(() => {});
       }
-      if (!sessionId && data.sessionId) {
-        setSessionId(data.sessionId);
-        localStorage.setItem(CHAVE_SESSAO_LOCAL, String(data.sessionId));
-      }
-      setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "done", videoUrl: data.videoUrl });
-    } catch {
-      setVideoAttachment({ id, fileName: file.name, mimeType: file.type, size: file.size, status: "error", erro: "Erro de conexão ao enviar o vídeo." });
-    }
+      if (alvo?.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(alvo.previewUrl);
+      return prev.filter((v) => v.id !== id);
+    });
   };
 
-  const removeVideoAttachment = () => {
-    if (videoAttachment?.status === "done" && videoAttachment.videoUrl && sessionId) {
-      fetch("/api/chat/pending-photo", {
-        method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({ sessionId, url: videoAttachment.videoUrl }),
-      }).catch(() => {});
-    }
-    setVideoAttachment(null);
+  /** Troca um anexo por outro arquivo: remove o antigo (inclusive no servidor) e envia o novo. */
+  const substituirAnexo = async (id: string, arquivo: File) => {
+    if (videoAttachments.some((v) => v.id === id)) removeVideoAttachment(id); else removeAttachment(id);
+    await addFiles([arquivo]);
   };
 
   const send = async (textoOverride?: string) => {
     const texto = (textoOverride ?? input).trim();
-    if ((!texto && attachments.length === 0) || sending.current) return;
+    const videosProntos = videoAttachments.filter((v) => v.status === "done" && v.videoUrl);
+    if ((!texto && attachments.length === 0 && videosProntos.length === 0) || sending.current) return;
     sending.current = true;
 
     // Quem acabou de enviar quer ver a propria mensagem: voltar a acompanhar o
@@ -457,7 +461,9 @@ export function useCampaignChat() {
     // uma vez, mesmo após o usuário logar de novo e voltar a conversar.
     setNeedsLogin(false);
 
-    const userContent = texto || `Use as ${attachments.length} foto(s) anexadas para montar a campanha.`;
+    const userContent = texto || (attachments.length
+      ? `Use as ${attachments.length} foto(s) anexadas${videosProntos.length ? ` e ${videosProntos.length === 1 ? "o vídeo" : `os ${videosProntos.length} vídeos`}` : ""} para montar a campanha.`
+      : `Analise ${videosProntos.length === 1 ? "o vídeo anexado" : `os ${videosProntos.length} vídeos anexados`} e me diga como usar na campanha.`);
     const anexosDoTurno = attachments;
     const anexosJaMostrados = new Set(messages.flatMap((m) => m.attachments?.map((file) => file.id) || []));
     const anexosParaExibir = anexosDoTurno.filter((file) => !anexosJaMostrados.has(file.id));
@@ -488,7 +494,7 @@ export function useCampaignChat() {
             photoUrl: file.status === "done" ? file.photoUrl : undefined,
             imageBase64: file.status === "done" ? undefined : file.dataUrl,
           })),
-          videoUrl: videoAttachment?.status === "done" ? videoAttachment.videoUrl : undefined,
+          videoUrls: videosProntos.map((v) => v.videoUrl),
           velocidade,
         }),
       });
@@ -527,7 +533,7 @@ export function useCampaignChat() {
       // Vídeo é anexo de "uma vez só" (diferente de fotos, que podem se
       // acumular por algumas mensagens até a campanha ser gerada) — já
       // foi enviado nesta troca, não faz sentido reenviar na próxima.
-      if (videoAttachment?.status === "done") setVideoAttachment(null);
+      if (videosProntos.length) setVideoAttachments((prev) => prev.filter((v) => !videosProntos.some((p) => p.id === v.id)));
       // Sessão criada/confirmada pelo servidor nesta troca — salva pra
       // sobreviver a um recarregamento de página, e atualiza a lista
       // (título/última campanha podem ter mudado nesta troca).
@@ -559,9 +565,12 @@ export function useCampaignChat() {
     addAttachments,
     removeAttachment,
     attachmentError,
-    videoAttachment,
+    videoAttachments,
     addVideoAttachment,
     removeVideoAttachment,
+    addFiles,
+    substituirAnexo,
+    limites,
     loading,
     needsLogin,
     send,

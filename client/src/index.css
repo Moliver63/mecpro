@@ -2474,3 +2474,25 @@ tbody tr:last-child td { border-bottom: none; }
     border-bottom: 1px solid var(--border);
   }
 }
+
+/* ── Chat multimodal: arrastar e soltar, progresso, video, camera ───────── */
+.campaign-chat-footer { position: relative; }
+.campaign-chat-footer[data-arrastando="true"] .campaign-chat-composer { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-glow), var(--shadow-sm); }
+.campaign-chat-dropzone {
+  position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--blue); border-radius: var(--r-lg); background: rgba(255,255,255,0.94);
+  color: var(--blue); font-size: 14px; font-weight: 600; pointer-events: none;
+}
+.campaign-chat-attachment video, .campaign-chat-attachment-novideo { width: 100%; height: 100%; object-fit: cover; background: #0b0b0b; display: block; }
+.campaign-chat-attachment-novideo { display: flex; align-items: center; justify-content: center; color: #fff; }
+.campaign-chat-attachment-play { position: absolute; left: 5px; bottom: 5px; width: 18px; height: 18px; border-radius: 50%; background: rgba(5,5,5,0.72); color: #fff; display: flex; align-items: center; justify-content: center; }
+.campaign-chat-attachment-dur { position: absolute; right: 4px; bottom: 4px; font-style: normal; font-size: 10px; font-weight: 600; color: #fff; background: rgba(5,5,5,0.72); padding: 1px 5px; border-radius: 999px; }
+.campaign-chat-attachment-bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--blue); transition: width 0.15s linear; }
+.campaign-chat-attachment-overlay { flex-direction: column; gap: 2px; }
+.campaign-chat-attachment-pct { font-size: 10.5px; font-weight: 600; }
+.campaign-chat-attachment-swap { position: absolute; top: 4px; left: 4px; width: 21px; height: 21px; border-radius: 50%; background: rgba(5,5,5,0.72); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.campaign-chat-attachment:hover .campaign-chat-attachment-swap, .campaign-chat-attachment:focus-within .campaign-chat-attachment-swap { opacity: 1; }
+@media (hover: none) { .campaign-chat-attachment-swap { opacity: 1; } }
+.campaign-chat-attachment-swap input { display: none; }
+.campaign-chat-attach-camera { display: none; }
+@media (pointer: coarse) { .campaign-chat-attach-camera { display: flex; } }
