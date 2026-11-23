@@ -132,6 +132,11 @@ export async function anexarVideoAoCriativo(userId: number, args: Record<string,
   }
   if (!videoId) return { ok: false, erro: "A Meta nao devolveu o identificador do video. O rascunho nao foi alterado.", rascunhoAlterado: false };
 
+  // O upload pode ter levado minutos: confere de novo que o rascunho continua rascunho.
+  const atual = await deps.getCampaignById(campaignId);
+  if (!atual || campanhaJaPublicada(atual)) {
+    return { ok: false, erro: `O video foi enviado a Meta (videoId ${videoId}), mas a campanha foi publicada nesse meio tempo; nao alterei os criativos dela.`, videoId, rascunhoAlterado: false };
+  }
   try {
     await deps.gravarNoCriativo(userId, { campaignId, creativeIndex, format, videoId, ...(miniatura ? { videoThumbnailUrl: miniatura } : {}) });
   } catch (e: any) {

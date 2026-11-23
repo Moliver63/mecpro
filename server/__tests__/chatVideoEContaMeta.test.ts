@@ -507,3 +507,74 @@ test("8c. nada novo publica, e os arquivos novos nao tocam em publicacao nem em 
     assert.doesNotMatch(t, /publicarCampanhaNaMeta|publishToMeta|\/campaigns\?|status: "ACTIVE"|suggestedBudget/, arquivo);
   }
 });
+
+// ── 9. Correcoes da revisao Goldfish ────────────────────────────────────────────
+
+test("9a. B1: lista incompleta (portfolios falharam) com conexao em outra conta nao associa nem troca sozinho", async () => {
+  const f = fixture({ contas: [C1], conexao: C2.id });
+  f.base.listarContas = async () => ({ ok: true, contas: [C1], completa: false });
+  const r: any = await selecionarContaMeta(1, { campaignId: 12 }, f.base, "");
+  assert.equal(r.ok, true);
+  assert.equal(f.estado.trocas.length, 0, "nao troca a conexao sem escolha");
+  assert.equal(contaDoRascunho(f.campaign), null, "nao grava conta no rascunho");
+});
+
+test("9b. B1: unica conta, lista completa, conexao em OUTRA conta tambem pede escolha", async () => {
+  const f = fixture({ contas: [C1], conexao: C2.id });
+  const r: any = await selecionarContaMeta(1, { campaignId: 12 }, f.base, "");
+  assert.equal(f.estado.trocas.length, 0);
+  assert.equal(contaDoRascunho(f.campaign), null);
+  assert.ok(r);
+});
+
+test("9c. B2: publishStatus 'error' sem metaCampaignId continua rascunho; success/partial/processing/metaCampaignId nao", async () => {
+  const { campanhaJaPublicada } = await import("../metaAdAccountChoice");
+  assert.equal(campanhaJaPublicada({ publishStatus: "draft" }), false);
+  assert.equal(campanhaJaPublicada({ publishStatus: "error", metaCampaignId: null }), false);
+  for (const s of ["success", "partial", "processing"]) assert.equal(campanhaJaPublicada({ publishStatus: s }), true);
+  assert.equal(campanhaJaPublicada({ publishStatus: "error", metaCampaignId: "9" }), true);
+});
+
+test("9d. B2: campanha com publicacao anterior que falhou aceita escolha de conta e video", async () => {
+  limparRegistroDeVideosDoChat(); registrarVideoDoChat(1, URL_A);
+  const f = fixture({ contas: [C1] });
+  f.campaign.publishStatus = "error";
+  const r: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C1.id }, f.base, fraseDaEscolha(1, 12, C1.id));
+  assert.equal(r.ok, true);
+  const v: any = await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 0, format: "feed", videoUrl: URL_A }, f.video);
+  assert.equal(v.ok, true);
+});
+
+test("9e. R4: aiResponse ilegivel nao e sobrescrito", async () => {
+  const f = fixture({ contas: [C1], conexao: C1.id });
+  f.campaign.aiResponse = "{quebrado";
+  const r: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C1.id }, f.base, fraseDaEscolha(1, 12, C1.id));
+  assert.equal(r.ok, false);
+  assert.equal(f.campaign.aiResponse, "{quebrado");
+  assert.equal(f.estado.escritasAiResponse, 0);
+});
+
+test("9f. R5: falha ao gravar o rascunho devolve a conexao a conta anterior", async () => {
+  const f = fixture({ contas: [C1, C2], conexao: C1.id });
+  f.base.updateCampaignField = async () => { throw new Error("db fora"); };
+  const r: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C2.id }, f.base, fraseDaEscolha(1, 12, C2.id));
+  assert.equal(r.ok, false);
+  assert.equal(f.estado.conexao, C1.id, "conexao restaurada");
+});
+
+test("9g. R7: trocar de conta com midia ja enviada avisa que precisa reenviar", async () => {
+  const f = fixture({ contas: [C1, C2], conexao: C1.id, aiResponse: { metaAdAccount: { id: C1.id, nome: C1.nome, escolhidaEm: "x" } } });
+  const lista = JSON.parse(f.campaign.creatives); lista[0].feedVideoId = "vid_1"; f.campaign.creatives = JSON.stringify(lista);
+  const r: any = await selecionarContaMeta(1, { campaignId: 12, adAccountId: C2.id }, f.base, fraseDaEscolha(1, 12, C2.id));
+  assert.equal(r.ok, true);
+  assert.match(r.avisoMidia, /reenviados/);
+});
+
+test("9h. R8: campanha publicada durante o upload nao tem criativo alterado", async () => {
+  limparRegistroDeVideosDoChat(); registrarVideoDoChat(1, URL_A);
+  const f = fixture({ contas: [C1] });
+  f.video.enviarParaMeta = async () => { f.campaign.publishStatus = "success"; f.campaign.metaCampaignId = "55"; return { videoId: "vid_9" }; };
+  const r: any = await anexarVideoAoCriativo(1, { campaignId: 12, creativeIndex: 0, format: "feed", videoUrl: URL_A }, f.video);
+  assert.equal(r.ok, false);
+  assert.equal(f.estado.gravados.length, 0);
+});

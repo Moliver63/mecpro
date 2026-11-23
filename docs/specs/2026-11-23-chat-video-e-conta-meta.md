@@ -57,3 +57,10 @@ revertidos, 7 falham. Suite completa 979/979; tsc 43/64 igual a base.
 ## Revisao Goldfish
 | Rodada | Fase | Bloqueantes | Riscos | Resultado |
 |---|---|---|---|---|
+| 1 | Implementacao (subagente de contexto limpo) | 2 | 10 | B1 corrigido: auto-associacao so com lista completa e conexao vazia ou ja na mesma conta. B2 corrigido: `error` sem metaCampaignId segue editavel; success/partial/processing/metaCampaignId travam. R1 (publicada pula a trava), R2 (limite 25s com mensagem "nada foi publicado"), R4 (aiResponse ilegivel nao e sobrescrito), R5 (rollback da conexao se a gravacao falhar), R7 (aviso de midia da conta anterior), R8 (rele e rechecha publicada antes de gravar o criativo): corrigidos e testados (9a-9h). |
+
+### Limitacoes aceitas (R3, R6, R9, R10 e opcionais)
+- Troca de conta e global por usuario (uma conexao Meta): duas abas escolhendo contas diferentes se bloqueiam pelas travas de divergencia, nao coexistem.
+- Registro de videos do chat e em memoria (TTL 7 dias, 30 por usuario); reiniciar o servidor exige reenviar o video.
+- Video ja enviado a Meta pertence a conta usada no envio; trocar de conta exige reenviar (aviso emitido).
+- Sem segunda rodada de revisao: as correcoes acima sao pontuais e cobertas por testes.

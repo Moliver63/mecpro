@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { pendenciasLocaisParaPublicar } from "./publishPreflight";
 import { resolverPaginaMetaComLista, destinoDaPagina, urlHttps } from "./metaPageResolution";
-import { exigirContaDoRascunho, depsContaMetaPadrao } from "./metaAdAccountChoice";
+import { exigirContaDoRascunho, depsContaMetaPadrao, campanhaJaPublicada } from "./metaAdAccountChoice";
 
 /** Resumo para a pre-confirmacao: o que cada criativo leva (imagem ou video) por formato. */
 function resumoDosCriativos(campaign: any): Array<Record<string, unknown>> {
@@ -155,9 +155,12 @@ export async function publishChatAds(userId: number, options: any, injected?: an
     // testes antigos com db simulado nao tem Meta para consultar e so a pulam
     // quando nao fornecem `contaMeta`.
     let contaMeta: { adAccountId: string; nome: string; moeda: string | null } | null = null;
-    if (!injected || injected.contaMeta) {
+    // Campanha ja publicada nao passa pela trava: o resultado em cache da reserva responde.
+    if ((!injected || injected.contaMeta) && !campanhaJaPublicada(campaign)) {
       const deps = injected?.contaMeta ?? await depsContaMetaPadrao(db);
-      const conta = await bounded(exigirContaDoRascunho(userId, campaign, deps));
+      let conta: Awaited<ReturnType<typeof exigirContaDoRascunho>>;
+      try { conta = await bounded(exigirContaDoRascunho(userId, campaign, deps), 25000); }
+      catch { return { ok: false, erro: "Nao consegui conferir a conta de anuncios na Meta agora. Nada foi publicado; tente de novo em instantes." }; }
       if (conta.ok === false) return { ok: false, erro: conta.erro, acao: conta.acao, ...(conta.contas ? { contas: conta.contas } : {}) };
       contaMeta = conta.conta;
       campaign = conta.campaign;

@@ -40,7 +40,8 @@ export interface DepsContaMeta {
   getProjectsByUserId(userId: number): Promise<any[]>;
   updateCampaignField(id: number, field: "aiResponse", value: string): Promise<unknown>;
   /** Contas que a Meta lista para o token do usuario (ja filtradas e normalizadas). */
-  listarContas(userId: number): Promise<{ ok: true; contas: ContaMeta[] } | { ok: false; erro: string }>;
+  /** `completa: false` = a consulta de portfolios falhou; a lista pode estar faltando contas. */
+  listarContas(userId: number): Promise<{ ok: true; contas: ContaMeta[]; completa?: boolean } | { ok: false; erro: string }>;
   /** adAccountId salvo na conexao Meta (digitos), ou null. */
   contaDaConexao(userId: number): Promise<string | null>;
   /** Troca a conta da conexao (revalida o acesso na Meta). */
@@ -66,10 +67,14 @@ export function contaDoRascunho(campaign: any): { id: string; nome: string; esco
   return { id, nome: String(c?.nome || "Conta sem nome"), escolhidaEm: String(c?.escolhidaEm || "") };
 }
 
-/** Campanha que ja existe na Meta: a conta dela nao se muda por aqui. */
+/**
+ * Campanha que ja existe na Meta (ou esta sendo criada la): a conta e os criativos
+ * dela nao se mudam por aqui. `error` sem `metaCampaignId` e uma tentativa que
+ * falhou ANTES de existir na Meta e continua editavel (o chat deixa republicar).
+ */
 export function campanhaJaPublicada(campaign: any): boolean {
-  const publicada = String(campaign?.publishStatus || "draft") !== "draft";
-  return publicada || !!campaign?.metaCampaignId;
+  if (campaign?.metaCampaignId) return true;
+  return ["success", "partial", "processing"].includes(String(campaign?.publishStatus || "draft"));
 }
 
 export function codigoDaEscolha(userId: number, campaignId: number, adAccountId: string): string {
@@ -88,6 +93,15 @@ async function campanhaDoUsuario(userId: number, campaignId: unknown, deps: Deps
   return { campaign };
 }
 
+/**
+ * Associar sem perguntar so quando nao ha o que escolher: uma unica conta, a lista
+ * e COMPLETA (portfolios consultados com sucesso) e a conexao esta vazia ou ja nessa
+ * conta. Conexao em outra conta, ou lista possivelmente incompleta, exigem a escolha.
+ */
+function podeAssociarSozinho(contas: ContaMeta[], ativas: ContaMeta[], completa: boolean | undefined, atual: string | null): boolean {
+  return contas.length === 1 && ativas.length === 1 && completa !== false && (atual === null || atual === ativas[0].id);
+}
+
 function resumoDaConta(c: ContaMeta, atual: string | null, doRascunho: string | null) {
   return {
     adAccountId: c.id, nome: c.nome, moeda: c.moeda, ativa: c.ativa,
@@ -100,6 +114,14 @@ function resumoDaConta(c: ContaMeta, atual: string | null, doRascunho: string | 
 /** Grava a escolha em aiResponse preservando todo o resto do JSON. Relê antes de gravar. */
 async function gravarNoRascunho(campaignId: number, conta: ContaMeta, deps: DepsContaMeta): Promise<void> {
   const fresca = await deps.getCampaignById(campaignId);
+  // aiResponse guarda campaignFacts, briefing e validacoes: nunca regrava por cima de
+  // conteudo que nao conseguimos ler.
+  const bruto = fresca?.aiResponse;
+  if (typeof bruto === "string" && bruto.trim()) {
+    let ok = false;
+    try { const v = JSON.parse(bruto); ok = !!v && typeof v === "object" && !Array.isArray(v); } catch { ok = false; }
+    if (!ok) throw new Error("dados internos do rascunho ilegiveis; nada foi gravado");
+  }
   const resposta = parseAiResponse(fresca);
   resposta.metaAdAccount = { id: conta.id, nome: conta.nome, escolhidaEm: new Date().toISOString() };
   await deps.updateCampaignField(campaignId, "aiResponse", JSON.stringify(resposta));
@@ -112,7 +134,13 @@ async function aplicar(userId: number, campaignId: number, conta: ContaMeta, dep
     await deps.selecionarNaConexao(userId, conta.id);
     mudouConexao = true;
   }
-  await gravarNoRascunho(campaignId, conta, deps);
+  try {
+    await gravarNoRascunho(campaignId, conta, deps);
+  } catch (e) {
+    // Nao deixa a conexao numa conta que o rascunho nao registrou.
+    if (mudouConexao && atual) { try { await deps.selecionarNaConexao(userId, atual); } catch { /* a divergencia bloqueia upload e publicacao */ } }
+    throw e;
+  }
   return { mudouConexao };
 }
 
@@ -126,7 +154,7 @@ export async function selecionarContaMeta(userId: number, args: Record<string, u
   if ("erro" in resolvido) return { ok: false, erro: resolvido.erro };
   const { campaign } = resolvido;
   if (campanhaJaPublicada(campaign)) {
-    return { ok: false, erro: "Esta campanha ja foi publicada na Meta; a conta dela nao pode ser trocada por aqui. Nada foi alterado." };
+    return { ok: false, erro: "Esta campanha ja foi publicada (ou esta sendo publicada) na Meta; a conta dela nao pode ser trocada por aqui. Nada foi alterado." };
   }
 
   const lista = await deps.listarContas(userId);
@@ -149,7 +177,7 @@ export async function selecionarContaMeta(userId: number, args: Record<string, u
   if (!pedido) {
     const ativas = contas.filter((c) => c.ativa);
     // Uma unica conta utilizavel: nao ha escolha a fazer. Associa e mostra qual.
-    if (contas.length === 1 && ativas.length === 1) {
+    if (podeAssociarSozinho(contas, ativas, lista.completa, atual)) {
       const unica = ativas[0];
       try {
         const { mudouConexao } = await aplicar(userId, Number(campaign.id), unica, deps);
@@ -191,9 +219,12 @@ export async function selecionarContaMeta(userId: number, args: Record<string, u
   }
 
   try {
+    const anterior = contaDoRascunho(campaign)?.id ?? null;
     const { mudouConexao } = await aplicar(userId, Number(campaign.id), alvo, deps);
+    const temVideoOuHash = /"(feed|story|square)(VideoId|ImageHash)"\s*:\s*"[^"]+"/.test(String(campaign.creatives || ""));
     return {
       ok: true, campaignId: campaign.id, conta: { adAccountId: alvo.id, nome: alvo.nome, moeda: alvo.moeda }, mudouConexao,
+      ...(anterior && anterior !== alvo.id && temVideoOuHash ? { avisoMidia: "Videos e imagens ja enviados a Meta pertencem a conta anterior. Avise o usuario que precisam ser reenviados (anexar_video_criativo) antes de publicar nesta conta." } : {}),
       instruction: `Conta "${alvo.nome}" associada ao rascunho${mudouConexao ? " e definida como a conta da conexao Meta" : ""}. Nada foi publicado. Antes de publicar, a confirmacao vai mostrar a conta de novo.`,
     };
   } catch (e: any) {
@@ -219,7 +250,7 @@ export async function exigirContaDoRascunho(userId: number, campaign: any, deps:
 
   if (!escolhida) {
     const ativas = contas.filter((c) => c.ativa);
-    if (contas.length === 1 && ativas.length === 1) {
+    if (podeAssociarSozinho(contas, ativas, lista.completa, atual)) {
       const unica = ativas[0];
       try {
         await aplicar(userId, Number(campaign.id), unica, deps);
@@ -293,6 +324,7 @@ export async function depsContaMetaPadrao(db: any, injected?: any): Promise<Deps
       } catch { return { ok: false, erro: "Nao consegui consultar as contas de anuncios na Meta agora." }; }
       // Contas dentro de portfolios (mesma consulta da tela de configuracoes); tolerante a falha.
       let portfolios: Array<{ businessName?: string; accounts?: any[] }> = [];
+      let completa = true;
       try {
         const user = await db.getUserById(userId);
         if (user) {
@@ -300,8 +332,8 @@ export async function depsContaMetaPadrao(db: any, injected?: any): Promise<Deps
           const r: any = await c.integrations.listMetaBusinesses();
           portfolios = Array.isArray(r?.businesses) ? r.businesses : [];
         }
-      } catch { /* sem portfolios: ficam so as contas diretas */ }
-      return { ok: true, contas: normalizarContasMeta(direto, portfolios) };
+      } catch { completa = false; /* sem portfolios: so as contas diretas, e a lista nao e confiavel como completa */ }
+      return { ok: true, contas: normalizarContasMeta(direto, portfolios), completa };
     },
     selecionarNaConexao: async (userId, adAccountId) => {
       const user = await db.getUserById(userId);
