@@ -70,6 +70,7 @@ import { evaluateCampaignBriefingReadiness } from "../../shared/campaignBriefing
 import { tikTokReportGet, tikTokReportTentar, TIKTOK_METRICAS_DE_FUNIL_CANDIDATAS } from "../tiktokRelatorio";
 import { aplicarFunil } from "../funilDeTrafego";
 import { withMetaVideoThumbnail } from "../metaVideoCreative";
+import { assertInputOwnership, assertCampaignOwner, assertProjectOwner } from "../ownership";
 
 const t = initTRPC.context<Context>().create({ transformer: superjson });
 
@@ -877,8 +878,11 @@ async function resolveGoogleAdsRuntimeContext(integration: any) {
 
 
 
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+export const protectedProcedure = t.procedure.use(async ({ ctx, next, getRawInput }) => {
   if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED" });
+  // Dono de campaignId/projectId numericos conferido aqui, para toda rota da
+  // tela de uma vez (auditoria 23/11). Ver server/ownership.ts.
+  await assertInputOwnership(db as any, ctx.user as any, await getRawInput());
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
 export const adminProcedure = t.procedure.use(({ ctx, next }) => {
@@ -1022,7 +1026,11 @@ const authRouter = router({
 // ============ PROJECTS ROUTER ============
 const projectsRouter = router({
   list: protectedProcedure.query(({ ctx }) => db.getProjectsByUserId(ctx.user.id)),
-  get: protectedProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getProjectById(input.id)),
+  get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+    try { await assertProjectOwner(db as any, ctx.user as any, input.id); }
+    catch (e) { if (e instanceof TRPCError && e.code === "NOT_FOUND") return null; throw e; }
+    return db.getProjectById(input.id);
+  }),
   create: protectedProcedure
     .input(z.object({ name: z.string().min(2), description: z.string().optional() }))
     .mutation(async ({ input, ctx }) => {
@@ -1036,8 +1044,14 @@ const projectsRouter = router({
     }),
   update: protectedProcedure
     .input(z.object({ id: z.number(), name: z.string().optional(), description: z.string().optional(), status: z.string().optional() }))
-    .mutation(({ input }) => { const { id, ...data } = input; return db.updateProject(id, data as any); }),
-  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(({ input }) => db.deleteProject(input.id)),
+    .mutation(async ({ input, ctx }) => {
+      await assertProjectOwner(db as any, ctx.user as any, input.id);
+      const { id, ...data } = input; return db.updateProject(id, data as any);
+    }),
+  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    await assertProjectOwner(db as any, ctx.user as any, input.id);
+    return db.deleteProject(input.id);
+  }),
 });
 
 // ============ CLIENT PROFILE ROUTER ============
@@ -2836,7 +2850,11 @@ const campaignsRouter = router({
       await pool.query(`UPDATE campaigns SET status = 'archived', "updatedAt" = NOW() WHERE id = $1`, [input.id]);
       return { success: true };
     }),
-  get: protectedProcedure.input(z.object({ id: z.number() })).query(({ input }) => db.getCampaignById(input.id)),
+  get: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+    try { await assertCampaignOwner(db as any, ctx.user as any, input.id); }
+    catch (e) { if (e instanceof TRPCError && e.code === "NOT_FOUND") return null; throw e; }
+    return db.getCampaignById(input.id);
+  }),
   create: protectedProcedure
     .input(z.object({ projectId: z.number(), name: z.string(), objective: z.string().optional(), platform: z.string() }))
     .mutation(({ input }) => db.createCampaign(input as any)),
@@ -3391,6 +3409,26 @@ const campaignsRouter = router({
       adSets[input.index]._edited = true;
       await db.updateCampaignField(input.campaignId, "adSets", JSON.stringify(adSets));
       return { ok: true, adSets };
+    }),
+
+  // -- Usar a soma dos conjuntos como orcamento aprovado (rascunho) ---------
+  // Saida da pendencia "orcamento_divergente" (auditoria 23/11) quando a
+  // soma dos conjuntos e o valor desejado. So com clique explicito na tela;
+  // o dono e conferido pelo protectedProcedure (campaignId).
+  approveAdSetBudgetSum: protectedProcedure
+    .input(z.object({ campaignId: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      const campaign = await db.getCampaignById(input.campaignId) as any;
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campanha não encontrada." });
+      const { somaComoAprovado } = await import("../../shared/adSetBudgetPlan");
+      const r = somaComoAprovado(campaign);
+      if ("erro" in r) throw new TRPCError({ code: "BAD_REQUEST", message: r.erro });
+      await db.updateCampaign(input.campaignId, {
+        suggestedBudgetDaily: r.suggestedBudgetDaily,
+        suggestedBudgetMonthly: r.suggestedBudgetMonthly,
+        updatedAt: new Date(),
+      } as any);
+      return { ok: true, suggestedBudgetDaily: r.suggestedBudgetDaily, suggestedBudgetMonthly: r.suggestedBudgetMonthly, dias: r.dias };
     }),
 
   // -- Regenerar parte específica da campanha -------------------------------
@@ -4352,40 +4390,20 @@ const campaignsRouter = router({
         });
       }
 
-      // ── Valida budget mínimo antes de publicar ──────────────────────────────
-      const allAdSets = (() => { try { return JSON.parse(c.adSets || "[]"); } catch { return []; } })();
-      const totalDailyForValidation = c.suggestedBudgetDaily ?? Math.round((c.suggestedBudgetMonthly ?? 1000) / 30);
-
-      // Valida apenas o adSet atual sendo publicado (não todos os adSets da campanha)
-      // O frontend faz chamadas individuais por adSet — cada uma deve ter budget >= R$5,11
-      const currentAdSet = allAdSets[input.adSetIndex ?? 0];
-      // budget pode vir como número (ex: 25) OU string (ex: "R$ 25/dia") — normaliza ambos
-      const rawBudgetValue = currentAdSet?.budget ?? currentAdSet?.rawBudget ?? "";
-      let currentAdSetBudget: number;
-      if (typeof rawBudgetValue === "number" && Number.isFinite(rawBudgetValue)) {
-        // Mesma regra do cálculo real de budgetDaily (fix 80f9f2e): número
-        // puro 0–100 = percentual do total da campanha, não R$ direto.
-        // Sem isso, essa validação podia aprovar um budget que na hora de
-        // publicar (linha ~4030) resolve pra um valor bem menor.
-        currentAdSetBudget = (rawBudgetValue > 0 && rawBudgetValue <= 100)
-          ? totalDailyForValidation * (rawBudgetValue / 100)
-          : rawBudgetValue;
-      } else {
-        const budgetStr = String(rawBudgetValue);
-        const currentBudgetMatch = budgetStr.match(/R\$?\s*([\d.,]+)/);
-        currentAdSetBudget = currentBudgetMatch
-          ? parseFloat(currentBudgetMatch[1].replace(/\./g, "").replace(",", "."))
-          : (totalDailyForValidation / Math.max(allAdSets.length, 1));
-      }
-
-      const META_MIN_DAILY_PER_ADSET = 5.11;
-      // Calcula orçamento mensal mínimo necessário para TODOS os adSets respeitarem o mínimo
-      const nAdSets = Math.max(allAdSets.length, 1);
-      const minMonthlyNeeded = Math.ceil(META_MIN_DAILY_PER_ADSET * nAdSets * 30 * 1.1); // +10% margem
-      if (currentAdSetBudget > 0 && currentAdSetBudget < META_MIN_DAILY_PER_ADSET) {
+      // ── Orçamento dos conjuntos: o plano inteiro tem de bater com o aprovado ──
+      // Uma funcao so (shared/adSetBudgetPlan.ts) calcula o diario de cada
+      // conjunto como ele vai para a Meta, e esta mesma funcao alimenta a
+      // pre-checagem (tela, chat, MCP). Auditoria 23/11: 814 publicou R$ 12/dia
+      // com R$ 6 aprovados; 816 publicaria ~R$ 167/dia. O plano considera
+      // todos os conjuntos do rascunho; publicar parte de um plano coerente
+      // continua permitido. Substitui a validacao antiga por conjunto, que
+      // usava outro parser e divergia do calculo real.
+      const { planoDeOrcamento } = await import("../../shared/adSetBudgetPlan");
+      const planoOrcamento = planoDeOrcamento(c);
+      if (!planoOrcamento.ok) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Orçamento do conjunto "${currentAdSet?.name || `Conjunto ${(input.adSetIndex ?? 0) + 1}`}" insuficiente: R$${currentAdSetBudget.toFixed(2)}/dia (mínimo Meta: R$${META_MIN_DAILY_PER_ADSET}/adSet/dia). Com ${nAdSets} conjunto(s) nesta campanha, configure orçamento mensal de pelo menos R$${minMonthlyNeeded} no Módulo 4 — ou reduza o número de conjuntos.`,
+          message: `${planoOrcamento.motivo}\n\nConjuntos:\n${planoOrcamento.detalhes.map((d) => `• ${d}`).join("\n")}`,
         });
       }
 
@@ -4665,65 +4683,18 @@ const campaignsRouter = router({
         creativeScore: creativeScore?.finalScore || null,
         auditIssues: creativeAudit.totalIssues,
       });
-      // ── Budget por adSet — usa percentual do adSet sobre o total da campanha ──
-      // adSet.budget pode ser: "33% do total", 33, "R$ 100", etc.
-      const totalMonthly  = c.suggestedBudgetMonthly ?? 1000;
-      const totalDaily    = c.suggestedBudgetDaily   ?? Math.round(totalMonthly / 30);
-
-      // Tenta extrair percentual ou valor fixo do campo budget do adSet
-      const adSetBudgetRaw = String(adSet?.budget ?? "");
-      let budgetDaily: number;
-
-      // Prioridade: % sempre ganha sobre R$ quando ambos presentes
-      // Ex: "R$ 100 (33% do total)" → usa 33% do totalDaily
-      const pctInRaw = adSetBudgetRaw.match(/(\d+(?:\.\d+)?)\s*%/);
-      const explicitDaily = /\/dia\s*$/i.test(adSetBudgetRaw) ? parseDailyBudget(adSetBudgetRaw) : null;
-      if (/\/dia\s*$/i.test(adSetBudgetRaw) && explicitDaily === null) throw new Error("Orcamento diario invalido no conjunto de anuncios.");
-      if (explicitDaily !== null) {
-        budgetDaily = explicitDaily;
-      } else if (pctInRaw) {
-        const pct   = parseFloat(pctInRaw[1]) / 100;
-        budgetDaily = Math.max(1, Math.round(totalDaily * pct));
-      } else if (adSetBudgetRaw.match(/R\$[\s]?([\d.,]+)/)) {
-        // Só R$ sem %: "R$ 100" → valor mensal deste adSet
-        const valMatch = adSetBudgetRaw.match(/R\$[\s]?([\d.,]+)/);
-        const monthly  = parseFloat((valMatch![1] || "100").replace(/\./g,"").replace(",","."));
-        budgetDaily    = Math.max(1, Math.round(monthly / 30));
-      } else if (adSetBudgetRaw.match(/^[\d.]+$/)) {
-        // Número puro sem "%" nem "R$" (ex: adSet.budget = 25).
-        // O comentário acima já documentava a intenção original: "33% do
-        // total" e "33" devem se comportar igual — número puro = percentual.
-        // BUG CORRIGIDO (13/08/2026): estava tratando como valor MENSAL em
-        // R$ (÷30), o que fazia 25 virar ~R$1/dia e ser elevado ao piso de
-        // R$6/dia — muito abaixo do pretendido. Achado na auditoria da
-        // campanha 672 (Edu Imóveis): 4 ad sets com budget=25 cada
-        // publicaram a ~R$6/dia (R$24/dia total) em vez dos ~R$12,50/dia
-        // (R$50/dia total) que "25% × 4" deveria significar.
-        // Faixa 0–100 = percentual (caso documentado e observado em produção).
-        // Acima de 100 mantém o fallback antigo (valor mensal ÷30), pra não
-        // quebrar nenhum dado legado que porventura use número puro grande
-        // como R$ mensal.
-        const rawNum = parseFloat(adSetBudgetRaw);
-        if (rawNum > 0 && rawNum <= 100) {
-          budgetDaily = Math.max(1, Math.round(totalDaily * (rawNum / 100)));
-        } else {
-          budgetDaily = Math.max(1, Math.round(rawNum / 30));
-        }
-      } else {
-        const totalAdSets = (() => { try { return JSON.parse(c.adSets || "[]").length || 4; } catch { return 4; } })();
-        budgetDaily = Math.max(1, Math.round(totalDaily / totalAdSets));
+      // ── Budget por adSet — vem do plano conferido antes da reserva ──────────
+      // Mesmas regras de sempre (percentual, diario explicito, numero puro
+      // 0-100 = percentual, piso de R$ 6), agora numa funcao so. Ver
+      // shared/adSetBudgetPlan.ts.
+      const conjuntoDoPlano = planoOrcamento.conjuntos[input.adSetIndex ?? 0] ?? planoOrcamento.conjuntos[0];
+      if (!conjuntoDoPlano || conjuntoDoPlano.erro) {
+        throw new Error(conjuntoDoPlano?.erro ? `Orcamento do conjunto: ${conjuntoDoPlano.erro}.` : "Conjunto de anuncios nao encontrado no plano de orcamento.");
       }
-
-      // Meta mínimo: R$ 5,11/dia por adSet (verificado mai/2026)
-      // Se o cálculo ficar abaixo, eleva para o mínimo
-      const META_MIN_DAILY_BRL = 6; // R$ 6/dia por adSet quando budget elevado automaticamente
-      if (budgetDaily < META_MIN_DAILY_BRL) {
-        if (explicitDaily !== null) throw new Error(`Orcamento diario explicito abaixo do minimo de R$ ${META_MIN_DAILY_BRL}. Confirme o ajuste antes de publicar.`);
-        log.warn("meta", "Budget abaixo do mínimo Meta — elevando", {
-          original: budgetDaily, minimum: META_MIN_DAILY_BRL,
-        });
-        budgetDaily = META_MIN_DAILY_BRL;
-      }
+      const adSetBudgetRaw = conjuntoDoPlano.bruto;
+      const budgetDaily: number = conjuntoDoPlano.diario;
+      const totalDaily = planoOrcamento.aprovadoDiario;
+      const totalMonthly = c.suggestedBudgetMonthly ?? null;
 
       log.info("meta", "Budget adSet calculado", {
         adSetName: adSet?.name,
@@ -12728,8 +12699,10 @@ const mediaBudgetRouter = router({
       const platformBudget: Record<string, { budgetDaily: number; budgetMonthly: number; campaignCount: number }> = {};
       budgetRes.rows.forEach((r: any) => {
         platformBudget[r.platform] = {
-          budgetDaily:    Number(r.budget_daily)   / 100,
-          budgetMonthly:  Number(r.budget_monthly) / 100,
+          // Colunas em reais (schema.ts: integer, valores 6, 12, 90...). O /100
+          // tratava como centavos e mostrava R$ 0,06/dia (auditoria 23/11).
+          budgetDaily:    Number(r.budget_daily),
+          budgetMonthly:  Number(r.budget_monthly),
           campaignCount:  Number(r.campaign_count),
         };
       });

@@ -15,6 +15,8 @@ export interface ChatWorkspaceStore {
   // direto, sem precisar importar o roteador tRPC inteiro (14 mil+
   // linhas) dentro do chat.
   updateCampaignField(id: number, field: "creatives" | "adSets" | "strategy" | "aiResponse", value: string): Promise<unknown>;
+  /** Orcamento aprovado (colunas inteiras). Opcional: so a saida da pendencia orcamento_divergente usa. */
+  updateCampaign?(id: number, data: { suggestedBudgetDaily: number; suggestedBudgetMonthly: number; updatedAt?: Date }): Promise<unknown>;
 }
 
 // Achado real (conversa colada por Michel, 13/09): a mesma propriedade
@@ -163,6 +165,21 @@ export async function atualizarOrcamentoCampanha(userId: number, args: Record<st
   if (!adSets[adSetIndex]) return { erro: `Conjunto de anuncios ${adSetIndex} nao encontrado nesta campanha.`, adSetsDisponiveis: adSets.length };
 
   let algumaMudanca = false;
+  // Saida da pendencia "orcamento_divergente" (auditoria 23/11): o usuario
+  // pediu explicitamente que a soma dos conjuntos vire o orcamento aprovado.
+  if (args.usarSomaDosConjuntosComoAprovado === true) {
+    if (args.budgetDaily !== undefined || args.audience !== undefined || args.objective !== undefined) {
+      return { erro: "Use usarSomaDosConjuntosComoAprovado sozinho, depois de ajustar os conjuntos." };
+    }
+    const { somaComoAprovado } = await import("../shared/adSetBudgetPlan");
+    const r = somaComoAprovado(campaign);
+    if ("erro" in r) return { erro: r.erro };
+    if (!store.updateCampaign) return { erro: "Ajuste do orcamento aprovado indisponivel aqui." };
+    await store.updateCampaign(campaign.id, { suggestedBudgetDaily: r.suggestedBudgetDaily, suggestedBudgetMonthly: r.suggestedBudgetMonthly, updatedAt: new Date() });
+    return { ok: true, campaignId: campaign.id, suggestedBudgetDaily: r.suggestedBudgetDaily, totalDoPeriodo: r.suggestedBudgetMonthly, dias: r.dias,
+      scope: "mecpro_only", syncedToMeta: false,
+      message: `Orcamento aprovado agora e R$ ${r.suggestedBudgetDaily}/dia (R$ ${r.suggestedBudgetMonthly} em ${r.dias} dias), somente no MecProAI.` };
+  }
   if (args.budgetDaily !== undefined) {
     const daily = parseDailyBudget(args.budgetDaily);
     if (daily === null) return { erro: "Informe um valor diario positivo em reais, sem percentual ou valor mensal." };
@@ -173,7 +190,7 @@ export async function atualizarOrcamentoCampanha(userId: number, args: Record<st
     if (typeof args.objective !== "string" || !["leads", "sales", "traffic", "branding", "awareness", "engagement"].includes(args.objective)) return { erro: "Objetivo invalido." };
     adSets[adSetIndex].objective = args.objective; algumaMudanca = true;
   }
-  if (!algumaMudanca) return { erro: "Nenhum campo pra atualizar foi informado (budgetDaily, audience ou objective)." };
+  if (!algumaMudanca) return { erro: "Nenhum campo pra atualizar foi informado (budgetDaily, audience, objective ou usarSomaDosConjuntosComoAprovado)." };
   adSets[adSetIndex]._edited = true;
 
   await store.updateCampaignField(campaign.id, "adSets", JSON.stringify(adSets));

@@ -3,6 +3,7 @@ import { lerTextoDoCriativo } from "./offerDivergenceFix";
 import { avaliarIntegridade, paraDivergencia, descreverDivergencia, type DivergenciaDeOferta } from "./campaignPublishIntegrity";
 import { diagnosticarRevisao, descreverDiagnostico, factsDaCampanha } from "./creativeReview";
 import { analisarTextosDaCampanha } from "./limitesDeTextoMeta";
+import { planoDeOrcamento } from "../shared/adSetBudgetPlan";
 
 /**
  * Pre-checagem LOCAL de publicacao: so leitura, sem rede e sem banco.
@@ -82,12 +83,14 @@ export type TipoDePendencia =
   | "revisao_aprovavel"
   | "revisao_bloqueada"
   | "oferta_divergente"
+  | "orcamento_divergente"
   | "integridade";
 
 export type AcaoDePendencia =
   | "aprovar_criativo"
   | "editar_texto"
   | "enviar_imagem"
+  | "ajustar_orcamento"
   | "regenerar_campanha";
 
 export interface ItemDePendencia {
@@ -138,6 +141,19 @@ export function pendenciasLocaisParaPublicar(campaign: any): PendenciaDePublicac
       titulo: "Essa campanha não tem conjuntos de anúncios gerados.",
       detalhes: [],
     });
+  }
+
+  // Orcamento dos conjuntos x diario aprovado: a MESMA funcao que publishToMeta
+  // usa para recusar (auditoria 23/11, campanhas 795, 799, 814 e 816).
+  if (adSets.length > 0) {
+    const plano = planoDeOrcamento(campaign);
+    if (!plano.ok) {
+      pendencias.push({
+        tipo: "orcamento_divergente", criativos: [], acao: "ajustar_orcamento",
+        titulo: plano.motivo || "O orçamento dos conjuntos não bate com o orçamento aprovado.",
+        detalhes: plano.detalhes,
+      });
+    }
   }
 
   // Limites de texto da Meta. Estourar o maximo e recusa dela e entra como

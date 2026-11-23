@@ -62,7 +62,8 @@ test("799: orcamento R$ 2 x 3 = R$ 6/dia, total 84, sem R$ 30 em conjunto nenhum
   assert.deepEqual(adSets.map((a: any) => a.budget), ["R$ 2,00/dia", "R$ 2,00/dia", "R$ 2,00/dia"]);
   assert.equal(r.patch!.suggestedBudgetDaily, 6);
   assert.equal(r.patch!.suggestedBudgetMonthly, 84);
-  assert.ok((r.relatorio!.avisos as string[]).some((a) => /minimo de R\$ 5,11/.test(a)));
+  // Desde 23/11 o aviso usa o mesmo piso da publicacao (R$ 6/dia; shared/adSetBudgetPlan.ts).
+  assert.ok((r.relatorio!.avisos as string[]).some((a) => /minimo de R\$ 6,00/.test(a)));
 });
 
 test("799: depoimento sai do texto, corpo, gancho, roteiro, V2 e resumo; nada sobra", () => {

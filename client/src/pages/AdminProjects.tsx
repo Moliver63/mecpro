@@ -73,7 +73,7 @@ function CampaignPanel({ projectId }: { projectId: number }) {
               </div>
               {c.suggestedBudgetMonthly > 0 && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", flexShrink: 0 }}>
-                  R${c.suggestedBudgetMonthly}/mês
+                  R${c.suggestedBudgetMonthly} no período
                 </span>
               )}
               <span style={{ color: "#94a3b8" }}>{isOpen ? "▲" : "▼"}</span>

@@ -1,3 +1,4 @@
+import { PISO_DIARIO_POR_CONJUNTO } from "../shared/adSetBudgetPlan";
 import { aplicarEdicaoDeTexto, type AuditorDeSegmento, type CampoDeTexto } from "./chatCreativeEdit";
 import {
   diagnosticarRevisao, descreverDiagnostico, factsDaCampanha,
@@ -21,7 +22,10 @@ import { formatDailyBudget } from "../shared/dailyBudget";
  */
 
 const CAMPOS_DO_RASCUNHO: readonly CampoDeTexto[] = ["headline", "description", "copy", "cta", "hook", "pain", "solution", "script"];
-const MINIMO_META_POR_CONJUNTO = 5.11; // mesmo valor de publishToMeta (router.ts)
+// Mesmo piso que publishToMeta aplica (shared/adSetBudgetPlan.ts): abaixo de
+// R$ 6/dia o diario explicito e recusado na publicacao (auditoria 23/11:
+// antes avisava em 5,11 e a publicacao recusava em 6).
+const MINIMO_META_POR_CONJUNTO = PISO_DIARIO_POR_CONJUNTO;
 
 export interface EdicaoDeCriativo {
   index: number;
@@ -159,7 +163,7 @@ export function ajustarRascunhoCampanha(campaign: any, entrada: EntradaRascunho,
   if (entrada.suggestedBudgetMonthly !== undefined) {
     if (!valorEmReais(entrada.suggestedBudgetMonthly)) return { erro: "suggestedBudgetMonthly invalido." };
     patch.suggestedBudgetMonthly = entrada.suggestedBudgetMonthly;
-    alteracoes.push(`orcamento total/mensal da campanha: ${campaign.suggestedBudgetMonthly ?? "sem valor"} -> ${entrada.suggestedBudgetMonthly}`);
+    alteracoes.push(`orcamento total do periodo da campanha: ${campaign.suggestedBudgetMonthly ?? "sem valor"} -> ${entrada.suggestedBudgetMonthly}`);
   }
   if (entrada.adSetBudgetsDaily) {
     const soma = Math.round(entrada.adSetBudgetsDaily.reduce((a, b) => a + b, 0) * 100) / 100;

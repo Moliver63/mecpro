@@ -43,7 +43,7 @@ const criativoOk = (extra: Record<string, unknown> = {}) => ({
 function campanha(creatives: any[], objective = "leads", id = 814) {
   return {
     id, projectId: 49, name: "Shadia Hasan | Aula", objective,
-    adSets: '[{"name":"Conjunto 1","budget":50}]',
+    adSets: '[{"name":"Conjunto 1","budget":"R$ 6,00/dia"}]', suggestedBudgetDaily: 6, durationDays: 14,
     aiResponse: JSON.stringify({ campaignFacts: factsAula(objective) }),
     creatives: JSON.stringify(creatives),
   };

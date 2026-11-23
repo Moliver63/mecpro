@@ -1,6 +1,7 @@
 import "dotenv/config";
 import crypto from "crypto";
 import { log } from "./logger";
+import { totalDoPeriodoDaCampanha } from "../shared/adSetBudgetPlan";
 import { callOpenRouterFallback, OPENROUTER_FALLBACK_MODEL } from "./openRouterFallback";
 import { urlDoCliente, urlDoClienteComMetodo } from "./googleAdsApi";
 import { GeminiCredentialHealth, redactProviderSecrets } from "./providerSafety";
@@ -9092,7 +9093,14 @@ export async function generateCampaignPart(input: {
   const c          = input.campaign;
   const objective  = c.objective  || "leads";
   const platform   = c.platform   || "meta";
-  const budget     = c.suggestedBudgetMonthly || 1000;
+  // Total do periodo e diario aprovado (auditoria 23/11): o prompt dizia
+  // "Budget mensal" com o total do periodo, e a IA dividia esse total entre
+  // os conjuntos como se fosse diario ("R$ 42/dia" com R$ 6/dia aprovados).
+  const periodoAprovado = totalDoPeriodoDaCampanha(c);
+  const budget     = periodoAprovado?.total || c.suggestedBudgetMonthly || 1000;
+  const orcamentoTexto = periodoAprovado
+    ? `R$ ${periodoAprovado.diario}/dia aprovado (total do período R$ ${periodoAprovado.total} em ${periodoAprovado.dias} dias). Os conjuntos devem somar R$ ${periodoAprovado.diario}/dia.`
+    : `R$ ${budget} no período`;
   const niche      = clientProfile?.niche      || "";
   const product    = clientProfile?.productService || "";
   const audience   = clientProfile?.targetAudience  || "";
@@ -9173,7 +9181,7 @@ Campanha: ${c.name}
 Objetivo: ${objective}
 Nicho: ${niche}
 Público-alvo: ${audience}
-Budget mensal: R$ ${budget}
+Orçamento: ${orcamentoTexto}
 ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
 ${nicheCtx.hooksGuide ? `\n\n${nicheCtx.hooksGuide}\n` : ""}
@@ -9259,7 +9267,7 @@ Você é um especialista em testes A/B para campanhas de performance.
 Campanha: ${c.name}
 Objetivo: ${objective}
 Nicho: ${niche}
-Budget mensal: R$ ${budget}
+Orçamento: ${orcamentoTexto}
 ${input.extraContext ? `\nContexto adicional: ${input.extraContext}` : ""}
 
 Gere 6 hipóteses de teste A/B priorizadas por impacto. Responda SOMENTE em JSON:

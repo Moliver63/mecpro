@@ -17,6 +17,7 @@ import WhatsAppField from "@/components/WhatsAppField";
 import OfertaDivergenciaCard from "@/components/OfertaDivergenciaCard";
 import { toast } from "sonner";
 import type { CampaignCreative, CreativeFormat, PublishToMetaInput } from "../../../shared/campaignCreative.schema";
+import { diarioAprovadoDaCampanha, totalDoPeriodoDaCampanha } from "../../../shared/adSetBudgetPlan";
 import {
   buildPublishMediaFromCreative,
   mergeCreativeWithProjectedLegacy,
@@ -581,6 +582,17 @@ export default function CampaignResult() {
     onError: (e: any) => toast.error("Erro ao marcar destaque: " + e.message),
   });
 
+  // Saida da pendencia "orcamento_divergente": a soma dos conjuntos vira o
+  // orcamento aprovado, so com clique explicito (auditoria 23/11).
+  const approveBudgetSumMutation = trpc.campaigns.approveAdSetBudgetSum.useMutation({
+    onSuccess: (r: any) => {
+      toast.success(`Orçamento aprovado agora é R$ ${r.suggestedBudgetDaily}/dia (R$ ${r.suggestedBudgetMonthly} em ${r.dias} dias).`);
+      setRevisaoGate(null);
+      refetchCampaign?.();
+    },
+    onError: (e: any) => toast.error("Não deu para ajustar o orçamento: " + e.message),
+  });
+
   const discoverPageIdMutation = (trpc as any).competitors?.discoverPageId?.useMutation?.({
     onSuccess: (data: any) => {
       setDiscoveringPage(false);
@@ -1013,9 +1025,7 @@ export default function CampaignResult() {
       const campCheck = campaign as any;
       const dailyCheck = totalDailyFromAdSets > 0
         ? totalDailyFromAdSets
-        : (campCheck?.suggestedBudgetDaily
-            || Math.round((campCheck?.suggestedBudgetMonthly || 0) / 30)
-            || 0);
+        : (diarioAprovadoDaCampanha(campCheck) ?? 0);
 
       const minCheck = Math.ceil(5.11 * adSetsCountForCheck);
       if (dailyCheck > 0 && dailyCheck < minCheck) {
@@ -1099,12 +1109,9 @@ export default function CampaignResult() {
       } else if (adSetsToPublish.length > 1) {
         // Publicar múltiplos adSets em sequência — todos dentro da MESMA campanha Meta
         // Pre-flight: valida budget antes de iniciar o loop (evita N chamadas com erro)
-        // budget vem de suggestedBudgetDaily ou suggestedBudgetMonthly/30
+        // budget vem de suggestedBudgetDaily ou total do periodo / dias
         const camp = campaign as any;
-        const dailyBudgetRaw = camp?.suggestedBudgetDaily
-          || Math.round((camp?.suggestedBudgetMonthly || 0) / 30)
-          || Math.round((camp?.budget?.totalMonthly || 0) / 30)
-          || 0;
+        const dailyBudgetRaw = diarioAprovadoDaCampanha(camp) ?? 0;
         const minBudget = Math.ceil(5.11 * adSetsToPublish.length);
         if (dailyBudgetRaw > 0 && dailyBudgetRaw < minBudget) {
           const maxAdSets = Math.floor(dailyBudgetRaw / 5.11);
@@ -1985,7 +1992,8 @@ export default function CampaignResult() {
   );
 
   const c = campaign as any;
-  const budgetDaily = c.suggestedBudgetDaily ?? Math.round(c.suggestedBudgetMonthly / 30);
+  const budgetDaily = diarioAprovadoDaCampanha(c);
+  const totalPeriodo = totalDoPeriodoDaCampanha(c);
   const activePlacementCodes = selectedPlacements.length > 0
     ? selectedPlacements
     : placementMode === "auto"
@@ -2227,7 +2235,7 @@ export default function CampaignResult() {
         const cpl    = metrics?.cpl_estimado || metrics?.cpl || null;
         const ctr    = metrics?.ctr || null;
         const leads  = metrics?.leads_per_month || metrics?.leads_estimados || null;
-        const budget = c.suggestedBudgetMonthly || 0;
+        const budget = totalDoPeriodoDaCampanha(c)?.total || 0;
 
         const getStatus = (type: string, val: any) => {
           if (!val) return "neutral";
@@ -2352,7 +2360,7 @@ export default function CampaignResult() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 24 }}>
         {[
           { label: "Budget diário",  value: budgetDaily ? `R$ ${budgetDaily.toLocaleString("pt-BR")}` : "—", sub: "por dia de veiculação", icon: "📅", accent: "#16a34a", bg: "linear-gradient(135deg,#f0fdf4,#dcfce7)" },
-          { label: "Budget mensal",  value: c.suggestedBudgetMonthly ? `R$ ${c.suggestedBudgetMonthly.toLocaleString("pt-BR")}` : "—", sub: "investimento total", icon: "◈", accent: "#2563eb", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)" },
+          { label: "Total do período",  value: totalPeriodo ? `R$ ${totalPeriodo.total.toLocaleString("pt-BR")}` : "—", sub: totalPeriodo ? `R$ ${totalPeriodo.diario.toLocaleString("pt-BR")}/dia × ${totalPeriodo.dias} dias` : "investimento total", icon: "◈", accent: "#2563eb", bg: "linear-gradient(135deg,#eff6ff,#dbeafe)" },
           { label: "Duração",        value: c.durationDays ? `${c.durationDays}d` : "—", sub: c.durationDays ? `${Math.round(c.durationDays/7)} semanas` : "", icon: "⏱", accent: "#d97706", bg: "linear-gradient(135deg,#fffbeb,#fef3c7)" },
           { label: "Plataforma",     value: c.platform === "both" ? "Meta+Google" : c.platform === "all" ? "Multi" : (c.platform||"meta").toUpperCase(), sub: c.platform === "tiktok" ? "TikTok Ads" : c.platform === "both" ? "Meta + Google Ads" : c.platform === "all" ? "Meta+Google+TikTok" : "Facebook + Instagram", icon: c.platform === "tiktok" ? "🎵" : c.platform === "google" ? "🔍" : "📘", accent: "#7c3aed", bg: "linear-gradient(135deg,#faf5ff,#ede9fe)" },
         ].map(k => (
@@ -2938,8 +2946,9 @@ export default function CampaignResult() {
 
         {/* ── Plano de execução semanal ── */}
         {(() => {
-          const budgetMonthly = (campaign as any)?.suggestedBudgetMonthly || 1500;
-          const budgetDaily   = (campaign as any)?.suggestedBudgetDaily   || Math.round(budgetMonthly / 30);
+          const periodo       = totalDoPeriodoDaCampanha(campaign as any);
+          const budgetMonthly = periodo?.total || 1500; // total do periodo (nome mantido: usado abaixo)
+          const budgetDaily   = periodo?.diario || Math.round(budgetMonthly / ((campaign as any)?.durationDays || 30));
           const duration      = (campaign as any)?.durationDays || 30;
           const weeks         = Math.ceil(duration / 7);
           const objective     = (campaign as any)?.objective || "engagement";
@@ -3047,7 +3056,7 @@ export default function CampaignResult() {
                   <span>📅</span> Planejamento semanal
                 </p>
                 <span style={{ fontSize: 11, color: "var(--muted)", background: "var(--off)", padding: "3px 10px", borderRadius: 20 }}>
-                  {duration} dias · R$ {budgetMonthly.toLocaleString("pt-BR")}/mês · R$ {budgetDaily}/dia
+                  {duration} dias · R$ {budgetMonthly.toLocaleString("pt-BR")} no período · R$ {budgetDaily}/dia
                 </span>
               </div>
 
@@ -3895,6 +3904,21 @@ ${sc.cta}`); }}
                         Gere a imagem no criativo ou envie uma foto real.
                       </p>
                     )}
+                    {p.acao === "ajustar_orcamento" && (
+                      <div style={{ margin: "10px 0 0" }}>
+                        <p style={{ fontSize: 12, color: cor.texto, margin: "0 0 8px", lineHeight: 1.5, opacity: .85 }}>
+                          Edite o orçamento de cada conjunto na aba de conjuntos para somar o valor aprovado, ou use a soma atual como orçamento aprovado.
+                        </p>
+                        <button
+                          type="button"
+                          disabled={approveBudgetSumMutation.isPending}
+                          onClick={() => approveBudgetSumMutation.mutate({ campaignId: (c as any).id })}
+                          style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 8, border: `1px solid ${cor.borda}`, background: "white", color: cor.texto, cursor: "pointer" }}
+                        >
+                          {approveBudgetSumMutation.isPending ? "Ajustando…" : "Usar a soma dos conjuntos como orçamento aprovado"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -4132,10 +4156,7 @@ ${sc.cta}`); }}
                     {(publishAllMode || selectedAdSets.length > 1) && (() => {
                       const count = publishAllMode ? adSets.length : selectedAdSets.length;
                       const cmp = campaign as any;
-                      const dailyBudget = cmp?.suggestedBudgetDaily
-                        || Math.round((cmp?.suggestedBudgetMonthly || 0) / 30)
-                        || Math.round((cmp?.budget?.totalMonthly || 0) / 30)
-                        || 0;
+                      const dailyBudget = diarioAprovadoDaCampanha(cmp) ?? 0;
                       const minRequired = Math.ceil(5.11 * count);
                       const perAdSet = dailyBudget > 0 ? (dailyBudget / count).toFixed(2) : null;
                       const budgetOk = dailyBudget === 0 || dailyBudget >= minRequired;

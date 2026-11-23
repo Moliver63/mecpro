@@ -393,7 +393,7 @@ export default function Dashboard() {
                         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--dark)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{camp.name}</div>
                         <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 1 }}>
                           {camp.projectName} · {OBJ_LABEL[camp.objective] || camp.objective}
-                          {camp.suggestedBudgetDaily ? ` · R$ ${(camp.suggestedBudgetDaily / 100).toFixed(0)}/dia` : ""}
+                          {camp.suggestedBudgetDaily ? ` · R$ ${Number(camp.suggestedBudgetDaily).toLocaleString("pt-BR")}/dia` : ""}
                         </div>
                       </div>
                       <span className="badge" style={{ fontSize: 10, background: (PLAT_COLOR[camp.platform] || "#333") + "14", color: PLAT_COLOR[camp.platform] || "#333", flexShrink: 0 }}>

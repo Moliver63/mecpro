@@ -16,7 +16,8 @@ function fixture() {
   // passou a rodar a mesma regra de integridade de `publishToMeta` antes do
   // token (campanha 799 recebia token e era recusada depois da confirmacao).
   const campaign = {
-    id: 12, projectId: 4, name: "Teste", adSets: '[{"budget":50}]', objective: "leads",
+    // Orcamento coerente desde 23/11 (pre-checagem confere soma x aprovado).
+    id: 12, projectId: 4, name: "Teste", adSets: '[{"budget":"R$ 12,00/dia"}]', suggestedBudgetDaily: 12, durationDays: 14, objective: "leads",
     aiResponse: JSON.stringify({ campaignFacts: buildCampaignFacts({
       input: { objective: "leads" }, clientProfile: { niche: "planejamento financeiro" }, segment: "financeiro",
     }) }),
@@ -215,7 +216,7 @@ test("campanha sem imagem e recusada antes do token, sem gastar reserva", async 
   let reservas = 0;
   const deps = {
     ...f.db,
-    getCampaignById: async () => ({ id: 12, projectId: 4, name: "Teste", adSets: '[{"budget":50}]', creatives: "[]" }),
+    getCampaignById: async () => ({ id: 12, projectId: 4, name: "Teste", adSets: '[{"budget":"R$ 12,00/dia"}]', suggestedBudgetDaily: 12, durationDays: 14, creatives: "[]" }),
     reserveMcpIdempotencyKey: async () => { reservas++; return { kind: "proceed", recordId: 1 }; },
   };
   const r: any = await publishChatAds(1, options, deps);

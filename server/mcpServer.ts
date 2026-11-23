@@ -2709,12 +2709,24 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       } else {
         try {
           await caller.metaCampaigns.updateBudget({ adSetId: resolvedAdSetId, dailyBudget: input.dailyBudget } as any);
-          await db.updateCampaign(input.campaignId, {
-            suggestedBudgetDaily: input.dailyBudget,
-            suggestedBudgetMonthly: Math.round(input.dailyBudget * 30),
-            updatedAt: new Date(),
-          } as any).catch(() => {});
-          results.push({ action: "budget", success: true, metaId: resolvedAdSetId });
+          // O valor vale para UM conjunto na Meta. So vira o diario aprovado da
+          // campanha quando ela tem um conjunto so; total do periodo = diario x
+          // dias (auditoria 23/11: antes gravava x30 e sobrescrevia o aprovado
+          // de campanhas com varios conjuntos).
+          let qtdConjuntos = 1;
+          try { const v = JSON.parse(campaign.adSets || "[]"); if (Array.isArray(v) && v.length > 0) qtdConjuntos = v.length; } catch {}
+          let aviso: string | undefined;
+          if (qtdConjuntos === 1) {
+            const dias = Number(campaign.durationDays) > 0 ? Number(campaign.durationDays) : 30;
+            await db.updateCampaign(input.campaignId, {
+              suggestedBudgetDaily: input.dailyBudget,
+              suggestedBudgetMonthly: Math.round(input.dailyBudget * dias),
+              updatedAt: new Date(),
+            } as any).catch(() => {});
+          } else {
+            aviso = `Campanha com ${qtdConjuntos} conjuntos: o orcamento aprovado no MecProAI nao foi alterado (o valor vale so para o conjunto ${resolvedAdSetId}).`;
+          }
+          results.push({ action: "budget", success: true, metaId: resolvedAdSetId, ...(aviso ? { warning: aviso } : {}) } as any);
         } catch (error: any) {
           results.push({ action: "budget", success: false, error: error?.message || "Erro ao atualizar orçamento.", metaId: resolvedAdSetId });
         }

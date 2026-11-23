@@ -1883,7 +1883,7 @@ export default function Financeiro() {
                         }} />
                       </div>
                       <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>
-                        Budget mensal: {R(monthBudget)}
+                        Total dos períodos: {R(monthBudget)}
                       </div>
                     </>
                   )}

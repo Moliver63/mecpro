@@ -14,6 +14,7 @@
  */
 
 import log from "./_core/logger";
+import { totalDoPeriodoDaCampanha } from "../shared/adSetBudgetPlan";
 import * as db from "./db";
 import {
   calculateScore,
@@ -191,7 +192,7 @@ function deterministicDecision(
   }
 
   // Excelente performance com orçamento disponível: escalar
-  const budgetTotal = campaign.suggestedBudgetMonthly || campaign.suggestedBudgetDaily * 30 || 999999;
+  const budgetTotal = totalDoPeriodoDaCampanha(campaign)?.total || 999999;
   if (score.total >= SCORE_SCALE_THRESHOLD && metrics.spend < budgetTotal * 0.7) {
     return {
       action: "scale_budget",
@@ -336,7 +337,7 @@ async function analyzeCampaign(
     platform:     campaign.platform,
     objective:    campaign.objective,
     niche:        clientProfile?.niche || "geral",
-    budgetTotal:  campaign.suggestedBudgetMonthly || (campaign.suggestedBudgetDaily || 0) * 30,
+    budgetTotal:  totalDoPeriodoDaCampanha(campaign)?.total || 0,
     durationDays: campaign.durationDays,
     creatives:    (() => { try { return JSON.parse(campaign.creatives || "[]"); } catch { return []; } })(),
     adSets:       (() => { try { return JSON.parse(campaign.adSets    || "[]"); } catch { return []; } })(),

@@ -420,13 +420,16 @@ const PARAMETROS_ATUALIZAR_ORCAMENTO = {
     budgetDaily: { type: "string", description: "Novo orcamento diario, como texto (ex: \"6\" ou \"R$ 6\"). So envie se o usuario pediu mudar o orcamento." },
     audience: { type: "string", description: "Novo texto de publico-alvo. So envie se o usuario pediu mudar o publico." },
     objective: { type: "string", description: "Novo objetivo do conjunto de anuncios. So envie se o usuario pediu mudar isso." },
+    usarSomaDosConjuntosComoAprovado: { type: "boolean", description: "true SO quando a publicacao recusou por orcamento_divergente e o usuario pediu explicitamente que a soma atual dos conjuntos vire o orcamento diario aprovado. Envie sozinho, sem outros campos." },
   },
   required: ["campaignId"],
 };
 const DESCRICAO_ATUALIZAR_ORCAMENTO =
   "Atualiza orcamento, publico ou objetivo de um conjunto de anuncios de uma campanha JA CRIADA (nao gera campanha nova). " +
   "Use quando o usuario disser algo como \"mantenha 6 por dia\", \"mude o orcamento pra X\", \"troque o publico\". " +
-  "So envie os campos que o usuario realmente pediu pra mudar — nao invente valor pros outros.";
+  "So envie os campos que o usuario realmente pediu pra mudar — nao invente valor pros outros. " +
+  "Se a publicacao recusar com pendencia orcamento_divergente, mostre a lista dos conjuntos e pergunte se o usuario quer ajustar cada conjunto (budgetDaily) " +
+  "ou usar a soma como orcamento aprovado (usarSomaDosConjuntosComoAprovado) — nunca escolha sozinho.";
 
 const PARAMETROS_FOTO_DESTAQUE = {
   type: "object",
