@@ -260,6 +260,16 @@ router.post("/mcp", authApiKey, mcpBurstLimiter, json({ limit: "50mb" }), async 
     res.on("close", () => { transport.close(); server.close(); });
     await server.connect(transport);
     await transport.handleRequest(req, res, normalizeMcpToolCallBody(req.body));
+    // Diagnostico (23/11): o log de requisicao so mostra "400", nunca o motivo. O motivo mais provavel
+    // (reproduzido com o SDK 1.30) e o cabecalho MCP-Protocol-Version com versao que o servidor nao
+    // conhece; sem o texto do erro nao da para separar isso de JSON-RPC invalido. Registra so metadados.
+    if (res.statusCode >= 400 && res.statusCode < 500) {
+      log.warn("mcp", "MCP respondeu 4xx", {
+        status: res.statusCode, method: req.body?.method ?? null,
+        protocolVersion: String(req.headers["mcp-protocol-version"] ?? ""), accept: String(req.headers.accept ?? "").slice(0, 80),
+        userAgent: String(req.headers["user-agent"] ?? "").slice(0, 60),
+      });
+    }
   } catch (e: any) {
     log.error("mcp", "Erro ao processar request MCP", { userId: apiUser?.id, error: e.message });
     if (!res.headersSent) {

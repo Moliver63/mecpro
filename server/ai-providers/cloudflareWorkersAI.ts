@@ -27,17 +27,42 @@
 
 const CF_BASE = "https://api.cloudflare.com/client/v4/accounts";
 
-// qwen3-30b-a3b-fp8: MoE de 30B com 3B ativos. Escolhido sobre llama-3.3-70b
-// e gpt-oss-120b por custo em neurons, que e o que limita o free tier:
-//   qwen3-30b-a3b-fp8   4.625 in / 30.475 out  por M tokens  -> ~165 chamadas/dia
-//   gpt-oss-120b       31.818 in / 68.182 out                -> ~50 chamadas/dia
-//   llama-3.3-70b-fast 26.668 in / 204.805 out               -> ~26 chamadas/dia
-// (conta para ~3k tokens de entrada + 1,5k de saida por chamada.)
-// Doc oficial confirma: Cloudflare-hosted, function calling SIM, reasoning,
-// batch, contexto de 32.768 tokens. Function calling e obrigatorio aqui — o
-// chat tem 8 ferramentas registradas; um modelo sem tool calling nao serve
-// como fallback, so responderia texto e quebraria o fluxo de campanha.
-export const MODELO_CLOUDFLARE = process.env.CLOUDFLARE_CHAT_MODEL ?? "@cf/qwen/qwen3-30b-a3b-fp8";
+// Modelo padrao (23/11): @cf/google/gemma-4-26b-a4b-it, MoE de 26B com ~4B ativos.
+// O qwen3-30b-a3b-fp8 foi APOSENTADO pela Cloudflare em 20/11/2026 (HTTP 410, erro 5028), junto
+// com outros 15 modelos de texto. Pagina oficial do modelo novo: function calling SIM, contexto
+// de 256.000 tokens, US$ 0,10 por M tokens de entrada e US$ 0,30 por M de saida. Para ~3k de
+// entrada + 1,5k de saida por chamada sao ~US$ 0,00075, cerca de 146 chamadas/dia dentro das
+// 10.000 neurons gratuitas (US$ 0,011 por mil neurons) — contra ~18/dia do @cf/qwen/qwen3.8-27b
+// (US$ 0,45 / US$ 3,20 por M, raciocinio "xhigh" por padrao, mais lento). Function calling e
+// obrigatorio: o chat tem 16 ferramentas e um modelo sem isso quebraria o fluxo de campanha.
+// Compatibilidade com o formato de mensagens do MecProAI so pode ser confirmada com chamada real
+// (esta sessao nao tem a chave da Cloudflare), por isso o modelo continua configuravel por
+// CLOUDFLARE_CHAT_MODEL.
+export const MODELO_CLOUDFLARE_PADRAO = "@cf/google/gemma-4-26b-a4b-it";
+
+/** Modelos de texto que a Cloudflare removeu em 20/11/2026 (chamar devolve 410). */
+export const MODELOS_CLOUDFLARE_APOSENTADOS = new Set([
+  "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", "@cf/deepseek-ai/deepseek-v4-pro-0813", "@cf/deepseek-ai/deepseek-v4-flash-0731",
+  "@cf/moonshotai/kimi-k2.6", "@cf/moonshotai/kimi-k2.7-code", "@cf/zai-org/glm-5.2", "@cf/zai-org/glm-5.3-flash",
+  "@cf/qwen/qwq-32b", "@cf/qwen/qwen3-30b-a3b-fp8", "@cf/nvidia/nemotron-3-120b-a12b",
+  "@cf/meta/llama-3.1-8b-instruct-fp8", "@cf/meta/llama-3.2-1b-instruct", "@cf/meta/llama-3.2-3b-instruct",
+]);
+
+/**
+ * Se CLOUDFLARE_CHAT_MODEL (ou o padrao antigo) aponta para modelo aposentado, usa o padrao novo
+ * e informa a troca. Nao altera nenhuma variavel de ambiente: a correcao vale no codigo e
+ * desaparece sozinha quando a variavel for ajustada no Render.
+ */
+export function resolverModeloCloudflare(configurado: string | undefined): { modelo: string; substituiu: string | null } {
+  const pedido = String(configurado ?? "").trim();
+  if (!pedido) return { modelo: MODELO_CLOUDFLARE_PADRAO, substituiu: null };
+  if (MODELOS_CLOUDFLARE_APOSENTADOS.has(pedido)) return { modelo: MODELO_CLOUDFLARE_PADRAO, substituiu: pedido };
+  return { modelo: pedido, substituiu: null };
+}
+
+const _modeloCloudflare = resolverModeloCloudflare(process.env.CLOUDFLARE_CHAT_MODEL);
+export const MODELO_CLOUDFLARE = _modeloCloudflare.modelo;
+export const MODELO_CLOUDFLARE_SUBSTITUIDO = _modeloCloudflare.substituiu;
 
 // Timeout menor que o do OpenRouter (20s) de proposito: este provedor roda em
 // SEGUNDO lugar na cadeia, nao em ultimo. Se ele travar, ainda existem

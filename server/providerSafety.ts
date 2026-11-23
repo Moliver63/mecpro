@@ -24,16 +24,32 @@ export function redactProviderSecrets(text: string): string {
 }
 
 // Rejected credentials stay disabled until restart/configuration replacement.
+// 403 PERMISSION_DENIED / ACCESS_DENIED ("Permission denied on the service") e diferente:
+// pode ser a chave sem a API habilitada, mas tambem projeto em revisao ou bloqueio de regiao,
+// que passam. Por isso a chave sai da rotacao por uma janela (30 min), nao ate o reinicio, e a
+// chamada segue para a proxima chave do pool em vez de derrubar o provedor inteiro.
 export class GeminiCredentialHealth {
   private rejected = new Set<string>();
+  private negadas = new Map<string, number>();
+  constructor(private now: () => number = Date.now, private negadaMs = 30 * 60_000) {}
 
   available(key: string): boolean {
-    return !this.rejected.has(key);
+    if (this.rejected.has(key)) return false;
+    const ate = this.negadas.get(key);
+    if (ate === undefined) return true;
+    if (ate <= this.now()) { this.negadas.delete(key); return true; }
+    return false;
   }
 
   reject(key: string, status: number, error: unknown): boolean {
     const message = typeof error === "string" ? error : JSON.stringify(error ?? {});
     if (status !== 401 && !/CONSUMER_SUSPENDED|API_KEY_INVALID|UNAUTHENTICATED|has been suspended|api key not valid|api key.*(?:expired|invalid)/i.test(message)) {
+      // So o 403 de SERVICO (chave/projeto sem acesso a API). 403 de modelo ("Model permission denied") nao entra:
+      // trocar de chave nao resolve e o teste de providerSafety exige que nao rejeite.
+      if (/Permission denied on the service|ACCESS_DENIED|SERVICE_DISABLED/i.test(message)) {
+        this.negadas.set(key, this.now() + this.negadaMs);
+        return true;
+      }
       return false;
     }
     this.rejected.add(key);

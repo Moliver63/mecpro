@@ -60,7 +60,7 @@ test("envia o modelo Qwen com function calling e sem chamadas paralelas", async 
       }) as any,
     });
     assert.equal(corpo.model, MODELO_CLOUDFLARE);
-    assert.equal(corpo.model, "@cf/qwen/qwen3-30b-a3b-fp8");
+    assert.equal(corpo.model, "@cf/google/gemma-4-26b-a4b-it");
     assert.equal(corpo.tool_choice, "auto");
     assert.equal(corpo.parallel_tool_calls, false);
     // O loop de ferramentas compartilhado processa msg.tool_calls?.[0], uma por
