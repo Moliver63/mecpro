@@ -57,6 +57,8 @@ const GATILHOS: Array<[string, RegExp]> = [
   ["publicar_campanha", /public|confirm|no ar|s[ou]b(?:ir|a|e)\b|coloc|lan[cç]|\bativ(?:a|ar|e|o)\b|manda ver|pode ir|go live/i],
   ["consultar_paginas_meta", /p[aá]gina|page|facebook|instagram|public/i],
   ["consultar_formularios_meta", /formul[aá]rio|lead|cadastro/i],
+  ["analisar_anexos", /analis|descrev|melhor|escolh|anex|enviei|o que (?:tem|aparece|mostra)|use (?:estas|essas|as)|crie.*(?:foto|v[ií]deo)/i],
+  ["adaptar_video", /adapt|formato|stories|reel|feed|quadrad|9:16|4:5|1:1|vertical/i],
   ["anexar_video_criativo", /v[ií]deo|reel|mp4/i],
   ["definir_foto_destaque", /foto|capa|destaque/i],
   ["editar_criativo", /criativo|texto|headline|t[ií]tulo|copy|edit|alter|troc|mud|corrij/i],

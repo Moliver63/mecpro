@@ -1611,7 +1611,7 @@ export async function touchChatSession(sessionId: number, campanha?: { id: numbe
 // 10 mais recentes por ORDINALITY) — sem janela de corrida entre ler e
 // escrever. Retorna true/false pra quem chama poder logar falha real em
 // vez de engolir silenciosamente.
-export async function addPendingChatPhoto(sessionId: number, photo: { url: string; fileName: string }): Promise<boolean> {
+export async function addPendingChatPhoto(sessionId: number, photo: { url: string; fileName: string; sha?: string }): Promise<boolean> {
   const db = await getDb(); if (!db) return false;
   const novoItem = JSON.stringify([photo]);
   const resultado = await db.execute(sql`
@@ -1634,7 +1634,7 @@ export async function addPendingChatPhoto(sessionId: number, photo: { url: strin
 }
 
 /** Lê as fotos pendentes (ainda não consumidas por uma geração bem-sucedida) da sessão. */
-export async function getPendingChatPhotos(sessionId: number): Promise<Array<{ url: string; fileName: string }>> {
+export async function getPendingChatPhotos(sessionId: number): Promise<Array<{ url: string; fileName: string; sha?: string }>> {
   const db = await getDb(); if (!db) return [];
   const r = await db.select({ pendingPhotoUrls: chatSessions.pendingPhotoUrls }).from(chatSessions).where(eq(chatSessions.id, sessionId)).limit(1);
   return somenteFotos(r[0]?.pendingPhotoUrls) as any;
@@ -1701,6 +1701,18 @@ export async function addPendingChatVideo(sessionId: number, video: { url: strin
 export async function userOwnsPendingChatVideo(userId: number, url: string): Promise<boolean> {
   const db = await getDb(); if (!db) return false;
   const filtro = JSON.stringify([{ url, kind: "video" }]);
+  const r: any = await db.execute(sql`
+    SELECT 1 FROM chat_sessions
+    WHERE "userId" = ${userId} AND COALESCE("pendingPhotoUrls", '[]'::jsonb) @> ${filtro}::jsonb
+    LIMIT 1
+  `);
+  return ((r as any).rowCount ?? (r as any).rows?.length ?? 0) > 0;
+}
+
+/** A foto (por URL) esta em uma sessao DESTE usuario? Usado para recusar URL de foto de outra conta. */
+export async function userOwnsPendingChatPhoto(userId: number, url: string): Promise<boolean> {
+  const db = await getDb(); if (!db) return false;
+  const filtro = JSON.stringify([{ url }]);
   const r: any = await db.execute(sql`
     SELECT 1 FROM chat_sessions
     WHERE "userId" = ${userId} AND COALESCE("pendingPhotoUrls", '[]'::jsonb) @> ${filtro}::jsonb

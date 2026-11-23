@@ -96,9 +96,9 @@ test("1b. /chat/upload-video registra o video por usuario e a nota do chat apont
   const trecho = chat.slice(i, i + 5200);
   assert.match(trecho, /registrarVideoDoChat\(userId, videoUrl\)/); // reaproveitado (mesmo hash) registra a URL existente, antes do upload
   assert.ok(trecho.lastIndexOf("registrarVideoDoChat(") > trecho.indexOf("uploadVideoBufferToCloudinary("));
-  assert.match(chat, /use anexar_video_criativo com esta URL exata/);
+  assert.match(chat, /anexar_video_criativo com a URL exata/);
   // limites e formatos existentes continuam
-  assert.match(trecho, /100 \* 1024 \* 1024|limite é 100MB/);
+  assert.match(trecho, /100 \* 1024 \* 1024|limite é 100MB|limitesDeMidia\(\)\.videoBytes/); // limite agora vem de limitesDeMidia() (padrao 100MB, configuravel)
 });
 
 // ── 2. Associacao ao criativo correto ───────────────────────────────────────────

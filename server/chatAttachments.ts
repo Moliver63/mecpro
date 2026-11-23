@@ -37,6 +37,8 @@ export interface EntradaEtapa {
   contaEscolhida: boolean;
   fotos: number;
   videos: number;
+  /** URLs dos videos guardados na conversa (os mais recentes), para o modelo poder agir sobre eles em mensagens seguintes. */
+  urlsDeVideo?: string[];
 }
 
 export function etapaDaConversa(e: EntradaEtapa): EtapaDaConversa {
@@ -54,5 +56,7 @@ export function notaDeRetomada(e: EntradaEtapa): string {
     rascunho_criado: "Etapa: ja existe um rascunho nesta conversa. Nao crie outro a menos que o usuario peca uma nova campanha; falta escolher a conta Meta e revisar antes de publicar.",
     conta_escolhida: "Etapa: rascunho criado e conta Meta escolhida. Nao crie outro a menos que o usuario peca uma nova campanha; revise e peca confirmacao para publicar.",
   };
-  return anexos ? `${base[etapa]} Anexos guardados nesta conversa: ${anexos}. Nao peca o reenvio.` : base[etapa];
+  const urls = (e.urlsDeVideo ?? []).slice(-3);
+  const listaDeVideos = urls.length ? ` Videos guardados (use estas URLs exatas em adaptar_video/anexar_video_criativo; analisar_anexos ja le tudo da conversa): ${urls.join(" ; ")}.` : "";
+  return anexos ? `${base[etapa]} Anexos guardados nesta conversa: ${anexos}. Nao peca o reenvio.${listaDeVideos}` : base[etapa];
 }

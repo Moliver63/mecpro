@@ -1,5 +1,6 @@
-import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle, ArrowDown, Megaphone } from "lucide-react";
-import type { RefObject } from "react";
+import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle, ArrowDown, Megaphone, Camera, RefreshCw, Play } from "lucide-react";
+import { useState, type RefObject } from "react";
+import { ACEITA_FOTOS_E_VIDEOS } from "@/lib/chatUploads";
 import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment, ChatVelocidade } from "@/hooks/useCampaignChat";
 import { ASSISTANT_IMAGE, SUGESTOES } from "@/hooks/useCampaignChat";
 
@@ -45,12 +46,12 @@ interface ChatConversationViewProps {
   velocidade: ChatVelocidade;
   escolherVelocidade: (v: ChatVelocidade) => void;
   attachments: ChatImageAttachment[];
-  addAttachments: (files: FileList | File[]) => Promise<void>;
+  addFiles: (files: FileList | File[]) => Promise<void>;
+  substituirAnexo: (id: string, arquivo: File) => Promise<void>;
   removeAttachment: (id: string) => void;
   attachmentError: string;
-  videoAttachment: ChatVideoAttachment | null;
-  addVideoAttachment: (file: File) => Promise<void>;
-  removeVideoAttachment: () => void;
+  videoAttachments: ChatVideoAttachment[];
+  removeVideoAttachment: (id: string) => void;
   send: (textoOverride?: string) => void;
   scrollRef: RefObject<HTMLDivElement>;
   longeDoFim: boolean;
@@ -69,11 +70,11 @@ export default function ChatConversationView({
   velocidade,
   escolherVelocidade,
   attachments,
-  addAttachments,
+  addFiles,
+  substituirAnexo,
   removeAttachment,
   attachmentError,
-  videoAttachment,
-  addVideoAttachment,
+  videoAttachments,
   removeVideoAttachment,
   send,
   scrollRef,
@@ -82,6 +83,12 @@ export default function ChatConversationView({
   irParaUltima,
   fullScreen = false,
 }: ChatConversationViewProps) {
+  // Arrastar e soltar (desktop): o contador evita piscar ao passar por elementos filhos.
+  const [arrastando, setArrastando] = useState(false);
+  const [entradas, setEntradas] = useState(0);
+  const temArquivos = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const algumEnviando = attachments.some((a) => a.status === "uploading") || videoAttachments.some((v) => v.status === "uploading");
+  const videosProntos = videoAttachments.filter((v) => v.status === "done").length;
   return (
     <div className={fullScreen ? "campaign-chat-conversation campaign-chat-conversation-full" : "campaign-chat-conversation"}>
       <main ref={scrollRef} className="campaign-chat-main">
@@ -196,7 +203,20 @@ export default function ChatConversationView({
         )}
       </div>
 
-      <footer className="campaign-chat-footer">
+      <footer
+        className="campaign-chat-footer"
+        data-arrastando={arrastando ? "true" : undefined}
+        onDragEnter={(e) => { if (temArquivos(e)) { e.preventDefault(); setEntradas((n) => n + 1); setArrastando(true); } }}
+        onDragOver={(e) => { if (temArquivos(e)) e.preventDefault(); }}
+        onDragLeave={(e) => { if (temArquivos(e)) { setEntradas((n) => { const novo = Math.max(0, n - 1); if (novo === 0) setArrastando(false); return novo; }); } }}
+        onDrop={(e) => {
+          if (!temArquivos(e)) return;
+          e.preventDefault(); setEntradas(0); setArrastando(false);
+          if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
+        }}
+        onPaste={(e) => { const f = e.clipboardData?.files; if (f?.length) { e.preventDefault(); void addFiles(f); } }}
+      >
+        {arrastando && <div className="campaign-chat-dropzone" role="status">Solte as fotos e vídeos aqui para anexar</div>}
         <div className="campaign-chat-velocidade" role="radiogroup" aria-label="Velocidade da resposta">
           <button
             type="button"
@@ -229,14 +249,15 @@ export default function ChatConversationView({
             <Turtle size={13} strokeWidth={2.4} /> Lenta
           </button>
         </div>
-        {!!attachments.length && (
-          <div className="campaign-chat-attachment-tray" aria-label="Fotos anexadas">
+        {(!!attachments.length || !!videoAttachments.length) && (
+          <div className="campaign-chat-attachment-tray" aria-label="Anexos da conversa">
             {attachments.map((file, index) => (
               <div key={file.id} className="campaign-chat-attachment" data-status={file.status}>
                 <img src={file.dataUrl} alt={file.fileName} />
                 {file.status === "uploading" && (
-                  <div className="campaign-chat-attachment-overlay" title="Enviando...">
+                  <div className="campaign-chat-attachment-overlay" title={`Enviando ${file.progresso ?? 0}%`}>
                     <Loader2 size={16} className="campaign-chat-spin" strokeWidth={2.4} />
+                    <span className="campaign-chat-attachment-pct">{file.progresso ?? 0}%</span>
                   </div>
                 )}
                 {file.status === "error" && (
@@ -244,56 +265,78 @@ export default function ChatConversationView({
                     <X size={16} strokeWidth={2.6} />
                   </div>
                 )}
+                {file.status === "uploading" && <i className="campaign-chat-attachment-bar" style={{ width: `${file.progresso ?? 0}%` }} />}
                 <span>{index + 1}</span>
                 <button type="button" onClick={() => removeAttachment(file.id)} aria-label={`Remover ${file.fileName}`}>
                   <X size={13} strokeWidth={2.4} />
                 </button>
+                <label className="campaign-chat-attachment-swap" title="Substituir por outro arquivo" aria-label={`Substituir ${file.fileName}`}>
+                  <input type="file" accept={ACEITA_FOTOS_E_VIDEOS} onChange={(e) => { const f = e.currentTarget.files?.[0]; if (f) void substituirAnexo(file.id, f); e.currentTarget.value = ""; }} />
+                  <RefreshCw size={11} strokeWidth={2.4} />
+                </label>
+              </div>
+            ))}
+            {videoAttachments.map((v) => (
+              <div key={v.id} className="campaign-chat-attachment campaign-chat-attachment-video" data-status={v.status} title={v.status === "error" ? v.erro : v.fileName}>
+                {v.previewUrl ? <video src={`${v.previewUrl}#t=0.1`} muted playsInline preload="metadata" aria-label={v.fileName} /> : <div className="campaign-chat-attachment-novideo"><Video size={20} strokeWidth={2.2} /></div>}
+                {v.status === "done" && <span className="campaign-chat-attachment-play"><Play size={12} strokeWidth={2.6} /></span>}
+                {v.status === "uploading" && (
+                  <div className="campaign-chat-attachment-overlay" title={`Enviando ${v.progresso ?? 0}%`}>
+                    <Loader2 size={16} className="campaign-chat-spin" strokeWidth={2.4} />
+                    <span className="campaign-chat-attachment-pct">{v.progresso ?? 0}%</span>
+                  </div>
+                )}
+                {v.status === "error" && (
+                  <div className="campaign-chat-attachment-overlay campaign-chat-attachment-overlay-error">
+                    <X size={16} strokeWidth={2.6} />
+                  </div>
+                )}
+                {v.status === "uploading" && <i className="campaign-chat-attachment-bar" style={{ width: `${v.progresso ?? 0}%` }} />}
+                {v.status === "done" && v.duracaoS ? <em className="campaign-chat-attachment-dur">{Math.floor(v.duracaoS / 60)}:{String(Math.round(v.duracaoS % 60)).padStart(2, "0")}</em> : null}
+                <button type="button" onClick={() => removeVideoAttachment(v.id)} aria-label={`Remover ${v.fileName}`}>
+                  <X size={13} strokeWidth={2.4} />
+                </button>
+                <label className="campaign-chat-attachment-swap" title="Substituir por outro arquivo" aria-label={`Substituir ${v.fileName}`}>
+                  <input type="file" accept={ACEITA_FOTOS_E_VIDEOS} onChange={(e) => { const f = e.currentTarget.files?.[0]; if (f) void substituirAnexo(v.id, f); e.currentTarget.value = ""; }} />
+                  <RefreshCw size={11} strokeWidth={2.4} />
+                </label>
               </div>
             ))}
           </div>
         )}
-
-        {videoAttachment && (
-          <div className="campaign-chat-video-chip" data-status={videoAttachment.status}>
-            {videoAttachment.status === "uploading" && <Loader2 size={14} className="campaign-chat-spin" strokeWidth={2.4} />}
-            {videoAttachment.status === "done" && <Video size={14} strokeWidth={2.4} />}
-            {videoAttachment.status === "error" && <X size={14} strokeWidth={2.4} />}
-            <span>
-              {videoAttachment.status === "uploading" && `Enviando ${videoAttachment.fileName}…`}
-              {videoAttachment.status === "done" && videoAttachment.fileName}
-              {videoAttachment.status === "error" && (videoAttachment.erro || "Falha ao enviar o vídeo")}
-            </span>
-            <button type="button" onClick={removeVideoAttachment} aria-label="Remover vídeo">
-              <X size={13} strokeWidth={2.4} />
-            </button>
-          </div>
+        {videoAttachments.some((v) => v.status === "error") && (
+          <p className="campaign-chat-error" role="alert">{videoAttachments.filter((v) => v.status === "error").map((v) => `${v.fileName}: ${v.erro || "falha ao enviar"}`).join(" ")}</p>
+        )}
+        {attachments.some((a) => a.status === "error") && (
+          <p className="campaign-chat-error" role="alert">{attachments.filter((a) => a.status === "error").map((a) => `${a.fileName}: ${a.erro || "falha ao enviar"}`).join(" ")}</p>
         )}
 
         <div className="campaign-chat-composer">
-          <label className="campaign-chat-attach" title="Anexar fotos da campanha">
+          <label className="campaign-chat-attach" title="Anexar fotos e vídeos" aria-label="Anexar fotos e vídeos">
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept={ACEITA_FOTOS_E_VIDEOS}
               multiple
               onChange={(e) => {
                 const files = e.currentTarget.files;
-                if (files?.length) void addAttachments(files);
+                if (files?.length) void addFiles(files);
                 e.currentTarget.value = "";
               }}
             />
             <ImagePlus size={18} strokeWidth={2.3} />
           </label>
-          <label className="campaign-chat-attach" title="Anexar vídeo da campanha">
+          <label className="campaign-chat-attach campaign-chat-attach-camera" title="Tirar foto ou gravar vídeo" aria-label="Abrir a câmera">
             <input
               type="file"
-              accept="video/mp4,video/quicktime,video/webm,video/x-msvideo,video/x-matroska"
+              accept="image/*,video/*"
+              capture="environment"
               onChange={(e) => {
-                const file = e.currentTarget.files?.[0];
-                if (file) void addVideoAttachment(file);
+                const files = e.currentTarget.files;
+                if (files?.length) void addFiles(files);
                 e.currentTarget.value = "";
               }}
             />
-            <Video size={18} strokeWidth={2.3} />
+            <Camera size={18} strokeWidth={2.3} />
           </label>
           <textarea
             value={input}
@@ -311,7 +354,7 @@ export default function ChatConversationView({
           <button
             type="button"
             onClick={() => send()}
-            disabled={loading || videoAttachment?.status === "uploading" || attachments.some((a) => a.status === "uploading") || (!input.trim() && attachments.length === 0)}
+            disabled={loading || algumEnviando || (!input.trim() && attachments.length === 0 && videosProntos === 0)}
             className="campaign-chat-send"
             aria-label="Enviar mensagem"
             title="Enviar"
