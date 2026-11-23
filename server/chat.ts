@@ -57,6 +57,7 @@ import { log } from "./logger";
 import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply, type FalhaDaIA } from "./chatReasoning";
 import { budgetChatMessages, budgetChatRequest, COMPACT_CHAT_POLICY } from "./chatRequestBudget";
 import { quedaDeProvedor, envolverComQueda } from "./chatProviderOutage";
+import { novoRequestId, registrarTentativa, registrarResumo } from "./chatProviderTelemetry";
 import { missingCampaignIntake } from "./chatIntake";
 import { prepareChatWithoutAI } from "./chatPreparation";
 import { saveBasicCampaignDraft } from "./basicCampaignDraft";
@@ -2288,21 +2289,22 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   const chaveDeepSeek = process.env.DEEPSEEK_API_KEY?.trim() || "";
   const comQueda = (id: string, fn: () => Promise<RespostaChat>) => envolverComQueda(quedaDeProvedor, id, fn, userId);
   const provedores: Array<Provedor<RespostaChat>> = [
-    { id: "gemini", indisponivelPorque: () => (proximaChaveGemini() ? null : "nenhuma chave disponivel (todas rejeitadas, negadas ou com cota esgotada)"),
+    { id: "gemini", modelo: () => MODELO_GEMINI, indisponivelPorque: () => (proximaChaveGemini() ? null : "nenhuma chave disponivel (todas rejeitadas, negadas ou com cota esgotada)"),
       tentar: () => tentarComGemini(mensagens, userId, attachments, req.chatSessionId, velocidade) },
-    { id: "cloudflare", indisponivelPorque: () => (cloudflareWorkersAIConfigurado() ? quedaDeProvedor.motivo("cloudflare") : "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN nao configurado"),
+    { id: "cloudflare", modelo: () => MODELO_CLOUDFLARE, indisponivelPorque: () => (cloudflareWorkersAIConfigurado() ? quedaDeProvedor.motivo("cloudflare") : "CLOUDFLARE_ACCOUNT_ID ou CLOUDFLARE_API_TOKEN nao configurado"),
       tentar: comQueda("cloudflare", () => tentarComCloudflare(mensagens, userId, attachments, req.chatSessionId, velocidade)) },
-    { id: "deepseek", indisponivelPorque: () => (!chaveDeepSeek ? "DEEPSEEK_API_KEY nao configurada" : quedaDeProvedor.motivo("deepseek")),
+    { id: "deepseek", modelo: () => (MODELO_DEEPSEEK_CHAT.trim() || "deepseek-chat"), indisponivelPorque: () => (!chaveDeepSeek ? "DEEPSEEK_API_KEY nao configurada" : quedaDeProvedor.motivo("deepseek")),
       tentar: comQueda("deepseek", () => tentarComDeepSeek(mensagens, userId, attachments, req.chatSessionId, velocidade)) },
-    { id: "groq", indisponivelPorque: () => (process.env.GROQ_API_KEY ? quedaDeProvedor.motivo("groq") : "GROQ_API_KEY nao configurada"),
+    { id: "groq", modelo: () => MODELO_GROQ, indisponivelPorque: () => (process.env.GROQ_API_KEY ? quedaDeProvedor.motivo("groq") : "GROQ_API_KEY nao configurada"),
       tentar: comQueda("groq", () => tentarComGroq(mensagens, userId, attachments, req.chatSessionId, velocidade)) },
-    { id: "openrouter", indisponivelPorque: () => (process.env.OPENROUTER_API_KEY ? quedaDeProvedor.motivo("openrouter") : "OPENROUTER_API_KEY nao configurada"),
+    { id: "openrouter", modelo: () => MODELO_OPENROUTER, indisponivelPorque: () => (process.env.OPENROUTER_API_KEY ? quedaDeProvedor.motivo("openrouter") : "OPENROUTER_API_KEY nao configurada"),
       tentar: comQueda("openrouter", () => tentarComOpenRouter(mensagens, userId, attachments, req.chatSessionId, velocidade)) },
   ];
   const cadeia = await executarCadeia(provedores, {
     saude: saudeDosProvedores,
     aoIniciarProvedor: () => iniciarNovaTentativaDoLivro(),
     usuario: userId,
+    telemetria: { requestId: novoRequestId(), aoTentativa: (e) => registrarTentativa(log, e), aoConcluir: (r) => registrarResumo(log, r) },
     aoRegistrar: ({ id, evento, detalhe }) => log.warn("chat", `Provedor ${id} ${evento}`, { userId, detalhe: redactProviderSecrets(detalhe) }),
   });
   if (cadeia.ok === true) return finish(cadeia.resultado);

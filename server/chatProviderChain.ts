@@ -12,9 +12,12 @@
 //  - o resultado diz por que cada um ficou de fora, para a mensagem ao usuario
 //    e para o log.
 import { modeloIndisponivel } from "./chatProviderCooldown";
+import { codigoDoErro, type EventoDeTentativa, type ResumoDoAtendimento } from "./chatProviderTelemetry";
 
 export type Provedor<R> = {
   id: string;
+  /** Modelo usado (so para observabilidade; vocabulario fechado, nunca segredo). */
+  modelo?: () => string;
   /** null = pode tentar; texto = motivo de nao tentar (nao configurado, saldo, etc.). */
   indisponivelPorque: () => string | null;
   tentar: () => Promise<R>;
@@ -141,7 +144,9 @@ export const saudeDosProvedores = new SaudeDosProvedores();
 
 export async function executarCadeia<R>(
   provedores: Array<Provedor<R>>,
-  opcoes: { saude?: SaudeDosProvedores; agora?: () => number; tetoMs?: number; aoRegistrar?: (e: { id: string; evento: string; detalhe: string }) => void; aoIniciarProvedor?: (id: string) => void; usuario?: number | string } = {},
+  opcoes: { saude?: SaudeDosProvedores; agora?: () => number; tetoMs?: number; aoRegistrar?: (e: { id: string; evento: string; detalhe: string }) => void; aoIniciarProvedor?: (id: string) => void; usuario?: number | string;
+  /** Observabilidade passiva: um evento por tentativa e um resumo no fim. Erros aqui sao engolidos. */
+  telemetria?: { requestId: string; aoTentativa: (e: EventoDeTentativa) => void; aoConcluir: (r: ResumoDoAtendimento) => void } } = {},
 ): Promise<ResultadoDaCadeia<R>> {
   const saude = opcoes.saude ?? saudeDosProvedores;
   const agora = opcoes.agora ?? Date.now;
@@ -150,33 +155,49 @@ export async function executarCadeia<R>(
   const falhas: FalhaDeProvedor[] = [];
   const log = opcoes.aoRegistrar ?? (() => {});
   let esgotouTempo = false;
+  const tel = opcoes.telemetria;
+  let tentativaN = 0; let houveFalhaAntes = false;
+  const modeloDe = (p: Provedor<R>) => { try { return p.modelo?.() ?? ""; } catch { return ""; } };
+  const emitir = (p: Provedor<R>, resultado: EventoDeTentativa["resultado"], ms: number, erro?: unknown) => {
+    if (!tel) return;
+    try { tel.aoTentativa({ requestId: tel.requestId, provedor: p.id, modelo: modeloDe(p), tentativa: ++tentativaN, resultado, ms, fallback: houveFalhaAntes, ...(erro !== undefined ? { codigoErro: codigoDoErro(erro) } : {}) }); } catch { /* passivo */ }
+  };
+  const concluir = (resultado: "ok" | "falha_total", p?: Provedor<R>) => {
+    if (!tel) return;
+    try { tel.aoConcluir({ requestId: tel.requestId, resultado, provedorFinal: p?.id ?? null, modeloFinal: p ? modeloDe(p) : null, tentativas: tentativaN, fallback: houveFalhaAntes, totalMs: agora() - inicio }); } catch { /* passivo */ }
+  };
   for (const p of provedores) {
     const motivo = p.indisponivelPorque();
-    if (motivo) { falhas.push({ id: p.id, motivo: "pulado", detalhe: motivo }); log({ id: p.id, evento: "pulado", detalhe: motivo }); continue; }
+    if (motivo) { falhas.push({ id: p.id, motivo: "pulado", detalhe: motivo }); log({ id: p.id, evento: "pulado", detalhe: motivo }); emitir(p, "pulado", 0); houveFalhaAntes = true; continue; }
     const reserva = saude.reservar(p.id);
     if (reserva === "bloqueado") {
       const restante = saude.segundosRestantes(p.id);
       const d = restante > 0 ? `em espera curta apos falhas de varios usuarios (${restante}s)` : "outro atendimento esta testando a recuperacao do provedor";
-      falhas.push({ id: p.id, motivo: "pulado", detalhe: d }); log({ id: p.id, evento: "pulado", detalhe: d }); continue;
+      falhas.push({ id: p.id, motivo: "pulado", detalhe: d }); log({ id: p.id, evento: "pulado", detalhe: d }); emitir(p, "pulado", 0); houveFalhaAntes = true; continue;
     }
     if (agora() - inicio >= teto) {
       esgotouTempo = true;
       if (reserva === "sonda") saude.liberarSonda(p.id);
       falhas.push({ id: p.id, motivo: "sem_tempo", detalhe: "teto de tempo do atendimento atingido" });
       log({ id: p.id, evento: "sem_tempo", detalhe: "teto de tempo do atendimento atingido" });
+      emitir(p, "sem_tempo", 0); houveFalhaAntes = true;
       continue;
     }
+    const t0 = agora();
     try {
       opcoes.aoIniciarProvedor?.(p.id);
       const resultado = await p.tentar();
       saude.registrarSucesso(p.id);
+      emitir(p, "ok", agora() - t0); concluir("ok", p);
       return { ok: true, resultado, provedor: p.id, falhas };
     } catch (erro) {
       saude.registrarFalha(p.id, erro, opcoes.usuario, reserva === "sonda");
       const detalhe = String((erro as any)?.message ?? erro).slice(0, 200);
       falhas.push({ id: p.id, motivo: "falhou", detalhe });
       log({ id: p.id, evento: "falhou", detalhe });
+      emitir(p, "falha", agora() - t0, erro); houveFalhaAntes = true;
     }
   }
+  concluir("falha_total");
   return { ok: false, falhas, esgotouTempo };
 }
