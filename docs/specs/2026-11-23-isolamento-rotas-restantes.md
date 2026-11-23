@@ -20,6 +20,8 @@ Express encontrou estas brechas, por leitura de código:
 | Express `GET /api/campaigns/:id` | qualquer usuário logado lê nome, nicho e produto de qualquer campanha |
 | Express `GET /api/diag/meta` | lista email, nome, conta de anúncios e início do token Meta de TODOS os clientes; a chave padrão `mecpro-diag-2026` está no código e no bundle do navegador (`AutonomousAgent.tsx`) e vale quando `DEBUG_TOKEN` não está definido |
 | Express `GET /api/competitors/status` | sem checagem de dono (hoje inerte: lê `payload.sub`, que o token de sessão não tem) |
+| Express `GET /api/webhook/asaas/status` | sem autenticação nenhuma; devolve depósitos e saldo de mídia de todos os clientes (achado da revisão Goldfish) |
+| Express `POST /api/marketplace/order` | sem autenticação; grava pedido "pago" no anúncio de qualquer vendedor e soma conversões; nenhum cliente do sistema chama a rota (achado da revisão Goldfish) |
 
 Conferidas e já protegidas (não mexidas): chat (sessões, fotos), MCP, API
 pública (`/api/v1`), marketplace (`listing.userId`), comentários
@@ -45,11 +47,15 @@ do próprio usuário).
   com o usuário que cada rota já identifica pelo token.
 - `/api/diag/meta`: sessão de admin/superadmin, ou `DEBUG_TOKEN` definido
   explicitamente no ambiente (e diferente da chave padrão).
+- `/api/webhook/asaas/status`: só sessão de admin/superadmin (helper
+  `sessaoDeAdmin`, o mesmo usado em `/api/diag/meta`). Resposta igual para admin.
+- `POST /api/marketplace/order`: 401 sem sessão, 403 se não for admin. Até
+  existir um checkout com webhook assinado, ninguém além do admin grava pedido.
 
 ## Arquivos
 
 `server/ownership.ts`, novo `server/asaasOwnership.ts`, `server/_core/router.ts`,
-`server/_core/vslRouter.ts`, `server/_core/index.ts`, `server/db.ts`, teste novo
+`server/_core/vslRouter.ts`, `server/_core/index.ts`, `server/marketplace.ts`, `server/db.ts`, teste novo
 `server/__tests__/isolamentoRotasRestantes.test.ts`.
 
 ## Fora do escopo
@@ -74,11 +80,13 @@ chamada a mais ao Asaas em `getCheckoutPix`.
 
 ## Como provar
 
-`server/__tests__/isolamentoRotasRestantes.test.ts` (13 testes): unidade do
+`server/__tests__/isolamentoRotasRestantes.test.ts` (15 testes): unidade do
 middleware e das funções puras, roteador tRPC de teste, e checagem de fonte de
-cada rota corrigida (falha com as rotas revertidas: 5 de 13 conferido).
-Suíte completa e `tsc` comparados com a base.
+cada rota corrigida. Com as rotas revertidas os testes de fonte falham
+(conferido: 5 na primeira leva, 3 na segunda). Suíte completa 946/946; `tsc`
+43/64, igual à base.
 
 ## Revisão Goldfish
 | Rodada | Fase | Bloqueantes | Riscos | Resultado |
 |---|---|---|---|---|
+| 1 | diff | 2 (`/api/webhook/asaas/status` aberto; `POST /api/marketplace/order` aberto) | serviço VSL com segredo padrão e `GET /jobs` sem filtro; `/api/health/ai` com chave pública; ligação do middleware só testada pela fonte; formatos de referência Asaas duplicados em `asaasOwnership` e `interpretarReferencia` | 2 bloqueantes corrigidos nesta branch; riscos registrados para o Michel |

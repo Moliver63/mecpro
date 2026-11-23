@@ -95,6 +95,7 @@ const ROTA = readFileSync(new URL("../_core/router.ts", import.meta.url), "utf8"
 const VSL = readFileSync(new URL("../_core/vslRouter.ts", import.meta.url), "utf8");
 const INDEX = readFileSync(new URL("../_core/index.ts", import.meta.url), "utf8");
 const DB = readFileSync(new URL("../db.ts", import.meta.url), "utf8");
+const MKT = readFileSync(new URL("../marketplace.ts", import.meta.url), "utf8");
 
 function trecho(fonte: string, inicio: string, tamanho: number): string {
   const i = fonte.indexOf(inicio);
@@ -135,6 +136,18 @@ test("Express: /api/campaigns/:id e /api/competitors/status conferem o dono; /ap
   antes(trecho(INDEX, "app.get('/api/competitors/status'", 1800), /assertCompetitorOwner\(/, /FROM scraped_ads/);
   const diag = trecho(INDEX, "app.get('/api/diag/meta'", 1600);
   assert.doesNotMatch(diag, /process\.env\.DEBUG_TOKEN \|\| 'mecpro-diag-2026'/);
-  assert.match(diag, /ehAdmin\(admin\)/);
+  assert.match(diag, /sessaoDeAdmin\(req\)/);
   antes(diag, /if \(!autorizado\)\s*\{\s*return res\.status\(403\)/, /FROM api_integrations/);
+});
+
+test("Express: /api/webhook/asaas/status (depositos de todos) so com sessao de admin", () => {
+  antes(trecho(INDEX, "app.get('/api/webhook/asaas/status'", 1500), /if \(!\(await sessaoDeAdmin\(req\)\)\) return res\.status\(403\)/, /FROM media_budget/);
+  assert.match(trecho(INDEX, "async function sessaoDeAdmin", 600), /ehAdmin\(usuario\)/);
+});
+
+test("Express: POST /api/marketplace/order exige admin antes de gravar pedido pago", () => {
+  const ordem = trecho(MKT, 'router.post("/order"', 1500);
+  antes(ordem, /status\(401\)/, /createMarketplaceOrder\(/);
+  antes(ordem, /if \(!ehAdmin\(quem\)\) return res\.status\(403\)/, /createMarketplaceOrder\(/);
+  antes(ordem, /ehAdmin\(quem\)/, /incrementListingConversions\(/);
 });

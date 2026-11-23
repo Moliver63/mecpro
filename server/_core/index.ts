@@ -160,6 +160,18 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import * as db from '../db.js';
 import { getPool } from '../db.js';
 import { assertCampaignOwner, assertCompetitorOwner, ehAdmin } from '../ownership';
+
+/** Sessao (cookie) de usuario admin/superadmin, conferida no banco. */
+async function sessaoDeAdmin(req: any): Promise<boolean> {
+  try {
+    const sessao = req?.cookies?.token;
+    if (!sessao) return false;
+    const { jwtVerify } = await import('jose');
+    const { payload } = await jwtVerify(sessao, new TextEncoder().encode(process.env.JWT_SECRET!));
+    const usuario: any = await db.getUserById(Number((payload as any).userId));
+    return ehAdmin(usuario);
+  } catch { return false; }
+}
 import log from './logger.js';
 import { motivoDeOrigemRecusada } from '../corsDiagnostico';
 import path from 'path';
@@ -596,17 +608,7 @@ app.get('/api/diag/meta', async (req, res) => {
   const key = req.query.key as string;
   const tokenExplicito = process.env.DEBUG_TOKEN;
   let autorizado = !!tokenExplicito && tokenExplicito !== 'mecpro-diag-2026' && key === tokenExplicito;
-  if (!autorizado) {
-    try {
-      const sessao = (req as any).cookies?.token;
-      if (sessao) {
-        const { jwtVerify } = await import('jose');
-        const { payload } = await jwtVerify(sessao, new TextEncoder().encode(process.env.JWT_SECRET!));
-        const admin: any = await db.getUserById(Number((payload as any).userId));
-        autorizado = ehAdmin(admin);
-      }
-    } catch { autorizado = false; }
-  }
+  if (!autorizado) autorizado = await sessaoDeAdmin(req);
   if (!autorizado) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
@@ -973,8 +975,11 @@ app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), async
   res.json({ received: true });
 });
 
-// ─── Diagnóstico do webhook Asaas (sem autenticação — apenas leitura) ─────────
+// ─── Diagnóstico do webhook Asaas (admin) ─────────
+// Devolve depositos e saldos de TODOS os clientes. Respondia sem autenticacao
+// nenhuma (revisao Goldfish, auditoria 23/11 rodada 2). Agora so admin.
 app.get('/api/webhook/asaas/status', async (req: Request, res: Response) => {
+  if (!(await sessaoDeAdmin(req))) return res.status(403).json({ error: 'Unauthorized' });
   try {
     const pool = await getPool();
     if (!pool) return res.status(500).json({ error: 'DB unavailable' });
