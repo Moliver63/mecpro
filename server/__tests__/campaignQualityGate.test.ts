@@ -205,13 +205,15 @@ test("flags budget below Meta's per-ad-set minimum only at publish, never at gen
 
   const generateReport = evaluateCampaignQualityGates({ ...lowBudgetInput, action: "generate" }, baseProfile, { name: "teste" });
   assert.notEqual(generateReport.status, "blocked");
-  assert.ok(!generateReport.questions.some((q) => /minimo recomendado pela meta/i.test(q)));
+  assert.ok(!generateReport.questions.some((q) => /recomendacao do mecproai/i.test(q)));
 
   const publishReport = evaluateCampaignQualityGates({ ...lowBudgetInput, action: "publish" }, baseProfile, { name: "teste" });
   assert.equal(publishReport.status, "blocked");
-  assert.ok(publishReport.questions.some((q) => /minimo recomendado pela meta/i.test(q)));
+  // F6 (23/11): a referencia de R$ 5,11 por conjunto e recomendacao do MecProAI, nao regra da Meta.
+  assert.ok(publishReport.questions.some((q) => /recomendacao do mecproai.*nao e exigencia da meta/i.test(q)));
+  assert.ok(!publishReport.questions.some((q) => /minimo recomendado pela meta/i.test(q)));
   // R$180/30 dias = R$6/dia — nunca reescrito para R$675 nem qualquer outro valor.
-  assert.ok(publishReport.questions.some((q) => /R\$6\.00\/dia|R\$6,00\/dia/.test(q)));
+  assert.ok(publishReport.questions.some((q) => /R\$ ?6,00\/dia/.test(q)));
 });
 
 test("does not flag budget viability when the requested daily amount already covers the ad sets", () => {

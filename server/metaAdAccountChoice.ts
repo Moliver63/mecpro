@@ -24,6 +24,7 @@
  * Tudo que fala com o banco ou com a Meta entra por `deps`, para teste.
  */
 import { createHash } from "node:crypto";
+import { minimoDaContaEmUnidadePrincipal } from "../shared/metaBudgetRules";
 
 export interface ContaMeta {
   id: string;            // so digitos, sem act_
@@ -31,6 +32,8 @@ export interface ContaMeta {
   status: number | null; // account_status da Meta: 1 = ativa
   ativa: boolean;
   moeda: string | null;
+  /** min_daily_budget da conta em unidade principal da moeda (API da Meta), quando informado. */
+  minimoDiario?: number;
   origem: "direta" | "portfolio";
   portfolio?: string;
 }
@@ -108,6 +111,8 @@ function resumoDaConta(c: ContaMeta, atual: string | null, doRascunho: string | 
     origem: c.origem, ...(c.portfolio ? { portfolio: c.portfolio } : {}),
     conexaoUsaEstaConta: atual === c.id,
     escolhidaParaEsteRascunho: doRascunho === c.id,
+    // Origem: API da Meta. E o piso da conta; alguns objetivos exigem mais.
+    ...(c.minimoDiario != null ? { minimoDiarioDaConta: c.minimoDiario, minimoDiarioOrigem: "api_meta" } : {}),
   };
 }
 
@@ -232,6 +237,91 @@ export async function selecionarContaMeta(userId: number, args: Record<string, u
   }
 }
 
+// ── Escolha da conta ANTES de existir rascunho (F5, auditoria 23/11) ──────────
+// Sem campaignId o chat so listava paginas. Aqui a conta pode ser listada e
+// escolhida no inicio do atendimento; a escolha fica no estado da conversa e e
+// aplicada ao rascunho no instante em que ele e criado. A conexao Meta nao muda
+// ate la: escolher e listar nao alteram nada.
+export type ContaDaSessao = { id: string; nome: string; moeda: string | null; escolhidaEm: string };
+export interface SessaoDeConta { obter(): ContaDaSessao | null; gravar(conta: ContaDaSessao | null): void }
+
+export async function selecionarContaMetaDaSessao(
+  userId: number, args: Record<string, unknown>, deps: DepsContaMeta, mensagemDoTurno: string, sessao: SessaoDeConta,
+): Promise<Record<string, unknown>> {
+  const lista = await deps.listarContas(userId);
+  if (lista.ok === false) return { ok: false, erro: lista.erro };
+  const contas = lista.contas;
+  if (!contas.length) {
+    return { ok: false, erro: "A Meta nao listou nenhuma conta de anuncios para esta conexao. Conecte ou reconecte a Meta em Configuracoes. Nada foi alterado." };
+  }
+  const atual = await deps.contaDaConexao(userId);
+  const daSessao = sessao.obter()?.id ?? null;
+  const invalido = args.adAccountId !== undefined && args.adAccountId !== null && args.adAccountId !== ""
+    && (typeof args.adAccountId !== "string" || !digitosDaConta(args.adAccountId));
+  if (invalido) return { ok: false, erro: "adAccountId invalido. Use um dos adAccountId devolvidos pela listagem." };
+  const pedido = typeof args.adAccountId === "string" && args.adAccountId.trim() ? digitosDaConta(args.adAccountId) : null;
+  const ativas = contas.filter((c) => c.ativa);
+
+  if (!pedido) {
+    if (podeAssociarSozinho(contas, ativas, lista.completa, atual)) {
+      const unica = ativas[0];
+      sessao.gravar({ id: unica.id, nome: unica.nome, moeda: unica.moeda, escolhidaEm: new Date().toISOString() });
+      return {
+        ok: true, conta: { adAccountId: unica.id, nome: unica.nome, moeda: unica.moeda }, unicaContaDisponivel: true,
+        instruction: `Esta e a unica conta de anuncios disponivel (${unica.nome}). Diga o nome ao usuario; ela sera associada ao rascunho quando ele for criado. Nada foi alterado na Meta.`,
+      };
+    }
+    return {
+      ok: true,
+      contas: contas.map((c) => resumoDaConta(c, atual, daSessao)),
+      contaEscolhidaNestaConversa: daSessao,
+      instruction: "Apresente as contas pelo NOME (e moeda), nunca pelo numero, e pergunte qual usar. Contas com ativa=false nao podem ser escolhidas. Depois chame esta ferramenta de novo com o adAccountId da conta escolhida; ela vai devolver a frase de confirmacao que o usuario precisa enviar. Nada e alterado na Meta ate o rascunho ser criado.",
+    };
+  }
+
+  const alvo = contas.find((c) => c.id === pedido);
+  if (!alvo) {
+    return { ok: false, erro: "Essa conta nao esta entre as contas de anuncios autorizadas para este usuario. Escolha uma da lista.", contas: contas.map((c) => resumoDaConta(c, atual, daSessao)) };
+  }
+  if (!alvo.ativa) return { ok: false, erro: `A conta "${alvo.nome}" nao esta ativa na Meta (status ${alvo.status ?? "desconhecido"}). Escolha outra.` };
+  const frase = fraseDaEscolha(userId, 0, alvo.id);
+  if (mensagemDoTurno.trim() !== frase) {
+    return {
+      ok: false, confirmationRequired: true, conta: { adAccountId: alvo.id, nome: alvo.nome, moeda: alvo.moeda },
+      erro: `Nada foi alterado. Mostre o nome da conta "${alvo.nome}" ao usuario e peca que envie exatamente: ${frase}`,
+    };
+  }
+  sessao.gravar({ id: alvo.id, nome: alvo.nome, moeda: alvo.moeda, escolhidaEm: new Date().toISOString() });
+  return {
+    ok: true, conta: { adAccountId: alvo.id, nome: alvo.nome, moeda: alvo.moeda },
+    instruction: `Conta "${alvo.nome}" escolhida para esta conversa. Ela sera associada ao rascunho quando ele for criado; a conexao Meta so muda nesse momento. Nada foi publicado.`,
+  };
+}
+
+/** Chamada logo depois de criar o rascunho: associa a conta escolhida na conversa, revalidando. */
+export async function aplicarContaDaSessaoAoRascunho(
+  userId: number, campaignId: number, sessao: SessaoDeConta, deps: DepsContaMeta,
+): Promise<{ status: "aplicada"; nome: string; mudouConexao: boolean } | { status: "sem_escolha" } | { status: "falhou"; erro: string }> {
+  const escolhida = sessao.obter();
+  if (!escolhida) return { status: "sem_escolha" };
+  try {
+    const resolvido = await campanhaDoUsuario(userId, campaignId, deps);
+    if ("erro" in resolvido) return { status: "falhou", erro: resolvido.erro };
+    if (campanhaJaPublicada(resolvido.campaign)) return { status: "falhou", erro: "A campanha ja foi publicada; a conta nao foi alterada." };
+    const lista = await deps.listarContas(userId);
+    if (lista.ok === false) return { status: "falhou", erro: lista.erro };
+    const alvo = lista.contas.find((c) => c.id === escolhida.id);
+    if (!alvo || !alvo.ativa) {
+      sessao.gravar(null);
+      return { status: "falhou", erro: `A conta "${escolhida.nome}" nao esta mais autorizada ou ativa na Meta. Escolha a conta de novo.` };
+    }
+    const { mudouConexao } = await aplicar(userId, campaignId, alvo, deps);
+    return { status: "aplicada", nome: alvo.nome, mudouConexao };
+  } catch (e: any) {
+    return { status: "falhou", erro: String(e?.message || "erro desconhecido").slice(0, 160) };
+  }
+}
+
 /**
  * Trava usada por `anexar_video_criativo` e `publicar_campanha`: rascunho e
  * conexao precisam apontar para a mesma conta autorizada e ativa.
@@ -290,6 +380,9 @@ export function normalizarContasMeta(direto: any[], portfolios: Array<{ business
       id, nome: String(a?.name || a?.nome || "Conta sem nome"), status, ativa: status === 1,
       moeda: a?.currency || a?.moeda || null, origem, ...(portfolio ? { portfolio } : {}),
     };
+    // Piso diario da conta, quando a Meta informa (F6). Ausente nao quer dizer "sem minimo".
+    const minimo = minimoDaContaEmUnidadePrincipal(a?.min_daily_budget, conta.moeda);
+    if (minimo != null) conta.minimoDiario = minimo;
     if (!porId.has(id)) porId.set(id, conta);
   };
   for (const a of direto || []) add(a, "direta");
@@ -312,7 +405,7 @@ export async function depsContaMetaPadrao(db: any, injected?: any): Promise<Deps
       let direto: any[] = [];
       try {
         const res = await fetch(
-          `https://graph.facebook.com/v20.0/me/adaccounts?fields=id,name,account_status,currency&limit=100&access_token=${integ.accessToken}`,
+          `https://graph.facebook.com/v20.0/me/adaccounts?fields=id,name,account_status,currency,min_daily_budget&limit=100&access_token=${integ.accessToken}`,
           { signal: AbortSignal.timeout(8000) },
         );
         const data: any = await res.json();

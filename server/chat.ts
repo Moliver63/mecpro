@@ -39,7 +39,7 @@ import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanha
 import { toolLedger, executarUmaVez } from "./chatToolLedger";
 import { executarCadeia, saudeDosProvedores, type Provedor } from "./chatProviderChain";
 import { anexarVideoAoCriativo, depsVideoChatPadrao, registrarVideoDoChat } from "./chatCreativeVideo";
-import { selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
+import { selecionarContaMetaDaSessao, aplicarContaDaSessaoAoRascunho, type SessaoDeConta, selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
 import { chatTaskContext, chatTaskKey, runChatDraftTask } from "./chatDraftTask";
@@ -259,6 +259,8 @@ export interface CampanhaGerada {
   url: string;
   photoCount?: number;
   coverFileName?: string;
+  /** Linha de status da conta de anuncios associada ao rascunho (F5). */
+  contaMeta?: string;
 }
 
 interface RespostaChat {
@@ -291,6 +293,8 @@ Somente para criacao de campanha, colete nesta ordem (so peca o que ainda nao so
 
 Depois de selecionar um projeto existente, consulte suas campanhas. Apresente nova do zero, usar existente como modelo ou editar existente; nao repita escolhas ja feitas.
 Para editar uma campanha ja criada (mudar orcamento/publico com atualizar_orcamento_campanha, trocar foto de destaque com definir_foto_destaque): primeiro identifique QUAL campanha o usuario quer dizer (veja "Resolucao de referencias" abaixo), consulte ela com consultar_projetos_campanhas pra ver os indices reais de criativos/conjuntos de anuncios, e so entao chame a ferramenta de edicao.
+CONTA ANTES DO RASCUNHO: ao conduzir uma campanha nova, depois de definir o projeto e ANTES de gerar_campanha, chame selecionar_conta_meta sem campaignId para listar as contas de anuncios autorizadas. Com varias, apresente os nomes e deixe o usuario escolher (frase CONFIRMAR CONTA META); com uma so, diga qual e. A conta escolhida e associada ao rascunho quando ele for criado. Nunca use conta por suposicao.
+
 VIDEO E CONTA DE ANUNCIOS: quando o usuario anexar um video (nota "[Video anexado no chat: URL]") e quiser usa-lo, identifique o rascunho e o criativo com consultar_projetos_campanhas, pergunte em qual criativo e em qual formato (feed, stories/Reels ou square) e chame anexar_video_criativo com a URL exata da nota. Isso nao publica nada. Se a ferramenta pedir conta (acao=selecionar_conta_meta), use selecionar_conta_meta: com varias contas, apresente os nomes e deixe o usuario escolher, e peca a frase CONFIRMAR CONTA META retornada; com uma so, ela e usada e voce diz qual. Nunca use uma conta por suposicao.
 Se publicar_campanha recusar por criativo em revisao: score baixo e/ou promessa de resultado com prazo o usuario pode aprovar com aprovar_revisao_criativo (mostre os textos, o score e a frase da promessa antes); placeholder, texto fora do segmento, alegacao nao confirmada ou depoimento inventado exigem reescrever com editar_criativo. Nunca invente prova social pra subir score.
 
@@ -575,13 +579,12 @@ const DESCRICAO_ANEXAR_VIDEO =
 const PARAMETROS_CONTA_META = {
   type: "object",
   properties: {
-    campaignId: { type: "integer", description: "ID do rascunho." },
+    campaignId: { type: "integer", description: "OPCIONAL. ID do rascunho. Sem ele, lista/escolhe a conta para a conversa e ela e associada ao rascunho quando ele for criado." },
     adAccountId: { type: "string", description: "OPCIONAL. adAccountId de uma conta devolvida pela listagem, ja ESCOLHIDA PELO USUARIO. Sem ele, so lista." },
   },
-  required: ["campaignId"],
 };
 const DESCRICAO_CONTA_META =
-  "Lista as contas de anuncios Meta que o usuario pode usar e registra a escolhida no rascunho. " +
+  "Lista as contas de anuncios Meta que o usuario pode usar e registra a escolhida. Pode ser chamada ANTES de existir rascunho (sem campaignId): a conta fica na conversa e e associada ao rascunho quando gerar_campanha o criar. " +
   "Com varias contas, apresente os NOMES e pergunte qual usar; nunca escolha por ele nem use um numero que ele digitou sem listar. " +
   "A escolha pede a frase CONFIRMAR CONTA META retornada pela ferramenta, enviada exatamente pelo usuario. Nao publica nada.";
 const DESCRICAO_PUBLICAR_CAMPANHA =
@@ -1000,6 +1003,14 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       coverFileName: orderedAttachments[0]?.fileName,
     };
     log.info("chat", "campanha gerada via chat", { userId, campaignId: campanha.id, projectId });
+    // F5: a conta escolhida na conversa (antes do rascunho) passa para o rascunho
+    // agora, revalidada. Falha aqui nao derruba o rascunho: o portao de upload e
+    // publicacao continua exigindo a conta e pedira a escolha de novo.
+    if (state?.metaAdAccount) {
+      const aplicada = await aplicarContaDaSessaoAoRascunho(userId, campanha.id, sessaoDeConta(state), await depsContaMetaPadrao(db));
+      if (aplicada.status === "aplicada") campanha.contaMeta = `Conta de anuncios: ${aplicada.nome}.`;
+      else if (aplicada.status === "falhou") campanha.contaMeta = `Conta de anuncios: nao consegui associar (${aplicada.erro}). Escolha a conta antes de subir midia ou publicar.`;
+    }
     // Fotos consumidas por esta geração — limpa da sessão pra não serem
     // reaproveitadas silenciosamente numa campanha diferente mais tarde
     // na mesma conversa (ex: usuário pede uma segunda campanha pra outro
@@ -1145,6 +1156,10 @@ const generateChatImage = (userId: number, args: any) =>
 const publicarCampanhaNaMeta = (userId: number, options: any) =>
   executarUmaVez(userId, "publicar_campanha", options, () => publicarCampanhaNaMetaBruto(userId, options));
 
+function sessaoDeConta(estado: NonNullable<ReturnType<typeof briefingContext.getStore>>): SessaoDeConta {
+  return { obter: () => estado.metaAdAccount ?? null, gravar: (c) => { if (c) estado.metaAdAccount = c; else delete estado.metaAdAccount; } };
+}
+
 const FERRAMENTAS_DE_CRIATIVO_E_CONTA = new Set(["editar_criativo", "aprovar_revisao_criativo", "anexar_video_criativo", "selecionar_conta_meta"]);
 async function executarEdicaoDeCriativo(name: string | undefined, args: unknown, userId: number): Promise<Record<string, unknown> | null> {
   if (name && FERRAMENTAS_DE_CRIATIVO_E_CONTA.has(name)) {
@@ -1160,7 +1175,15 @@ async function executarEdicaoDeCriativoBruto(name: string | undefined, args: unk
     return anexarVideoAoCriativo(userId, limparArgsFerramenta(args as any), await depsVideoChatPadrao(db, base));
   }
   if (name === "selecionar_conta_meta") {
-    return selecionarContaMeta(userId, limparArgsFerramenta(args as any), await depsContaMetaPadrao(db), adsTurn.getStore()?.message || "");
+    const limpos = limparArgsFerramenta(args as any);
+    const deps = await depsContaMetaPadrao(db);
+    const mensagem = adsTurn.getStore()?.message || "";
+    if (limpos.campaignId === undefined) {
+      const estado = briefingContext.getStore();
+      if (!estado) return { ok: false, erro: "Conversa indisponivel." };
+      return selecionarContaMetaDaSessao(userId, limpos, deps, mensagem, sessaoDeConta(estado));
+    }
+    return selecionarContaMeta(userId, limpos, deps, mensagem);
   }
   return null;
 }
