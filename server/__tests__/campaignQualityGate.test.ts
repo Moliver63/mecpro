@@ -237,3 +237,33 @@ test("does not flag budget viability when the requested daily amount already cov
 
   assert.ok(!report.questions.some((q) => /minimo recomendado pela meta/i.test(q)));
 });
+
+// ── Soma dos conjuntos ligada ao plano da publicacao (pendencia da revisao Goldfish) ──
+const entradaPublicar = (adSets: unknown, extra: Record<string, unknown> = {}) => evaluateCampaignQualityGates(
+  { action: "publish", objective: "leads", platform: "meta", budget: 300, duration: 10, mediaFormat: "carousel",
+    uploadedImages: ["https://example.com/1.jpg", "https://example.com/2.jpg"], creativesCount: 2,
+    factValidationStatus: "passed", metaPublishConfirmed: true, adSets, ...extra } as any,
+  baseProfile, { name: "x" },
+);
+const textoBudget = (r: any) => r.gates.flatMap((g: any) => [...g.blockingIssues, ...g.recommendedIssues]).filter((i: any) => /budget/.test(i.field)).map((i: any) => `${i.question} ${i.reason}`).join(" | ");
+
+test("soma dos conjuntos acima do total vira pendencia de publicacao com a regra interna, sem mexer no orcamento", () => {
+  // R$ 300 em 10 dias = R$ 30/dia; conjuntos pedem 20 + 20 por dia.
+  const r = entradaPublicar([{ name: "A", budget: "R$ 20/dia" }, { name: "B", budget: "R$ 20/dia" }]);
+  assert.match(textoBudget(r), /Regra do MecProAI/);
+  assert.equal(r.status, "blocked");
+});
+
+test("soma dos conjuntos dentro do total nao gera pendencia de soma, mesmo com arredondamento", () => {
+  const r = entradaPublicar([{ name: "A", budget: "R$ 15/dia" }, { name: "B", budget: "R$ 15/dia" }]);
+  assert.doesNotMatch(textoBudget(r), /soma/i);
+  const r2 = entradaPublicar([{ name: "A", budget: "50%" }, { name: "B", budget: "50%" }], { budget: 1000, duration: 30 });
+  assert.doesNotMatch(textoBudget(r2), /soma/i);
+});
+
+test("minimo e moeda da conta vem da API: aviso com origem da Meta e sem comparar com reais em conta USD", () => {
+  const r = entradaPublicar([{ name: "A", budget: "50%" }, { name: "B", budget: "50%" }], { budget: 30, duration: 10, metaAccountCurrency: "USD", metaMinDailyPerAdSet: 5 });
+  const t = textoBudget(r);
+  assert.match(t, /minimo diario de 5\.00 USD/);
+  assert.doesNotMatch(t, /R\$ 5,11/);
+});

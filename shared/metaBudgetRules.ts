@@ -59,7 +59,10 @@ export function avaliarOrcamento(e: EntradaDeOrcamento): { diarioPedido: number;
   // 1) Invariante interna: a soma dos conjuntos nao passa do total autorizado.
   if (Array.isArray(e.orcamentosDiariosDosConjuntos) && e.orcamentosDiariosDosConjuntos.length && total > 0) {
     const somaDia = e.orcamentosDiariosDosConjuntos.reduce((a, b) => a + (Number(b) || 0), 0);
-    if (somaDia * dias > total + 0.005) {
+    // Tolerancia so para planos em reais inteiros (o plano da publicacao arredonda cada conjunto, +-0,50).
+    const inteiros = e.orcamentosDiariosDosConjuntos.every((v) => Number.isInteger(Number(v)));
+    const folga = inteiros ? 0.5 * e.orcamentosDiariosDosConjuntos.length : 0.01;
+    if (somaDia > diarioPedido + folga) {
       avisos.push({
         codigo: "soma_dos_conjuntos_excede_o_total", origem: "regra_interna", severidade: "bloqueio",
         mensagem: `Regra do MecProAI: a soma dos conjuntos (${brl(somaDia)}/dia, ${brl(somaDia * dias)} em ${dias} dias) passa do total autorizado (${brl(total)}). Ajuste os conjuntos ou aprove explicitamente o novo total.`,

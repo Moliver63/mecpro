@@ -39,7 +39,7 @@ import { corrigirRespostaDeImagens, corrigirBloqueioInventadoDeImagem, imageTurn
 import { corrigirRespostaDeProjetos, projectTurn, registrarProjetosListados } from "./chatProjectReply";
 import { respostaFinalDoPasso, RESPOSTA_SEM_CONCLUSAO } from "./chatRespostaFinal";
 import { adsTurn, adsReadTools, queryChatAds, publishChatAds as publicarCampanhaNaMetaBruto, listarFormulariosChat } from "./chatAdsTools";
-import { toolLedger, executarUmaVez } from "./chatToolLedger";
+import { toolLedger, executarUmaVez, novoLivro, iniciarNovaTentativaDoLivro } from "./chatToolLedger";
 import { executarCadeia, saudeDosProvedores, type Provedor } from "./chatProviderChain";
 import { anexarVideoAoCriativo, depsVideoChatPadrao, registrarVideoDoChat } from "./chatCreativeVideo";
 import { selecionarContaMetaDaSessao, aplicarContaDaSessaoAoRascunho, type SessaoDeConta, selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
@@ -1009,10 +1009,16 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
     // F5: a conta escolhida na conversa (antes do rascunho) passa para o rascunho
     // agora, revalidada. Falha aqui nao derruba o rascunho: o portao de upload e
     // publicacao continua exigindo a conta e pedira a escolha de novo.
-    if (state?.metaAdAccount) {
+    if (state?.metaAdAccount && state.metaAdAccount.usadaNaCampanha && state.metaAdAccount.usadaNaCampanha !== campanha.id) {
+      // Segunda campanha na mesma conversa: a escolha anterior NAO e reaplicada em silencio
+      // (aplicar pode trocar a conta da conexao Meta). O usuario confirma a conta desta campanha.
+      campanha.contaMeta = `Conta de anuncios: a conta ${state.metaAdAccount.nome} foi usada na campanha anterior desta conversa. Confirme qual conta usar nesta campanha antes de subir midia ou publicar.`;
+    } else if (state?.metaAdAccount) {
       const aplicada = await aplicarContaDaSessaoAoRascunho(userId, campanha.id, sessaoDeConta(state), await depsContaMetaPadrao(db));
-      if (aplicada.status === "aplicada") campanha.contaMeta = `Conta de anuncios: ${aplicada.nome}.`;
-      else if (aplicada.status === "falhou") campanha.contaMeta = `Conta de anuncios: nao consegui associar (${aplicada.erro}). Escolha a conta antes de subir midia ou publicar.`;
+      if (aplicada.status === "aplicada") {
+        campanha.contaMeta = `Conta de anuncios: ${aplicada.nome}.`;
+        state.metaAdAccount.usadaNaCampanha = campanha.id;
+      } else if (aplicada.status === "falhou") campanha.contaMeta = `Conta de anuncios: nao consegui associar (${aplicada.erro}). Escolha a conta antes de subir midia ou publicar.`;
     }
     // Fotos consumidas por esta geração — limpa da sessão pra não serem
     // reaproveitadas silenciosamente numa campanha diferente mais tarde
@@ -2080,7 +2086,7 @@ async function persistirTrocaEResponder(
 chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => {
   const messages = Array.isArray(req.body?.mensagens) ? req.body.mensagens : [];
   const message = [...messages].reverse().find((m: any) => m?.role === "user")?.content;
-  toolLedger.run(new Map(), () =>
+  toolLedger.run(novoLivro(), () =>
     adsTurn.run({ message: typeof message === "string" ? message : "" }, () =>
       imageTurn.run({}, () =>
         projectTurn.run({}, () =>
@@ -2263,6 +2269,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   ];
   const cadeia = await executarCadeia(provedores, {
     saude: saudeDosProvedores,
+    aoIniciarProvedor: () => iniciarNovaTentativaDoLivro(),
     aoRegistrar: ({ id, evento, detalhe }) => log.warn("chat", `Provedor ${id} ${evento}`, { userId, detalhe: redactProviderSecrets(detalhe) }),
   });
   if (cadeia.ok === true) return finish(cadeia.resultado);

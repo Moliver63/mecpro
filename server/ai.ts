@@ -8550,6 +8550,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
     mediaUrls: input.realImages || [],
     hasImages: (input.realImages?.length || 0) > 0,
     factValidationStatus: factValidation.status,
+    adSets: adSets,
   }, clientProfile, { name: input.name });
   if (postGenerationGate.status === "blocked") {
     const blocking = postGenerationGate.blockedGates

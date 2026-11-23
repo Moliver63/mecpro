@@ -101,7 +101,7 @@ test("F4: todo ponto de despacho de ferramenta com efeito em chat.ts passa pelo 
   }
   assert.match(fonte, /executarUmaVez\(userId, "atualizar_orcamento_campanha"/);
   assert.match(fonte, /executarUmaVez\(userId, "gerar_campanha"/);
-  assert.match(fonte, /toolLedger\.run\(new Map\(\)/);
+  assert.match(fonte, /toolLedger\.run\(novoLivro\(\)/);
 });
 
 // ── Cadeia de provedores ────────────────────────────────────────────────────────
@@ -131,12 +131,16 @@ test("F4: falha de modelo em QUALQUER provedor abre janela curta; erro de requis
     prov("groq", async () => { groq++; throw new Error("400 invalid request"); }),
     prov("openrouter", async () => "ok"),
   ], { saude, agora: () => t });
-  await cadeia(); await cadeia();
-  assert.equal(cf, 1, "cloudflare ficou em espera na segunda mensagem");
-  assert.equal(groq, 2, "400 e defeito nosso: segue tentando");
+  await cadeia();
+  assert.equal(cf, 1);
+  await cadeia();
+  assert.equal(cf, 2, "uma falha isolada nao tira o provedor de todo mundo: segunda ainda tenta");
+  await cadeia();
+  assert.equal(cf, 2, "duas falhas seguidas abrem a espera curta");
+  assert.equal(groq, 3, "400 e defeito nosso: segue tentando");
   t += 91_000;
   await cadeia();
-  assert.equal(cf, 2, "passada a janela, tenta de novo");
+  assert.equal(cf, 3, "passada a janela, tenta de novo");
 });
 
 test("F4: teto de tempo impede iniciar novos provedores e cada provedor e tentado uma vez", async () => {
@@ -205,4 +209,31 @@ test("F3: sem dados salvos a resposta diz isso e nao inventa campos", () => {
   const r = localConversationReply("resuma o briefing", {});
   assert.match(r, /nao ha dados/i);
   assert.doesNotMatch(r, /Projeto:|Orcamento total \(R\$\):/);
+});
+
+test("F4 (Goldfish): A(100), B(200), A(100) no mesmo provedor executa o terceiro; troca de provedor repete em ordem sem duplicar", async () => {
+  await comLivroDeFerramentas(async () => {
+    const { iniciarNovaTentativaDoLivro } = await import("../chatToolLedger");
+    let valor = 0; let efeitos = 0;
+    const orc = (v: number) => executarUmaVez(1, "atualizar_orcamento_campanha", { campaignId: 1, budgetDaily: v }, async () => { efeitos++; valor = v; return { ok: true }; });
+    iniciarNovaTentativaDoLivro();
+    await orc(100); await orc(200); await orc(100);
+    assert.equal(valor, 100, "o terceiro pedido e novo e precisa valer");
+    assert.equal(efeitos, 3);
+    // provedor 2 refaz o turno inteiro: nada novo acontece
+    iniciarNovaTentativaDoLivro();
+    const r1: any = await orc(100); const r2: any = await orc(200); const r3: any = await orc(100);
+    assert.equal(efeitos, 3, "replay nao executa de novo");
+    assert.ok(r1.jaExecutadoNesteAtendimento && r2.jaExecutadoNesteAtendimento && r3.jaExecutadoNesteAtendimento);
+    assert.equal(valor, 100);
+  });
+});
+
+test("F4 (Goldfish): executarCadeia avisa o inicio de cada provedor", async () => {
+  const iniciados: string[] = [];
+  await executarCadeia([
+    { id: "a", indisponivelPorque: () => null, tentar: async () => { throw new Error("x"); } },
+    { id: "b", indisponivelPorque: () => null, tentar: async () => "ok" },
+  ], { saude: new SaudeDosProvedores(), aoIniciarProvedor: (id) => iniciados.push(id) });
+  assert.deepEqual(iniciados, ["a", "b"]);
 });

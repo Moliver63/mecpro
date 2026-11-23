@@ -5,7 +5,7 @@ export interface ChatBriefingState {
   briefing: Record<string, unknown>;
   lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string; contaMeta?: string };
   /** Conta de anuncios escolhida nesta conversa (so o servidor grava; nao passa por atualizar_briefing). */
-  metaAdAccount?: { id: string; nome: string; moeda: string | null; escolhidaEm: string };
+  metaAdAccount?: { id: string; nome: string; moeda: string | null; escolhidaEm: string; /** Campanha que ja usou esta escolha; a proxima campanha da conversa pede confirmacao de novo. */ usadaNaCampanha?: number };
 }
 export const briefingContext = new AsyncLocalStorage<ChatBriefingState>();
 const strings = ["projectName", "name", "objective", "platform", "niche", "productService", "targetAudience", "city", "mediaFormat", "whatsapp", "destinationUrl", "confirmedFacts"];

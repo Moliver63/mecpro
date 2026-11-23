@@ -36,7 +36,20 @@ export class SaudeDosProvedores {
     if (!j) { j = new EsperaDeModelo(this.agora, this.duracaoMs); this.janelas.set(id, j); }
     return j;
   }
-  registrarFalha(id: string, erro: unknown): void { if (modeloIndisponivel(erro)) this.janela(id).bloquear(id); }
+  // A saude e compartilhada entre usuarios: uma unica falha (um timeout de uma mensagem
+  // enorme, por exemplo) nao pode tirar o provedor de todo mundo. Abre a janela quando
+  // houve FALHAS_PARA_ABRIR falhas de modelo dentro de JANELA_DE_CONTAGEM_MS.
+  private recentes = new Map<string, number[]>();
+  static readonly FALHAS_PARA_ABRIR = 2;
+  static readonly JANELA_DE_CONTAGEM_MS = 30_000;
+  registrarFalha(id: string, erro: unknown): void {
+    if (!modeloIndisponivel(erro)) return;
+    const t = this.agora();
+    const lista = (this.recentes.get(id) ?? []).filter((x) => t - x <= SaudeDosProvedores.JANELA_DE_CONTAGEM_MS);
+    lista.push(t);
+    this.recentes.set(id, lista);
+    if (lista.length >= SaudeDosProvedores.FALHAS_PARA_ABRIR) { this.janela(id).bloquear(id); this.recentes.delete(id); }
+  }
   disponivel(id: string): boolean { return this.janela(id).disponivel(id); }
   segundosRestantes(id: string): number { return this.janela(id).segundosRestantes(id); }
 }
@@ -45,7 +58,7 @@ export const saudeDosProvedores = new SaudeDosProvedores();
 
 export async function executarCadeia<R>(
   provedores: Array<Provedor<R>>,
-  opcoes: { saude?: SaudeDosProvedores; agora?: () => number; tetoMs?: number; aoRegistrar?: (e: { id: string; evento: string; detalhe: string }) => void } = {},
+  opcoes: { saude?: SaudeDosProvedores; agora?: () => number; tetoMs?: number; aoRegistrar?: (e: { id: string; evento: string; detalhe: string }) => void; aoIniciarProvedor?: (id: string) => void } = {},
 ): Promise<ResultadoDaCadeia<R>> {
   const saude = opcoes.saude ?? saudeDosProvedores;
   const agora = opcoes.agora ?? Date.now;
@@ -68,6 +81,7 @@ export async function executarCadeia<R>(
       continue;
     }
     try {
+      opcoes.aoIniciarProvedor?.(p.id);
       const resultado = await p.tentar();
       return { ok: true, resultado, provedor: p.id, falhas };
     } catch (erro) {

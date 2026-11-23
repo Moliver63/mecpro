@@ -200,3 +200,17 @@ test("F6: o portao de publicacao fala em recomendacao do MecProAI, nao em minimo
   const comConta = texto(evaluateCampaignQualityGates({ ...base, metaMinDailyPerAdSet: 7, metaAccountCurrency: "BRL" }, perfil, { name: "p" }));
   assert.match(comConta, /conta de anuncios informa minimo diario de 7\.00/);
 });
+
+test("Goldfish: a conta da conversa nao e reaplicada em silencio na segunda campanha", () => {
+  const chat = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
+  assert.match(chat, /usadaNaCampanha !== campanha\.id/);
+  assert.match(chat, /Confirme qual conta usar nesta campanha/);
+  assert.match(chat, /state\.metaAdAccount\.usadaNaCampanha = campanha\.id/);
+});
+
+test("Goldfish: tolerancia de centavos nao bloqueia soma correta de conjuntos arredondados", () => {
+  const ok = avaliarOrcamento({ orcamentoTotal: 1000, dias: 30, conjuntos: 2, orcamentosDiariosDosConjuntos: [17, 17] });
+  assert.equal(ok.avisos.some((a) => a.codigo === "soma_dos_conjuntos_excede_o_total"), false);
+  const estoura = avaliarOrcamento({ orcamentoTotal: 1000, dias: 30, conjuntos: 2, orcamentosDiariosDosConjuntos: [30, 30] });
+  assert.equal(estoura.avisos.some((a) => a.codigo === "soma_dos_conjuntos_excede_o_total"), true);
+});

@@ -6,6 +6,7 @@ import {
   normalizeCampaignObjective,
 } from "./campaignBriefingReadiness";
 import { getCarouselEditorialIssues, getCreativeEditorialIssues } from "./campaignCopyQuality";
+import { planoDeOrcamento } from "./adSetBudgetPlan";
 import { avaliarOrcamento } from "./metaBudgetRules";
 
 export type CampaignQualityGateStage = "generate" | "media" | "publish" | "optimize";
@@ -29,6 +30,11 @@ export interface CampaignQualityGateInput extends CampaignBriefingInput {
   // bloqueia geração/rascunho: o orçamento pedido pelo cliente nunca é
   // substituído automaticamente por este gate.
   adSetsCount?: number | null;
+  /** Conjuntos planejados (array ou JSON). Quando presentes, a soma diaria e checada contra o total autorizado. */
+  adSets?: unknown;
+  /** Moeda e minimo diario por conjunto lidos da conta Meta (so a API da Meta e fonte do minimo). */
+  metaAccountCurrency?: string | null;
+  metaMinDailyPerAdSet?: number | null;
 }
 
 export interface CampaignQualityGate {
@@ -387,10 +393,20 @@ export function evaluateCampaignQualityGates(
     if (requestedBudget > 0) {
       // F6 (23/11): cada aviso diz a ORIGEM da regra. So o minimo lido da conta e
       // da Meta; os R$ 5,11 por conjunto sao recomendacao comercial do MecProAI.
+      // Soma dos conjuntos: o MESMO plano que a publicacao usa (adSetBudgetPlan).
+      const plano = input.adSets != null
+        ? planoDeOrcamento({ adSets: input.adSets, suggestedBudgetMonthly: requestedBudget, durationDays })
+        : null;
+      if (plano && plano.conjuntos.length && !plano.ok && plano.motivo) {
+        addSyntheticIssue(publishRequired, "budget_adsets_sum", "required",
+          `Regra do MecProAI: ${plano.motivo}`,
+          "A soma dos conjuntos nao pode passar do total autorizado. O orcamento nao foi alterado automaticamente.");
+      }
       const { avisos } = avaliarOrcamento({
-        orcamentoTotal: requestedBudget, dias: durationDays, conjuntos: adSetsCount,
-        moedaDaConta: (input as any).metaAccountCurrency ?? null,
-        minimoDiarioDaConta: (input as any).metaMinDailyPerAdSet ?? null,
+        orcamentoTotal: requestedBudget, dias: durationDays, conjuntos: plano?.conjuntos.length || adSetsCount,
+        moedaDaConta: input.metaAccountCurrency ?? null,
+        minimoDiarioDaConta: input.metaMinDailyPerAdSet ?? null,
+        orcamentosDiariosDosConjuntos: plano && plano.ok ? plano.conjuntos.map((c) => c.diario) : undefined,
       });
       const aviso = avisos.find((a) => a.codigo === "abaixo_do_minimo_da_conta") || avisos.find((a) => a.codigo === "abaixo_da_recomendacao_comercial");
       if (aviso) {

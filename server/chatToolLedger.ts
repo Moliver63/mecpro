@@ -14,8 +14,26 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 type Registro = { resultado: Promise<unknown>; ok: boolean | null };
+type Item = { chave: string; usuarioFerramenta: string; registro: Registro; tentativa: number; consumidoNaTentativa: number | null };
 
-export const toolLedger = new AsyncLocalStorage<Map<string, Registro>>();
+/**
+ * Livro de UM atendimento. `tentativa` sobe a cada provedor de IA iniciado:
+ *  - repeticao vinda de OUTRA tentativa (provedor novo refazendo o turno) devolve o
+ *    resultado guardado, na mesma ordem em que foi executado;
+ *  - dentro da MESMA tentativa so a ultima execucao bem-sucedida da ferramenta vale
+ *    como repeticao; A(100), B(200), A(100) executa o terceiro, porque e um pedido novo.
+ */
+export class LivroDeFerramentas {
+  itens: Item[] = [];
+  tentativa = 0;
+  novaTentativa(): void { this.tentativa++; }
+}
+export const novoLivro = () => new LivroDeFerramentas();
+
+export const toolLedger = new AsyncLocalStorage<LivroDeFerramentas>();
+
+/** Chamado pela cadeia antes de cada provedor; sem atendimento ativo nao faz nada. */
+export function iniciarNovaTentativaDoLivro(): void { toolLedger.getStore()?.novaTentativa(); }
 
 /** Ferramentas que mudam algo (dados, Meta, custo). Consultas ficam de fora. */
 export const FERRAMENTAS_COM_EFEITO = new Set([
@@ -38,7 +56,7 @@ function sucesso(resultado: unknown): boolean {
 }
 
 export function comLivroDeFerramentas<T>(executar: () => Promise<T>): Promise<T> {
-  return toolLedger.run(new Map(), executar);
+  return toolLedger.run(novoLivro(), executar);
 }
 
 /**
@@ -51,24 +69,30 @@ export async function executarUmaVez<T>(
 ): Promise<T> {
   const livro = toolLedger.getStore();
   if (!livro || !FERRAMENTAS_COM_EFEITO.has(nome)) return run();
-  const chave = `${userId}|${nome}|${chaveEstavel(chaveDosArgs !== undefined ? chaveDosArgs : args)}`;
-  const anterior = livro.get(chave);
-  if (anterior && anterior.ok !== false) {
-    const guardado = await anterior.resultado as T;
-    if (anterior.ok === true && guardado && typeof guardado === "object") {
-      return { ...(guardado as object), jaExecutadoNesteAtendimento: true } as T;
-    }
-    if (anterior.ok === null) return guardado; // a simultanea terminou com falha: o resultado ja diz isso
+  const usuarioFerramenta = `${userId}|${nome}`;
+  const chave = `${usuarioFerramenta}|${chaveEstavel(chaveDosArgs !== undefined ? chaveDosArgs : args)}`;
+  const marcar = (r: unknown) => (r && typeof r === "object" ? { ...(r as object), jaExecutadoNesteAtendimento: true } as T : r as T);
+
+  // Chamada identica em andamento: espera a primeira em vez de duplicar.
+  const emAndamento = livro.itens.find((i) => i.chave === chave && i.registro.ok === null);
+  if (emAndamento) {
+    const r = await emAndamento.registro.resultado as T;
+    return emAndamento.registro.ok === true ? marcar(r) : r;
   }
+  // Reexecucao por outro provedor: consome, em ordem, o que a tentativa anterior ja fez.
+  const repeticao = livro.itens.find((i) => i.chave === chave && i.registro.ok === true && i.tentativa < livro.tentativa && i.consumidoNaTentativa !== livro.tentativa);
+  if (repeticao) { repeticao.consumidoNaTentativa = livro.tentativa; return marcar(await repeticao.registro.resultado as T); }
+  // Mesma tentativa: so a ultima execucao bem-sucedida da ferramenta conta como repeticao.
+  const ultima = [...livro.itens].reverse().find((i) => i.usuarioFerramenta === usuarioFerramenta && i.registro.ok === true);
+  if (ultima && ultima.chave === chave && ultima.tentativa === livro.tentativa) return marcar(await ultima.registro.resultado as T);
+
   const registro: Registro = { resultado: undefined as any, ok: null };
   registro.resultado = run().then((r) => { registro.ok = sucesso(r); return r; }, (e) => { registro.ok = false; throw e; });
-  livro.set(chave, registro);
+  const item: Item = { chave, usuarioFerramenta, registro, tentativa: livro.tentativa, consumidoNaTentativa: null };
+  livro.itens.push(item);
   try {
-    const r = await registro.resultado as T;
-    if (!registro.ok) livro.delete(chave);
-    return r;
+    return await registro.resultado as T;
   } catch (e) {
-    livro.delete(chave);
     throw e;
   }
 }
