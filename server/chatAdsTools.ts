@@ -2,6 +2,23 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { pendenciasLocaisParaPublicar } from "./publishPreflight";
 import { resolverPaginaMetaComLista, destinoDaPagina, urlHttps } from "./metaPageResolution";
+import { exigirContaDoRascunho, depsContaMetaPadrao } from "./metaAdAccountChoice";
+
+/** Resumo para a pre-confirmacao: o que cada criativo leva (imagem ou video) por formato. */
+function resumoDosCriativos(campaign: any): Array<Record<string, unknown>> {
+  let lista: any[];
+  try { lista = JSON.parse(campaign?.creatives || "[]"); } catch { lista = []; }
+  if (!Array.isArray(lista)) return [];
+  return lista.slice(0, 20).map((c: any, index: number) => {
+    const midia = (formato: string, video: unknown, imagem: unknown) => video ? "video" : imagem ? "imagem" : null;
+    return {
+      index, headline: c?.headline || null,
+      feed: midia("feed", c?.feedVideoId, c?.feedImageUrl),
+      stories: midia("stories", c?.storyVideoId, c?.storyImageUrl),
+      square: midia("square", c?.squareVideoId, c?.squareImageUrl),
+    };
+  });
+}
 
 export const adsTurn = new AsyncLocalStorage<{ message: string }>();
 export const adsReadTools = [
@@ -122,7 +139,7 @@ export async function publishChatAds(userId: number, options: any, injected?: an
       linkUrl = urlHttps(options.linkUrl);
       if (!linkUrl) return { ok: false, erro: "Informe uma URL HTTPS valida." };
     }
-    const campaign = await db.getCampaignById(options.campaignId);
+    let campaign = await db.getCampaignById(options.campaignId);
     const project = campaign && await db.getProjectById(campaign.projectId);
     if (!project || project.userId !== userId) return { ok: false, erro: "Campanha indisponivel para esta conta." };
     const pagina = await bounded(resolverPaginaMetaComLista(pageId, async () => {
@@ -133,6 +150,19 @@ export async function publishChatAds(userId: number, options: any, injected?: an
       ok: false, erro: pagina.erro || "Nao foi possivel identificar a Pagina conectada.",
       ...(pagina.paginas ? { paginas: pagina.paginas } : {}),
     };
+    // Conta de anuncios: escolhida para este rascunho e igual a da conexao, ANTES
+    // do token. Em producao `injected` e undefined e a trava sempre roda; os
+    // testes antigos com db simulado nao tem Meta para consultar e so a pulam
+    // quando nao fornecem `contaMeta`.
+    let contaMeta: { adAccountId: string; nome: string; moeda: string | null } | null = null;
+    if (!injected || injected.contaMeta) {
+      const deps = injected?.contaMeta ?? await depsContaMetaPadrao(db);
+      const conta = await bounded(exigirContaDoRascunho(userId, campaign, deps));
+      if (conta.ok === false) return { ok: false, erro: conta.erro, acao: conta.acao, ...(conta.contas ? { contas: conta.contas } : {}) };
+      contaMeta = conta.conta;
+      campaign = conta.campaign;
+    }
+
     // Pendencia local ANTES do token de confirmacao.
     //
     // Achado real (15/10, campanha 799): o chat mandou o Michel clicar em
@@ -192,13 +222,16 @@ export async function publishChatAds(userId: number, options: any, injected?: an
       ...(destination === "website" ? { linkUrl } : { leadGenFormId }),
       ...(options.adSetIndexes !== undefined ? { adSetIndexes: options.adSetIndexes } : {}),
     };
-    const snapshot = JSON.stringify({ userId, options: resolvedOptions, campaign });
+    const snapshot = JSON.stringify({ userId, options: resolvedOptions, campaign, contaMeta: contaMeta?.adAccountId ?? null });
     const token = createHash("sha256").update(snapshot).digest("hex").slice(0, 16);
     const confirmation = `CONFIRMAR PUBLICACAO ${token}`;
     if (adsTurn.getStore()?.message.trim() !== confirmation) return {
       ok: false, confirmationRequired: true, campaignId: campaign.id, name: campaign.name,
-      pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets, destination: destination === "website" ? `${resolvedOptions.linkUrl} (${origemDestino})` : `Formulario instantaneo "${nomeFormulario}"`,
-      erro: `Mostre os conjuntos e orcamentos ao usuario. Esta campanha AINDA NAO foi publicada; publicar vai cria-la na Meta com status PAUSADO, e ela nao comeca a rodar sozinha. Nao diga que a campanha esta pausada: pausado e o resultado da publicacao, nao o estado de agora. Para confirmar, o usuario deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
+      pageId: pagina.pageId, pageName: pagina.pageName, adSets: campaign.adSets,
+      ...(contaMeta ? { contaDeAnuncios: { nome: contaMeta.nome, moeda: contaMeta.moeda } } : {}),
+      instagram: "Os posicionamentos incluem o Instagram; o MecProAI nao escolhe uma conta de Instagram, a Meta usa a identidade ligada a Pagina escolhida.",
+      criativos: resumoDosCriativos(campaign), orcamentoDiarioAprovado: campaign.suggestedBudgetDaily ?? null, destination: destination === "website" ? `${resolvedOptions.linkUrl} (${origemDestino})` : `Formulario instantaneo "${nomeFormulario}"`,
+      erro: `Mostre ao usuario a conta de anuncios (contaDeAnuncios), a Pagina, o Instagram, os criativos (imagem ou video por formato), o publico e o orcamento dos conjuntos. Esta campanha AINDA NAO foi publicada; publicar vai cria-la na Meta com status PAUSADO, e ela nao comeca a rodar sozinha. Nao diga que a campanha esta pausada: pausado e o resultado da publicacao, nao o estado de agora. Para confirmar, o usuario deve enviar exatamente: ${confirmation}. Se alterar a campanha ou destino, solicite nova confirmacao.`,
     };
     // One reservation per campaign, including partial/uncertain outcomes. Never reopen after a timeout.
     const reserved = await db.reserveMcpIdempotencyKey(userId, "chat_meta_publish", String(campaign.id));
