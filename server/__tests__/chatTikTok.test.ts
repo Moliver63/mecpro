@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { publicarNoTikTokDoChat, urlH264, textoAte, ehConfirmacao, valorDiarioDaFala, limparPropostasTikTok, type DepsTikTokChat } from "../chatTikTok";
+import { publicarNoTikTokDoChat, urlH264, textoAte, ehConfirmacao, valorDiarioDaFala, limparPropostasTikTok, previaPendenteDoTikTok, textoDoResultadoTikTok, type DepsTikTokChat } from "../chatTikTok";
 import { conferirEntradaTikTok } from "../tiktokPublicar";
 
 function deps(over: Partial<DepsTikTokChat> = {}) {
@@ -217,4 +217,32 @@ test("leitura da fala: confirmacao e valor", () => {
   assert.equal(valorDiarioDaFala("publica a campanha 828"), null);
   assert.equal(valorDiarioDaFala("publica a 824 no tiktok com R$ 120 por dia"), 120);
   assert.equal(valorDiarioDaFala("sim"), null);
+});
+
+test("previa pendente: a rota do chat acha a campanha da previa desta conversa", async () => {
+  limparPropostasTikTok();
+  const { d } = deps();
+  assert.equal(previaPendenteDoTikTok(2, 28), null);
+  await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  assert.deepEqual(previaPendenteDoTikTok(2, 28), { campaignId: 824 });
+  assert.equal(previaPendenteDoTikTok(2, 99), null, "outra conversa");
+  assert.equal(previaPendenteDoTikTok(3, 28), null, "outro usuario");
+  assert.equal(previaPendenteDoTikTok(2, 28, Date.now() + 31 * 60 * 1000), null, "expirou");
+});
+
+test("caso 15h (sessao 28): 'sim' tratado no servidor publica com o minimo e responde em texto", async () => {
+  limparPropostasTikTok();
+  const { d } = deps();
+  await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  const pend = previaPendenteDoTikTok(2, 28)!;
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: pend.campaignId, confirmado: false }, d, { ultimaDoUsuario: "sim", ultimaDoAssistente: PREVIA_TXT });
+  assert.equal(r.publicada, true);
+  assert.match(textoDoResultadoTikTok(r), /PAUSADA/);
+  assert.equal(previaPendenteDoTikTok(2, 28), null, "publicou, nada pendente");
+  assert.match(textoDoResultadoTikTok({ erro: "x", perguntaParaOUsuario: "Publico com R$ 126?" }), /Nao publiquei: x\nPublico com R\$ 126\?/);
+});
+
+test("rota local so assume o 'sim' quando a ultima resposta foi a previa do TikTok", () => {
+  const src = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
+  assert.match(src, /ultimaFoiPreviaDoTikTok\(ultimaDoAssistente\) \? previaPendenteDoTikTok/);
 });

@@ -58,7 +58,7 @@ import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado, MODELO_CLOUD
 import { jwtVerify } from "jose";
 import * as db from "./db";
 import { conferirEntradaTikTok as conferirEntradaTikTokSync } from "./tiktokPublicar";
-import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, publicarNoTikTokDoChat } from "./chatTikTok";
+import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, publicarNoTikTokDoChat, previaPendenteDoTikTok, ultimaFoiPreviaDoTikTok, ehConfirmacao, valorDiarioDaFala, textoDoResultadoTikTok } from "./chatTikTok";
 import multer from "multer";
 import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
@@ -1302,6 +1302,7 @@ const depsTikTokChat = {
     const [{ criarClienteTikTok }, { minimoDiarioTikTok }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokOrcamentoMinimo")]);
     return minimoDiarioTikTok(criarClienteTikTok(token), advertiserId);
   },
+  log: (dados: Record<string, unknown>) => log.info("chat", "publicar_no_tiktok: decisao", dados),
 };
 /** Ultima fala de cada lado: o servidor le o "sim" e o valor do usuario (nao depende do modelo). */
 function falaDaConversa(mensagens: MensagemChat[]): { ultimaDoUsuario?: string; ultimaDoAssistente?: string } {
@@ -2417,6 +2418,18 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
       if (preparation) return finish({ resposta: preparation, campanha: null, modo: "local" });
     } catch {
       return finish({ resposta: "Nao consegui consultar seus projetos agora. Tente novamente; nenhuma campanha foi criada.", campanha: null, modo: "local" });
+    }
+  }
+
+  // "sim" (ou um valor) depois da previa do TikTok: publica direto, sem modelo (achado 24/11, sessao 28).
+  if (typeof ultimaMensagemUsuario === "string" && (ehConfirmacao(ultimaMensagemUsuario) || valorDiarioDaFala(ultimaMensagemUsuario))) {
+    const historicoCurto = recebidas.filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant")) as MensagemChat[];
+    const ultimaDoAssistente = [...historicoCurto].reverse().find((m) => m.role === "assistant")?.content;
+    const pendente = ultimaFoiPreviaDoTikTok(ultimaDoAssistente) ? previaPendenteDoTikTok(userId, req.chatSessionId ?? undefined) : null;
+    if (pendente) {
+      log.info("chat", "publicar_no_tiktok: resposta a previa tratada no servidor", { userId, campaignId: pendente.campaignId });
+      const r = await publicarNoTikTok(userId, req.chatSessionId ?? null, { campaignId: pendente.campaignId, confirmado: false }, historicoCurto);
+      return finish({ resposta: textoDoResultadoTikTok(r as Record<string, any>), campanha: null, modo: "local" });
     }
   }
 

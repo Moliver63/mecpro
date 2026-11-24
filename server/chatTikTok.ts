@@ -44,6 +44,8 @@ export interface DepsTikTokChat {
   salvarIds(campaignId: number, r: ResultadoTikTok): Promise<void>;
   /** Minimo diario aceito pelo TikTok na moeda da conta; null quando nao da para saber. */
   minimo(token: string, advertiserId: string): Promise<MinimoTikTok | null>;
+  /** Decisao de cada chamada (para o log). */
+  log?(dados: Record<string, unknown>): void;
 }
 
 /** URL do Cloudinary pedindo H.264 (iPhone grava HEVC; o TikTok pede MP4 H.264). */
@@ -71,10 +73,45 @@ function criativos(c: any): any[] {
  * lida pelo servidor, confirma e escolhe o valor.
  */
 export interface ContextoDaFala { ultimaDoUsuario?: string; ultimaDoAssistente?: string }
-interface Proposta { minimo: number | null; em: number }
+interface Proposta { minimo: number | null; em: number; campaignId: number; sessionId?: number }
 const propostas = new Map<string, Proposta>();
 const VALIDADE_PROPOSTA_MS = 30 * 60 * 1000;
 export function limparPropostasTikTok(): void { propostas.clear(); }
+
+/**
+ * Achado real 24/11 (sessao 28, 15h): mesmo com a leitura da fala dentro da ferramenta, o "sim"
+ * voltou a repetir a previa, porque o modelo nem sempre chama a ferramenta. A rota do chat consulta
+ * isto ANTES da IA: havendo previa do TikTok pendente nesta conversa, o "sim" (ou um valor) vai
+ * direto para a publicacao, sem modelo no meio.
+ */
+export function previaPendenteDoTikTok(userId: number, sessionId: number | undefined, agora = Date.now()): { campaignId: number } | null {
+  let melhor: Proposta | null = null;
+  for (const [chave, p] of propostas) {
+    if (!chave.startsWith(`${userId}:`) || agora - p.em >= VALIDADE_PROPOSTA_MS) continue;
+    if (sessionId && p.sessionId && p.sessionId !== sessionId) continue;
+    if (!melhor || p.em > melhor.em) melhor = p;
+  }
+  return melhor ? { campaignId: melhor.campaignId } : null;
+}
+
+/** Resultado da ferramenta em texto para o usuario (rota local, sem modelo). */
+export function textoDoResultadoTikTok(r: Record<string, any>): string {
+  if (r.publicada || r.jaPublicada) {
+    const linhas = [
+      r.jaPublicada ? "Essa campanha ja estava publicada no TikTok; nada novo foi criado." : "Publicada no TikTok Ads, PAUSADA (nada e gasto ate voce ativar).",
+      r.tiktokCampaignId ? `Campanha: ${r.tiktokCampaignId}${r.grupo ? ` | Grupo: ${r.grupo}` : ""}${Array.isArray(r.anuncios) ? ` | Anuncios: ${r.anuncios.length}` : ""}` : "",
+      Array.isArray(r.avisos) && r.avisos.length ? `Avisos: ${r.avisos.join(" | ")}` : "",
+      r.proximoPasso || "",
+    ];
+    return linhas.filter(Boolean).join("\n");
+  }
+  const linhas = [
+    r.erro ? `Nao publiquei: ${r.erro}` : "",
+    Array.isArray(r.problemas) && r.problemas.length ? `Falta resolver: ${r.problemas.join(" | ")}` : "",
+    r.perguntaParaOUsuario || "",
+  ];
+  return linhas.filter(Boolean).join("\n") || "Nao consegui publicar no TikTok agora. Tente de novo.";
+}
 
 /** "sim", "pode", "ok, publica", "sim, no tiktok"... (curta e sem negacao) */
 export function ehConfirmacao(texto?: string): boolean {
@@ -96,7 +133,7 @@ export function valorDiarioDaFala(texto?: string): number | null {
   return v > 0 && v < 100000 ? v : null;
 }
 
-const ultimaFoiPreviaDoTikTok = (texto?: string) => /tik ?tok/i.test(String(texto || "")) && /(publi|confirm|sim)/i.test(String(texto || ""));
+export const ultimaFoiPreviaDoTikTok = (texto?: string) => /tik ?tok/i.test(String(texto || "")) && /(publi|confirm|sim)/i.test(String(texto || ""));
 
 export async function publicarNoTikTokDoChat(userId: number, sessionId: number | undefined, args: Record<string, unknown>, deps: DepsTikTokChat, fala: ContextoDaFala = {}): Promise<Record<string, unknown>> {
   const campaignId = Number(args.campaignId);
@@ -170,7 +207,8 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   const problemas = deps.conferir(entrada);
   if (abaixoDoMinimo) problemas.push(`Orcamento diario abaixo do minimo do TikTok (${min!.minimo}/dia).`);
 
-  const registrarProposta = () => propostas.set(chaveProposta, { minimo: abaixoDoMinimo ? min!.minimo : null, em: Date.now() });
+  const registrarProposta = () => propostas.set(chaveProposta, { minimo: abaixoDoMinimo ? min!.minimo : null, em: Date.now(), campaignId, sessionId });
+  deps.log?.({ campaignId, propostaValida, disseSim, valorDoUsuario, confirmado, orcamento: entrada.dailyBudgetReais, minimo: min?.minimo ?? null });
   if (!confirmado) {
     registrarProposta();
     return {
