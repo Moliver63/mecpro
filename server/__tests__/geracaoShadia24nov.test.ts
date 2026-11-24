@@ -102,3 +102,41 @@ test("publicacao: com Advantage+ a faixa vai na regra da Meta; sem Advantage+ fi
   assert.deepEqual(faixaParaAdvantage(35, 55, true), { min: 25, max: 65, ajustada: true });
   assert.deepEqual(faixaParaAdvantage(25, 60, false), { min: 25, max: 60, ajustada: false });
 });
+
+import { separarCriativosComConflito } from "../ai";
+import { categoriasDeConflito, avisoDeCriativosDescartados, generationErrorText } from "../chatBriefing";
+
+test("catalogo: perfil com varios cursos aceita o preco de qualquer um, sem briefing de preco", () => {
+  const facts = buildCampaignFacts({ input: { extraContext: "Campanha no TikTok com os videos da Shadia." }, clientProfile: perfilShadia });
+  const r = validateCampaignFactIntegrity([{ script: "Cena final: Pensamentos Automáticos por R$ 57." }, { copy: "Permita-se Ser Livre por R$ 197." }], facts);
+  assert.equal(r.status, "passed", JSON.stringify(r.conflicts));
+  assert.equal(validateCampaignFactIntegrity([{ copy: "Curso por R$ 99." }], facts).status, "failed", "preco fora do catalogo continua barrado");
+});
+
+test("catalogo: perfil com UM preco antigo continua barrado quando o briefing traz outro", () => {
+  const facts = buildCampaignFacts({ input: { extraContext: "Apartamento por R$ 950.000." }, clientProfile: { productService: "Apartamento 3 quartos, R$ 890.000." } });
+  assert.equal(validateCampaignFactIntegrity([{ copy: "Apartamento por R$ 890.000." }], facts).status, "failed");
+});
+
+test("geracao: so o criativo com conflito sai; conflito sem indice bloqueia tudo", () => {
+  const lista = ["a", "b", "c", "d"];
+  const r = separarCriativosComConflito(lista, [
+    { field: "creatives.1.segmentAlignmentIssues", reason: "campaign_segment_conflict" },
+    { field: "creatives[1].script", reason: "price_conflict_expected_R$ 197" },
+  ]);
+  assert.deepEqual(r.limpos, ["a", "c", "d"]);
+  assert.deepEqual(r.descartados, [{ index: 1, motivos: ["campaign_segment_conflict", "price_conflict_expected"] }]);
+  assert.deepEqual(separarCriativosComConflito(lista, [{ field: "objective", reason: "campaign_objective_conflict" }]).semIndice, ["objective"]);
+});
+
+test("chat: erro real de 24/11 sai com categoria e sem o valor barrado", () => {
+  const erro = "FACT_CONFLICT: creatives.1.segmentAlignmentIssues: campaign_segment_conflict; creatives[1].script: price_conflict_expected_R$ 197";
+  const cats = categoriasDeConflito(erro);
+  assert.ok(cats.some((c) => /preco/.test(c)) && cats.some((c) => /segmento/.test(c)), JSON.stringify(cats));
+  const msg = generationErrorText(erro);
+  assert.match(msg, /O que foi barrado: .*preco/);
+  assert.ok(!/197/.test(msg), "valor barrado nao aparece");
+  const aviso = avisoDeCriativosDescartados([{ index: 1, motivos: ["campaign_segment_conflict", "price_conflict_expected"] }]);
+  assert.match(aviso, /1 criativo saiu do rascunho/);
+  assert.ok(!/197/.test(aviso));
+});

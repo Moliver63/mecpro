@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface ChatBriefingState {
   preparation?: { status: "collecting" | "awaiting_ai" };
   briefing: Record<string, unknown>;
-  lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string; contaMeta?: string; orcamento?: string };
+  lastCampaign?: { id: number; name: string; projectId: number; url: string; photoCount?: number; coverFileName?: string; contaMeta?: string; orcamento?: string; descartados?: string };
   /** Conta de anuncios escolhida nesta conversa (so o servidor grava; nao passa por atualizar_briefing). */
   metaAdAccount?: { id: string; nome: string; moeda: string | null; escolhidaEm: string };
 }
@@ -40,6 +40,7 @@ export function campaignResultText(campaign: NonNullable<ChatBriefingState["last
     (campaign.coverFileName ? ` Capa solicitada: ${campaign.coverFileName}.` : "") +
     (campaign.contaMeta ? `\n${campaign.contaMeta}` : "") +
     (campaign.orcamento ? `\n${campaign.orcamento}` : "") +
+    (campaign.descartados ? `\n${campaign.descartados}` : "") +
     "\nNada foi publicado na Meta.";
 }
 
@@ -77,14 +78,27 @@ const CATEGORIA_DE_CONFLITO: Array<[RegExp, string]> = [
  * (ver o `preview` em ai.ts). Pegamos somente os motivos entre parenteses.
  */
 export function categoriasDeConflito(error: string): string[] {
-  const motivos = String(error || "").match(/\(([a-z_0-9]+)\)/g) || [];
+  // Dois formatos chegam aqui: "campo: valor (motivo)" (preview) e "campo: motivo"
+  // (throw da geracao, ai.ts). Achado real (24/11): so o primeiro era lido, e a
+  // mensagem saia generica ("O texto trouxe informacao...") sem categoria.
+  const texto = String(error || "");
+  const codigos = [
+    ...(texto.match(/\(([a-z_0-9]+)\)/g) || []).map((b) => b.slice(1, -1)),
+    ...[...texto.matchAll(/:\s*([a-z][a-z_0-9]*)/g)].map((m) => m[1]),
+  ];
   const vistas: string[] = [];
-  for (const bruto of motivos) {
-    const codigo = bruto.slice(1, -1);
+  for (const codigo of codigos) {
     const achada = CATEGORIA_DE_CONFLITO.find(([re]) => re.test(codigo));
     if (achada && !vistas.includes(achada[1])) vistas.push(achada[1]);
   }
   return vistas.slice(0, 3);
+}
+
+/** Aviso para o chat quando criativos com fato nao confirmado sairam do rascunho. So categorias, nunca o valor barrado (ver generationErrorText). */
+export function avisoDeCriativosDescartados(descartados: Array<{ index: number; motivos: string[] }>): string {
+  const categorias = categoriasDeConflito(descartados.flatMap((d) => d.motivos.map((m) => `(${m})`)).join(" "));
+  const n = descartados.length;
+  return `${n} criativo${n > 1 ? "s" : ""} ${n > 1 ? "sairam" : "saiu"} do rascunho porque ${n > 1 ? "traziam" : "trazia"} ${categorias.length ? categorias.join("; ") : "informacao que nao esta no briefing confirmado"}. Os outros seguem normais. Se algum dado for verdade, me informe que eu registro no briefing.`;
 }
 
 export function generationErrorText(error: string): string {

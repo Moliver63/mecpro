@@ -33,6 +33,8 @@ export interface ConfigDeVisao {
   /** Base compativel com OpenAI (".../v1"). Gemini usa o proprio adaptador. */
   baseUrl?: string;
   tipo: "gemini" | "openai";
+  /** Maximo de imagens por chamada aceito pelo modelo (o resto vai em lotes). */
+  maxImagens?: number;
 }
 
 export function instrucaoDeVisao(foco: string, pedirCena: boolean): string {
@@ -79,7 +81,9 @@ export function configsDeVisao(env: NodeJS.ProcessEnv = process.env): ConfigDeVi
     gemini: () => { const k = (env.GEMINI_API_KEY || env.GEMINI_API_KEY_1 || "").trim(); return k ? { id: "visao:gemini", nome: "Gemini", chave: k, modelo: env.GEMINI_VISION_MODEL?.trim() || env.GEMINI_CHAT_MODEL?.trim() || "gemini-flash-latest", tipo: "gemini" } : null; },
     nvidia: () => { const k = env.NVIDIA_API_KEY?.trim(); return k ? { id: "visao:nvidia", nome: "NVIDIA Nemotron VL", chave: k, modelo: env.NVIDIA_VISION_MODEL?.trim() || "nvidia/nemotron-nano-12b-v2-vl", baseUrl: env.NVIDIA_BASE_URL?.trim() || "https://integrate.api.nvidia.com/v1", tipo: "openai" } : null; },
     openrouter: () => { const k = env.OPENROUTER_API_KEY?.trim(); return k ? { id: "visao:openrouter", nome: "OpenRouter (Nemotron VL free)", chave: k, modelo: env.OPENROUTER_VISION_MODEL?.trim() || "nvidia/nemotron-nano-12b-v2-vl:free", baseUrl: "https://openrouter.ai/api/v1", tipo: "openai" } : null; },
-    groq: () => { const k = env.GROQ_API_KEY?.trim(); return k ? { id: "visao:groq", nome: "Groq (Llama 4 Scout)", chave: k, modelo: env.GROQ_VISION_MODEL?.trim() || "meta-llama/llama-4-scout-17b-16e-instruct", baseUrl: "https://api.groq.com/openai/v1", tipo: "openai" } : null; },
+    // Achado real (24/11): Llama 4 Scout saiu do Groq (HTTP 404). Visao no Groq hoje:
+    // qwen/qwen3.8-27b, ate 3 imagens por chamada (console.groq.com/docs/vision).
+    groq: () => { const k = env.GROQ_API_KEY?.trim(); return k ? { id: "visao:groq", nome: "Groq (Qwen 3.8 27B)", chave: k, modelo: env.GROQ_VISION_MODEL?.trim() || "qwen/qwen3.8-27b", baseUrl: "https://api.groq.com/openai/v1", tipo: "openai", maxImagens: Number(env.GROQ_VISION_MAX_IMAGENS) || 3 } : null; },
   };
   return ordem.map((n) => todos[n]?.() ?? null).filter((c): c is ConfigDeVisao => !!c);
 }
@@ -97,7 +101,15 @@ export async function chamarVisaoOpenAI(cfg: ConfigDeVisao, imagens: ImagemParaA
     body: JSON.stringify({ model: cfg.modelo, messages: [{ role: "user", content }], temperature: 0.1, max_tokens: 1800 }),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!res.ok) throw new Error(`${cfg.nome} HTTP ${res.status}`);
+  if (!res.ok) {
+    // A mensagem do provedor diz o motivo (modelo inexistente, politica de dados
+    // do OpenRouter para rotas :free, cota). Sem ela, "HTTP 404" nao diz nada.
+    const corpo = await res.text().catch(() => "");
+    let motivo = "";
+    try { const j = JSON.parse(corpo); motivo = String(j?.error?.message || j?.message || ""); } catch { motivo = corpo; }
+    motivo = motivo.replace(/[\r\n]+/g, " ").replace(cfg.chave, "***").slice(0, 160);
+    throw new Error(`${cfg.nome} HTTP ${res.status}${motivo ? `: ${motivo}` : ""}`);
+  }
   const data: any = await res.json().catch(() => null);
   const texto = data?.choices?.[0]?.message?.content;
   if (typeof texto !== "string" || !texto.trim()) throw new Error(`${cfg.nome} respondeu vazio`);
@@ -128,8 +140,18 @@ export async function avaliarImagensComCadeia(imagens: ImagemParaAnalise[], foco
     tentar: async () => {
       const t0 = Date.now();
       try {
-        const texto = cfg.tipo === "gemini" ? await deps.chamarGemini!(imagens, instrucao) : (await chamarVisaoOpenAI(cfg, imagens, instrucao, deps.doFetch)).texto;
-        const lista = interpretarAvaliacoes(texto, imagens);
+        let lista: AvaliacaoDeCena[];
+        if (cfg.tipo === "gemini") {
+          lista = interpretarAvaliacoes(await deps.chamarGemini!(imagens, instrucao), imagens);
+        } else {
+          // Lotes no limite do modelo; cada lote e validado contra as proprias imagens.
+          const tamanho = Math.max(1, cfg.maxImagens || imagens.length);
+          lista = [];
+          for (let i = 0; i < imagens.length; i += tamanho) {
+            const lote = imagens.slice(i, i + tamanho);
+            lista.push(...interpretarAvaliacoes((await chamarVisaoOpenAI(cfg, lote, instrucao, deps.doFetch)).texto, lote));
+          }
+        }
         if (!lista.length) throw new Error(`${cfg.nome} respondeu fora do formato esperado`);
         deps.aoRegistrar?.({ provedor: cfg.id, ok: true, ms: Date.now() - t0 });
         return lista;

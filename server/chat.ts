@@ -26,7 +26,7 @@ import { CAMPOS_PARA_RASCUNHO } from "./chatReasoning";
  */
 
 import { Router } from "express";
-import { briefingContext, mergeChatBriefing, campaignResultText, generationErrorText, isLastCampaignLinkRequest } from "./chatBriefing";
+import { briefingContext, mergeChatBriefing, campaignResultText, generationErrorText, isLastCampaignLinkRequest, avisoDeCriativosDescartados } from "./chatBriefing";
 import { chatSessionMiddleware } from "./chatSession";
 import { GoogleGenAI, FunctionCallingConfigMode, type Content, type FunctionDeclaration, type GenerateContentConfig, type GenerateContentResponse } from "@google/genai";
 import Groq from "groq-sdk";
@@ -296,6 +296,8 @@ export interface CampanhaGerada {
   contaMeta?: string;
   /** Situacao da soma dos conjuntos x orcamento aprovado, logo apos gerar (revisao final 23/11). */
   orcamento?: string;
+  /** Criativos com fato nao confirmado que sairam do rascunho (so a categoria, nunca o valor). */
+  descartados?: string;
 }
 
 interface RespostaChat {
@@ -1098,6 +1100,8 @@ async function gerarRascunhoValidado(args: Record<string, unknown>, userId: numb
       if (salva) {
         const verif = verificarOrcamentoDoRascunho(salva);
         const plano: any = (() => { try { return JSON.parse(salva.aiResponse || "{}").budgetPlan; } catch { return null; } })();
+        const descartados: any[] = (() => { try { return JSON.parse(salva.aiResponse || "{}").criativosDescartados || []; } catch { return []; } })();
+        if (descartados.length) campanha.descartados = avisoDeCriativosDescartados(descartados);
         campanha.orcamento = plano?.rebalanceado === true
           ? `Orcamento: os conjuntos foram ajustados para fechar nos R$ ${verif.aprovadoDiario}/dia aprovados (${(plano.antes || []).join(" | ")} => ${(plano.depois || []).join(" | ")}). O total nao mudou.`
           : resumoDoOrcamento(verif);

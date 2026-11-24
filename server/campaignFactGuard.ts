@@ -838,7 +838,19 @@ export function buildCampaignFacts({
     campaignProductRaw: normalizeText(compactText([input?.["productName"], input?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     confirmedCharacteristics,
     genericProductPrice,
-    confirmedPrices: unique(moneyMentions(currentRaw).map((p) => normalizeMoneyValue(p.value))),
+    // Catalogo no perfil (2+ precos de venda distintos, ex.: 4 cursos com precos
+    // proprios) vale inteiro: o usuario escreveu todos. Achado real (24/11,
+    // chat sessao 28): o roteiro de um criativo citou outro curso do catalogo
+    // e a campanha foi bloqueada porque so o 1o preco do perfil valia. Perfil
+    // com UM preco so continua sendo "preco antigo" se o briefing atual trouxer
+    // outro (protecao de imoveis com preco desatualizado).
+    confirmedPrices: unique([
+      ...moneyMentions(currentRaw).map((p) => normalizeMoneyValue(p.value)),
+      ...(() => {
+        const doPerfil = unique(moneyMentions(inheritedRaw).filter((p) => !p.original).map((p) => normalizeMoneyValue(p.value)));
+        return doPerfil.length >= 2 ? doPerfil : [];
+      })(),
+    ]),
     originalPrices: unique(moneyMentions(raw).filter((p) => p.original).map((p) => normalizeMoneyValue(p.value))),
     genericAddress,
     mediaBudget,

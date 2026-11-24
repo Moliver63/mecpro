@@ -1312,6 +1312,27 @@ export function singularizarPlurais(texto: string): string {
   });
 }
 
+/**
+ * Separa os criativos que tem conflito de fato dos limpos, pelo indice no campo
+ * do conflito ("creatives[1].script", "creatives.1.segmentAlignmentIssues").
+ * Conflito sem indice (campo da campanha) vai em `semIndice` e bloqueia tudo.
+ */
+export function separarCriativosComConflito<T>(lista: T[], conflitos: Array<{ field: string; reason: string }>): { limpos: T[]; descartados: Array<{ index: number; motivos: string[] }>; semIndice: string[] } {
+  const porIndice = new Map<number, Set<string>>();
+  const semIndice: string[] = [];
+  for (const c of conflitos) {
+    const m = String(c.field || "").match(/^creatives(?:\[(\d+)\]|\.(\d+))/);
+    const motivo = String(c.reason || "").replace(/_R\$.*$/, "").replace(/[^a-z_]/gi, "");
+    if (!m) { semIndice.push(c.field); continue; }
+    const i = Number(m[1] ?? m[2]);
+    if (!porIndice.has(i)) porIndice.set(i, new Set());
+    porIndice.get(i)!.add(motivo);
+  }
+  const limpos = lista.filter((_, i) => !porIndice.has(i));
+  const descartados = [...porIndice.entries()].sort((a, b) => a[0] - b[0]).map(([index, motivos]) => ({ index, motivos: [...motivos] }));
+  return { limpos, descartados, semIndice };
+}
+
 export function auditCreativeSegmentAlignment(creative: any, segment: string): string[] {
   const rule = SEGMENT_ALIGNMENT_RULES[segment];
   if (!rule) return [];
@@ -8435,6 +8456,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
 
   }
 
+  let criativosDescartadosNaGeracao: Array<{ index: number; motivos: string[] }> = [];
   try {
     const parsedCreativesRaw = JSON.parse(creatives || "[]");
     const parsedCreatives = normalizeRealPhotoCreatives(parsedCreativesRaw);
@@ -8446,7 +8468,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
       });
     }
     if (Array.isArray(parsedCreatives) && parsedCreatives.length > 0) {
-      const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsedCreatives, {
+      const contextoDeEnriquecimento: Parameters<typeof enrichCreativesWithScoresAndImages>[1] = {
         campaignFacts,
         objective:      input.objective,
         segment:        resolvedSegment,
@@ -8457,7 +8479,9 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
         realImages:     input.realImages,          // fotos reais do cliente (modo upload)
         photoInsights:  input.photoInsights,
         skipAIGeneration: useEcoEngine,
-      });
+      };
+      const enrichedCreatives = await enrichCreativesWithScoresAndImages(parsedCreatives, contextoDeEnriquecimento);
+      criativosDescartadosNaGeracao = contextoDeEnriquecimento.criativosDescartados || [];
       const variedCreatives = repairRepeatedCarouselCreatives(enrichedCreatives);
       const creativesWithV2 = variedCreatives.map((rawCreative: any) => {
         let creative = rawCreative as CampaignCreative;
@@ -8637,6 +8661,7 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
       postGenerationQualityGate: postGenerationGate,
       budgetViability,
       budgetPlan,
+      ...(criativosDescartadosNaGeracao.length ? { criativosDescartados: criativosDescartadosNaGeracao } : {}),
       campaignFacts: {
         ...campaignFacts,
       },
@@ -9661,6 +9686,8 @@ function resolveImageProviderConfig(): { provider: ImageProvider; apiKey: string
 
 async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   campaignFacts?: CampaignFacts;
+  /** Preenchido aqui quando criativos com conflito sao descartados e os limpos seguem. */
+  criativosDescartados?: Array<{ index: number; motivos: string[] }>;
   /** Fatos usados SO para urgencia e promessa com prazo, sem ligar a auditoria do Fact Guard. */
   reviewFacts?: CampaignFacts;
   objective: string;
@@ -10043,7 +10070,20 @@ async function enrichCreativesWithScoresAndImages(creatives: any[], context: {
   if (context.campaignFacts) {
     const audit = validateCampaignFactIntegrity(improvedList, context.campaignFacts);
     if (audit.status !== "passed") {
-      throw new Error(`FACT_CONFLICT: ${audit.conflicts.map(c => `${c.field}: ${c.reason}`).join("; ")}`);
+      // Achado real (24/11, chat sessao 28): 1 de 4 criativos com preco de
+      // outro curso no ROTEIRO derrubava a campanha inteira. Agora o criativo
+      // com conflito sai (nada barrado e gravado) e os limpos ficam, com o
+      // motivo registrado. Se nenhum sobrar limpo, bloqueia como antes.
+      const separacao = separarCriativosComConflito(improvedList, audit.conflicts);
+      if (separacao.limpos.length === 0 || separacao.semIndice.length > 0) {
+        throw new Error(`FACT_CONFLICT: ${audit.conflicts.map(c => `${c.field}: ${c.reason}`).join("; ")}`);
+      }
+      log.warn("ai", "Criativos com fato nao confirmado descartados; os limpos seguem", {
+        descartados: separacao.descartados.map((d) => ({ index: d.index, motivos: d.motivos })),
+        restantes: separacao.limpos.length,
+      });
+      context.criativosDescartados = separacao.descartados.map((d) => ({ index: d.index, motivos: d.motivos }));
+      improvedList.splice(0, improvedList.length, ...separacao.limpos);
     }
   }
 

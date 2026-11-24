@@ -265,3 +265,28 @@ test("binarios: usa o do sistema, aceita FFMPEG_PATH e cai nos pacotes estaticos
     assert.equal(spawnSync(f, ["-version"]).status, 0); assert.equal(spawnSync(p, ["-version"]).status, 0);
   } finally { process.env.PATH = path0; _limparBinariosResolvidos(); }
 });
+
+test("visao: Groq usa modelo com visao atual e manda no maximo 3 imagens por chamada; erro traz o motivo sem a chave", async () => {
+  const { avaliarImagensComCadeia, configsDeVisao } = await import("../chatVision");
+  const { SaudeDosProvedores } = await import("../chatProviderChain");
+  const env = { GROQ_API_KEY: "gsk_segredo", CHAT_VISION_PROVIDERS: "openrouter,groq", OPENROUTER_API_KEY: "or_segredo" } as any;
+  const cfgGroq = configsDeVisao(env).find((c) => c.id === "visao:groq")!;
+  assert.equal(cfgGroq.modelo, "qwen/qwen3.8-27b");
+  assert.equal(cfgGroq.maxImagens, 3);
+  const imagens = Array.from({ length: 5 }, (_, i) => ({ id: `q${i}`, jpeg: Buffer.from([0xff, 0xd8, i]) }));
+  const lotes: number[] = [];
+  const falhas: string[] = [];
+  const doFetch = async (url: string, init: any) => {
+    const body = JSON.parse(init.body);
+    if (url.includes("openrouter")) return new Response(JSON.stringify({ error: { message: "No endpoints found matching your data policy (or_segredo)" } }), { status: 404 });
+    const ids = body.messages[0].content.filter((c: any) => c.type === "text" && /^Imagem id=/.test(c.text)).map((c: any) => c.text.match(/id=(\w+)/)[1]);
+    lotes.push(ids.length);
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(ids.map((id: string) => ({ id, descricao: "ok", elementos: [], textoVisivel: "", qualidade: 7, problemas: [] }))) } }] }));
+  };
+  const r = await avaliarImagensComCadeia(imagens as any, "", false, { env, doFetch: doFetch as any, saude: new SaudeDosProvedores(), aoRegistrar: (e) => { if (e.erro) falhas.push(e.erro); } });
+  assert.equal(r?.provedor, "visao:groq");
+  assert.equal(r?.avaliacoes.length, 5);
+  assert.deepEqual(lotes, [3, 2]);
+  assert.ok(falhas.some((f) => /data policy/.test(f)), "motivo do OpenRouter registrado");
+  assert.ok(falhas.every((f) => !/or_segredo/.test(f)), "chave nao vaza no log");
+});
