@@ -72,7 +72,9 @@ globalThis.fetch = (async (input: any, init?: any) => {
         if (m) id = m[1];
         if (p.inlineData) {
           const bytes = Buffer.from(p.inlineData.data, "base64");
-          itens.push({ id, descricao: `imagem ${sha8(bytes)} (${bytes.length} bytes)`, elementos: [`jpeg:${bytes[0] === 0xff}`], textoVisivel: "", qualidade: bytes.length > 15000 ? 8 : 3, problemas: [] });
+          const pedeCena = String(partes[0]?.text || "").includes("gancho");
+          const rico = Math.min(10, bytes.length / 6000); // cena com mais detalhe (mais bytes) = nota maior, calculada dos pixels recebidos
+          itens.push({ id, descricao: `imagem ${sha8(bytes)} (${bytes.length} bytes)`, elementos: [`jpeg:${bytes[0] === 0xff}`], textoVisivel: "", qualidade: bytes.length > 15000 ? 8 : 3, problemas: [], ...(pedeCena ? { gancho: rico, focoX: 0.5 } : {}) });
         }
       }
       estadoE2E.chamadasGemini.push({ tipo: "visao", imagens: itens.length, ids: itens.map((i) => i.id) });
@@ -89,7 +91,12 @@ globalThis.fetch = (async (input: any, init?: any) => {
         const fotos = (dados.fotos || []).map((f: any) => f.descricao).filter(Boolean);
         return resposta([{ text: `Analisei ${(dados.fotos || []).length} foto(s) e ${(dados.videos || []).length} vídeo(s). ${v ? `Vídeo: ${v.duracaoS}s, ${v.largura}x${v.altura} (${v.proporcao}), ${v.quadrosAnalisados} quadros vistos. Fala: ${v.fala?.status}.` : ""} ${fotos.length ? `Fotos: ${fotos.join("; ")}.` : ""} ${dados.melhorFoto ? `Melhor foto: ${dados.melhorFoto.arquivo}.` : ""} Limitações: ${(dados.limitacoes || []).length}.` }]);
       }
+      if (retornoDeFerramenta.functionResponse.name === "sugerir_cortes") {
+        if (dados.ok === false) return resposta([{ text: `Não consegui sugerir cortes: ${dados.erro}` }]);
+        return resposta([{ text: `Sugeri cortes (proposta ${dados.propostaId}): ${(dados.cortes || []).map((c: any) => `${c.formato} de ${c.inicioS}s a ${c.fimS}s`).join("; ")}. Aprove na tela para eu processar.` }]);
+      }
       if (retornoDeFerramenta.functionResponse.name === "adaptar_video") {
+        if (dados.ok === false) return resposta([{ text: `Não processei: ${dados.erro}` }]);
         return resposta([{ text: `Adaptei: ${(dados.adaptados || []).map((a: any) => `${a.formato} ${a.largura}x${a.altura} ${a.ok ? "ok" : a.erro}`).join("; ")}. Nada foi publicado.` }]);
       }
       return resposta([{ text: "feito" }]);
@@ -97,6 +104,11 @@ globalThis.fetch = (async (input: any, init?: any) => {
     const textoUsuario = (ultimo?.parts || []).map((p: any) => p.text || "").join(" ");
     estadoE2E.chamadasGemini.push({ tipo: "chat", usuarioMencionaVideos: (textoUsuario.match(/res\.cloudinary\.com/g) || []).length, avisoOutraConta: /não pertence/.test(textoUsuario) });
     const soOPedido = textoUsuario.split("\n\n[")[0]; // sem as notas do sistema (que citam o nome das ferramentas)
+    const urlDoVideo = textoUsuario.match(/https:\/\/res\.cloudinary\.com\/\S+?\.(?:mp4|mov|webm)/)?.[0];
+    const aprovada = textoUsuario.match(/propostaId=(\w+) APROVADA pelo usuario/);
+    if (/Aprovei os cortes/.test(soOPedido) && aprovada && urlDoVideo) return resposta([{ functionCall: { name: "adaptar_video", args: { videoUrl: urlDoVideo, propostaId: aprovada[1] } } }]);
+    if (/sugir|sugest|melhores cortes/i.test(soOPedido) && urlDoVideo) return resposta([{ functionCall: { name: "sugerir_cortes", args: { videoUrl: urlDoVideo } } }]);
+    if (/Recusei/.test(soOPedido)) return resposta([{ text: "Certo, não vou processar esses cortes." }]);
     if (/analis|melhor foto|descrev/i.test(soOPedido)) return resposta([{ functionCall: { name: "analisar_anexos", args: { foco: "anúncio" } } }]);
     if (/adapt/i.test(soOPedido)) {
       const m = textoUsuario.match(/https:\/\/res\.cloudinary\.com\/\S+?\.(?:mp4|mov|webm)/);

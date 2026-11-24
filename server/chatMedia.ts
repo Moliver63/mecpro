@@ -16,7 +16,9 @@
  *
  * Nada aqui publica, envia a Meta ou grava em banco.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -71,9 +73,33 @@ export const MIME_POR_CONTAINER: Record<ContainerDeVideo, string> = {
 
 // ── Processos externos (sem shell) ───────────────────────────────────────────
 
-interface ResultadoProcesso { code: number | null; stdout: Buffer; stderr: string; timeout: boolean }
+export interface ResultadoProcesso { code: number | null; stdout: Buffer; stderr: string; timeout: boolean }
 
-function rodar(cmd: string, args: string[], opts: { timeoutMs: number; maxStdout?: number }): Promise<ResultadoProcesso> {
+// Binarios: ffmpeg/ffprobe do sistema quando existem (FFMPEG_PATH/FFPROBE_PATH tem prioridade); senao os pacotes
+// ffmpeg-static/ffprobe-static (instalados com o npm install), para funcionar no Render nativo sem Dockerfile.
+const resolvidos = new Map<string, string>();
+export function _limparBinariosResolvidos(): void { resolvidos.clear(); }
+export function resolverBinario(cmd: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (cmd !== "ffmpeg" && cmd !== "ffprobe") return cmd;
+  const doEnv = (cmd === "ffmpeg" ? env.FFMPEG_PATH : env.FFPROBE_PATH)?.trim();
+  if (doEnv) return doEnv;
+  const guardado = resolvidos.get(cmd);
+  if (guardado) return guardado;
+  let achado = cmd;
+  const noSistema = spawnSync(cmd, ["-version"], { stdio: "ignore", timeout: 5000 });
+  if (noSistema.status !== 0) {
+    try {
+      const req = createRequire(import.meta.url);
+      const caminho: string | null = cmd === "ffmpeg" ? req("ffmpeg-static") : req("ffprobe-static")?.path;
+      if (caminho && existsSync(caminho)) achado = caminho;
+    } catch { /* pacote ausente: segue com o nome (ffmpegDisponivel() dira que nao ha) */ }
+  }
+  resolvidos.set(cmd, achado);
+  return achado;
+}
+
+export function rodar(cmd: string, args: string[], opts: { timeoutMs: number; maxStdout?: number }): Promise<ResultadoProcesso> {
+  cmd = resolverBinario(cmd);
   return new Promise((resolve) => {
     let filho;
     try { filho = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] }); }
@@ -260,11 +286,14 @@ export function escolherModo(sonda: Pick<SondaDeMidia, "proporcao">, formato: Fo
   return diferenca <= 0.12 ? "cortar" : "preservar";
 }
 
-export function filtroDeAdaptacao(formato: FormatoDeAnuncio, modo: "cortar" | "preservar"): string {
-  const { largura: W, altura: H } = FORMATOS_DE_ANUNCIO[formato];
+export function filtroDeAdaptacao(formato: FormatoDeAnuncio, modo: "cortar" | "preservar", focoX = 0.5, reducao = 1): string {
+  // reducao 3 gera a previa em 360p (1080/3, 1920/3, 1350/3 sao inteiros e pares).
+  const W = Math.round(FORMATOS_DE_ANUNCIO[formato].largura / reducao), H = Math.round(FORMATOS_DE_ANUNCIO[formato].altura / reducao);
+  const fx = Math.max(0, Math.min(1, Number.isFinite(focoX) ? focoX : 0.5));
   // Fundo em ~1/4 da resolucao, com dimensoes PARES (1350/4 = 337,5 quebrava o 4:5).
   const bw = Math.round(W / 8) * 2, bh = Math.round(H / 8) * 2;
-  if (modo === "cortar") return `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,format=yuv420p`;
+  // Corte centrado no assunto (focoX 0..1), nunca para fora do quadro; focoX 0.5 = corte central de antes.
+  if (modo === "cortar") return `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}:x='max(0,min(iw-${W},iw*${fx.toFixed(3)}-${W}/2))':y='(ih-${H})/2',setsar=1,format=yuv420p`;
   return [
     "split[a][b]",
     // Fundo desfocado calculado em 1/4 da resolucao e ampliado: mesmo aspecto, ~3x mais rapido (medido: 20s de video em ~11s).
@@ -277,13 +306,19 @@ export function filtroDeAdaptacao(formato: FormatoDeAnuncio, modo: "cortar" | "p
 export interface VideoAdaptado { buffer: Buffer; modoUsado: "cortar" | "preservar"; sonda: SondaDeMidia | null }
 
 /** Gera o MP4 (H.264 + AAC, faststart) no formato pedido a partir do arquivo de origem. */
-export async function adaptarVideoArquivo(entrada: string, sondaOrigem: SondaDeMidia, formato: FormatoDeAnuncio, modo: ModoDeAdaptacao = "auto"): Promise<VideoAdaptado | { erro: string }> {
+export interface TrechoDoCorte { inicioS: number; duracaoS: number; focoX?: number; /** 1 = qualidade final; 3 = previa leve (360p). */ reducao?: number }
+
+export async function adaptarVideoArquivo(entrada: string, sondaOrigem: SondaDeMidia, formato: FormatoDeAnuncio, modo: ModoDeAdaptacao = "auto", trecho?: TrechoDoCorte): Promise<VideoAdaptado | { erro: string }> {
   const modoUsado = escolherModo(sondaOrigem, formato, modo);
+  const previa = (trecho?.reducao ?? 1) > 1;
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "chatmedia-out-"));
   const saida = path.join(dir, `saida-${formato}.mp4`);
   try {
-    const args = ["-v", "error", "-y", "-i", entrada, "-filter_complex", filtroDeAdaptacao(formato, modoUsado),
-      "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-maxrate", "8M", "-bufsize", "16M", "-r", String(Math.min(30, Math.round(sondaOrigem.fps || 30))),
+    // -ss antes de -i: busca rapida e exata com re-codificacao; -t limita a duracao do trecho aprovado.
+    const corte = trecho && trecho.duracaoS > 0 ? ["-ss", Math.max(0, trecho.inicioS).toFixed(2)] : [];
+    const duracao = trecho && trecho.duracaoS > 0 ? ["-t", trecho.duracaoS.toFixed(2)] : [];
+    const args = ["-v", "error", "-y", ...corte, "-i", entrada, ...duracao, "-filter_complex", filtroDeAdaptacao(formato, modoUsado, trecho?.focoX, trecho?.reducao ?? 1),
+      "-c:v", "libx264", ...(previa ? ["-preset", "ultrafast", "-crf", "30", "-maxrate", "900k", "-bufsize", "1800k"] : ["-preset", "veryfast", "-crf", "23", "-maxrate", "8M", "-bufsize", "16M"]), "-r", String(Math.min(30, Math.round(sondaOrigem.fps || 30))),
       ...(sondaOrigem.temAudio ? ["-c:a", "aac", "-b:a", "128k", "-ac", "2"] : ["-an"]),
       "-movflags", "+faststart", saida];
     // filter_complex precisa de um fluxo de entrada rotulado; o filtro de corte nao tem rotulos, entao usa -vf.

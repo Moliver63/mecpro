@@ -1,7 +1,7 @@
 import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle, ArrowDown, Megaphone, Camera, RefreshCw, Play } from "lucide-react";
 import { useState, type RefObject } from "react";
 import { ACEITA_FOTOS_E_VIDEOS } from "@/lib/chatUploads";
-import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment, ChatVelocidade } from "@/hooks/useCampaignChat";
+import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment, ChatVelocidade, PropostaDeCortes } from "@/hooks/useCampaignChat";
 import { ASSISTANT_IMAGE, SUGESTOES } from "@/hooks/useCampaignChat";
 
 function FormatarTexto({ texto }: { texto: string }) {
@@ -53,11 +53,54 @@ interface ChatConversationViewProps {
   videoAttachments: ChatVideoAttachment[];
   removeVideoAttachment: (id: string) => void;
   send: (textoOverride?: string) => void;
+  cortes?: PropostaDeCortes[];
+  decidirCortes?: (id: string, acao: "aprovar" | "rejeitar", formatos?: string[]) => Promise<void>;
   scrollRef: RefObject<HTMLDivElement>;
   longeDoFim: boolean;
   naoLidas: number;
   irParaUltima: () => void;
   fullScreen?: boolean;
+}
+
+const fmtS = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+
+/** Cortes sugeridos pela IA: previas leves e decisao do usuario. Nada final e processado antes do Aprovar. */
+function CortesSugeridos({ propostas, decidir, ocupado }: { propostas: PropostaDeCortes[]; decidir: (id: string, acao: "aprovar" | "rejeitar", formatos?: string[]) => Promise<void>; ocupado: boolean }) {
+  const [desmarcados, setDesmarcados] = useState<Record<string, boolean>>({});
+  if (!propostas.length) return null;
+  return (
+    <div className="campaign-chat-cortes" role="region" aria-label="Cortes sugeridos para aprovação">
+      {propostas.map((p) => {
+        const escolhidos = p.cortes.filter((c) => !desmarcados[`${p.id}:${c.formato}`]).map((c) => c.formato);
+        return (
+          <section key={p.id} className="campaign-chat-cortes-card">
+            <header>
+              <strong>Cortes sugeridos</strong>
+              <span>Prévias leves. O arquivo final só é gerado depois que você aprovar.</span>
+            </header>
+            <div className="campaign-chat-cortes-grade">
+              {p.cortes.map((c) => (
+                <label key={c.formato} className="campaign-chat-corte" data-formato={c.formato}>
+                  <div className="campaign-chat-corte-topo">
+                    <input type="checkbox" checked={!desmarcados[`${p.id}:${c.formato}`]} onChange={(e) => setDesmarcados((d) => ({ ...d, [`${p.id}:${c.formato}`]: !e.target.checked }))} />
+                    <b>{c.rotulo}</b> <span>{c.usos}</span>
+                  </div>
+                  {c.previaUrl ? <video src={c.previaUrl} controls muted playsInline preload="metadata" /> : <div className="campaign-chat-corte-sem-previa">{c.previaErro || "Sem prévia"}</div>}
+                  <p>{fmtS(c.inicioS)} a {fmtS(c.fimS)} ({c.duracaoS}s){c.pontuacao != null ? ` · nota ${c.pontuacao}/10` : ""}</p>
+                  <small>{c.motivo}</small>
+                </label>
+              ))}
+            </div>
+            {p.limitacoes.length > 0 && <ul className="campaign-chat-cortes-limites">{p.limitacoes.map((l, i) => <li key={i}>{l}</li>)}</ul>}
+            <footer>
+              <button type="button" className="campaign-chat-cortes-aprovar" disabled={ocupado || !escolhidos.length} onClick={() => void decidir(p.id, "aprovar", escolhidos)}>Aprovar e processar{escolhidos.length ? ` (${escolhidos.length})` : ""}</button>
+              <button type="button" className="campaign-chat-cortes-recusar" disabled={ocupado} onClick={() => void decidir(p.id, "rejeitar")}>Recusar</button>
+            </footer>
+          </section>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function ChatConversationView({
@@ -77,6 +120,8 @@ export default function ChatConversationView({
   videoAttachments,
   removeVideoAttachment,
   send,
+  cortes = [],
+  decidirCortes,
   scrollRef,
   longeDoFim,
   naoLidas,
@@ -216,6 +261,7 @@ export default function ChatConversationView({
         }}
         onPaste={(e) => { const f = e.clipboardData?.files; if (f?.length) { e.preventDefault(); void addFiles(f); } }}
       >
+        <CortesSugeridos propostas={cortes} decidir={async (id, acao, f) => { await decidirCortes?.(id, acao, f); }} ocupado={loading} />
         {arrastando && <div className="campaign-chat-dropzone" role="status">Solte as fotos e vídeos aqui para anexar</div>}
         <div className="campaign-chat-velocidade" role="radiogroup" aria-label="Velocidade da resposta">
           <button

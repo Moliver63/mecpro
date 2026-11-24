@@ -22,7 +22,9 @@ function afirmar(cond: unknown, msg: string, ev: string[]) {
   ev.push(`ok: ${msg}`);
 }
 async function estado(): Promise<any> { return (await fetch(`${URL_BASE}/api/_e2e/estado`)).json(); }
+const SO = (process.env.E2E_SO || "").split(",").filter(Boolean);
 async function cenario(n: string, titulo: string, fn: (ev: string[]) => Promise<void>) {
+  if (SO.length && !SO.includes(n)) return;
   const ev: string[] = [];
   try { await fn(ev); resultados.push({ n, titulo, ok: true, evidencia: ev }); console.log(`✔ ${n} ${titulo}`); }
   catch (e: any) { resultados.push({ n, titulo, ok: false, evidencia: ev, erro: String(e?.message || e) }); console.log(`✘ ${n} ${titulo}\n   ${e?.message}`); }
@@ -346,6 +348,93 @@ await cenario("10", "Isolamento entre usuarios: outro cliente nao ve, nao usa e 
   const r6 = await req.post(`${URL_BASE}/api/chat`, { data: { mensagens: [{ role: "user", content: "Analise as fotos que enviei" }], sessionId: j3.sessionId } });
   const j6 = await r6.json();
   afirmar(/Analisei 1 foto\(s\) e 0 vídeo\(s\)/.test(j6.resposta ?? ""), `B so ve a PROPRIA foto (${(j6.resposta || "").slice(0, 90)})`, ev);
+  await a.ctx.close(); await b.ctx.close();
+});
+
+// ── Cortes sugeridos: previa e aprovacao ─────────────────────────────────────
+let cortesPage: { ctx: BrowserContext; page: Page };
+let propostaVista = "";
+await cenario("11", "Cortes inteligentes: IA sugere trechos com previa, e NADA final e processado antes da aprovacao", async (ev) => {
+  cortesPage = await abrir(browser, 1, "desktop");
+  const { page } = cortesPage;
+  await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForSelector(".campaign-chat-composer");
+  await seletorDeArquivos(page).setInputFiles(fx("cenas40.mp4"));
+  await page.waitForSelector('.campaign-chat-attachment-video[data-status="done"]', { timeout: 60000 });
+  const upAntes = (await estado()).uploads;
+  await enviarMensagem(page, "Sugira os melhores cortes desse vídeo para Reels, Feed e quadrado");
+  await page.waitForSelector(".campaign-chat-cortes-card", { timeout: 150000 });
+  const resposta = (await page.locator(".campaign-chat-response").last().innerText()).replace(/\s+/g, " ");
+  ev.push(`resposta do chat: ${resposta.slice(0, 260)}`);
+  const e = await estado();
+  afirmar(e.uploads - upAntes === 3, `so as 3 previas foram para o armazenamento (${e.uploads - upAntes}); nenhum arquivo final`, ev);
+  afirmar((await page.locator(".campaign-chat-corte video").count()) === 3, "tela mostra 3 previas em video (9:16, 4:5 e 1:1)", ev);
+  afirmar(/Prévias leves/.test(await page.locator(".campaign-chat-cortes-card header").innerText()), "aviso: arquivo final so depois de aprovar", ev);
+  const previas = await page.locator(".campaign-chat-corte video").evaluateAll((v) => v.map((x) => (x as HTMLVideoElement).src));
+  const dims: number[][] = [];
+  for (const u of previas) { const p = probe(await baixarDaNuvem(u)); dims.push([p.w, p.h]); }
+  afirmar(JSON.stringify(dims) === JSON.stringify([[360, 640], [360, 450], [360, 360]]), `previas reais em 360p nas 3 proporcoes: ${JSON.stringify(dims)}`, ev);
+  afirmar(await page.locator(".campaign-chat-corte video").first().evaluate(async (v: HTMLVideoElement) => { await new Promise((r) => (v.readyState >= 1 ? r(null) : v.addEventListener("loadedmetadata", () => r(null), { once: true }))); return v.duration > 5; }), "o navegador carrega e reproduz a previa", ev);
+  const sessao = (await sessoesDe(1)).at(-1);
+  const persistidos = sessao.pendingPhotoUrls.filter((p: any) => p.kind === "video").length;
+  afirmar(persistidos === 1, "previas nao poluem a conversa: so o video original esta guardado", ev);
+  await page.screenshot({ path: path.join(SHOTS, "11-cortes-sugeridos.png") });
+  propostaVista = (resposta.match(/proposta (\w+)\)/) || [])[1] || "";
+  afirmar(!!propostaVista, "o chat citou a proposta", ev);
+});
+
+await cenario("12", "Recarregar com sugestao pendente mantem a previa; aprovar so Stories e Feed gera apenas esses arquivos finais", async (ev) => {
+  const { page } = cortesPage;
+  await page.reload();
+  await page.waitForSelector(".campaign-chat-cortes-card", { timeout: 20000 });
+  afirmar((await page.locator(".campaign-chat-corte video").count()) === 3, "apos recarregar, a sugestao pendente voltou com as 3 previas", ev);
+  const upAntes = (await estado()).uploads;
+  // desmarca o quadrado e aprova
+  await page.locator('.campaign-chat-corte[data-formato="square"] input[type="checkbox"]').uncheck();
+  await page.click(".campaign-chat-cortes-aprovar");
+  await page.waitForFunction(() => document.querySelectorAll(".campaign-chat-response").length >= 2 && !document.querySelector(".campaign-chat-cortes-card"), null, { timeout: 180000 });
+  await page.waitForFunction(() => /Adaptei:/.test(document.body.innerText), null, { timeout: 180000 });
+  const resposta = (await page.locator(".campaign-chat-response").last().innerText()).replace(/\s+/g, " ");
+  ev.push(`resposta do chat: ${resposta.slice(0, 220)}`);
+  afirmar(/stories 1080x1920 ok; feed 1080x1350 ok/.test(resposta) && !/square/.test(resposta), "processou so os formatos aprovados (stories e feed)", ev);
+  const e = await estado();
+  afirmar(e.uploads - upAntes === 2, `2 arquivos finais novos (${e.uploads - upAntes})`, ev);
+  const sessao = (await sessoesDe(1)).at(-1);
+  const finais = sessao.pendingPhotoUrls.filter((p: any) => p.kind === "video" && /-(stories-9x16|feed-4x5)\.mp4$/.test(p.fileName));
+  afirmar(finais.length === 2, "os 2 finais foram guardados na conversa", ev);
+  for (const f of finais) {
+    const p = probe(await baixarDaNuvem(f.url));
+    const esperado = /stories/.test(f.fileName) ? [1080, 1920] : [1080, 1350];
+    afirmar(p.w === esperado[0] && p.h === esperado[1] && p.audio && p.dur > 8 && p.dur < 21, `${f.fileName}: ffprobe ${p.w}x${p.h}, ${p.dur.toFixed(1)}s, com audio (trecho, nao o video de 40s)`, ev);
+  }
+  await page.screenshot({ path: path.join(SHOTS, "12-cortes-aprovados.png") });
+  await cortesPage.ctx.close();
+});
+
+await cenario("13", "Recusar: nada e processado; e outro usuario nao ve nem decide sobre os cortes", async (ev) => {
+  const a = await abrir(browser, 1, "desktop");
+  await a.page.evaluate(() => localStorage.clear()); await a.page.reload(); await a.page.waitForSelector(".campaign-chat-composer");
+  await seletorDeArquivos(a.page).setInputFiles(fx("cenas40.mp4"));
+  await a.page.waitForSelector('.campaign-chat-attachment-video[data-status="done"]', { timeout: 60000 });
+  await enviarMensagem(a.page, "Sugira os melhores cortes");
+  await a.page.waitForSelector(".campaign-chat-cortes-card", { timeout: 150000 });
+  const sA = (await sessoesDe(1)).at(-1);
+  const idProposta = (await (await a.page.request.get(`${URL_BASE}/api/chat/sessions/${sA.id}/cortes`)).json()).propostas[0].id as string;
+
+  const b = await abrir(browser, 2, "celular");
+  const rq = b.page.request;
+  afirmar((await rq.get(`${URL_BASE}/api/chat/sessions/${sA.id}/cortes`)).status() === 404, "B nao lista cortes da conversa de A (404)", ev);
+  afirmar((await rq.post(`${URL_BASE}/api/chat/cortes/${idProposta}/aprovar`, { data: {} })).status() === 404, "B nao aprova os cortes de A (404)", ev);
+  afirmar((await rq.post(`${URL_BASE}/api/chat/cortes/${idProposta}/rejeitar`, { data: {} })).status() === 404, "B nao recusa os cortes de A (404)", ev);
+  afirmar((await rq.post(`${URL_BASE}/api/chat/cortes/${idProposta}/aprovar`, { data: {}, headers: { cookie: "" } })).status() === 404, "tentativa com cookie vazio tambem nao aprova", ev);
+  afirmar(await a.page.locator(".campaign-chat-cortes-card").count() === 1, "a proposta de A continua pendente (nada aprovado por B)", ev);
+
+  const upAntes = (await estado()).uploads;
+  await a.page.click(".campaign-chat-cortes-recusar");
+  await a.page.waitForFunction(() => /não vou processar/.test(document.body.innerText), null, { timeout: 60000 });
+  afirmar((await estado()).uploads === upAntes, "recusar nao gerou nenhum arquivo", ev);
+  afirmar((await a.page.locator(".campaign-chat-cortes-card").count()) === 0, "o cartao some depois da decisao", ev);
+  const ap = await a.page.request.post(`${URL_BASE}/api/chat/cortes/${idProposta}/aprovar`, { data: {} });
+  afirmar(ap.status() === 404, "proposta recusada nao pode mais ser aprovada", ev);
   await a.ctx.close(); await b.ctx.close();
 });
 

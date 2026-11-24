@@ -18,6 +18,7 @@ import {
   FORMATOS_DE_ANUNCIO, ffmpegDisponivel, formatosQueJaServem, hashDoArquivo, limitesDeMidia, reduzirImagem, sondarBuffer,
   type ConferenciaMeta, type FormatoDeAnuncio, type LimitesDeMidia, type ModoDeAdaptacao, type SondaDeMidia,
 } from "./chatMedia";
+import { marcarComoProcessada, propostaAprovadaPara, trechoDoCorte, type PropostaDeCortes } from "./chatCortes";
 
 export interface DescricaoDeImagem {
   id: string;
@@ -225,7 +226,16 @@ export async function adaptarVideoDoChat(userId: number, sessionId: number | nul
   const limites = deps.limites ?? limitesDeMidia();
   if (!sessionId || !(await deps.sessaoDoUsuario(userId, sessionId))) return { ok: false, erro: "Conversa não encontrada. Peça ao usuário para anexar o vídeo de novo.", nadaFoiAlterado: true };
   const brutos = Array.isArray(args.formatos) ? args.formatos : typeof args.formato === "string" ? [args.formato] : [];
-  const formatos = [...new Set(brutos.filter((f): f is FormatoDeAnuncio => f === "stories" || f === "feed" || f === "square"))];
+  let formatos = [...new Set(brutos.filter((f): f is FormatoDeAnuncio => f === "stories" || f === "feed" || f === "square"))];
+  // Com propostaId, so processa cortes que o USUARIO aprovou na tela (aprovacao nao passa pelo modelo).
+  let proposta: PropostaDeCortes | null = null;
+  if (args.propostaId !== undefined) {
+    if (typeof args.propostaId !== "string" || typeof args.videoUrl !== "string" || !sessionId) return { ok: false, erro: "Informe propostaId e videoUrl. Nada foi processado.", nadaFoiAlterado: true };
+    const ap = propostaAprovadaPara(userId, sessionId, args.propostaId, args.videoUrl);
+    if (ap.ok === false) return { ok: false, erro: ap.erro, aguardandoAprovacao: true, nadaFoiAlterado: true };
+    proposta = ap.proposta;
+    formatos = proposta.aprovados.slice();
+  }
   if (!formatos.length) return { ok: false, erro: "Informe os formatos: stories (9:16, Stories e Reels), feed (4:5) e/ou square (1:1). Pergunte ao usuário se não disse.", nadaFoiAlterado: true };
   const modo: ModoDeAdaptacao = args.modo === "cortar" || args.modo === "preservar" ? args.modo : "auto";
   const videoUrl = args.videoUrl;
@@ -251,13 +261,16 @@ export async function adaptarVideoDoChat(userId: number, sessionId: number | nul
     const pendentes: FormatoDeAnuncio[] = [];
     let gasto = 0;
     for (const formato of formatos) {
-      const chave = `${userId}|${sha}|${formato}|${modo}`;
+      const corte = proposta?.cortes.find((c) => c.formato === formato);
+      const trecho = corte ? trechoDoCorte(corte) : null;
+      const modoDoFormato: ModoDeAdaptacao = trecho ? trecho.modo : modo;
+      const chave = `${userId}|${sha}|${formato}|${modoDoFormato}${trecho ? `|${trecho.inicioS}|${trecho.duracaoS}|${trecho.focoX}` : ""}`;
       const antigo = doCache<Record<string, unknown>>(cacheAdaptacao, chave, agora());
       if (antigo) { gerados.push({ ...antigo, reaproveitado: true }); continue; }
-      const custo = estimativaDeAdaptacaoS(sonda.duracaoS);
+      const custo = estimativaDeAdaptacaoS(trecho ? trecho.duracaoS : sonda.duracaoS);
       if (gasto > 0 && gasto + custo > ORCAMENTO_DE_ADAPTACAO_S) { pendentes.push(formato); continue; }
       gasto += custo;
-      const r = await adaptarVideoArquivo(caminho, sonda, formato, modo);
+      const r = await adaptarVideoArquivo(caminho, sonda, formato, modoDoFormato, trecho ? { inicioS: trecho.inicioS, duracaoS: trecho.duracaoS, focoX: trecho.focoX } : undefined);
       if ("erro" in r) { gerados.push({ formato, ok: false, erro: r.erro }); continue; }
       if (r.buffer.length > limites.videoBytes) { gerados.push({ formato, ok: false, erro: `O resultado passou do limite de ${Math.round(limites.videoBytes / 1048576)}MB.` }); continue; }
       const saidaSonda = r.sonda ?? (await sondarBuffer(r.buffer, "mp4"));
@@ -272,12 +285,13 @@ export async function adaptarVideoDoChat(userId: number, sessionId: number | nul
         formato, ok: true, url, arquivo: nome, usos: FORMATOS_DE_ANUNCIO[formato].usos, modo: r.modoUsado,
         largura: saidaSonda.largura, altura: saidaSonda.altura, proporcao: saidaSonda.rotuloProporcao, duracaoS: saidaSonda.duracaoS,
         tamanhoMB: Math.round((r.buffer.length / 1048576) * 10) / 10, temAudio: saidaSonda.temAudio, persistidoNaConversa: persistido,
-        especificacaoMeta: conferencia,
+        especificacaoMeta: conferencia, ...(trecho ? { corteAprovado: { inicioS: trecho.inicioS, fimS: Math.round((trecho.inicioS + trecho.duracaoS) * 10) / 10 } } : {}),
       };
       guardar(cacheAdaptacao, chave, item, agora());
       gerados.push(item);
     }
     const ok = gerados.some((g) => g.ok);
+    if (proposta) marcarComoProcessada(proposta.id, gerados.filter((g) => g.ok).map((g) => g.formato as FormatoDeAnuncio));
     return {
       ok, publicado: false, enviadoAMeta: false, campanhaAlterada: false,
       origem: { arquivo: origem.fileName, duracaoS: sonda.duracaoS, proporcao: sonda.rotuloProporcao, largura: sonda.largura, altura: sonda.altura },

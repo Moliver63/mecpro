@@ -72,6 +72,8 @@ export default function ChatHomeView() {
           attachments={chat.attachments}
           addFiles={chat.addFiles}
         substituirAnexo={chat.substituirAnexo}
+        cortes={chat.cortes}
+        decidirCortes={chat.decidirCortes}
           removeAttachment={chat.removeAttachment}
           attachmentError={chat.attachmentError}
           velocidade={chat.velocidade}

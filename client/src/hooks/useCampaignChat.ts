@@ -128,6 +128,9 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+export interface CorteSugerido { formato: "stories" | "feed" | "square"; rotulo: string; usos: string; inicioS: number; fimS: number; duracaoS: number; modo: string; pontuacao: number | null; motivo: string; previaUrl: string | null; previaErro: string | null }
+export interface PropostaDeCortes { id: string; status: "proposta" | "aprovada" | "rejeitada" | "processada"; videoUrl: string; limitacoes: string[]; analise: { duracaoS: number; cenas: number; cenasAvaliadas: number; provedorDeVisao: string | null }; cortes: CorteSugerido[] }
+
 export function useCampaignChat() {
   const sending = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([MENSAGEM_INICIAL]);
@@ -230,6 +233,28 @@ export function useCampaignChat() {
     }
   };
 
+  // Cortes sugeridos pela IA aguardando o OK do usuario (previas leves; nada final foi processado).
+  const [cortes, setCortes] = useState<PropostaDeCortes[]>([]);
+  const carregarCortes = async (id: number | null) => {
+    if (!id) { setCortes([]); return; }
+    try {
+      const res = await fetch(`/api/chat/sessions/${id}/cortes`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setCortes(Array.isArray(data?.propostas) ? data.propostas.filter((p: PropostaDeCortes) => p.status === "proposta") : []);
+    } catch { /* sem cortes pendentes na tela; a conversa segue normal */ }
+  };
+  // A aprovacao e um clique do usuario, enviado direto ao servidor (o modelo nao aprova). Depois avisa o chat para processar.
+  const decidirCortes = async (id: string, acao: "aprovar" | "rejeitar", formatos?: string[]) => {
+    try {
+      const res = await fetch(`/api/chat/cortes/${id}/${acao}`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ formatos }) });
+      if (!res.ok) { setAttachmentError("Essa sugestão de corte expirou. Peça novas sugestões."); setCortes((c) => c.filter((p) => p.id !== id)); return; }
+    } catch { setAttachmentError("Não consegui registrar sua decisão agora. Tente de novo."); return; }
+    setCortes((c) => c.filter((p) => p.id !== id));
+    if (acao === "aprovar") await send(`Aprovei os cortes sugeridos${formatos?.length ? ` (formatos: ${formatos.join(", ")})` : ""}. Processe os vídeos nos formatos aprovados.`);
+    else await send("Recusei esses cortes. Sugira outros trechos ou me pergunte o que prefere.");
+  };
+
   const carregarConversa = async (id: number) => {
     setCarregandoHistorico(true);
     try {
@@ -250,6 +275,7 @@ export function useCampaignChat() {
       setMessages(carregadas.length ? carregadas : [MENSAGEM_INICIAL]);
       setSessionId(id);
       localStorage.setItem(CHAVE_SESSAO_LOCAL, String(id));
+      void carregarCortes(id);
       // Achado real (achados colados por Michel, 14/09): sem isso, um
       // recarregamento de página perdia as fotos já enviadas nesta
       // conversa mesmo com o upload já persistido no Cloudinary — o
@@ -283,6 +309,7 @@ export function useCampaignChat() {
   };
 
   const novaConversa = () => {
+    setCortes([]);
     localStorage.removeItem(CHAVE_SESSAO_LOCAL);
     setSessionId(null);
     setMessages([MENSAGEM_INICIAL]);
@@ -542,6 +569,7 @@ export function useCampaignChat() {
         localStorage.setItem(CHAVE_SESSAO_LOCAL, String(data.sessionId));
       }
       carregarSessoes();
+      void carregarCortes(data.sessionId || sessionId);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -571,6 +599,8 @@ export function useCampaignChat() {
     addFiles,
     substituirAnexo,
     limites,
+    cortes,
+    decidirCortes,
     loading,
     needsLogin,
     send,

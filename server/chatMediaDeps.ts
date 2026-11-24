@@ -4,6 +4,7 @@
  */
 import { baixarVideoDoCloudinary, registrarVideoDoChat, urlDeVideoDoChatValida, videoDoChatDoUsuario } from "./chatCreativeVideo";
 import type { DepsMidia, DescricaoDeImagem, ImagemParaAnalise } from "./chatMediaTools";
+import type { AvaliacaoDeCena } from "./chatVision";
 import { limitesDeMidia } from "./chatMedia";
 
 const LIMITE_FOTO_DOWNLOAD = 12 * 1024 * 1024;
@@ -52,8 +53,9 @@ export function depsMidiaPadrao(
   extras: {
     descreverImagens: (imagens: ImagemParaAnalise[], foco: string) => Promise<DescricaoDeImagem[] | null>;
     subirVideo: (buffer: Buffer, nome: string) => Promise<string | null>;
+    avaliarCenas?: (imagens: ImagemParaAnalise[], foco: string) => Promise<{ avaliacoes: AvaliacaoDeCena[]; provedor: string } | null>;
   },
-): DepsMidia & { videoDoUsuario(userId: number, url: string): Promise<boolean> } {
+): DepsMidia & { videoDoUsuario(userId: number, url: string): Promise<boolean>; avaliarCenas?: (imagens: ImagemParaAnalise[], foco: string) => Promise<{ avaliacoes: AvaliacaoDeCena[]; provedor: string } | null> } {
   return {
     sessaoDoUsuario: async (userId, sessionId) => {
       const s = await db.getChatSessionById(sessionId).catch(() => null);
@@ -64,6 +66,7 @@ export function depsMidiaPadrao(
     baixarFoto: baixarFotoDoCloudinary,
     baixarVideo: baixarVideoDoCloudinary,
     descreverImagens: extras.descreverImagens,
+    avaliarCenas: extras.avaliarCenas,
     transcrever: (audio) => transcreverComGroq(audio),
     subirVideo: extras.subirVideo,
     registrarVideo: registrarVideoDoChat,

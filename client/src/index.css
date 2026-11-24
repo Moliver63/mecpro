@@ -2496,3 +2496,21 @@ tbody tr:last-child td { border-bottom: none; }
 .campaign-chat-attachment-swap input { display: none; }
 .campaign-chat-attach-camera { display: none; }
 @media (pointer: coarse) { .campaign-chat-attach-camera { display: flex; } }
+
+/* Cortes sugeridos (previa + aprovacao) */
+.campaign-chat-cortes { display: grid; gap: 10px; margin: 0 0 10px; max-height: 46vh; overflow-y: auto; }
+.campaign-chat-cortes-card { border: 1px solid var(--border, rgba(127,127,127,.28)); border-radius: 14px; padding: 12px; background: var(--card, rgba(127,127,127,.06)); display: grid; gap: 10px; }
+.campaign-chat-cortes-card header { display: grid; gap: 2px; font-size: 13px; }
+.campaign-chat-cortes-card header span { opacity: .72; font-size: 12px; }
+.campaign-chat-cortes-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.campaign-chat-corte { display: grid; gap: 6px; font-size: 12px; cursor: pointer; align-content: start; }
+.campaign-chat-corte-topo { display: flex; align-items: center; gap: 6px; }
+.campaign-chat-corte video { width: 100%; max-height: 220px; border-radius: 10px; background: #000; object-fit: contain; }
+.campaign-chat-corte-sem-previa { padding: 24px 8px; text-align: center; border-radius: 10px; background: rgba(127,127,127,.12); opacity: .8; }
+.campaign-chat-corte p { margin: 0; font-weight: 600; }
+.campaign-chat-corte small { opacity: .75; line-height: 1.35; }
+.campaign-chat-cortes-limites { margin: 0; padding-left: 18px; font-size: 11.5px; opacity: .78; }
+.campaign-chat-cortes-card footer { display: flex; gap: 8px; flex-wrap: wrap; }
+.campaign-chat-cortes-card footer button { min-height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--border, rgba(127,127,127,.35)); background: transparent; color: inherit; font-weight: 600; cursor: pointer; }
+.campaign-chat-cortes-card footer .campaign-chat-cortes-aprovar { background: var(--primary, #6d4aff); border-color: transparent; color: #fff; }
+.campaign-chat-cortes-card footer button:disabled { opacity: .5; cursor: not-allowed; }
