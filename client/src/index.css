@@ -2514,3 +2514,13 @@ tbody tr:last-child td { border-bottom: none; }
 .campaign-chat-cortes-card footer button { min-height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--border, rgba(127,127,127,.35)); background: transparent; color: inherit; font-weight: 600; cursor: pointer; }
 .campaign-chat-cortes-card footer .campaign-chat-cortes-aprovar { background: var(--primary, #6d4aff); border-color: transparent; color: #fff; }
 .campaign-chat-cortes-card footer button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Menu "+" de anexos (seletores nativos) */
+.campaign-chat-attach-wrap{position:relative;display:flex;align-items:center}
+.campaign-chat-file-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;overflow:hidden}
+.campaign-chat-attach-menu{position:absolute;bottom:calc(100% + 8px);left:0;z-index:30;min-width:230px;display:flex;flex-direction:column;padding:6px;border-radius:14px;background:var(--card,#fff);border:1px solid rgba(0,0,0,.12);box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.campaign-chat-attach-menu button{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 12px;border:0;background:transparent;border-radius:10px;font:inherit;text-align:left;cursor:pointer;color:inherit}
+.campaign-chat-attach-menu button:hover{background:rgba(0,0,0,.06)}
+.campaign-chat-attachment-info{position:absolute;left:0;right:0;bottom:0;padding:1px 4px;font-size:9px;line-height:1.3;background:rgba(0,0,0,.55);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.campaign-chat-attachment-retry{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:50%;border:0;background:#fff;color:#c00;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3}
+@media (hover:none){.campaign-chat-attach-menu-camera{display:flex}}

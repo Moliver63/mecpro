@@ -18,14 +18,14 @@ export const LIMITES_PADRAO: LimitesDeMidia = {
   videosPorMensagem: 3,
 };
 
-export const TIPOS_DE_FOTO = new Set(["image/jpeg", "image/png", "image/webp"]);
+export const TIPOS_DE_FOTO = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/heic-sequence"]);
 export const TIPOS_DE_VIDEO = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska"]);
 
 /** Valor do atributo accept do seletor: fotos e videos juntos. */
-export const ACEITA_FOTOS_E_VIDEOS = "image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,.mov,.mp4,.webm";
+export const ACEITA_FOTOS_E_VIDEOS = "image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm,.heic,.heif,.mov,.mp4,.webm";
 
 const EXTENSAO_PARA_TIPO: Record<string, string> = {
-  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif",
   mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska",
 };
 
@@ -50,7 +50,7 @@ const mb = (bytes: number) => `${Math.round((bytes / 1048576) * 10) / 10}MB`.rep
 
 export function validarArquivo(f: ArquivoLike, limites: LimitesDeMidia = LIMITES_PADRAO): string | null {
   const tipo = classificarArquivo(f);
-  if (!tipo) return `"${f.name}": formato não suportado. Use JPG, PNG ou WEBP para fotos e MP4, MOV ou WEBM para vídeos.`;
+  if (!tipo) return `"${f.name}": formato não suportado. Use JPG, PNG, WEBP ou HEIC para fotos e MP4, MOV ou WEBM para vídeos.`;
   if (f.size <= 0) return `"${f.name}" está vazio.`;
   if (tipo === "foto" && f.size > limites.fotoBytes) return `A foto "${f.name}" tem ${mb(f.size)} e o limite é ${mb(limites.fotoBytes)}. Comprima antes de anexar.`;
   if (tipo === "video" && f.size > limites.videoBytes) return `O vídeo "${f.name}" tem ${mb(f.size)} e o limite é ${mb(limites.videoBytes)}.`;

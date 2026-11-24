@@ -47,6 +47,7 @@ import { analisarAnexos, adaptarVideoDoChat, type DescricaoDeImagem, type Imagem
 import { depsMidiaPadrao } from "./chatMediaDeps";
 import { aprovarCortes, propostasDaSessao, rejeitarCortes, resumoDaProposta, sugerirCortes } from "./chatCortes";
 import { avaliarImagensComCadeia } from "./chatVision";
+import { converterHeicParaJpeg, ehHeic } from "./chatHeic";
 import { limitesDeMidia, validarVideoEnviado, MIME_POR_CONTAINER, hashDoArquivo } from "./chatMedia";
 import { selecionarContaMetaDaSessao, aplicarContaDaSessaoAoRascunho, type SessaoDeConta, selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
 import { confirmedChatContact } from "./chatContact";
@@ -2147,9 +2148,17 @@ chatRouter.post("/upload-photo", authChat, (req: any, res, next) => {
   if (!file) {
     return res.status(400).json({ erro: "Nenhuma foto enviada." });
   }
+  let heicConvertido = false;
+  if (ehHeic(file.buffer)) {
+    const c = await converterHeicParaJpeg(file.buffer);
+    if (c.ok === false) return res.status(400).json({ erro: c.erro });
+    file.buffer = c.jpeg; file.size = c.jpeg.length; file.mimetype = "image/jpeg";
+    file.originalname = (file.originalname || "foto").replace(/\.(heic|heif)$/i, "") + ".jpg";
+    heicConvertido = true;
+  }
   const detected = detectarFormatoImagem(file.buffer);
   if (!detected) {
-    return res.status(400).json({ erro: "Formato de imagem não suportado. Use JPEG, PNG ou WEBP." });
+    return res.status(400).json({ erro: "Formato de imagem não suportado. Use JPEG, PNG, WEBP ou HEIC." });
   }
   try {
     const safeName = (file.originalname || `chat-photo-${Date.now()}.${detected}`).replace(/[^\w.\-]+/g, "-").slice(0, 120);
@@ -2185,7 +2194,7 @@ chatRouter.post("/upload-photo", authChat, (req: any, res, next) => {
       log.warn("chat", "não foi possível resolver/criar sessão para persistir a foto", { userId });
     }
     log.info("chat", "foto anexada no chat via upload genérico", { userId, fileName: safeName, size: file.size });
-    res.json({ photoUrl, fileName: safeName, sessionId: sessionIdEfetivo });
+    res.json({ photoUrl, fileName: safeName, sessionId: sessionIdEfetivo, ...(heicConvertido ? { convertidoDeHeic: true } : {}) });
   } catch (e: any) {
     log.warn("chat", "falha no upload de foto do chat", { userId, erro: redactProviderSecrets(String(e?.message ?? "")) });
     res.status(500).json({ erro: "Erro ao salvar a foto. Tente novamente." });

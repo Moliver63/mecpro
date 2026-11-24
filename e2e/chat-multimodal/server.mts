@@ -107,8 +107,8 @@ globalThis.fetch = (async (input: any, init?: any) => {
     const urlDoVideo = textoUsuario.match(/https:\/\/res\.cloudinary\.com\/\S+?\.(?:mp4|mov|webm)/)?.[0];
     const aprovada = textoUsuario.match(/propostaId=(\w+) APROVADA pelo usuario/);
     if (/Aprovei os cortes/.test(soOPedido) && aprovada && urlDoVideo) return resposta([{ functionCall: { name: "adaptar_video", args: { videoUrl: urlDoVideo, propostaId: aprovada[1] } } }]);
-    if (/sugir|sugest|melhores cortes/i.test(soOPedido) && urlDoVideo) return resposta([{ functionCall: { name: "sugerir_cortes", args: { videoUrl: urlDoVideo } } }]);
     if (/Recusei/.test(soOPedido)) return resposta([{ text: "Certo, não vou processar esses cortes." }]);
+    if (/sugir|sugest|melhores cortes/i.test(soOPedido) && urlDoVideo) return resposta([{ functionCall: { name: "sugerir_cortes", args: { videoUrl: urlDoVideo } } }]);
     if (/analis|melhor foto|descrev/i.test(soOPedido)) return resposta([{ functionCall: { name: "analisar_anexos", args: { foco: "anúncio" } } }]);
     if (/adapt/i.test(soOPedido)) {
       const m = textoUsuario.match(/https:\/\/res\.cloudinary\.com\/\S+?\.(?:mp4|mov|webm)/);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { estaAcompanhandoOFim } from "@/lib/chatScroll";
-import { LIMITES_PADRAO, separarArquivos, subirAnexo, type LimitesDeMidia } from "@/lib/chatUploads";
+import { LIMITES_PADRAO, classificarArquivo, separarArquivos, subirAnexo, type LimitesDeMidia } from "@/lib/chatUploads";
 
 /**
  * useCampaignChat — lógica compartilhada do assistente de campanhas via
@@ -363,10 +363,16 @@ export function useCampaignChat() {
     adotarSessao: (id: number) => { setSessionId(id); localStorage.setItem(CHAVE_SESSAO_LOCAL, String(id)); },
   };
 
+  // Arquivos ainda no navegador, para "tentar novamente" sem pedir ao usuario que escolha de novo.
+  const arquivosPorId = useRef(new Map<string, File>());
+
   const enviarFoto = async (file: File) => {
     const id = `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`;
+    arquivosPorId.current.set(id, file);
+    const ehHeic = /heic|heif/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
     // Preview instantâneo local (não espera o upload) — o upload real acontece em seguida, com progresso.
-    const dataUrl = await fileToDataUrl(file).catch(() => "");
+    // HEIC nao renderiza fora do Safari: a miniatura vem do JPEG convertido que o servidor devolve.
+    const dataUrl = ehHeic ? "" : await fileToDataUrl(file).catch(() => "");
     setAttachments((prev) => [...prev, { id, fileName: file.name, mimeType: file.type, size: file.size, dataUrl, status: "uploading" as const, progresso: 0 }]);
     let cancelado = false;
     cancelamentos.current.set(id, () => { cancelado = true; });
@@ -380,11 +386,13 @@ export function useCampaignChat() {
       setAttachmentError(`"${file.name}" é a mesma foto que você já anexou; mantive uma só.`);
       return;
     }
-    setAttachments((prev) => prev.map((a) => (a.id !== id ? a : r.ok ? { ...a, status: "done", progresso: 100, photoUrl: r.url } : { ...a, status: "error", erro: r.erro })));
+    setAttachments((prev) => prev.map((a) => (a.id !== id ? a : r.ok ? { ...a, status: "done", progresso: 100, photoUrl: r.url, ...(ehHeic ? { dataUrl: r.url } : {}) } : { ...a, status: "error", erro: r.erro })));
+    if (r.ok) arquivosPorId.current.delete(id);
   };
 
   const enviarVideo = async (file: File) => {
     const id = crypto.randomUUID();
+    arquivosPorId.current.set(id, file);
     const previewUrl = typeof URL !== "undefined" && URL.createObjectURL ? URL.createObjectURL(file) : undefined;
     setVideoAttachments((prev) => [...prev, { id, fileName: file.name, mimeType: file.type || "video/mp4", size: file.size, status: "uploading", progresso: 0, previewUrl }]);
     let cancelado = false;
@@ -418,6 +426,17 @@ export function useCampaignChat() {
     for (const v of selecao.videos) await enviarVideo(v);
   };
   const addAttachments = addFiles;
+
+  /** Reenvia um anexo que falhou, com o mesmo arquivo (sem reabrir o seletor). */
+  const tentarNovamente = async (id: string) => {
+    const arquivo = arquivosPorId.current.get(id);
+    if (!arquivo) { setAttachmentError("Não tenho mais esse arquivo. Escolha-o de novo."); return; }
+    setAttachmentError("");
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    setVideoAttachments((prev) => prev.filter((v) => v.id !== id));
+    arquivosPorId.current.delete(id);
+    if (classificarArquivo(arquivo) === "video") await enviarVideo(arquivo); else await enviarFoto(arquivo);
+  };
   const addVideoAttachment = (file: File) => addFiles([file]);
 
   const escolherVelocidade = (v: ChatVelocidade) => {
@@ -571,6 +590,8 @@ export function useCampaignChat() {
       carregarSessoes();
       void carregarCortes(data.sessionId || sessionId);
     } catch {
+      // O texto digitado nao se perde se a conexao cair no envio.
+      setInput((atual) => atual || texto);
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: "Erro de conexão. Verifique sua internet e tente de novo." },
@@ -598,6 +619,7 @@ export function useCampaignChat() {
     removeVideoAttachment,
     addFiles,
     substituirAnexo,
+    tentarNovamente,
     limites,
     cortes,
     decidirCortes,

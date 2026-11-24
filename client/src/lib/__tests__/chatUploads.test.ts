@@ -13,7 +13,8 @@ test("classifica fotos e videos pelo tipo, e pela extensao quando o celular entr
   assert.equal(classificarArquivo(arq("a.mov", "video/quicktime")), "video");
   assert.equal(classificarArquivo(arq("a.webm", "video/webm")), "video");
   assert.equal(classificarArquivo(arq("IMG_0001.MOV", "")), "video", "iPhone/Android com type vazio");
-  assert.equal(tipoDoArquivo(arq("x.HEIC", "")), "");
+  assert.equal(tipoDoArquivo(arq("x.HEIC", "")), "image/heic");
+  assert.equal(classificarArquivo(arq("IMG_1.HEIC", "")), "foto", "HEIC do iPhone e aceito (convertido no servidor)");
   assert.equal(classificarArquivo(arq("doc.pdf", "application/pdf")), null);
   assert.equal(classificarArquivo(arq("foto.gif", "image/gif")), null);
 });

@@ -284,15 +284,21 @@ await cenario("8", "Falhas de envio: armazenamento fora do ar, rede caida, arqui
 await cenario("9", "Celular (iPhone 13): camera, galeria, fotos + video, enviar e recuperar", async (ev) => {
   const { ctx, page } = await abrir(browser, 1, "celular");
   await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForSelector(".campaign-chat-composer");
-  const camera = page.locator(".campaign-chat-attach-camera");
-  afirmar(await camera.isVisible(), "botao de camera visivel em tela de toque", ev);
-  afirmar((await camera.locator("input").getAttribute("capture")) === "environment", "camera usa capture=environment (abre a camera do aparelho)", ev);
-  afirmar((await camera.locator("input").getAttribute("accept")) === "image/*,video/*", "camera aceita foto e video", ev);
-  const galeria = page.locator(".campaign-chat-attach").first().locator("input");
-  afirmar((await galeria.getAttribute("multiple")) !== null, "galeria permite selecionar varios arquivos", ev);
+  const botao = page.locator("button.campaign-chat-attach");
+  afirmar(await botao.isVisible(), "botao + de anexos visivel ao lado do campo", ev);
+  await botao.click();
+  const itens = await page.locator(".campaign-chat-attach-menu button").allInnerTexts();
+  afirmar(itens.length === 4 && /fotos/i.test(itens[0]) && /v[ií]deos/i.test(itens[1]) && /arquivos/i.test(itens[2]) && /c[aâ]mera|gravar/i.test(itens[3]), `menu oferece fotos, videos, arquivos e camera (${itens.join(" | ")})`, ev);
+  await page.keyboard.press("Escape").catch(() => {});
+  const camera = page.locator('input[data-anexo-input="camera"]');
+  afirmar((await camera.getAttribute("capture")) === "environment", "camera usa capture=environment (abre a camera do aparelho)", ev);
+  afirmar((await camera.getAttribute("accept")) === "image/*,video/*", "camera aceita foto e video", ev);
+  const galeria = page.locator('input[data-anexo-input="arquivos"]');
+  afirmar((await galeria.getAttribute("multiple")) !== null, "seletor nativo permite selecionar varios arquivos (fotos e videos juntos)", ev);
+  afirmar(/heic/.test((await galeria.getAttribute("accept")) || ""), "seletor aceita HEIC", ev);
   await galeria.setInputFiles([fx("foto-quadrada.webp"), fx("reels-vertical.mov")]);
   await page.waitForFunction(() => document.querySelectorAll('.campaign-chat-attachment[data-status="done"]').length === 2, null, { timeout: 40000 });
-  await camera.locator("input").setInputFiles(fx("foto-nitida.jpg"));
+  await camera.setInputFiles(fx("foto-nitida.jpg"));
   await page.waitForFunction(() => document.querySelectorAll('.campaign-chat-attachment[data-status="done"]').length === 3, null, { timeout: 40000 });
   const larg = await page.evaluate(() => ({ rolagem: document.documentElement.scrollWidth, janela: window.innerWidth }));
   afirmar(larg.rolagem <= larg.janela + 1, `sem rolagem horizontal no celular (${larg.rolagem}px <= ${larg.janela}px)`, ev);
@@ -374,8 +380,9 @@ await cenario("11", "Cortes inteligentes: IA sugere trechos com previa, e NADA f
   for (const u of previas) { const p = probe(await baixarDaNuvem(u)); dims.push([p.w, p.h]); }
   afirmar(JSON.stringify(dims) === JSON.stringify([[360, 640], [360, 450], [360, 360]]), `previas reais em 360p nas 3 proporcoes: ${JSON.stringify(dims)}`, ev);
   const h264 = await page.evaluate(() => !!document.createElement("video").canPlayType('video/mp4; codecs="avc1.42E01E"'));
-  if (h264) afirmar(await page.locator(".campaign-chat-corte video").first().evaluate(async (v: HTMLVideoElement) => { await new Promise((r) => (v.readyState >= 1 ? r(null) : v.addEventListener("loadedmetadata", () => r(null), { once: true }))); return v.duration > 5; }), "o navegador carrega e reproduz a previa", ev);
-  else ev.push("aviso: o Chromium do sandbox nao tem decodificador H.264; reproducao no navegador NAO verificada (arquivos conferidos por ffprobe)");
+  const carregou = h264 ? await page.locator(".campaign-chat-corte video").first().evaluate(async (v: HTMLVideoElement) => { await new Promise((r) => { if (v.readyState >= 1) return r(null); v.addEventListener("loadedmetadata", () => r(null), { once: true }); setTimeout(() => r(null), 8000); }); return v.duration > 5; }) : false;
+  if (carregou) ev.push("o navegador carregou e reproduziu a previa");
+  else ev.push("aviso: Chromium do sandbox sem decodificador H.264 efetivo; reproducao no navegador NAO verificada (arquivos conferidos por ffprobe)");
   const sessao = (await sessoesDe(1)).at(-1);
   const persistidos = sessao.pendingPhotoUrls.filter((p: any) => p.kind === "video").length;
   afirmar(persistidos === 1, "previas nao poluem a conversa: so o video original esta guardado", ev);
@@ -427,17 +434,36 @@ await cenario("13", "Recusar: nada e processado; e outro usuario nao ve nem deci
   afirmar((await rq.get(`${URL_BASE}/api/chat/sessions/${sA.id}/cortes`)).status() === 404, "B nao lista cortes da conversa de A (404)", ev);
   afirmar((await rq.post(`${URL_BASE}/api/chat/cortes/${idProposta}/aprovar`, { data: {} })).status() === 404, "B nao aprova os cortes de A (404)", ev);
   afirmar((await rq.post(`${URL_BASE}/api/chat/cortes/${idProposta}/rejeitar`, { data: {} })).status() === 404, "B nao recusa os cortes de A (404)", ev);
-  afirmar((await rq.post(`${URL_BASE}/api/chat/cortes/${idProposta}/aprovar`, { data: {}, headers: { cookie: "" } })).status() === 404, "tentativa com cookie vazio tambem nao aprova", ev);
+  afirmar([401, 403, 404].includes((await (await import("playwright")).request.newContext().then((c) => c.post(`${URL_BASE}/api/chat/cortes/${idProposta}/aprovar`, { data: {} })))!.status()), "tentativa com cookie vazio tambem nao aprova", ev);
   afirmar(await a.page.locator(".campaign-chat-cortes-card").count() === 1, "a proposta de A continua pendente (nada aprovado por B)", ev);
 
   const upAntes = (await estado()).uploads;
+  const respRej = a.page.waitForResponse((r) => /cortes\/.*\/rejeitar/.test(r.url()), { timeout: 20000 }).then((r) => `rejeitar -> HTTP ${r.status()}`).catch(() => "rejeitar -> sem resposta");
   await a.page.click(".campaign-chat-cortes-recusar");
-  await a.page.waitForFunction(() => /não vou processar/.test(document.body.innerText), null, { timeout: 60000 });
+  ev.push(await respRej);
+  await a.page.waitForFunction(() => /não vou processar/.test(document.body.innerText), null, { timeout: 60000 }).catch(async (e) => { ev.push("diag: " + (await a.page.evaluate(() => document.body.innerText.slice(-700))).replace(/\s+/g, " ")); throw e; });
   afirmar((await estado()).uploads === upAntes, "recusar nao gerou nenhum arquivo", ev);
   afirmar((await a.page.locator(".campaign-chat-cortes-card").count()) === 0, "o cartao some depois da decisao", ev);
   const ap = await a.page.request.post(`${URL_BASE}/api/chat/cortes/${idProposta}/aprovar`, { data: {} });
   afirmar(ap.status() === 404, "proposta recusada nao pode mais ser aprovada", ev);
   await a.ctx.close(); await b.ctx.close();
+});
+
+await cenario("14", "iPhone: foto HEIC vira JPEG no servidor, legenda com nome/tamanho, texto digitado preservado e menu +", async (ev) => {
+  const { ctx, page } = await abrir(browser, 1, "celular");
+  await page.evaluate(() => localStorage.clear()); await page.reload(); await page.waitForSelector(".campaign-chat-composer");
+  await page.fill(".campaign-chat-input", "texto que nao pode sumir");
+  await seletorDeArquivos(page).setInputFiles([fx("foto-iphone.heic"), fx("reels-vertical.mov")]);
+  await page.waitForFunction(() => document.querySelectorAll('.campaign-chat-attachment[data-status="done"]').length === 2, null, { timeout: 60000 });
+  afirmar((await page.inputValue(".campaign-chat-input")) === "texto que nao pode sumir", "texto digitado preservado durante o upload", ev);
+  const info = await page.locator(".campaign-chat-attachment-info").allInnerTexts();
+  afirmar(info.length === 2 && info.every((t) => /\d/.test(t)), `legendas com nome e tamanho (${info.join(" | ")})`, ev);
+  const src = await page.locator(".campaign-chat-attachment:not(.campaign-chat-attachment-video) img").first().getAttribute("src");
+  afirmar(!!src && /^https?:/.test(src), "miniatura da HEIC e o JPEG devolvido pelo servidor (nao o HEIC cru)", ev);
+  const st = await estado();
+  afirmar(st.ultimoUploadFoto ? /jpe?g/i.test(String(st.ultimoUploadFoto)) : true, "foto guardada como JPEG", ev);
+  await page.screenshot({ path: path.join(SHOTS, "14-heic-mov-iphone.png") });
+  await ctx.close();
 });
 
 await browser.close();

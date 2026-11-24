@@ -99,6 +99,7 @@ export default function CampaignChat() {
         attachments={chat.attachments}
         addFiles={chat.addFiles}
         substituirAnexo={chat.substituirAnexo}
+        tentarNovamente={chat.tentarNovamente}
         cortes={chat.cortes}
         decidirCortes={chat.decidirCortes}
         removeAttachment={chat.removeAttachment}

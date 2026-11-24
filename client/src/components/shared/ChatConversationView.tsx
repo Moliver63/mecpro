@@ -1,5 +1,5 @@
-import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle, ArrowDown, Megaphone, Camera, RefreshCw, Play } from "lucide-react";
-import { useState, type RefObject } from "react";
+import { ImagePlus, Send, X, Video, Loader2, Zap, Gauge, Turtle, ArrowDown, Megaphone, Camera, RefreshCw, Play, Plus, FileUp, Images, RotateCw } from "lucide-react";
+import { useRef, useState, type RefObject } from "react";
 import { ACEITA_FOTOS_E_VIDEOS } from "@/lib/chatUploads";
 import type { ChatImageAttachment, ChatMessage, ChatVideoAttachment, ChatVelocidade, PropostaDeCortes } from "@/hooks/useCampaignChat";
 import { ASSISTANT_IMAGE, SUGESTOES } from "@/hooks/useCampaignChat";
@@ -48,6 +48,7 @@ interface ChatConversationViewProps {
   attachments: ChatImageAttachment[];
   addFiles: (files: FileList | File[]) => Promise<void>;
   substituirAnexo: (id: string, arquivo: File) => Promise<void>;
+  tentarNovamente?: (id: string) => Promise<void>;
   removeAttachment: (id: string) => void;
   attachmentError: string;
   videoAttachments: ChatVideoAttachment[];
@@ -103,6 +104,8 @@ function CortesSugeridos({ propostas, decidir, ocupado }: { propostas: PropostaD
   );
 }
 
+function fmtTamanho(n?: number) { if (!n) return ""; return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`; }
+
 export default function ChatConversationView({
   messages,
   loading,
@@ -115,6 +118,7 @@ export default function ChatConversationView({
   attachments,
   addFiles,
   substituirAnexo,
+  tentarNovamente,
   removeAttachment,
   attachmentError,
   videoAttachments,
@@ -131,6 +135,10 @@ export default function ChatConversationView({
   // Arrastar e soltar (desktop): o contador evita piscar ao passar por elementos filhos.
   const [arrastando, setArrastando] = useState(false);
   const [entradas, setEntradas] = useState(0);
+  const [menuAberto, setMenuAberto] = useState(false);
+  const refFotos = useRef<HTMLInputElement>(null), refVideos = useRef<HTMLInputElement>(null), refArquivos = useRef<HTMLInputElement>(null), refCamera = useRef<HTMLInputElement>(null);
+  const abrir = (r: RefObject<HTMLInputElement>) => { setMenuAberto(false); r.current?.click(); };
+  const aoEscolher = (e: React.ChangeEvent<HTMLInputElement>) => { const files = e.currentTarget.files; if (files?.length) void addFiles(files); e.currentTarget.value = ""; };
   const temArquivos = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
   const algumEnviando = attachments.some((a) => a.status === "uploading") || videoAttachments.some((v) => v.status === "uploading");
   const videosProntos = videoAttachments.filter((v) => v.status === "done").length;
@@ -313,7 +321,11 @@ export default function ChatConversationView({
                 )}
                 {file.status === "uploading" && <i className="campaign-chat-attachment-bar" style={{ width: `${file.progresso ?? 0}%` }} />}
                 <span>{index + 1}</span>
-                <button type="button" onClick={() => removeAttachment(file.id)} aria-label={`Remover ${file.fileName}`}>
+                <small className="campaign-chat-attachment-info" title={file.fileName}>{file.fileName} · {fmtTamanho(file.size)}</small>
+                {file.status === "error" && tentarNovamente && (
+                  <button type="button" className="campaign-chat-attachment-retry" onClick={() => void tentarNovamente(file.id)} aria-label={`Tentar novamente ${file.fileName}`} title="Tentar novamente"><RotateCw size={12} strokeWidth={2.6} /></button>
+                )}
+                <button type="button" onClick={() => removeAttachment(file.id)} aria-label={`${file.status === "uploading" ? "Cancelar envio de" : "Remover"} ${file.fileName}`}>
                   <X size={13} strokeWidth={2.4} />
                 </button>
                 <label className="campaign-chat-attachment-swap" title="Substituir por outro arquivo" aria-label={`Substituir ${file.fileName}`}>
@@ -339,7 +351,11 @@ export default function ChatConversationView({
                 )}
                 {v.status === "uploading" && <i className="campaign-chat-attachment-bar" style={{ width: `${v.progresso ?? 0}%` }} />}
                 {v.status === "done" && v.duracaoS ? <em className="campaign-chat-attachment-dur">{Math.floor(v.duracaoS / 60)}:{String(Math.round(v.duracaoS % 60)).padStart(2, "0")}</em> : null}
-                <button type="button" onClick={() => removeVideoAttachment(v.id)} aria-label={`Remover ${v.fileName}`}>
+                <small className="campaign-chat-attachment-info" title={v.fileName}>{v.fileName} · {fmtTamanho(v.size)}</small>
+                {v.status === "error" && tentarNovamente && (
+                  <button type="button" className="campaign-chat-attachment-retry" onClick={() => void tentarNovamente(v.id)} aria-label={`Tentar novamente ${v.fileName}`} title="Tentar novamente"><RotateCw size={12} strokeWidth={2.6} /></button>
+                )}
+                <button type="button" onClick={() => removeVideoAttachment(v.id)} aria-label={`${v.status === "uploading" ? "Cancelar envio de" : "Remover"} ${v.fileName}`}>
                   <X size={13} strokeWidth={2.4} />
                 </button>
                 <label className="campaign-chat-attachment-swap" title="Substituir por outro arquivo" aria-label={`Substituir ${v.fileName}`}>
@@ -358,32 +374,24 @@ export default function ChatConversationView({
         )}
 
         <div className="campaign-chat-composer">
-          <label className="campaign-chat-attach" title="Anexar fotos e vídeos" aria-label="Anexar fotos e vídeos">
-            <input
-              type="file"
-              accept={ACEITA_FOTOS_E_VIDEOS}
-              multiple
-              onChange={(e) => {
-                const files = e.currentTarget.files;
-                if (files?.length) void addFiles(files);
-                e.currentTarget.value = "";
-              }}
-            />
-            <ImagePlus size={18} strokeWidth={2.3} />
-          </label>
-          <label className="campaign-chat-attach campaign-chat-attach-camera" title="Tirar foto ou gravar vídeo" aria-label="Abrir a câmera">
-            <input
-              type="file"
-              accept="image/*,video/*"
-              capture="environment"
-              onChange={(e) => {
-                const files = e.currentTarget.files;
-                if (files?.length) void addFiles(files);
-                e.currentTarget.value = "";
-              }}
-            />
-            <Camera size={18} strokeWidth={2.3} />
-          </label>
+          <div className="campaign-chat-attach-wrap">
+            <button type="button" className="campaign-chat-attach" aria-haspopup="menu" aria-expanded={menuAberto} aria-label="Anexar" title="Anexar fotos, vídeos ou arquivos" onClick={() => setMenuAberto((v) => !v)}>
+              <Plus size={18} strokeWidth={2.4} />
+            </button>
+            {menuAberto && (
+              <div className="campaign-chat-attach-menu" role="menu">
+                <button type="button" role="menuitem" data-anexo="fotos" onClick={() => abrir(refFotos)}><Images size={16} /> Escolher fotos</button>
+                <button type="button" role="menuitem" data-anexo="videos" onClick={() => abrir(refVideos)}><Video size={16} /> Escolher vídeos</button>
+                <button type="button" role="menuitem" data-anexo="arquivos" onClick={() => abrir(refArquivos)}><FileUp size={16} /> Escolher arquivos</button>
+                <button type="button" role="menuitem" data-anexo="camera" className="campaign-chat-attach-menu-camera" onClick={() => abrir(refCamera)}><Camera size={16} /> Tirar foto ou gravar vídeo</button>
+              </div>
+            )}
+            {/* Seletores NATIVOS do sistema (no iPhone: biblioteca, camera e arquivos no mesmo painel nativo). Sem galeria propria. */}
+            <input ref={refArquivos} className="campaign-chat-file-input" data-anexo-input="arquivos" type="file" accept={ACEITA_FOTOS_E_VIDEOS} multiple onChange={aoEscolher} />
+            <input ref={refFotos} className="campaign-chat-file-input" data-anexo-input="fotos" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={aoEscolher} />
+            <input ref={refVideos} className="campaign-chat-file-input" data-anexo-input="videos" type="file" accept="video/mp4,video/quicktime,video/webm,.mov,.mp4,.webm" multiple onChange={aoEscolher} />
+            <input ref={refCamera} className="campaign-chat-file-input" data-anexo-input="camera" type="file" accept="image/*,video/*" capture="environment" onChange={aoEscolher} />
+          </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
