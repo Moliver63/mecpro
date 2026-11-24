@@ -64,7 +64,41 @@ function criativos(c: any): any[] {
   try { return typeof c?.creatives === "string" ? JSON.parse(c.creatives || "[]") : (c?.creatives || []); } catch { return []; }
 }
 
-export async function publicarNoTikTokDoChat(userId: number, sessionId: number | undefined, args: Record<string, unknown>, deps: DepsTikTokChat): Promise<Record<string, unknown>> {
+/**
+ * Achado real 24/11 (sessao 28, campanha 828): a previa propunha o minimo (R$ 126), o usuario
+ * respondeu "sim" tres vezes e o modelo (Groq) chamava de novo sem confirmado=true e sem o valor,
+ * repetindo a previa. A decisao sai do modelo: a previa fica registrada aqui e a fala do usuario,
+ * lida pelo servidor, confirma e escolhe o valor.
+ */
+export interface ContextoDaFala { ultimaDoUsuario?: string; ultimaDoAssistente?: string }
+interface Proposta { minimo: number | null; em: number }
+const propostas = new Map<string, Proposta>();
+const VALIDADE_PROPOSTA_MS = 30 * 60 * 1000;
+export function limparPropostasTikTok(): void { propostas.clear(); }
+
+/** "sim", "pode", "ok, publica", "sim, no tiktok"... (curta e sem negacao) */
+export function ehConfirmacao(texto?: string): boolean {
+  const t = String(texto || "").trim().toLowerCase();
+  if (!t || t.length > 60 || /\b(n[aã]o|nao quero|espera|cancel|pare)\b/.test(t)) return false;
+  return /^(sim|s|ok|okay|pode|pode sim|pode publicar|confirmo|confirmar|confirmado|isso|manda|manda ver|publica|publique|bora|claro|positivo|de acordo|fechado|beleza|perfeito|vai|segue)\b/.test(t);
+}
+
+/** Valor diario dito pelo usuario: "340", "R$ 340,00", "valor 340 por dia", "150 reais". */
+export function valorDiarioDaFala(texto?: string): number | null {
+  const t = String(texto || "");
+  // So valor marcado como dinheiro ("R$", "reais", "por dia") ou a mensagem inteira sendo o numero:
+  // "campanha 828" nao vira R$ 828/dia.
+  const m = t.match(/^\s*(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*$/i)
+    || t.match(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*(?:reais|\/\s*dia|por dia|ao dia|diari)/i)
+    || t.match(/r\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/i);
+  if (!m) return null;
+  const v = Number(m[1].replace(/\./g, "") + (m[2] ? "." + m[2] : ""));
+  return v > 0 && v < 100000 ? v : null;
+}
+
+const ultimaFoiPreviaDoTikTok = (texto?: string) => /tik ?tok/i.test(String(texto || "")) && /(publi|confirm|sim)/i.test(String(texto || ""));
+
+export async function publicarNoTikTokDoChat(userId: number, sessionId: number | undefined, args: Record<string, unknown>, deps: DepsTikTokChat, fala: ContextoDaFala = {}): Promise<Record<string, unknown>> {
   const campaignId = Number(args.campaignId);
   const campanha = Number.isFinite(campaignId) ? await deps.campanha(campaignId) : null;
   const projeto = campanha ? await deps.projeto(campanha.projectId) : null;
@@ -92,9 +126,27 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
 
   const avisos: string[] = [];
   const min = await deps.minimo(String(integracao.accessToken), entrada.advertiserId).catch(() => null);
+
+  // A fala do usuario manda: valor dito por ele > valor do modelo > minimo proposto (no "sim") > rascunho.
+  const chaveProposta = `${userId}:${campaignId}`;
+  const proposta = propostas.get(chaveProposta);
+  const propostaValida = !!proposta && Date.now() - proposta.em < VALIDADE_PROPOSTA_MS && ultimaFoiPreviaDoTikTok(fala.ultimaDoAssistente);
+  const valorDoUsuario = propostaValida ? valorDiarioDaFala(fala.ultimaDoUsuario) : null;
+  const disseSim = propostaValida && ehConfirmacao(fala.ultimaDoUsuario);
+  if (valorDoUsuario) entrada.dailyBudgetReais = valorDoUsuario;
+  else if (disseSim && proposta!.minimo && !(entrada.dailyBudgetReais >= proposta!.minimo)) {
+    entrada.dailyBudgetReais = proposta!.minimo;
+    avisos.push(`Usei o minimo proposto na previa: ${proposta!.minimo}/dia.`);
+  }
+  // "sim" (ou um valor) em resposta a previa e a confirmacao, mesmo que o modelo nao marque confirmado.
+  const confirmado = args.confirmado === true || ((disseSim || !!valorDoUsuario) && propostaValida);
+
   const abaixoDoMinimo = !!min && !(entrada.dailyBudgetReais >= min.minimo);
+  const perguntaParaOUsuario = abaixoDoMinimo
+    ? `O TikTok aceita no minimo ${min!.moeda === "BRL" ? "R$ " : ""}${min!.minimo} por dia. Publico pausada com ${min!.moeda === "BRL" ? "R$ " : ""}${min!.minimo}/dia? Responda sim ou diga outro valor diario (a partir de ${min!.minimo}).`
+    : "Posso publicar no TikTok? Ela nasce pausada. Responda sim para publicar.";
   if (abaixoDoMinimo) {
-    avisos.push(`Orcamento de ${entrada.dailyBudgetReais}/dia abaixo do minimo aceito pelo TikTok: ${textoMinimo(min!)}. Pergunte ao usuario qual valor diario usar, a partir de ${min!.minimo}, e chame de novo com dailyBudgetReais.`);
+    avisos.push(`Orcamento de ${entrada.dailyBudgetReais}/dia abaixo do minimo aceito pelo TikTok: ${textoMinimo(min!)}. Nao e possivel publicar abaixo disso.`);
   } else if (!min) {
     avisos.push("Nao consegui confirmar o minimo diario do TikTok agora (mais de US$ 20/dia por grupo); se o TikTok recusar o orcamento, aumente o diario.");
   }
@@ -118,13 +170,19 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   const problemas = deps.conferir(entrada);
   if (abaixoDoMinimo) problemas.push(`Orcamento diario abaixo do minimo do TikTok (${min!.minimo}/dia).`);
 
-  if (args.confirmado !== true) {
+  const registrarProposta = () => propostas.set(chaveProposta, { minimo: abaixoDoMinimo ? min!.minimo : null, em: Date.now() });
+  if (!confirmado) {
+    registrarProposta();
     return {
-      previa, avisos, problemas,
-      instrucao: "Mostre a previa e os avisos ao usuario e pergunte se pode publicar (pausada) no TikTok. So chame de novo com confirmado=true depois de um sim explicito.",
+      previa, avisos, problemas, perguntaParaOUsuario,
+      instrucao: "Mostre a previa e os avisos e termine com a perguntaParaOUsuario, sem mudar o valor. Nunca ofereca publicar abaixo do minimo. Na resposta do usuario chame de novo esta ferramenta (o MecProAI le o sim ou o valor dito por ele).",
     };
   }
-  if (problemas.length) return { erro: "Nada foi criado no TikTok. Corrija antes de publicar.", problemas, previa };
+  if (problemas.length) {
+    registrarProposta();
+    return { erro: "Nada foi criado no TikTok. Corrija antes de publicar.", problemas, previa, perguntaParaOUsuario };
+  }
+  propostas.delete(chaveProposta);
 
   const reserva = await deps.reservar(userId, `chat_tiktok:${campaignId}:${entrada.advertiserId}`);
   if (reserva.kind === "cached_result") return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada no TikTok; nada novo foi criado." };
