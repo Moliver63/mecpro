@@ -110,3 +110,32 @@ export function faixaEtariaDoAdSet(
 
   return { ...FAIXA_PADRAO };
 }
+
+/**
+ * Termos de interesse do texto do publico do conjunto. Achado real (Shadia 823,
+ * 24/11): o regex so aceitava "Interesses:"; "interessados em psicologia, ..."
+ * nao virava interesse nenhum, a publicacao caia no Advantage+ e a Meta recusava
+ * a idade maxima.
+ */
+export function termosDeInteresse(audience: unknown): string[] {
+  const texto = String(audience ?? "");
+  const m = texto.match(/\b(?:interesses?|interessad[oa]s)(?:\s+(?:em|por))?\s*[:\s]\s*([^.]+)/i);
+  if (!m) return [];
+  return m[1]
+    .split(/,|;|\s+e\s+/)
+    .map((s) => s.trim().replace(/^(?:em|por)\s+/i, ""))
+    .filter((s) => s.length > 2)
+    .slice(0, 5);
+}
+
+/**
+ * Com o publico Advantage+ ligado, a Meta so aceita idade maxima 65 e idade
+ * minima de no maximo 25 como limite fixo (o resto vira sugestao). Mandar 60
+ * fazia a Meta recusar o conjunto inteiro.
+ */
+export function faixaParaAdvantage(min: number, max: number, advantageLigado: boolean): { min: number; max: number; ajustada: boolean } {
+  if (!advantageLigado) return { min, max, ajustada: false };
+  const novoMin = Math.min(min, 25);
+  const novoMax = 65;
+  return { min: novoMin, max: novoMax, ajustada: novoMin !== min || novoMax !== max };
+}

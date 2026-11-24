@@ -15,7 +15,8 @@ import { baixarImagem, operacaoAsset, operacaoVinculo, conferirConjunto, GOOGLE_
 import { enviarVideoParaOGoogle, retomarVideoDoGoogle, ErroVideoGoogle } from "../googleAdsVideo";
 import { log } from "../logger";
 import { comprasDaLinha, valorDasComprasDaLinha, valorDaAcao } from "../metaActionTypes";
-import { faixaEtariaDoAdSet } from "../metaTargeting";
+import { faixaEtariaDoAdSet, termosDeInteresse, faixaParaAdvantage } from "../metaTargeting";
+import { canonicalObjective } from "../campaignRuleRetrieval";
 import { mesclarTargeting, temIntencaoDePlacement } from "../metaTargetingMerge";
 import { GOOGLE_ADS_API_VERSION, urlDoCliente, urlListarContasAcessiveis } from "../googleAdsApi";
 import {
@@ -4808,6 +4809,11 @@ const campaignsRouter = router({
       // Corrige objetivo por segmento — independente de WhatsApp estar vinculado ou não
       const correctedObjective = (() => {
         if (objective !== "traffic") return objective; // respeita escolha explícita
+        // Campanha com objetivo confirmado no rascunho: trocar aqui so fazia
+        // assertObjectiveUnchanged (logo abaixo) recusar a publicacao. Achado real
+        // (Shadia 820-823, 24/11): nicho com "cursos" virava leads e as 4 campanhas
+        // de trafego falharam com CAMPAIGN_OBJECTIVE_CONFLICT.
+        if (canonicalObjective(c?.objective) === "traffic") return objective;
 
         // Todos os segmentos de serviço → leads (melhor qualidade de otimização)
         const allLeadsSegs = [
@@ -4937,10 +4943,7 @@ const campaignsRouter = router({
         min: parsedAgeMin, max: parsedAgeMax, origem: faixaEtaria.origem,
       });
 
-      const interestMatch = adSetAudience.match(/[Ii]nteresses[:\s]+([^.]+)/);
-      const interestTerms = interestMatch
-        ? interestMatch[1].split(/,|;/).map((s: string) => s.trim()).filter((s: string) => s.length > 2).slice(0, 5)
-        : [];
+      const interestTerms = termosDeInteresse(adSetAudience);
 
       const resolvedInterests: Array<{ id: string }> = [];
       if (interestTerms.length > 0 && token) {
@@ -5008,6 +5011,13 @@ const campaignsRouter = router({
         resolvedGeoLocations: resolvedGeoLocationsForAdSet,
       });
 
+      const advantageLigado = !(input.customAudienceIds?.length || resolvedInterests.length > 0);
+      const faixaFinal = faixaParaAdvantage(parsedAgeMin, parsedAgeMax, advantageLigado);
+      if (faixaFinal.ajustada) {
+        log.warn("meta", "Advantage+ ligado: faixa etaria ajustada a regra da Meta (max 65, min ate 25)", {
+          campaignId: input.campaignId, pedido: [parsedAgeMin, parsedAgeMax], enviado: [faixaFinal.min, faixaFinal.max],
+        });
+      }
       const adSetData = await metaPost<any>(`${accountId}/adsets`, {
         name:              adSetName,
         campaign_id:       metaCampaignId,
@@ -5022,8 +5032,8 @@ const campaignsRouter = router({
         // destination_type: WHATSAPP só quando número vinculado — sem vínculo causa erro 1487246
         ...((isWhatsAppDestination && (whatsappDestination as any)._connectedPhone) ? { destination_type: "WHATSAPP" } : {}),
         targeting: {
-          age_min: parsedAgeMin,
-          age_max: parsedAgeMax,
+          age_min: faixaFinal.min,
+          age_max: faixaFinal.max,
           // advantage_audience: 1 (sessão 30, 12/08) — dado real do cliente Eduardo (userId 3):
           // as 3 campanhas com melhor resultado (40/20/15 leads) usavam Advantage+ Audience
           // ligado. Estava hard-coded em 0 (desligado). Desliga automaticamente se o usuário

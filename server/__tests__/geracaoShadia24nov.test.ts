@@ -84,3 +84,21 @@ test("comprimento: copy longa com conflito antigo e cortada; o conflito continua
   assert.ok(r.candidate.copy.length <= 500);
   assert.equal(validateCampaignFactIntegrity([r.candidate], facts).status, "failed", "o R$ 47 inventado continua acusado");
 });
+
+import { termosDeInteresse, faixaParaAdvantage } from "../metaTargeting";
+
+test("publicacao: 'interessados em ...' vira lista de interesses (caso da 823)", () => {
+  assert.deepEqual(
+    termosDeInteresse("Adultos 25-60 anos, interessados em psicologia, autoconhecimento, desenvolvimento pessoal, inteligência emocional, bem-estar, meditação."),
+    ["psicologia", "autoconhecimento", "desenvolvimento pessoal", "inteligência emocional", "bem-estar"],
+  );
+  assert.deepEqual(termosDeInteresse("Interesses: psicologia, terapia"), ["psicologia", "terapia"]);
+  assert.deepEqual(termosDeInteresse("Adultos com interesses em yoga e meditação"), ["yoga", "meditação"]);
+  assert.deepEqual(termosDeInteresse("Mulheres 30-50 em Balneário Camboriú"), []);
+});
+
+test("publicacao: com Advantage+ a faixa vai na regra da Meta; sem Advantage+ fica como pedida", () => {
+  assert.deepEqual(faixaParaAdvantage(25, 60, true), { min: 25, max: 65, ajustada: true });
+  assert.deepEqual(faixaParaAdvantage(35, 55, true), { min: 25, max: 65, ajustada: true });
+  assert.deepEqual(faixaParaAdvantage(25, 60, false), { min: 25, max: 60, ajustada: false });
+});
