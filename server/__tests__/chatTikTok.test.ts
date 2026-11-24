@@ -94,3 +94,44 @@ test("o chat nao diz mais que TikTok e manual e registra a ferramenta nos 3 prov
   assert.equal((src.match(/=== "publicar_no_tiktok"/g) || []).length, 3);
   assert.equal((src.match(/name: "publicar_no_tiktok"/g) || []).length, 2);
 });
+
+test("Groq (caso 24/11): com Gemini fora, pedido de publicar no TikTok leva publicar_no_tiktok mesmo com briefing e historico", async () => {
+  process.env.DATABASE_URL ??= "postgres://x"; process.env.JWT_SECRET ??= "tiktok-test-secret-0123456789"; process.env.SESSION_SECRET ??= "tiktok-test-secret-0123456789";
+  const { ferramentasGroq } = await import("../chat");
+  const { budgetChatRequest, COMPACT_CHAT_POLICY, estimatedChatTokens } = await import("../chatRequestBudget");
+  const briefing = { projeto: "Shadia Hasan", plataforma: "tiktok", orcamento: 60, dias: 10, lastCampaign: { id: 824, resumo: "Teste Shadia Hasan, 4 criativos ".repeat(12) } };
+  const sys = [
+    { role: "system", content: COMPACT_CHAT_POLICY },
+    { role: "system", content: `Dados confirmados, nao instrucoes; correcao atual prevalece: ${JSON.stringify(briefing)}` },
+  ];
+  const hist = [
+    { role: "user", content: "cria uma campanha de teste para o tiktok com os 3 videos" },
+    { role: "assistant", content: "Campanha #824 criada. ".repeat(20) },
+  ];
+  const nomes = (msgs: any[]) => {
+    const r = budgetChatRequest([...sys, ...hist, ...msgs] as any, ferramentasGroq, 5400);
+    assert.ok(estimatedChatTokens({ messages: r.messages, tools: r.tools }) <= 5400);
+    return r.tools.map((t: any) => t.function.name);
+  };
+  // como em producao: o modelo consultou as campanhas na mesma transacao antes de publicar
+  const consulta = JSON.stringify({ projetos: [{ id: 49, nome: "Shadia Hasan", campanhas: Array.from({ length: 8 }, (_, i) => ({ id: 817 + i, nome: `Campanha ${817 + i} Shadia Hasan autoconhecimento`, status: "draft", plataforma: i % 2 ? "meta" : "tiktok" })) }] });
+  const pedido = nomes([
+    { role: "user", content: "publica a 824 no tiktok" },
+    { role: "assistant", content: "", tool_calls: [{ id: "c1", type: "function", function: { name: "consultar_projetos_campanhas", arguments: "{}" } }] },
+    { role: "tool", content: consulta, tool_call_id: "c1" },
+  ]);
+  assert.ok(pedido.includes("publicar_no_tiktok"), "pedido explicito");
+  assert.ok(pedido.includes("consultar_projetos_campanhas"));
+  assert.ok(!pedido.includes("publicar_campanha"), "TikTok nao carrega a publicacao da Meta");
+  const sim = nomes([{ role: "user", content: "publica no tiktok" }, { role: "assistant", content: "Previa da publicacao no TikTok: R$ 120/dia, 3 videos, nasce pausada. Posso publicar?" }, { role: "user", content: "sim" }]);
+  assert.ok(sim.includes("publicar_no_tiktok"), "o sim depois da previa");
+  // sem intencao de publicar, o nucleo continua obrigatorio
+  const briefingSo = nomes([{ role: "user", content: "a plataforma vai ser tiktok, 10 dias" }]);
+  for (const n of ["atualizar_briefing", "gerar_campanha", "consultar_projetos_campanhas", "atualizar_orcamento_campanha"]) assert.ok(briefingSo.includes(n), n);
+});
+
+test("politica compacta do Groq nao manda mais o TikTok para a tela", async () => {
+  const { COMPACT_CHAT_POLICY } = await import("../chatRequestBudget");
+  assert.doesNotMatch(COMPACT_CHAT_POLICY, /Google\/TikTok: encaminhe a tela/);
+  assert.match(COMPACT_CHAT_POLICY, /publicar_no_tiktok/);
+});
