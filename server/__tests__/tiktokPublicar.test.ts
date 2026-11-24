@@ -266,3 +266,53 @@ test("nome de campanha ocupado e invisivel na busca: cria com nome unico", async
   const grupo = chamadas.find((x) => x.path === "adgroup/create/")!;
   assert.ok(grupo.body.adgroup_name.startsWith(nomes[1]));
 });
+
+import { proporcaoAceitaNoTikTok, proporcaoMaisProxima, urlNaProporcao } from "../tiktokPublicar";
+
+test("proporcao: aceitas e a mais proxima", () => {
+  assert.ok(proporcaoAceitaNoTikTok(1080, 1920));
+  assert.ok(proporcaoAceitaNoTikTok(720, 1280));
+  assert.ok(proporcaoAceitaNoTikTok(1080, 1080));
+  assert.ok(proporcaoAceitaNoTikTok(1920, 1080));
+  assert.equal(proporcaoAceitaNoTikTok(1440, 1080), false, "4:3");
+  assert.equal(proporcaoAceitaNoTikTok(1080, 1440), false, "3:4");
+  assert.equal(proporcaoMaisProxima(1080, 1440), "9:16");
+  assert.equal(proporcaoMaisProxima(1440, 1080), "1:1");
+  assert.equal(proporcaoMaisProxima(2560, 1080), "16:9");
+});
+
+test("urlNaProporcao troca a transformacao do Cloudinary e ignora outros hosts", () => {
+  assert.equal(urlNaProporcao("https://res.cloudinary.com/d/video/upload/vc_h264,f_mp4/v1795/mecpro/a.mp4", "9:16"),
+    "https://res.cloudinary.com/d/video/upload/c_pad,b_black,w_1080,h_1920,vc_h264,f_mp4/v1795/mecpro/a.mp4");
+  assert.equal(urlNaProporcao("https://res.cloudinary.com/d/video/upload/v1795/a.mp4", "1:1"),
+    "https://res.cloudinary.com/d/video/upload/c_pad,b_black,w_1080,h_1080,vc_h264,f_mp4/v1795/a.mp4");
+  assert.equal(urlNaProporcao("https://exemplo.com/a.mp4", "9:16"), null);
+});
+
+test("caso 828: video 4:3 da biblioteca vira versao 1:1 antes do anuncio", async () => {
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => {
+    if (path === "file/video/ad/info/") return [{ width: params.video_ids[0] === "VNOVO" ? 1080 : 1440, height: 1080, video_cover_url: "https://c/x.jpg" }];
+    return getOrig(path, params);
+  };
+  const postOrig = c.post.bind(c);
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "file/video/ad/upload/" && /c_pad/.test(body.video_url)) { chamadas.push({ m: "POST", path, body }); return [{ video_id: "VNOVO" }]; }
+    return postOrig(path, body);
+  };
+  const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://res.cloudinary.com/d/video/upload/v1/a.mp4", nome: "IMG_7994.mov" }] });
+  assert.equal(r.ads[0].videoId, "VNOVO");
+  const up = chamadas.find((x) => x.path === "file/video/ad/upload/" && /c_pad/.test(x.body.video_url))!;
+  assert.match(up.body.video_url, /c_pad,b_black,w_1080,h_1080/);
+  assert.match(up.body.file_name, /^IMG_7994_1x1_mecpro_/);
+  assert.ok(r.avisos.some((a) => /1440x1080/.test(a)));
+});
+
+test("video fora da proporcao e fora do Cloudinary: erro claro antes de criar campanha", async () => {
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/info/" ? [{ width: 1440, height: 1080 }] : getOrig(path, params);
+  await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoId: "V1" }] }), /1440x1080.*9:16, 1:1 ou 16:9/);
+  assert.equal(chamadas.some((x) => x.path === "campaign/create/"), false);
+});

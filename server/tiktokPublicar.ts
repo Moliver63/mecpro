@@ -109,6 +109,26 @@ export function acharVideoPorNome(lista: any[], nome: string): string | null {
   return achados.length ? String(achados[0].video_id) : null;
 }
 
+/** Proporcoes que o TikTok aceita em video: 9:16, 1:1 e 16:9 (tolerancia de 2%). */
+const PROPORCOES_TIKTOK: Record<"9:16" | "1:1" | "16:9", number> = { "9:16": 9 / 16, "1:1": 1, "16:9": 16 / 9 };
+export function proporcaoAceitaNoTikTok(w: number, h: number): boolean {
+  const r = w / h;
+  return Object.values(PROPORCOES_TIKTOK).some((p) => Math.abs(r - p) / p <= 0.02);
+}
+export function proporcaoMaisProxima(w: number, h: number): "9:16" | "1:1" | "16:9" {
+  const r = w / h;
+  return (Object.entries(PROPORCOES_TIKTOK) as Array<["9:16" | "1:1" | "16:9", number]>)
+    .sort((a, b) => Math.abs(Math.log(r / a[1])) - Math.abs(Math.log(r / b[1])))[0][0];
+}
+/** Versao Cloudinary na proporcao pedida (pad preto, H.264). Fora do Cloudinary devolve null. */
+export function urlNaProporcao(url: string, alvo: "9:16" | "1:1" | "16:9"): string | null {
+  const m = url.match(/^(https:\/\/res\.cloudinary\.com\/[^/]+\/video\/upload\/)(.*)$/);
+  if (!m) return null;
+  const tam = { "9:16": "w_1080,h_1920", "1:1": "w_1080,h_1080", "16:9": "w_1920,h_1080" }[alvo];
+  const resto = m[2].replace(/^(?:[a-z]{1,3}_[^/]*\/)+(?=v\d+\/|[^/]+$)/i, "");
+  return `${m[1]}c_pad,b_black,${tam},vc_h264,f_mp4/${resto}`;
+}
+
 export function ehNomeDuplicado(erro: unknown): boolean {
   return /duplicat\w* material name|material name.*(?:exist|duplicat)/i.test(String((erro as any)?.message ?? erro));
 }
@@ -263,8 +283,10 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   // 2. Videos -> video_id (biblioteca por nome, ou upload por URL)
   passo("videos");
   const videoIds: string[] = [];
+  const origem: Array<{ url?: string; nome: string }> = [];
   let biblioteca: any[] | null = null;
   for (const [i, v] of e.videos.entries()) {
+    origem[i] = { url: v.videoUrl, nome: v.nome || v.nomeNaBiblioteca || `mecpro_${i + 1}` };
     if (v.videoId) { videoIds.push(v.videoId); continue; }
     if (v.nomeNaBiblioteca) {
       if (!biblioteca) {
@@ -293,6 +315,25 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
     const id = Array.isArray(up) ? up[0]?.video_id : up?.video_id;
     if (!id) throw new Error(`Upload do video ${i + 1} sem video_id: ${JSON.stringify(up).slice(0, 200)}`);
     videoIds.push(String(id));
+  }
+
+  // 2b. Proporcao (achado real 24/11, campanha 828): o TikTok recusou o anuncio com "All videos must
+  //     have a 16:9, 9:16, or 1:1 aspect ratio". Confere largura e altura de cada video; fora das tres,
+  //     sobe uma versao do Cloudinary na proporcao aceita mais proxima, com faixas, sem cortar.
+  passo("proporcao");
+  for (const [i, videoId] of videoIds.entries()) {
+    const info: any = await c.get("file/video/ad/info/", { advertiser_id: adv, video_ids: [videoId] }).catch(() => null);
+    const item = (Array.isArray(info) ? info : info?.list)?.[0];
+    const w = Number(item?.width), h = Number(item?.height);
+    if (!(w > 0 && h > 0) || proporcaoAceitaNoTikTok(w, h)) continue;
+    const alvo = proporcaoMaisProxima(w, h);
+    const url = origem[i]?.url ? urlNaProporcao(origem[i].url!, alvo) : null;
+    if (!url) throw new Error(`O video "${origem[i]?.nome || videoId}" esta em ${w}x${h}; o TikTok so aceita 9:16, 1:1 ou 16:9. Envie o video nessa proporcao.`);
+    const up: any = await c.post("file/video/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", video_url: url, file_name: nomeUnico(`${origem[i].nome.replace(/\.[a-z0-9]+$/i, "")}_${alvo.replace(":", "x")}.mp4`) });
+    const novo = Array.isArray(up) ? up[0]?.video_id : up?.video_id;
+    if (!novo) throw new Error(`Nao consegui subir o video "${origem[i].nome}" em ${alvo}.`);
+    videoIds[i] = String(novo);
+    avisos.push(`Video "${origem[i].nome}" estava em ${w}x${h}; enviei uma versao ${alvo} com faixas, sem cortar.`);
   }
 
   // 3-4. Campanha e grupo (reaproveita os que ja existem com o mesmo nome, sem duplicar)
