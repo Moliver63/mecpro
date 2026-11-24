@@ -18,6 +18,7 @@ import { log } from "./logger";
 import * as db from "./db";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpServerForUser } from "./mcpServer";
+import { ehSondagemDeProtocoloNovo } from "./mcpProtocolo";
 
 const router = Router();
 
@@ -263,7 +264,14 @@ router.post("/mcp", authApiKey, mcpBurstLimiter, json({ limit: "50mb" }), async 
     // Diagnostico (23/11): o log de requisicao so mostra "400", nunca o motivo. O motivo mais provavel
     // (reproduzido com o SDK 1.30) e o cabecalho MCP-Protocol-Version com versao que o servidor nao
     // conhece; sem o texto do erro nao da para separar isso de JSON-RPC invalido. Registra so metadados.
-    if (res.statusCode >= 400 && res.statusCode < 500) {
+    const versaoPedida = String(req.headers["mcp-protocol-version"] ?? "");
+    if (ehSondagemDeProtocoloNovo(res.statusCode, versaoPedida)) {
+      // Esperado: cliente com protocolo mais novo (ex.: 2026-07-28) testa primeiro; o 400 sem erro "moderno" e o sinal
+      // da especificacao para ele voltar ao initialize. Nao e falha: registra em info, sem alarme.
+      log.info("mcp", "MCP: cliente testou protocolo mais novo; respondido como servidor anterior (cliente volta ao initialize)", {
+        protocolVersion: versaoPedida.slice(0, 20).replace(/[^\w.\-]/g, "_"),
+      });
+    } else if (res.statusCode >= 400 && res.statusCode < 500) {
       // Somente metadados curtos e saneados (sem Authorization, sem params, sem corpo): os valores vem do cliente.
       const limpo = (v: unknown, n: number) => String(v ?? "").slice(0, n).replace(/[^\w/.:;,=\- ]/g, "_");
       log.warn("mcp", "MCP respondeu 4xx", {

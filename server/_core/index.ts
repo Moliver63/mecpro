@@ -87,6 +87,8 @@ const _gensparkKey = (process.env.GENSPARK_API_KEY   || '').trim();
 console.log('[BOOT] ELEVENLABS_API_KEY set:', !!_elevenKey,  _elevenKey  ? '✅' : '— nao configurada');
 console.log('[BOOT] GENSPARK_API_KEY set:',   !!_gensparkKey, _gensparkKey ? '✅' : '— nao configurada');
 console.log('[BOOT] PID:', process.pid);
+// Video e visao: diz no boot se cortar/adaptar video funciona e quem analisa imagens (sem chaves).
+import("../bootMidia").then((m) => { for (const l of m.linhasDeMidiaParaBoot()) console.log(l); }).catch((e) => console.log('[BOOT] Video/visao: nao consegui verificar —', String(e?.message || e).slice(0, 120)));
 
 // Qual commit esta de fato rodando.
 //
