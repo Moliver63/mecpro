@@ -12,6 +12,7 @@
  * Todas as chamadas devolvem o erro do TikTok sem mascarar, para ajuste rapido.
  */
 
+import { minimoDiarioTikTok, OrcamentoAbaixoDoMinimo } from "./tiktokOrcamentoMinimo";
 import { createHash } from "node:crypto";
 
 export const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3/";
@@ -226,6 +227,11 @@ export async function acharCampanhaExistente(c: ClienteTikTok, adv: string, nome
 export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}, fetchArquivo?: typeof fetch): Promise<ResultadoTikTok> {
   const avisos: string[] = [];
   const adv = e.advertiserId;
+
+  // 0. Valor minimo aceitavel (24/11): recusa antes de criar ou subir qualquer coisa.
+  passo("orcamento");
+  const min = await minimoDiarioTikTok(c, adv);
+  if (min && !(e.dailyBudgetReais >= min.minimo)) throw new OrcamentoAbaixoDoMinimo(e.dailyBudgetReais, min);
 
   // 1. Identidade: o TikTok nao aceita mais identidade personalizada; precisa ser
   //    uma conta de TikTok autorizada (TT_USER / BC_AUTH_TT / AUTH_CODE).

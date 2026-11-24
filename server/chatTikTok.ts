@@ -9,6 +9,7 @@
  * depois do usuario confirmar na mesma troca. Nasce PAUSADA.
  */
 import type { EntradaTikTok, ResultadoTikTok } from "./tiktokPublicar";
+import { textoMinimo, type MinimoTikTok } from "./tiktokOrcamentoMinimo";
 
 export const DESCRICAO_PUBLICAR_TIKTOK =
   "Publica no TikTok Ads (conta conectada em Integracoes) uma campanha de TRAFEGO a partir de um rascunho do MecProAI, " +
@@ -41,6 +42,8 @@ export interface DepsTikTokChat {
   publicar(token: string, entrada: EntradaTikTok, etapa: (m: string) => void): Promise<ResultadoTikTok>;
   conferir(entrada: Partial<EntradaTikTok>): string[];
   salvarIds(campaignId: number, r: ResultadoTikTok): Promise<void>;
+  /** Minimo diario aceito pelo TikTok na moeda da conta; null quando nao da para saber. */
+  minimo(token: string, advertiserId: string): Promise<MinimoTikTok | null>;
 }
 
 /** URL do Cloudinary pedindo H.264 (iPhone grava HEVC; o TikTok pede MP4 H.264). */
@@ -87,8 +90,12 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   };
 
   const avisos: string[] = [];
-  if (entrada.dailyBudgetReais > 0 && entrada.dailyBudgetReais < 100) {
-    avisos.push(`O TikTok exige mais de US$ 20 por dia em cada grupo de anuncios (o valor em reais depende do cambio da conta). R$ ${entrada.dailyBudgetReais}/dia deve ser recusado pelo TikTok; pergunte ao usuario se quer aumentar o diario.`);
+  const min = await deps.minimo(String(integracao.accessToken), entrada.advertiserId).catch(() => null);
+  const abaixoDoMinimo = !!min && !(entrada.dailyBudgetReais >= min.minimo);
+  if (abaixoDoMinimo) {
+    avisos.push(`Orcamento de ${entrada.dailyBudgetReais}/dia abaixo do minimo aceito pelo TikTok: ${textoMinimo(min!)}. Pergunte ao usuario qual valor diario usar, a partir de ${min!.minimo}, e chame de novo com dailyBudgetReais.`);
+  } else if (!min) {
+    avisos.push("Nao consegui confirmar o minimo diario do TikTok agora (mais de US$ 20/dia por grupo); se o TikTok recusar o orcamento, aumente o diario.");
   }
   if (String(campanha.objective || "").toLowerCase() !== "traffic") {
     avisos.push(`No TikTok o MecProAI publica como TRAFEGO para a pagina de destino. O objetivo "${campanha.objective}" do rascunho (ex.: vendas com pixel do TikTok) ainda nao e suportado.`);
@@ -104,9 +111,11 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
     texto: entrada.adText,
     autor: entrada.displayName,
     videos: entrada.videos.map((v) => v.nome || v.videoUrl),
+    minimoDiario: min ? textoMinimo(min) : "nao confirmado",
     status: "nasce PAUSADA",
   };
   const problemas = deps.conferir(entrada);
+  if (abaixoDoMinimo) problemas.push(`Orcamento diario abaixo do minimo do TikTok (${min!.minimo}/dia).`);
 
   if (args.confirmado !== true) {
     return {

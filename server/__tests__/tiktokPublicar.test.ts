@@ -40,6 +40,7 @@ function falso() {
     async get(path: string, params: any) {
       chamadas.push({ m: "GET", path, body: params });
       if (path === "identity/get/") return params.identity_type === "TT_USER" ? { identity_list: [{ identity_id: "ID1", identity_type: "TT_USER", display_name: "Shadia Hasan" }] } : { identity_list: [] };
+      if (path === "advertiser/info/") return { list: [{ currency: "USD" }] };
       if (path === "campaign/get/" || path === "adgroup/get/") return { list: [] };
       if (path === "file/music/get/") return { list: [{ music_id: "M0", available: false }, { music_id: "M1", name: "Calma" }] };
       if (path === "file/video/ad/info/") return [{ video_cover_url: "https://c/x.jpg" }];
@@ -77,7 +78,7 @@ test("erro do TikTok interrompe e nao cria o resto", async () => {
 
 test("sem conta de TikTok autorizada: erro claro e nada criado", async () => {
   const { c, chamadas } = falso();
-  (c as any).get = async (path: string) => { chamadas.push({ m: "GET", path, body: {} }); return { identity_list: [] }; };
+  (c as any).get = async (path: string) => { chamadas.push({ m: "GET", path, body: {} }); return path === "advertiser/info/" ? { list: [{ currency: "USD" }] } : { identity_list: [] }; };
   await assert.rejects(publicarCampanhaTikTok(c, base), /autorizar uma conta de TikTok/);
   assert.equal(chamadas.some((x) => x.path === "campaign/create/"), false);
 });

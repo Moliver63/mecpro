@@ -348,7 +348,7 @@ PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
 - publicar_campanha e so para a Meta. Google continua sendo publicado pela tela da campanha (retorne o link).
 
 PUBLICACAO NO TIKTOK (publicar_no_tiktok): o MecProAI publica DIRETO no TikTok Ads conectado; nunca diga que e manual nem mande o usuario ao Ads Manager para criar.
-- Chame primeiro com confirmado=false e mostre a previa (conta, orcamento diario, destino, texto, videos) e TODOS os avisos, em especial o minimo diario do TikTok e o objetivo publicado (trafego).
+- Chame primeiro com confirmado=false e mostre a previa (conta, orcamento diario, minimo diario, destino, texto, videos) e TODOS os avisos. Se o orcamento estiver abaixo do minimo, pergunte o novo valor diario (a partir do minimo da previa) e chame de novo; nunca publique abaixo do minimo.
 - So chame com confirmado=true depois de um sim explicito do usuario nesta mesma troca, com os mesmos valores da previa. Tudo nasce PAUSADO.
 - Os videos usados sao os enviados nesta conversa. Sem video, peca para enviar no chat.
 - So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
@@ -1296,6 +1296,10 @@ const depsTikTokChat = {
   },
   conferir: (entrada: any) => conferirEntradaTikTokSync(entrada),
   salvarIds: async (campaignId: number, r: any) => { await db.updateCampaign(campaignId, { tiktokCampaignId: r.campaignId, tiktokAdGroupId: r.adGroupId } as any); },
+  minimo: async (token: string, advertiserId: string) => {
+    const [{ criarClienteTikTok }, { minimoDiarioTikTok }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokOrcamentoMinimo")]);
+    return minimoDiarioTikTok(criarClienteTikTok(token), advertiserId);
+  },
 };
 const publicarNoTikTok = (userId: number, sessionId: number | null, args: Record<string, unknown>) =>
   executarUmaVez(userId, "publicar_no_tiktok", args, () => publicarNoTikTokDoChat(userId, sessionId ?? undefined, args, depsTikTokChat));

@@ -18,6 +18,7 @@ function deps(over: Partial<DepsTikTokChat> = {}) {
     publicar: async () => { chamadas.push("publicar"); return { campaignId: "c1", adGroupId: "g1", identityId: "i1", ads: [{ adId: "a1", videoId: "v1" }], avisos: [] }; },
     conferir: (e) => conferirEntradaTikTok(e),
     salvarIds: async () => { chamadas.push("salvar"); },
+    minimo: async () => ({ moeda: "BRL", minimo: 110, cotacao: 5.2, fonte: "api" }),
     ...over,
   };
   return { d, chamadas };
@@ -63,14 +64,14 @@ test("sem videos na conversa bloqueia a publicacao", async () => {
 
 test("repetir depois de publicada nao cria nada novo", async () => {
   const { d, chamadas } = deps({ reservar: async () => ({ kind: "cached_result", result: { tiktokCampaignId: "c1" } }) });
-  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true }, d);
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d);
   assert.equal(r.jaPublicada, true);
   assert.equal(chamadas.includes("publicar"), false);
 });
 
 test("falha do TikTok registra e devolve a etapa", async () => {
   const { d, chamadas } = deps({ publicar: async (_t, _e, etapa) => { etapa("grupo"); throw new Error("budget too low"); } });
-  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true }, d);
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d);
   assert.match(r.erro, /etapa "grupo".*budget too low/);
   assert.ok(chamadas.includes("falhar"));
 });
@@ -134,4 +135,23 @@ test("politica compacta do Groq nao manda mais o TikTok para a tela", async () =
   const { COMPACT_CHAT_POLICY } = await import("../chatRequestBudget");
   assert.doesNotMatch(COMPACT_CHAT_POLICY, /Google\/TikTok: encaminhe a tela/);
   assert.match(COMPACT_CHAT_POLICY, /publicar_no_tiktok/);
+});
+
+test("valor minimo: abaixo do minimo a previa avisa e o confirmado nao publica", async () => {
+  const { d, chamadas } = deps();
+  const previa: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  assert.match(previa.previa.minimoDiario, /R\$ 110\/dia/);
+  assert.ok(previa.problemas.some((p: string) => /abaixo do minimo/.test(p)));
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true }, d);
+  assert.match(r.erro, /Nada foi criado/);
+  assert.equal(chamadas.includes("publicar"), false, "R$ 6 nunca chega ao TikTok");
+  const ok: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 110 }, d);
+  assert.equal(ok.publicada, true, "no minimo exato publica");
+});
+
+test("valor minimo: sem como saber o minimo, avisa mas nao bloqueia", async () => {
+  const { d } = deps({ minimo: async () => null });
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false, dailyBudgetReais: 50 }, d);
+  assert.equal(r.problemas.length, 0);
+  assert.ok(r.avisos.some((a: string) => /Nao consegui confirmar o minimo/.test(a)));
 });
