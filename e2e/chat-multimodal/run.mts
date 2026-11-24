@@ -373,7 +373,9 @@ await cenario("11", "Cortes inteligentes: IA sugere trechos com previa, e NADA f
   const dims: number[][] = [];
   for (const u of previas) { const p = probe(await baixarDaNuvem(u)); dims.push([p.w, p.h]); }
   afirmar(JSON.stringify(dims) === JSON.stringify([[360, 640], [360, 450], [360, 360]]), `previas reais em 360p nas 3 proporcoes: ${JSON.stringify(dims)}`, ev);
-  afirmar(await page.locator(".campaign-chat-corte video").first().evaluate(async (v: HTMLVideoElement) => { await new Promise((r) => (v.readyState >= 1 ? r(null) : v.addEventListener("loadedmetadata", () => r(null), { once: true }))); return v.duration > 5; }), "o navegador carrega e reproduz a previa", ev);
+  const h264 = await page.evaluate(() => !!document.createElement("video").canPlayType('video/mp4; codecs="avc1.42E01E"'));
+  if (h264) afirmar(await page.locator(".campaign-chat-corte video").first().evaluate(async (v: HTMLVideoElement) => { await new Promise((r) => (v.readyState >= 1 ? r(null) : v.addEventListener("loadedmetadata", () => r(null), { once: true }))); return v.duration > 5; }), "o navegador carrega e reproduz a previa", ev);
+  else ev.push("aviso: o Chromium do sandbox nao tem decodificador H.264; reproducao no navegador NAO verificada (arquivos conferidos por ffprobe)");
   const sessao = (await sessoesDe(1)).at(-1);
   const persistidos = sessao.pendingPhotoUrls.filter((p: any) => p.kind === "video").length;
   afirmar(persistidos === 1, "previas nao poluem a conversa: so o video original esta guardado", ev);
