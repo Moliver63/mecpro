@@ -1,7 +1,25 @@
 # 🧠 MecProAI — Memória Técnica do Sistema
 
 > **Para Claude:** Leia este arquivo NO INÍCIO de cada sessão antes de qualquer análise.
-> **Última atualização:** 2026-09-16 (adendo Codex; historico abaixo preservado)
+> **Última atualização:** 2026-11-24 (adendo da sessão 23–24/11; historico abaixo preservado)
+
+## Adendo 24/11 - ler antes do historico
+
+Produção em `b8a10b0`. O que entrou, por que e como:
+[CHANGELOG_2026-11-24.md](CHANGELOG_2026-11-24.md).
+
+- Chat multimodal: fotos e vídeos de qualquer aparelho (menu "+" com
+  seletores nativos, HEIC convertido no servidor), cortes de vídeo com prévia
+  e aprovação só por clique do usuário, visão com fallback Gemini → NVIDIA →
+  OpenRouter → Groq.
+- Geração: segmento por contagem, plural nas regras, preço "de" e catálogo no
+  Fact Guard, conjuntos cabendo no diário, Gemini 45s.
+- Publicação: objetivo confirmado preservado, "interessados em" vira
+  interesse, Advantage+ com idade máx. 65, troca de capa sem republicar
+  (`replace_published_ad_thumbnail`).
+- Limites que continuam: só o 1º criativo de cada conjunto vai para a Meta;
+  upload de vídeos em paralelo pode estourar os 512 MB do Render; propostas
+  de corte em memória; provedores de visão sem teste com chave real.
 
 ## Adendo Codex - ler antes do historico
 
@@ -35,7 +53,7 @@ Veja [Entrega Codex de 2026-09-16](CODEX_CHANGELOG_2026-09-16.md) e o adendo de
 | Deploy | Render.com | `npm run build` / `tsx server/_core/index.ts` |
 | Repo | GitHub | `github.com/Moliver63/mecpro.git` |
 | URL Produção | `https://www.mecproai.com` | |
-| Último commit | `3e5c476` | feat(tokens): captura cache implícito automático do Gemini na telemetria |
+| Último commit | `b8a10b0` | feat(meta): trocar capa de anuncio de video publicado sem republicar (24/11) |
 
 ---
 

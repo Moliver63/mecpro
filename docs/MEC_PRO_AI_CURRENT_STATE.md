@@ -20,7 +20,15 @@
 
 ---
 
-# ESTADO ATUAL — 2026-10-22
+# ESTADO ATUAL — 2026-10-22 (com atualização de 2026-11-24 logo abaixo)
+
+> **Atualização 24/11.** O resumo abaixo é de 22/10 e não foi reescrito.
+> O que mudou de lá para cá está na cronologia (entradas de novembro, no fim
+> do arquivo) e, para a sessão de 23–24/11, em
+> [CHANGELOG_2026-11-24.md](CHANGELOG_2026-11-24.md): chat multimodal e
+> anexos universais, cortes com aprovação, cadeia de visão, 7 correções de
+> geração/publicação e troca de capa de anúncio publicado. Produção em
+> `b8a10b0` (deploy `dep-dc2lfqk0916s73ag8550`).
 
 ## A mudanca desde o resumo anterior (08/10)
 
@@ -3395,3 +3403,36 @@ Goldfish. **Não está no main nem em produção** até decisão do Michel.
 - Achado só de leitura, não corrigido: a 819 tem 25–45 anos aprovado e ~90%
   do gasto foi para 45+ (público Advantage+ trata idade como sugestão).
 
+**Atualização 24/11 desta entrada:** a branch foi mesclada na main (merge
+`d414f6d`) e está em produção.
+
+## 24/11 — Geração e publicação: 7 correções a partir das campanhas 820–823
+
+Detalhe completo, com causa, arquivo e teste de cada item, em
+[CHANGELOG_2026-11-24.md](CHANGELOG_2026-11-24.md). Em produção desde
+`b8a10b0`.
+
+- Segmento por contagem de palavras-chave (não mais pela mais longa):
+  "Diário de presente" não vira alimentação. `shared/segmentConfig.ts`.
+- Regras de segmento aceitam plural ("24 aulas"). `singularizarPlurais`.
+- Fact Guard aceita preços do briefing atual e o preço "de" quando a copy
+  também o usa como "de". Preço inventado continua barrado.
+- Conjuntos cabem no diário: o prompt diz o total do período (não "mensal")
+  e quantos conjuntos cabem; excedentes saem com registro em
+  `budgetPlan.conjuntosRemovidos`.
+- Corte no limite de caracteres não esconde mais conflito antigo.
+- Gemini espera 45s na geração principal antes de cair no Groq.
+- Publicação: objetivo confirmado não é trocado pelo segmento (fim do
+  `CAMPAIGN_OBJECTIVE_CONFLICT` com nicho "cursos"); "interessados em" vira
+  interesses; com Advantage+ a idade vai na regra da Meta (máx. 65).
+
+## 24/11 — Troca de capa de anúncio publicado e republicação honesta
+
+- MCP `replace_published_ad_thumbnail` (`server/metaTrocaCapa.ts`): cria um
+  criativo igual com `video_data.image_url` novo e aponta o MESMO anúncio
+  para ele. Usado nas 820, 821 e 822 com sucesso em 24/11.
+- `publish_campaign` diz "Nada novo publicado" quando a trava de duplicidade
+  devolve a publicação anterior. Antes dizia "1/1 publicado".
+- Fatos: só o criativo 0 de cada conjunto vira anúncio na Meta; o serviço
+  morreu por OOM (512 MB) com 3 uploads de vídeo em paralelo; thumbnail por
+  `adimages?url=` não é permitido para o app.
