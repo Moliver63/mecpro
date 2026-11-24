@@ -213,15 +213,34 @@ export function erroDePermissaoDaIdentidade(msg: string): boolean {
 }
 
 /** Campanha ja criada com o mesmo nome (evita duplicar numa nova tentativa). */
+const normalizarNome = (x: unknown) => String(x ?? "").normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * Campanha com o mesmo nome. Achado real 24/11 (campanha 824): a campanha existia SEM grupo, a
+ * busca devolvia null e o create batia em "Campaign name already exists". Agora a campanha volta
+ * mesmo sem grupo (adGroupId vazio) e o grupo e criado dentro dela.
+ */
 export async function acharCampanhaExistente(c: ClienteTikTok, adv: string, nome: string): Promise<{ campaignId: string; adGroupId: string } | null> {
   try {
     const d: any = await c.get("campaign/get/", { advertiser_id: adv, filtering: { campaign_name: nome }, page_size: 20 });
-    const camp = (d?.list || []).find((x: any) => x?.campaign_name === nome);
+    const alvo = normalizarNome(nome);
+    const camp = (d?.list || []).find((x: any) => normalizarNome(x?.campaign_name) === alvo);
     if (!camp?.campaign_id) return null;
-    const g: any = await c.get("adgroup/get/", { advertiser_id: adv, filtering: { campaign_ids: [String(camp.campaign_id)] }, page_size: 20 });
+    const g: any = await c.get("adgroup/get/", { advertiser_id: adv, filtering: { campaign_ids: [String(camp.campaign_id)] }, page_size: 20 }).catch(() => null);
     const grupo = (g?.list || [])[0];
-    return grupo?.adgroup_id ? { campaignId: String(camp.campaign_id), adGroupId: String(grupo.adgroup_id) } : null;
+    return { campaignId: String(camp.campaign_id), adGroupId: grupo?.adgroup_id ? String(grupo.adgroup_id) : "" };
   } catch { return null; }
+}
+
+export function ehNomeDeCampanhaExistente(erro: unknown): boolean {
+  return /campaign name already exists|name already exist/i.test(String((erro as any)?.message ?? erro));
+}
+
+/** "Nome" -> "Nome · 24/11 14h05" (horario de Brasilia), dentro do limite de 512 do TikTok. */
+export function nomeDeCampanhaUnico(nome: string, agora = new Date()): string {
+  const f = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(agora);
+  const p = (t: string) => f.find((x) => x.type === t)?.value || "";
+  return `${nome.slice(0, 480)} · ${p("day")}/${p("month")} ${p("hour")}h${p("minute")}`;
 }
 
 export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}, fetchArquivo?: typeof fetch): Promise<ResultadoTikTok> {
@@ -280,19 +299,36 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   passo("campanha");
   let campaignId = "", adGroupId = "";
   const existente = await acharCampanhaExistente(c, adv, e.campaignName);
-  if (existente) { campaignId = existente.campaignId; adGroupId = existente.adGroupId; avisos.push(`Reaproveitei a campanha ${campaignId}.`); }
+  let nomeDoGrupo = e.campaignName;
+  if (existente) {
+    campaignId = existente.campaignId; adGroupId = existente.adGroupId;
+    avisos.push(adGroupId
+      ? `Reaproveitei a campanha ${campaignId} e o grupo ${adGroupId}, que ja existiam com este nome; o orcamento do grupo e o que ja estava nele.`
+      : `Reaproveitei a campanha ${campaignId}, que ja existia com este nome, e criei o grupo dentro dela.`);
+  }
   if (!campaignId) {
-    const camp: any = await c.post("campaign/create/", {
-      advertiser_id: adv, campaign_name: e.campaignName, objective_type: "TRAFFIC",
+    const criar = (campaign_name: string) => c.post("campaign/create/", {
+      advertiser_id: adv, campaign_name, objective_type: "TRAFFIC",
       budget_mode: "BUDGET_MODE_INFINITE", operation_status: "DISABLE",
     });
+    let camp: any;
+    try {
+      camp = await criar(e.campaignName);
+    } catch (erro) {
+      // Nome ocupado por uma campanha que a busca nao devolve (excluida, ou criada fora do MecProAI):
+      // cria com nome unico em vez de parar.
+      if (!ehNomeDeCampanhaExistente(erro)) throw erro;
+      nomeDoGrupo = nomeDeCampanhaUnico(e.campaignName);
+      camp = await criar(nomeDoGrupo);
+      avisos.push(`Ja havia no TikTok uma campanha chamada "${e.campaignName}"; criei como "${nomeDoGrupo}".`);
+    }
     campaignId = String(camp?.campaign_id || "");
     if (!campaignId) throw new Error("TikTok nao devolveu campaign_id.");
   }
   passo("grupo");
   if (!adGroupId) {
     const grupo: any = await c.post("adgroup/create/", {
-      advertiser_id: adv, campaign_id: campaignId, adgroup_name: `${e.campaignName} | Grupo`.slice(0, 512),
+      advertiser_id: adv, campaign_id: campaignId, adgroup_name: `${nomeDoGrupo} | Grupo`.slice(0, 512),
       promotion_type: "WEBSITE",
       placement_type: "PLACEMENT_TYPE_NORMAL", placements: ["PLACEMENT_TIKTOK"],
       location_ids: [TIKTOK_BRASIL_LOCATION_ID], languages: ["pt"],

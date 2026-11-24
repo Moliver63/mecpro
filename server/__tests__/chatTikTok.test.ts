@@ -155,3 +155,14 @@ test("valor minimo: sem como saber o minimo, avisa mas nao bloqueia", async () =
   assert.equal(r.problemas.length, 0);
   assert.ok(r.avisos.some((a: string) => /Nao consegui confirmar o minimo/.test(a)));
 });
+
+test("nome no TikTok leva o numero do rascunho (sem colidir com campanha feita a mao)", async () => {
+  const { d } = deps();
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false, dailyBudgetReais: 120 }, d);
+  assert.equal(r.previa.campanha, "Teste — Shadia Hasan · #824");
+});
+
+test("chat nao gera campanha nova para contornar erro de publicacao", async () => {
+  const src = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
+  assert.match(src, /Nunca gere campanha nova \(gerar_campanha\) para contornar erro de publicacao/);
+});
