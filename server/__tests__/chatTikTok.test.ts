@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { publicarNoTikTokDoChat, urlH264, textoAte, type DepsTikTokChat } from "../chatTikTok";
+import { publicarNoTikTokDoChat, urlH264, textoAte, ehConfirmacao, valorDiarioDaFala, limparPropostasTikTok, type DepsTikTokChat } from "../chatTikTok";
 import { conferirEntradaTikTok } from "../tiktokPublicar";
 
 function deps(over: Partial<DepsTikTokChat> = {}) {
@@ -165,4 +165,56 @@ test("nome no TikTok leva o numero do rascunho (sem colidir com campanha feita a
 test("chat nao gera campanha nova para contornar erro de publicacao", async () => {
   const src = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
   assert.match(src, /Nunca gere campanha nova \(gerar_campanha\) para contornar erro de publicacao/);
+});
+
+const PREVIA_TXT = "Pre-visualizacao da campanha no TikTok ... Publico pausada com R$ 110/dia? Responda sim.";
+
+test("caso 828: 'sim' depois da previa confirma e usa o minimo, mesmo sem confirmado nem valor do modelo", async () => {
+  limparPropostasTikTok();
+  const { d, chamadas } = deps();
+  const p: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  assert.match(p.perguntaParaOUsuario, /no minimo R\$ 110 por dia/);
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d, { ultimaDoUsuario: "sim", ultimaDoAssistente: PREVIA_TXT });
+  assert.equal(r.publicada, true);
+  assert.ok(chamadas.includes("publicar"));
+  assert.ok(r.avisos.some((a: string) => /minimo proposto na previa: 110/.test(a)));
+});
+
+test("valor dito pelo usuario vence o do modelo e confirma", async () => {
+  limparPropostasTikTok();
+  let usado = 0;
+  const { d } = deps({ publicar: async (_t, e) => { usado = e.dailyBudgetReais; return { campaignId: "c", adGroupId: "g", identityId: "i", ads: [], avisos: [] }; } });
+  await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false, dailyBudgetReais: 38 }, d, { ultimaDoUsuario: "valor 340 por dia", ultimaDoAssistente: PREVIA_TXT });
+  assert.equal(r.publicada, true);
+  assert.equal(usado, 340);
+});
+
+test("sem previa antes, um 'sim' qualquer nao publica", async () => {
+  limparPropostasTikTok();
+  const { d, chamadas } = deps();
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d, { ultimaDoUsuario: "sim", ultimaDoAssistente: "Quer que eu gere outra campanha?" });
+  assert.ok(r.previa);
+  assert.equal(chamadas.includes("publicar"), false);
+});
+
+test("valor abaixo do minimo dito pelo usuario nao publica", async () => {
+  limparPropostasTikTok();
+  const { d, chamadas } = deps();
+  await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d, { ultimaDoUsuario: "38 por dia", ultimaDoAssistente: PREVIA_TXT });
+  assert.match(r.erro, /Nada foi criado/);
+  assert.equal(chamadas.includes("publicar"), false);
+});
+
+test("leitura da fala: confirmacao e valor", () => {
+  for (const t of ["sim", "Sim!", "sim, no tiktok", "pode publicar", "ok", "confirmo"]) assert.ok(ehConfirmacao(t), t);
+  for (const t of ["nao", "sim mas nao agora", "espera", "qual o minimo?", ""]) assert.equal(ehConfirmacao(t), false, t);
+  assert.equal(valorDiarioDaFala("valor 340 por dia"), 340);
+  assert.equal(valorDiarioDaFala("R$ 1.250,50"), 1250.5);
+  assert.equal(valorDiarioDaFala("150 reais"), 150);
+  assert.equal(valorDiarioDaFala("200"), 200);
+  assert.equal(valorDiarioDaFala("publica a campanha 828"), null);
+  assert.equal(valorDiarioDaFala("publica a 824 no tiktok com R$ 120 por dia"), 120);
+  assert.equal(valorDiarioDaFala("sim"), null);
 });

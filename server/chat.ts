@@ -351,6 +351,7 @@ PUBLICACAO NO TIKTOK (publicar_no_tiktok): o MecProAI publica DIRETO no TikTok A
 - Chame primeiro com confirmado=false e mostre a previa (conta, orcamento diario, minimo diario, destino, texto, videos) e TODOS os avisos. Se o orcamento estiver abaixo do minimo, pergunte o novo valor diario (a partir do minimo da previa) e chame de novo; nunca publique abaixo do minimo.
 - So chame com confirmado=true depois de um sim explicito do usuario nesta mesma troca, com os mesmos valores da previa. Tudo nasce PAUSADO.
 - Os videos usados sao os enviados nesta conversa. Sem video, peca para enviar no chat.
+- Valor diario dito pelo usuario durante a publicacao no TikTok vai em publicar_no_tiktok (dailyBudgetReais); nao use atualizar_orcamento_campanha para isso. Nunca ofereca publicar abaixo do minimo.
 - Se a publicacao falhar, explique o erro e ofereca repetir com o MESMO rascunho. Nunca gere campanha nova (gerar_campanha) para contornar erro de publicacao; o MecProAI ja trata nome e video repetidos sozinho.
 - So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
 
@@ -1302,8 +1303,15 @@ const depsTikTokChat = {
     return minimoDiarioTikTok(criarClienteTikTok(token), advertiserId);
   },
 };
-const publicarNoTikTok = (userId: number, sessionId: number | null, args: Record<string, unknown>) =>
-  executarUmaVez(userId, "publicar_no_tiktok", args, () => publicarNoTikTokDoChat(userId, sessionId ?? undefined, args, depsTikTokChat));
+/** Ultima fala de cada lado: o servidor le o "sim" e o valor do usuario (nao depende do modelo). */
+function falaDaConversa(mensagens: MensagemChat[]): { ultimaDoUsuario?: string; ultimaDoAssistente?: string } {
+  const usuario = [...mensagens].reverse().find((m) => m.role === "user");
+  const iUsuario = usuario ? mensagens.lastIndexOf(usuario) : mensagens.length;
+  const assistente = [...mensagens.slice(0, iUsuario)].reverse().find((m) => m.role === "assistant");
+  return { ultimaDoUsuario: usuario?.content, ultimaDoAssistente: assistente?.content };
+}
+const publicarNoTikTok = (userId: number, sessionId: number | null, args: Record<string, unknown>, mensagens: MensagemChat[] = []) =>
+  executarUmaVez(userId, "publicar_no_tiktok", args, () => publicarNoTikTokDoChat(userId, sessionId ?? undefined, args, depsTikTokChat, falaDaConversa(mensagens)));
 
 function sessaoDeConta(estado: NonNullable<ReturnType<typeof briefingContext.getStore>>): SessaoDeConta {
   return { obter: () => estado.metaAdAccount ?? null, gravar: (c) => { if (c) estado.metaAdAccount = c; else delete estado.metaAdAccount; } };
@@ -1496,7 +1504,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       if (edicao) return edicao;
       if (name === "consultar_paginas_meta") return listarPaginasMetaConectadas(userId);
       if (name === "consultar_formularios_meta") return listarFormulariosChat(userId, limparArgsFerramenta(args));
-      if (name === "publicar_no_tiktok") return publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args));
+      if (name === "publicar_no_tiktok") return publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args), mensagens);
       if (name === "publicar_campanha") {
         const a = limparArgsFerramenta(args);
         return publicarCampanhaNaMeta(userId, {
@@ -1720,7 +1728,7 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
       continue;
     }
     if (chamada.function.name === "publicar_no_tiktok") {
-      const result = await publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args));
+      const result = await publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args), mensagens);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1959,7 +1967,7 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
       continue;
     }
     if (chamada.function?.name === "publicar_no_tiktok") {
-      const result = await publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args));
+      const result = await publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args), mensagens);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
