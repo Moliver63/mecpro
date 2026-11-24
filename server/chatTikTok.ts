@@ -80,7 +80,8 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   const lista = criativos(campanha);
   const entrada: EntradaTikTok = {
     advertiserId: String(integracao.accountId),
-    campaignName: textoAte(String(campanha.name || "Campanha MecProAI"), 110),
+    // O numero do rascunho no nome evita colisao com campanha criada a mao ou com outro rascunho.
+    campaignName: `${textoAte(String(campanha.name || "Campanha MecProAI"), 100)} · #${campaignId}`,
     dailyBudgetReais: Number(args.dailyBudgetReais) > 0 ? Number(args.dailyBudgetReais) : Number(campanha.suggestedBudgetDaily) || 0,
     landingPageUrl: String(args.landingPageUrl || perfil?.websiteUrl || "").trim().replace(/^(?!https?:\/\/)/i, "https://"),
     adText: textoAte(String(args.adText || lista[0]?.headline || lista[0]?.hook || ""), 100),
@@ -144,6 +145,6 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
     const motivo = String(e?.message || e).slice(0, 400);
     await deps.falhar(reserva.recordId, motivo);
     return { erro: `O TikTok recusou na etapa "${etapa}": ${motivo}`, previa, avisos, observacao: "Se a campanha chegou a ser criada, ela esta pausada; repetir a publicacao reaproveita o que ja existe, sem duplicar.",
-      instrucao: "Explique o erro em uma frase e ofereca tentar de novo (ou ajustar o que o erro pede, como orcamento). Nao sugira publicar manualmente no Ads Manager." };
+      instrucao: "Explique o erro em uma frase e ofereca tentar de novo (ou ajustar o que o erro pede, como orcamento). Nao sugira publicar manualmente no Ads Manager. Nunca crie um rascunho novo para contornar erro de publicacao: repita a publicacao deste mesmo rascunho." };
   }
 }

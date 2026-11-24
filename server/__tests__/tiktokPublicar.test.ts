@@ -235,3 +235,34 @@ test("outro erro de upload continua interrompendo", async () => {
   (c as any).post = async (path: string, body: any) => { if (path === "file/video/ad/upload/") throw new Error("TikTok 40001: video too long"); return postOriginal(path, body); };
   await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "x.mov" }] }), /too long/);
 });
+
+test("campanha com o mesmo nome e sem grupo (caso 24/11): reaproveita e cria so o grupo", async () => {
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => {
+    if (path === "campaign/get/") return { list: [{ campaign_id: "CX", campaign_name: "  " + base.campaignName.toUpperCase() }] };
+    if (path === "adgroup/get/") return { list: [] };
+    return getOrig(path, params);
+  };
+  const r = await publicarCampanhaTikTok(c, base);
+  assert.equal(r.campaignId, "CX");
+  assert.equal(chamadas.some((x) => x.path === "campaign/create/"), false);
+  assert.equal(chamadas.filter((x) => x.path === "adgroup/create/").length, 1);
+});
+
+test("nome de campanha ocupado e invisivel na busca: cria com nome unico", async () => {
+  const { c, chamadas } = falso();
+  const postOrig = c.post.bind(c);
+  let vezes = 0;
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "campaign/create/" && vezes++ === 0) { chamadas.push({ m: "POST", path, body }); throw new Error("TikTok [campaign/create/] 40002: Campaign name already exists. Please try another one."); }
+    return postOrig(path, body);
+  };
+  const r = await publicarCampanhaTikTok(c, base);
+  const nomes = chamadas.filter((x) => x.path === "campaign/create/").map((x) => x.body.campaign_name);
+  assert.equal(nomes.length, 2);
+  assert.match(nomes[1], new RegExp(`^${base.campaignName.replace(/[|]/g, "\\|")} · \\d{2}/\\d{2} \\d{2}h\\d{2}$`));
+  assert.ok(r.avisos.some((a) => /criei como/.test(a)));
+  const grupo = chamadas.find((x) => x.path === "adgroup/create/")!;
+  assert.ok(grupo.body.adgroup_name.startsWith(nomes[1]));
+});
