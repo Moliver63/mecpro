@@ -9896,6 +9896,21 @@ const metaCampaignsRouter = router({
       return { success: true };
     }),
 
+  // -- Trocar a capa de um anuncio de video ja publicado (sem republicar) --
+  trocarCapaDoAnuncio: protectedProcedure
+    .input(z.object({ adId: z.string().min(1), capaUrl: z.string().url() }))
+    .mutation(async ({ ctx, input }) => {
+      const integration = await db.getApiIntegration(ctx.user.id, "meta");
+      if (!integration || !(integration as any).accessToken)
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Meta não conectado." });
+      const { trocarCapaDoAnuncio } = await import("../metaTrocaCapa");
+      try {
+        return await trocarCapaDoAnuncio({ token: (integration as any).accessToken as string, adId: input.adId, capaUrl: input.capaUrl });
+      } catch (e: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e?.message || "Falha ao trocar a capa." });
+      }
+    }),
+
   // -- Renomear campanha --
   rename: protectedProcedure
     .input(z.object({ campaignId: z.string(), name: z.string().min(2).max(100) }))

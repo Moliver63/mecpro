@@ -2797,6 +2797,55 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     };
   }
 
+  const trocarCapaToolConfig = {
+    title: "Trocar a capa de um anuncio de video ja publicado na Meta",
+    description:
+      "Troca a capa (miniatura) do anuncio de video de uma campanha ja publicada, sem republicar: cria um criativo igual com a nova capa e aponta o MESMO anuncio para ele. " +
+      "Conjunto, orcamento, publico e status nao mudam; a Meta pode revisar o anuncio de novo. " +
+      "Se thumbnailUrl for omitida, usa a capa salva no primeiro criativo da campanha (upload_creative_video com videoThumbnailUrl). " +
+      "Confirme com o usuario antes (confirmed=true).",
+    inputSchema: {
+      campaignId: z.number().int().positive().describe("ID local da campanha no MecProAI."),
+      thumbnailUrl: z.string().url().optional().describe("URL https publica da nova capa (JPG/PNG)."),
+      confirmed: z.boolean().describe("true somente depois de confirmacao explicita do usuario."),
+    },
+  };
+
+  async function trocarCapaHandler(input: { campaignId: number; thumbnailUrl?: string; confirmed: boolean }) {
+    if (!hasScope(scope, "publish")) return scopeErrorContent("publish", scope);
+    if (!input.confirmed) {
+      return { content: [{ type: "text" as const, text: "Troca bloqueada: confirme com o usuario e envie confirmed=true." }], isError: true };
+    }
+    const campaign: any = await db.getCampaignById(input.campaignId);
+    const project: any = campaign ? await db.getProjectById(campaign.projectId) : null;
+    if (!campaign || !project || project.userId !== userId) {
+      return { content: [{ type: "text" as const, text: `Campanha ${input.campaignId} nao encontrada para este usuario.` }], isError: true };
+    }
+    const adId = String(campaign.metaAdId || "").trim();
+    if (!adId) {
+      return { content: [{ type: "text" as const, text: `Campanha ${input.campaignId} ainda nao tem anuncio publicado na Meta.` }], isError: true };
+    }
+    let criativos: any[] = [];
+    try { criativos = typeof campaign.creatives === "string" ? JSON.parse(campaign.creatives || "[]") : (campaign.creatives || []); } catch { criativos = []; }
+    const capaUrl = input.thumbnailUrl || criativos[0]?.storyVideoThumbnailUrl || criativos[0]?.feedVideoThumbnailUrl;
+    if (!capaUrl) {
+      return { content: [{ type: "text" as const, text: "Informe thumbnailUrl: a campanha nao tem capa salva no primeiro criativo." }], isError: true };
+    }
+    try {
+      const caller = await getCaller();
+      const r: any = await caller.metaCampaigns.trocarCapaDoAnuncio({ adId, capaUrl } as any);
+      await db.updateCampaign(input.campaignId, { metaCreativeId: r.creativeNovo, updatedAt: new Date() } as any).catch(() => {});
+      return {
+        content: [{ type: "text" as const, text: `Capa trocada no anuncio ${adId} da campanha ${input.campaignId}. Criativo novo ${r.creativeNovo} (antes ${r.creativeAnterior}). Status, publico e orcamento nao mudaram.` }],
+        structuredContent: { campaignId: input.campaignId, ...r, capaUrl },
+      };
+    } catch (e: any) {
+      return { content: [{ type: "text" as const, text: `Nao troquei a capa: ${e?.message || "erro desconhecido"}. O anuncio continua como estava.` }], isError: true };
+    }
+  }
+
+  server.registerTool("replace_published_ad_thumbnail", trocarCapaToolConfig, trocarCapaHandler);
+
   server.registerTool("update_live_meta_campaign", updateLiveMetaCampaignToolConfig, updateLiveMetaCampaignHandler);
   server.registerTool("MECPROAI.update_live_meta_campaign", {
     ...updateLiveMetaCampaignToolConfig,
@@ -2996,7 +3045,7 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const NON_RETRYABLE_ERROR_CODES = new Set(["UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND"]);
 
       const indexesToPublish = input.adSetIndexes?.length ? input.adSetIndexes : adSets.map((_, i) => i);
-      const results: { adSetName: string; success: boolean; error?: string; errorCode?: string; retryable?: boolean }[] = [];
+      const results: { adSetName: string; success: boolean; jaPublicada?: boolean; error?: string; errorCode?: string; retryable?: boolean }[] = [];
       let sharedMetaCampaignId: string | undefined;
 
       for (const idx of indexesToPublish) {
@@ -3015,7 +3064,10 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
             ...(sharedMetaCampaignId ? { existingMetaCampaignId: sharedMetaCampaignId } : {}),
           } as any);
           if (!sharedMetaCampaignId && result?.campaignId) sharedMetaCampaignId = result.campaignId;
-          results.push({ adSetName, success: true });
+          // Trava de duplicidade devolveu a publicacao anterior: nada novo foi criado
+          // na Meta. Achado real (24/11): a resposta dizia "1/1 publicado" e parecia
+          // que a capa nova tinha subido.
+          results.push({ adSetName, success: true, ...(result?.jaPublicada ? { jaPublicada: true } : {}) });
         } catch (e: any) {
           const errorCode: string | undefined = e?.code;
           results.push({
@@ -3028,8 +3080,11 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       }
 
       const successCount = results.filter(r => r.success).length;
-      const summary = results.map(r => r.success ? `✅ ${r.adSetName}` : `❌ ${r.adSetName}: ${r.error}`).join("\n");
-      const summaryText = `${successCount}/${results.length} ad set(s) publicado(s) na Meta.\n\n${summary}`;
+      const summary = results.map(r => !r.success ? `❌ ${r.adSetName}: ${r.error}` : (r as any).jaPublicada ? `♻️ ${r.adSetName}: ja estava publicado; NADA novo foi criado na Meta (para trocar so a capa, use replace_published_ad_thumbnail)` : `✅ ${r.adSetName}`).join("\n");
+      const jaPublicados = results.filter(r => r.success && r.jaPublicada).length;
+      const summaryText = jaPublicados === results.length && results.length > 0
+        ? `Nada novo publicado: ${jaPublicados} conjunto(s) ja estavam na Meta.\n\n${summary}`
+        : `${successCount - jaPublicados}/${results.length} ad set(s) publicado(s) na Meta${jaPublicados ? ` (${jaPublicados} ja estavam publicados)` : ""}.\n\n${summary}`;
       const isPartial = successCount > 0 && successCount < results.length;
       const failedSummary = results
         .filter(r => !r.success)
