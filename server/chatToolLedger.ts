@@ -38,7 +38,7 @@ export function iniciarNovaTentativaDoLivro(): void { toolLedger.getStore()?.nov
 /** Ferramentas que mudam algo (dados, Meta, custo). Consultas ficam de fora. */
 export const FERRAMENTAS_COM_EFEITO = new Set([
   "gerar_campanha", "atualizar_orcamento_campanha", "definir_foto_destaque", "editar_criativo",
-  "aprovar_revisao_criativo", "anexar_video_criativo", "selecionar_conta_meta", "publicar_campanha",
+  "aprovar_revisao_criativo", "anexar_video_criativo", "selecionar_conta_meta", "publicar_campanha", "publicar_no_tiktok",
   "gerar_imagem", "gerar_imagem_campanha", "adaptar_video",
 ]);
 
