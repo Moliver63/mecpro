@@ -57,6 +57,8 @@ import { appendGeminiToolTurn } from "./ai-providers/geminiToolTurn";
 import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado, MODELO_CLOUDFLARE } from "./ai-providers/cloudflareWorkersAI";
 import { jwtVerify } from "jose";
 import * as db from "./db";
+import { conferirEntradaTikTok as conferirEntradaTikTokSync } from "./tiktokPublicar";
+import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, publicarNoTikTokDoChat } from "./chatTikTok";
 import multer from "multer";
 import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
@@ -343,7 +345,12 @@ PUBLICACAO (publicar_campanha) — REGRAS DE SEGURANCA, sem excecao:
 - Antes de chamar, resuma pro usuario o que vai ser publicado (nome da campanha, orcamento, pagina) e so prossiga apos a confirmacao dele — nunca publique como primeira reacao a "crie uma campanha" ou similar.
 - NUNCA peca o pageId ao usuario, e NUNCA cite nomes de ferramentas pra ele (consultar_paginas_meta, gerar_campanha etc. sao seus, nao dele). Ele conectou a conta Meta; descobrir a Pagina e trabalho seu. Chame publicar_campanha sem pageId: o servidor resolve sozinho quando ha uma unica Pagina. Se houver varias, a resposta traz a lista — aí pergunte em qual publicar citando os NOMES das Paginas, nunca os numeros.
 - Destino: sem linkUrl, o servidor usa o WhatsApp ou o site da Pagina e mostra qual na pre-confirmacao; diga ao usuario pra onde o anuncio vai levar. Para formulario instantaneo, chame consultar_formularios_meta, pergunte qual pelo NOME e publique com destination=lead_form e o leadGenFormId escolhido.
-- So funciona com Meta por enquanto — Google e TikTok continuam sendo publicados manualmente pela tela da campanha (retorne o link).
+- publicar_campanha e so para a Meta. Google continua sendo publicado pela tela da campanha (retorne o link).
+
+PUBLICACAO NO TIKTOK (publicar_no_tiktok): o MecProAI publica DIRETO no TikTok Ads conectado; nunca diga que e manual nem mande o usuario ao Ads Manager para criar.
+- Chame primeiro com confirmado=false e mostre a previa (conta, orcamento diario, destino, texto, videos) e TODOS os avisos, em especial o minimo diario do TikTok e o objetivo publicado (trafego).
+- So chame com confirmado=true depois de um sim explicito do usuario nesta mesma troca, com os mesmos valores da previa. Tudo nasce PAUSADO.
+- Os videos usados sao os enviados nesta conversa. Sem video, peca para enviar no chat.
 - So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
 
 Resolucao de referencias — o usuario raramente vai falar "campaignId 42". Ele vai dizer "essa campanha", "a ultima", "mantenha o orcamento", "a fachada e a principal". Antes de perguntar, procure a resposta nesta ordem:
@@ -691,6 +698,7 @@ const declaracoesGemini: FunctionDeclaration[] = [
   { name: "consultar_paginas_meta", description: DESCRICAO_PAGINAS_META, parametersJsonSchema: PARAMETROS_PAGINAS_META },
   { name: "consultar_formularios_meta", description: DESCRICAO_FORMULARIOS_META, parametersJsonSchema: PARAMETROS_FORMULARIOS_META },
   { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
+  { name: "publicar_no_tiktok", description: DESCRICAO_PUBLICAR_TIKTOK, parametersJsonSchema: PARAMETROS_PUBLICAR_TIKTOK },
   { name: "pesquisar_web", description: DESCRICAO_PESQUISAR_WEB, parametersJsonSchema: PARAMETROS_PESQUISAR_WEB },
 ];
 
@@ -750,6 +758,10 @@ export const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parameters: PARAMETROS_PUBLICAR_CAMPANHA as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "publicar_no_tiktok", description: DESCRICAO_PUBLICAR_TIKTOK, parameters: PARAMETROS_PUBLICAR_TIKTOK as unknown as Record<string, unknown> },
   },
   {
     type: "function" as const,
@@ -1268,6 +1280,26 @@ const generateChatImage = (userId: number, args: any) =>
 const publicarCampanhaNaMeta = (userId: number, options: any) =>
   executarUmaVez(userId, "publicar_campanha", options, () => publicarCampanhaNaMetaBruto(userId, options));
 
+// TikTok direto do chat (24/11): mesmo publicador do MCP (tiktokPublicar.ts).
+const depsTikTokChat = {
+  campanha: (id: number) => db.getCampaignById(id),
+  projeto: (id: number) => db.getProjectById(id),
+  perfil: (projectId: number) => db.getClientProfile(projectId),
+  integracao: (userId: number) => db.getApiIntegration(userId, "tiktok"),
+  videosDaSessao: (sessionId: number) => db.getPendingChatVideos(sessionId),
+  reservar: (userId: number, chave: string) => db.reserveMcpIdempotencyKey(userId, "chat_tiktok_publish", chave) as any,
+  concluir: (recordId: number, payload: any) => db.completeMcpIdempotencyKey(recordId, payload),
+  falhar: (recordId: number, motivo: string) => db.failMcpIdempotencyKey(recordId, motivo),
+  publicar: async (token: string, entrada: any, etapa: (m: string) => void) => {
+    const { criarClienteTikTok, publicarCampanhaTikTok } = await import("./tiktokPublicar");
+    return publicarCampanhaTikTok(criarClienteTikTok(token), entrada, etapa);
+  },
+  conferir: (entrada: any) => conferirEntradaTikTokSync(entrada),
+  salvarIds: async (campaignId: number, r: any) => { await db.updateCampaign(campaignId, { tiktokCampaignId: r.campaignId, tiktokAdGroupId: r.adGroupId } as any); },
+};
+const publicarNoTikTok = (userId: number, sessionId: number | null, args: Record<string, unknown>) =>
+  executarUmaVez(userId, "publicar_no_tiktok", args, () => publicarNoTikTokDoChat(userId, sessionId ?? undefined, args, depsTikTokChat));
+
 function sessaoDeConta(estado: NonNullable<ReturnType<typeof briefingContext.getStore>>): SessaoDeConta {
   return { obter: () => estado.metaAdAccount ?? null, gravar: (c) => { if (c) estado.metaAdAccount = c; else delete estado.metaAdAccount; } };
 }
@@ -1459,6 +1491,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       if (edicao) return edicao;
       if (name === "consultar_paginas_meta") return listarPaginasMetaConectadas(userId);
       if (name === "consultar_formularios_meta") return listarFormulariosChat(userId, limparArgsFerramenta(args));
+      if (name === "publicar_no_tiktok") return publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args));
       if (name === "publicar_campanha") {
         const a = limparArgsFerramenta(args);
         return publicarCampanhaNaMeta(userId, {
@@ -1678,6 +1711,11 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
     }
     if (chamada.function.name === "consultar_formularios_meta") {
       const result = await listarFormulariosChat(userId, limparArgsFerramenta(args));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === "publicar_no_tiktok") {
+      const result = await publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1912,6 +1950,11 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
     if (chamada.function?.name === "consultar_formularios_meta") {
       const result = await listarFormulariosChat(userId, limparArgsFerramenta(args));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function?.name === "publicar_no_tiktok") {
+      const result = await publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
