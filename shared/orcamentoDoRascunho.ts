@@ -107,6 +107,23 @@ export function rebalancearConjuntos(campaign: any): { ok: true; adSets: any[]; 
   return { ok: true, adSets, antes: lidos.map((a) => String(a?.budget ?? "sem valor")), depois: adSets.map((a) => a.budget) };
 }
 
+/**
+ * Rascunho com mais conjuntos do que o diario aprovado comporta (cada um com o
+ * minimo interno): ficam os `max` primeiros e o diario e redistribuido entre
+ * eles. O total aprovado nunca muda. Achado real (Shadia 820-823, 24/11):
+ * R$ 10/dia com 2 conjuntos ficava "divergente" e bloqueado, com o texto
+ * "R$ 35/dia" que ninguem pediu.
+ */
+export function ajustarConjuntosAoDiario(campaign: any, max: number): { ok: true; adSets: any[]; removidos: string[]; antes: string[]; depois: string[] } | { ok: false; erro: string } {
+  const lidos: any[] = Array.isArray(campaign?.adSets) ? campaign.adSets : (() => { try { return JSON.parse(campaign?.adSets || "[]"); } catch { return []; } })();
+  const limite = Math.max(1, Math.floor(max));
+  if (lidos.length <= limite) return { ok: false, erro: "Os conjuntos ja cabem no orcamento." };
+  const mantidos = lidos.slice(0, limite);
+  const r = rebalancearConjuntos({ ...campaign, adSets: mantidos });
+  if (r.ok === false) return r;
+  return { ok: true, adSets: r.adSets, removidos: lidos.slice(limite).map((a) => String(a?.name || "conjunto")), antes: lidos.map((a) => String(a?.budget ?? "sem valor")), depois: r.depois };
+}
+
 /** Frase curta para o usuario (chat, tela, MCP). */
 export function resumoDoOrcamento(v: VerificacaoDoOrcamento): string {
   if (v.situacao === "ok") return `Orcamento dos conjuntos confere: R$ ${v.somaDiaria}/dia, dentro dos R$ ${v.aprovadoDiario}/dia aprovados.`;

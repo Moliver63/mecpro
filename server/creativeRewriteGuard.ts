@@ -440,8 +440,14 @@ export function truncarCamposNoLimite(original: any, facts: CampaignFacts) {
     if (!corte || corte.length > limite) { naoResolvidos.push(`${campo}: corte nao coube no limite`); continue; }
     if (contarNegacoes(corte) < contarNegacoes(valor)) { naoResolvidos.push(`${campo}: corte removeria uma negacao`); continue; }
     if (/\[[^\]]+\]|\{[^}]+\}|EMPRESA_AQUI|PRODUTO_AQUI|\bXXX+\b/i.test(corte)) { naoResolvidos.push(`${campo}: corte expoe placeholder`); continue; }
+    // O corte so nao pode CRIAR alegacao nova. Conflito que o texto original ja
+    // tinha continua no texto e e tratado pelo fluxo normal (revisao/FACT_CONFLICT).
+    // Achado real (Shadia, 24/11): copy longa com um preco em conflito nao era
+    // cortada, e a campanha morria por "500 caracteres", escondendo o motivo real.
+    const chave = (c: { value: string; reason: string }) => `${c.reason}|${c.value}`;
+    const doOriginal = new Set(validateCampaignFactIntegrity([{ [campo]: valor }], facts).conflicts.map(chave));
     const audit = validateCampaignFactIntegrity([{ [campo]: corte }], facts);
-    if (audit.status !== "passed") { naoResolvidos.push(`${campo}: corte vira alegacao nao confirmada`); continue; }
+    if (audit.conflicts.some((c) => !doOriginal.has(chave(c)))) { naoResolvidos.push(`${campo}: corte vira alegacao nao confirmada`); continue; }
 
     patch[campo] = corte;
     truncados.push(campo);

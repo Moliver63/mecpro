@@ -1,8 +1,8 @@
 import "dotenv/config";
 import crypto from "crypto";
 import { log } from "./logger";
-import { totalDoPeriodoDaCampanha } from "../shared/adSetBudgetPlan";
-import { verificarOrcamentoDoRascunho, rebalancearConjuntos } from "../shared/orcamentoDoRascunho";
+import { totalDoPeriodoDaCampanha, PISO_DIARIO_POR_CONJUNTO } from "../shared/adSetBudgetPlan";
+import { verificarOrcamentoDoRascunho, rebalancearConjuntos, ajustarConjuntosAoDiario } from "../shared/orcamentoDoRascunho";
 import { callOpenRouterFallback, OPENROUTER_FALLBACK_MODEL } from "./openRouterFallback";
 import { urlDoCliente, urlDoClienteComMetodo } from "./googleAdsApi";
 import { GeminiCredentialHealth, redactProviderSecrets } from "./providerSafety";
@@ -1299,6 +1299,19 @@ const SEGMENT_ALIGNMENT_RULES: Record<string, SegmentAlignmentRule> = {
   },
 };
 
+/** Plurais regulares do portugues -> singular, palavra a palavra ("aulas" -> "aula", "inscricoes" -> "inscricao", "materiais" -> "material"). Aproximado de proposito: so serve para casar regras escritas no singular. */
+export function singularizarPlurais(texto: string): string {
+  return String(texto || "").replace(/[A-Za-zÀ-ÿ]{3,}/g, (w) => {
+    if (/[õo]es$/i.test(w)) return w.replace(/[õo]es$/i, (m) => (m[0] === "õ" ? "ão" : m[0] === "Õ" ? "ÃO" : "ao"));
+    if (/[ãa]es$/i.test(w)) return w.replace(/es$/i, "");
+    if (/ais$/i.test(w)) return w.replace(/is$/i, "l");
+    if (/eis$/i.test(w)) return w.replace(/is$/i, "l");
+    if (/(r|z)es$/i.test(w)) return w.replace(/es$/i, "");
+    if (/[aeiou]s$/i.test(w) && !/ss$/i.test(w)) return w.slice(0, -1);
+    return w;
+  });
+}
+
 export function auditCreativeSegmentAlignment(creative: any, segment: string): string[] {
   const rule = SEGMENT_ALIGNMENT_RULES[segment];
   if (!rule) return [];
@@ -1314,7 +1327,11 @@ export function auditCreativeSegmentAlignment(creative: any, segment: string): s
     creative?.cta,
   ].filter(Boolean).join(" ");
   const issues: string[] = [];
-  if (!rule.requiredAny.some((re) => re.test(text))) {
+  // As regras listam a palavra no singular ("aula", "curso", "evento"); a copy
+  // costuma usar o plural ("24 aulas"). Achado real (Shadia, 24/11): criativo
+  // de curso com "aulas" foi marcado "sem sinais do segmento infoprodutos".
+  const textoNoSingular = singularizarPlurais(text);
+  if (!rule.requiredAny.some((re) => re.test(text) || re.test(textoNoSingular))) {
     issues.push(`Criativo sem sinais claros do segmento ${segment}`);
   }
   const foreignHits = rule.foreignTerms
@@ -1837,6 +1854,7 @@ const AI_TIMEOUTS = {
   resolvePageIdMs:          8000,  // 8s
   geminiMs:                22000,  // 22s — Render tem timeout de 30s, não adianta esperar mais
   geminiFinalRetryMs:      22000,  // 22s retry final
+  geracaoDeCampanhaMs:     45000,  // geracao principal da campanha: roda em segundo plano
   geminiFinalRetryDelayMs:   500,  // 0.5s wait — era 3s (inútil esperar quando todas as chaves esgotadas)
   metaOfficialMs:          15000,  // 15s
   publicProxyMs:           10000,  // 10s
@@ -2004,6 +2022,8 @@ export async function gemini(
     cacheAs?: string;
     cacheMeta?: CacheMeta;
     responseSchema?: Record<string, unknown>;
+    /** Limite desta chamada (padrao AI_TIMEOUTS.geminiMs). A geracao da campanha roda em segundo plano e pode esperar mais. */
+    timeoutMs?: number;
     // Token telemetry context (passed through to logTokens)
     _userId?:     number;
     _projectId?:  number;
@@ -2023,6 +2043,7 @@ async function _geminiImpl(
   prompt: string,
   opts: {
     responseSchema?: Record<string, unknown>;
+    timeoutMs?: number;
     temperature?: number;
     maxOutputTokens?: number;
     systemInstruction?: string;
@@ -2178,7 +2199,7 @@ async function _geminiImpl(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(AI_TIMEOUTS.geminiMs),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? AI_TIMEOUTS.geminiMs),
   });
   const data = await res.json() as any;
 
@@ -2254,7 +2275,7 @@ async function _geminiImpl(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(AI_TIMEOUTS.geminiFinalRetryMs),
+          signal: AbortSignal.timeout(opts.timeoutMs ?? AI_TIMEOUTS.geminiFinalRetryMs),
         });
         const retryData = await retryRes.json() as any;
         if (retryData.error) geminiCredentialHealth.reject(retryKey, retryRes.status, retryData.error);
@@ -6838,6 +6859,10 @@ export async function generateCampaign(input: {
   const campaignDurationDays = input.duration && input.duration > 0 ? input.duration : 30;
   const requestedBudget = input.budget;
   const budgetDaily = Math.round(requestedBudget / campaignDurationDays);
+  // Achado real (Shadia 820-823, 24/11): R$ 70 em 7 dias = R$ 10/dia, e o gerador
+  // criava 2 conjuntos escritos "R$ 35/dia". Quantos conjuntos cabem no diario
+  // com o minimo interno por conjunto vai no prompt e e aplicado depois.
+  const maxConjuntosNoOrcamento = Math.max(1, Math.floor(budgetDaily / PISO_DIARIO_POR_CONJUNTO));
   const recommendedMinimumMonthly = Math.ceil(META_MIN_DAILY_PER_ADSET * DEFAULT_ADSETS_FOR_VIABILITY * campaignDurationDays * 1.1);
   const recommendedMinimumDaily = Math.ceil(META_MIN_DAILY_PER_ADSET * DEFAULT_ADSETS_FOR_VIABILITY * 1.1);
   const meetsMetaBudgetMinimum = requestedBudget >= recommendedMinimumMonthly;
@@ -7318,7 +7343,7 @@ DIRETRIZES TIKTOK:
 - Tom: autêntico, dinâmico, menos "publicitário"
 - Hashtags relevantes (#fyp + nicho)
 - Considerar TikTok In-Feed Ads, TopView e Branded Hashtag Challenge` : ""}
-ORÇAMENTO: R$ ${input.budget}/mês (R$ ${budgetDaily}/dia)
+ORÇAMENTO: R$ ${input.budget} no TOTAL do período de ${campaignDurationDays} dias = R$ ${budgetDaily}/dia (não é mensal). Crie no máximo ${maxConjuntosNoOrcamento} conjunto(s) de anúncios: cada um precisa de pelo menos R$ ${PISO_DIARIO_POR_CONJUNTO}/dia, e a soma dos conjuntos é R$ ${budgetDaily}/dia.
 DURAÇÃO: ${input.duration} dias
 
 - Budget mensal: R$ ${monthlyBudget}
@@ -7391,7 +7416,7 @@ BENCHMARKS DO NICHO "${benchmarks.label}" (referência secundária — WordStrea
 
 INSTRUÇÃO PARA MÉTRICAS:
 - Priorize os dados reais da Meta Insights API se disponíveis
-- Budget desta campanha: R$ ${input.budget}/mês (R$ ${budgetDaily}/dia)
+- Budget desta campanha: R$ ${input.budget} no total de ${campaignDurationDays} dias (R$ ${budgetDaily}/dia)
 - ${longRunningAds.length} anúncios dos concorrentes rodando 30+ dias = mercado ativo
 - Formato dominante dos concorrentes: "${dominantFormat}" → ajuste CPM (vídeo +20%, imagem = base)
 - Leads estimados = R$ ${input.budget} ÷ CPL ${(((metaInsights as any)?.cpl ?? 0) > 0) ? "real R$ " + ((metaInsights as any)?.cpl ?? 0).toFixed(2) : "referência do nicho"}
@@ -7592,7 +7617,7 @@ ${creativeSlotInstructions}
     "estimatedCPM": "R$ X,XX — baseado no formato ${dominantFormat} no mercado brasileiro",
     "expectedROAS": "X,X — calculado para objetivo ${input.objective} com budget R$ ${input.budget}",
     "breakEvenROAS": "X,X — mínimo para cobrir investimento de R$ ${input.budget}",
-    "leadsPerMonth": "XX leads estimados com R$ ${input.budget}/mês",
+    "leadsPerMonth": "XX leads estimados com R$ ${input.budget} no período de ${campaignDurationDays} dias",
     "insight": "recomendação prática baseada nos ${allAds.length} anúncios coletados e budget de R$ ${input.budget}"
   },
   "negativeKeywords": [
@@ -7610,9 +7635,9 @@ ${creativeSlotInstructions}
     {"term": "ROAS", "meaning": "Retorno sobre investimento em anúncios", "example": "ROAS ${Math.round(input.budget > 0 ? 3 : 5)} = meta mínima para este budget"},
     {"term": "CTR", "meaning": "Taxa de cliques", "example": "referência dos ${longRunningAds.length} anúncios validados dos concorrentes"},
     {"term": "CPM", "meaning": "Custo por mil impressões", "example": "varia por formato: vídeo > imagem > carrossel"},
-    {"term": "TOF", "meaning": "Top of Funnel — topo do funil", "example": "atração de público frio — ${Math.round(input.budget * 0.4)}/mês (40%)"},
-    {"term": "MOF", "meaning": "Middle of Funnel — meio do funil", "example": "consideração — ${Math.round(input.budget * 0.35)}/mês (35%)"},
-    {"term": "BOF", "meaning": "Bottom of Funnel — fundo do funil", "example": "conversão — ${Math.round(input.budget * 0.25)}/mês (25%)"},
+    {"term": "TOF", "meaning": "Top of Funnel — topo do funil", "example": "atração de público frio — R$ ${Math.round(budgetDaily * 0.4)}/dia (40%)"},
+    {"term": "MOF", "meaning": "Middle of Funnel — meio do funil", "example": "consideração — R$ ${Math.round(budgetDaily * 0.35)}/dia (35%)"},
+    {"term": "BOF", "meaning": "Bottom of Funnel — fundo do funil", "example": "conversão — R$ ${Math.round(budgetDaily * 0.25)}/dia (25%)"},
     {"term": "CRO", "meaning": "Conversion Rate Optimization", "example": "melhorar página de vendas para aumentar % de conversão"}
   ]
 }
@@ -8065,6 +8090,10 @@ ${creativeSlotInstructions}
       raw = await gemini(prompt, { temperature: 0.5, maxOutputTokens: dynamicMaxOutputTokens, semMock: true });
     } else {
       raw = await gemini(prompt, { temperature: 0.6, semMock: true,
+      // Achado real (Shadia, 24/11): 2 de 5 geracoes passaram de 22s (as boas levaram
+      // 12-15s) e cairam no Groq, que errou tamanho e preco. A geracao roda em segundo
+      // plano (o MCP devolve antes), entao esperar mais o Gemini custa so tempo.
+      timeoutMs: AI_TIMEOUTS.geracaoDeCampanhaMs,
       _endpoint: "generateCampaign",
       _projectId: input.projectId,
       _userId: input.userId,
@@ -8528,6 +8557,15 @@ PROIBIDO: headlines com menos de 20 chars ou genéricas como "Saiba mais", "Cliq
         const depois = verificarOrcamentoDoRascunho({ ...rascunho, adSets });
         budgetPlan = { ...budgetPlan, rebalanceado: true, antes: r.antes, depois: r.depois, situacaoFinal: depois.situacao, somaDiaria: depois.somaDiaria };
         log.info("ai", "Conjuntos redistribuidos para fechar no diario aprovado (total inalterado)", { antes: r.antes, depois: r.depois, aprovado: budgetDaily });
+      } else if (ajustarConjuntosAoDiario({ ...rascunho }, maxConjuntosNoOrcamento).ok) {
+        // Mais conjuntos do que o diario comporta: ficam os primeiros (o gerador
+        // poe o publico frio primeiro); o total aprovado nao muda; o que saiu fica
+        // registrado no budgetPlan para a tela/chat/MCP mostrarem.
+        const r2 = ajustarConjuntosAoDiario({ ...rascunho }, maxConjuntosNoOrcamento) as Extract<ReturnType<typeof ajustarConjuntosAoDiario>, { ok: true }>;
+        adSets = JSON.stringify(r2.adSets);
+        const depois = verificarOrcamentoDoRascunho({ ...rascunho, adSets });
+        budgetPlan = { ...budgetPlan, rebalanceado: true, conjuntosRemovidos: r2.removidos, antes: r2.antes, depois: r2.depois, situacaoFinal: depois.situacao, somaDiaria: depois.somaDiaria };
+        log.warn("ai", "Mais conjuntos do que o diario comporta — mantidos os primeiros, total inalterado", { aprovado: budgetDaily, removidos: r2.removidos });
       } else {
         budgetPlan = { ...budgetPlan, rebalanceado: false, motivo: r.erro, situacaoFinal: "divergente" };
         log.warn("ai", "Conjuntos divergem do diario aprovado e nao cabem no piso — publicacao fica bloqueada", { motivo: r.erro });

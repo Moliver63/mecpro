@@ -85,6 +85,13 @@ export type CampaignFacts = {
   // de facts.realEstate, então uma campanha de outro nicho com preço errado
   // na copy nunca era pega estruturalmente.
   genericProductPrice?: string;
+  // Achado real (Shadia, 24/11): so UM preco era aceito por campanha (o primeiro
+  // do briefing). Bloqueava o preco "de" real ("de R$ 197 por R$ 57") e catalogos
+  // com mais de um produto. confirmedPrices: todos os valores que o briefing
+  // ATUAL da campanha cita. originalPrices: os que o briefing (atual ou perfil)
+  // cita como preco "de"; so valem na copy tambem como "de/era/antes".
+  confirmedPrices?: string[];
+  originalPrices?: string[];
   // Mesmo padrão de genericProductPrice, mas para endereço — qualquer
   // nicho, não só imóveis. Achado real (campanha #754): confeitaria/outros
   // negócios com endereço errado na copy não eram pegos por nada, já que
@@ -831,6 +838,8 @@ export function buildCampaignFacts({
     campaignProductRaw: normalizeText(compactText([input?.["productName"], input?.["productService"]].map(compactText).filter(Boolean).join(". "))),
     confirmedCharacteristics,
     genericProductPrice,
+    confirmedPrices: unique(moneyMentions(currentRaw).map((p) => normalizeMoneyValue(p.value))),
+    originalPrices: unique(moneyMentions(raw).filter((p) => p.original).map((p) => normalizeMoneyValue(p.value))),
     genericAddress,
     mediaBudget,
     realEstate: {
@@ -913,6 +922,42 @@ function moneyValueToNumber(value: string): number {
   return match ? Number(match[1]) : NaN;
 }
 
+
+/**
+ * Todos os valores em dinheiro do texto (nao so o primeiro), com as mesmas
+ * exclusoes de firstMatch: negacao logo antes ("nao custa R$ 50") e verba de
+ * midia na mesma frase. `original` marca o preco "de" de uma oferta
+ * ("de R$ 197 por R$ 57", "(de R$ 597)", "era R$ 300", "antes R$ 90").
+ */
+function moneyMentions(text: string): Array<{ value: string; original: boolean }> {
+  const out: Array<{ value: string; original: boolean }> = [];
+  const re = new RegExp(moneyPattern.source, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const before = text.slice(Math.max(0, m.index - 100), m.index);
+    const cut = Math.max(before.lastIndexOf("."), before.lastIndexOf("!"), before.lastIndexOf("?"), before.lastIndexOf("\n"));
+    const sentence = cut === -1 ? before : before.slice(cut + 1);
+    const negated = NEGATION_WORDS.test(text.slice(Math.max(0, m.index - 25), m.index));
+    if (!negated && !BUDGET_CONTEXT_PATTERN.test(sentence)) {
+      // "valor de R$ 180" NAO e preco riscado: "de" so conta como "(de R$ X" ou "de R$ X por ...".
+      const antes = text.slice(Math.max(0, m.index - 12), m.index);
+      const depois = text.slice(m.index + m[0].length, m.index + m[0].length + 12);
+      const original = /(?:\(\s*de|\b(?:era|antes))\s*:?\s*$/i.test(antes) || (/\bde\s*$/i.test(antes) && /^\s*(?:\)|,?\s*por\b)/i.test(depois));
+      out.push({ value: compactText(m[0]), original });
+    }
+    if (m.index === re.lastIndex) re.lastIndex++;
+  }
+  return out;
+}
+
+
+/** Preco citado na copy que o briefing confirma: citado no briefing atual, ou preco "de" do briefing usado na copy tambem como "de". */
+function precoPermitidoPeloBriefing(price: string, text: string, facts: CampaignFacts): boolean {
+  const alvo = normalizeMoneyValue(price);
+  if (facts.confirmedPrices?.includes(alvo)) return true;
+  return !!facts.originalPrices?.includes(alvo) && moneyMentions(text).some((p) => p.original && normalizeMoneyValue(p.value) === alvo);
+}
+
 export function validateCampaignFactIntegrity(
   creatives: unknown[],
   facts: CampaignFacts,
@@ -965,6 +1010,7 @@ export function validateCampaignFactIntegrity(
 
     for (const claim of facts.forbiddenClaims) {
       if (n.includes(normalizeText(claim))) {
+        if (new RegExp(`^${moneyPattern.source}$`, "i").test(claim.trim()) && precoPermitidoPeloBriefing(claim, text, facts)) continue;
         conflicts.push({ field, value: claim, reason: "forbidden_claim_not_in_current_briefing" });
       }
     }
@@ -1087,6 +1133,7 @@ export function validateCampaignFactIntegrity(
           continue;
         }
       }
+      if (precoPermitidoPeloBriefing(price, text, facts)) continue;
       if (expectedPrice && normalizeMoneyValue(price) !== normalizeMoneyValue(expectedPrice)) {
         conflicts.push({ field, value: price, reason: `price_conflict_expected_${expectedPrice}` });
       }

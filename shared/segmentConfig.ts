@@ -773,13 +773,23 @@ export function pickMostSpecificSegmentMatch(
   normalizedText: string,
   entries: Array<[string, string[]]>,
 ): string | null {
-  let best: { segment: string; keyLength: number } | null = null;
+  // Achado real (Shadia Hasan, 24/11): "...cursos online... inclui o Diário de
+  // presente" virava "alimentacao" porque "presentes" (9 letras) vencia
+  // "curso"/"online" sozinha. Agora vence o segmento com MAIS palavras-chave
+  // distintas no texto; a mais longa so desempata. O caso Gra Kau continua
+  // certo: "doces" + "brigadeiros" (2) vencem "loja" (1).
+  let best: { segment: string; hits: number; keyLength: number } | null = null;
   for (const [segment, nicheKeys] of entries) {
-    for (const key of nicheKeys) {
+    let hits = 0;
+    let longest = 0;
+    for (const key of new Set(nicheKeys.map((k) => k.toLowerCase()))) {
       if (!matchesNicheKeyword(normalizedText, key)) continue;
-      if (!best || key.length > best.keyLength) {
-        best = { segment, keyLength: key.length };
-      }
+      hits++;
+      longest = Math.max(longest, key.length);
+    }
+    if (!hits) continue;
+    if (!best || hits > best.hits || (hits === best.hits && longest > best.keyLength)) {
+      best = { segment, hits, keyLength: longest };
     }
   }
   return best?.segment ?? null;
