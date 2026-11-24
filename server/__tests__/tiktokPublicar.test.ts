@@ -193,3 +193,44 @@ test("mudarStatusTikTok manda ads, grupo e campanha com o status pedido", async 
   assert.deepEqual(chamadas.map((x) => x.path), ["ad/status/update/", "adgroup/status/update/", "campaign/status/update/"]);
   assert.ok(chamadas.every((x) => x.body.operation_status === "ENABLE"));
 });
+
+test("video com nome duplicado (caso 24/11): reaproveita o da biblioteca, sem novo upload", async () => {
+  const { c, chamadas } = falso();
+  const getOriginal = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/search/"
+    ? (chamadas.push({ m: "GET", path, body: params }), { list: [{ video_id: "V_OLD7", file_name: "IMG_79940.mov" }, { video_id: "V_OLD", file_name: "IMG_7994.mov" }], page_info: { total_page: 1 } })
+    : getOriginal(path, params);
+  const postOriginal = c.post.bind(c);
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "file/video/ad/upload/") { chamadas.push({ m: "POST", path, body }); throw new Error("TikTok [file/video/ad/upload/] 40002: Duplicated material name"); }
+    return postOriginal(path, body);
+  };
+  const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "IMG_7994.mov" }] });
+  assert.equal(r.ads[0].videoId, "V_OLD", "nome exato, nao o parecido");
+  assert.equal(chamadas.filter((x) => x.path === "file/video/ad/upload/").length, 1);
+  assert.ok(r.avisos.some((a) => /reaproveitei/.test(a)));
+});
+
+test("video com nome duplicado que nao esta na biblioteca: sobe de novo com nome unico", async () => {
+  const { c, chamadas } = falso();
+  const getOriginal = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/search/" ? { list: [] } : getOriginal(path, params);
+  const postOriginal = c.post.bind(c);
+  let tentativas = 0;
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "file/video/ad/upload/") { chamadas.push({ m: "POST", path, body }); if (tentativas++ === 0) throw new Error("TikTok 40002: Duplicated material name"); return [{ video_id: "VNOVO" }]; }
+    return postOriginal(path, body);
+  };
+  const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "IMG_7994.mov" }] });
+  assert.equal(r.ads[0].videoId, "VNOVO");
+  const nomes = chamadas.filter((x) => x.path === "file/video/ad/upload/").map((x) => x.body.file_name);
+  assert.equal(nomes[0], "IMG_7994.mov");
+  assert.match(nomes[1], /^IMG_7994_mecpro_[a-z0-9]+\.mov$/);
+});
+
+test("outro erro de upload continua interrompendo", async () => {
+  const { c } = falso();
+  const postOriginal = c.post.bind(c);
+  (c as any).post = async (path: string, body: any) => { if (path === "file/video/ad/upload/") throw new Error("TikTok 40001: video too long"); return postOriginal(path, body); };
+  await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "x.mov" }] }), /too long/);
+});

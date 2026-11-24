@@ -134,6 +134,7 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   } catch (e: any) {
     const motivo = String(e?.message || e).slice(0, 400);
     await deps.falhar(reserva.recordId, motivo);
-    return { erro: `O TikTok recusou na etapa "${etapa}": ${motivo}`, previa, avisos, observacao: "Se a campanha chegou a ser criada, ela esta pausada; confira no TikTok Ads Manager antes de repetir." };
+    return { erro: `O TikTok recusou na etapa "${etapa}": ${motivo}`, previa, avisos, observacao: "Se a campanha chegou a ser criada, ela esta pausada; repetir a publicacao reaproveita o que ja existe, sem duplicar.",
+      instrucao: "Explique o erro em uma frase e ofereca tentar de novo (ou ajustar o que o erro pede, como orcamento). Nao sugira publicar manualmente no Ads Manager." };
   }
 }

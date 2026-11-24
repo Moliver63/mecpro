@@ -108,6 +108,37 @@ export function acharVideoPorNome(lista: any[], nome: string): string | null {
   return achados.length ? String(achados[0].video_id) : null;
 }
 
+export function ehNomeDuplicado(erro: unknown): boolean {
+  return /duplicat\w* material name|material name.*(?:exist|duplicat)/i.test(String((erro as any)?.message ?? erro));
+}
+
+/** Nome igual ao do arquivo (sem extensao e sem caixa); cai no parcial so se nao houver igual. */
+export function acharVideoPorNomeExato(lista: any[], nome: string): string | null {
+  const base = (x: unknown) => String(x || "").toLowerCase().replace(/\.[a-z0-9]+$/, "");
+  const alvo = base(nome);
+  const igual = (lista || []).find((v) => base(v?.file_name || v?.video_name) === alvo);
+  return igual ? String(igual.video_id) : acharVideoPorNome(lista, nome);
+}
+
+/** "IMG_7994.mov" -> "IMG_7994_mecpro_<tempo>.mov" */
+export function nomeUnico(nome: string, agora = Date.now()): string {
+  const m = nome.match(/^(.*?)(\.[a-z0-9]+)?$/i)!;
+  return `${m[1]}_mecpro_${agora.toString(36)}${m[2] || ""}`;
+}
+
+/** Biblioteca de videos da conta, ate 5 paginas de 100. */
+export async function listarBibliotecaDeVideos(c: ClienteTikTok, adv: string): Promise<any[]> {
+  const todos: any[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const d: any = await c.get("file/video/ad/search/", { advertiser_id: adv, page, page_size: 100 });
+    const lista = d?.list || [];
+    todos.push(...lista);
+    const total = Number(d?.page_info?.total_page || 1);
+    if (!lista.length || page >= total) break;
+  }
+  return todos;
+}
+
 export interface ResultadoTikTok {
   campaignId: string; adGroupId: string; identityId: string;
   ads: Array<{ adId: string; videoId: string }>;
@@ -219,9 +250,21 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       if (!id) throw new Error(`Video "${v.nomeNaBiblioteca}" nao esta na biblioteca de criativos do TikTok.`);
       videoIds.push(id); continue;
     }
-    const up: any = await c.post("file/video/ad/upload/", {
-      advertiser_id: adv, upload_type: "UPLOAD_BY_URL", video_url: v.videoUrl, file_name: v.nome || `mecpro_${Date.now()}_${i + 1}`,
-    });
+    const nome = v.nome || `mecpro_${Date.now()}_${i + 1}`;
+    const subir = (file_name: string) => c.post("file/video/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", video_url: v.videoUrl, file_name });
+    let up: any;
+    try {
+      up = await subir(nome);
+    } catch (erro: any) {
+      // Achado real 24/11 (chat, campanha 824): "Duplicated material name". O mesmo arquivo ja
+      // tinha subido numa tentativa anterior. Reaproveita o video da biblioteca; se nao achar,
+      // sobe de novo com nome unico. Nunca vira "publique manualmente".
+      if (!ehNomeDuplicado(erro)) throw erro;
+      biblioteca = biblioteca ?? await listarBibliotecaDeVideos(c, adv);
+      const existente = acharVideoPorNomeExato(biblioteca, nome);
+      if (existente) { videoIds.push(existente); avisos.push(`Video "${nome}" ja estava na biblioteca do TikTok; reaproveitei.`); continue; }
+      up = await subir(nomeUnico(nome));
+    }
     const id = Array.isArray(up) ? up[0]?.video_id : up?.video_id;
     if (!id) throw new Error(`Upload do video ${i + 1} sem video_id: ${JSON.stringify(up).slice(0, 200)}`);
     videoIds.push(String(id));
