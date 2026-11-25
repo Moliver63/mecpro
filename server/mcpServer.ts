@@ -3644,7 +3644,14 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
     const integracao: any = await db.getApiIntegration(userId, "tiktok");
     if (!integracao?.isActive || !integracao.accessToken || !integracao.accountId) return { erro: "TikTok Ads não está conectado. Conecte em Integrações → TikTok Ads." } as const;
     const { normalizarObjetivo } = await import("./tiktokObjetivos");
-    const objetivo = input.objetivo || normalizarObjetivo(campaign.objective) || "traffic";
+    // Revisao Goldfish 25/11: objetivo sem equivalente nao vira trafego em silencio, e pedir "traffic"
+    // para um rascunho de vendas/leads exige a autorizacao explicita do usuario.
+    const doRascunho = normalizarObjetivo(campaign.objective);
+    const objetivo = input.objetivo || doRascunho;
+    if (!objetivo) return { erro: `O objetivo "${campaign.objective}" do rascunho não tem equivalente no TikTok pelo MecProAI (vendas, conversões, leads no site, tráfego, reconhecimento). Informe objetivo.` } as const;
+    if (objetivo === "traffic" && doRascunho && ["sales", "conversions", "leads"].includes(doRascunho) && input.autorizarTrafego !== true) {
+      return { erro: `O rascunho ${input.campaignId} é de ${doRascunho}. Publicar como tráfego troca o objetivo: só com autorizarTrafego=true, depois de o usuário autorizar explicitamente.` } as const;
+    }
     const entrada = {
       advertiserId: String(integracao.accountId), campaignName: input.campaignName, dailyBudgetReais: input.dailyBudgetReais,
       landingPageUrl: input.landingPageUrl, adText: input.adText, callToAction: input.callToAction, displayName: input.displayName,

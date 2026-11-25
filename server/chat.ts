@@ -61,7 +61,7 @@ import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado, MODELO_CLOUD
 import { jwtVerify } from "jose";
 import * as db from "./db";
 import { conferirEntradaTikTok as conferirEntradaTikTokSync } from "./tiktokPublicar";
-import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, DESCRICAO_CONSULTAR_TIKTOK, PARAMETROS_CONSULTAR_TIKTOK, consultarNoTikTokDoChat, publicarNoTikTokDoChat, previaPendenteDoTikTok, ultimaFoiPreviaDoTikTok, ehConfirmacao, valorDiarioDaFala, textoDoResultadoTikTok } from "./chatTikTok";
+import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, DESCRICAO_CONSULTAR_TIKTOK, PARAMETROS_CONSULTAR_TIKTOK, consultarNoTikTokDoChat, publicarNoTikTokDoChat, previaPendenteDoTikTok, ultimaFoiPreviaDoTikTok, ehConfirmacao, autorizouTrafego, valorDiarioDaFala, textoDoResultadoTikTok } from "./chatTikTok";
 import multer from "multer";
 import { uploadVideoBufferToCloudinary, uploadVideoFileToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
@@ -1299,7 +1299,11 @@ const depsTikTokChat = {
   perfil: (projectId: number) => db.getClientProfile(projectId),
   integracao: (userId: number) => db.getApiIntegration(userId, "tiktok"),
   videosDaSessao: (sessionId: number) => db.getPendingChatVideos(sessionId),
-  reservar: (userId: number, chave: string) => db.reserveMcpIdempotencyKey(userId, "chat_tiktok_publish", chave) as any,
+  reservar: (userId: number, chave: string) => db.reserveMcpIdempotencyKey(userId, "tiktok_publish", chave) as any,
+  existe: async (token: string, adv: string, id: string) => {
+    const [{ criarClienteTikTok }, { consultarCampanhaTikTok }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokConsulta")]);
+    return !!(await consultarCampanhaTikTok(criarClienteTikTok(token), adv, id)).campanha;
+  },
   concluir: (recordId: number, payload: any) => db.completeMcpIdempotencyKey(recordId, payload),
   falhar: (recordId: number, motivo: string) => db.failMcpIdempotencyKey(recordId, motivo),
   publicar: async (token: string, entrada: any, etapa: (m: string) => void) => {
@@ -2467,7 +2471,7 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
   }
 
   // "sim" (ou um valor) depois da previa do TikTok: publica direto, sem modelo (achado 24/11, sessao 28).
-  if (typeof ultimaMensagemUsuario === "string" && (ehConfirmacao(ultimaMensagemUsuario) || valorDiarioDaFala(ultimaMensagemUsuario))) {
+  if (typeof ultimaMensagemUsuario === "string" && (ehConfirmacao(ultimaMensagemUsuario) || valorDiarioDaFala(ultimaMensagemUsuario) || autorizouTrafego(ultimaMensagemUsuario))) {
     const historicoCurto = recebidas.filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant")) as MensagemChat[];
     const ultimaDoAssistente = [...historicoCurto].reverse().find((m) => m.role === "assistant")?.content;
     const pendente = ultimaFoiPreviaDoTikTok(ultimaDoAssistente) ? previaPendenteDoTikTok(userId, req.chatSessionId ?? undefined) : null;

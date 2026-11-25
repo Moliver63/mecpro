@@ -244,9 +244,26 @@ export interface DepsVideo {
   sondar(url: string): Promise<SondaRemota | null>;
   importar(url: string): Promise<string | null>;
   aguardar(url: string): Promise<boolean>;
+  /** Sem Cloudinary: baixa a origem e adapta com FFmpeg, tudo em arquivo (devolve o caminho pronto). */
+  adaptarLocal?(origem: string, pasta: string, plano: PlanoDeVideo, temAudio: boolean, enquadramento: Enquadramento): Promise<string>;
 }
 
-export const depsVideoPadrao: DepsVideo = { sondar: sondarVideoRemoto, importar: (u) => importarNoCloudinary(u), aguardar: (u) => aguardarUrlPronta(u) };
+export async function adaptarLocalPadrao(origem: string, pasta: string, plano: PlanoDeVideo, temAudio: boolean, enquadramento: Enquadramento): Promise<string> {
+  const entrada = path.join(pasta, "origem"), saida = path.join(pasta, "tiktok.mp4");
+  await baixarParaArquivo(origem, entrada);
+  await adaptarComFfmpeg(entrada, saida, plano, temAudio, enquadramento);
+  await fs.rm(entrada, { force: true });
+  return saida;
+}
+
+export const depsVideoPadrao: DepsVideo = { sondar: sondarVideoRemoto, importar: (u) => importarNoCloudinary(u), aguardar: (u) => aguardarUrlPronta(u), adaptarLocal: adaptarLocalPadrao };
+
+/** So converte o codec (H.264 + AAC), sem mexer em tamanho: usado quando a sonda falha. */
+export function urlCloudinaryH264(url: string): string | null {
+  const m = url.match(RE_CLOUDINARY);
+  if (!m) return null;
+  return `${m[1]}vc_h264,ac_aac,f_mp4/${caminhoOriginal(m[2]).replace(/\.[a-z0-9]+$/i, ".mp4")}`;
+}
 
 /**
  * Sonda, planeja e devolve a URL pronta para o TikTok. Nao cria nada no TikTok.
@@ -258,7 +275,9 @@ export async function prepararVideo(fonte: { url: string; nome?: string }, opcoe
   const sonda = await deps.sondar(fonte.url);
   const base = { nome, origem: fonte.url, sonda, plano: null as PlanoDeVideo | null };
   if (!sonda) {
-    return { ...base, urlFinal: fonte.url, assinatura: assinar(fonte.url, "sem-sonda"), problemas: [], correcoes: [],
+    // Sem sonda, o video do Cloudinary vai ao menos em H.264 (HEVC de iPhone nao segue cru; Goldfish 25/11).
+    const h264 = urlCloudinaryH264(fonte.url);
+    return { ...base, urlFinal: h264 || fonte.url, assinatura: assinar(fonte.url, "sem-sonda"), problemas: [], correcoes: h264 ? [`"${nome}" enviado em H.264 por seguranca.`] : [],
       avisos: [`Nao consegui ler as caracteristicas de "${nome}" antes do envio; o TikTok confere no upload e eu confiro de novo depois dele.`] };
   }
   const plano = planejarVideo(sonda, opcoes);

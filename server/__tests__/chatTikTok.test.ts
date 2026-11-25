@@ -20,7 +20,7 @@ function validadorFalso(conta: ContaFalsa = {}) {
     post: async () => { throw new Error("validacao nao cria nada"); },
   };
   return (_token: string, entrada: any) => validarPublicacaoTikTok(cliente, entrada, {
-    minimo: async () => minimo, pagina: async () => ({ ok: true, status: 200 }),
+    minimo: async () => minimo, urlSegura: async () => true, pagina: async () => ({ ok: true, status: 200 }),
     video: { sondar: async () => null, importar: async () => null, aguardar: async () => true },
   });
 }
@@ -283,4 +283,23 @@ test("caso 15h (sessao 28): 'sim' tratado no servidor publica com o minimo e res
 test("rota local so assume o 'sim' quando a ultima resposta foi a previa do TikTok", () => {
   const src = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
   assert.match(src, /ultimaFoiPreviaDoTikTok\(ultimaDoAssistente\) \? previaPendenteDoTikTok/);
+});
+
+test("Goldfish 8: idempotencia comum a tela e chat; se a campanha anterior foi apagada no TikTok, publica de novo", async () => {
+  limparPropostasTikTok();
+  const chaves: string[] = [];
+  let publicou = 0;
+  const { d } = deps({
+    reservar: async (_u, chave) => { chaves.push(chave); return chaves.length === 1 ? { kind: "cached_result", result: { tiktokCampaignId: "C_APAGADA" } } : { kind: "proceed", recordId: 2 }; },
+    existe: async () => false,
+    publicar: async () => { publicou++; return { campaignId: "C_NOVA", adGroupId: "g", identityId: "i", ads: [], avisos: [] }; },
+  });
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d);
+  assert.equal(r.publicada, true);
+  assert.equal(publicou, 1);
+  assert.equal(chaves[0], "824:7000:WEB_CONVERSIONS", "mesma chave que a tela usa");
+  assert.equal(chaves[1], "824:7000:WEB_CONVERSIONS:refeita:C_APAGADA");
+  const { d: d2 } = deps({ reservar: async () => ({ kind: "cached_result", result: { tiktokCampaignId: "C1" } }), existe: async () => true });
+  const r2: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d2);
+  assert.equal(r2.jaPublicada, true);
 });

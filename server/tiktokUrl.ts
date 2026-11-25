@@ -37,13 +37,51 @@ export function normalizarUrlDeDestino(bruta: string, utms: Record<string, strin
   try { u = new URL(t); } catch { return { url: "", problemas: [`Pagina de destino invalida: ${bruta}`], correcoes }; }
   if (u.protocol === "http:") { u.protocol = "https:"; correcoes.push("Troquei http por https na pagina de destino (o TikTok exige https)."); }
   if (u.protocol !== "https:") problemas.push("A pagina de destino precisa ser https.");
-  if (/^(localhost|127\.|10\.|192\.168\.)/i.test(u.hostname) || !u.hostname.includes(".")) problemas.push("A pagina de destino precisa ser um endereco publico.");
+  if (!hostPublico(u.hostname)) problemas.push("A pagina de destino precisa ser um endereco publico.");
   if (utms) {
     const faltando = Object.entries(utms).filter(([k]) => !u.searchParams.has(k));
     for (const [k, v] of faltando) u.searchParams.set(k, v);
     if (faltando.length) correcoes.push(`Acrescentei ${faltando.map(([k]) => k).join(", ")} para rastrear o TikTok (parametros que ja existiam foram mantidos).`);
   }
   return { url: u.toString(), problemas, correcoes };
+}
+
+/** IP privado, de loopback, link-local (metadados 169.254.x) ou reservado, v4 e v6. */
+export function ipPrivado(ip: string): boolean {
+  const v = ip.replace(/^\[|\]$/g, "").toLowerCase();
+  if (v.includes(":")) {
+    if (v === "::" || v === "::1") return true;
+    const mapeado = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapeado) return ipPrivado(mapeado[1]);
+    return /^(fc|fd|fe8|fe9|fea|feb)/.test(v);
+  }
+  const n = v.split(".").map(Number);
+  if (n.length !== 4 || n.some((x) => !(x >= 0 && x <= 255))) return false;
+  const [a, b] = n;
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
+    || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+}
+
+/** Nome de host publico (nao localhost, nao IP privado, com dominio). */
+export function hostPublico(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (!h || h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) return false;
+  if (/^[\d.]+$/.test(h) || h.includes(":")) return !ipPrivado(h);
+  return h.includes(".");
+}
+
+/** https e host publico, conferindo tambem o IP resolvido (evita apontar o servidor para a rede interna). */
+export async function urlPublicaSegura(url: string, resolver: (host: string) => Promise<string[]> = resolverHost): Promise<boolean> {
+  let u: URL;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== "https:" || !hostPublico(u.hostname)) return false;
+  if (/^[\d.]+$/.test(u.hostname) || u.hostname.includes(":")) return true;
+  try { const ips = await resolver(u.hostname); return ips.length > 0 && !ips.some(ipPrivado); } catch { return false; }
+}
+
+async function resolverHost(host: string): Promise<string[]> {
+  const { lookup } = await import("node:dns/promises");
+  return (await lookup(host, { all: true })).map((r) => r.address);
 }
 
 /** Mesma pagina? (ignora UTMs, barra final e caixa do host) */
@@ -59,9 +97,12 @@ export function mesmaPagina(a: string, b: string): boolean {
 }
 
 /** A pagina responde? (HEAD e, se recusado, GET sem baixar o corpo). Nunca lanca. */
-export async function paginaResponde(url: string, doFetch: typeof fetch = fetch): Promise<{ ok: boolean; status?: number; erro?: string }> {
+export async function paginaResponde(url: string, doFetch: typeof fetch = fetch, seguro: (u: string) => Promise<boolean> = urlPublicaSegura): Promise<{ ok: boolean; status?: number; erro?: string }> {
+  // Revisao Goldfish 25/11 (SSRF): so consulta endereco publico e nao segue redirecionamento
+  // (3xx conta como "responde": o TikTok segue o redirecionamento na revisao).
+  if (!(await seguro(url))) return { ok: false, erro: "endereco nao publico" };
   const tentar = async (method: "HEAD" | "GET") => {
-    const r = await doFetch(url, { method, redirect: "follow", signal: AbortSignal.timeout(8000), headers: { "User-Agent": "MecProAI-LinkCheck/1.0" } });
+    const r = await doFetch(url, { method, redirect: "manual", signal: AbortSignal.timeout(8000), headers: { "User-Agent": "MecProAI-LinkCheck/1.0" } });
     try { await r.body?.cancel(); } catch { /* corpo descartado */ }
     return r.status;
   };

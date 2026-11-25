@@ -13,7 +13,7 @@
 import { listarIdentidadesAutorizadas, type ClienteTikTok, type EntradaTikTok } from "./tiktokPublicar";
 import { minimoDiarioTikTok, textoMinimo, type MinimoTikTok } from "./tiktokOrcamentoMinimo";
 import { configDoObjetivo, EVENTOS_WEB, validarPixel, type ConfigObjetivoTikTok, type ObjetivoMecPro } from "./tiktokObjetivos";
-import { normalizarUrlDeDestino, paginaResponde } from "./tiktokUrl";
+import { normalizarUrlDeDestino, paginaResponde, urlPublicaSegura } from "./tiktokUrl";
 import { depsVideoPadrao, prepararVideo, type DepsVideo, type VideoPreparado } from "./tiktokVideo";
 
 export interface ResultadoValidacaoTikTok {
@@ -30,10 +30,11 @@ export interface ResultadoValidacaoTikTok {
 
 export interface DepsValidacao {
   minimo(c: ClienteTikTok, adv: string): Promise<MinimoTikTok | null>;
+  urlSegura(url: string): Promise<boolean>;
   pagina(url: string): Promise<{ ok: boolean; status?: number; erro?: string }>;
   video: DepsVideo;
 }
-export const depsValidacaoPadrao: DepsValidacao = { minimo: (c, adv) => minimoDiarioTikTok(c, adv), pagina: (u) => paginaResponde(u), video: depsVideoPadrao };
+export const depsValidacaoPadrao: DepsValidacao = { minimo: (c, adv) => minimoDiarioTikTok(c, adv), urlSegura: (u) => urlPublicaSegura(u), pagina: (u) => paginaResponde(u), video: depsVideoPadrao };
 
 /** Legenda do TikTok nao aceita link clicavel, @ nem hashtag (especificacao de In-Feed). */
 export function limparTextoDoAnuncio(texto: string): { texto: string; correcoes: string[] } {
@@ -92,8 +93,8 @@ export async function validarPublicacaoTikTok(
   const destino = normalizarUrlDeDestino(bruta.landingPageUrl);
   correcoes.push(...destino.correcoes);
   bloqueios.push(...destino.problemas);
-  if (destino.url) {
-    entrada.landingPageUrl = destino.url;
+  if (destino.url) entrada.landingPageUrl = destino.url;
+  if (destino.url && !destino.problemas.length) {
     const resp = await deps.pagina(destino.url);
     if (!resp.ok) {
       if (resp.status && resp.status >= 400) bloqueios.push(`A pagina de destino respondeu HTTP ${resp.status}. Corrija o endereco antes de publicar.`);
@@ -114,6 +115,7 @@ export async function validarPublicacaoTikTok(
   const preparados: VideoPreparado[] = [];
   for (const v of entrada.videos) {
     if (!v.videoUrl) { videos.push({ nome: v.nomeNaBiblioteca || v.videoId || "video", origem: v.videoId || "" }); continue; }
+    if (!(await deps.urlSegura(v.videoUrl))) { bloqueios.push(`O video ${v.nome || v.videoUrl} precisa estar em um endereco https publico.`); continue; }
     const p = await prepararVideo({ url: v.videoUrl, nome: v.nome }, { enquadramento: bruta.enquadramento, executar: false }, deps.video);
     bloqueios.push(...p.problemas.map((x) => `"${p.nome}": ${x}`));
     correcoes.push(...p.correcoes.map((x) => `"${p.nome}": ${x}`));
@@ -125,6 +127,8 @@ export async function validarPublicacaoTikTok(
     });
   }
 
+  // Mesmo plano na previa e na publicacao (Goldfish 25/11): o publicador usa estes preparados.
+  if (preparados.length) entrada.videosPreparados = preparados;
   return { ok: bloqueios.length === 0, bloqueios, correcoes, avisos, objetivo, minimo, ...(pixel ? { pixel } : {}), entrada, videos };
 }
 

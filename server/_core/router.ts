@@ -6028,15 +6028,30 @@ const campaignsRouter = router({
       const { criarClienteTikTok, publicarCampanhaTikTok } = await import("../tiktokPublicar");
       const { validarPublicacaoTikTok } = await import("../tiktokValidacao");
       const cliente = criarClienteTikTok(token);
+      // Nome da marca escolhe a identidade (nao o nome da campanha); "#id" no nome igual ao chat.
+      const perfil: any = await db.getClientProfile(input.projectId).catch(() => null);
+      const projeto: any = await db.getProjectById(input.projectId).catch(() => null);
+      const marca = String(perfil?.companyName || projeto?.name || input.campaignName).slice(0, 40);
+      const nomeTikTok = input.campaignName.includes(`#${input.campaignId}`) ? input.campaignName : `${input.campaignName.slice(0, 100)} · #${input.campaignId}`;
       const validacao = await validarPublicacaoTikTok(cliente, {
-        advertiserId, campaignName: input.campaignName, dailyBudgetReais: input.budget, landingPageUrl: destinos[0] || "",
-        adText: input.ads[0].adText, callToAction: input.ads[0].callToAction, displayName: input.campaignName,
+        advertiserId, campaignName: nomeTikTok, dailyBudgetReais: input.budget, landingPageUrl: destinos[0] || "",
+        adText: input.ads[0].adText, callToAction: input.ads[0].callToAction, displayName: marca,
         videos: input.ads.filter((a) => a.videoUrl).map((a) => (/^https?:\/\//.test(a.videoUrl) ? { videoUrl: a.videoUrl } : { videoId: a.videoUrl })),
         ageGroups, objetivo,
       });
       if (!validacao.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `Nada foi criado no TikTok: ${validacao.bloqueios.join(" ")}` });
-      const reserva = await db.reserveMcpIdempotencyKey(userId, "ui_tiktok_publish", `${input.campaignId}:${advertiserId}:${validacao.objetivo.objectiveType}`);
-      if (reserva.kind === "cached_result") return { success: true, ...(reserva.result || {}), message: "Esta campanha já foi publicada no TikTok; nada novo foi criado." };
+      // Mesma chave do chat (rascunho + conta + objetivo): o mesmo rascunho nao vira duas campanhas.
+      const { chaveDePublicacaoTikTok } = await import("../chatTikTok");
+      const chave = chaveDePublicacaoTikTok(input.campaignId, advertiserId, validacao.objetivo.objectiveType);
+      let reserva = await db.reserveMcpIdempotencyKey(userId, "tiktok_publish", chave);
+      if (reserva.kind === "cached_result") {
+        const anterior = String((reserva.result as any)?.tiktokCampaignId || "");
+        const { consultarCampanhaTikTok } = await import("../tiktokConsulta");
+        const aindaExiste = !anterior || !!(await consultarCampanhaTikTok(cliente, advertiserId, anterior).catch(() => ({ campanha: true }))).campanha;
+        if (aindaExiste) return { success: true, ...(reserva.result || {}), message: "Esta campanha já foi publicada no TikTok; nada novo foi criado." };
+        reserva = await db.reserveMcpIdempotencyKey(userId, "tiktok_publish", `${chave}:refeita:${anterior}`);
+        if (reserva.kind === "cached_result") return { success: true, ...(reserva.result || {}), message: "Esta campanha já foi publicada de novo no TikTok; nada novo foi criado." };
+      }
       if (reserva.kind === "duplicate_in_progress") throw new TRPCError({ code: "CONFLICT", message: "Já existe uma publicação desta campanha no TikTok em andamento." });
       let etapa = "início";
       try {

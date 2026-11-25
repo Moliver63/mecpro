@@ -16,7 +16,7 @@ import { minimoDiarioTikTok, OrcamentoAbaixoDoMinimo } from "./tiktokOrcamentoMi
 import { createHash } from "node:crypto";
 import { openAsBlob } from "node:fs";
 import { configDoObjetivo, validarPixel, type ObjetivoMecPro } from "./tiktokObjetivos";
-import { md5DoArquivo, nomeNoTikTok, prepararVideo, proporcaoAceita, type DepsVideo, type Enquadramento, type VideoPreparado } from "./tiktokVideo";
+import { comPastaTemporaria, depsVideoPadrao, md5DoArquivo, nomeNoTikTok, prepararVideo, proporcaoAceita, type DepsVideo, type Enquadramento, type VideoPreparado } from "./tiktokVideo";
 
 export const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3/";
 export const TIKTOK_BRASIL_LOCATION_ID = "3469034";
@@ -367,14 +367,32 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       if (!id) throw new Error(`Video "${v.nomeNaBiblioteca}" nao esta na biblioteca de criativos do TikTok.`);
       videoIds.push(id); capas.push(undefined); continue;
     }
-    const prep = e.videosPreparados?.[i] && e.videosPreparados[i].origem === v.videoUrl
-      ? e.videosPreparados[i]
-      : await prepararVideo({ url: v.videoUrl!, nome: v.nome }, { enquadramento: e.enquadramento, executar: true }, depsVideo);
-    const problemas = (prep as any).problemas as string[] | undefined;
-    if (problemas?.length) throw new Error(`Video "${prep.nome}": ${problemas.join(" ")}`);
-    avisos.push(...(((prep as any).correcoes as string[] | undefined) || []));
+    const dv = depsVideo || depsVideoPadrao;
+    // Usa o MESMO plano mostrado na previa; so refaz quando ainda falta importar para o Cloudinary.
+    const daPrevia = e.videosPreparados?.[i] && e.videosPreparados[i].origem === v.videoUrl ? e.videosPreparados[i] : null;
+    let prep: VideoPreparado & { problemas?: string[]; correcoes?: string[] } = daPrevia && (daPrevia.urlFinal || !daPrevia.plano?.transformar)
+      ? daPrevia
+      : await prepararVideo({ url: v.videoUrl!, nome: v.nome }, { enquadramento: e.enquadramento, executar: true }, dv);
+    if (prep === daPrevia && prep.urlFinal && prep.plano?.transformar && !(await dv.aguardar(prep.urlFinal))) {
+      throw new Error(`O Cloudinary nao terminou de adaptar "${prep.nome}" a tempo. Tente de novo em alguns minutos.`);
+    }
+    if (prep.problemas?.length) throw new Error(`Video "${prep.nome}": ${prep.problemas.join(" ")}`);
+    if (prep !== daPrevia) avisos.push(...(prep.correcoes || []));
     const nome = nomeNoTikTok(prep);
-    const id = await subirVideo(c, adv, prep, nome, async () => (biblioteca = biblioteca ?? await listarBibliotecaDeVideos(c, adv)), avisos);
+    const carregar = async () => (biblioteca = biblioteca ?? await listarBibliotecaDeVideos(c, adv));
+    let id: string;
+    if (!prep.urlFinal && prep.plano?.transformar) {
+      // Sem Cloudinary: FFmpeg em arquivo temporario e envio em stream; a pasta some ao fim.
+      if (!dv.adaptarLocal) throw new Error(`Nao ha como adaptar "${prep.nome}" neste servidor (sem Cloudinary e sem FFmpeg).`);
+      const plano = prep.plano;
+      id = await comPastaTemporaria(async (pasta) => {
+        const arquivo = await dv.adaptarLocal!(prep.origem, pasta, plano, prep.sonda?.temAudio ?? true, e.enquadramento || "preservar");
+        return subirVideo(c, adv, { ...prep, arquivoLocal: arquivo }, nome, carregar, avisos);
+      });
+      avisos.push(`"${prep.nome}" adaptado com FFmpeg no servidor (${plano.proporcao}, ${plano.largura}x${plano.altura}).`);
+    } else {
+      id = await subirVideo(c, adv, prep, nome, carregar, avisos);
+    }
     videoIds.push(id); capas.push(prep.capaUrl);
   }
 

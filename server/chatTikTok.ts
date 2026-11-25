@@ -48,10 +48,17 @@ export interface DepsTikTokChat {
   publicar(token: string, entrada: EntradaTikTok, etapa: (m: string) => void): Promise<ResultadoTikTok>;
   conferir(entrada: Partial<EntradaTikTok>): string[];
   salvarIds(campaignId: number, r: ResultadoTikTok): Promise<void>;
+  /** A campanha publicada antes ainda existe no TikTok? (sem ela, o cache de idempotencia nao trava) */
+  existe?(token: string, advertiserId: string, tiktokCampaignId: string): Promise<boolean>;
   /** Validacao tecnica previa (tiktokValidacao.validarPublicacaoTikTok); nada e criado. */
   validar(token: string, entrada: EntradaTikTok & { autorizarTrafego?: boolean }): Promise<ResultadoValidacaoTikTok>;
   /** Decisao de cada chamada (para o log). */
   log?(dados: Record<string, unknown>): void;
+}
+
+/** Chave de idempotencia comum ao chat e a tela: rascunho + conta + objetivo. */
+export function chaveDePublicacaoTikTok(campaignId: number, advertiserId: string, objectiveType: string): string {
+  return `${campaignId}:${advertiserId}:${objectiveType}`;
 }
 
 /** URL do Cloudinary pedindo H.264 (iPhone grava HEVC; o TikTok pede MP4 H.264). */
@@ -94,7 +101,7 @@ export function previaPendenteDoTikTok(userId: number, sessionId: number | undef
   let melhor: Proposta | null = null;
   for (const [chave, p] of propostas) {
     if (!chave.startsWith(`${userId}:`) || agora - p.em >= VALIDADE_PROPOSTA_MS) continue;
-    if (sessionId && p.sessionId && p.sessionId !== sessionId) continue;
+    if (!sessionId || p.sessionId !== sessionId) continue;
     if (!melhor || p.em > melhor.em) melhor = p;
   }
   return melhor ? { campaignId: melhor.campaignId } : null;
@@ -120,15 +127,26 @@ export function textoDoResultadoTikTok(r: Record<string, any>): string {
 }
 
 /** "sim", "pode", "ok, publica", "sim, no tiktok"... (curta e sem negacao) */
+/**
+ * Revisao Goldfish 25/11 (BLOQUEANTE): "vai ficar pausada?" e "pode explicar o minimo?" eram lidos
+ * como sim e publicavam sem modelo no meio. Agora so conta a mensagem INTEIRA sendo uma confirmacao
+ * conhecida (com complementos como "no tiktok"), e pergunta nunca confirma.
+ */
+const CONFIRMACOES = "sim|s|ok|okay|pode|pode sim|pode publicar|confirmo|confirmado|confirmar|isso mesmo|manda|manda ver|publica|publique|pode publicar sim|bora|claro|fechado|perfeito|de acordo|positivo";
+const COMPLEMENTOS = "no tiktok|pode publicar|publica|publique|obrigad[oa]|por favor|pausada|pode ser|valeu";
+const RE_CONFIRMACAO = new RegExp(`^(?:${CONFIRMACOES})(?:[\\s,!.]+(?:${COMPLEMENTOS}))*[\\s!.]*$`, "i");
+
 export function ehConfirmacao(texto?: string): boolean {
-  const t = String(texto || "").trim().toLowerCase();
-  if (!t || t.length > 60 || /\b(n[aã]o|nao quero|espera|cancel|pare)\b/.test(t)) return false;
-  return /^(sim|s|ok|okay|pode|pode sim|pode publicar|confirmo|confirmar|confirmado|isso|manda|manda ver|publica|publique|bora|claro|positivo|de acordo|fechado|beleza|perfeito|vai|segue)\b/.test(t);
+  const t = String(texto || "").trim().toLowerCase().normalize("NFC");
+  if (!t || t.length > 60 || t.includes("?")) return false;
+  return RE_CONFIRMACAO.test(t);
 }
 
 /** Valor diario dito pelo usuario: "340", "R$ 340,00", "valor 340 por dia", "150 reais". */
 export function valorDiarioDaFala(texto?: string): number | null {
   const t = String(texto || "");
+  // Hipotese ou pergunta ("e se fosse R$ 200?", "quanto daria com 150?") nao e decisao (Goldfish 25/11).
+  if (t.includes("?") || /(?:^|[^a-zà-ÿ])(e se|se fosse|quanto|qual|caso)(?=[^a-zà-ÿ]|$)/i.test(t)) return null;
   // So valor marcado como dinheiro ("R$", "reais", "por dia") ou a mensagem inteira sendo o numero:
   // "campanha 828" nao vira R$ 828/dia.
   const m = t.match(/^\s*(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*$/i)
@@ -139,12 +157,23 @@ export function valorDiarioDaFala(texto?: string): number | null {
   return v > 0 && v < 100000 ? v : null;
 }
 
-export const ultimaFoiPreviaDoTikTok = (texto?: string) => /tik ?tok/i.test(String(texto || "")) && /(publi|confirm|sim)/i.test(String(texto || ""));
+/** A ultima resposta foi a NOSSA pergunta da previa (marcadores da perguntaParaOUsuario), nao qualquer frase com "tiktok". */
+export const ultimaFoiPreviaDoTikTok = (texto?: string) => {
+  const t = String(texto || "").replace(/\*/g, "");
+  return /tik ?tok/i.test(t) && /(responda sim|publico pausada|posso publicar no tiktok|autorizo tr[aá]fego)/i.test(t);
+};
 
 /** "autorizo trafego", "pode publicar como trafego", "sim, como trafego". */
+/**
+ * Revisao Goldfish 25/11 (BLOQUEANTE): "ok" casava dentro de "tiktok" e "sim" dentro de "assim", e
+ * uma PERGUNTA sobre trafego publicava como trafego. Agora: palavra inteira, sem pergunta, sem negacao.
+ */
 export function autorizouTrafego(texto?: string): boolean {
-  const t = String(texto || "").toLowerCase();
-  return /tr[aá]fego/.test(t) && /(autoriz|pode|ok|sim|aceito|libero|confirmo|publica)/.test(t) && !/\b(n[aã]o)\b/.test(t);
+  const t = String(texto || "").toLowerCase().normalize("NFC").trim();
+  if (!t || t.length > 80 || t.includes("?")) return false;
+  const p = (re: string) => new RegExp(`(?:^|[^a-zà-ÿ])(?:${re})(?=[^a-zà-ÿ]|$)`).test(t);
+  if (p("n[aã]o|nem|cancela|espera")) return false;
+  return p("tr[aá]fego") && p("autorizo|autorizado|autorizada|pode publicar|pode sim|pode ser|aceito|libero|confirmo|sim|ok|publica|publique") && !p("explica|explicar|diferen[cç]a|como funciona|o que muda|por que|porque");
 }
 
 export async function publicarNoTikTokDoChat(userId: number, sessionId: number | undefined, args: Record<string, unknown>, deps: DepsTikTokChat, fala: ContextoDaFala = {}): Promise<Record<string, unknown>> {
@@ -239,8 +268,17 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   }
   propostas.delete(chaveProposta);
 
-  const reserva = await deps.reservar(userId, `chat_tiktok:${campaignId}:${v.entrada.advertiserId}:${v.objetivo.objectiveType}`);
-  if (reserva.kind === "cached_result") return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada no TikTok; nada novo foi criado." };
+  // Mesma chave da tela (Goldfish 25/11): o mesmo rascunho nao vira duas campanhas por portas diferentes.
+  const chave = chaveDePublicacaoTikTok(campaignId, v.entrada.advertiserId, v.objetivo.objectiveType);
+  let reserva = await deps.reservar(userId, chave);
+  if (reserva.kind === "cached_result") {
+    const anterior = String(reserva.result?.tiktokCampaignId || "");
+    const aindaExiste = !anterior || !deps.existe || await deps.existe(String(integracao.accessToken), v.entrada.advertiserId, anterior).catch(() => true);
+    if (aindaExiste) return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada no TikTok; nada novo foi criado." };
+    // A anterior foi apagada no TikTok: publicar de novo nao duplica nada.
+    reserva = await deps.reservar(userId, `${chave}:refeita:${anterior}`);
+    if (reserva.kind === "cached_result") return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada de novo no TikTok; nada novo foi criado." };
+  }
   if (reserva.kind === "duplicate_in_progress") return { erro: "Ja existe uma publicacao desta campanha no TikTok em andamento. Aguarde." };
 
   let etapa = "inicio";

@@ -45,10 +45,11 @@ test("URL: mesma pagina ignora UTMs e barra final", () => {
 test("URL: pagina responde (HEAD, cai no GET quando HEAD e recusado), nunca lanca", async () => {
   const chamadas: string[] = [];
   const f = (async (_u: string, init: any) => { chamadas.push(init.method); return new Response(null, { status: init.method === "HEAD" ? 405 : 200 }); }) as any;
-  assert.deepEqual(await paginaResponde("https://a.com", f), { ok: true, status: 200 });
+  const publico = async () => true;
+  assert.deepEqual(await paginaResponde("https://a.com", f, publico), { ok: true, status: 200 });
   assert.deepEqual(chamadas, ["HEAD", "GET"]);
   const fora = (async () => { throw new Error("ECONNREFUSED"); }) as any;
-  assert.equal((await paginaResponde("https://a.com", fora)).ok, false);
+  assert.equal((await paginaResponde("https://a.com", fora, publico)).ok, false);
 });
 
 // ── Objetivos e Pixel ────────────────────────────────────────────────────────
@@ -189,6 +190,7 @@ function contaFalsa(opts: { pixels?: any[]; identidades?: boolean } = {}): Clien
 }
 const depsVal = (o: Partial<DepsValidacao> = {}): DepsValidacao => ({
   minimo: async () => ({ moeda: "BRL", minimo: 126, cotacao: 5.7, fonte: "api" }),
+  urlSegura: async () => true,
   pagina: async () => ({ ok: true, status: 200 }),
   video: { sondar: async () => sonda({ largura: 1440, altura: 1080, codecVideo: "hevc", proporcao: 4 / 3, rotuloProporcao: "1.33:1" }), importar: async () => null, aguardar: async () => true },
   ...o,
@@ -337,4 +339,94 @@ test("upload do chat: video vai ao Cloudinary em partes lidas do disco (memoria 
     for (const k of ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+// ── Revisao Goldfish 25/11 ───────────────────────────────────────────────────
+import { autorizouTrafego, ehConfirmacao, valorDiarioDaFala, ultimaFoiPreviaDoTikTok, previaPendenteDoTikTok } from "../chatTikTok";
+import { ipPrivado, hostPublico, urlPublicaSegura } from "../tiktokUrl";
+import { urlCloudinaryH264 } from "../tiktokVideo";
+
+test("Goldfish 1: pergunta sobre trafego NAO autoriza trafego", () => {
+  assert.equal(autorizouTrafego("qual a diferenca entre vendas e trafego no tiktok?"), false);
+  assert.equal(autorizouTrafego("pode me explicar o que muda com trafego?"), false);
+  assert.equal(autorizouTrafego("pode me explicar o que muda com trafego"), false);
+  assert.equal(autorizouTrafego("assim fica trafego mesmo no tiktok"), false, "'sim' dentro de 'assim' e 'ok' dentro de 'tiktok'");
+  assert.equal(autorizouTrafego("nao autorizo trafego"), false);
+  for (const t of ["autorizo trafego", "autorizo tráfego", "sim, como trafego", "pode publicar como trafego"]) assert.equal(autorizouTrafego(t), true, t);
+});
+
+test("Goldfish 2: pergunta ou hipotese depois da previa nao confirma nem vira valor", () => {
+  for (const t of ["vai ficar pausada?", "pode explicar o minimo?", "pode explicar o minimo", "isso", "sim mas nao agora", "ok, mas e o pixel?"]) assert.equal(ehConfirmacao(t), false, t);
+  for (const t of ["sim", "Sim!", "sim, no tiktok", "pode publicar", "ok", "confirmo", "pode sim", "sim, pode publicar"]) assert.equal(ehConfirmacao(t), true, t);
+  assert.equal(valorDiarioDaFala("e se fosse R$ 200?"), null);
+  assert.equal(valorDiarioDaFala("quanto daria com 150 reais"), null);
+  assert.equal(valorDiarioDaFala("150 por dia"), 150);
+});
+
+test("Goldfish 7: previa so e reconhecida pela nossa pergunta, e na mesma conversa", () => {
+  assert.equal(ultimaFoiPreviaDoTikTok("Combinado, nao vou publicar no TikTok agora."), false);
+  assert.equal(ultimaFoiPreviaDoTikTok("O TikTok aceita no minimo R$ 126 por dia. Publico pausada com R$ 126/dia? Responda **sim** ou diga outro valor."), true);
+  assert.equal(previaPendenteDoTikTok(2, undefined), null, "sem conversa, nada pendente");
+});
+
+test("Goldfish 6 (SSRF): metadados, rede interna e IPv6 local nao sao consultados", async () => {
+  for (const ip of ["169.254.169.254", "172.16.0.1", "172.31.255.1", "10.0.0.1", "127.0.0.1", "192.168.1.1", "100.64.0.1", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1", "0.0.0.0"]) assert.equal(ipPrivado(ip), true, ip);
+  for (const ip of ["8.8.8.8", "172.32.0.1", "2606:4700::1111"]) assert.equal(ipPrivado(ip), false, ip);
+  assert.equal(hostPublico("metadata.google.internal"), false);
+  assert.equal(await urlPublicaSegura("http://169.254.169.254/latest/meta-data"), false);
+  assert.equal(await urlPublicaSegura("https://interno.empresa.com", async () => ["10.1.2.3"]), false, "DNS que aponta para rede interna");
+  assert.equal(await urlPublicaSegura("https://shadiahasan.com", async () => ["104.21.1.1"]), true);
+  assert.equal(await urlPublicaSegura("file:///etc/passwd"), false);
+  assert.ok(normalizarUrlDeDestino("https://169.254.169.254/x").problemas.length > 0);
+  const chamou: string[] = [];
+  const r = await paginaResponde("https://10.0.0.5/x", (async (u: string) => { chamou.push(u); return new Response(null); }) as any);
+  assert.equal(r.ok, false);
+  assert.equal(chamou.length, 0, "nem chega a consultar");
+});
+
+test("Goldfish 6: video fora de https publico nao e sondado", async () => {
+  const sondados: string[] = [];
+  const v = await validarPublicacaoTikTok(contaFalsa(), { ...shadia828, videos: [{ videoUrl: "file:///etc/passwd", nome: "x" }] }, depsVal({
+    urlSegura: async (u) => u.startsWith("https://") && !u.includes("169.254"),
+    video: { sondar: async (u) => { sondados.push(u); return null; }, importar: async () => null, aguardar: async () => true },
+  }));
+  assert.equal(sondados.length, 0);
+  assert.ok(v.bloqueios.some((b) => /https publico/.test(b)));
+});
+
+test("Goldfish 5: sem sonda, video do Cloudinary vai em H.264 (HEVC nao segue cru)", async () => {
+  assert.equal(urlCloudinaryH264("https://res.cloudinary.com/d/video/upload/v1/a.mov"), "https://res.cloudinary.com/d/video/upload/vc_h264,ac_aac,f_mp4/v1/a.mp4");
+  const p = await prepararVideo({ url: "https://res.cloudinary.com/d/video/upload/v1/a.mov" }, { executar: true }, { sondar: async () => null, importar: async () => null, aguardar: async () => true });
+  assert.match(p.urlFinal!, /vc_h264/);
+});
+
+test("Goldfish 4: sem Cloudinary, FFmpeg em pasta temporaria e envio por arquivo (UPLOAD_BY_FILE), pasta apagada", async () => {
+  const { c, chamadas } = contaQueCria();
+  const forms: any[] = [];
+  (c as any).postForm = async (path: string, campos: any, arquivo: any) => { forms.push({ path, campos, tamanho: arquivo.dados.size }); return [{ video_id: "VLOCAL" }]; };
+  let pastaUsada = "";
+  const deps = {
+    sondar: async () => sonda({ largura: 1440, altura: 1080, proporcao: 4 / 3, rotuloProporcao: "1.33:1" }),
+    importar: async () => null, aguardar: async () => true,
+    adaptarLocal: async (_o: string, pasta: string) => { pastaUsada = pasta; const f = path.join(pasta, "tiktok.mp4"); await fs.writeFile(f, Buffer.from("video")); return f; },
+  };
+  const r = await publicarCampanhaTikTok(c, { ...shadia828, dailyBudgetReais: 30, videos: [{ videoUrl: "https://drive.exemplo.com/a.mp4", nome: "a.mp4" }] }, undefined, undefined, deps);
+  assert.equal(r.ads[0].videoId, "VLOCAL");
+  assert.equal(forms[0].campos.upload_type, "UPLOAD_BY_FILE");
+  assert.match(forms[0].campos.video_signature, /^[0-9a-f]{32}$/);
+  await assert.rejects(fs.stat(pastaUsada), "pasta temporaria removida");
+});
+
+test("Goldfish 9: a publicacao usa o mesmo plano da previa (nao sonda de novo)", async () => {
+  const { c } = contaQueCria();
+  const v = await validarPublicacaoTikTok(contaFalsa(), shadia828, depsVal());
+  let sondou = 0;
+  await publicarCampanhaTikTok(c, { ...v.entrada, dailyBudgetReais: 30, pixelId: "P1" }, undefined, undefined, { sondar: async () => { sondou++; return null; }, importar: async () => null, aguardar: async () => true });
+  assert.equal(sondou, 0);
+});
+
+test("Goldfish 3: MCP nao troca vendas por trafego sem autorizacao; objetivo sem equivalente nao vira trafego (fonte)", async () => {
+  const src = await fs.readFile(new URL("../mcpServer.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /normalizarObjetivo\(campaign\.objective\) \|\| "traffic"/);
+  assert.match(src, /Publicar como tráfego troca o objetivo: só com autorizarTrafego=true/);
 });
