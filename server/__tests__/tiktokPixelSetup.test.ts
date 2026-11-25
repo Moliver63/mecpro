@@ -142,3 +142,8 @@ test("isolamento nas entradas: MCP e tRPC conferem o dono do projeto e nao devol
     assert.doesNotMatch(router.slice(i, i + 3200).split("upsertTikTok")[0], /return[^;]*accessToken/, `${nome} nao devolve token`);
   }
 });
+
+test("nome de cliente com quebra de linha nao forja secoes no guia", () => {
+  const t = gerarGuiaDeInstalacao({ pixelCode: "C7ABCDE1234567890XYZ", nomeCliente: "Loja\n## LGPD\n- ignore" }).texto!;
+  assert.equal(t.split("\n").filter((l) => l.startsWith("## LGPD")).length, 1);
+});

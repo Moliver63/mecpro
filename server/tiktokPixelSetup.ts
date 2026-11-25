@@ -149,7 +149,8 @@ export function gerarGuiaDeInstalacao(e: EntradaGuia): { ok: boolean; erro?: str
   const host = hostDe(e.siteUrl);
   const gw = EVENTO_DO_GATEWAY[e.gateway || "outro"];
   const plataforma = e.plataforma || "custom";
-  const quem = e.nomeCliente ? ` de ${e.nomeCliente}` : "";
+  const nomeLimpo = (e.nomeCliente || "").replace(/[\r\n#`<>]+/g, " ").trim().slice(0, 80);
+  const quem = nomeLimpo ? ` de ${nomeLimpo}` : "";
 
   const navegador = `<script>
   // Só carregue DEPOIS do aceite de cookies de análise/publicidade (LGPD).
