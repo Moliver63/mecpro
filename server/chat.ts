@@ -1342,6 +1342,13 @@ const diagnosticarNoTikTok = (userId: number, args: Record<string, unknown>) => 
     const d = await diagnosticarTikTok(criarClienteTikTok(token), adv, { pixelId, app: { appId: process.env.TIKTOK_MARKETING_APP_ID || "", secret: process.env.TIKTOK_MARKETING_APP_SECRET || "" } });
     return { texto: resumoDoDiagnostico(d), dados: { ...d, contasAutorizadas: d.contasAutorizadas.length } };
   },
+  pixelSetup: async (token: string, adv: string, o) => {
+    const [{ criarClienteTikTok }, { estadoPixelTikTok, resumoDoEstadoPixel, gerarGuiaDeInstalacao }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokPixelSetup")]);
+    const e = await estadoPixelTikTok(criarClienteTikTok(token), adv, { pixelSalvo: o.pixelSalvo });
+    if (!o.guia) return { estado: resumoDoEstadoPixel(e) };
+    const g = gerarGuiaDeInstalacao({ pixelCode: e.pixel?.codigo || "", siteUrl: o.siteUrl, nomeCliente: o.nomeCliente, plataforma: o.plataforma as any, gateway: o.gateway as any });
+    return { estado: resumoDoEstadoPixel(e), ...(g.ok ? { guia: g.texto } : { erroGuia: g.erro }) };
+  },
 });
 const consultarNoTikTok = (userId: number, args: Record<string, unknown>) => consultarNoTikTokDoChat(userId, args, {
   campanha: (id: number) => db.getCampaignById(id),

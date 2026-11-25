@@ -58,6 +58,26 @@ export default function TikTokIntegration() {
     onError: (e: any) => toast.error("Não foi possível diagnosticar: " + e.message),
   });
 
+  // ── Pixel por projeto, estado da Events API e guia de instalação ─────────────
+  const { data: projetos } = trpc.projects.list.useQuery(undefined, { enabled: !!existing });
+  const [projetoPixel, setProjetoPixel] = useState<number | null>(null);
+  const [estadoPixel, setEstadoPixel] = useState<any>(null);
+  const [guia, setGuia] = useState<string>("");
+  const [plataforma, setPlataforma] = useState("custom");
+  const [gateway, setGateway] = useState("outro");
+  const pixelStatus = (trpc as any).integrations?.tiktokPixelStatus?.useMutation?.({
+    onSuccess: (d: any) => { setEstadoPixel(d); setGuia(""); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const setPixel = (trpc as any).integrations?.setTikTokPixel?.useMutation?.({
+    onSuccess: (d: any) => { toast.success(d.pixelId ? "Pixel salvo no projeto." : "Pixel removido do projeto."); if (projetoPixel) pixelStatus?.mutate({ projectId: projetoPixel }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const guiaMut = (trpc as any).integrations?.tiktokInstallGuide?.useMutation?.({
+    onSuccess: (d: any) => setGuia(d.texto),
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const test = (trpc as any).integrations?.testTikTok?.useMutation?.({
     onSuccess: (d: any) => toast.success(`◎ Token válido — conta: ${d.name || d.advertiserId}`),
     onError:   (e: any) => toast.error("Token inválido: " + e.message),
@@ -216,6 +236,74 @@ export default function TikTokIntegration() {
                 style={{ marginTop: 4, padding: "10px 18px", borderRadius: 10, border: "none", background: "#010101", color: "white", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
                 Reconectar e aprovar as permissões
               </button>
+            )}
+          </div>
+        )}
+
+        {/* TikTok Pixel e Events API por projeto */}
+        {existing && (
+          <div style={card}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>TikTok Pixel e Events API</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12, lineHeight: 1.5 }}>
+              Campanhas de vendas precisam de um Pixel com o evento de compra. Escolha o Pixel do projeto, veja o que ele recebeu e gere o guia de instalação para o site do cliente. O token da Events API fica no servidor do site; o MECPro nunca o guarda.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <select value={projetoPixel ?? ""} onChange={(e) => { setProjetoPixel(e.target.value ? Number(e.target.value) : null); setEstadoPixel(null); setGuia(""); }}
+                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, minWidth: 220 }}>
+                <option value="">Escolha o projeto…</option>
+                {(projetos || []).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <button disabled={!projetoPixel || pixelStatus?.isPending} onClick={() => projetoPixel && pixelStatus?.mutate({ projectId: projetoPixel })}
+                style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#010101", color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                {pixelStatus?.isPending ? "Verificando…" : "Ver estado do Pixel"}
+              </button>
+            </div>
+            {estadoPixel && (
+              <div style={{ fontSize: 12.5, color: "#334155" }}>
+                <div style={{ fontWeight: 800, color: estadoPixel.nivel === "ok" ? "#16a34a" : estadoPixel.nivel === "atencao" ? "#b45309" : "#dc2626", marginBottom: 6 }}>
+                  {estadoPixel.nivel === "ok" ? "Tudo certo" : estadoPixel.nivel === "atencao" ? "Atenção" : "Bloqueado"}
+                </div>
+                <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+                  {(estadoPixel.pixels || []).map((p: any) => (
+                    <div key={p.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span><strong>{p.nome}</strong> ({p.id}) · {p.temCompra ? "tem evento de compra" : "sem evento de compra"}{p.disparos30d !== null ? ` · ${p.disparos30d} compras em 30 dias` : ""}</span>
+                      {estadoPixel.pixelSalvo === p.id
+                        ? <span style={{ color: "#16a34a", fontWeight: 700 }}>salvo no projeto</span>
+                        : <button onClick={() => projetoPixel && setPixel?.mutate({ projectId: projetoPixel, pixelId: p.id })} style={{ padding: "3px 10px", borderRadius: 6, border: "1px solid #cbd5e1", background: "white", fontSize: 12, cursor: "pointer" }}>Usar neste projeto</button>}
+                    </div>
+                  ))}
+                </div>
+                {(estadoPixel.eventosRecebidos || []).length > 0 && (
+                  <div style={{ marginBottom: 10 }}>Eventos recebidos em 30 dias: {estadoPixel.eventosRecebidos.map((x: any) => `${x.evento} ${x.total}`).join(" · ")}</div>
+                )}
+                {(estadoPixel.problemas || []).map((p: any, i: number) => (
+                  <div key={i} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+                    <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 6 }}>{p.mensagem}</div>
+                    <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#78350f", lineHeight: 1.55 }}>{(p.instrucoes || []).map((t: string, j: number) => <li key={j}>{t}</li>)}</ol>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11.5, color: "#64748b", marginBottom: 10 }}>{(estadoPixel.limites || []).join(" ")}</div>
+                {estadoPixel.pixelSalvo && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <select value={plataforma} onChange={(e) => setPlataforma(e.target.value)} style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12.5 }}>
+                      {["custom", "wordpress", "shopify", "nuvemshop", "hotmart", "outra"].map((v) => <option key={v} value={v}>{v === "custom" ? "Site próprio" : v}</option>)}
+                    </select>
+                    <select value={gateway} onChange={(e) => setGateway(e.target.value)} style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12.5 }}>
+                      {["asaas", "stripe", "mercadopago", "hotmart", "outro"].map((v) => <option key={v} value={v}>{v === "outro" ? "Outro pagamento" : v}</option>)}
+                    </select>
+                    <button onClick={() => projetoPixel && guiaMut?.mutate({ projectId: projetoPixel, plataforma, gateway })} disabled={guiaMut?.isPending}
+                      style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #010101", background: "white", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                      Gerar guia de instalação
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {guia && (
+              <div style={{ marginTop: 12 }}>
+                <button onClick={() => { navigator.clipboard?.writeText(guia); toast.success("Guia copiado."); }} style={{ marginBottom: 6, padding: "5px 12px", borderRadius: 6, border: "1px solid #cbd5e1", background: "white", fontSize: 12, cursor: "pointer" }}>Copiar guia</button>
+                <pre style={{ maxHeight: 360, overflow: "auto", background: "#0f172a", color: "#e2e8f0", padding: 12, borderRadius: 10, fontSize: 11.5, whiteSpace: "pre-wrap" }}>{guia}</pre>
+              </div>
             )}
           </div>
         )}

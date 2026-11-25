@@ -8094,6 +8094,70 @@ const integrationsRouter = router({
       return { ...d, resumo: resumoDoDiagnostico(d) };
     }),
 
+  /** Estado do Pixel/Events API do projeto (somente leitura). Dono do projeto, sempre. */
+  tiktokPixelStatus: protectedProcedure
+    .input(z.object({ projectId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = (ctx as any).user?.id;
+      const proj: any = await db.getProjectById(input.projectId);
+      if (!proj || proj.userId !== userId) throw new TRPCError({ code: "NOT_FOUND", message: "Projeto não encontrado." });
+      const integ: any = await db.getApiIntegration(userId, "tiktok");
+      if (!integ?.isActive || !integ.accessToken || !integ.accountId) throw new TRPCError({ code: "BAD_REQUEST", message: "TikTok Ads não está conectado." });
+      const salvo = ((await db.getClientProfile(proj.id).catch(() => null)) as any)?.tiktokPixelId || undefined;
+      const { criarClienteTikTok } = await import("../tiktokPublicar");
+      const { estadoPixelTikTok, resumoDoEstadoPixel } = await import("../tiktokPixelSetup");
+      const e = await estadoPixelTikTok(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), { pixelSalvo: salvo });
+      return { ...e, resumo: resumoDoEstadoPixel(e) };
+    }),
+
+  /** Escolhe (ou limpa) o Pixel do projeto. Confere antes que ele existe na conta conectada. */
+  setTikTokPixel: protectedProcedure
+    .input(z.object({ projectId: z.number().int().positive(), pixelId: z.union([z.string().regex(/^\d+$/), z.literal("limpar")]) }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = (ctx as any).user?.id;
+      const proj: any = await db.getProjectById(input.projectId);
+      if (!proj || proj.userId !== userId) throw new TRPCError({ code: "NOT_FOUND", message: "Projeto não encontrado." });
+      if (input.pixelId === "limpar") { await db.setTikTokPixelDoProjeto(proj.id, null); return { ok: true, pixelId: null }; }
+      const integ: any = await db.getApiIntegration(userId, "tiktok");
+      if (!integ?.isActive || !integ.accessToken || !integ.accountId) throw new TRPCError({ code: "BAD_REQUEST", message: "TikTok Ads não está conectado." });
+      const { criarClienteTikTok } = await import("../tiktokPublicar");
+      const { diagnosticarPixels } = await import("../tiktokDiagnostico");
+      const r = await diagnosticarPixels(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), "SHOPPING", input.pixelId);
+      if (r.problema && r.problema.tipo !== "pixel_sem_evento" && r.problema.tipo !== "evento_sem_atividade") throw new TRPCError({ code: "BAD_REQUEST", message: r.problema.mensagem });
+      const ok = await db.setTikTokPixelDoProjeto(proj.id, input.pixelId);
+      if (!ok) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "O projeto ainda não tem perfil de cliente; preencha o perfil antes de escolher o Pixel." });
+      return { ok: true, pixelId: input.pixelId, aviso: r.problema?.mensagem };
+    }),
+
+  /** Guia de instalação do Pixel + Events API para o site do cliente. Sem nenhum segredo no texto. */
+  tiktokInstallGuide: protectedProcedure
+    .input(z.object({
+      projectId: z.number().int().positive(),
+      plataforma: z.enum(["custom", "wordpress", "shopify", "nuvemshop", "hotmart", "outra"]).default("custom"),
+      gateway: z.enum(["asaas", "stripe", "mercadopago", "hotmart", "outro"]).default("outro"),
+      pixelCode: z.string().max(40).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = (ctx as any).user?.id;
+      const proj: any = await db.getProjectById(input.projectId);
+      if (!proj || proj.userId !== userId) throw new TRPCError({ code: "NOT_FOUND", message: "Projeto não encontrado." });
+      const perfil: any = await db.getClientProfile(proj.id).catch(() => null);
+      let codigo = input.pixelCode;
+      if (!codigo && perfil?.tiktokPixelId) {
+        const integ: any = await db.getApiIntegration(userId, "tiktok");
+        if (integ?.isActive && integ.accessToken && integ.accountId) {
+          const { criarClienteTikTok } = await import("../tiktokPublicar");
+          const { diagnosticarPixels } = await import("../tiktokDiagnostico");
+          codigo = (await diagnosticarPixels(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), "SHOPPING", perfil.tiktokPixelId, new Date(), { pedidoEhSalvo: true })).escolhido?.codigo;
+        }
+      }
+      if (!codigo) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha o Pixel do projeto antes, ou informe o código do Pixel." });
+      const { gerarGuiaDeInstalacao } = await import("../tiktokPixelSetup");
+      const g = gerarGuiaDeInstalacao({ pixelCode: codigo, siteUrl: perfil?.websiteUrl || proj.websiteUrl || undefined, nomeCliente: proj.name, plataforma: input.plataforma, gateway: input.gateway });
+      if (!g.ok) throw new TRPCError({ code: "BAD_REQUEST", message: g.erro! });
+      return { texto: g.texto!, passos: g.passos! };
+    }),
+
   upsertTikTok: protectedProcedure
     .input(z.object({
       appId:       z.string().optional(),

@@ -383,7 +383,13 @@ export const DESCRICAO_DIAGNOSTICAR_TIKTOK =
   "Use quando der erro de permissao, quando perguntarem se esta tudo certo com o TikTok ou para listar os Pixels. Devolve o que falta e como resolver, inclusive o link para reconectar. Nunca sugere trocar vendas por trafego.";
 export const PARAMETROS_DIAGNOSTICAR_TIKTOK = {
   type: "object",
-  properties: { campaignId: { type: "number", description: "Opcional: rascunho, para usar o Pixel salvo no projeto dele." } },
+  properties: {
+    campaignId: { type: "number", description: "Opcional: rascunho, para usar o Pixel salvo no projeto dele." },
+    pixelEEventsApi: { type: "boolean", description: "true para mostrar tambem o estado do Pixel e da Events API do projeto (Pixel salvo, evento de compra, eventos recebidos em 30 dias)." },
+    guiaInstalacao: { type: "boolean", description: "true para gerar o guia de instalacao do Pixel e da Events API no site do cliente (exige campaignId; usa o Pixel salvo no projeto)." },
+    plataforma: { type: "string", description: "Plataforma do site para o guia: custom, wordpress, shopify, nuvemshop, hotmart ou outra." },
+    gateway: { type: "string", description: "Quem confirma o pagamento para o guia: asaas, stripe, mercadopago, hotmart ou outro." },
+  },
   required: [],
 } as const;
 
@@ -391,19 +397,35 @@ export async function diagnosticarTikTokDoChat(userId: number, args: Record<stri
   campanha(id: number): Promise<any | null>; projeto(id: number): Promise<any | null>; perfil(projectId: number): Promise<any | null>;
   integracao(userId: number): Promise<any | null>;
   diagnosticar(token: string, adv: string, pixelId?: string): Promise<{ texto: string; dados: unknown }>;
+  /** Estado do Pixel/Events API e guia de instalacao (opcional: so quando o usuario pede). */
+  pixelSetup?(token: string, adv: string, o: { pixelSalvo?: string; guia: boolean; nomeCliente?: string; siteUrl?: string; plataforma?: string; gateway?: string }): Promise<{ estado: string; guia?: string; erroGuia?: string }>;
 }): Promise<Record<string, unknown>> {
   const integracao = await deps.integracao(userId);
   if (!integracao?.accessToken || !integracao.accountId) return { erro: "O TikTok Ads nao esta conectado. Conecte em https://www.mecproai.com/settings/tiktok." };
   let pixelId: string | undefined;
+  let nomeCliente: string | undefined;
+  let siteUrl: string | undefined;
   const campaignId = Number(args.campaignId);
   if (Number.isFinite(campaignId) && campaignId > 0) {
     const campanha = await deps.campanha(campaignId);
     const projeto = campanha ? await deps.projeto(campanha.projectId) : null;
     if (!campanha || !projeto || projeto.userId !== userId) return { erro: `Rascunho ${campaignId} nao encontrado nesta conta.` };
-    pixelId = (await deps.perfil(campanha.projectId))?.tiktokPixelId || undefined;
+    const perfil = await deps.perfil(campanha.projectId);
+    pixelId = perfil?.tiktokPixelId || undefined;
+    nomeCliente = projeto.name;
+    siteUrl = perfil?.websiteUrl || projeto.websiteUrl || undefined;
   }
+  const querGuia = args.guiaInstalacao === true;
+  if (querGuia && !pixelId) return { erro: "Para o guia de instalacao, informe o rascunho (campaignId) de um projeto que ja tenha o Pixel do TikTok escolhido." };
   try {
     const r = await deps.diagnosticar(String(integracao.accessToken), String(integracao.accountId), pixelId);
+    if ((args.pixelEEventsApi === true || querGuia) && deps.pixelSetup) {
+      const s = await deps.pixelSetup(String(integracao.accessToken), String(integracao.accountId), {
+        pixelSalvo: pixelId, guia: querGuia, nomeCliente, siteUrl,
+        plataforma: typeof args.plataforma === "string" ? args.plataforma : undefined, gateway: typeof args.gateway === "string" ? args.gateway : undefined,
+      });
+      return { diagnostico: r.texto, dados: r.dados, pixelEEventsApi: s.estado, ...(s.guia ? { guiaInstalacao: s.guia } : {}), ...(s.erroGuia ? { erroGuia: s.erroGuia } : {}) };
+    }
     return { diagnostico: r.texto, dados: r.dados };
   } catch (e: any) {
     return { erro: `Nao consegui diagnosticar agora: ${String(e?.message || e).slice(0, 400)}` };
