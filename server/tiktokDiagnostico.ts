@@ -53,9 +53,18 @@ const reconectar = (motivo: string) => `Reconecte a conta em MecProAI > Integrac
 export function classificarErroTikTok(erro: unknown): ProblemaTikTok {
   const msg = String((erro as any)?.mensagemOriginal || (erro as any)?.message || erro || "");
   const code = Number((erro as any)?.code ?? (msg.match(/\]\s*(\d{5})/)?.[1] ?? NaN));
-  const negado = msg.match(/does not grant you\s+(\S+?)\s+permission/i)?.[1] || (/lacks the required scope/i.test(msg) ? ((erro as any)?.path ? `/${(erro as any).path}` : "") : "");
+  const caminho = (erro as any)?.path ? `/${String((erro as any).path).replace(/^\/+/, "")}` : "";
+  const negado = msg.match(/does not grant you\s+(\/\S+?)\s+permission/i)?.[1] || caminho;
+  // Conta antes do 40001: "No permission to operate advertiser" tambem vem com 40001 (Goldfish r2).
+  if (/advertiser.*(not exist|does not exist|no permission|not authori[sz]ed|not belong|invalid)|no permission to operate|advertiser_id.*invalid/i.test(msg)) {
+    return {
+      tipo: "conta_nao_autorizada", deAutorizacao: true,
+      mensagem: "A conta de anuncios usada nao esta autorizada para o app do MecProAI (ou nao pertence a este token).",
+      instrucoes: [reconectar("marque a conta de anuncios correta"), "Confira em Integracoes qual Advertiser ID esta selecionado."],
+    };
+  }
   // 40001 e o codigo de "Permission error" do TikTok, qualquer que seja o texto (Goldfish 25/11).
-  if (code === 40001 || negado || /lacks the required scope|no permission to (call|access) (this )?api|does not grant you|permission error/i.test(msg)) {
+  if (code === 40001 || /lacks the required scope|no permission to (call|access) (this )?api|does not grant you|permission error/i.test(msg)) {
     const endpoint = negado || "";
     const permissao = permissaoDoEndpoint(endpoint.replace(/:.*$/, ""));
     return {
@@ -68,7 +77,7 @@ export function classificarErroTikTok(erro: unknown): ProblemaTikTok {
       ],
     };
   }
-  if (code === 40100 || /too (many|frequent)|rate limit|qps/i.test(msg)) {
+  if (code === 40100 || /too many requests|too frequent|rate limit|\bqps\b/i.test(msg)) {
     return { tipo: "limite", deAutorizacao: false, mensagem: "O TikTok limitou as chamadas por excesso de requisicoes agora.", instrucoes: ["Espere um minuto e tente de novo. Nao e preciso reconectar."] };
   }
   if ([40104, 40105].includes(code) || /access[_ ]?token.*(invalid|expired|not exist|is null|empty|revoked)|token (has )?(expired|invalid)/i.test(msg)) {
@@ -76,13 +85,6 @@ export function classificarErroTikTok(erro: unknown): ProblemaTikTok {
       tipo: "token_invalido", deAutorizacao: true,
       mensagem: "O token do TikTok Ads esta invalido, expirado ou foi revogado.",
       instrucoes: [reconectar("autorize a conta de anuncios de novo"), "Se a autorizacao foi removida no Business Center (Apps), autorize o MecProAI de novo por la."],
-    };
-  }
-  if (/advertiser.*(not exist|does not exist|no permission|not authori[sz]ed|not belong|invalid)|no permission to operate|advertiser_id.*invalid/i.test(msg)) {
-    return {
-      tipo: "conta_nao_autorizada", deAutorizacao: true,
-      mensagem: "A conta de anuncios usada nao esta autorizada para o app do MecProAI (ou nao pertence a este token).",
-      instrucoes: [reconectar("marque a conta de anuncios correta"), "Confira em Integracoes qual Advertiser ID esta selecionado."],
     };
   }
   return { tipo: "outro", deAutorizacao: false, mensagem: msg.slice(0, 600) || "Erro desconhecido do TikTok.", instrucoes: [] };
@@ -179,9 +181,9 @@ export async function diagnosticarPixels(c: ClienteTikTok, adv: string, evento: 
       instrucoes: [`Pixels: ${comEvento.map((p) => `${p.nome} (${p.pixelId})`).join(", ")}. Diga qual usar; ele fica salvo para este projeto.`],
     } };
     else if (pixels.length === 1) escolhido = pixels[0];
-    else if (pixels.every((p) => !p.eventos.length)) return { ok: false, pixels, avisos, problema: {
+    else if (pixels.some((p) => !p.eventos.length)) return { ok: false, pixels, avisos, problema: {
       tipo: "pixel_ambiguo", deAutorizacao: false,
-      mensagem: `A conta tem ${pixels.length} Pixels e a API nao informou os eventos deles. Escolha qual e o do site desta campanha.`,
+      mensagem: `A conta tem ${pixels.length} Pixels e a API nao informou os eventos de todos. Escolha qual e o do site desta campanha.`,
       instrucoes: [`Pixels: ${pixels.map((p) => `${p.nome} (${p.pixelId})`).join(", ")}. Diga qual usar; ele fica salvo para este projeto.`],
     } };
     if (!escolhido) return { ok: false, pixels, avisos, problema: {
@@ -230,7 +232,7 @@ export interface DiagnosticoTikTok {
  * `app` (app_id e secret do servidor) permite conferir a lista de contas autorizadas
  * (oauth2/advertiser/get); sem ele, essa etapa fica como "nao conferida".
  */
-export async function diagnosticarTikTok(c: ClienteTikTok, adv: string, opcoes: { app?: { appId: string; secret: string }; evento?: string; pixelId?: string } = {}): Promise<DiagnosticoTikTok> {
+export async function diagnosticarTikTok(c: ClienteTikTok, adv: string, opcoes: { app?: { appId: string; secret: string }; evento?: string; pixelId?: string; pixelSalvo?: boolean } = {}): Promise<DiagnosticoTikTok> {
   const problemas: ProblemaTikTok[] = [];
   let contaAutorizada: boolean | null = null;
   let contasAutorizadas: string[] = [];
@@ -258,8 +260,9 @@ export async function diagnosticarTikTok(c: ClienteTikTok, adv: string, opcoes: 
     catch (e) { const p = classificarErroTikTok(e); capacidades.push({ nome, endpoint, ok: false, problema: p }); problemas.push(p); }
   }
   const evento = opcoes.evento || "SHOPPING";
-  const pixel = await diagnosticarPixels(c, adv, evento, opcoes.pixelId);
-  capacidades.push({ nome: "Pixel e eventos", endpoint: "pixel/list/", ok: !pixel.problema?.deAutorizacao && pixel.problema?.tipo !== "limite", ...(pixel.problema && (pixel.problema.deAutorizacao || pixel.problema.tipo === "limite") ? { problema: pixel.problema } : {}) });
+  const pixel = await diagnosticarPixels(c, adv, evento, opcoes.pixelId, new Date(), { pedidoEhSalvo: opcoes.pixelSalvo !== false && !!opcoes.pixelId });
+  const leituraFalhou = !!pixel.problema && (pixel.problema.deAutorizacao || ["limite", "outro"].includes(pixel.problema.tipo));
+  capacidades.push({ nome: "Pixel e eventos", endpoint: "pixel/list/", ok: !leituraFalhou, ...(leituraFalhou ? { problema: pixel.problema } : {}) });
   if (pixel.problema) problemas.push(pixel.problema);
   const base = capacidades.slice(0, 4).every((x) => x.ok) && contaAutorizada !== false;
   return {

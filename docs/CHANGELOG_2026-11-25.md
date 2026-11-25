@@ -84,3 +84,8 @@ Branch: `feat/tiktok-permissoes-pixel`. Pedido de Michel: correção definitiva 
 1. Portal de desenvolvedor (business-api.tiktok.com/portal/apps) > app do MecProAI > Scope of permission > marcar Measurement. Pode exigir revisão do TikTok.
 2. Reautorizar em MecProAI > Integrações > TikTok Ads.
 3. Criar/confirmar o Pixel da Shadia e o evento Purchase.
+
+## Revisão Goldfish da Parte 2 (2 rodadas)
+- Rodada 1: 2 BLOQUEANTES corrigidos (CSRF no OAuth com state previsível → HMAC com segredo do servidor; erro 40001 com outro texto ou falha de leitura virava tráfego → só "TikTok afirma que não há Pixel/evento" + autorização do usuário). Riscos corrigidos: prévia coerente, 40100 = limite, Pixels ambíguos, migração primeiro, avisos de identidade, Pixel salvo que sumiu, limpar Pixel, redirect configurável.
+- Rodada 2: sem BLOQUEANTE. Riscos corrigidos depois (sem 3ª rodada): 40001 de conta reconhecido como conta; endpoint pelo caminho; "too many ads" não é limite; Pixels misturados pedem escolha; diagnóstico trata Pixel salvo como a publicação; falha de leitura não mostra OK; falta de segredo vira erro claro.
+- Risco residual aceito: o state (assinado) vale 30 min e não é de uso único; o link do MCP deve ser tratado como pessoal.

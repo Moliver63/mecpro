@@ -311,3 +311,28 @@ test("Goldfish 10: painel marca Pixel com falha quando a conta nao esta autoriza
   const d = await diagnosticarTikTok(conta({ ...okBase, "pixel/list/": new ErroTikTok("pixel/list/", 40002, "No permission to operate advertiser 7620542434560344082") }), ADV);
   assert.equal(d.capacidades.at(-1)!.ok, false);
 });
+
+// ── Revisao Goldfish rodada 2 (permissoes) ───────────────────────────────────
+test("Goldfish r2: 40001 'No permission to operate advertiser' e CONTA (reconectar marcando a conta), com endpoint", () => {
+  const p = classificarErroTikTok(new ErroTikTok("campaign/get/", 40001, "No permission to operate advertiser 123"));
+  assert.equal(p.tipo, "conta_nao_autorizada");
+  const q = classificarErroTikTok(new ErroTikTok("pixel/list/", 40001, "Permission error"));
+  assert.equal(q.endpoint, "/pixel/list/");
+  assert.match(q.permissao!, /Measurement/);
+});
+
+test("Goldfish r2: 'Too many ads in this ad group' nao e limite de requisicoes", () => {
+  assert.notEqual(classificarErroTikTok(new ErroTikTok("ad/create/", 40002, "Too many ads in this ad group")).tipo, "limite");
+});
+
+test("Goldfish r2: Pixels misturados (um sem compra, outro sem eventos listados) pedem escolha, nao 'sem evento'", async () => {
+  const r = await diagnosticarPixels(conta({ "pixel/list/": { pixels: [{ pixel_id: "P1", pixel_name: "A", events: [{ event_type: "PAGE_VIEW" }] }, { pixel_id: "P2", pixel_name: "B" }] }, "pixel/event/stats/": {} }), ADV, "SHOPPING");
+  assert.equal(r.problema!.tipo, "pixel_ambiguo");
+});
+
+test("Goldfish r2: diagnostico trata Pixel salvo que sumiu igual a publicacao; falha de leitura nao mostra OK", async () => {
+  const d = await diagnosticarTikTok(conta({ ...okBase, "pixel/list/": PIXEL_OK, "pixel/event/stats/": STATS_OK }), ADV, { pixelId: "P_ANTIGO" });
+  assert.equal(d.pronto.vendas, true);
+  const falha = await diagnosticarTikTok(conta({ ...okBase, "pixel/list/": new Error("TikTok [pixel/list/] HTTP 500 sem JSON") }), ADV);
+  assert.equal(falha.capacidades.at(-1)!.ok, false);
+});

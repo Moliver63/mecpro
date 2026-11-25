@@ -8032,7 +8032,9 @@ const integrationsRouter = router({
     .mutation(({ ctx, input }) => {
       const appId = process.env.TIKTOK_MARKETING_APP_ID || "";
       if (!appId) throw new TRPCError({ code: "BAD_REQUEST", message: "TikTok Ads não configurado no servidor (TIKTOK_MARKETING_APP_ID ausente)." });
-      const state = criarStateAds((ctx as any).user.id);
+      let state: string;
+      try { state = criarStateAds((ctx as any).user.id); }
+      catch (e: any) { throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: e?.message || "Servidor sem segredo para a autorização do TikTok." }); }
       return { url: montarUrlAutorizacaoAds(appId, input.redirectUri, state), state };
     }),
 
