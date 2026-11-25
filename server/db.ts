@@ -780,6 +780,13 @@ export async function upsertMarketAnalysis(data: any) {
   return r[0];
 }
 
+/** Salva (ou limpa, com null) o Pixel do TikTok do projeto. So o campo, sem tocar no resto do perfil. */
+export async function setTikTokPixelDoProjeto(projectId: number, pixelId: string | null): Promise<boolean> {
+  const db = await getDb(); if (!db) return false;
+  const r = await db.update(clientProfiles).set({ tiktokPixelId: pixelId, updatedAt: new Date() } as any).where(eq(clientProfiles.projectId, projectId)).returning({ id: clientProfiles.id });
+  return r.length > 0;
+}
+
 export async function getClientProfile(projectId: number) {
   const db = await getDb(); if (!db) return null;
   const r = await db.select().from(clientProfiles).where(eq(clientProfiles.projectId, projectId)).limit(1);

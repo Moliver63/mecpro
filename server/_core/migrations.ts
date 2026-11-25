@@ -919,6 +919,9 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "copyStructure"        varchar(30) DEFAULT 'mixed'
     `).catch(() => {});
 
+    // Pixel do TikTok escolhido por projeto (25/11). Aditiva e nula: nada muda para quem nao usa.
+    await pool.query(`ALTER TABLE client_profiles ADD COLUMN IF NOT EXISTS "tiktokPixelId" varchar(40)`).catch(() => {});
+
     // ── Sistema de Monitoramento de Erros ─────────────────────────────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS system_errors (

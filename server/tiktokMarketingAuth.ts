@@ -35,6 +35,8 @@ export interface TokenAds {
   refreshToken?: string;
   expiraEm?: Date;
   advertiserIds: string[];
+  /** Permissoes concedidas (ids numericos que o TikTok devolve em "scope"), quando vierem. */
+  escopos?: number[];
 }
 
 /** Le a resposta do TikTok de forma tolerante: refresh_token e expiracao podem nao vir. */
@@ -54,7 +56,8 @@ export function lerRespostaTokenAds(corpo: any, agora = Date.now()): TokenAds {
   const segundos = Number(d.expires_in ?? d.access_token_expires_in);
   const expiraEm = Number.isFinite(segundos) && segundos > 0 ? new Date(agora + segundos * 1000) : undefined;
   const refreshToken = typeof d.refresh_token === "string" && d.refresh_token ? d.refresh_token : undefined;
-  return { accessToken, refreshToken, expiraEm, advertiserIds };
+  const escopos = Array.isArray(d.scope) ? d.scope.map(Number).filter(Number.isFinite) : undefined;
+  return { accessToken, refreshToken, expiraEm, advertiserIds, ...(escopos ? { escopos } : {}) };
 }
 
 export async function trocarAuthCode(

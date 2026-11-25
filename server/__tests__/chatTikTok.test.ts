@@ -57,13 +57,14 @@ test("sem confirmado: validacao tecnica e previa com o objetivo do rascunho (ven
   assert.ok(r.previa.ajustesAutomaticos.some((a: string) => /https:\/\//.test(a)), "corrigiu o https");
 });
 
-test("vendas sem Pixel: bloqueia, NAO troca por trafego sozinho; so com 'autorizo trafego'", async () => {
+test("vendas sem Pixel: bloqueia, nao oferece trafego; so troca se o PROPRIO usuario pedir 'autorizo trafego'", async () => {
   limparPropostasTikTok();
   const { d, chamadas } = deps({}, { pixels: [] });
   const p: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d);
   assert.match(p.erro, /Nada foi criado/);
   assert.ok(p.problemas.some((x: string) => /Pixel/.test(x)));
-  assert.match(p.perguntaParaOUsuario, /autorizo trafego/);
+  assert.doesNotMatch(p.perguntaParaOUsuario, /autorizo trafego|como TRAFEGO/i, "nunca oferece trafego (25/11)");
+  assert.match(p.perguntaParaOUsuario, /Pixel/);
   assert.equal(chamadas.includes("publicar"), false);
   let objetivoPublicado = "";
   const { d: d2 } = deps({ publicar: async (_t, e) => { objetivoPublicado = String(e.objetivo); return { campaignId: "c", adGroupId: "g", identityId: "i", ads: [], avisos: [] }; } }, { pixels: [] });

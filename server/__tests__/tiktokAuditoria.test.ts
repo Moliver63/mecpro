@@ -285,7 +285,7 @@ test("publicacao 828: WEB_CONVERSIONS com Pixel e SHOPPING; a campanha de trafeg
 test("publicacao: vendas sem Pixel param ANTES de subir video ou criar campanha", async () => {
   const { c, chamadas } = contaQueCria();
   (c as any).get = async (path: string, params: any) => path === "pixel/list/" ? { pixels: [] } : path === "identity/get/" ? { identity_list: [{ identity_id: "I1", identity_type: "TT_USER" }] } : path === "advertiser/info/" ? { list: [{ currency: "USD" }] } : { list: [] };
-  await assert.rejects(publicarCampanhaTikTok(c, { ...shadia828, dailyBudgetReais: 30 }, undefined, undefined, depsVal().video), /nao tem Pixel.*Nada foi criado/);
+  await assert.rejects(publicarCampanhaTikTok(c, { ...shadia828, dailyBudgetReais: 30 }, undefined, undefined, depsVal().video), /nenhum Pixel.*Nada foi criado/);
   assert.equal(chamadas.filter((x) => /create|upload/.test(x.path)).length, 0);
 });
 

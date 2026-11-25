@@ -12,7 +12,8 @@
  */
 import { listarIdentidadesAutorizadas, type ClienteTikTok, type EntradaTikTok } from "./tiktokPublicar";
 import { minimoDiarioTikTok, textoMinimo, type MinimoTikTok } from "./tiktokOrcamentoMinimo";
-import { configDoObjetivo, EVENTOS_WEB, validarPixel, type ConfigObjetivoTikTok, type ObjetivoMecPro } from "./tiktokObjetivos";
+import { configDoObjetivo, EVENTOS_WEB, type ConfigObjetivoTikTok, type ObjetivoMecPro } from "./tiktokObjetivos";
+import { classificarErroTikTok, diagnosticarPixels, type ProblemaTikTok } from "./tiktokDiagnostico";
 import { normalizarUrlDeDestino, paginaResponde, urlPublicaSegura } from "./tiktokUrl";
 import { depsVideoPadrao, prepararVideo, type DepsVideo, type VideoPreparado } from "./tiktokVideo";
 
@@ -24,6 +25,10 @@ export interface ResultadoValidacaoTikTok {
   objetivo: ConfigObjetivoTikTok;
   minimo: MinimoTikTok | null;
   pixel?: { id: string; nome: string; evento: string };
+  /** Todos os Pixels da conta (para o usuario escolher). */
+  pixels: Array<{ id: string; nome: string; temEvento: boolean; disparos30d: number | null }>;
+  /** Problemas classificados (permissao, token, conta, Pixel, evento), com instrucoes. */
+  problemas: ProblemaTikTok[];
   entrada: EntradaTikTok;
   videos: Array<Pick<VideoPreparado, "nome" | "origem" | "urlFinal" | "capaUrl"> & { proporcao?: string; resolucao?: string; duracaoS?: number; codec?: string | null }>;
 }
@@ -65,18 +70,26 @@ export async function validarPublicacaoTikTok(
   const pedido: ObjetivoMecPro = bruta.objetivo || "traffic";
   let objetivo = configDoObjetivo(pedido, bruta.optimizationEvent);
   let pixel: ResultadoValidacaoTikTok["pixel"];
+  let pixels: ResultadoValidacaoTikTok["pixels"] = [];
+  const problemas: ProblemaTikTok[] = [];
   if (objetivo.precisaPixel) {
-    const vp = await validarPixel(c, adv, objetivo.optimizationEvent!, bruta.pixelId);
+    const vp = await diagnosticarPixels(c, adv, objetivo.optimizationEvent!, bruta.pixelId);
     avisos.push(...vp.avisos);
+    pixels = vp.pixels.map((p) => ({ id: p.pixelId, nome: p.nome, temEvento: p.temEvento, disparos30d: p.disparos30d }));
+    if (vp.problema) problemas.push(vp.problema);
     if (vp.ok) {
-      pixel = { id: vp.pixel!.pixelId, nome: vp.pixel!.nome, evento: EVENTOS_WEB[objetivo.optimizationEvent!]?.rotulo || objetivo.optimizationEvent! };
-      entrada.pixelId = vp.pixel!.pixelId;
+      pixel = { id: vp.escolhido!.pixelId, nome: vp.escolhido!.nome, evento: EVENTOS_WEB[objetivo.optimizationEvent!]?.rotulo || objetivo.optimizationEvent! };
+      entrada.pixelId = vp.escolhido!.pixelId;
+    } else if (vp.problema?.deAutorizacao) {
+      // Permissao, token ou conta: corrige-se a autorizacao. Vendas nunca viram trafego por isso
+      // (pedido de Michel, 25/11), nem com autorizarTrafego.
+      bloqueios.push(`${vp.problema.mensagem} ${vp.problema.instrucoes.join(" ")}`);
     } else if (bruta.autorizarTrafego) {
-      avisos.push(`${vp.bloqueio} Com a sua autorizacao, publico como TRAFEGO (otimiza cliques, nao vendas).`);
+      avisos.push(`${vp.problema?.mensagem} Com a sua autorizacao, publico como TRAFEGO (otimiza cliques, nao vendas).`);
       objetivo = configDoObjetivo("traffic");
       entrada.objetivo = "traffic";
     } else {
-      bloqueios.push(`${objetivo.rotulo} precisa de Pixel com o evento de compra configurado: ${vp.bloqueio} Nao troco vendas por trafego sem a sua autorizacao.`);
+      bloqueios.push(`${objetivo.rotulo} precisa de Pixel com o evento de compra: ${vp.problema?.mensagem} ${vp.problema?.instrucoes.join(" ") || ""} Nao troco vendas por trafego sem a sua autorizacao.`.replace(/\s+/g, " ").trim());
     }
   }
 
@@ -86,8 +99,14 @@ export async function validarPublicacaoTikTok(
   if (!minimo) avisos.push("Nao consegui confirmar o minimo diario do TikTok agora (mais de US$ 20/dia por grupo).");
 
   // Identidade (conta de TikTok autorizada que assina o anuncio).
-  const idents = await listarIdentidadesAutorizadas(c, adv, bruta.displayName || "", avisos).catch(() => []);
-  if (!idents.length) bloqueios.push("Nenhuma conta de TikTok autorizada na conta de anuncios. No Ads Manager: Ativos > Identidades > autorizar uma conta, e tente de novo.");
+  const avisosIdent: string[] = [];
+  const idents = await listarIdentidadesAutorizadas(c, adv, bruta.displayName || "", avisosIdent).catch(() => []);
+  if (!idents.length) {
+    // Sem identidade pode ser permissao/token (o erro veio no aviso) ou falta de conta autorizada no Ads Manager.
+    const prob = avisosIdent.map((a) => classificarErroTikTok(a)).find((p) => p.tipo !== "outro");
+    if (prob) { problemas.push(prob); bloqueios.push(`${prob.mensagem} ${prob.instrucoes.join(" ")}`); }
+    else bloqueios.push("Nenhuma conta de TikTok autorizada na conta de anuncios. No Ads Manager: Ativos > Identidades > autorizar uma conta, e tente de novo.");
+  }
 
   // Destino unico para todos os anuncios.
   const destino = normalizarUrlDeDestino(bruta.landingPageUrl);
@@ -129,7 +148,7 @@ export async function validarPublicacaoTikTok(
 
   // Mesmo plano na previa e na publicacao (Goldfish 25/11): o publicador usa estes preparados.
   if (preparados.length) entrada.videosPreparados = preparados;
-  return { ok: bloqueios.length === 0, bloqueios, correcoes, avisos, objetivo, minimo, ...(pixel ? { pixel } : {}), entrada, videos };
+  return { ok: bloqueios.length === 0, bloqueios, correcoes, avisos, objetivo, minimo, ...(pixel ? { pixel } : {}), pixels, problemas, entrada, videos };
 }
 
 /** Texto curto da validacao para o chat e o MCP (sem jargao de API). */

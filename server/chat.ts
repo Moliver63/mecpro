@@ -61,7 +61,7 @@ import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado, MODELO_CLOUD
 import { jwtVerify } from "jose";
 import * as db from "./db";
 import { conferirEntradaTikTok as conferirEntradaTikTokSync } from "./tiktokPublicar";
-import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, DESCRICAO_CONSULTAR_TIKTOK, PARAMETROS_CONSULTAR_TIKTOK, consultarNoTikTokDoChat, publicarNoTikTokDoChat, previaPendenteDoTikTok, ultimaFoiPreviaDoTikTok, ehConfirmacao, autorizouTrafego, valorDiarioDaFala, textoDoResultadoTikTok } from "./chatTikTok";
+import { DESCRICAO_DIAGNOSTICAR_TIKTOK, PARAMETROS_DIAGNOSTICAR_TIKTOK, diagnosticarTikTokDoChat, DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, DESCRICAO_CONSULTAR_TIKTOK, PARAMETROS_CONSULTAR_TIKTOK, consultarNoTikTokDoChat, publicarNoTikTokDoChat, previaPendenteDoTikTok, ultimaFoiPreviaDoTikTok, ehConfirmacao, autorizouTrafego, valorDiarioDaFala, textoDoResultadoTikTok } from "./chatTikTok";
 import multer from "multer";
 import { uploadVideoBufferToCloudinary, uploadVideoFileToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
@@ -356,6 +356,7 @@ PUBLICACAO NO TIKTOK (publicar_no_tiktok): o MecProAI publica DIRETO no TikTok A
 - Os videos usados sao os enviados nesta conversa. Sem video, peca para enviar no chat.
 - O objetivo no TikTok e o do rascunho: vendas e leads usam Pixel. Sem Pixel com o evento de compra, explique e pergunte; so publique como trafego se o usuario autorizar. Videos fora de 9:16, 1:1 ou 16:9 sao adaptados sozinhos; mostre os ajustes automaticos da previa.
 - Para saber como esta uma campanha ja publicada no TikTok (status, revisao, recusa), use consultar_tiktok.
+- Erro de permissao, token ou conta do TikTok (ex.: "does not grant you ... permission"), ou pedido para ver os Pixels: use diagnosticar_tiktok e repasse as instrucoes. Problema de autorizacao se resolve reconectando a conta; NUNCA sugira trocar vendas por trafego por causa disso.
 - Valor diario dito pelo usuario durante a publicacao no TikTok vai em publicar_no_tiktok (dailyBudgetReais); nao use atualizar_orcamento_campanha para isso. Nunca ofereca publicar abaixo do minimo.
 - Se a publicacao falhar, explique o erro e ofereca repetir com o MESMO rascunho. Nunca gere campanha nova (gerar_campanha) para contornar erro de publicacao; o MecProAI ja trata nome e video repetidos sozinho.
 - So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
@@ -707,6 +708,7 @@ const declaracoesGemini: FunctionDeclaration[] = [
   { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
   { name: "publicar_no_tiktok", description: DESCRICAO_PUBLICAR_TIKTOK, parametersJsonSchema: PARAMETROS_PUBLICAR_TIKTOK },
   { name: "consultar_tiktok", description: DESCRICAO_CONSULTAR_TIKTOK, parametersJsonSchema: PARAMETROS_CONSULTAR_TIKTOK },
+  { name: "diagnosticar_tiktok", description: DESCRICAO_DIAGNOSTICAR_TIKTOK, parametersJsonSchema: PARAMETROS_DIAGNOSTICAR_TIKTOK },
   { name: "pesquisar_web", description: DESCRICAO_PESQUISAR_WEB, parametersJsonSchema: PARAMETROS_PESQUISAR_WEB },
 ];
 
@@ -774,6 +776,10 @@ export const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "consultar_tiktok", description: DESCRICAO_CONSULTAR_TIKTOK, parameters: PARAMETROS_CONSULTAR_TIKTOK as unknown as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "diagnosticar_tiktok", description: DESCRICAO_DIAGNOSTICAR_TIKTOK, parameters: PARAMETROS_DIAGNOSTICAR_TIKTOK as unknown as Record<string, unknown> },
   },
   {
     type: "function" as const,
@@ -1300,6 +1306,7 @@ const depsTikTokChat = {
   integracao: (userId: number) => db.getApiIntegration(userId, "tiktok"),
   videosDaSessao: (sessionId: number) => db.getPendingChatVideos(sessionId),
   reservar: (userId: number, chave: string) => db.reserveMcpIdempotencyKey(userId, "tiktok_publish", chave) as any,
+  salvarPixel: (projectId: number, pixelId: string) => db.setTikTokPixelDoProjeto(projectId, pixelId),
   existe: async (token: string, adv: string, id: string) => {
     const [{ criarClienteTikTok }, { consultarCampanhaTikTok }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokConsulta")]);
     return !!(await consultarCampanhaTikTok(criarClienteTikTok(token), adv, id)).campanha;
@@ -1325,6 +1332,17 @@ function falaDaConversa(mensagens: MensagemChat[]): { ultimaDoUsuario?: string; 
   const assistente = [...mensagens.slice(0, iUsuario)].reverse().find((m) => m.role === "assistant");
   return { ultimaDoUsuario: usuario?.content, ultimaDoAssistente: assistente?.content };
 }
+const diagnosticarNoTikTok = (userId: number, args: Record<string, unknown>) => diagnosticarTikTokDoChat(userId, args, {
+  campanha: (id: number) => db.getCampaignById(id),
+  projeto: (id: number) => db.getProjectById(id),
+  perfil: (projectId: number) => db.getClientProfile(projectId),
+  integracao: (uid: number) => db.getApiIntegration(uid, "tiktok"),
+  diagnosticar: async (token: string, adv: string, pixelId?: string) => {
+    const [{ criarClienteTikTok }, { diagnosticarTikTok, resumoDoDiagnostico }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokDiagnostico")]);
+    const d = await diagnosticarTikTok(criarClienteTikTok(token), adv, { pixelId, app: { appId: process.env.TIKTOK_MARKETING_APP_ID || "", secret: process.env.TIKTOK_MARKETING_APP_SECRET || "" } });
+    return { texto: resumoDoDiagnostico(d), dados: { ...d, contasAutorizadas: d.contasAutorizadas.length } };
+  },
+});
 const consultarNoTikTok = (userId: number, args: Record<string, unknown>) => consultarNoTikTokDoChat(userId, args, {
   campanha: (id: number) => db.getCampaignById(id),
   projeto: (id: number) => db.getProjectById(id),
@@ -1531,6 +1549,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       if (name === "consultar_formularios_meta") return listarFormulariosChat(userId, limparArgsFerramenta(args));
       if (name === "publicar_no_tiktok") return publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args), mensagens);
       if (name === "consultar_tiktok") return consultarNoTikTok(userId, limparArgsFerramenta(args));
+      if (name === "diagnosticar_tiktok") return diagnosticarNoTikTok(userId, limparArgsFerramenta(args));
       if (name === "publicar_campanha") {
         const a = limparArgsFerramenta(args);
         return publicarCampanhaNaMeta(userId, {
@@ -1750,6 +1769,11 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
     }
     if (chamada.function.name === "consultar_formularios_meta") {
       const result = await listarFormulariosChat(userId, limparArgsFerramenta(args));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === "diagnosticar_tiktok") {
+      const result = await diagnosticarNoTikTok(userId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1994,6 +2018,11 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
     }
     if (chamada.function?.name === "consultar_formularios_meta") {
       const result = await listarFormulariosChat(userId, limparArgsFerramenta(args));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function?.name === "diagnosticar_tiktok") {
+      const result = await diagnosticarNoTikTok(userId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }

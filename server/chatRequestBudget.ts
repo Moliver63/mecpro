@@ -70,6 +70,7 @@ const NUCLEO_FIXO = "consultar_projetos_campanhas";
 const GATILHOS: Array<[string, RegExp]> = [
   ["selecionar_conta_meta", /conta|meta|CONFIRMAR CONTA/i],
   ["publicar_no_tiktok", /tik ?tok/i],
+  ["diagnosticar_tiktok", /tik ?tok.*(permiss|grant|pixel|diagn|conex|token|autoriz)|(permiss|grant|pixel|diagn|conex|token|autoriz).*tik ?tok/i],
   ["consultar_tiktok", /tik ?tok.*(status|situa|revis|recus|aprova|como est)|(status|situa|revis|recus|aprova|como est).*tik ?tok/i],
   ["publicar_campanha", /public|confirm|no ar|s[ou]b(?:ir|a|e)\b|coloc|lan[cç]|\bativ(?:a|ar|e|o)\b|manda ver|pode ir|go live/i],
   ["consultar_paginas_meta", /p[aá]gina|page|facebook|instagram|public/i],

@@ -52,6 +52,12 @@ export default function TikTokIntegration() {
     onSuccess: () => { toast.success("Integração removida."); refetch(); },
   });
 
+  const [diagnostico, setDiagnostico] = useState<any>(null);
+  const diagnose = (trpc as any).integrations?.diagnoseTikTok?.useMutation?.({
+    onSuccess: (d: any) => setDiagnostico(d),
+    onError: (e: any) => toast.error("Não foi possível diagnosticar: " + e.message),
+  });
+
   const test = (trpc as any).integrations?.testTikTok?.useMutation?.({
     onSuccess: (d: any) => toast.success(`◎ Token válido — conta: ${d.name || d.advertiserId}`),
     onError:   (e: any) => toast.error("Token inválido: " + e.message),
@@ -169,12 +175,48 @@ export default function TikTokIntegration() {
                   style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   Testar
                 </button>
+                <button onClick={() => (diagnose as any)?.mutate?.()} disabled={(diagnose as any)?.isPending}
+                  style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #e2e8f0", background: "white", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  {(diagnose as any)?.isPending ? "Diagnosticando..." : "Diagnosticar permissões"}
+                </button>
                 <button onClick={() => remove.mutate({ provider: "tiktok" })}
                   style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid #fca5a5", background: "#fef2f2", color: "#dc2626", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   Desconectar
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Diagnóstico de permissões (somente leitura) */}
+        {existing && diagnostico && (
+          <div style={{ ...card, borderColor: diagnostico.problemas?.length ? "#fcd34d" : "#bbf7d0" }}>
+            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 10 }}>Diagnóstico de permissões</div>
+            <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+              {(diagnostico.capacidades || []).map((c: any) => (
+                <div key={c.endpoint} style={{ display: "flex", gap: 8, fontSize: 12.5, color: "#334155" }}>
+                  <span style={{ color: c.ok ? "#16a34a" : "#dc2626", fontWeight: 800, minWidth: 16 }}>{c.ok ? "✓" : "✕"}</span>
+                  <span><strong>{c.nome}</strong>{c.problema ? ` — ${c.problema.mensagem}` : ""}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 12.5, color: "#334155", marginBottom: 10 }}>
+              Pronto para tráfego: <strong>{diagnostico.pronto?.trafego ? "sim" : "não"}</strong> · Pronto para vendas: <strong>{diagnostico.pronto?.vendas ? "sim" : "não"}</strong>
+            </div>
+            {(diagnostico.problemas || []).map((p: any, i: number) => (
+              <div key={i} style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#92400e", marginBottom: 6 }}>{p.mensagem}</div>
+                <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#78350f", lineHeight: 1.55 }}>
+                  {(p.instrucoes || []).map((t: string, j: number) => <li key={j}>{t}</li>)}
+                </ol>
+              </div>
+            ))}
+            {diagnostico.problemas?.some((p: any) => p.deAutorizacao) && (
+              <button onClick={handleOAuthConnect} disabled={oauthLoading}
+                style={{ marginTop: 4, padding: "10px 18px", borderRadius: 10, border: "none", background: "#010101", color: "white", fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
+                Reconectar e aprovar as permissões
+              </button>
+            )}
           </div>
         )}
 
@@ -219,6 +261,7 @@ export default function TikTokIntegration() {
               { icon: "🎯", label: "Criação e publicação de anúncios" },
               { icon: "👤", label: "Informações básicas da conta" },
               { icon: "📋", label: "Listagem de ad groups e criativos" },
+              { icon: "📈", label: "Pixel e eventos de conversão (Measurement), para campanhas de vendas" },
             ].map((p, i) => (
               <div key={i} style={{ display: "flex", gap: 8, fontSize: 12, color: "#374151", marginBottom: 5 }}>
                 <span>{p.icon}</span> {p.label}

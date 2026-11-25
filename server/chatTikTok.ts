@@ -30,7 +30,7 @@ export const PARAMETROS_PUBLICAR_TIKTOK = {
     dailyBudgetReais: { type: "number", description: "Orcamento diario em reais do grupo de anuncios. Padrao: o diario do rascunho." },
     landingPageUrl: { type: "string", description: "Pagina de destino https. Padrao: o site do perfil do cliente." },
     adText: { type: "string", description: "Texto do anuncio (ate 100 caracteres). Padrao: o titulo do primeiro criativo." },
-    pixelId: { type: "string", description: "Pixel do TikTok a usar em vendas/leads. Padrao: o Pixel ativo da conta." },
+    pixelId: { type: "string", description: "Pixel do TikTok escolhido pelo usuario (fica salvo no projeto). Padrao: o salvo no projeto, senao o unico Pixel com o evento de compra." },
     autorizarTrafego: { type: "boolean", description: "true SO se o usuario autorizou explicitamente publicar como trafego quando vendas nao for possivel." },
   },
   required: ["campaignId", "confirmado"],
@@ -48,6 +48,8 @@ export interface DepsTikTokChat {
   publicar(token: string, entrada: EntradaTikTok, etapa: (m: string) => void): Promise<ResultadoTikTok>;
   conferir(entrada: Partial<EntradaTikTok>): string[];
   salvarIds(campaignId: number, r: ResultadoTikTok): Promise<void>;
+  /** Guarda o Pixel escolhido no projeto (vale para as proximas campanhas dele). */
+  salvarPixel?(projectId: number, pixelId: string): Promise<unknown>;
   /** A campanha publicada antes ainda existe no TikTok? (sem ela, o cache de idempotencia nao trava) */
   existe?(token: string, advertiserId: string, tiktokCampaignId: string): Promise<boolean>;
   /** Validacao tecnica previa (tiktokValidacao.validarPublicacaoTikTok); nada e criado. */
@@ -238,7 +240,8 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
     displayName: textoAte(String(perfil?.companyName || projeto.name || "Anunciante"), 40),
     videos: videos.slice(0, 5).map((v) => ({ videoUrl: v.url, nome: v.fileName })),
     objetivo,
-    ...(args.pixelId ? { pixelId: String(args.pixelId) } : {}),
+    // Pixel: o escolhido agora pelo usuario, senao o salvo no projeto.
+    ...(args.pixelId || perfil?.tiktokPixelId ? { pixelId: String(args.pixelId || perfil.tiktokPixelId) } : {}),
   };
 
   const avisos: string[] = [];
@@ -259,15 +262,23 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
 
   // Validacao tecnica ANTES de pedir confirmacao (pedido de Michel, 25/11). Nada e criado aqui.
   const v = await deps.validar(String(integracao.accessToken), { ...entrada, autorizarTrafego: trafegoAutorizado });
+  if (v.pixel && args.pixelId && String(args.pixelId) === v.pixel.id && perfil?.tiktokPixelId !== v.pixel.id) {
+    await deps.salvarPixel?.(campanha.projectId, v.pixel.id)?.catch?.(() => {});
+    avisos.push(`Pixel ${v.pixel.nome} (${v.pixel.id}) salvo para as proximas campanhas deste projeto.`);
+  }
   avisos.push(...v.avisos);
   const min = v.minimo;
   const abaixoDoMinimo = !!min && !(v.entrada.dailyBudgetReais >= min.minimo);
-  const semPixel = v.bloqueios.some((b) => /Pixel/i.test(b));
   const moeda = min?.moeda === "BRL" || !min ? "R$ " : "";
-  const perguntaParaOUsuario = abaixoDoMinimo
-    ? `O TikTok aceita no minimo ${moeda}${min!.minimo} por dia. Publico pausada com ${moeda}${min!.minimo}/dia? Responda sim ou diga outro valor diario (a partir de ${min!.minimo}).`
-    : semPixel
-      ? "Para otimizar vendas, o TikTok precisa do Pixel com o evento de compra (Purchase) configurado. Quer que eu publique como TRAFEGO (otimiza cliques, nao vendas)? Responda \"autorizo trafego\", ou configure o Pixel e me avise."
+  // Cada problema com a sua instrucao (pedido de Michel, 25/11). Nunca sugere trocar vendas por
+  // trafego: problema de permissao/conta/token se resolve na autorizacao; Pixel, no Pixel.
+  const bloqueante = v.problemas.find((p) => p.tipo !== "evento_sem_atividade");
+  const perguntaParaOUsuario = bloqueante
+    ? bloqueante.tipo === "pixel_ambiguo"
+      ? `${bloqueante.mensagem} ${bloqueante.instrucoes.join(" ")}`
+      : `Ainda nao da para publicar: ${bloqueante.mensagem}\nComo resolver:\n${bloqueante.instrucoes.map((i) => `- ${i}`).join("\n")}\nDepois disso, me peca a publicacao de novo.`
+    : abaixoDoMinimo
+      ? `O TikTok aceita no minimo ${moeda}${min!.minimo} por dia. Publico pausada com ${moeda}${min!.minimo}/dia? Responda sim ou diga outro valor diario (a partir de ${min!.minimo}).`
       : v.bloqueios.length
         ? `Antes de publicar, preciso que isto seja resolvido: ${v.bloqueios.join(" ")}`
         : "Validacao tecnica concluida. Posso publicar no TikTok? Ela nasce pausada. Responda sim para publicar.";
@@ -277,6 +288,7 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
     campanha: v.entrada.campaignName,
     objetivo: v.objetivo.rotulo,
     ...(v.pixel ? { pixel: `${v.pixel.nome} (${v.pixel.id}), evento ${v.pixel.evento}` } : {}),
+    ...(!v.pixel && v.pixels.length ? { pixelsDaConta: v.pixels.map((p) => `${p.nome} (${p.id})${p.temEvento ? ", com compra" : ""}`) } : {}),
     orcamentoDiario: `R$ ${v.entrada.dailyBudgetReais}`,
     minimoDiario: min ? textoMinimo(min) : "nao confirmado",
     destino: v.entrada.landingPageUrl,
@@ -361,5 +373,37 @@ export async function consultarNoTikTokDoChat(userId: number, args: Record<strin
     return { situacao: r.texto, dados: r.dados };
   } catch (e: any) {
     return { erro: `Nao consegui consultar o TikTok: ${String(e?.message || e).slice(0, 600)}` };
+  }
+}
+
+export const DESCRICAO_DIAGNOSTICAR_TIKTOK =
+  "Diagnostica a conexao do TikTok Ads do usuario (so leitura): token, conta de anuncios autorizada, permissoes do app (Ads, Criativos, Pixel/Measurement), Pixels da conta e o evento de compra com a atividade dos ultimos 30 dias. " +
+  "Use quando der erro de permissao, quando perguntarem se esta tudo certo com o TikTok ou para listar os Pixels. Devolve o que falta e como resolver, inclusive o link para reconectar. Nunca sugere trocar vendas por trafego.";
+export const PARAMETROS_DIAGNOSTICAR_TIKTOK = {
+  type: "object",
+  properties: { campaignId: { type: "number", description: "Opcional: rascunho, para usar o Pixel salvo no projeto dele." } },
+  required: [],
+} as const;
+
+export async function diagnosticarTikTokDoChat(userId: number, args: Record<string, unknown>, deps: {
+  campanha(id: number): Promise<any | null>; projeto(id: number): Promise<any | null>; perfil(projectId: number): Promise<any | null>;
+  integracao(userId: number): Promise<any | null>;
+  diagnosticar(token: string, adv: string, pixelId?: string): Promise<{ texto: string; dados: unknown }>;
+}): Promise<Record<string, unknown>> {
+  const integracao = await deps.integracao(userId);
+  if (!integracao?.accessToken || !integracao.accountId) return { erro: "O TikTok Ads nao esta conectado. Conecte em https://www.mecproai.com/settings/tiktok." };
+  let pixelId: string | undefined;
+  const campaignId = Number(args.campaignId);
+  if (Number.isFinite(campaignId) && campaignId > 0) {
+    const campanha = await deps.campanha(campaignId);
+    const projeto = campanha ? await deps.projeto(campanha.projectId) : null;
+    if (!campanha || !projeto || projeto.userId !== userId) return { erro: `Rascunho ${campaignId} nao encontrado nesta conta.` };
+    pixelId = (await deps.perfil(campanha.projectId))?.tiktokPixelId || undefined;
+  }
+  try {
+    const r = await deps.diagnosticar(String(integracao.accessToken), String(integracao.accountId), pixelId);
+    return { diagnostico: r.texto, dados: r.dados };
+  } catch (e: any) {
+    return { erro: `Nao consegui diagnosticar agora: ${String(e?.message || e).slice(0, 400)}` };
   }
 }

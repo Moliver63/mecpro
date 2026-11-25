@@ -15,7 +15,8 @@
 import { minimoDiarioTikTok, OrcamentoAbaixoDoMinimo } from "./tiktokOrcamentoMinimo";
 import { createHash } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { configDoObjetivo, validarPixel, type ObjetivoMecPro } from "./tiktokObjetivos";
+import { configDoObjetivo, type ObjetivoMecPro } from "./tiktokObjetivos";
+import { diagnosticarPixels } from "./tiktokDiagnostico";
 import { comPastaTemporaria, depsVideoPadrao, md5DoArquivo, nomeNoTikTok, prepararVideo, proporcaoAceita, type DepsVideo, type Enquadramento, type VideoPreparado } from "./tiktokVideo";
 
 export const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3/";
@@ -344,10 +345,10 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   const cfg = configDoObjetivo(e.objetivo || "traffic", e.optimizationEvent);
   let pixelId = "";
   if (cfg.precisaPixel) {
-    const vp = await validarPixel(c, adv, cfg.optimizationEvent!, e.pixelId);
+    const vp = await diagnosticarPixels(c, adv, cfg.optimizationEvent!, e.pixelId);
     avisos.push(...vp.avisos);
-    if (!vp.ok) throw new Error(`${vp.bloqueio} Nada foi criado no TikTok. Para publicar como trafego, e preciso autorizar explicitamente.`);
-    pixelId = vp.pixel!.pixelId;
+    if (!vp.ok) throw new Error(`${vp.problema?.mensagem} ${vp.problema?.instrucoes.join(" ") || ""} Nada foi criado no TikTok.`.replace(/\s+/g, " "));
+    pixelId = vp.escolhido!.pixelId;
   }
 
   // 2. Videos -> video_id. Cada video e conferido e adaptado ANTES (tiktokVideo.prepararVideo):

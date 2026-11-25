@@ -8056,6 +8056,8 @@ const integrationsRouter = router({
       if (!token.advertiserIds.length) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O TikTok não liberou nenhuma conta de anúncios. Autorize de novo marcando a conta." });
       }
+      // Sem token no log: so as contas e os ids de permissao concedidos, para diagnosticar falta de escopo.
+      log.info("tiktok", "TikTok Ads autorizado", { userId, contas: token.advertiserIds, escopos: token.escopos ?? "nao informado" });
       const _d = await getDb();
       const [existing] = await _d!.select().from(integrations)
         .where(and(eq(integrations.userId, userId), eq(integrations.provider, "tiktok")));
@@ -8074,6 +8076,20 @@ const integrationsRouter = router({
       if (existing) await _d!.update(integrations).set(valores).where(eq(integrations.id, existing.id));
       else await _d!.insert(integrations).values({ userId, provider: "tiktok", ...valores });
       return { success: true, advertiserIds: token.advertiserIds, accountId: escolhida };
+    }),
+
+  /** Diagnostico de permissoes do TikTok Ads (so leitura): capacidades, conta autorizada, Pixels. */
+  diagnoseTikTok: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const userId = (ctx as any).user?.id;
+      const integ: any = await db.getApiIntegration(userId, "tiktok");
+      if (!integ?.isActive || !integ.accessToken || !integ.accountId) throw new TRPCError({ code: "BAD_REQUEST", message: "TikTok Ads não está conectado." });
+      const { criarClienteTikTok } = await import("../tiktokPublicar");
+      const { diagnosticarTikTok, resumoDoDiagnostico } = await import("../tiktokDiagnostico");
+      const d = await diagnosticarTikTok(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), {
+        app: { appId: process.env.TIKTOK_MARKETING_APP_ID || "", secret: process.env.TIKTOK_MARKETING_APP_SECRET || "" },
+      });
+      return { ...d, resumo: resumoDoDiagnostico(d) };
     }),
 
   upsertTikTok: protectedProcedure
