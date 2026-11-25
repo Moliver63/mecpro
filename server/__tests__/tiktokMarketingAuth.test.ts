@@ -10,11 +10,15 @@ test("monta a URL de autorizacao", () => {
 });
 
 test("state: so do mesmo usuario e recente", () => {
-  const s = criarStateAds(7, 1000);
-  assert.equal(stateAdsValido(s, 7, 2000), true);
-  assert.equal(stateAdsValido(s, 8, 2000), false);
-  assert.equal(stateAdsValido(s, 7, 1000 + 31 * 60 * 1000), false);
-  assert.equal(stateAdsValido("lixo", 7), false);
+  const s = criarStateAds(7, 1000, "segredo");
+  assert.equal(stateAdsValido(s, 7, 2000, "segredo"), true);
+  assert.equal(stateAdsValido(s, 8, 2000, "segredo"), false);
+  assert.equal(stateAdsValido(s, 7, 1000 + 31 * 60 * 1000, "segredo"), false);
+  assert.equal(stateAdsValido("lixo", 7, 2000, "segredo"), false);
+  // Goldfish 25/11 (CSRF): state forjado sem assinatura, ou assinado com outro segredo, nao vale.
+  assert.equal(stateAdsValido(`mecproads_7_${2000}`, 7, 2000, "segredo"), false);
+  assert.equal(stateAdsValido(criarStateAds(7, 1000, "outro"), 7, 2000, "segredo"), false);
+  assert.equal(stateAdsValido(s.replace(/_(\d+)_/, "_8_"), 8, 2000, "segredo"), false, "trocar o usuario invalida a assinatura");
 });
 
 test("le resposta completa", () => {

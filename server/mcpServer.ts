@@ -3656,11 +3656,148 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       advertiserId: String(integracao.accountId), campaignName: input.campaignName, dailyBudgetReais: input.dailyBudgetReais,
       landingPageUrl: input.landingPageUrl, adText: input.adText, callToAction: input.callToAction, displayName: input.displayName,
       videos: input.videos, imagens: input.imagens, musicId: input.musicId, musicUrl: input.musicUrl, ageGroups: input.ageGroups,
-      objetivo, pixelId: input.pixelId, optimizationEvent: input.optimizationEvent, enquadramento: input.enquadramento,
+      ...(await (async () => {
+        if (input.pixelId) return { pixelId: input.pixelId };
+        const salvo = (await db.getClientProfile(campaign.projectId).catch(() => null) as any)?.tiktokPixelId;
+        return salvo ? { pixelId: salvo, pixelSalvo: true } : {};
+      })()),
+      objetivo,
+      optimizationEvent: input.optimizationEvent, enquadramento: input.enquadramento,
       autorizarTrafego: input.autorizarTrafego === true,
     };
     return { campaign, integracao, entrada } as const;
   };
+
+  // ── TikTok: diagnostico de permissoes, Pixels e reautorizacao (25/11) ──
+  const integracaoTikTok = async () => {
+    const integ: any = await db.getApiIntegration(userId, "tiktok");
+    if (!integ?.isActive || !integ.accessToken || !integ.accountId) return null;
+    return integ;
+  };
+  const projetoDoUsuario = async (campaignId?: number, projectId?: number) => {
+    let pid = projectId;
+    if (campaignId) { const c: any = await db.getCampaignById(campaignId); if (!c) return null; pid = c.projectId; }
+    if (!pid) return null;
+    const p: any = await db.getProjectById(pid);
+    return p && p.userId === userId ? p : null;
+  };
+
+  server.registerTool(
+    "diagnose_tiktok_ads",
+    {
+      title: "Diagnosticar permissões do TikTok Ads",
+      description:
+        "Diagnóstico somente leitura da conexão TikTok Ads do usuário: token, se a conta de anúncios está autorizada para o app do MecProAI, " +
+        "cada permissão usada na publicação (conta, campanhas, identidade, biblioteca de vídeos, Pixel/Measurement), os Pixels com o evento de compra (Purchase) " +
+        "e a atividade dos últimos 30 dias. Separa falta de permissão do app, token inválido, conta não autorizada, Pixel inexistente, Pixel sem evento e evento sem atividade, " +
+        "cada um com instruções. Nunca sugere trocar vendas por tráfego.",
+      inputSchema: {
+        campaignId: z.number().int().positive().optional().describe("Opcional: rascunho, para usar o Pixel salvo no projeto dele."),
+        evento: z.string().default("SHOPPING").describe("Evento de otimização a conferir (SHOPPING = compra/Purchase, FORM = lead)."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const integ = await integracaoTikTok();
+      if (!integ) return { content: [{ type: "text", text: "TikTok Ads não está conectado. Conecte em https://www.mecproai.com/settings/tiktok." }], isError: true };
+      let pixelId: string | undefined;
+      if (input.campaignId) {
+        const proj = await projetoDoUsuario(input.campaignId);
+        if (!proj) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada para este usuário.` }], isError: true };
+        pixelId = ((await db.getClientProfile(proj.id).catch(() => null)) as any)?.tiktokPixelId || undefined;
+      }
+      const { criarClienteTikTok } = await import("./tiktokPublicar");
+      const { diagnosticarTikTok, resumoDoDiagnostico } = await import("./tiktokDiagnostico");
+      const d = await diagnosticarTikTok(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), {
+        evento: input.evento, pixelId, app: { appId: process.env.TIKTOK_MARKETING_APP_ID || "", secret: process.env.TIKTOK_MARKETING_APP_SECRET || "" },
+      });
+      return { content: [{ type: "text", text: resumoDoDiagnostico(d) }], structuredContent: d as any };
+    }
+  );
+
+  server.registerTool(
+    "list_tiktok_pixels",
+    {
+      title: "Listar Pixels do TikTok e eventos de conversão",
+      description: "Lista os Pixels da conta TikTok Ads do usuário, se cada um tem o evento de compra (Purchase/CompletePayment) e quantos disparos teve em 30 dias, e qual está salvo para o projeto. Somente leitura.",
+      inputSchema: {
+        campaignId: z.number().int().positive().optional().describe("Opcional: mostra o Pixel salvo no projeto deste rascunho."),
+        evento: z.string().default("SHOPPING"),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const integ = await integracaoTikTok();
+      if (!integ) return { content: [{ type: "text", text: "TikTok Ads não está conectado. Conecte em https://www.mecproai.com/settings/tiktok." }], isError: true };
+      let salvo: string | undefined;
+      if (input.campaignId) {
+        const proj = await projetoDoUsuario(input.campaignId);
+        if (!proj) return { content: [{ type: "text", text: `Campanha ${input.campaignId} não encontrada para este usuário.` }], isError: true };
+        salvo = ((await db.getClientProfile(proj.id).catch(() => null)) as any)?.tiktokPixelId || undefined;
+      }
+      const { criarClienteTikTok } = await import("./tiktokPublicar");
+      const { diagnosticarPixels } = await import("./tiktokDiagnostico");
+      const r = await diagnosticarPixels(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), input.evento, salvo);
+      const linhas = r.pixels.map((p) => `${p.pixelId === salvo ? "* " : "- "}${p.nome} (${p.pixelId}): ${p.temEvento ? "tem o evento de compra" : "sem o evento de compra"}${p.disparos30d !== null ? `, ${p.disparos30d} disparos em 30 dias` : ""}`);
+      const texto = [linhas.length ? `Pixels da conta${salvo ? " (* = salvo no projeto)" : ""}:\n${linhas.join("\n")}` : "", r.problema ? `\n${r.problema.mensagem}\n${r.problema.instrucoes.map((i) => `- ${i}`).join("\n")}` : "", r.avisos.length ? `\nAvisos: ${r.avisos.join(" | ")}` : ""].filter(Boolean).join("\n");
+      return { content: [{ type: "text", text: texto || "Nenhum Pixel encontrado." }], structuredContent: r as any, isError: r.problema?.deAutorizacao === true };
+    }
+  );
+
+  server.registerTool(
+    "set_tiktok_pixel",
+    {
+      title: "Escolher o Pixel do TikTok do projeto",
+      description: "Salva o Pixel do TikTok usado nas campanhas de vendas/leads de um projeto (vale para as próximas publicações). Confere antes que o Pixel existe na conta conectada. Não publica nada.",
+      inputSchema: {
+        campaignId: z.number().int().positive().optional(),
+        projectId: z.number().int().positive().optional(),
+        pixelId: z.union([z.string().regex(/^\d+$/), z.literal("limpar")]).describe('ID do Pixel, ou "limpar" para tirar o Pixel salvo do projeto.'),
+      },
+    },
+    async (input) => {
+      if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
+      const proj = await projetoDoUsuario(input.campaignId, input.projectId);
+      if (!proj) return { content: [{ type: "text", text: "Projeto não encontrado para este usuário (informe campaignId ou projectId)." }], isError: true };
+      if (input.pixelId === "limpar") {
+        await db.setTikTokPixelDoProjeto(proj.id, null);
+        return { content: [{ type: "text", text: `Pixel do TikTok removido do projeto ${proj.name}. A próxima publicação escolhe pela conta.` }], structuredContent: { ok: true, projectId: proj.id, pixelId: null } };
+      }
+      const integ = await integracaoTikTok();
+      if (!integ) return { content: [{ type: "text", text: "TikTok Ads não está conectado." }], isError: true };
+      const { criarClienteTikTok } = await import("./tiktokPublicar");
+      const { diagnosticarPixels } = await import("./tiktokDiagnostico");
+      const r = await diagnosticarPixels(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), "SHOPPING", input.pixelId);
+      if (r.problema && r.problema.tipo !== "pixel_sem_evento" && r.problema.tipo !== "evento_sem_atividade") {
+        return { content: [{ type: "text", text: `${r.problema.mensagem}\n${r.problema.instrucoes.map((i) => `- ${i}`).join("\n")}` }], isError: true };
+      }
+      const salvo = await db.setTikTokPixelDoProjeto(proj.id, input.pixelId);
+      if (!salvo) return { content: [{ type: "text", text: "O projeto ainda não tem perfil de cliente; preencha o perfil antes de escolher o Pixel." }], isError: true };
+      const aviso = r.problema ? `\nAtenção: ${r.problema.mensagem}` : "";
+      return { content: [{ type: "text", text: `Pixel ${r.escolhido?.nome || input.pixelId} (${input.pixelId}) salvo para o projeto ${proj.name}.${aviso}` }], structuredContent: { ok: true, projectId: proj.id, pixelId: input.pixelId } };
+    }
+  );
+
+  server.registerTool(
+    "tiktok_reauthorize_link",
+    {
+      title: "Link para reautorizar o TikTok Ads",
+      description: "Gera o link oficial do TikTok para o usuário reautorizar o MecProAI (nova permissão do app só vale depois de reautorizar). O link expira em 30 minutos e só funciona para este usuário. Não altera nada sozinho.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const appId = process.env.TIKTOK_MARKETING_APP_ID || "";
+      if (!appId) return { content: [{ type: "text", text: "TikTok Ads não está configurado no servidor do MecProAI." }], isError: true };
+      const { montarUrlAutorizacaoAds, criarStateAds } = await import("./tiktokMarketingAuth");
+      const origem = (process.env.PUBLIC_APP_URL || "https://www.mecproai.com").replace(/\/+$/, "");
+      const url = montarUrlAutorizacaoAds(appId, `${origem}/auth/tiktok/callback`, criarStateAds(userId));
+      return { content: [{ type: "text", text: `Para reautorizar: abra https://www.mecproai.com/settings/tiktok e clique em "Reconectar TikTok Ads" (recomendado, o MecProAI salva o novo token sozinho).\nLink direto do TikTok (vale 30 min, precisa estar logado no MecProAI no mesmo navegador): ${url}\nNa tela do TikTok, aprove todas as permissões e marque a conta de anúncios.` }], structuredContent: { url, pagina: "https://www.mecproai.com/settings/tiktok" } };
+    }
+  );
 
   // ── validate_tiktok_campaign (somente leitura: nada é criado) ──────────
   server.registerTool(

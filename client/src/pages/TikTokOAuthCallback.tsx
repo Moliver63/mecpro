@@ -4,10 +4,13 @@
  * Recebe o ?code= da URL, envia para a janela pai via postMessage e fecha.
  */
 import { useEffect, useState } from "react";
+import { trpc } from "@/lib/trpc";
 
 export default function TikTokOAuthCallback() {
   const [status, setStatus] = useState<"processing" | "success" | "error">("processing");
   const [msg, setMsg] = useState("Processando autorização TikTok...");
+  // Aberto fora do popup (link de reautorizacao do assistente/MCP): troca o codigo aqui mesmo.
+  const exchange = (trpc as any).integrations?.exchangeTikTokAdsCode?.useMutation?.();
 
   useEffect(() => {
     const params  = new URLSearchParams(window.location.search);
@@ -24,6 +27,13 @@ export default function TikTokOAuthCallback() {
         window.location.origin
       );
       setTimeout(() => window.close(), 2000);
+      return;
+    }
+
+    if (code && !window.opener && state && exchange?.mutateAsync) {
+      exchange.mutateAsync({ authCode: code, state })
+        .then(() => { setStatus("success"); setMsg("TikTok Ads reconectado! Voltando para as integrações..."); setTimeout(() => window.location.assign("/settings/tiktok"), 1500); })
+        .catch((e: any) => { setStatus("error"); setMsg(e?.message || "Não foi possível concluir a autorização. Tente de novo em Integrações > TikTok Ads."); });
       return;
     }
 

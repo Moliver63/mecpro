@@ -45,3 +45,47 @@ Pedido de Michel: auditoria completa da integração com a API oficial do TikTok
 - Rodada 2: 3 BLOQUEANTES restantes (recusa "vendas sim, trafego jamais" autorizava tráfego; "não, 200 por dia é muito" publicava com R$ 200; IPv6 `[::ffff:169.254.169.254]` passava no filtro) e riscos (redirecionamento para rede interna; HEVC fora do Cloudinary; republicação única; marcador estreito). Corrigidos depois da rodada 2, com teste para cada caso relatado. **Não houve terceira rodada** (o procedimento limita a 2): Michel decide.
 - Forma final: confirmação, autorização de tráfego e valor só contam quando a mensagem INTEIRA é uma forma fechada de aceite; pergunta, hipótese, recusa ou hesitação nunca publicam.
 - Risco residual documentado: troca de DNS entre a checagem de URL e a leitura do ffprobe/download (DNS rebinding).
+
+---
+
+# Parte 2 (25/11, tarde) — Permissões do TikTok Ads, Pixel e eventos
+
+Branch: `feat/tiktok-permissoes-pixel`. Pedido de Michel: correção definitiva do erro
+`TikTok [pixel/list/] 40001: advertiser does not grant you /pixel/list/:GET permission`.
+
+## Causa
+- O token do TikTok carrega as permissões (Scope of permission) marcadas no **aplicativo** do MecProAI no portal de desenvolvedor do TikTok for Business (My Apps) **no momento em que o anunciante autorizou**. A URL de autorização (`portal/auth?app_id&redirect_uri&state`) não tem parâmetro de escopo.
+- O token da conta 7620542434560344082 é de 03/11 (OAuth). As chamadas de anúncios funcionam (campanha, grupo, upload, identidade), então o app tem Ads Management, mas `/pixel/list/:GET` é negado: falta o grupo **Measurement** (Pixel e eventos) no app, ou ele foi marcado depois da autorização.
+- Não é problema de conta nem de token: é de **permissão do app**. Correção: marcar Measurement no app (pode exigir aprovação do TikTok) e **reautorizar** (o token antigo não ganha permissão nova).
+
+## O que mudou
+- `server/tiktokDiagnostico.ts` (novo): `classificarErroTikTok` separa permissão da API (com endpoint e grupo de permissão), token inválido/expirado, conta não autorizada; `diagnosticarPixels` separa Pixel inexistente, Pixel sem evento, vários Pixels (escolher), evento sem atividade em 30 dias (`pixel/event/stats`); `diagnosticarTikTok` testa só com leituras: lista de contas autorizadas do app (`oauth2/advertiser/get`), conta, campanhas, identidade, biblioteca de vídeos e Pixel. Diz se está pronto para tráfego e para vendas.
+- Evento de compra: nome atual do TikTok **Purchase** (antigo CompletePayment, aceito indefinidamente); lead: **Lead** (antigo SubmitForm). Otimização da API: `SHOPPING` e `FORM`.
+- Validação e publicação usam o diagnóstico. **Problema de autorização nunca vira tráfego**, nem com `autorizarTrafego`; a prévia do chat não oferece mais tráfego em nenhum caso.
+- Pixel escolhido por projeto: coluna nova `client_profiles.tiktokPixelId` (migração aditiva `ADD COLUMN IF NOT EXISTS`). Escolha pelo chat (`pixelId`) ou MCP (`set_tiktok_pixel`); usado por padrão nas próximas publicações.
+- OAuth: lê os ids de permissão concedidos (`scope`) e registra no log na reconexão (sem token).
+- Reautorização: página Integrações > TikTok Ads ganhou "Diagnosticar permissões" com o motivo e as instruções de cada problema e o botão "Reconectar e aprovar as permissões". O callback `/auth/tiktok/callback` agora conclui a troca do código também fora do popup (link do assistente/MCP).
+- MCP (todos os clientes): `diagnose_tiktok_ads`, `list_tiktok_pixels`, `set_tiktok_pixel`, `tiktok_reauthorize_link`; `validate_tiktok_campaign` usa o Pixel salvo. Chat: `diagnosticar_tiktok` nos três provedores.
+
+## Pré-voo da #828 (sem criar nada no TikTok)
+- Objetivo: vendas (sales → WEB_CONVERSIONS + SHOPPING). Mantido.
+- Conta: 7620542434560344082, autorizada via OAuth em 03/11; leitura de anúncios OK.
+- Pixel e evento de compra: **bloqueado** por permissão (Measurement) — não foi possível listar.
+- Rastreamento de conversões no site: **o site shadiahasan.com não tem Pixel do TikTok nem Events API**. Hoje só a Meta recebe compra (Conversions API pelo servidor, `event_id` = id da cobrança no Asaas). Mesmo com a permissão liberada, o evento Purchase não vai disparar até o site enviar.
+- URL: https://shadiahasan.com/cursos (página geral; a campanha é de Black Friday).
+- Criativos: 4 vídeos do chat, conferidos e adaptados na publicação.
+- Orçamento: mínimo do TikTok R$ 124/dia hoje; rascunho com R$ 38/dia e conjuntos herdados da Meta com valores mistos. Público: 25 a 60 (TikTok: faixas 25-34 a 55+).
+
+## Recomendação para o site da Shadia (não implementada; outro repositório)
+- Pixel do TikTok no navegador só para PageView/ViewContent e para guardar `ttclid` e o cookie `_ttp` no checkout.
+- Compra pelo servidor (Events API) no webhook do Asaas confirmado, com `event_id` = id da cobrança (o mesmo padrão já usado na Meta). Sem Purchase no navegador: não há duplicação.
+
+## Depende de ação manual no TikTok
+1. Portal de desenvolvedor (business-api.tiktok.com/portal/apps) > app do MecProAI > Scope of permission > marcar Measurement. Pode exigir revisão do TikTok.
+2. Reautorizar em MecProAI > Integrações > TikTok Ads.
+3. Criar/confirmar o Pixel da Shadia e o evento Purchase.
+
+## Revisão Goldfish da Parte 2 (2 rodadas)
+- Rodada 1: 2 BLOQUEANTES corrigidos (CSRF no OAuth com state previsível → HMAC com segredo do servidor; erro 40001 com outro texto ou falha de leitura virava tráfego → só "TikTok afirma que não há Pixel/evento" + autorização do usuário). Riscos corrigidos: prévia coerente, 40100 = limite, Pixels ambíguos, migração primeiro, avisos de identidade, Pixel salvo que sumiu, limpar Pixel, redirect configurável.
+- Rodada 2: sem BLOQUEANTE. Riscos corrigidos depois (sem 3ª rodada): 40001 de conta reconhecido como conta; endpoint pelo caminho; "too many ads" não é limite; Pixels misturados pedem escolha; diagnóstico trata Pixel salvo como a publicação; falha de leitura não mostra OK; falta de segredo vira erro claro.
+- Risco residual aceito: o state (assinado) vale 30 min e não é de uso único; o link do MCP deve ser tratado como pessoal.

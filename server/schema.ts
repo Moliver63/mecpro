@@ -59,6 +59,8 @@ export const clientProfiles = pgTable("client_profiles", {
   id: serial("id").primaryKey(),
   projectId: integer("projectId").notNull().unique(),
   companyName: varchar("companyName", { length: 255 }).notNull(),
+  /** Pixel do TikTok escolhido para as campanhas deste projeto (vendas/leads). */
+  tiktokPixelId: varchar("tiktokPixelId", { length: 40 }),
   niche: varchar("niche", { length: 255 }).notNull(),
   productService: text("productService").notNull(),
   targetAudience: text("targetAudience"),
