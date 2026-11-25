@@ -56,6 +56,30 @@ export interface DepsTikTokChat {
   log?(dados: Record<string, unknown>): void;
 }
 
+type Reserva = { kind: "proceed"; recordId: number } | { kind: "cached_result"; result: any } | { kind: "duplicate_in_progress" };
+
+/**
+ * Reserva a publicacao. Se o resultado guardado aponta para campanha que nao existe mais no TikTok
+ * (apagada), tenta a chave seguinte da cadeia (":refeita:<id>"), quantas vezes for preciso (ate 10),
+ * conferindo cada uma (Goldfish 25/11, rodada 2: so havia uma republicacao).
+ */
+export async function reservarPublicacaoTikTok(
+  reservar: (chave: string) => Promise<Reserva>,
+  existe: ((tiktokCampaignId: string) => Promise<boolean>) | undefined,
+  chave: string,
+): Promise<Reserva & { republicacao?: boolean }> {
+  let atual = chave;
+  for (let i = 0; i < 10; i++) {
+    const r = await reservar(atual);
+    if (r.kind !== "cached_result") return { ...r, republicacao: i > 0 };
+    const anterior = String(r.result?.tiktokCampaignId || "");
+    const aindaExiste = !anterior || !existe || await existe(anterior).catch(() => true);
+    if (aindaExiste) return r;
+    atual = `${chave}:refeita:${anterior}`;
+  }
+  return { kind: "duplicate_in_progress" };
+}
+
 /** Chave de idempotencia comum ao chat e a tela: rascunho + conta + objetivo. */
 export function chaveDePublicacaoTikTok(campaignId: number, advertiserId: string, objectiveType: string): string {
   return `${campaignId}:${advertiserId}:${objectiveType}`;
@@ -132,48 +156,59 @@ export function textoDoResultadoTikTok(r: Record<string, any>): string {
  * como sim e publicavam sem modelo no meio. Agora so conta a mensagem INTEIRA sendo uma confirmacao
  * conhecida (com complementos como "no tiktok"), e pergunta nunca confirma.
  */
-const CONFIRMACOES = "sim|s|ok|okay|pode|pode sim|pode publicar|confirmo|confirmado|confirmar|isso mesmo|manda|manda ver|publica|publique|pode publicar sim|bora|claro|fechado|perfeito|de acordo|positivo";
+const CONFIRMACOES = "sim|s|ok|okay|pode|pode sim|pode ser|pode publicar|confirmo|confirmado|confirmar|isso mesmo|manda|manda ver|publica|publique|pode publicar sim|bora|claro|fechado|perfeito|de acordo|positivo";
 const COMPLEMENTOS = "no tiktok|pode publicar|publica|publique|obrigad[oa]|por favor|pausada|pode ser|valeu";
 const RE_CONFIRMACAO = new RegExp(`^(?:${CONFIRMACOES})(?:[\\s,!.]+(?:${COMPLEMENTOS}))*[\\s!.]*$`, "i");
 
 export function ehConfirmacao(texto?: string): boolean {
-  const t = String(texto || "").trim().toLowerCase().normalize("NFC");
+  const t = String(texto || "").trim().toLowerCase().normalize("NFC").replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "").trim();
   if (!t || t.length > 60 || t.includes("?")) return false;
   return RE_CONFIRMACAO.test(t);
 }
 
 /** Valor diario dito pelo usuario: "340", "R$ 340,00", "valor 340 por dia", "150 reais". */
+/**
+ * Valor diario dito como DECISAO: a mensagem inteira e o valor, com prefixos de aceite ("ok",
+ * "pode ser", "usa", "valor") e sufixos de dinheiro ("reais", "por dia"). Pergunta, hipotese,
+ * recusa ou hesitacao ("nao, 200 por dia e muito", "melhor esperar, 150 reais e caro") nao contam
+ * (Goldfish 25/11, rodada 2). "campanha 828" nao vira R$ 828/dia.
+ */
+const PREFIXO_VALOR = "(?:(?:sim|ok|pode|pode ser|pode publicar|publica|publique|use|usa|usar|coloca|coloque|vamos de|fica|valor|orcamento|orçamento|diario|diário|com|de|em|o|a)[\\s,:]+)*";
+const RE_VALOR = new RegExp(`^${PREFIXO_VALOR}(r\\$\\s*)?(\\d{1,3}(?:\\.\\d{3})+|\\d+)(?:,(\\d{1,2}))?((?:\\s*(?:reais|por dia|ao dia|/\\s*dia|diarios|diários|no tiktok|pode publicar))*)[\\s!.]*$`, "i");
+
 export function valorDiarioDaFala(texto?: string): number | null {
-  const t = String(texto || "");
-  // Hipotese ou pergunta ("e se fosse R$ 200?", "quanto daria com 150?") nao e decisao (Goldfish 25/11).
-  if (t.includes("?") || /(?:^|[^a-zà-ÿ])(e se|se fosse|quanto|qual|caso)(?=[^a-zà-ÿ]|$)/i.test(t)) return null;
-  // So valor marcado como dinheiro ("R$", "reais", "por dia") ou a mensagem inteira sendo o numero:
-  // "campanha 828" nao vira R$ 828/dia.
-  const m = t.match(/^\s*(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*$/i)
-    || t.match(/(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?\s*(?:reais|\/\s*dia|por dia|ao dia|diari)/i)
-    || t.match(/r\$\s*(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d{1,2}))?/i);
+  const t = String(texto || "").normalize("NFC").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 60 || t.includes("?")) return null;
+  const m = t.match(RE_VALOR);
   if (!m) return null;
-  const v = Number(m[1].replace(/\./g, "") + (m[2] ? "." + m[2] : ""));
+  const temMarcaDeDinheiro = !!m[1] || /\S/.test(m[4] || "");
+  const soONumero = t.replace(/[\s!.]/g, "") === m[2] + (m[3] ? "," + m[3] : "");
+  if (!temMarcaDeDinheiro && !soONumero) return null;
+  const v = Number(m[2].replace(/\./g, "") + (m[3] ? "." + m[3] : ""));
   return v > 0 && v < 100000 ? v : null;
 }
 
 /** A ultima resposta foi a NOSSA pergunta da previa (marcadores da perguntaParaOUsuario), nao qualquer frase com "tiktok". */
 export const ultimaFoiPreviaDoTikTok = (texto?: string) => {
   const t = String(texto || "").replace(/\*/g, "");
-  return /tik ?tok/i.test(t) && /(responda sim|publico pausada|posso publicar no tiktok|autorizo tr[aá]fego)/i.test(t);
+  if (!/tik ?tok/i.test(t)) return false;
+  // Nossa pergunta (perguntaParaOUsuario) ou uma reescrita dela pelo modelo que termina perguntando se publica.
+  return /(responda sim|publico pausada|posso publicar no tiktok|autorizo tr[aá]fego)/i.test(t)
+    || /(publico|publicar|publique)[^.?!]{0,80}\?\s*$/i.test(t.trim());
 };
 
 /** "autorizo trafego", "pode publicar como trafego", "sim, como trafego". */
 /**
- * Revisao Goldfish 25/11 (BLOQUEANTE): "ok" casava dentro de "tiktok" e "sim" dentro de "assim", e
- * uma PERGUNTA sobre trafego publicava como trafego. Agora: palavra inteira, sem pergunta, sem negacao.
+ * Revisao Goldfish 25/11, rodadas 1 e 2 (BLOQUEANTES): pergunta ("qual a diferenca... trafego?") e
+ * recusa ("vendas sim, trafego jamais", "sem trafego, ok") publicavam como trafego. Agora so vale a
+ * mensagem INTEIRA numa forma fechada de autorizacao, como em ehConfirmacao.
  */
+const RE_AUTORIZA_TRAFEGO = /^(?:(?:sim|ok|pode|pode ser|pode publicar|publica|publique|autorizo|aceito|libero|confirmo)[\s,]+)+(?:(?:publicar|como|o|em|de|no|ser)\s+)*tr[aá]fego(?:[\s,]+(?:mesmo|entao|então|no tiktok|pode publicar|por favor))*[\s!.]*$|^tr[aá]fego(?:[\s,]+(?:autorizado|ok|pode publicar|pode ser|sim))+[\s!.]*$/;
+
 export function autorizouTrafego(texto?: string): boolean {
-  const t = String(texto || "").toLowerCase().normalize("NFC").trim();
+  const t = String(texto || "").toLowerCase().normalize("NFC").replace(/\s+/g, " ").trim();
   if (!t || t.length > 80 || t.includes("?")) return false;
-  const p = (re: string) => new RegExp(`(?:^|[^a-zà-ÿ])(?:${re})(?=[^a-zà-ÿ]|$)`).test(t);
-  if (p("n[aã]o|nem|cancela|espera")) return false;
-  return p("tr[aá]fego") && p("autorizo|autorizado|autorizada|pode publicar|pode sim|pode ser|aceito|libero|confirmo|sim|ok|publica|publique") && !p("explica|explicar|diferen[cç]a|como funciona|o que muda|por que|porque");
+  return RE_AUTORIZA_TRAFEGO.test(t);
 }
 
 export async function publicarNoTikTokDoChat(userId: number, sessionId: number | undefined, args: Record<string, unknown>, deps: DepsTikTokChat, fala: ContextoDaFala = {}): Promise<Record<string, unknown>> {
@@ -210,7 +245,7 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   // A fala do usuario manda: valor dito por ele > valor do modelo > minimo proposto (no "sim") > rascunho.
   const chaveProposta = `${userId}:${campaignId}`;
   const proposta = propostas.get(chaveProposta);
-  const propostaValida = !!proposta && Date.now() - proposta.em < VALIDADE_PROPOSTA_MS && ultimaFoiPreviaDoTikTok(fala.ultimaDoAssistente);
+  const propostaValida = !!proposta && proposta.sessionId === sessionId && Date.now() - proposta.em < VALIDADE_PROPOSTA_MS && ultimaFoiPreviaDoTikTok(fala.ultimaDoAssistente);
   const valorDoUsuario = propostaValida ? valorDiarioDaFala(fala.ultimaDoUsuario) : null;
   const trafegoAutorizado = args.autorizarTrafego === true || (propostaValida && autorizouTrafego(fala.ultimaDoUsuario));
   const disseSim = propostaValida && (ehConfirmacao(fala.ultimaDoUsuario) || autorizouTrafego(fala.ultimaDoUsuario));
@@ -270,15 +305,10 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
 
   // Mesma chave da tela (Goldfish 25/11): o mesmo rascunho nao vira duas campanhas por portas diferentes.
   const chave = chaveDePublicacaoTikTok(campaignId, v.entrada.advertiserId, v.objetivo.objectiveType);
-  let reserva = await deps.reservar(userId, chave);
-  if (reserva.kind === "cached_result") {
-    const anterior = String(reserva.result?.tiktokCampaignId || "");
-    const aindaExiste = !anterior || !deps.existe || await deps.existe(String(integracao.accessToken), v.entrada.advertiserId, anterior).catch(() => true);
-    if (aindaExiste) return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada no TikTok; nada novo foi criado." };
-    // A anterior foi apagada no TikTok: publicar de novo nao duplica nada.
-    reserva = await deps.reservar(userId, `${chave}:refeita:${anterior}`);
-    if (reserva.kind === "cached_result") return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada de novo no TikTok; nada novo foi criado." };
-  }
+  // A anterior apagada no TikTok nao trava: a cadeia de republicacao confere cada uma.
+  const reserva = await reservarPublicacaoTikTok((k) => deps.reservar(userId, k),
+    deps.existe ? (id) => deps.existe!(String(integracao.accessToken), v.entrada.advertiserId, id) : undefined, chave);
+  if (reserva.kind === "cached_result") return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada no TikTok; nada novo foi criado." };
   if (reserva.kind === "duplicate_in_progress") return { erro: "Ja existe uma publicacao desta campanha no TikTok em andamento. Aguarde." };
 
   let etapa = "inicio";

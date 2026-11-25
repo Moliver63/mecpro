@@ -39,3 +39,9 @@ Pedido de Michel: auditoria completa da integração com a API oficial do TikTok
 - Enum `SHOPPING`/`FORM` e campos do `pixel/list` (eventos): confirmados em referência de integração e SDK, não em página oficial renderizada.
 - Formulário instantâneo do TikTok para leads.
 - Campanha `… · #828` de tráfego criada em 24/11 (pausada, sem anúncios) continua na conta; a nova publicação de vendas cria outra com nome único e avisa.
+
+## Revisão Goldfish (diff, 2 rodadas, agente sem histórico)
+- Rodada 1: 2 BLOQUEANTES (pergunta sobre tráfego publicava como tráfego; pergunta/hipótese após a prévia publicava pela rota sem modelo) e 6 RISCOS (MCP trocava vendas por tráfego; FFmpeg não ligado; HEVC cru sem sonda; SSRF; prévia frouxa; idempotência tela × chat). Todos corrigidos (commit 8a851cb).
+- Rodada 2: 3 BLOQUEANTES restantes (recusa "vendas sim, trafego jamais" autorizava tráfego; "não, 200 por dia é muito" publicava com R$ 200; IPv6 `[::ffff:169.254.169.254]` passava no filtro) e riscos (redirecionamento para rede interna; HEVC fora do Cloudinary; republicação única; marcador estreito). Corrigidos depois da rodada 2, com teste para cada caso relatado. **Não houve terceira rodada** (o procedimento limita a 2): Michel decide.
+- Forma final: confirmação, autorização de tráfego e valor só contam quando a mensagem INTEIRA é uma forma fechada de aceite; pergunta, hipótese, recusa ou hesitação nunca publicam.
+- Risco residual documentado: troca de DNS entre a checagem de URL e a leitura do ffprobe/download (DNS rebinding).

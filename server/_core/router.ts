@@ -6043,15 +6043,11 @@ const campaignsRouter = router({
       // Mesma chave do chat (rascunho + conta + objetivo): o mesmo rascunho nao vira duas campanhas.
       const { chaveDePublicacaoTikTok } = await import("../chatTikTok");
       const chave = chaveDePublicacaoTikTok(input.campaignId, advertiserId, validacao.objetivo.objectiveType);
-      let reserva = await db.reserveMcpIdempotencyKey(userId, "tiktok_publish", chave);
-      if (reserva.kind === "cached_result") {
-        const anterior = String((reserva.result as any)?.tiktokCampaignId || "");
-        const { consultarCampanhaTikTok } = await import("../tiktokConsulta");
-        const aindaExiste = !anterior || !!(await consultarCampanhaTikTok(cliente, advertiserId, anterior).catch(() => ({ campanha: true }))).campanha;
-        if (aindaExiste) return { success: true, ...(reserva.result || {}), message: "Esta campanha já foi publicada no TikTok; nada novo foi criado." };
-        reserva = await db.reserveMcpIdempotencyKey(userId, "tiktok_publish", `${chave}:refeita:${anterior}`);
-        if (reserva.kind === "cached_result") return { success: true, ...(reserva.result || {}), message: "Esta campanha já foi publicada de novo no TikTok; nada novo foi criado." };
-      }
+      const { reservarPublicacaoTikTok } = await import("../chatTikTok");
+      const { consultarCampanhaTikTok } = await import("../tiktokConsulta");
+      const reserva = await reservarPublicacaoTikTok((k) => db.reserveMcpIdempotencyKey(userId, "tiktok_publish", k) as any,
+        async (id) => !!(await consultarCampanhaTikTok(cliente, advertiserId, id)).campanha, chave);
+      if (reserva.kind === "cached_result") return { success: true, ...(reserva.result || {}), message: "Esta campanha já foi publicada no TikTok; nada novo foi criado." };
       if (reserva.kind === "duplicate_in_progress") throw new TRPCError({ code: "CONFLICT", message: "Já existe uma publicação desta campanha no TikTok em andamento." });
       let etapa = "início";
       try {

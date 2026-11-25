@@ -253,7 +253,8 @@ test("leitura da fala: confirmacao e valor", () => {
   assert.equal(valorDiarioDaFala("150 reais"), 150);
   assert.equal(valorDiarioDaFala("200"), 200);
   assert.equal(valorDiarioDaFala("publica a campanha 828"), null);
-  assert.equal(valorDiarioDaFala("publica a 824 no tiktok com R$ 120 por dia"), 120);
+  assert.equal(valorDiarioDaFala("publica a 824 no tiktok com R$ 120 por dia"), null, "numero da campanha no meio: a decisao fica com o modelo");
+  assert.equal(valorDiarioDaFala("publica com R$ 120 por dia"), 120);
   assert.equal(valorDiarioDaFala("sim"), null);
 });
 

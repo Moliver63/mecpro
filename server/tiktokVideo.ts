@@ -26,6 +26,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { interpretarSonda, rodar, type SondaDeMidia } from "./chatMedia";
+import { urlFinalSegura } from "./tiktokUrl";
 
 export type ProporcaoTikTok = "9:16" | "1:1" | "16:9";
 export type Enquadramento = "preservar" | "preencher";
@@ -188,7 +189,9 @@ export function filtroFfmpeg(w: number, h: number, mudarProporcao: boolean, enqu
 
 /** Baixa em stream para arquivo, com teto de bytes (nunca guarda o video inteiro na memoria). */
 export async function baixarParaArquivo(url: string, destino: string, limiteBytes = ESPEC_TIKTOK.maxBytes * 2, doFetch: typeof fetch = fetch): Promise<number> {
-  const r = await doFetch(url, { signal: AbortSignal.timeout(600000) });
+  const final = await urlFinalSegura(url, doFetch);
+  if (!final) throw new Error("O video precisa estar em um endereco https publico.");
+  const r = await doFetch(final, { redirect: "manual", signal: AbortSignal.timeout(600000) });
   if (!r.ok || !r.body) throw new Error(`Nao consegui baixar o video (HTTP ${r.status}).`);
   const declarado = Number(r.headers.get("content-length") || 0);
   if (declarado > limiteBytes) throw new Error(`Video com ${Math.round(declarado / 1048576)} MB acima do limite de processamento.`);
@@ -256,7 +259,13 @@ export async function adaptarLocalPadrao(origem: string, pasta: string, plano: P
   return saida;
 }
 
-export const depsVideoPadrao: DepsVideo = { sondar: sondarVideoRemoto, importar: (u) => importarNoCloudinary(u), aguardar: (u) => aguardarUrlPronta(u), adaptarLocal: adaptarLocalPadrao };
+/** So sonda depois de conferir cada redirecionamento (nada de rede interna). */
+async function sondarSeguro(url: string): Promise<SondaRemota | null> {
+  const final = await urlFinalSegura(url);
+  return final ? sondarVideoRemoto(final) : null;
+}
+
+export const depsVideoPadrao: DepsVideo = { sondar: sondarSeguro, importar: (u) => importarNoCloudinary(u), aguardar: (u) => aguardarUrlPronta(u), adaptarLocal: adaptarLocalPadrao };
 
 /** So converte o codec (H.264 + AAC), sem mexer em tamanho: usado quando a sonda falha. */
 export function urlCloudinaryH264(url: string): string | null {
@@ -275,9 +284,14 @@ export async function prepararVideo(fonte: { url: string; nome?: string }, opcoe
   const sonda = await deps.sondar(fonte.url);
   const base = { nome, origem: fonte.url, sonda, plano: null as PlanoDeVideo | null };
   if (!sonda) {
-    // Sem sonda, o video do Cloudinary vai ao menos em H.264 (HEVC de iPhone nao segue cru; Goldfish 25/11).
-    const h264 = urlCloudinaryH264(fonte.url);
-    return { ...base, urlFinal: h264 || fonte.url, assinatura: assinar(fonte.url, "sem-sonda"), problemas: [], correcoes: h264 ? [`"${nome}" enviado em H.264 por seguranca.`] : [],
+    // Sem sonda, o video vai ao menos em H.264 (HEVC de iPhone nao segue cru; Goldfish 25/11). Fora do
+    // Cloudinary, na execucao, importa para o Cloudinary primeiro; a conversao e esperada antes do envio.
+    let origemCloud = ehVideoDoCloudinary(fonte.url) ? fonte.url : null;
+    if (!origemCloud && opcoes.executar) origemCloud = await deps.importar(fonte.url);
+    const h264 = origemCloud ? urlCloudinaryH264(origemCloud) : null;
+    const problemas: string[] = [];
+    if (h264 && opcoes.executar && !(await deps.aguardar(h264))) problemas.push(`O Cloudinary nao terminou de converter "${nome}" a tempo. Tente de novo em alguns minutos.`);
+    return { ...base, urlFinal: h264 || fonte.url, assinatura: assinar(fonte.url, "sem-sonda"), problemas, correcoes: h264 ? [`"${nome}" enviado em H.264 por seguranca.`] : [],
       avisos: [`Nao consegui ler as caracteristicas de "${nome}" antes do envio; o TikTok confere no upload e eu confiro de novo depois dele.`] };
   }
   const plano = planejarVideo(sonda, opcoes);

@@ -430,3 +430,53 @@ test("Goldfish 3: MCP nao troca vendas por trafego sem autorizacao; objetivo sem
   assert.doesNotMatch(src, /normalizarObjetivo\(campaign\.objective\) \|\| "traffic"/);
   assert.match(src, /Publicar como tráfego troca o objetivo: só com autorizarTrafego=true/);
 });
+
+// ── Revisao Goldfish 25/11, rodada 2 ─────────────────────────────────────────
+import { urlFinalSegura } from "../tiktokUrl";
+import { reservarPublicacaoTikTok } from "../chatTikTok";
+
+test("Goldfish r2 A: recusa de trafego nao autoriza", () => {
+  for (const t of ["vendas sim, trafego jamais", "sem trafego, ok", "sim, vendas. trafego nunca", "ok entendi o trafego", "sim, quero entender trafego melhor"]) assert.equal(autorizouTrafego(t), false, t);
+  for (const t of ["ok trafego", "trafego autorizado", "autorizo trafego no tiktok"]) assert.equal(autorizouTrafego(t), true, t);
+});
+
+test("Goldfish r2 B: valor recusado ou hesitante nao vira decisao", () => {
+  for (const t of ["não, 200 por dia é muito", "melhor esperar, 150 reais é caro", "acho que 300 por dia seria melhor, mas não publica ainda", "campanha 828"]) assert.equal(valorDiarioDaFala(t), null, t);
+  assert.equal(valorDiarioDaFala("ok, 150 por dia"), 150);
+  assert.equal(valorDiarioDaFala("pode ser 150 reais"), 150);
+  assert.equal(valorDiarioDaFala("200"), 200);
+});
+
+test("Goldfish r2 C: IPv6 que embute IPv4 privado (forma hexadecimal do new URL), NAT64 e site-local", async () => {
+  for (const u of ["https://[::ffff:169.254.169.254]/latest", "https://[::ffff:127.0.0.1]/", "https://[fec0::1]/", "https://[64:ff9b::a9fe:a9fe]/", "https://[2002:a9fe:a9fe::1]/"]) assert.equal(await urlPublicaSegura(u), false, u);
+  assert.equal(await urlPublicaSegura("https://[2606:4700::1111]/"), true);
+});
+
+test("Goldfish r2 D: redirecionamento para rede interna e barrado em cada salto", async () => {
+  const f = (async (u: string) => u.includes("publico") ? new Response(null, { status: 302, headers: { location: "http://169.254.169.254/x" } }) : new Response(null)) as any;
+  assert.equal(await urlFinalSegura("https://publico.com/v.mp4", f, async (u) => !u.includes("169.254")), null);
+  const ok = (async (u: string) => u.endsWith("a.mp4") ? new Response(null, { status: 301, headers: { location: "/b.mp4" } }) : new Response(null)) as any;
+  assert.equal(await urlFinalSegura("https://publico.com/a.mp4", ok, async () => true), "https://publico.com/b.mp4");
+});
+
+test("Goldfish r2 E: sem sonda, video fora do Cloudinary e importado e convertido para H.264 antes do envio", async () => {
+  let esperou = "";
+  const p = await prepararVideo({ url: "https://drive.exemplo.com/a.mov" }, { executar: true }, { sondar: async () => null, importar: async () => "https://res.cloudinary.com/d/video/upload/v1/mecpro/tiktok-videos/a.mov", aguardar: async (u) => { esperou = u; return true; } });
+  assert.equal(p.urlFinal, "https://res.cloudinary.com/d/video/upload/vc_h264,ac_aac,f_mp4/v1/mecpro/tiktok-videos/a.mp4");
+  assert.equal(esperou, p.urlFinal);
+});
+
+test("Goldfish r2 F: cadeia de republicacao confere cada campanha apagada, quantas vezes for", async () => {
+  const guardado: Record<string, string> = { "k": "C1", "k:refeita:C1": "C2" };
+  const r = await reservarPublicacaoTikTok(async (chave) => guardado[chave] ? { kind: "cached_result", result: { tiktokCampaignId: guardado[chave] } } : { kind: "proceed", recordId: 9 }, async () => false, "k");
+  assert.equal(r.kind, "proceed");
+  assert.equal(r.republicacao, true);
+  const viva = await reservarPublicacaoTikTok(async (chave) => guardado[chave] ? { kind: "cached_result", result: { tiktokCampaignId: guardado[chave] } } : { kind: "proceed", recordId: 9 }, async (id) => id === "C2", "k");
+  assert.equal(viva.kind, "cached_result", "C2 ainda existe: nao republica");
+});
+
+test("Goldfish r2 G: reescrita do modelo terminando em pergunta de publicar ainda e reconhecida; 'pode ser' e emoji confirmam", () => {
+  assert.equal(ultimaFoiPreviaDoTikTok("Tudo certo com a validacao no TikTok. Quer que eu publique agora, pausada?"), true);
+  assert.equal(ehConfirmacao("pode ser"), true);
+  assert.equal(ehConfirmacao("sim 👍"), true);
+});

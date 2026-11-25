@@ -50,10 +50,15 @@ export function normalizarUrlDeDestino(bruta: string, utms: Record<string, strin
 export function ipPrivado(ip: string): boolean {
   const v = ip.replace(/^\[|\]$/g, "").toLowerCase();
   if (v.includes(":")) {
-    if (v === "::" || v === "::1") return true;
-    const mapeado = v.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapeado) return ipPrivado(mapeado[1]);
-    return /^(fc|fd|fe8|fe9|fea|feb)/.test(v);
+    // Goldfish 25/11, rodada 2: new URL reescreve [::ffff:169.254.169.254] como [::ffff:a9fe:a9fe], e
+    // NAT64/6to4/site-local embutem ou alcancam rede interna. Regra fechada: so e publico o unicast
+    // global 2000::/3, fora de 2002::/16 (6to4), 2001:0::/32 (Teredo), 2001:db8::/32 (documentacao).
+    const mapeado = v.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapeado) return true;
+    const primeiro = parseInt(v.split(":")[0] || "0", 16);
+    if (!(primeiro >= 0x2000 && primeiro <= 0x3fff)) return true;
+    if (/^2002:|^2001:0*:|^2001:db8:/.test(v)) return true;
+    return false;
   }
   const n = v.split(".").map(Number);
   if (n.length !== 4 || n.some((x) => !(x >= 0 && x <= 255))) return false;
@@ -113,4 +118,23 @@ export async function paginaResponde(url: string, doFetch: typeof fetch = fetch,
   } catch (e: any) {
     return { ok: false, erro: String(e?.message || e).slice(0, 160) };
   }
+}
+
+/**
+ * Segue redirecionamentos conferindo CADA destino (https publico), ate 5 saltos, sem baixar o corpo.
+ * Devolve a URL final segura ou null. Goldfish 25/11, rodada 2: ffprobe e download seguiam 3xx para
+ * a rede interna. Risco residual: troca de DNS entre esta checagem e a leitura (documentado).
+ */
+export async function urlFinalSegura(url: string, doFetch: typeof fetch = fetch, seguro: (u: string) => Promise<boolean> = urlPublicaSegura): Promise<string | null> {
+  let atual = url;
+  for (let i = 0; i < 6; i++) {
+    if (!(await seguro(atual))) return null;
+    let r: Response;
+    try { r = await doFetch(atual, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(10000) }); }
+    catch { return atual; } // sem resposta ao HEAD: quem le depois trata o erro; o destino ja foi conferido
+    const loc = r.headers.get("location");
+    if (r.status >= 300 && r.status < 400 && loc) { atual = new URL(loc, atual).toString(); continue; }
+    return atual;
+  }
+  return null;
 }
