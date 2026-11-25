@@ -14,6 +14,9 @@
 
 import { minimoDiarioTikTok, OrcamentoAbaixoDoMinimo } from "./tiktokOrcamentoMinimo";
 import { createHash } from "node:crypto";
+import { openAsBlob } from "node:fs";
+import { configDoObjetivo, validarPixel, type ObjetivoMecPro } from "./tiktokObjetivos";
+import { comPastaTemporaria, depsVideoPadrao, md5DoArquivo, nomeNoTikTok, prepararVideo, proporcaoAceita, type DepsVideo, type Enquadramento, type VideoPreparado } from "./tiktokVideo";
 
 export const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3/";
 export const TIKTOK_BRASIL_LOCATION_ID = "3469034";
@@ -21,8 +24,22 @@ export const TIKTOK_BRASIL_LOCATION_ID = "3469034";
 export interface ClienteTikTok {
   post<T = any>(path: string, body: Record<string, unknown>): Promise<T>;
   get<T = any>(path: string, params: Record<string, unknown>): Promise<T>;
-  /** multipart/form-data (upload de arquivo). */
-  postForm?<T = any>(path: string, campos: Record<string, string>, arquivo: { campo: string; nome: string; dados: Buffer; tipo: string }): Promise<T>;
+  /** multipart/form-data (upload de arquivo). Blob de arquivo (fs.openAsBlob) e enviado em stream. */
+  postForm?<T = any>(path: string, campos: Record<string, string>, arquivo: { campo: string; nome: string; dados: Buffer | Blob; tipo: string }): Promise<T>;
+}
+
+/**
+ * Erro original da API, inteiro (pedido de Michel, 25/11: "registrar os erros originais").
+ * Antes a mensagem era cortada em 400 caracteres no chat e a causa do caso 828 se perdeu.
+ */
+export class ErroTikTok extends Error {
+  constructor(public path: string, public code: number | string, public mensagemOriginal: string, public requestId?: string, public dados?: unknown) {
+    super(`TikTok [${path}] ${code}: ${mensagemOriginal}`);
+    this.name = "ErroTikTok";
+  }
+  paraRegistro() {
+    return { path: this.path, code: this.code, message: this.mensagemOriginal, request_id: this.requestId, data: this.dados };
+  }
 }
 
 export function criarClienteTikTok(token: string, fetchImpl: typeof fetch = fetch): ClienteTikTok {
@@ -30,7 +47,7 @@ export function criarClienteTikTok(token: string, fetchImpl: typeof fetch = fetc
     const res = await fetchImpl(url, init);
     let corpo: any;
     try { corpo = await res.json(); } catch { throw new Error(`TikTok [${path}] HTTP ${res.status} sem JSON`); }
-    if (Number(corpo?.code) !== 0) throw new Error(`TikTok [${path}] ${corpo?.code}: ${corpo?.message || JSON.stringify(corpo)}`);
+    if (Number(corpo?.code) !== 0) throw new ErroTikTok(path, corpo?.code ?? res.status, String(corpo?.message || JSON.stringify(corpo)), corpo?.request_id, corpo?.data);
     return corpo.data;
   }
   return {
@@ -40,7 +57,7 @@ export function criarClienteTikTok(token: string, fetchImpl: typeof fetch = fetc
     postForm: (path, campos, arquivo) => {
       const f = new FormData();
       for (const [k, v] of Object.entries(campos)) f.append(k, v);
-      f.append(arquivo.campo, new Blob([arquivo.dados], { type: arquivo.tipo }), arquivo.nome);
+      f.append(arquivo.campo, arquivo.dados instanceof Blob ? arquivo.dados : new Blob([new Uint8Array(arquivo.dados)], { type: arquivo.tipo }), arquivo.nome);
       return chamar(path, { method: "POST", headers: { "Access-Token": token }, body: f });
     },
     get: (path, params) => {
@@ -69,6 +86,14 @@ export interface EntradaTikTok {
   displayName: string;
   ageGroups?: string[];
   inicio?: Date;
+  /** Objetivo do rascunho. Sem ele, trafego (comportamento antigo do MCP). Vendas exigem Pixel. */
+  objetivo?: ObjetivoMecPro;
+  pixelId?: string;
+  /** Evento de otimizacao (SHOPPING = compra). Padrao conforme o objetivo. */
+  optimizationEvent?: string;
+  /** Videos ja preparados pela validacao previa (tiktokValidacao). Sem eles, prepara aqui. */
+  videosPreparados?: VideoPreparado[];
+  enquadramento?: Enquadramento;
 }
 
 /** Confere antes de chamar a API. Devolve os problemas; vazio = pode seguir. */
@@ -107,6 +132,26 @@ export function acharVideoPorNome(lista: any[], nome: string): string | null {
   const alvo = nome.toLowerCase().replace(/\.[a-z0-9]+$/, "");
   const achados = (lista || []).filter((v) => String(v?.file_name || v?.video_name || "").toLowerCase().replace(/\.[a-z0-9]+$/, "").includes(alvo));
   return achados.length ? String(achados[0].video_id) : null;
+}
+
+/** Proporcoes que o TikTok aceita em video: 9:16, 1:1 e 16:9 (tolerancia de 2%). */
+const PROPORCOES_TIKTOK: Record<"9:16" | "1:1" | "16:9", number> = { "9:16": 9 / 16, "1:1": 1, "16:9": 16 / 9 };
+export function proporcaoAceitaNoTikTok(w: number, h: number): boolean {
+  const r = w / h;
+  return Object.values(PROPORCOES_TIKTOK).some((p) => Math.abs(r - p) / p <= 0.02);
+}
+export function proporcaoMaisProxima(w: number, h: number): "9:16" | "1:1" | "16:9" {
+  const r = w / h;
+  return (Object.entries(PROPORCOES_TIKTOK) as Array<["9:16" | "1:1" | "16:9", number]>)
+    .sort((a, b) => Math.abs(Math.log(r / a[1])) - Math.abs(Math.log(r / b[1])))[0][0];
+}
+/** Versao Cloudinary na proporcao pedida (pad preto, H.264). Fora do Cloudinary devolve null. */
+export function urlNaProporcao(url: string, alvo: "9:16" | "1:1" | "16:9"): string | null {
+  const m = url.match(/^(https:\/\/res\.cloudinary\.com\/[^/]+\/video\/upload\/)(.*)$/);
+  if (!m) return null;
+  const tam = { "9:16": "w_1080,h_1920", "1:1": "w_1080,h_1080", "16:9": "w_1920,h_1080" }[alvo];
+  const resto = m[2].replace(/^(?:[a-z]{1,3}_[^/]*\/)+(?=v\d+\/|[^/]+$)/i, "");
+  return `${m[1]}c_pad,b_black,${tam},vc_h264,f_mp4/${resto}`;
 }
 
 export function ehNomeDuplicado(erro: unknown): boolean {
@@ -220,7 +265,7 @@ const normalizarNome = (x: unknown) => String(x ?? "").normalize("NFC").replace(
  * busca devolvia null e o create batia em "Campaign name already exists". Agora a campanha volta
  * mesmo sem grupo (adGroupId vazio) e o grupo e criado dentro dela.
  */
-export async function acharCampanhaExistente(c: ClienteTikTok, adv: string, nome: string): Promise<{ campaignId: string; adGroupId: string } | null> {
+export async function acharCampanhaExistente(c: ClienteTikTok, adv: string, nome: string): Promise<{ campaignId: string; adGroupId: string; objectiveType?: string } | null> {
   try {
     const d: any = await c.get("campaign/get/", { advertiser_id: adv, filtering: { campaign_name: nome }, page_size: 20 });
     const alvo = normalizarNome(nome);
@@ -228,7 +273,7 @@ export async function acharCampanhaExistente(c: ClienteTikTok, adv: string, nome
     if (!camp?.campaign_id) return null;
     const g: any = await c.get("adgroup/get/", { advertiser_id: adv, filtering: { campaign_ids: [String(camp.campaign_id)] }, page_size: 20 }).catch(() => null);
     const grupo = (g?.list || [])[0];
-    return { campaignId: String(camp.campaign_id), adGroupId: grupo?.adgroup_id ? String(grupo.adgroup_id) : "" };
+    return { campaignId: String(camp.campaign_id), adGroupId: grupo?.adgroup_id ? String(grupo.adgroup_id) : "", ...(camp.objective_type ? { objectiveType: String(camp.objective_type) } : {}) };
   } catch { return null; }
 }
 
@@ -243,7 +288,41 @@ export function nomeDeCampanhaUnico(nome: string, agora = new Date()): string {
   return `${nome.slice(0, 480)} · ${p("day")}/${p("month")} ${p("hour")}h${p("minute")}`;
 }
 
-export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}, fetchArquivo?: typeof fetch): Promise<ResultadoTikTok> {
+/** Sobe um video preparado: por URL (Cloudinary) ou por arquivo local em stream (FFmpeg). */
+async function subirVideo(c: ClienteTikTok, adv: string, prep: VideoPreparado, nome: string, carregarBiblioteca: () => Promise<any[]>, avisos: string[]): Promise<string> {
+  const enviar = async (file_name: string): Promise<any> => {
+    if (prep.urlFinal) return c.post("file/video/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", video_url: prep.urlFinal, file_name });
+    if (prep.arquivoLocal && c.postForm) {
+      const assinatura = await md5DoArquivo(prep.arquivoLocal);
+      return c.postForm("file/video/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_FILE", video_signature: assinatura, file_name },
+        { campo: "video_file", nome: file_name, dados: await openAsBlob(prep.arquivoLocal, { type: "video/mp4" }), tipo: "video/mp4" });
+    }
+    throw new Error(`Video "${prep.nome}" sem URL nem arquivo pronto para enviar.`);
+  };
+  let up: any;
+  try {
+    up = await enviar(nome);
+  } catch (erro) {
+    if (!ehNomeDuplicado(erro)) throw erro;
+    const existente = acharVideoPorNomeExato(await carregarBiblioteca(), nome);
+    if (existente && nomeIgual(nome, await carregarBiblioteca(), existente)) {
+      avisos.push(`"${prep.nome}" ja tinha sido enviado com esta mesma adaptacao; reaproveitei.`);
+      return existente;
+    }
+    up = await enviar(nomeUnico(nome));
+  }
+  const id = Array.isArray(up) ? up[0]?.video_id : up?.video_id;
+  if (!id) throw new Error(`Upload de "${prep.nome}" sem video_id: ${JSON.stringify(up).slice(0, 200)}`);
+  return String(id);
+}
+
+/** O reaproveitamento so vale com nome EXATO (o nosso nome deterministico), nunca parcial. */
+function nomeIgual(nome: string, lista: any[], videoId: string): boolean {
+  const base = (x: unknown) => String(x || "").toLowerCase().replace(/\.[a-z0-9]+$/, "");
+  return (lista || []).some((v) => String(v?.video_id) === videoId && base(v?.file_name || v?.video_name) === base(nome));
+}
+
+export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}, fetchArquivo?: typeof fetch, depsVideo?: DepsVideo): Promise<ResultadoTikTok> {
   const avisos: string[] = [];
   const adv = e.advertiserId;
 
@@ -260,46 +339,92 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   let ident = identidades[0];
   let identityId = ident.identity_id;
 
-  // 2. Videos -> video_id (biblioteca por nome, ou upload por URL)
+  // 1b. Objetivo real (nunca troca vendas por trafego sozinho) e Pixel com o evento de otimizacao.
+  passo("objetivo");
+  const cfg = configDoObjetivo(e.objetivo || "traffic", e.optimizationEvent);
+  let pixelId = "";
+  if (cfg.precisaPixel) {
+    const vp = await validarPixel(c, adv, cfg.optimizationEvent!, e.pixelId);
+    avisos.push(...vp.avisos);
+    if (!vp.ok) throw new Error(`${vp.bloqueio} Nada foi criado no TikTok. Para publicar como trafego, e preciso autorizar explicitamente.`);
+    pixelId = vp.pixel!.pixelId;
+  }
+
+  // 2. Videos -> video_id. Cada video e conferido e adaptado ANTES (tiktokVideo.prepararVideo):
+  //    proporcao, resolucao, codec e tamanho. O nome no TikTok e deterministico (fonte + adaptacao),
+  //    entao "Duplicated material name" so pode ser o MESMO arquivo nosso, e ai ele e reaproveitado.
+  //    Achado real 24/11 (828): reaproveitar pelo nome original (IMG_7994.mov) pegou um material que o
+  //    TikTok recusou no anuncio; nome original nao identifica o arquivo, por isso deixou de ser usado.
   passo("videos");
   const videoIds: string[] = [];
+  const capas: Array<string | undefined> = [];
   let biblioteca: any[] | null = null;
   for (const [i, v] of e.videos.entries()) {
-    if (v.videoId) { videoIds.push(v.videoId); continue; }
+    if (v.videoId) { videoIds.push(v.videoId); capas.push(undefined); continue; }
     if (v.nomeNaBiblioteca) {
-      if (!biblioteca) {
-        const d: any = await c.get("file/video/ad/search/", { advertiser_id: adv, page_size: 100 });
-        biblioteca = d?.list || [];
-      }
-      const id = acharVideoPorNome(biblioteca!, v.nomeNaBiblioteca);
-      if (!id) throw new Error(`Video "${v.nomeNaBiblioteca}" nao esta na biblioteca de criativos do TikTok.`);
-      videoIds.push(id); continue;
-    }
-    const nome = v.nome || `mecpro_${Date.now()}_${i + 1}`;
-    const subir = (file_name: string) => c.post("file/video/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", video_url: v.videoUrl, file_name });
-    let up: any;
-    try {
-      up = await subir(nome);
-    } catch (erro: any) {
-      // Achado real 24/11 (chat, campanha 824): "Duplicated material name". O mesmo arquivo ja
-      // tinha subido numa tentativa anterior. Reaproveita o video da biblioteca; se nao achar,
-      // sobe de novo com nome unico. Nunca vira "publique manualmente".
-      if (!ehNomeDuplicado(erro)) throw erro;
       biblioteca = biblioteca ?? await listarBibliotecaDeVideos(c, adv);
-      const existente = acharVideoPorNomeExato(biblioteca, nome);
-      if (existente) { videoIds.push(existente); avisos.push(`Video "${nome}" ja estava na biblioteca do TikTok; reaproveitei.`); continue; }
-      up = await subir(nomeUnico(nome));
+      const id = acharVideoPorNomeExato(biblioteca!, v.nomeNaBiblioteca);
+      if (!id) throw new Error(`Video "${v.nomeNaBiblioteca}" nao esta na biblioteca de criativos do TikTok.`);
+      videoIds.push(id); capas.push(undefined); continue;
     }
-    const id = Array.isArray(up) ? up[0]?.video_id : up?.video_id;
-    if (!id) throw new Error(`Upload do video ${i + 1} sem video_id: ${JSON.stringify(up).slice(0, 200)}`);
-    videoIds.push(String(id));
+    const dv = depsVideo || depsVideoPadrao;
+    // Usa o MESMO plano mostrado na previa; so refaz quando ainda falta importar para o Cloudinary.
+    const daPrevia = e.videosPreparados?.[i] && e.videosPreparados[i].origem === v.videoUrl ? e.videosPreparados[i] : null;
+    let prep: VideoPreparado & { problemas?: string[]; correcoes?: string[] } = daPrevia && (daPrevia.urlFinal || !daPrevia.plano?.transformar)
+      ? daPrevia
+      : await prepararVideo({ url: v.videoUrl!, nome: v.nome }, { enquadramento: e.enquadramento, executar: true }, dv);
+    if (prep === daPrevia && prep.urlFinal && prep.plano?.transformar && !(await dv.aguardar(prep.urlFinal))) {
+      throw new Error(`O Cloudinary nao terminou de adaptar "${prep.nome}" a tempo. Tente de novo em alguns minutos.`);
+    }
+    if (prep.problemas?.length) throw new Error(`Video "${prep.nome}": ${prep.problemas.join(" ")}`);
+    if (prep !== daPrevia) avisos.push(...(prep.correcoes || []));
+    const nome = nomeNoTikTok(prep);
+    const carregar = async () => (biblioteca = biblioteca ?? await listarBibliotecaDeVideos(c, adv));
+    let id: string;
+    if (!prep.urlFinal && prep.plano?.transformar) {
+      // Sem Cloudinary: FFmpeg em arquivo temporario e envio em stream; a pasta some ao fim.
+      if (!dv.adaptarLocal) throw new Error(`Nao ha como adaptar "${prep.nome}" neste servidor (sem Cloudinary e sem FFmpeg).`);
+      const plano = prep.plano;
+      id = await comPastaTemporaria(async (pasta) => {
+        const arquivo = await dv.adaptarLocal!(prep.origem, pasta, plano, prep.sonda?.temAudio ?? true, e.enquadramento || "preservar");
+        return subirVideo(c, adv, { ...prep, arquivoLocal: arquivo }, nome, carregar, avisos);
+      });
+      avisos.push(`"${prep.nome}" adaptado com FFmpeg no servidor (${plano.proporcao}, ${plano.largura}x${plano.altura}).`);
+    } else {
+      id = await subirVideo(c, adv, prep, nome, carregar, avisos);
+    }
+    videoIds.push(id); capas.push(prep.capaUrl);
+  }
+
+  // 2b. Conferencia final no TikTok (largura/altura do material ja processado). Se ainda estiver fora
+  //     das proporcoes aceitas, para aqui com o motivo exato, antes de criar campanha.
+  passo("proporcao");
+  for (const [i, videoId] of videoIds.entries()) {
+    const info: any = await c.get("file/video/ad/info/", { advertiser_id: adv, video_ids: [videoId] }).catch(() => null);
+    const item = (Array.isArray(info) ? info : info?.list)?.[0];
+    const w = Number(item?.width), h = Number(item?.height);
+    if (!(w > 0 && h > 0) || proporcaoAceita(w, h)) continue;
+    const origem = e.videos[i];
+    const url = origem?.videoUrl ? urlNaProporcao(origem.videoUrl, proporcaoMaisProxima(w, h)) : null;
+    if (!url) throw new Error(`O video ${i + 1} ficou em ${w}x${h} no TikTok; o TikTok so aceita 9:16, 1:1 ou 16:9. Envie o video nessa proporcao.`);
+    const up: any = await c.post("file/video/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", video_url: url, file_name: nomeUnico(`mecpro_corrigido_${i + 1}.mp4`) });
+    const novo = Array.isArray(up) ? up[0]?.video_id : up?.video_id;
+    if (!novo) throw new Error(`Nao consegui reenviar o video ${i + 1} na proporcao certa.`);
+    videoIds[i] = String(novo);
+    avisos.push(`Video ${i + 1} chegou ao TikTok em ${w}x${h}; reenviei na proporcao ${proporcaoMaisProxima(w, h)}.`);
   }
 
   // 3-4. Campanha e grupo (reaproveita os que ja existem com o mesmo nome, sem duplicar)
   passo("campanha");
   let campaignId = "", adGroupId = "";
-  const existente = await acharCampanhaExistente(c, adv, e.campaignName);
+  let existente = await acharCampanhaExistente(c, adv, e.campaignName);
   let nomeDoGrupo = e.campaignName;
+  if (existente?.objectiveType && existente.objectiveType !== cfg.objectiveType) {
+    // Campanha antiga com o mesmo nome e outro objetivo (ex.: tentativa de trafego): nao reaproveita.
+    avisos.push(`Ja existe "${e.campaignName}" no TikTok com objetivo ${existente.objectiveType} (pausada); criei uma nova com ${cfg.objectiveType}.`);
+    existente = null;
+    nomeDoGrupo = nomeDeCampanhaUnico(e.campaignName);
+  }
   if (existente) {
     campaignId = existente.campaignId; adGroupId = existente.adGroupId;
     avisos.push(adGroupId
@@ -308,12 +433,12 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   }
   if (!campaignId) {
     const criar = (campaign_name: string) => c.post("campaign/create/", {
-      advertiser_id: adv, campaign_name, objective_type: "TRAFFIC",
+      advertiser_id: adv, campaign_name, objective_type: cfg.objectiveType,
       budget_mode: "BUDGET_MODE_INFINITE", operation_status: "DISABLE",
     });
     let camp: any;
     try {
-      camp = await criar(e.campaignName);
+      camp = await criar(nomeDoGrupo);
     } catch (erro) {
       // Nome ocupado por uma campanha que a busca nao devolve (excluida, ou criada fora do MecProAI):
       // cria com nome unico em vez de parar.
@@ -335,7 +460,8 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       age_groups: e.ageGroups?.length ? e.ageGroups : ["AGE_25_34", "AGE_35_44", "AGE_45_54", "AGE_55_100"],
       budget_mode: "BUDGET_MODE_DAY", budget: Number(e.dailyBudgetReais.toFixed(2)),
       schedule_type: "SCHEDULE_FROM_NOW", schedule_start_time: inicioTikTok(e.inicio),
-      billing_event: "CPC", optimization_goal: "CLICK", bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH",
+      billing_event: cfg.billingEvent, optimization_goal: cfg.optimizationGoal, bid_type: "BID_TYPE_NO_BID", pacing: "PACING_MODE_SMOOTH",
+      ...(pixelId ? { pixel_id: pixelId, optimization_event: cfg.optimizationEvent } : {}),
       operation_status: "DISABLE",
     });
     adGroupId = String(grupo?.adgroup_id || "");
@@ -366,8 +492,12 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   for (const [i, videoId] of videoIds.entries()) {
     let capaId = "";
     try {
-      const info: any = await c.get("file/video/ad/info/", { advertiser_id: adv, video_ids: [videoId] });
-      const capaUrl = (Array.isArray(info) ? info : info?.list)?.[0]?.video_cover_url;
+      // Capa do proprio video adaptado (mesmas dimensoes); sem ela, a capa automatica do TikTok.
+      let capaUrl = capas[i];
+      if (!capaUrl) {
+        const info: any = await c.get("file/video/ad/info/", { advertiser_id: adv, video_ids: [videoId] });
+        capaUrl = (Array.isArray(info) ? info : info?.list)?.[0]?.video_cover_url;
+      }
       if (capaUrl) {
         const img: any = await c.post("file/image/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", image_url: capaUrl, file_name: `mecpro_capa_${Date.now()}_${i + 1}` });
         capaId = String(img?.image_id || "");

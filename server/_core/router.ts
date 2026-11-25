@@ -6012,113 +6012,60 @@ const campaignsRouter = router({
       if (!token || !advertiserId)
         throw new TRPCError({ code: "BAD_REQUEST", message: "Token ou Advertiser ID ausentes" });
 
-      // 1. Create Campaign
-      const campaignData: any = await tikTokPost("campaign/create/", {
-        advertiser_id:  advertiserId,
-        campaign_name:  input.campaignName,
-        objective_type: input.objective,
-        budget_mode:    input.budgetType === "DAILY" ? "BUDGET_MODE_DAY" : "BUDGET_MODE_TOTAL",
-        budget:         input.budget,
-        operation_status: "DISABLE",
-      }, token);
-      const tiktokCampaignId = campaignData.campaign_id as string;
-
-      // 2. Create Ad Group
-      const adGroupData: any = await tikTokPost("adgroup/create/", {
-        advertiser_id:    advertiserId,
-        campaign_id:      tiktokCampaignId,
-        adgroup_name:     `AdGroup-${input.campaignName}`,
-        placement_type:   "PLACEMENT_TYPE_NORMAL",
-        placements:       input.placements,
-        location_ids:     input.locations,
-        age:              [{ min: input.ageMin, max: input.ageMax }],
-        gender:           input.gender === "ALL" ? "GENDER_UNLIMITED" : input.gender === "MALE" ? "GENDER_MALE" : "GENDER_FEMALE",
-        budget_mode:      input.budgetType === "DAILY" ? "BUDGET_MODE_DAY" : "BUDGET_MODE_TOTAL",
-        budget:           input.budget,
-        schedule_type:    "SCHEDULE_START_END",
-        schedule_start_time: input.startDate,
-        ...(input.endDate ? { schedule_end_time: input.endDate } : {}),
-        optimization_goal: input.objective === "CONVERSIONS" ? "CONVERT" : "CLICK",
-        operation_status: "ENABLE",
-        ...(input.interests.length > 0 ? { interest_category_ids: input.interests } : {}),
-      }, token);
-      const tiktokAdGroupId = adGroupData.adgroup_id as string;
-
-      // 3. Create Ads
-      const adIds: string[] = [];
-      for (const ad of input.ads) {
-        if (!ad.videoUrl) continue;
-
-        // Detecta se é URL externa (JSON2Video/Cloudinary) ou TikTok video_id
-        let finalVideoId = ad.videoUrl;
-        const isExternalUrl = ad.videoUrl.startsWith("http");
-
-        if (isExternalUrl) {
-          // Upload da URL externa para o TikTok Files API
-          log.info("tiktok", "Fazendo upload de vídeo externo para TikTok", {
-            url: ad.videoUrl.slice(0, 60),
-          });
-          try {
-            const uploadData: any = await tikTokPost("file/video/ad/upload/", {
-              advertiser_id: advertiserId,
-              upload_type:   "PULL_FROM_URL",
-              video_url:     ad.videoUrl,
-              video_name:    `mecpro_${Date.now()}`,
-            }, token);
-            if (uploadData?.data?.video_id) {
-              finalVideoId = uploadData.data.video_id;
-              log.info("tiktok", "Upload vídeo OK", { video_id: finalVideoId });
-            } else {
-              log.warn("tiktok", "Upload vídeo falhou — usando URL direta", {
-                error: JSON.stringify(uploadData).slice(0, 200),
-              });
-            }
-          } catch (uploadErr: any) {
-            log.warn("tiktok", "Upload vídeo exception", { error: uploadErr.message });
-          }
-        }
-
-        // Upload da coverImageUrl se for URL externa
-        let finalImageId = ad.coverImageUrl || "";
-        if (finalImageId.startsWith("http")) {
-          try {
-            const imgUpload: any = await tikTokPost("file/image/ad/upload/", {
-              advertiser_id: advertiserId,
-              upload_type:   "PULL_FROM_URL",
-              image_url:     finalImageId,
-              image_name:    `mecpro_cover_${Date.now()}`,
-            }, token);
-            if (imgUpload?.data?.image_id) {
-              finalImageId = imgUpload.data.image_id;
-              log.info("tiktok", "Upload imagem capa OK", { image_id: finalImageId });
-            }
-          } catch {}
-        }
-
-        const adData: any = await tikTokPost("ad/create/", {
-          advertiser_id: advertiserId,
-          adgroup_id:    tiktokAdGroupId,
-          creatives: [{
-            ad_name:          `Ad-${input.campaignName}-${Date.now()}`,
-            ad_format:        "SINGLE_VIDEO",
-            video_id:         finalVideoId,
-            ...(finalImageId ? { image_id: finalImageId } : {}),
-            ad_text:          ad.adText,
-            call_to_action:   ad.callToAction,
-            landing_page_url: ad.landingPageUrl,
-          }],
-          operation_status: "DISABLE",
-        }, token);
-        if (adData?.ad_ids?.[0]) adIds.push(adData.ad_ids[0]);
+      // Auditoria 25/11: este caminho da tela tinha os defeitos ja corrigidos no publicador do MCP
+      // (PULL_FROM_URL, location "BR", grupo ATIVO, CONVERSIONS sem Pixel, sem identidade, URL usada
+      // como video_id). Agora passa pela mesma validacao tecnica e pelo mesmo publicador, nasce PAUSADO
+      // e mantem o objetivo pedido (conversoes nunca viram trafego por conta propria).
+      if (input.budgetType !== "DAILY") throw new TRPCError({ code: "BAD_REQUEST", message: "No TikTok o MecProAI publica com orçamento diário por grupo de anúncios." });
+      const destinos = [...new Set(input.ads.map((a) => a.landingPageUrl.trim()).filter(Boolean))];
+      if (destinos.length > 1) throw new TRPCError({ code: "BAD_REQUEST", message: `Os anúncios apontam para ${destinos.length} páginas diferentes. Use uma única página de destino por campanha (ela vale para todos os anúncios do grupo).` });
+      const { normalizarObjetivo } = await import("../tiktokObjetivos");
+      const mapaObjetivo: Record<string, string> = { TRAFFIC: "traffic", CONVERSIONS: "conversions", WEB_CONVERSIONS: "conversions", REACH: "awareness", LEAD_GENERATION: "leads" };
+      const objetivo = normalizarObjetivo(mapaObjetivo[input.objective.toUpperCase()] || input.objective);
+      if (!objetivo) throw new TRPCError({ code: "BAD_REQUEST", message: `Objetivo ${input.objective} ainda não suportado no TikTok pelo MecProAI.` });
+      const faixas: Array<[string, number, number]> = [["AGE_18_24", 18, 24], ["AGE_25_34", 25, 34], ["AGE_35_44", 35, 44], ["AGE_45_54", 45, 54], ["AGE_55_100", 55, 100]];
+      const ageGroups = faixas.filter(([, a, b]) => b >= input.ageMin && a <= input.ageMax).map(([k]) => k);
+      const { criarClienteTikTok, publicarCampanhaTikTok } = await import("../tiktokPublicar");
+      const { validarPublicacaoTikTok } = await import("../tiktokValidacao");
+      const cliente = criarClienteTikTok(token);
+      // Nome da marca escolhe a identidade (nao o nome da campanha); "#id" no nome igual ao chat.
+      const perfil: any = await db.getClientProfile(input.projectId).catch(() => null);
+      const projeto: any = await db.getProjectById(input.projectId).catch(() => null);
+      const marca = String(perfil?.companyName || projeto?.name || input.campaignName).slice(0, 40);
+      const nomeTikTok = input.campaignName.includes(`#${input.campaignId}`) ? input.campaignName : `${input.campaignName.slice(0, 100)} · #${input.campaignId}`;
+      const validacao = await validarPublicacaoTikTok(cliente, {
+        advertiserId, campaignName: nomeTikTok, dailyBudgetReais: input.budget, landingPageUrl: destinos[0] || "",
+        adText: input.ads[0].adText, callToAction: input.ads[0].callToAction, displayName: marca,
+        videos: input.ads.filter((a) => a.videoUrl).map((a) => (/^https?:\/\//.test(a.videoUrl) ? { videoUrl: a.videoUrl } : { videoId: a.videoUrl })),
+        ageGroups, objetivo,
+      });
+      if (!validacao.ok) throw new TRPCError({ code: "BAD_REQUEST", message: `Nada foi criado no TikTok: ${validacao.bloqueios.join(" ")}` });
+      // Mesma chave do chat (rascunho + conta + objetivo): o mesmo rascunho nao vira duas campanhas.
+      const { chaveDePublicacaoTikTok } = await import("../chatTikTok");
+      const chave = chaveDePublicacaoTikTok(input.campaignId, advertiserId, validacao.objetivo.objectiveType);
+      const { reservarPublicacaoTikTok } = await import("../chatTikTok");
+      const { consultarCampanhaTikTok } = await import("../tiktokConsulta");
+      const reserva = await reservarPublicacaoTikTok((k) => db.reserveMcpIdempotencyKey(userId, "tiktok_publish", k) as any,
+        async (id) => !!(await consultarCampanhaTikTok(cliente, advertiserId, id)).campanha, chave);
+      if (reserva.kind === "cached_result") return { success: true, ...(reserva.result || {}), message: "Esta campanha já foi publicada no TikTok; nada novo foi criado." };
+      if (reserva.kind === "duplicate_in_progress") throw new TRPCError({ code: "CONFLICT", message: "Já existe uma publicação desta campanha no TikTok em andamento." });
+      let etapa = "início";
+      try {
+        const r = await publicarCampanhaTikTok(cliente, validacao.entrada, (m) => { etapa = m; });
+        await db.updateCampaign(input.campaignId, { tiktokCampaignId: r.campaignId, tiktokAdGroupId: r.adGroupId } as any).catch(() => {});
+        const resultado = {
+          tiktokCampaignId: r.campaignId, tiktokAdGroupId: r.adGroupId, tiktokAdIds: r.ads.map((a) => a.adId),
+          avisos: [...validacao.correcoes, ...validacao.avisos, ...r.avisos],
+          message: `Campanha TikTok "${input.campaignName}" criada PAUSADA (ID: ${r.campaignId}). ${validacao.objetivo.rotulo}.`,
+        };
+        await db.completeMcpIdempotencyKey(reserva.recordId, resultado);
+        return { success: true, ...resultado };
+      } catch (e: any) {
+        const original = typeof e?.paraRegistro === "function" ? e.paraRegistro() : { message: String(e?.message || e) };
+        log.error("tiktok", "publishToTikTok (tela): erro original da API", { campaignId: input.campaignId, etapa, ...original });
+        await db.failMcpIdempotencyKey(reserva.recordId, JSON.stringify({ etapa, ...original }).slice(0, 8000));
+        throw new TRPCError({ code: "BAD_REQUEST", message: `TikTok recusou na etapa "${etapa}": ${e.message}` });
       }
-
-      return {
-        success: true,
-        tiktokCampaignId,
-        tiktokAdGroupId,
-        tiktokAdIds: adIds,
-        message: `Campanha TikTok "${input.campaignName}" criada (ID: ${tiktokCampaignId})`,
-      };
     }),
 
   /**

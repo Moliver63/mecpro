@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { escolherMusica, lerMusicaComLimite, pareceMp3, extrairListaMusicas, conferirEntradaTikTok, inicioTikTok, acharVideoPorNome, publicarCampanhaTikTok, TIKTOK_BRASIL_LOCATION_ID, type ClienteTikTok } from "../tiktokPublicar";
+import { escolherMusica, lerMusicaComLimite, pareceMp3, extrairListaMusicas, conferirEntradaTikTok, inicioTikTok, acharVideoPorNome, publicarCampanhaTikTok as publicarReal, TIKTOK_BRASIL_LOCATION_ID, type ClienteTikTok } from "../tiktokPublicar";
+import type { DepsVideo, SondaRemota } from "../tiktokVideo";
+
+// Videos sem rede: a sonda devolve o que o teste quiser (padrao: nao conseguiu ler).
+let sondaDoTeste: (url: string) => SondaRemota | null = () => null;
+const depsVideoTeste: DepsVideo = { sondar: async (u) => sondaDoTeste(u), importar: async () => null, aguardar: async () => true };
+const publicarCampanhaTikTok = (c: ClienteTikTok, e: any, passo?: (m: string) => void, f?: typeof fetch) => publicarReal(c, e, passo, f, depsVideoTeste);
 
 const base = {
   advertiserId: "123", campaignName: "Shadia | Trafego", dailyBudgetReais: 30, landingPageUrl: "https://shadiahasan.com",
@@ -195,38 +201,41 @@ test("mudarStatusTikTok manda ads, grupo e campanha com o status pedido", async 
   assert.ok(chamadas.every((x) => x.body.operation_status === "ENABLE"));
 });
 
-test("video com nome duplicado (caso 24/11): reaproveita o da biblioteca, sem novo upload", async () => {
+test("nome duplicado com material que NAO e nosso: nao reaproveita pelo nome original, sobe com nome unico (caso 828)", async () => {
   const { c, chamadas } = falso();
-  const getOriginal = c.get.bind(c);
+  const getOrig = c.get.bind(c);
   (c as any).get = async (path: string, params: any) => path === "file/video/ad/search/"
-    ? (chamadas.push({ m: "GET", path, body: params }), { list: [{ video_id: "V_OLD7", file_name: "IMG_79940.mov" }, { video_id: "V_OLD", file_name: "IMG_7994.mov" }], page_info: { total_page: 1 } })
-    : getOriginal(path, params);
-  const postOriginal = c.post.bind(c);
+    ? { list: [{ video_id: "V_OLD", file_name: "IMG_7994.mov" }], page_info: { total_page: 1 } }
+    : getOrig(path, params);
+  const postOrig = c.post.bind(c);
+  let vezes = 0;
   (c as any).post = async (path: string, body: any) => {
-    if (path === "file/video/ad/upload/") { chamadas.push({ m: "POST", path, body }); throw new Error("TikTok [file/video/ad/upload/] 40002: Duplicated material name"); }
-    return postOriginal(path, body);
+    if (path === "file/video/ad/upload/") { chamadas.push({ m: "POST", path, body }); if (vezes++ === 0) throw new Error("TikTok 40911: Duplicated material name."); return [{ video_id: "VNOVO" }]; }
+    return postOrig(path, body);
   };
   const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "IMG_7994.mov" }] });
-  assert.equal(r.ads[0].videoId, "V_OLD", "nome exato, nao o parecido");
-  assert.equal(chamadas.filter((x) => x.path === "file/video/ad/upload/").length, 1);
-  assert.ok(r.avisos.some((a) => /reaproveitei/.test(a)));
+  assert.equal(r.ads[0].videoId, "VNOVO", "nao usa V_OLD so porque o nome original bate");
+  const nomes = chamadas.filter((x) => x.path === "file/video/ad/upload/").map((x) => x.body.file_name);
+  assert.match(nomes[0], /^mecpro_[0-9a-f]{10}_IMG_7994\.mp4$/);
+  assert.match(nomes[1], /^mecpro_[0-9a-f]{10}_IMG_7994_mecpro_[a-z0-9]+\.mp4$/);
 });
 
-test("video com nome duplicado que nao esta na biblioteca: sobe de novo com nome unico", async () => {
+test("nome duplicado com o NOSSO nome deterministico (mesma fonte e adaptacao): reaproveita", async () => {
   const { c, chamadas } = falso();
-  const getOriginal = c.get.bind(c);
-  (c as any).get = async (path: string, params: any) => path === "file/video/ad/search/" ? { list: [] } : getOriginal(path, params);
-  const postOriginal = c.post.bind(c);
-  let tentativas = 0;
+  let nomeEnviado = "";
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/search/"
+    ? { list: [{ video_id: "V_NOSSO", file_name: nomeEnviado }], page_info: { total_page: 1 } }
+    : getOrig(path, params);
+  const postOrig = c.post.bind(c);
   (c as any).post = async (path: string, body: any) => {
-    if (path === "file/video/ad/upload/") { chamadas.push({ m: "POST", path, body }); if (tentativas++ === 0) throw new Error("TikTok 40002: Duplicated material name"); return [{ video_id: "VNOVO" }]; }
-    return postOriginal(path, body);
+    if (path === "file/video/ad/upload/") { nomeEnviado = body.file_name; chamadas.push({ m: "POST", path, body }); throw new Error("TikTok 40911: Duplicated material name."); }
+    return postOrig(path, body);
   };
   const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "IMG_7994.mov" }] });
-  assert.equal(r.ads[0].videoId, "VNOVO");
-  const nomes = chamadas.filter((x) => x.path === "file/video/ad/upload/").map((x) => x.body.file_name);
-  assert.equal(nomes[0], "IMG_7994.mov");
-  assert.match(nomes[1], /^IMG_7994_mecpro_[a-z0-9]+\.mov$/);
+  assert.equal(r.ads[0].videoId, "V_NOSSO");
+  assert.equal(chamadas.filter((x) => x.path === "file/video/ad/upload/").length, 1);
+  assert.ok(r.avisos.some((a) => /mesma adaptacao; reaproveitei/.test(a)));
 });
 
 test("outro erro de upload continua interrompendo", async () => {
@@ -265,4 +274,49 @@ test("nome de campanha ocupado e invisivel na busca: cria com nome unico", async
   assert.ok(r.avisos.some((a) => /criei como/.test(a)));
   const grupo = chamadas.find((x) => x.path === "adgroup/create/")!;
   assert.ok(grupo.body.adgroup_name.startsWith(nomes[1]));
+});
+
+import { proporcaoAceitaNoTikTok, proporcaoMaisProxima, urlNaProporcao } from "../tiktokPublicar";
+
+test("proporcao: aceitas e a mais proxima", () => {
+  assert.ok(proporcaoAceitaNoTikTok(1080, 1920));
+  assert.ok(proporcaoAceitaNoTikTok(720, 1280));
+  assert.ok(proporcaoAceitaNoTikTok(1080, 1080));
+  assert.ok(proporcaoAceitaNoTikTok(1920, 1080));
+  assert.equal(proporcaoAceitaNoTikTok(1440, 1080), false, "4:3");
+  assert.equal(proporcaoAceitaNoTikTok(1080, 1440), false, "3:4");
+  assert.equal(proporcaoMaisProxima(1080, 1440), "9:16");
+  assert.equal(proporcaoMaisProxima(1440, 1080), "1:1");
+  assert.equal(proporcaoMaisProxima(2560, 1080), "16:9");
+});
+
+test("urlNaProporcao troca a transformacao do Cloudinary e ignora outros hosts", () => {
+  assert.equal(urlNaProporcao("https://res.cloudinary.com/d/video/upload/vc_h264,f_mp4/v1795/mecpro/a.mp4", "9:16"),
+    "https://res.cloudinary.com/d/video/upload/c_pad,b_black,w_1080,h_1920,vc_h264,f_mp4/v1795/mecpro/a.mp4");
+  assert.equal(urlNaProporcao("https://res.cloudinary.com/d/video/upload/v1795/a.mp4", "1:1"),
+    "https://res.cloudinary.com/d/video/upload/c_pad,b_black,w_1080,h_1080,vc_h264,f_mp4/v1795/a.mp4");
+  assert.equal(urlNaProporcao("https://exemplo.com/a.mp4", "9:16"), null);
+});
+
+test("caso 828: video 4:3 e adaptado no Cloudinary ANTES do upload, com capa do proprio video", async () => {
+  const { c, chamadas } = falso();
+  sondaDoTeste = () => ({ temVideo: true, duracaoS: 20, largura: 1440, altura: 1080, fps: 30, temAudio: true, codecVideo: "hevc", codecAudio: "aac", proporcao: 4 / 3, rotuloProporcao: "1.33:1", bytes: 40e6, bitrate: 8e6 });
+  try {
+    const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://res.cloudinary.com/d/video/upload/v1/mecpro/a.mov", nome: "IMG_7994.mov" }] });
+    const up = chamadas.find((x) => x.path === "file/video/ad/upload/")!;
+    assert.equal(up.body.video_url, "https://res.cloudinary.com/d/video/upload/c_pad,b_blurred:400:15,w_1080,h_1080,vc_h264,ac_aac,q_auto:good,f_mp4/v1/mecpro/a.mp4");
+    assert.match(up.body.file_name, /_1x1\.mp4$/);
+    const capa = chamadas.find((x) => x.path === "file/image/ad/upload/")!;
+    assert.equal(capa.body.image_url, "https://res.cloudinary.com/d/video/upload/so_1,c_pad,b_blurred:400:15,w_1080,h_1080,q_auto:good,f_jpg/v1/mecpro/a.jpg");
+    assert.ok(r.avisos.some((a) => /hevc convertido para H\.264/.test(a)));
+    assert.ok(r.avisos.some((a) => /adapto para 1:1/.test(a)));
+  } finally { sondaDoTeste = () => null; }
+});
+
+test("video fora da proporcao e fora do Cloudinary: erro claro antes de criar campanha", async () => {
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/info/" ? [{ width: 1440, height: 1080 }] : getOrig(path, params);
+  await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoId: "V1" }] }), /1440x1080.*9:16, 1:1 ou 16:9/);
+  assert.equal(chamadas.some((x) => x.path === "campaign/create/"), false);
 });

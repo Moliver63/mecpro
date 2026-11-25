@@ -230,6 +230,24 @@ export async function validarVideoEnviado(buffer: Buffer, limites: LimitesDeMidi
   return { ok: true, container, sonda, sondado: true };
 }
 
+/**
+ * Mesma validacao, lendo do ARQUIVO (upload em disco): so os primeiros bytes vao para a memoria.
+ * Pedido de Michel (25/11): processar video grande sem sobrecarregar os 512 MB do Render.
+ */
+export async function validarVideoEmArquivo(caminho: string, tamanhoBytes: number, limites: LimitesDeMidia = limitesDeMidia()): Promise<ValidacaoDeVideo> {
+  const cabecalho = Buffer.alloc(64);
+  const fh = await fs.open(caminho, "r");
+  try { await fh.read(cabecalho, 0, 64, 0); } finally { await fh.close(); }
+  const container = detectarContainerDeVideo(cabecalho);
+  if (!container) return { ok: false, erro: "O arquivo não parece ser um vídeo válido (MP4, MOV, WEBM, AVI ou MKV). Confira se não está corrompido." };
+  if (tamanhoBytes > limites.videoBytes) return { ok: false, erro: `Vídeo muito grande: o limite é ${Math.round(limites.videoBytes / 1048576)}MB.` };
+  if (!(await ffmpegDisponivel())) return { ok: true, container, sonda: null, sondado: false };
+  const sonda = await sondarArquivo(caminho);
+  if (!sonda || !sonda.temVideo) return { ok: false, erro: "Não consegui ler esse vídeo: o arquivo está corrompido ou não tem imagem. Tente exportar de novo e enviar." };
+  if (sonda.duracaoS > limites.videoDuracaoMaxS) return { ok: false, erro: `Vídeo longo demais (${Math.round(sonda.duracaoS)}s). O limite é ${limites.videoDuracaoMaxS}s.` };
+  return { ok: true, container, sonda, sondado: true };
+}
+
 // ── Quadros ──────────────────────────────────────────────────────────────────
 
 export interface Quadro { tempoS: number; jpeg: Buffer }

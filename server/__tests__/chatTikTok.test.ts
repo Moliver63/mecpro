@@ -1,10 +1,31 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { publicarNoTikTokDoChat, urlH264, textoAte, ehConfirmacao, valorDiarioDaFala, limparPropostasTikTok, type DepsTikTokChat } from "../chatTikTok";
+import { publicarNoTikTokDoChat, urlH264, textoAte, ehConfirmacao, valorDiarioDaFala, limparPropostasTikTok, previaPendenteDoTikTok, textoDoResultadoTikTok, type DepsTikTokChat } from "../chatTikTok";
 import { conferirEntradaTikTok } from "../tiktokPublicar";
+import { validarPublicacaoTikTok } from "../tiktokValidacao";
+import type { MinimoTikTok } from "../tiktokOrcamentoMinimo";
 
-function deps(over: Partial<DepsTikTokChat> = {}) {
+// Conta do TikTok falsa (sem rede): identidade autorizada e Pixel com o evento de compra.
+interface ContaFalsa { minimo?: MinimoTikTok | null; pixels?: any[] }
+function validadorFalso(conta: ContaFalsa = {}) {
+  const minimo = conta.minimo === undefined ? { moeda: "BRL", minimo: 110, cotacao: 5.2, fonte: "api" as const } : conta.minimo;
+  const pixels = conta.pixels ?? [{ pixel_id: "P1", pixel_name: "Shadia", activity_status: "ACTIVE", events: [{ event_type: "SHOPPING", name: "CompletePayment" }] }];
+  const cliente: any = {
+    get: async (path: string, params: any) => {
+      if (path === "identity/get/") return params.identity_type === "TT_USER" ? { identity_list: [{ identity_id: "I1", identity_type: "TT_USER", display_name: "Shadia Hasan" }] } : { identity_list: [] };
+      if (path === "pixel/list/") return { pixels };
+      throw new Error("inesperado " + path);
+    },
+    post: async () => { throw new Error("validacao nao cria nada"); },
+  };
+  return (_token: string, entrada: any) => validarPublicacaoTikTok(cliente, entrada, {
+    minimo: async () => minimo, urlSegura: async () => true, pagina: async () => ({ ok: true, status: 200 }),
+    video: { sondar: async () => null, importar: async () => null, aguardar: async () => true },
+  });
+}
+
+function deps(over: Partial<DepsTikTokChat> = {}, conta: ContaFalsa = {}) {
   const chamadas: string[] = [];
   const d: DepsTikTokChat = {
     campanha: async (id) => (id === 824 ? { id: 824, projectId: 49, name: "Teste — Shadia Hasan", objective: "sales", suggestedBudgetDaily: 6, creatives: JSON.stringify([{ headline: "Autoconhecimento que muda sua rotina" }]) } : null),
@@ -18,20 +39,37 @@ function deps(over: Partial<DepsTikTokChat> = {}) {
     publicar: async () => { chamadas.push("publicar"); return { campaignId: "c1", adGroupId: "g1", identityId: "i1", ads: [{ adId: "a1", videoId: "v1" }], avisos: [] }; },
     conferir: (e) => conferirEntradaTikTok(e),
     salvarIds: async () => { chamadas.push("salvar"); },
-    minimo: async () => ({ moeda: "BRL", minimo: 110, cotacao: 5.2, fonte: "api" }),
+    validar: validadorFalso(conta),
     ...over,
   };
   return { d, chamadas };
 }
 
-test("sem confirmado devolve previa e nao publica", async () => {
+test("sem confirmado: validacao tecnica e previa com o objetivo do rascunho (vendas com Pixel), nada publicado", async () => {
   const { d, chamadas } = deps();
   const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
   assert.equal(chamadas.includes("publicar"), false);
-  assert.equal(r.previa.destino, "https://shadiahasan.com/cursos");
+  assert.match(r.previa.destino, /^https:\/\/shadiahasan\.com\/cursos\?utm_source=tiktok&utm_medium=paid_social/);
   assert.equal(r.previa.status, "nasce PAUSADA");
-  assert.ok(r.avisos.some((a: string) => /US\$ 20/.test(a)), "avisa o minimo diario");
-  assert.ok(r.avisos.some((a: string) => /TRAFEGO/.test(a)), "avisa que publica como trafego");
+  assert.match(r.previa.objetivo, /Vendas/);
+  assert.match(r.previa.pixel, /Shadia \(P1\), evento Compra/);
+  assert.ok(r.problemas.some((p: string) => /minimo aceito pelo TikTok/.test(p)), "R$ 6 abaixo do minimo");
+  assert.ok(r.previa.ajustesAutomaticos.some((a: string) => /https:\/\//.test(a)), "corrigiu o https");
+});
+
+test("vendas sem Pixel: bloqueia, NAO troca por trafego sozinho; so com 'autorizo trafego'", async () => {
+  limparPropostasTikTok();
+  const { d, chamadas } = deps({}, { pixels: [] });
+  const p: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d);
+  assert.match(p.erro, /Nada foi criado/);
+  assert.ok(p.problemas.some((x: string) => /Pixel/.test(x)));
+  assert.match(p.perguntaParaOUsuario, /autorizo trafego/);
+  assert.equal(chamadas.includes("publicar"), false);
+  let objetivoPublicado = "";
+  const { d: d2 } = deps({ publicar: async (_t, e) => { objetivoPublicado = String(e.objetivo); return { campaignId: "c", adGroupId: "g", identityId: "i", ads: [], avisos: [] }; } }, { pixels: [] });
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false, dailyBudgetReais: 120 }, d2, { ultimaDoUsuario: "autorizo trafego", ultimaDoAssistente: "Quer que eu publique no TikTok como TRAFEGO? Responda autorizo trafego." });
+  assert.equal(r.publicada, true);
+  assert.equal(objetivoPublicado, "traffic");
 });
 
 test("com confirmado publica, salva ids e conclui", async () => {
@@ -150,7 +188,7 @@ test("valor minimo: abaixo do minimo a previa avisa e o confirmado nao publica",
 });
 
 test("valor minimo: sem como saber o minimo, avisa mas nao bloqueia", async () => {
-  const { d } = deps({ minimo: async () => null });
+  const { d } = deps({}, { minimo: null });
   const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false, dailyBudgetReais: 50 }, d);
   assert.equal(r.problemas.length, 0);
   assert.ok(r.avisos.some((a: string) => /Nao consegui confirmar o minimo/.test(a)));
@@ -215,6 +253,54 @@ test("leitura da fala: confirmacao e valor", () => {
   assert.equal(valorDiarioDaFala("150 reais"), 150);
   assert.equal(valorDiarioDaFala("200"), 200);
   assert.equal(valorDiarioDaFala("publica a campanha 828"), null);
-  assert.equal(valorDiarioDaFala("publica a 824 no tiktok com R$ 120 por dia"), 120);
+  assert.equal(valorDiarioDaFala("publica a 824 no tiktok com R$ 120 por dia"), null, "numero da campanha no meio: a decisao fica com o modelo");
+  assert.equal(valorDiarioDaFala("publica com R$ 120 por dia"), 120);
   assert.equal(valorDiarioDaFala("sim"), null);
+});
+
+test("previa pendente: a rota do chat acha a campanha da previa desta conversa", async () => {
+  limparPropostasTikTok();
+  const { d } = deps();
+  assert.equal(previaPendenteDoTikTok(2, 28), null);
+  await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  assert.deepEqual(previaPendenteDoTikTok(2, 28), { campaignId: 824 });
+  assert.equal(previaPendenteDoTikTok(2, 99), null, "outra conversa");
+  assert.equal(previaPendenteDoTikTok(3, 28), null, "outro usuario");
+  assert.equal(previaPendenteDoTikTok(2, 28, Date.now() + 31 * 60 * 1000), null, "expirou");
+});
+
+test("caso 15h (sessao 28): 'sim' tratado no servidor publica com o minimo e responde em texto", async () => {
+  limparPropostasTikTok();
+  const { d } = deps();
+  await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: false }, d);
+  const pend = previaPendenteDoTikTok(2, 28)!;
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: pend.campaignId, confirmado: false }, d, { ultimaDoUsuario: "sim", ultimaDoAssistente: PREVIA_TXT });
+  assert.equal(r.publicada, true);
+  assert.match(textoDoResultadoTikTok(r), /PAUSADA/);
+  assert.equal(previaPendenteDoTikTok(2, 28), null, "publicou, nada pendente");
+  assert.match(textoDoResultadoTikTok({ erro: "x", perguntaParaOUsuario: "Publico com R$ 126?" }), /Nao publiquei: x\nPublico com R\$ 126\?/);
+});
+
+test("rota local so assume o 'sim' quando a ultima resposta foi a previa do TikTok", () => {
+  const src = readFileSync(new URL("../chat.ts", import.meta.url), "utf8");
+  assert.match(src, /ultimaFoiPreviaDoTikTok\(ultimaDoAssistente\) \? previaPendenteDoTikTok/);
+});
+
+test("Goldfish 8: idempotencia comum a tela e chat; se a campanha anterior foi apagada no TikTok, publica de novo", async () => {
+  limparPropostasTikTok();
+  const chaves: string[] = [];
+  let publicou = 0;
+  const { d } = deps({
+    reservar: async (_u, chave) => { chaves.push(chave); return chaves.length === 1 ? { kind: "cached_result", result: { tiktokCampaignId: "C_APAGADA" } } : { kind: "proceed", recordId: 2 }; },
+    existe: async () => false,
+    publicar: async () => { publicou++; return { campaignId: "C_NOVA", adGroupId: "g", identityId: "i", ads: [], avisos: [] }; },
+  });
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d);
+  assert.equal(r.publicada, true);
+  assert.equal(publicou, 1);
+  assert.equal(chaves[0], "824:7000:WEB_CONVERSIONS", "mesma chave que a tela usa");
+  assert.equal(chaves[1], "824:7000:WEB_CONVERSIONS:refeita:C_APAGADA");
+  const { d: d2 } = deps({ reservar: async () => ({ kind: "cached_result", result: { tiktokCampaignId: "C1" } }), existe: async () => true });
+  const r2: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 824, confirmado: true, dailyBudgetReais: 120 }, d2);
+  assert.equal(r2.jaPublicada, true);
 });

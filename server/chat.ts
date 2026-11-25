@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import os from "node:os";
+import { createReadStream, promises as fsp } from "node:fs";
+import { pipeline } from "node:stream/promises";
 import { notaDeRetomada } from "./chatAttachments";
 import { verificarOrcamentoDoRascunho, resumoDoOrcamento } from "../shared/orcamentoDoRascunho";
 import { CAMPOS_PARA_RASCUNHO } from "./chatReasoning";
@@ -48,7 +51,7 @@ import { depsMidiaPadrao } from "./chatMediaDeps";
 import { aprovarCortes, propostasDaSessao, rejeitarCortes, resumoDaProposta, sugerirCortes } from "./chatCortes";
 import { avaliarImagensComCadeia } from "./chatVision";
 import { converterHeicParaJpeg, ehHeic } from "./chatHeic";
-import { limitesDeMidia, validarVideoEnviado, MIME_POR_CONTAINER, hashDoArquivo } from "./chatMedia";
+import { limitesDeMidia, validarVideoEnviado, validarVideoEmArquivo, MIME_POR_CONTAINER, hashDoArquivo } from "./chatMedia";
 import { selecionarContaMetaDaSessao, aplicarContaDaSessaoAoRascunho, type SessaoDeConta, selecionarContaMeta, depsContaMetaPadrao } from "./metaAdAccountChoice";
 import { confirmedChatContact } from "./chatContact";
 import { evaluateCampaignBriefingReadiness } from "../shared/campaignBriefingReadiness";
@@ -58,9 +61,9 @@ import { chamarCloudflareWorkersAI, cloudflareWorkersAIConfigurado, MODELO_CLOUD
 import { jwtVerify } from "jose";
 import * as db from "./db";
 import { conferirEntradaTikTok as conferirEntradaTikTokSync } from "./tiktokPublicar";
-import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, publicarNoTikTokDoChat } from "./chatTikTok";
+import { DESCRICAO_PUBLICAR_TIKTOK, PARAMETROS_PUBLICAR_TIKTOK, DESCRICAO_CONSULTAR_TIKTOK, PARAMETROS_CONSULTAR_TIKTOK, consultarNoTikTokDoChat, publicarNoTikTokDoChat, previaPendenteDoTikTok, ultimaFoiPreviaDoTikTok, ehConfirmacao, autorizouTrafego, valorDiarioDaFala, textoDoResultadoTikTok } from "./chatTikTok";
 import multer from "multer";
-import { uploadVideoBufferToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
+import { uploadVideoBufferToCloudinary, uploadVideoFileToCloudinary, uploadImageBufferToCloudinary } from "./imageGeneration";
 import { log } from "./logger";
 import { CONVERSATION_POLICY, nullableOptionalFields, BillingCooldown, localConversationReply, type FalhaDaIA } from "./chatReasoning";
 import { budgetChatMessages, budgetChatRequest, COMPACT_CHAT_POLICY } from "./chatRequestBudget";
@@ -351,6 +354,8 @@ PUBLICACAO NO TIKTOK (publicar_no_tiktok): o MecProAI publica DIRETO no TikTok A
 - Chame primeiro com confirmado=false e mostre a previa (conta, orcamento diario, minimo diario, destino, texto, videos) e TODOS os avisos. Se o orcamento estiver abaixo do minimo, pergunte o novo valor diario (a partir do minimo da previa) e chame de novo; nunca publique abaixo do minimo.
 - So chame com confirmado=true depois de um sim explicito do usuario nesta mesma troca, com os mesmos valores da previa. Tudo nasce PAUSADO.
 - Os videos usados sao os enviados nesta conversa. Sem video, peca para enviar no chat.
+- O objetivo no TikTok e o do rascunho: vendas e leads usam Pixel. Sem Pixel com o evento de compra, explique e pergunte; so publique como trafego se o usuario autorizar. Videos fora de 9:16, 1:1 ou 16:9 sao adaptados sozinhos; mostre os ajustes automaticos da previa.
+- Para saber como esta uma campanha ja publicada no TikTok (status, revisao, recusa), use consultar_tiktok.
 - Valor diario dito pelo usuario durante a publicacao no TikTok vai em publicar_no_tiktok (dailyBudgetReais); nao use atualizar_orcamento_campanha para isso. Nunca ofereca publicar abaixo do minimo.
 - Se a publicacao falhar, explique o erro e ofereca repetir com o MESMO rascunho. Nunca gere campanha nova (gerar_campanha) para contornar erro de publicacao; o MecProAI ja trata nome e video repetidos sozinho.
 - So confirme sucesso quando a ferramenta realmente retornar sucesso — nunca diga "publicado" antes da ferramenta confirmar.
@@ -701,6 +706,7 @@ const declaracoesGemini: FunctionDeclaration[] = [
   { name: "consultar_formularios_meta", description: DESCRICAO_FORMULARIOS_META, parametersJsonSchema: PARAMETROS_FORMULARIOS_META },
   { name: "publicar_campanha", description: DESCRICAO_PUBLICAR_CAMPANHA, parametersJsonSchema: PARAMETROS_PUBLICAR_CAMPANHA },
   { name: "publicar_no_tiktok", description: DESCRICAO_PUBLICAR_TIKTOK, parametersJsonSchema: PARAMETROS_PUBLICAR_TIKTOK },
+  { name: "consultar_tiktok", description: DESCRICAO_CONSULTAR_TIKTOK, parametersJsonSchema: PARAMETROS_CONSULTAR_TIKTOK },
   { name: "pesquisar_web", description: DESCRICAO_PESQUISAR_WEB, parametersJsonSchema: PARAMETROS_PESQUISAR_WEB },
 ];
 
@@ -764,6 +770,10 @@ export const ferramentasGroq = [
   {
     type: "function" as const,
     function: { name: "publicar_no_tiktok", description: DESCRICAO_PUBLICAR_TIKTOK, parameters: PARAMETROS_PUBLICAR_TIKTOK as unknown as Record<string, unknown> },
+  },
+  {
+    type: "function" as const,
+    function: { name: "consultar_tiktok", description: DESCRICAO_CONSULTAR_TIKTOK, parameters: PARAMETROS_CONSULTAR_TIKTOK as unknown as Record<string, unknown> },
   },
   {
     type: "function" as const,
@@ -1289,7 +1299,11 @@ const depsTikTokChat = {
   perfil: (projectId: number) => db.getClientProfile(projectId),
   integracao: (userId: number) => db.getApiIntegration(userId, "tiktok"),
   videosDaSessao: (sessionId: number) => db.getPendingChatVideos(sessionId),
-  reservar: (userId: number, chave: string) => db.reserveMcpIdempotencyKey(userId, "chat_tiktok_publish", chave) as any,
+  reservar: (userId: number, chave: string) => db.reserveMcpIdempotencyKey(userId, "tiktok_publish", chave) as any,
+  existe: async (token: string, adv: string, id: string) => {
+    const [{ criarClienteTikTok }, { consultarCampanhaTikTok }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokConsulta")]);
+    return !!(await consultarCampanhaTikTok(criarClienteTikTok(token), adv, id)).campanha;
+  },
   concluir: (recordId: number, payload: any) => db.completeMcpIdempotencyKey(recordId, payload),
   falhar: (recordId: number, motivo: string) => db.failMcpIdempotencyKey(recordId, motivo),
   publicar: async (token: string, entrada: any, etapa: (m: string) => void) => {
@@ -1298,10 +1312,11 @@ const depsTikTokChat = {
   },
   conferir: (entrada: any) => conferirEntradaTikTokSync(entrada),
   salvarIds: async (campaignId: number, r: any) => { await db.updateCampaign(campaignId, { tiktokCampaignId: r.campaignId, tiktokAdGroupId: r.adGroupId } as any); },
-  minimo: async (token: string, advertiserId: string) => {
-    const [{ criarClienteTikTok }, { minimoDiarioTikTok }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokOrcamentoMinimo")]);
-    return minimoDiarioTikTok(criarClienteTikTok(token), advertiserId);
+  validar: async (token: string, entrada: any) => {
+    const [{ criarClienteTikTok }, { validarPublicacaoTikTok }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokValidacao")]);
+    return validarPublicacaoTikTok(criarClienteTikTok(token), entrada);
   },
+  log: (dados: Record<string, unknown>) => (dados.erroOriginal ? log.error : log.info)("chat", dados.erroOriginal ? "publicar_no_tiktok: erro original da API" : "publicar_no_tiktok: decisao", dados),
 };
 /** Ultima fala de cada lado: o servidor le o "sim" e o valor do usuario (nao depende do modelo). */
 function falaDaConversa(mensagens: MensagemChat[]): { ultimaDoUsuario?: string; ultimaDoAssistente?: string } {
@@ -1310,6 +1325,16 @@ function falaDaConversa(mensagens: MensagemChat[]): { ultimaDoUsuario?: string; 
   const assistente = [...mensagens.slice(0, iUsuario)].reverse().find((m) => m.role === "assistant");
   return { ultimaDoUsuario: usuario?.content, ultimaDoAssistente: assistente?.content };
 }
+const consultarNoTikTok = (userId: number, args: Record<string, unknown>) => consultarNoTikTokDoChat(userId, args, {
+  campanha: (id: number) => db.getCampaignById(id),
+  projeto: (id: number) => db.getProjectById(id),
+  integracao: (uid: number) => db.getApiIntegration(uid, "tiktok"),
+  consultar: async (token: string, adv: string, id: string) => {
+    const [{ criarClienteTikTok }, { consultarCampanhaTikTok, resumoDaSituacao }] = await Promise.all([import("./tiktokPublicar"), import("./tiktokConsulta")]);
+    const sit = await consultarCampanhaTikTok(criarClienteTikTok(token), adv, id);
+    return { texto: resumoDaSituacao(sit), dados: sit };
+  },
+});
 const publicarNoTikTok = (userId: number, sessionId: number | null, args: Record<string, unknown>, mensagens: MensagemChat[] = []) =>
   executarUmaVez(userId, "publicar_no_tiktok", args, () => publicarNoTikTokDoChat(userId, sessionId ?? undefined, args, depsTikTokChat, falaDaConversa(mensagens)));
 
@@ -1505,6 +1530,7 @@ async function tentarComGemini(mensagens: MensagemChat[], userId: number, attach
       if (name === "consultar_paginas_meta") return listarPaginasMetaConectadas(userId);
       if (name === "consultar_formularios_meta") return listarFormulariosChat(userId, limparArgsFerramenta(args));
       if (name === "publicar_no_tiktok") return publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args), mensagens);
+      if (name === "consultar_tiktok") return consultarNoTikTok(userId, limparArgsFerramenta(args));
       if (name === "publicar_campanha") {
         const a = limparArgsFerramenta(args);
         return publicarCampanhaNaMeta(userId, {
@@ -1724,6 +1750,11 @@ async function tentarComOpenAICompativel(chamar: (historico: Groq.Chat.ChatCompl
     }
     if (chamada.function.name === "consultar_formularios_meta") {
       const result = await listarFormulariosChat(userId, limparArgsFerramenta(args));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
+    if (chamada.function.name === "consultar_tiktok") {
+      const result = await consultarNoTikTok(userId, limparArgsFerramenta(args));
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
@@ -1966,6 +1997,11 @@ async function tentarComDeepSeek(mensagens: MensagemChat[], userId: number, atta
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
       continue;
     }
+    if (chamada.function?.name === "consultar_tiktok") {
+      const result = await consultarNoTikTok(userId, limparArgsFerramenta(args));
+      historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
+      continue;
+    }
     if (chamada.function?.name === "publicar_no_tiktok") {
       const result = await publicarNoTikTok(userId, sessionId, limparArgsFerramenta(args), mensagens);
       historico.push({ role: "tool", tool_call_id: chamada.id, content: JSON.stringify(result) });
@@ -2062,8 +2098,10 @@ chatRouter.delete("/sessions/:id", authChat, async (req: any, res) => {
 // nunca conectou nada. Este endpoint é genérico (Cloudinary, igual as
 // fotos), disponível pra qualquer usuário logado independente de ter
 // alguma plataforma de anúncio conectada.
+// Video vai para ARQUIVO temporario, nao para a memoria (pedido de Michel, 25/11: o Render tem 512 MB e
+// ja caiu por OOM com 3 videos). Validacao, hash e envio ao Cloudinary leem do disco, em partes.
 const uploadVideoMulter = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({ destination: os.tmpdir(), filename: (_req, _f, cb) => cb(null, `chat-video-${crypto.randomUUID()}`) }),
   limits: { fileSize: limitesDeMidia().videoBytes }, // configuravel (CHAT_MAX_VIDEO_MB); padrao 100MB
 });
 
@@ -2073,7 +2111,17 @@ const TIPOS_VIDEO_ACEITOS = new Set([
   "video/webm",
   "video/x-msvideo", // .avi
   "video/x-matroska", // .mkv
+  "video/3gpp", // celulares Android
+  "video/x-m4v",
 ]);
+/** Celular as vezes manda tipo vazio ou generico; nesses casos vale o conteudo (assinatura do arquivo). */
+const TIPOS_GENERICOS = new Set(["", "application/octet-stream", "binary/octet-stream"]);
+
+async function hashDoArquivoEmDisco(caminho: string): Promise<string> {
+  const h = crypto.createHash("sha256");
+  await pipeline(createReadStream(caminho), h);
+  return h.digest("hex");
+}
 
 chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
   uploadVideoMulter.single("file")(req, res, (err: any) => {
@@ -2087,15 +2135,17 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
   });
 }, async (req: any, res) => {
   const userId = req.chatUserId as number;
-  const file = req.file as { buffer: Buffer; originalname: string; mimetype: string; size: number } | undefined;
+  const file = req.file as { path: string; originalname: string; mimetype: string; size: number } | undefined;
   if (!file) {
     return res.status(400).json({ erro: "Nenhum arquivo de vídeo enviado." });
   }
-  if (!TIPOS_VIDEO_ACEITOS.has(file.mimetype)) {
-    return res.status(400).json({ erro: `Formato de vídeo não suportado (${file.mimetype}). Use MP4, MOV, WEBM, AVI ou MKV.` });
+  // O arquivo temporario sai do disco em qualquer desfecho.
+  res.on("close", () => { fsp.unlink(file.path).catch(() => {}); });
+  if (!TIPOS_VIDEO_ACEITOS.has(file.mimetype) && !TIPOS_GENERICOS.has(String(file.mimetype || ""))) {
+    return res.status(400).json({ erro: `Formato de vídeo não suportado (${file.mimetype}). Use MP4, MOV, WEBM, AVI, MKV ou 3GP.` });
   }
   // O conteudo precisa ser um video de verdade (assinatura + leitura), nao so o mime declarado pelo navegador.
-  const validacao = await validarVideoEnviado(file.buffer);
+  const validacao = await validarVideoEmArquivo(file.path, file.size);
   if (validacao.ok === false) {
     log.warn("chat", "upload de video recusado pelo conteudo", { userId, fileName: String(file.originalname || "").slice(0, 80), declarado: file.mimetype });
     return res.status(400).json({ erro: validacao.erro });
@@ -2115,7 +2165,7 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
       sessionIdEfetivo = await db.createChatSession(userId, "Nova conversa").catch(() => null);
     }
     // Mesmo conteudo ja enviado nesta conversa: reaproveita, sem novo upload.
-    const sha = crypto.createHash("sha256").update(file.buffer).digest("hex");
+    const sha = await hashDoArquivoEmDisco(file.path);
     if (sessionIdEfetivo !== null) {
       const existente = (await db.getPendingChatVideos(sessionIdEfetivo).catch(() => [])).find((v) => v.sha === sha);
       if (existente) {
@@ -2123,7 +2173,7 @@ chatRouter.post("/upload-video", authChat, (req: any, res, next) => {
         return res.json({ videoUrl: existente.url, fileName: existente.fileName, sessionId: sessionIdEfetivo, persistido: true, reaproveitado: true });
       }
     }
-    const videoUrl = await uploadVideoBufferToCloudinary(file.buffer, file.originalname || `chat-video-${Date.now()}.mp4`);
+    const videoUrl = await uploadVideoFileToCloudinary(file.path, file.originalname || `chat-video-${Date.now()}.mp4`);
     if (!videoUrl) {
       return res.status(502).json({ erro: "Não foi possível salvar o vídeo agora. Tente novamente em instantes." });
     }
@@ -2417,6 +2467,18 @@ chatRouter.post("/", authChat, chatSessionMiddleware, (req: any, _res, next) => 
       if (preparation) return finish({ resposta: preparation, campanha: null, modo: "local" });
     } catch {
       return finish({ resposta: "Nao consegui consultar seus projetos agora. Tente novamente; nenhuma campanha foi criada.", campanha: null, modo: "local" });
+    }
+  }
+
+  // "sim" (ou um valor) depois da previa do TikTok: publica direto, sem modelo (achado 24/11, sessao 28).
+  if (typeof ultimaMensagemUsuario === "string" && (ehConfirmacao(ultimaMensagemUsuario) || valorDiarioDaFala(ultimaMensagemUsuario) || autorizouTrafego(ultimaMensagemUsuario))) {
+    const historicoCurto = recebidas.filter((m) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant")) as MensagemChat[];
+    const ultimaDoAssistente = [...historicoCurto].reverse().find((m) => m.role === "assistant")?.content;
+    const pendente = ultimaFoiPreviaDoTikTok(ultimaDoAssistente) ? previaPendenteDoTikTok(userId, req.chatSessionId ?? undefined) : null;
+    if (pendente) {
+      log.info("chat", "publicar_no_tiktok: resposta a previa tratada no servidor", { userId, campaignId: pendente.campaignId });
+      const r = await publicarNoTikTok(userId, req.chatSessionId ?? null, { campaignId: pendente.campaignId, confirmado: false }, historicoCurto);
+      return finish({ resposta: textoDoResultadoTikTok(r as Record<string, any>), campanha: null, modo: "local" });
     }
   }
 

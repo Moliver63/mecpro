@@ -389,7 +389,7 @@ export default function ChatConversationView({
             {/* Seletores NATIVOS do sistema (no iPhone: biblioteca, camera e arquivos no mesmo painel nativo). Sem galeria propria. */}
             <input ref={refArquivos} className="campaign-chat-file-input" data-anexo-input="arquivos" type="file" accept={ACEITA_FOTOS_E_VIDEOS} multiple onChange={aoEscolher} />
             <input ref={refFotos} className="campaign-chat-file-input" data-anexo-input="fotos" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple onChange={aoEscolher} />
-            <input ref={refVideos} className="campaign-chat-file-input" data-anexo-input="videos" type="file" accept="video/mp4,video/quicktime,video/webm,.mov,.mp4,.webm" multiple onChange={aoEscolher} />
+            <input ref={refVideos} className="campaign-chat-file-input" data-anexo-input="videos" type="file" accept="video/mp4,video/quicktime,video/webm,video/3gpp,video/x-m4v,.mov,.mp4,.webm,.3gp,.m4v" multiple onChange={aoEscolher} />
             <input ref={refCamera} className="campaign-chat-file-input" data-anexo-input="camera" type="file" accept="image/*,video/*" capture="environment" onChange={aoEscolher} />
           </div>
           <textarea
