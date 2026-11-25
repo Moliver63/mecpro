@@ -18,7 +18,7 @@ import type { ClienteTikTok } from "./tiktokPublicar";
 import { EVENTOS_WEB, interpretarPixels, type PixelTikTok } from "./tiktokObjetivos";
 
 export type TipoProblemaTikTok =
-  | "permissao_api" | "token_invalido" | "conta_nao_autorizada"
+  | "permissao_api" | "token_invalido" | "conta_nao_autorizada" | "limite"
   | "pixel_inexistente" | "pixel_sem_evento" | "pixel_ambiguo" | "evento_sem_atividade" | "outro";
 
 export interface ProblemaTikTok {
@@ -54,7 +54,8 @@ export function classificarErroTikTok(erro: unknown): ProblemaTikTok {
   const msg = String((erro as any)?.mensagemOriginal || (erro as any)?.message || erro || "");
   const code = Number((erro as any)?.code ?? (msg.match(/\]\s*(\d{5})/)?.[1] ?? NaN));
   const negado = msg.match(/does not grant you\s+(\S+?)\s+permission/i)?.[1] || (/lacks the required scope/i.test(msg) ? ((erro as any)?.path ? `/${(erro as any).path}` : "") : "");
-  if (negado || /lacks the required scope|no permission to (call|access) (this )?api/i.test(msg)) {
+  // 40001 e o codigo de "Permission error" do TikTok, qualquer que seja o texto (Goldfish 25/11).
+  if (code === 40001 || negado || /lacks the required scope|no permission to (call|access) (this )?api|does not grant you|permission error/i.test(msg)) {
     const endpoint = negado || "";
     const permissao = permissaoDoEndpoint(endpoint.replace(/:.*$/, ""));
     return {
@@ -67,7 +68,10 @@ export function classificarErroTikTok(erro: unknown): ProblemaTikTok {
       ],
     };
   }
-  if ([40100, 40102, 40104, 40105].includes(code) || /access[_ ]?token.*(invalid|expired|not exist|is null|revoked)|token (has )?(expired|invalid)/i.test(msg)) {
+  if (code === 40100 || /too (many|frequent)|rate limit|qps/i.test(msg)) {
+    return { tipo: "limite", deAutorizacao: false, mensagem: "O TikTok limitou as chamadas por excesso de requisicoes agora.", instrucoes: ["Espere um minuto e tente de novo. Nao e preciso reconectar."] };
+  }
+  if ([40104, 40105].includes(code) || /access[_ ]?token.*(invalid|expired|not exist|is null|empty|revoked)|token (has )?(expired|invalid)/i.test(msg)) {
     return {
       tipo: "token_invalido", deAutorizacao: true,
       mensagem: "O token do TikTok Ads esta invalido, expirado ou foi revogado.",
@@ -122,7 +126,7 @@ export function disparosDoEvento(d: any, nomes: string[]): number | null {
  * Lista os Pixels, escolhe o certo para o evento e confere atividade. Ordem de escolha: o Pixel pedido
  * (ou salvo no projeto); senao o unico com o evento; varios com o evento e nenhum escolhido = ambiguo.
  */
-export async function diagnosticarPixels(c: ClienteTikTok, adv: string, evento: string, pixelIdPedido?: string, agora = new Date()): Promise<ResultadoPixel> {
+export async function diagnosticarPixels(c: ClienteTikTok, adv: string, evento: string, pixelIdPedido?: string, agora = new Date(), opcoes: { pedidoEhSalvo?: boolean } = {}): Promise<ResultadoPixel> {
   const avisos: string[] = [];
   let brutos: PixelTikTok[];
   try {
@@ -154,6 +158,11 @@ export async function diagnosticarPixels(c: ClienteTikTok, adv: string, evento: 
     } };
   }
   let escolhido: PixelDiagnosticado | undefined;
+  if (pixelIdPedido && opcoes.pedidoEhSalvo && !pixels.some((p) => p.pixelId === String(pixelIdPedido))) {
+    // Pixel salvo no projeto que nao existe mais nesta conta (conta trocada): escolhe de novo e avisa.
+    avisos.push(`O Pixel ${pixelIdPedido} salvo no projeto nao existe nesta conta de anuncios; escolhi de novo pela conta atual.`);
+    pixelIdPedido = undefined;
+  }
   if (pixelIdPedido) {
     escolhido = pixels.find((p) => p.pixelId === String(pixelIdPedido));
     if (!escolhido) return { ok: false, pixels, avisos, problema: {
@@ -169,7 +178,12 @@ export async function diagnosticarPixels(c: ClienteTikTok, adv: string, evento: 
       mensagem: `Ha ${comEvento.length} Pixels com o evento ${rotulo}. Escolha qual e o do site desta campanha.`,
       instrucoes: [`Pixels: ${comEvento.map((p) => `${p.nome} (${p.pixelId})`).join(", ")}. Diga qual usar; ele fica salvo para este projeto.`],
     } };
-    else escolhido = pixels.length === 1 ? pixels[0] : undefined;
+    else if (pixels.length === 1) escolhido = pixels[0];
+    else if (pixels.every((p) => !p.eventos.length)) return { ok: false, pixels, avisos, problema: {
+      tipo: "pixel_ambiguo", deAutorizacao: false,
+      mensagem: `A conta tem ${pixels.length} Pixels e a API nao informou os eventos deles. Escolha qual e o do site desta campanha.`,
+      instrucoes: [`Pixels: ${pixels.map((p) => `${p.nome} (${p.pixelId})`).join(", ")}. Diga qual usar; ele fica salvo para este projeto.`],
+    } };
     if (!escolhido) return { ok: false, pixels, avisos, problema: {
       tipo: "pixel_sem_evento", deAutorizacao: false,
       mensagem: `Nenhum Pixel da conta tem o evento ${rotulo} configurado.`,
@@ -185,10 +199,11 @@ export async function diagnosticarPixels(c: ClienteTikTok, adv: string, evento: 
   }
   if (!escolhido.eventos.length) avisos.push(`A API nao listou os eventos do Pixel ${escolhido.nome}; confirme no Gerenciador de Eventos que ${rotulo} dispara.`);
   if (escolhido.disparos30d === 0 || escolhido.ativo === false) {
-    avisos.push(`Evento ${rotulo} sem atividade nos ultimos 30 dias no Pixel ${escolhido.nome}: a otimizacao para vendas fica sem dados. Confira a instalacao antes de ativar a campanha.`);
+    const motivo = escolhido.disparos30d === 0 ? `O evento ${rotulo} do Pixel ${escolhido.nome} nao registrou disparos nos ultimos 30 dias.` : `O Pixel ${escolhido.nome} esta marcado como sem atividade recente pelo TikTok.`;
+    avisos.push(`${motivo} A otimizacao para vendas fica sem dados; confira a instalacao antes de ativar a campanha.`);
     return { ok: true, pixels, escolhido, avisos, problema: {
       tipo: "evento_sem_atividade", deAutorizacao: false,
-      mensagem: `O evento ${rotulo} do Pixel ${escolhido.nome} nao registrou disparos nos ultimos 30 dias.`,
+      mensagem: motivo,
       instrucoes: ["Faca uma compra de teste e veja o evento chegar no Gerenciador de Eventos (aba Testar eventos).", "Sem disparos, o TikTok nao tem como aprender quem compra: a campanha pode gastar sem converter."],
     } };
   }
@@ -244,7 +259,7 @@ export async function diagnosticarTikTok(c: ClienteTikTok, adv: string, opcoes: 
   }
   const evento = opcoes.evento || "SHOPPING";
   const pixel = await diagnosticarPixels(c, adv, evento, opcoes.pixelId);
-  capacidades.push({ nome: "Pixel e eventos", endpoint: "pixel/list/", ok: pixel.problema?.tipo !== "permissao_api" && pixel.problema?.tipo !== "token_invalido", ...(pixel.problema && pixel.problema.deAutorizacao ? { problema: pixel.problema } : {}) });
+  capacidades.push({ nome: "Pixel e eventos", endpoint: "pixel/list/", ok: !pixel.problema?.deAutorizacao && pixel.problema?.tipo !== "limite", ...(pixel.problema && (pixel.problema.deAutorizacao || pixel.problema.tipo === "limite") ? { problema: pixel.problema } : {}) });
   if (pixel.problema) problemas.push(pixel.problema);
   const base = capacidades.slice(0, 4).every((x) => x.ok) && contaAutorizada !== false;
   return {

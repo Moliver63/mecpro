@@ -55,7 +55,7 @@ test("caso real 828: 40001 'does not grant you /pixel/list/:GET' = falta de perm
 
 test("token invalido/expirado e conta nao autorizada sao separados da falta de permissao", () => {
   assert.equal(classificarErroTikTok(new ErroTikTok("campaign/get/", 40105, "The access token is invalid or expired.")).tipo, "token_invalido");
-  assert.equal(classificarErroTikTok(new Error("TikTok [ad/get/] 40100: Access token has expired")).tipo, "token_invalido");
+  assert.equal(classificarErroTikTok(new Error("TikTok [ad/get/] 40105: Access token has expired")).tipo, "token_invalido");
   assert.equal(classificarErroTikTok(new ErroTikTok("campaign/get/", 40002, "No permission to operate advertiser 123")).tipo, "conta_nao_autorizada");
   assert.equal(classificarErroTikTok(new ErroTikTok("campaign/get/", 40002, "advertiser_id 999 does not exist")).tipo, "conta_nao_autorizada");
   assert.equal(classificarErroTikTok(new Error("TikTok [x] 50000: system busy")).tipo, "outro");
@@ -244,4 +244,70 @@ test("superficies: ferramentas MCP e do chat existem; callback troca o codigo fo
   assert.match(cb, /!window\.opener && state && exchange/);
   const mig = readFileSync(new URL("../_core/migrations.ts", import.meta.url), "utf8");
   assert.match(mig, /ALTER TABLE client_profiles ADD COLUMN IF NOT EXISTS "tiktokPixelId" varchar\(40\)/);
+});
+
+// ── Revisao Goldfish 25/11 (permissoes) ──────────────────────────────────────
+import { criarStateAds, stateAdsValido } from "../tiktokMarketingAuth";
+
+test("Goldfish 1 (CSRF): state previsivel nao vale; so o assinado pelo servidor", () => {
+  const agora = Date.now();
+  assert.equal(stateAdsValido(`mecproads_2_${agora}`, 2, agora, "segredo"), false);
+  assert.equal(stateAdsValido(criarStateAds(2, agora, "segredo"), 2, agora, "segredo"), true);
+});
+
+test("Goldfish 2: qualquer 40001 e permissao (texto diferente), e erro de leitura nunca vira trafego", async () => {
+  for (const msg of ["Permission error", "advertiser does not grant you permission", "You don't have permission for this API"]) {
+    const p = classificarErroTikTok(new ErroTikTok("pixel/list/", 40001, msg));
+    assert.equal(p.tipo, "permissao_api", msg);
+    const v = await validarPublicacaoTikTok(conta({ ...okBase, "pixel/list/": new ErroTikTok("pixel/list/", 40001, msg) }), { ...entrada828, autorizarTrafego: true }, depsVal);
+    assert.equal(v.objetivo.objectiveType, "WEB_CONVERSIONS", msg);
+    assert.equal(v.ok, false);
+  }
+  const instavel = await validarPublicacaoTikTok(conta({ ...okBase, "pixel/list/": new Error("TikTok [pixel/list/] HTTP 403 sem JSON") }), { ...entrada828, autorizarTrafego: true }, depsVal);
+  assert.equal(instavel.objetivo.objectiveType, "WEB_CONVERSIONS", "falha de leitura nao autoriza trafego");
+  const semPixel = await validarPublicacaoTikTok(conta({ ...okBase, "pixel/list/": { pixels: [] } }), { ...entrada828, autorizarTrafego: true }, depsVal);
+  assert.equal(semPixel.objetivo.objectiveType, "TRAFFIC", "so quando o TikTok AFIRMA que nao ha Pixel e o usuario autorizou");
+});
+
+test("Goldfish 3: com a validacao ok, a previa nao diz 'nao da para publicar'", async () => {
+  limparPropostasTikTok();
+  const { d } = depsChat({}, conta({ ...okBase, "pixel/list/": { pixels: [] } }));
+  const r: any = await publicarNoTikTokDoChat(2, 28, { campaignId: 828, confirmado: false, autorizarTrafego: true, adText: "Liberte-se dos medos que te paralisam" }, d);
+  assert.doesNotMatch(r.perguntaParaOUsuario, /Ainda nao da para publicar/);
+  assert.match(r.perguntaParaOUsuario, /Validacao tecnica concluida/);
+});
+
+test("Goldfish 4: 40100 e limite de requisicoes, nao token (nao manda reconectar)", () => {
+  const p = classificarErroTikTok(new ErroTikTok("campaign/get/", 40100, "Requests made too frequently"));
+  assert.equal(p.tipo, "limite");
+  assert.equal(p.deAutorizacao, false);
+  assert.ok(!p.instrucoes.join(" ").includes("Reconecte"));
+  assert.equal(classificarErroTikTok(new ErroTikTok("x", 40105, "Access token is invalid")).tipo, "token_invalido");
+});
+
+test("Goldfish 5: varios Pixels sem eventos na resposta = escolher, nao 'sem evento'", async () => {
+  const r = await diagnosticarPixels(conta({ "pixel/list/": { pixels: [{ pixel_id: "P1", pixel_name: "A" }, { pixel_id: "P2", pixel_name: "B" }] }, "pixel/event/stats/": {} }), ADV, "SHOPPING");
+  assert.equal(r.problema!.tipo, "pixel_ambiguo");
+});
+
+test("Goldfish 7: aviso de um tipo de identidade negado aparece mesmo quando outro funciona", async () => {
+  const c = conta({ ...okBase, "pixel/list/": PIXEL_OK, "pixel/event/stats/": STATS_OK });
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "identity/get/" && params.identity_type === "BC_AUTH_TT" ? Promise.reject(new Error("TikTok [identity/get/] 40001: no permission BC")) : getOrig(path, params);
+  const v = await validarPublicacaoTikTok(c, entrada828, depsVal);
+  assert.ok(v.avisos.some((a) => /BC_AUTH_TT/.test(a)));
+});
+
+test("Goldfish 8: Pixel salvo que sumiu da conta escolhe de novo com aviso; pedido explicito continua bloqueando", async () => {
+  const salvoSumiu = await diagnosticarPixels(conta({ "pixel/list/": PIXEL_OK, "pixel/event/stats/": STATS_OK }), ADV, "SHOPPING", "P_ANTIGO", new Date(), { pedidoEhSalvo: true });
+  assert.equal(salvoSumiu.ok, true);
+  assert.equal(salvoSumiu.escolhido!.pixelId, "P1");
+  assert.ok(salvoSumiu.avisos.some((a) => /salvo no projeto nao existe/.test(a)));
+  const explicito = await diagnosticarPixels(conta({ "pixel/list/": PIXEL_OK, "pixel/event/stats/": STATS_OK }), ADV, "SHOPPING", "P_ANTIGO");
+  assert.equal(explicito.problema!.tipo, "pixel_inexistente");
+});
+
+test("Goldfish 10: painel marca Pixel com falha quando a conta nao esta autorizada", async () => {
+  const d = await diagnosticarTikTok(conta({ ...okBase, "pixel/list/": new ErroTikTok("pixel/list/", 40002, "No permission to operate advertiser 7620542434560344082") }), ADV);
+  assert.equal(d.capacidades.at(-1)!.ok, false);
 });

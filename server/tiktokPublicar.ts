@@ -92,6 +92,8 @@ export interface EntradaTikTok {
   pixelId?: string;
   /** Evento de otimizacao (SHOPPING = compra). Padrao conforme o objetivo. */
   optimizationEvent?: string;
+  /** pixelId veio do salvo no projeto (se nao existir mais, escolhe de novo em vez de travar). */
+  pixelSalvo?: boolean;
   /** Videos ja preparados pela validacao previa (tiktokValidacao). Sem eles, prepara aqui. */
   videosPreparados?: VideoPreparado[];
   enquadramento?: Enquadramento;
@@ -345,7 +347,7 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   const cfg = configDoObjetivo(e.objetivo || "traffic", e.optimizationEvent);
   let pixelId = "";
   if (cfg.precisaPixel) {
-    const vp = await diagnosticarPixels(c, adv, cfg.optimizationEvent!, e.pixelId);
+    const vp = await diagnosticarPixels(c, adv, cfg.optimizationEvent!, e.pixelId, new Date(), { pedidoEhSalvo: e.pixelSalvo === true });
     avisos.push(...vp.avisos);
     if (!vp.ok) throw new Error(`${vp.problema?.mensagem} ${vp.problema?.instrucoes.join(" ") || ""} Nada foi criado no TikTok.`.replace(/\s+/g, " "));
     pixelId = vp.escolhido!.pixelId;

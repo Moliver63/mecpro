@@ -8,6 +8,8 @@
  * O Secret fica so no servidor (TIKTOK_MARKETING_APP_SECRET), nunca no navegador.
  */
 
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 export const TIKTOK_MARKETING_AUTH_URL = "https://business-api.tiktok.com/portal/auth";
 export const TIKTOK_MARKETING_TOKEN_URL = "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/";
 const VALIDADE_STATE_MS = 30 * 60 * 1000;
@@ -17,16 +19,32 @@ export function montarUrlAutorizacaoAds(appId: string, redirectUri: string, stat
   return `${TIKTOK_MARKETING_AUTH_URL}?${p}`;
 }
 
-export function criarStateAds(userId: number, agora = Date.now()): string {
-  return `mecproads_${userId}_${agora}`;
+/**
+ * Revisao Goldfish 25/11 (BLOQUEANTE, CSRF): o state era "mecproads_<userId>_<tempo>", previsivel.
+ * Com a troca do codigo tambem fora do popup, um link forjado ligaria a conta da vitima ao TikTok
+ * do atacante. Agora o state leva uma assinatura HMAC com segredo do servidor.
+ */
+function segredoDoState(env: NodeJS.ProcessEnv = process.env): string {
+  return env.OAUTH_STATE_SECRET || env.JWT_SECRET || env.SESSION_SECRET || env.TIKTOK_MARKETING_APP_SECRET || "";
+}
+function assinarState(base: string, segredo: string): string {
+  return createHmac("sha256", segredo).update(base).digest("hex").slice(0, 32);
 }
 
-/** O state precisa ser do mesmo usuario e recente (evita reaproveitar link de outra pessoa). */
-export function stateAdsValido(state: string, userId: number, agora = Date.now()): boolean {
-  const m = /^mecproads_(\d+)_(\d+)$/.exec(String(state ?? ""));
-  if (!m) return false;
-  if (Number(m[1]) !== userId) return false;
-  const idade = agora - Number(m[2]);
+export function criarStateAds(userId: number, agora = Date.now(), segredo = segredoDoState()): string {
+  if (!segredo) throw new Error("Servidor sem segredo para assinar a autorizacao do TikTok (JWT_SECRET).");
+  const base = `mecproads_${userId}_${agora}`;
+  return `${base}_${assinarState(base, segredo)}`;
+}
+
+/** O state precisa ser do mesmo usuario, recente e assinado por este servidor. */
+export function stateAdsValido(state: string, userId: number, agora = Date.now(), segredo = segredoDoState()): boolean {
+  const m = /^(mecproads_(\d+)_(\d+))_([0-9a-f]{32})$/.exec(String(state ?? ""));
+  if (!m || !segredo) return false;
+  if (Number(m[2]) !== userId) return false;
+  const esperado = Buffer.from(assinarState(m[1], segredo)), recebido = Buffer.from(m[4]);
+  if (esperado.length !== recebido.length || !timingSafeEqual(esperado, recebido)) return false;
+  const idade = agora - Number(m[3]);
   return idade >= 0 && idade <= VALIDADE_STATE_MS;
 }
 

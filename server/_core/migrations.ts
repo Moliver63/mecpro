@@ -9,6 +9,11 @@ export async function runMigrations(): Promise<void> {
 
   console.log('[migrations] Running migrations...');
 
+  // Pixel do TikTok por projeto (25/11). PRIMEIRA migracao e com erro registrado: a coluna esta no
+  // schema de client_profiles, entao sem ela todo select do perfil quebraria (Meta e Google tambem).
+  await pool.query(`ALTER TABLE client_profiles ADD COLUMN IF NOT EXISTS "tiktokPixelId" varchar(40)`)
+    .catch((e: any) => console.error('[migrations] FALHA ao criar client_profiles.tiktokPixelId:', e?.message));
+
   // Step 1 – enums
   await pool.query(`
     DO $$ BEGIN
@@ -919,8 +924,10 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS "copyStructure"        varchar(30) DEFAULT 'mixed'
     `).catch(() => {});
 
-    // Pixel do TikTok escolhido por projeto (25/11). Aditiva e nula: nada muda para quem nao usa.
-    await pool.query(`ALTER TABLE client_profiles ADD COLUMN IF NOT EXISTS "tiktokPixelId" varchar(40)`).catch(() => {});
+    // Repete (idempotente) depois das demais de client_profiles: banco novo, em que a tabela ainda nao
+    // existia no inicio, tambem fica com a coluna.
+    await pool.query(`ALTER TABLE client_profiles ADD COLUMN IF NOT EXISTS "tiktokPixelId" varchar(40)`)
+      .catch((e: any) => console.error('[migrations] FALHA ao criar client_profiles.tiktokPixelId:', e?.message));
 
     // ── Sistema de Monitoramento de Erros ─────────────────────────────────────
     await pool.query(`

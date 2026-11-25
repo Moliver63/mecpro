@@ -73,17 +73,19 @@ export async function validarPublicacaoTikTok(
   let pixels: ResultadoValidacaoTikTok["pixels"] = [];
   const problemas: ProblemaTikTok[] = [];
   if (objetivo.precisaPixel) {
-    const vp = await diagnosticarPixels(c, adv, objetivo.optimizationEvent!, bruta.pixelId);
+    const vp = await diagnosticarPixels(c, adv, objetivo.optimizationEvent!, bruta.pixelId, new Date(), { pedidoEhSalvo: bruta.pixelSalvo === true });
     avisos.push(...vp.avisos);
     pixels = vp.pixels.map((p) => ({ id: p.pixelId, nome: p.nome, temEvento: p.temEvento, disparos30d: p.disparos30d }));
-    if (vp.problema) problemas.push(vp.problema);
+    // O problema so entra na lista quando continua valendo (bloqueia, ou e aviso de atividade);
+    // resolvido pela troca autorizada por trafego, ele vira so aviso (Goldfish 25/11).
+    if (vp.problema && (vp.ok || !bruta.autorizarTrafego || vp.problema.deAutorizacao || !["pixel_inexistente", "pixel_sem_evento"].includes(vp.problema.tipo))) problemas.push(vp.problema);
     if (vp.ok) {
       pixel = { id: vp.escolhido!.pixelId, nome: vp.escolhido!.nome, evento: EVENTOS_WEB[objetivo.optimizationEvent!]?.rotulo || objetivo.optimizationEvent! };
       entrada.pixelId = vp.escolhido!.pixelId;
-    } else if (vp.problema?.deAutorizacao) {
-      // Permissao, token ou conta: corrige-se a autorizacao. Vendas nunca viram trafego por isso
-      // (pedido de Michel, 25/11), nem com autorizarTrafego.
-      bloqueios.push(`${vp.problema.mensagem} ${vp.problema.instrucoes.join(" ")}`);
+    } else if (vp.problema?.deAutorizacao || !["pixel_inexistente", "pixel_sem_evento"].includes(String(vp.problema?.tipo))) {
+      // Permissao, token, conta, limite ou erro de leitura: so trocaria por trafego quando o TikTok
+      // AFIRMA que nao ha Pixel/evento. Nunca por falha de autorizacao ou leitura (Michel e Goldfish, 25/11).
+      bloqueios.push(`${vp.problema?.mensagem || "Nao consegui ler os Pixels agora."} ${vp.problema?.instrucoes.join(" ") || "Tente de novo em instantes."}`.trim());
     } else if (bruta.autorizarTrafego) {
       avisos.push(`${vp.problema?.mensagem} Com a sua autorizacao, publico como TRAFEGO (otimiza cliques, nao vendas).`);
       objetivo = configDoObjetivo("traffic");
@@ -101,6 +103,7 @@ export async function validarPublicacaoTikTok(
   // Identidade (conta de TikTok autorizada que assina o anuncio).
   const avisosIdent: string[] = [];
   const idents = await listarIdentidadesAutorizadas(c, adv, bruta.displayName || "", avisosIdent).catch(() => []);
+  if (idents.length) avisos.push(...avisosIdent);
   if (!idents.length) {
     // Sem identidade pode ser permissao/token (o erro veio no aviso) ou falta de conta autorizada no Ads Manager.
     const prob = avisosIdent.map((a) => classificarErroTikTok(a)).find((p) => p.tipo !== "outro");

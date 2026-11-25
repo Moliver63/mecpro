@@ -241,7 +241,7 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
     videos: videos.slice(0, 5).map((v) => ({ videoUrl: v.url, nome: v.fileName })),
     objetivo,
     // Pixel: o escolhido agora pelo usuario, senao o salvo no projeto.
-    ...(args.pixelId || perfil?.tiktokPixelId ? { pixelId: String(args.pixelId || perfil.tiktokPixelId) } : {}),
+    ...(args.pixelId || perfil?.tiktokPixelId ? { pixelId: String(args.pixelId || perfil.tiktokPixelId), pixelSalvo: !args.pixelId } : {}),
   };
 
   const avisos: string[] = [];
@@ -272,7 +272,9 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   const moeda = min?.moeda === "BRL" || !min ? "R$ " : "";
   // Cada problema com a sua instrucao (pedido de Michel, 25/11). Nunca sugere trocar vendas por
   // trafego: problema de permissao/conta/token se resolve na autorizacao; Pixel, no Pixel.
-  const bloqueante = v.problemas.find((p) => p.tipo !== "evento_sem_atividade");
+  // Com a validacao ok (ex.: trafego autorizado pelo usuario), problema restante e so aviso: a previa
+  // nao pode dizer "nao da para publicar" e a publicacao seguir (Goldfish 25/11).
+  const bloqueante = v.ok ? undefined : v.problemas.find((p) => p.tipo !== "evento_sem_atividade");
   const perguntaParaOUsuario = bloqueante
     ? bloqueante.tipo === "pixel_ambiguo"
       ? `${bloqueante.mensagem} ${bloqueante.instrucoes.join(" ")}`

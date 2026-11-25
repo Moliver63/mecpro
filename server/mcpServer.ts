@@ -3656,7 +3656,12 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       advertiserId: String(integracao.accountId), campaignName: input.campaignName, dailyBudgetReais: input.dailyBudgetReais,
       landingPageUrl: input.landingPageUrl, adText: input.adText, callToAction: input.callToAction, displayName: input.displayName,
       videos: input.videos, imagens: input.imagens, musicId: input.musicId, musicUrl: input.musicUrl, ageGroups: input.ageGroups,
-      objetivo, pixelId: input.pixelId || (await db.getClientProfile(campaign.projectId).catch(() => null) as any)?.tiktokPixelId || undefined,
+      ...(await (async () => {
+        if (input.pixelId) return { pixelId: input.pixelId };
+        const salvo = (await db.getClientProfile(campaign.projectId).catch(() => null) as any)?.tiktokPixelId;
+        return salvo ? { pixelId: salvo, pixelSalvo: true } : {};
+      })()),
+      objetivo,
       optimizationEvent: input.optimizationEvent, enquadramento: input.enquadramento,
       autorizarTrafego: input.autorizarTrafego === true,
     };
@@ -3749,13 +3754,17 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       inputSchema: {
         campaignId: z.number().int().positive().optional(),
         projectId: z.number().int().positive().optional(),
-        pixelId: z.string().regex(/^\d+$/),
+        pixelId: z.union([z.string().regex(/^\d+$/), z.literal("limpar")]).describe('ID do Pixel, ou "limpar" para tirar o Pixel salvo do projeto.'),
       },
     },
     async (input) => {
       if (!hasScope(scope, "write")) return scopeErrorContent("write", scope);
       const proj = await projetoDoUsuario(input.campaignId, input.projectId);
       if (!proj) return { content: [{ type: "text", text: "Projeto não encontrado para este usuário (informe campaignId ou projectId)." }], isError: true };
+      if (input.pixelId === "limpar") {
+        await db.setTikTokPixelDoProjeto(proj.id, null);
+        return { content: [{ type: "text", text: `Pixel do TikTok removido do projeto ${proj.name}. A próxima publicação escolhe pela conta.` }], structuredContent: { ok: true, projectId: proj.id, pixelId: null } };
+      }
       const integ = await integracaoTikTok();
       if (!integ) return { content: [{ type: "text", text: "TikTok Ads não está conectado." }], isError: true };
       const { criarClienteTikTok } = await import("./tiktokPublicar");
@@ -3784,7 +3793,8 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
       const appId = process.env.TIKTOK_MARKETING_APP_ID || "";
       if (!appId) return { content: [{ type: "text", text: "TikTok Ads não está configurado no servidor do MecProAI." }], isError: true };
       const { montarUrlAutorizacaoAds, criarStateAds } = await import("./tiktokMarketingAuth");
-      const url = montarUrlAutorizacaoAds(appId, "https://www.mecproai.com/auth/tiktok/callback", criarStateAds(userId));
+      const origem = (process.env.PUBLIC_APP_URL || "https://www.mecproai.com").replace(/\/+$/, "");
+      const url = montarUrlAutorizacaoAds(appId, `${origem}/auth/tiktok/callback`, criarStateAds(userId));
       return { content: [{ type: "text", text: `Para reautorizar: abra https://www.mecproai.com/settings/tiktok e clique em "Reconectar TikTok Ads" (recomendado, o MecProAI salva o novo token sozinho).\nLink direto do TikTok (vale 30 min, precisa estar logado no MecProAI no mesmo navegador): ${url}\nNa tela do TikTok, aprove todas as permissões e marque a conta de anúncios.` }], structuredContent: { url, pagina: "https://www.mecproai.com/settings/tiktok" } };
     }
   );
