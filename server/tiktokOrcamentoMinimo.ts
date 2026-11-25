@@ -61,6 +61,37 @@ export async function minimoDiarioTikTok(c: ClienteTikTok, adv: string, doFetch:
   return { moeda, minimo: minimoNaMoeda(cot.cotacao), cotacao: cot.cotacao, fonte: cot.fonte };
 }
 
+/** Fonte oficial: https://ads.tiktok.com/help/article/budget (consultada em 25/11/2026). */
+export const MINIMOS_OFICIAIS_USD = { diarioGrupo: 20, diarioCampanha: 50, vitalicioCampanha: 50 } as const;
+
+export interface DetalheMinimo {
+  moeda: string;
+  cotacao: number;
+  fonteCotacao: MinimoTikTok["fonte"];
+  /** Nivel que vale para o MecProAI: ele cria a campanha SEM orcamento proprio (infinito), entao vale o do grupo. */
+  nivelAplicado: "grupo";
+  grupoDiario: { usd: number; estimativaNaMoeda: number; comMargemDe5pct: number };
+  campanhaDiaria: { usd: number; estimativaNaMoeda: number; vale: false; motivo: string };
+  vitalicio: { regra: string };
+  /** O valor que a API do TikTok aceita so aparece na resposta dela ao criar; nao ha consulta previa. */
+  observacao: string;
+}
+
+/** Os minimos oficiais, por nivel e na moeda da conta. Somente calculo: nao altera nem sugere alterar o orcamento. */
+export function detalharMinimo(m: MinimoTikTok): DetalheMinimo {
+  const est = (usd: number) => Math.round(usd * m.cotacao * 100) / 100;
+  return {
+    moeda: m.moeda,
+    cotacao: m.cotacao,
+    fonteCotacao: m.fonte,
+    nivelAplicado: "grupo",
+    grupoDiario: { usd: MINIMOS_OFICIAIS_USD.diarioGrupo, estimativaNaMoeda: est(MINIMOS_OFICIAIS_USD.diarioGrupo), comMargemDe5pct: m.minimo },
+    campanhaDiaria: { usd: MINIMOS_OFICIAIS_USD.diarioCampanha, estimativaNaMoeda: est(MINIMOS_OFICIAIS_USD.diarioCampanha), vale: false, motivo: "O MecProAI cria a campanha sem orcamento proprio; o limite diario fica no grupo de anuncios." },
+    vitalicio: { regra: "Orcamento vitalicio do grupo = dias de veiculacao (incluindo os passados) x minimo diario do grupo." },
+    observacao: "A ajuda oficial so informa os valores em dolar e a conversao e do TikTok; o valor exato na moeda da conta so aparece na resposta da API ao criar o grupo. Por isso o MecProAI confere antes, com margem de 5%, e nunca altera o orcamento por conta propria.",
+  };
+}
+
 export function textoMinimo(m: MinimoTikTok): string {
   const simbolo = m.moeda === "BRL" ? "R$ " : `${m.moeda} `;
   return `${simbolo}${m.minimo}/dia (o TikTok exige mais de US$ ${MINIMO_GRUPO_USD}/dia por grupo de anuncios${m.moeda === "USD" ? "" : `; cotacao ${m.cotacao.toFixed(2)}${m.fonte === "reserva" ? " de reserva" : " do dia"}, com folga de 5%`})`;

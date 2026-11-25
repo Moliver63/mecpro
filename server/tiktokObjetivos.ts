@@ -65,7 +65,7 @@ export function configDoObjetivo(objetivo: ObjetivoMecPro, eventoPedido?: string
   }
 }
 
-export interface PixelTikTok { pixelId: string; nome: string; ativo: boolean | null; eventos: string[] }
+export interface PixelTikTok { pixelId: string; /** Codigo alfanumerico (pixel_code): e o que o site e a Events API usam. */ codigo?: string; nome: string; ativo: boolean | null; eventos: string[] }
 
 /** Le pixel/list/ de forma tolerante (pixels ou list; eventos com event_type, optimization_event ou nome). */
 export function interpretarPixels(d: any): PixelTikTok[] {
@@ -76,7 +76,7 @@ export function interpretarPixels(d: any): PixelTikTok[] {
       .filter(Boolean).map((x) => String(x).toUpperCase().replace(/[\s-]+/g, "_")))];
     const status = String(p.activity_status || p.pixel_status || p.status || "");
     return {
-      pixelId: String(p.pixel_id), nome: String(p.pixel_name || p.name || p.pixel_code || p.pixel_id),
+      pixelId: String(p.pixel_id), ...(p.pixel_code ? { codigo: String(p.pixel_code) } : {}), nome: String(p.pixel_name || p.name || p.pixel_code || p.pixel_id),
       ativo: status ? /active|ativo|normal/i.test(status) && !/inactive|no_?recent|not_?active/i.test(status) : null,
       eventos,
     };

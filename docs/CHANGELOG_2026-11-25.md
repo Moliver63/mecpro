@@ -89,3 +89,12 @@ Branch: `feat/tiktok-permissoes-pixel`. Pedido de Michel: correção definitiva 
 - Rodada 1: 2 BLOQUEANTES corrigidos (CSRF no OAuth com state previsível → HMAC com segredo do servidor; erro 40001 com outro texto ou falha de leitura virava tráfego → só "TikTok afirma que não há Pixel/evento" + autorização do usuário). Riscos corrigidos: prévia coerente, 40100 = limite, Pixels ambíguos, migração primeiro, avisos de identidade, Pixel salvo que sumiu, limpar Pixel, redirect configurável.
 - Rodada 2: sem BLOQUEANTE. Riscos corrigidos depois (sem 3ª rodada): 40001 de conta reconhecido como conta; endpoint pelo caminho; "too many ads" não é limite; Pixels misturados pedem escolha; diagnóstico trata Pixel salvo como a publicação; falha de leitura não mostra OK; falta de segredo vira erro claro.
 - Risco residual aceito: o state (assinado) vale 30 min e não é de uso único; o link do MCP deve ser tratado como pessoal.
+
+## Parte 3: TikTok Pixel + Events API universal, minimo por nivel (branch feat/tiktok-pixel-universal)
+
+- `server/tiktokPixelSetup.ts`: `estadoPixelTikTok` (Pixel do projeto, evento de compra, eventos recebidos em 30 dias, problemas com instrucao; somente leitura), `gerarGuiaDeInstalacao` (Pixel, site, plataforma e gateway do cliente; PageView/ViewContent/InitiateCheckout no navegador, Purchase so pelo servidor com event_id = id do pagamento; LGPD; sem nenhum segredo) e recusa do id numerico (o site usa o `pixel_code`).
+- `interpretarPixels` passou a devolver `codigo` (pixel_code).
+- MCP: `tiktok_pixel_status`, `tiktok_install_guide`. tRPC: `tiktokPixelStatus`, `setTikTokPixel`, `tiktokInstallGuide` (todos conferem o dono do projeto). Chat: `diagnosticar_tiktok` aceita `pixelEEventsApi`, `guiaInstalacao`, `plataforma`, `gateway`. UI: cartao "TikTok Pixel e Events API" em Integracoes > TikTok.
+- Credenciais: o token da Events API fica no servidor do site do cliente; o MecProAI nao guarda nem devolve. Nenhuma resposta traz token.
+- Orcamento: `detalharMinimo` (grupo > US$ 20/dia vale; campanha > US$ 50 nao vale porque a campanha nasce sem orcamento; vitalicio = dias x minimo diario). A API nao oferece consulta previa do valor exato na moeda da conta; o valor exato so aparece na resposta dela ao criar. O MecProAI confere antes (margem de 5%) e NAO altera o orcamento (no chat o valor so sobe com "sim" do usuario a uma previa que mostrou o minimo).
+- Testes: `tiktokPixelSetup.test.ts` (14), `tiktokOrcamento828.test.ts`. Total 1300 testes, 1299 passam, 0 falham, 1 pulado; tsc server 43, client 64 (sem erros novos).

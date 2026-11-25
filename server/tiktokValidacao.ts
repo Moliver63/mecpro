@@ -11,7 +11,7 @@
  * Usada pela previa do chat (publicar_no_tiktok) e pela ferramenta MCP validate_tiktok_campaign.
  */
 import { listarIdentidadesAutorizadas, type ClienteTikTok, type EntradaTikTok } from "./tiktokPublicar";
-import { minimoDiarioTikTok, textoMinimo, type MinimoTikTok } from "./tiktokOrcamentoMinimo";
+import { detalharMinimo, minimoDiarioTikTok, textoMinimo, type DetalheMinimo, type MinimoTikTok } from "./tiktokOrcamentoMinimo";
 import { configDoObjetivo, EVENTOS_WEB, type ConfigObjetivoTikTok, type ObjetivoMecPro } from "./tiktokObjetivos";
 import { classificarErroTikTok, diagnosticarPixels, type ProblemaTikTok } from "./tiktokDiagnostico";
 import { normalizarUrlDeDestino, paginaResponde, urlPublicaSegura } from "./tiktokUrl";
@@ -24,6 +24,8 @@ export interface ResultadoValidacaoTikTok {
   avisos: string[];
   objetivo: ConfigObjetivoTikTok;
   minimo: MinimoTikTok | null;
+  /** Minimo por nivel (grupo/campanha/vitalicio) na moeda da conta. */
+  detalheMinimo: DetalheMinimo | null;
   pixel?: { id: string; nome: string; evento: string };
   /** Todos os Pixels da conta (para o usuario escolher). */
   pixels: Array<{ id: string; nome: string; temEvento: boolean; disparos30d: number | null }>;
@@ -97,7 +99,7 @@ export async function validarPublicacaoTikTok(
 
   // Orcamento minimo na moeda da conta.
   const minimo = await deps.minimo(c, adv).catch(() => null);
-  if (minimo && !(bruta.dailyBudgetReais >= minimo.minimo)) bloqueios.push(`Orcamento de ${bruta.dailyBudgetReais}/dia abaixo do minimo aceito pelo TikTok: ${textoMinimo(minimo)}.`);
+  if (minimo && !(bruta.dailyBudgetReais >= minimo.minimo)) bloqueios.push(`Orcamento de ${bruta.dailyBudgetReais}/dia abaixo do minimo aceito pelo TikTok: ${textoMinimo(minimo)}. O MecProAI nao altera o valor sozinho: aumente o orcamento ou escolha outro objetivo por decisao sua.`);
   if (!minimo) avisos.push("Nao consegui confirmar o minimo diario do TikTok agora (mais de US$ 20/dia por grupo).");
 
   // Identidade (conta de TikTok autorizada que assina o anuncio).
@@ -151,7 +153,7 @@ export async function validarPublicacaoTikTok(
 
   // Mesmo plano na previa e na publicacao (Goldfish 25/11): o publicador usa estes preparados.
   if (preparados.length) entrada.videosPreparados = preparados;
-  return { ok: bloqueios.length === 0, bloqueios, correcoes, avisos, objetivo, minimo, ...(pixel ? { pixel } : {}), pixels, problemas, entrada, videos };
+  return { ok: bloqueios.length === 0, bloqueios, correcoes, avisos, objetivo, minimo, detalheMinimo: minimo ? detalharMinimo(minimo) : null, ...(pixel ? { pixel } : {}), pixels, problemas, entrada, videos };
 }
 
 /** Texto curto da validacao para o chat e o MCP (sem jargao de API). */

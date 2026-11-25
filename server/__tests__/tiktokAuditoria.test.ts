@@ -88,7 +88,7 @@ test("Pixel: com Purchase/CompletePayment confirma; sem o evento, bloqueia com o
 
 test("Pixel: le o formato da API de forma tolerante (pixels/list, status inativo)", () => {
   const ps = interpretarPixels({ list: [{ pixel_id: 7, pixel_code: "C7", activity_status: "INACTIVE", event_list: [{ event_code: "CompletePayment" }] }] });
-  assert.deepEqual(ps[0], { pixelId: "7", nome: "C7", ativo: false, eventos: ["COMPLETEPAYMENT"] });
+  assert.deepEqual(ps[0], { pixelId: "7", codigo: "C7", nome: "C7", ativo: false, eventos: ["COMPLETEPAYMENT"] });
 });
 
 // ── Video ────────────────────────────────────────────────────────────────────

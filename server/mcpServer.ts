@@ -3781,6 +3781,73 @@ export function createMcpServerForUser(userId: number, scope: McpScope = "publis
   );
 
   server.registerTool(
+    "tiktok_pixel_status",
+    {
+      title: "Estado do TikTok Pixel e Events API do projeto",
+      description:
+        "Somente leitura: mostra o Pixel do projeto, se ele tem o evento de compra, os eventos que recebeu em 30 dias (navegador + Events API somados), " +
+        "e o que falta com instruções (permissão, Pixel inexistente, sem evento de compra, sem atividade). Serve para qualquer cliente conectado ao TikTok Ads.",
+      inputSchema: {
+        campaignId: z.number().int().positive().optional(),
+        projectId: z.number().int().positive().optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const proj = await projetoDoUsuario(input.campaignId, input.projectId);
+      if (!proj) return { content: [{ type: "text", text: "Projeto não encontrado para este usuário (informe campaignId ou projectId)." }], isError: true };
+      const integ = await integracaoTikTok();
+      if (!integ) return { content: [{ type: "text", text: "TikTok Ads não está conectado. Conecte em https://www.mecproai.com/settings/tiktok." }], isError: true };
+      const salvo = ((await db.getClientProfile(proj.id).catch(() => null)) as any)?.tiktokPixelId || undefined;
+      const { criarClienteTikTok } = await import("./tiktokPublicar");
+      const { estadoPixelTikTok, resumoDoEstadoPixel } = await import("./tiktokPixelSetup");
+      const e = await estadoPixelTikTok(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), { pixelSalvo: salvo });
+      return { content: [{ type: "text", text: resumoDoEstadoPixel(e) }], structuredContent: e as any, isError: e.nivel === "bloqueado" };
+    }
+  );
+
+  server.registerTool(
+    "tiktok_install_guide",
+    {
+      title: "Guia de instalação do TikTok Pixel + Events API para o site do cliente",
+      description:
+        "Gera o passo a passo e o código de instalação com o Pixel do cliente: PageView/ViewContent/InitiateCheckout no navegador e Purchase pelo servidor " +
+        "(só após a confirmação do pagamento, event_id = id do pagamento, sem duplicar), com LGPD. Não contém nenhum segredo: o token da Events API fica no servidor do cliente. Somente leitura.",
+      inputSchema: {
+        campaignId: z.number().int().positive().optional(),
+        projectId: z.number().int().positive().optional(),
+        pixelCode: z.string().optional().describe("Código alfanumérico do Pixel (não o id numérico). Se omitido, usa o Pixel salvo no projeto."),
+        siteUrl: z.string().optional().describe("Site do cliente. Padrão: o do projeto."),
+        plataforma: z.enum(["custom", "wordpress", "shopify", "nuvemshop", "hotmart", "outra"]).default("custom"),
+        gateway: z.enum(["asaas", "stripe", "mercadopago", "hotmart", "outro"]).default("outro").describe("Quem confirma o pagamento (define o webhook e o id do pagamento)."),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (input) => {
+      if (!hasScope(scope, "read")) return scopeErrorContent("read", scope);
+      const proj = await projetoDoUsuario(input.campaignId, input.projectId);
+      if (!proj) return { content: [{ type: "text", text: "Projeto não encontrado para este usuário (informe campaignId ou projectId)." }], isError: true };
+      const perfil: any = await db.getClientProfile(proj.id).catch(() => null);
+      let codigo = input.pixelCode;
+      if (!codigo && perfil?.tiktokPixelId) {
+        const integ = await integracaoTikTok();
+        if (integ) {
+          const { criarClienteTikTok } = await import("./tiktokPublicar");
+          const { diagnosticarPixels } = await import("./tiktokDiagnostico");
+          const r = await diagnosticarPixels(criarClienteTikTok(String(integ.accessToken)), String(integ.accountId), "SHOPPING", perfil.tiktokPixelId, new Date(), { pedidoEhSalvo: true });
+          codigo = r.escolhido?.codigo;
+        }
+      }
+      if (!codigo) return { content: [{ type: "text", text: "Informe o código do Pixel (pixelCode) ou escolha o Pixel do projeto antes (set_tiktok_pixel)." }], isError: true };
+      const { gerarGuiaDeInstalacao } = await import("./tiktokPixelSetup");
+      const g = gerarGuiaDeInstalacao({ pixelCode: codigo, siteUrl: input.siteUrl || perfil?.websiteUrl || proj.websiteUrl || undefined, nomeCliente: proj.name, plataforma: input.plataforma, gateway: input.gateway });
+      if (!g.ok) return { content: [{ type: "text", text: g.erro! }], isError: true };
+      return { content: [{ type: "text", text: g.texto! }], structuredContent: { ok: true, passos: g.passos } };
+    }
+  );
+
+  server.registerTool(
     "tiktok_reauthorize_link",
     {
       title: "Link para reautorizar o TikTok Ads",
