@@ -19,14 +19,14 @@ export const LIMITES_PADRAO: LimitesDeMidia = {
 };
 
 export const TIPOS_DE_FOTO = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/heic-sequence"]);
-export const TIPOS_DE_VIDEO = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska"]);
+export const TIPOS_DE_VIDEO = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo", "video/x-matroska", "video/3gpp", "video/x-m4v"]);
 
 /** Valor do atributo accept do seletor: fotos e videos juntos. */
-export const ACEITA_FOTOS_E_VIDEOS = "image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm,.heic,.heif,.mov,.mp4,.webm";
+export const ACEITA_FOTOS_E_VIDEOS = "image/jpeg,image/png,image/webp,image/heic,image/heif,video/mp4,video/quicktime,video/webm,video/3gpp,video/x-m4v,.heic,.heif,.mov,.mp4,.webm,.3gp,.m4v";
 
 const EXTENSAO_PARA_TIPO: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif",
-  mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska",
+  mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", avi: "video/x-msvideo", mkv: "video/x-matroska", "3gp": "video/3gpp", m4v: "video/x-m4v",
 };
 
 type ArquivoLike = { name: string; type: string; size: number };

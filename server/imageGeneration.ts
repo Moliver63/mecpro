@@ -763,6 +763,45 @@ export async function uploadVideoBufferToCloudinary(buffer: Buffer, fileName: st
   return data.secure_url as string;
 }
 
+/**
+ * Upload de video a partir de ARQUIVO, em partes (chunked upload do Cloudinary: X-Unique-Upload-Id +
+ * Content-Range). Cada parte e lida do disco por fs.openAsBlob().slice, entao a memoria usada fica
+ * no tamanho de uma parte, nao do video. Pedido de Michel (25/11): video grande sem estourar o Render.
+ */
+export async function uploadVideoFileToCloudinary(caminho: string, fileName: string, opcoes: { parteBytes?: number; doFetch?: typeof fetch; pasta?: string } = {}): Promise<string | null> {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!cloudName || !apiKey || !apiSecret) return null;
+  const { openAsBlob } = await import("node:fs");
+  const doFetch = opcoes.doFetch || fetch;
+  const arquivo = await openAsBlob(caminho);
+  const total = arquivo.size;
+  const parte = Math.max(5 * 1024 * 1024, opcoes.parteBytes || 20 * 1024 * 1024);
+  const folder = opcoes.pasta || (process.env.CLOUDINARY_FOLDER ? `${process.env.CLOUDINARY_FOLDER}/chat-videos` : "mecpro/chat-videos");
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = crypto.createHash("sha1").update(`folder=${folder}&timestamp=${timestamp}${apiSecret}`).digest("hex");
+  const uploadId = `mecpro-${crypto.randomUUID()}`;
+  let data: any = null;
+  for (let inicio = 0; inicio < total; inicio += parte) {
+    const fim = Math.min(total, inicio + parte) - 1;
+    const form = new FormData();
+    form.append("file", arquivo.slice(inicio, fim + 1), fileName);
+    form.append("folder", folder); form.append("api_key", apiKey);
+    form.append("timestamp", String(timestamp)); form.append("signature", signature);
+    const res = await doFetch(`https://api.cloudinary.com/v1_1/${cloudName}/video/upload`, {
+      method: "POST", body: form, signal: AbortSignal.timeout(180000),
+      headers: { "X-Unique-Upload-Id": uploadId, "Content-Range": `bytes ${inicio}-${fim}/${total}` },
+    });
+    data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      log.warn("image-generation", "Falha no upload de video Cloudinary (parte)", { status: res.status, inicio, total, error: data?.error?.message || null });
+      return null;
+    }
+  }
+  return data?.secure_url ? String(data.secure_url) : null;
+}
+
 export async function uploadBase64ImageToCloudinary(base64Data: string, fileName: string): Promise<string | null> {
   const base64Clean = String(base64Data || "").replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").trim();
   if (!base64Clean) return null;

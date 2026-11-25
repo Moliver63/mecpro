@@ -9,14 +9,18 @@
  * depois do usuario confirmar na mesma troca. Nasce PAUSADA.
  */
 import type { EntradaTikTok, ResultadoTikTok } from "./tiktokPublicar";
-import { textoMinimo, type MinimoTikTok } from "./tiktokOrcamentoMinimo";
+import { textoMinimo } from "./tiktokOrcamentoMinimo";
+import { normalizarObjetivo } from "./tiktokObjetivos";
+import type { ResultadoValidacaoTikTok } from "./tiktokValidacao";
 
 export const DESCRICAO_PUBLICAR_TIKTOK =
-  "Publica no TikTok Ads (conta conectada em Integracoes) uma campanha de TRAFEGO a partir de um rascunho do MecProAI, " +
+  "Publica no TikTok Ads (conta conectada em Integracoes) a campanha de um rascunho do MecProAI com o MESMO objetivo do rascunho " +
+  "(vendas e leads com Pixel, trafego, reconhecimento); antes, faz a validacao tecnica (videos, destino, Pixel, orcamento minimo) e corrige o que e tecnico. " +
   "com um anuncio de video para cada video enviado nesta conversa. Tudo nasce PAUSADO (nada e gasto ate o usuario ativar). " +
   "Chame primeiro com confirmado=false: devolve a previa (conta, orcamento diario, texto, destino, videos e avisos). " +
   "Mostre a previa e so chame com confirmado=true depois que o usuario confirmar EXPLICITAMENTE nesta mesma troca. " +
-  "Use esta ferramenta para TikTok; publicar_campanha e so para a Meta. Nunca diga que publicar no TikTok e manual.";
+  "Use esta ferramenta para TikTok; publicar_campanha e so para a Meta. Nunca diga que publicar no TikTok e manual. " +
+  "Vendas sem Pixel: explique e so publique como trafego se o usuario autorizar (autorizarTrafego=true).";
 
 export const PARAMETROS_PUBLICAR_TIKTOK = {
   type: "object",
@@ -26,6 +30,8 @@ export const PARAMETROS_PUBLICAR_TIKTOK = {
     dailyBudgetReais: { type: "number", description: "Orcamento diario em reais do grupo de anuncios. Padrao: o diario do rascunho." },
     landingPageUrl: { type: "string", description: "Pagina de destino https. Padrao: o site do perfil do cliente." },
     adText: { type: "string", description: "Texto do anuncio (ate 100 caracteres). Padrao: o titulo do primeiro criativo." },
+    pixelId: { type: "string", description: "Pixel do TikTok a usar em vendas/leads. Padrao: o Pixel ativo da conta." },
+    autorizarTrafego: { type: "boolean", description: "true SO se o usuario autorizou explicitamente publicar como trafego quando vendas nao for possivel." },
   },
   required: ["campaignId", "confirmado"],
 } as const;
@@ -42,8 +48,8 @@ export interface DepsTikTokChat {
   publicar(token: string, entrada: EntradaTikTok, etapa: (m: string) => void): Promise<ResultadoTikTok>;
   conferir(entrada: Partial<EntradaTikTok>): string[];
   salvarIds(campaignId: number, r: ResultadoTikTok): Promise<void>;
-  /** Minimo diario aceito pelo TikTok na moeda da conta; null quando nao da para saber. */
-  minimo(token: string, advertiserId: string): Promise<MinimoTikTok | null>;
+  /** Validacao tecnica previa (tiktokValidacao.validarPublicacaoTikTok); nada e criado. */
+  validar(token: string, entrada: EntradaTikTok & { autorizarTrafego?: boolean }): Promise<ResultadoValidacaoTikTok>;
   /** Decisao de cada chamada (para o log). */
   log?(dados: Record<string, unknown>): void;
 }
@@ -135,6 +141,12 @@ export function valorDiarioDaFala(texto?: string): number | null {
 
 export const ultimaFoiPreviaDoTikTok = (texto?: string) => /tik ?tok/i.test(String(texto || "")) && /(publi|confirm|sim)/i.test(String(texto || ""));
 
+/** "autorizo trafego", "pode publicar como trafego", "sim, como trafego". */
+export function autorizouTrafego(texto?: string): boolean {
+  const t = String(texto || "").toLowerCase();
+  return /tr[aá]fego/.test(t) && /(autoriz|pode|ok|sim|aceito|libero|confirmo|publica)/.test(t) && !/\b(n[aã]o)\b/.test(t);
+}
+
 export async function publicarNoTikTokDoChat(userId: number, sessionId: number | undefined, args: Record<string, unknown>, deps: DepsTikTokChat, fala: ContextoDaFala = {}): Promise<Record<string, unknown>> {
   const campaignId = Number(args.campaignId);
   const campanha = Number.isFinite(campaignId) ? await deps.campanha(campaignId) : null;
@@ -149,27 +161,30 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   const perfil = await deps.perfil(campanha.projectId);
   const videos = sessionId ? await deps.videosDaSessao(sessionId) : [];
   const lista = criativos(campanha);
+  const objetivo = normalizarObjetivo(campanha.objective);
+  if (!objetivo) return { erro: `O objetivo "${campanha.objective}" do rascunho ainda nao tem equivalente no TikTok pelo MecProAI (vendas, conversoes, leads no site, trafego e reconhecimento sao suportados). Nada foi criado.` };
   const entrada: EntradaTikTok = {
     advertiserId: String(integracao.accountId),
     // O numero do rascunho no nome evita colisao com campanha criada a mao ou com outro rascunho.
     campaignName: `${textoAte(String(campanha.name || "Campanha MecProAI"), 100)} · #${campaignId}`,
     dailyBudgetReais: Number(args.dailyBudgetReais) > 0 ? Number(args.dailyBudgetReais) : Number(campanha.suggestedBudgetDaily) || 0,
-    landingPageUrl: String(args.landingPageUrl || perfil?.websiteUrl || "").trim().replace(/^(?!https?:\/\/)/i, "https://"),
-    adText: textoAte(String(args.adText || lista[0]?.headline || lista[0]?.hook || ""), 100),
-    callToAction: "LEARN_MORE",
+    landingPageUrl: String(args.landingPageUrl || perfil?.websiteUrl || ""),
+    adText: String(args.adText || lista[0]?.headline || lista[0]?.hook || ""),
+    callToAction: objetivo === "sales" ? "SHOP_NOW" : "LEARN_MORE",
     displayName: textoAte(String(perfil?.companyName || projeto.name || "Anunciante"), 40),
-    videos: videos.slice(0, 5).map((v) => ({ videoUrl: urlH264(v.url), nome: v.fileName })),
+    videos: videos.slice(0, 5).map((v) => ({ videoUrl: v.url, nome: v.fileName })),
+    objetivo,
+    ...(args.pixelId ? { pixelId: String(args.pixelId) } : {}),
   };
 
   const avisos: string[] = [];
-  const min = await deps.minimo(String(integracao.accessToken), entrada.advertiserId).catch(() => null);
-
   // A fala do usuario manda: valor dito por ele > valor do modelo > minimo proposto (no "sim") > rascunho.
   const chaveProposta = `${userId}:${campaignId}`;
   const proposta = propostas.get(chaveProposta);
   const propostaValida = !!proposta && Date.now() - proposta.em < VALIDADE_PROPOSTA_MS && ultimaFoiPreviaDoTikTok(fala.ultimaDoAssistente);
   const valorDoUsuario = propostaValida ? valorDiarioDaFala(fala.ultimaDoUsuario) : null;
-  const disseSim = propostaValida && ehConfirmacao(fala.ultimaDoUsuario);
+  const trafegoAutorizado = args.autorizarTrafego === true || (propostaValida && autorizouTrafego(fala.ultimaDoUsuario));
+  const disseSim = propostaValida && (ehConfirmacao(fala.ultimaDoUsuario) || autorizouTrafego(fala.ultimaDoUsuario));
   if (valorDoUsuario) entrada.dailyBudgetReais = valorDoUsuario;
   else if (disseSim && proposta!.minimo && !(entrada.dailyBudgetReais >= proposta!.minimo)) {
     entrada.dailyBudgetReais = proposta!.minimo;
@@ -178,69 +193,105 @@ export async function publicarNoTikTokDoChat(userId: number, sessionId: number |
   // "sim" (ou um valor) em resposta a previa e a confirmacao, mesmo que o modelo nao marque confirmado.
   const confirmado = args.confirmado === true || ((disseSim || !!valorDoUsuario) && propostaValida);
 
-  const abaixoDoMinimo = !!min && !(entrada.dailyBudgetReais >= min.minimo);
+  // Validacao tecnica ANTES de pedir confirmacao (pedido de Michel, 25/11). Nada e criado aqui.
+  const v = await deps.validar(String(integracao.accessToken), { ...entrada, autorizarTrafego: trafegoAutorizado });
+  avisos.push(...v.avisos);
+  const min = v.minimo;
+  const abaixoDoMinimo = !!min && !(v.entrada.dailyBudgetReais >= min.minimo);
+  const semPixel = v.bloqueios.some((b) => /Pixel/i.test(b));
+  const moeda = min?.moeda === "BRL" || !min ? "R$ " : "";
   const perguntaParaOUsuario = abaixoDoMinimo
-    ? `O TikTok aceita no minimo ${min!.moeda === "BRL" ? "R$ " : ""}${min!.minimo} por dia. Publico pausada com ${min!.moeda === "BRL" ? "R$ " : ""}${min!.minimo}/dia? Responda sim ou diga outro valor diario (a partir de ${min!.minimo}).`
-    : "Posso publicar no TikTok? Ela nasce pausada. Responda sim para publicar.";
-  if (abaixoDoMinimo) {
-    avisos.push(`Orcamento de ${entrada.dailyBudgetReais}/dia abaixo do minimo aceito pelo TikTok: ${textoMinimo(min!)}. Nao e possivel publicar abaixo disso.`);
-  } else if (!min) {
-    avisos.push("Nao consegui confirmar o minimo diario do TikTok agora (mais de US$ 20/dia por grupo); se o TikTok recusar o orcamento, aumente o diario.");
-  }
-  if (String(campanha.objective || "").toLowerCase() !== "traffic") {
-    avisos.push(`No TikTok o MecProAI publica como TRAFEGO para a pagina de destino. O objetivo "${campanha.objective}" do rascunho (ex.: vendas com pixel do TikTok) ainda nao e suportado.`);
-  }
-  if (videos.length > 5) avisos.push(`Ha ${videos.length} videos na conversa; o TikTok aceita 5 por grupo, entram os 5 primeiros.`);
-  if (!videos.length) avisos.push("Nenhum video desta conversa: envie os videos no chat antes de publicar.");
+    ? `O TikTok aceita no minimo ${moeda}${min!.minimo} por dia. Publico pausada com ${moeda}${min!.minimo}/dia? Responda sim ou diga outro valor diario (a partir de ${min!.minimo}).`
+    : semPixel
+      ? "Para otimizar vendas, o TikTok precisa do Pixel com o evento de compra (Purchase) configurado. Quer que eu publique como TRAFEGO (otimiza cliques, nao vendas)? Responda \"autorizo trafego\", ou configure o Pixel e me avise."
+      : v.bloqueios.length
+        ? `Antes de publicar, preciso que isto seja resolvido: ${v.bloqueios.join(" ")}`
+        : "Validacao tecnica concluida. Posso publicar no TikTok? Ela nasce pausada. Responda sim para publicar.";
 
   const previa = {
-    conta: entrada.advertiserId,
-    campanha: entrada.campaignName,
-    orcamentoDiario: `R$ ${entrada.dailyBudgetReais}`,
-    destino: entrada.landingPageUrl,
-    texto: entrada.adText,
-    autor: entrada.displayName,
-    videos: entrada.videos.map((v) => v.nome || v.videoUrl),
+    conta: v.entrada.advertiserId,
+    campanha: v.entrada.campaignName,
+    objetivo: v.objetivo.rotulo,
+    ...(v.pixel ? { pixel: `${v.pixel.nome} (${v.pixel.id}), evento ${v.pixel.evento}` } : {}),
+    orcamentoDiario: `R$ ${v.entrada.dailyBudgetReais}`,
     minimoDiario: min ? textoMinimo(min) : "nao confirmado",
+    destino: v.entrada.landingPageUrl,
+    texto: v.entrada.adText,
+    autor: v.entrada.displayName,
+    videos: v.videos.map((x) => `${x.nome}${x.resolucao ? ` -> ${x.proporcao} ${x.resolucao}` : ""}`),
+    ajustesAutomaticos: v.correcoes,
     status: "nasce PAUSADA",
   };
-  const problemas = deps.conferir(entrada);
-  if (abaixoDoMinimo) problemas.push(`Orcamento diario abaixo do minimo do TikTok (${min!.minimo}/dia).`);
+  const problemas = [...deps.conferir(v.entrada).filter((p) => !/https/.test(p)), ...v.bloqueios];
 
   const registrarProposta = () => propostas.set(chaveProposta, { minimo: abaixoDoMinimo ? min!.minimo : null, em: Date.now(), campaignId, sessionId });
-  deps.log?.({ campaignId, propostaValida, disseSim, valorDoUsuario, confirmado, orcamento: entrada.dailyBudgetReais, minimo: min?.minimo ?? null });
+  deps.log?.({ campaignId, propostaValida, disseSim, valorDoUsuario, trafegoAutorizado, confirmado, orcamento: v.entrada.dailyBudgetReais, minimo: min?.minimo ?? null, objetivo: v.objetivo.objectiveType, bloqueios: v.bloqueios.length });
   if (!confirmado) {
     registrarProposta();
     return {
       previa, avisos, problemas, perguntaParaOUsuario,
-      instrucao: "Mostre a previa e os avisos e termine com a perguntaParaOUsuario, sem mudar o valor. Nunca ofereca publicar abaixo do minimo. Na resposta do usuario chame de novo esta ferramenta (o MecProAI le o sim ou o valor dito por ele).",
+      instrucao: "Mostre a previa, os ajustes automaticos e os avisos, e termine com a perguntaParaOUsuario, sem mudar valores. Nunca ofereca publicar abaixo do minimo nem trocar vendas por trafego sem o usuario autorizar. Na resposta do usuario chame de novo esta ferramenta (o MecProAI le o sim, o valor ou a autorizacao dita por ele).",
     };
   }
   if (problemas.length) {
     registrarProposta();
-    return { erro: "Nada foi criado no TikTok. Corrija antes de publicar.", problemas, previa, perguntaParaOUsuario };
+    return { erro: "Nada foi criado no TikTok. A validacao tecnica encontrou o que impede publicar.", problemas, previa, perguntaParaOUsuario };
   }
   propostas.delete(chaveProposta);
 
-  const reserva = await deps.reservar(userId, `chat_tiktok:${campaignId}:${entrada.advertiserId}`);
+  const reserva = await deps.reservar(userId, `chat_tiktok:${campaignId}:${v.entrada.advertiserId}:${v.objetivo.objectiveType}`);
   if (reserva.kind === "cached_result") return { jaPublicada: true, ...reserva.result, aviso: "Esta campanha ja foi publicada no TikTok; nada novo foi criado." };
   if (reserva.kind === "duplicate_in_progress") return { erro: "Ja existe uma publicacao desta campanha no TikTok em andamento. Aguarde." };
 
   let etapa = "inicio";
   try {
-    const r = await deps.publicar(String(integracao.accessToken), entrada, (m) => { etapa = m; });
+    const r = await deps.publicar(String(integracao.accessToken), v.entrada, (m) => { etapa = m; });
     await deps.salvarIds(campaignId, r).catch(() => {});
     const resultado = {
-      publicada: true, status: "PAUSADA", tiktokCampaignId: r.campaignId, grupo: r.adGroupId,
-      anuncios: r.ads.map((a) => a.adId), avisos: [...avisos, ...r.avisos],
+      publicada: true, status: "PAUSADA", objetivo: v.objetivo.rotulo, tiktokCampaignId: r.campaignId, grupo: r.adGroupId,
+      anuncios: r.ads.map((a) => a.adId), avisos: [...avisos, ...v.correcoes, ...r.avisos],
       proximoPasso: "Revisar no TikTok Ads Manager e ativar quando quiser. Nada e gasto enquanto estiver pausada.",
     };
     await deps.concluir(reserva.recordId, resultado);
     return resultado;
   } catch (e: any) {
-    const motivo = String(e?.message || e).slice(0, 400);
-    await deps.falhar(reserva.recordId, motivo);
-    return { erro: `O TikTok recusou na etapa "${etapa}": ${motivo}`, previa, avisos, observacao: "Se a campanha chegou a ser criada, ela esta pausada; repetir a publicacao reaproveita o que ja existe, sem duplicar.",
+    // Erro ORIGINAL da API, inteiro, no registro da tentativa e no log (antes era cortado em 400).
+    const original = e?.paraRegistro ? e.paraRegistro() : { message: String(e?.message || e) };
+    deps.log?.({ campaignId, etapa, erroOriginal: original });
+    await deps.falhar(reserva.recordId, JSON.stringify({ etapa, ...original }).slice(0, 8000));
+    const motivo = String(e?.message || e).slice(0, 1500);
+    return { erro: `O TikTok recusou na etapa "${etapa}": ${motivo}`, erroOriginal: original, previa, avisos, observacao: "Se a campanha chegou a ser criada, ela esta pausada; repetir a publicacao reaproveita o que ja existe, sem duplicar.",
       instrucao: "Explique o erro em uma frase e ofereca tentar de novo (ou ajustar o que o erro pede, como orcamento). Nao sugira publicar manualmente no Ads Manager. Nunca crie um rascunho novo para contornar erro de publicacao: repita a publicacao deste mesmo rascunho." };
+  }
+}
+
+export const DESCRICAO_CONSULTAR_TIKTOK =
+  "Mostra a situacao de uma campanha do MecProAI no TikTok Ads (campanha, grupo e anuncios): status, revisao ou recusa, orcamento, objetivo e Pixel. Somente leitura.";
+export const PARAMETROS_CONSULTAR_TIKTOK = {
+  type: "object",
+  properties: { campaignId: { type: "number", description: "ID do rascunho no MecProAI ja publicado no TikTok." } },
+  required: ["campaignId"],
+} as const;
+
+export interface DepsConsultaTikTok {
+  campanha(id: number): Promise<any | null>;
+  projeto(id: number): Promise<any | null>;
+  integracao(userId: number): Promise<any | null>;
+  consultar(token: string, advertiserId: string, tiktokCampaignId: string): Promise<{ texto: string; dados: unknown }>;
+}
+
+export async function consultarNoTikTokDoChat(userId: number, args: Record<string, unknown>, deps: DepsConsultaTikTok): Promise<Record<string, unknown>> {
+  const campaignId = Number(args.campaignId);
+  const campanha = Number.isFinite(campaignId) ? await deps.campanha(campaignId) : null;
+  const projeto = campanha ? await deps.projeto(campanha.projectId) : null;
+  if (!campanha || !projeto || projeto.userId !== userId) return { erro: `Rascunho ${args.campaignId} nao encontrado nesta conta.` };
+  if (!campanha.tiktokCampaignId) return { erro: `A campanha ${campaignId} ainda nao foi publicada no TikTok.` };
+  const integracao = await deps.integracao(userId);
+  if (!integracao?.isActive || !integracao.accessToken || !integracao.accountId) return { erro: "O TikTok Ads nao esta conectado." };
+  try {
+    const r = await deps.consultar(String(integracao.accessToken), String(integracao.accountId), String(campanha.tiktokCampaignId));
+    return { situacao: r.texto, dados: r.dados };
+  } catch (e: any) {
+    return { erro: `Nao consegui consultar o TikTok: ${String(e?.message || e).slice(0, 600)}` };
   }
 }

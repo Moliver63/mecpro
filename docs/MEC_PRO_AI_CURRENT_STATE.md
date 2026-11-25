@@ -3436,3 +3436,14 @@ Detalhe completo, com causa, arquivo e teste de cada item, em
 - Fatos: só o criativo 0 de cada conjunto vira anúncio na Meta; o serviço
   morreu por OOM (512 MB) com 3 uploads de vídeo em paralelo; thumbnail por
   `adimages?url=` não é permitido para o app.
+
+## TikTok Ads — auditoria e publicação inteligente (2026-11-25)
+- Detalhes, fontes oficiais e achados: `docs/CHANGELOG_2026-11-25.md`.
+- Fluxo único (chat, MCP e tela): `tiktokValidacao.validarPublicacaoTikTok` (não cria nada) → confirmação do usuário → `tiktokPublicar.publicarCampanhaTikTok` (tudo PAUSADO, idempotente).
+- Objetivo: o do rascunho. Vendas/conversões/leads = `WEB_CONVERSIONS` com Pixel e evento (`SHOPPING` compra, `FORM` lead). Sem Pixel válido, bloqueia; tráfego só com autorização explícita (`autorizarTrafego`, ou "autorizo tráfego" no chat lido pelo servidor).
+- Vídeo: conferido (proporção, resolução mínima, duração ≤10 min, codec, ≤500 MB) e adaptado no Cloudinary (preserva o quadro com fundo desfocado por padrão; `enquadramento: preencher` corta no assunto). Sem Cloudinary: FFmpeg em arquivo temporário e envio em stream. Capa sai do vídeo adaptado.
+- Nome do vídeo no TikTok é determinístico (`mecpro_<hash>_...`); nunca reaproveitar material pelo nome original do arquivo.
+- URL de destino: uma por campanha, https, UTMs do TikTok acrescentadas sem sobrescrever as do cliente.
+- Erros da API: `ErroTikTok` (code, mensagem inteira, request_id) no log (`erro original da API`) e no registro de idempotência.
+- MCP: `validate_tiktok_campaign`, `get_tiktok_campaign`, `publish_tiktok_campaign`, `set_tiktok_status`. Chat: `publicar_no_tiktok`, `consultar_tiktok`.
+- Upload de vídeo do chat vai para disco e sobe ao Cloudinary em partes (Render 512 MB).
