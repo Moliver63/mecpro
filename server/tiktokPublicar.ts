@@ -291,6 +291,37 @@ export function nomeDeCampanhaUnico(nome: string, agora = new Date()): string {
   return `${nome.slice(0, 480)} · ${p("day")}/${p("month")} ${p("hour")}h${p("minute")}`;
 }
 
+/** Falha de rede ou do gateway do TikTok (504/502/503 sem JSON): o envio pode ter ate concluido la. */
+export function ehErroTransitorio(erro: unknown): boolean {
+  return /HTTP 5\d\d sem JSON|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|UND_ERR/i.test(String((erro as any)?.message ?? erro));
+}
+
+/** Esperas entre tentativas (ms). Os testes zeram. */
+export const ESPERA_REENVIO_VIDEO = { ms: [2000, 6000] as number[] };
+
+/**
+ * Upload com ate 2 reenvios quando o TikTok responde 5xx sem JSON (caso 828, 26/11: HTTP 504).
+ * Antes de reenviar, confere a biblioteca: se o 504 veio depois de o TikTok ter gravado o video
+ * (nome exato do MecProAI), devolve o id existente em vez de duplicar. Outros erros nao sao tentados de novo.
+ * Devolve o resultado da API, ou o video_id (string) quando reaproveitou.
+ */
+async function enviarComReenvio(enviar: (nome: string) => Promise<any>, nome: string, carregarBiblioteca: () => Promise<any[]>, avisos: string[], rotulo: string): Promise<any> {
+  for (let t = 0; ; t++) {
+    try { return await enviar(nome); }
+    catch (erro) {
+      if (!ehErroTransitorio(erro) || t >= ESPERA_REENVIO_VIDEO.ms.length) throw erro;
+      await new Promise((r) => setTimeout(r, ESPERA_REENVIO_VIDEO.ms[t]));
+      const lista = await carregarBiblioteca().catch(() => [] as any[]);
+      const existente = acharVideoPorNomeExato(lista, nome);
+      if (existente && nomeIgual(nome, lista, existente)) {
+        avisos.push(`O TikTok demorou a responder no envio de "${rotulo}", mas o video ja estava na biblioteca; reaproveitei.`);
+        return existente;
+      }
+      avisos.push(`O TikTok respondeu com erro temporario no envio de "${rotulo}"; tentei de novo (${t + 2}a vez).`);
+    }
+  }
+}
+
 /** Sobe um video preparado: por URL (Cloudinary) ou por arquivo local em stream (FFmpeg). */
 async function subirVideo(c: ClienteTikTok, adv: string, prep: VideoPreparado, nome: string, carregarBiblioteca: () => Promise<any[]>, avisos: string[]): Promise<string> {
   const enviar = async (file_name: string): Promise<any> => {
@@ -304,7 +335,8 @@ async function subirVideo(c: ClienteTikTok, adv: string, prep: VideoPreparado, n
   };
   let up: any;
   try {
-    up = await enviar(nome);
+    up = await enviarComReenvio(enviar, nome, carregarBiblioteca, avisos, prep.nome);
+    if (typeof up === "string") return up;
   } catch (erro) {
     if (!ehNomeDuplicado(erro)) throw erro;
     const existente = acharVideoPorNomeExato(await carregarBiblioteca(), nome);

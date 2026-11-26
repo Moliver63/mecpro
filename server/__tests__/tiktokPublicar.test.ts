@@ -320,3 +320,52 @@ test("video fora da proporcao e fora do Cloudinary: erro claro antes de criar ca
   await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoId: "V1" }] }), /1440x1080.*9:16, 1:1 ou 16:9/);
   assert.equal(chamadas.some((x) => x.path === "campaign/create/"), false);
 });
+
+
+test("upload com 504 sem JSON: reenvia e conclui (nao interrompe a publicacao)", async () => {
+  const { ESPERA_REENVIO_VIDEO } = await import("../tiktokPublicar");
+  ESPERA_REENVIO_VIDEO.ms = [0, 0];
+  const { c, chamadas } = falso();
+  const postOrig = c.post.bind(c);
+  let vezes = 0;
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "file/video/ad/upload/") { chamadas.push({ m: "POST", path, body }); if (vezes++ === 0) throw new Error("TikTok [file/video/ad/upload/] HTTP 504 sem JSON"); return [{ video_id: "V_OK" }]; }
+    return postOrig(path, body);
+  };
+  const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "a.mov" }] });
+  assert.equal(r.ads[0].videoId, "V_OK");
+  assert.equal(chamadas.filter((x) => x.path === "file/video/ad/upload/").length, 2);
+  assert.ok(r.avisos.some((a) => /erro temporario/.test(a)));
+});
+
+test("upload com 504 mas o video ja gravado no TikTok: reaproveita sem reenviar", async () => {
+  const { ESPERA_REENVIO_VIDEO } = await import("../tiktokPublicar");
+  ESPERA_REENVIO_VIDEO.ms = [0, 0];
+  const { c, chamadas } = falso();
+  let nomeEnviado = "";
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/search/"
+    ? { list: [{ video_id: "V_GRAVADO", file_name: nomeEnviado }], page_info: { total_page: 1 } }
+    : getOrig(path, params);
+  const postOrig = c.post.bind(c);
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "file/video/ad/upload/") { nomeEnviado = body.file_name; chamadas.push({ m: "POST", path, body }); throw new Error("TikTok [file/video/ad/upload/] HTTP 504 sem JSON"); }
+    return postOrig(path, body);
+  };
+  const r = await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "a.mov" }] });
+  assert.equal(r.ads[0].videoId, "V_GRAVADO");
+  assert.equal(chamadas.filter((x) => x.path === "file/video/ad/upload/").length, 1);
+});
+
+test("upload com 504 persistente: depois de 2 reenvios, interrompe com o erro original", async () => {
+  const { ESPERA_REENVIO_VIDEO } = await import("../tiktokPublicar");
+  ESPERA_REENVIO_VIDEO.ms = [0, 0];
+  const { c, chamadas } = falso();
+  const postOrig = c.post.bind(c);
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "file/video/ad/upload/") { chamadas.push({ m: "POST", path, body }); throw new Error("TikTok [file/video/ad/upload/] HTTP 504 sem JSON"); }
+    return postOrig(path, body);
+  };
+  await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "a.mov" }] }), /HTTP 504 sem JSON/);
+  assert.equal(chamadas.filter((x) => x.path === "file/video/ad/upload/").length, 3);
+});
