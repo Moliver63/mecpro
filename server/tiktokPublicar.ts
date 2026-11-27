@@ -357,6 +357,58 @@ function nomeIgual(nome: string, lista: any[], videoId: string): boolean {
   return (lista || []).some((v) => String(v?.video_id) === videoId && base(v?.file_name || v?.video_name) === base(nome));
 }
 
+/** Esperas (ms) para o TikTok gerar a capa depois do upload do video. Os testes zeram. */
+export const ESPERA_CAPA = { ms: [3000, 6000] as number[] };
+
+/**
+ * Devolve o image_id da capa do anuncio. Tenta, na ordem: a capa do video adaptado (Cloudinary) e a capa
+ * que o proprio TikTok gera (pode demorar alguns segundos depois do upload). Cada URL e enviada por URL
+ * e, se o TikTok nao conseguir buscar, baixada aqui e enviada como arquivo. Se nada funcionar, para com
+ * a causa de cada tentativa (nao deixa o ad/create falhar sem explicacao).
+ */
+async function resolverCapaDoAnuncio(c: ClienteTikTok, adv: string, videoId: string, capaDoVideo: string | undefined, n: number, fetchArquivo?: typeof fetch): Promise<string> {
+  const motivos: string[] = [];
+  const tentadas = new Set<string>();
+  const enviar = async (url: string): Promise<string> => {
+    const nome = `mecpro_capa_${Date.now()}_${n}`;
+    try {
+      const img: any = await c.post("file/image/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", image_url: url, file_name: nome });
+      const id = Array.isArray(img) ? img[0]?.image_id : img?.image_id;
+      if (id) return String(id);
+      motivos.push(`upload por URL sem image_id`);
+    } catch (err: any) { motivos.push(`upload por URL: ${String(err?.message || err).slice(0, 160)}`); }
+    if (!c.postForm) return "";
+    try {
+      const r = await (fetchArquivo ?? fetch)(url);
+      if (!r.ok) { motivos.push(`baixar a capa: HTTP ${r.status}`); return ""; }
+      const bytes = Buffer.from(await r.arrayBuffer());
+      const img: any = await c.postForm("file/image/ad/upload/",
+        { advertiser_id: adv, upload_type: "UPLOAD_BY_FILE", image_signature: createHash("md5").update(bytes).digest("hex"), file_name: nome },
+        { campo: "image_file", nome: `${nome}.jpg`, dados: bytes, tipo: "image/jpeg" });
+      const id = Array.isArray(img) ? img[0]?.image_id : img?.image_id;
+      if (id) return String(id);
+      motivos.push(`upload por arquivo sem image_id`);
+    } catch (err: any) { motivos.push(`upload por arquivo: ${String(err?.message || err).slice(0, 160)}`); }
+    return "";
+  };
+  const tentar = async (url?: string): Promise<string> => {
+    if (!url || tentadas.has(url)) return "";
+    tentadas.add(url);
+    return enviar(url);
+  };
+  let id = await tentar(capaDoVideo);
+  if (id) return id;
+  for (let t = 0; t <= ESPERA_CAPA.ms.length; t++) {
+    try {
+      const info: any = await c.get("file/video/ad/info/", { advertiser_id: adv, video_ids: [videoId] });
+      id = await tentar((Array.isArray(info) ? info : info?.list)?.[0]?.video_cover_url);
+      if (id) return id;
+    } catch (err: any) { motivos.push(`ler a capa do TikTok: ${String(err?.message || err).slice(0, 160)}`); }
+    if (t < ESPERA_CAPA.ms.length) await new Promise((r) => setTimeout(r, ESPERA_CAPA.ms[t]));
+  }
+  throw new Error(`Nao consegui a imagem de capa do video ${n} (o TikTok exige uma): ${motivos.length ? motivos.join(" | ") : "o TikTok nao informou a capa do video"}`);
+}
+
 export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok, passo: (m: string) => void = () => {}, fetchArquivo?: typeof fetch, depsVideo?: DepsVideo): Promise<ResultadoTikTok> {
   const avisos: string[] = [];
   const adv = e.advertiserId;
@@ -393,6 +445,8 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   passo("videos");
   const videoIds: string[] = [];
   const capas: Array<string | undefined> = [];
+  /** image_id de capa ja enviada (video adaptado localmente: o arquivo some ao fim da pasta temporaria). */
+  const capaIdsProntos = new Map<number, string>();
   let biblioteca: any[] | null = null;
   for (const [i, v] of e.videos.entries()) {
     if (v.videoId) { videoIds.push(v.videoId); capas.push(undefined); continue; }
@@ -422,7 +476,20 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       const plano = prep.plano;
       id = await comPastaTemporaria(async (pasta) => {
         const arquivo = await dv.adaptarLocal!(prep.origem, pasta, plano, prep.sonda?.temAudio ?? true, e.enquadramento || "preservar");
-        return subirVideo(c, adv, { ...prep, arquivoLocal: arquivo }, nome, carregar, avisos);
+        const videoId = await subirVideo(c, adv, { ...prep, arquivoLocal: arquivo }, nome, carregar, avisos);
+        // A capa sai do proprio arquivo adaptado enquanto ele existe (sem Cloudinary nao ha URL de capa).
+        try {
+          const jpeg = dv.extrairCapa ? await dv.extrairCapa(arquivo, pasta) : null;
+          if (jpeg && c.postForm) {
+            const nomeCapa = `mecpro_capa_${Date.now()}_${videoIds.length + 1}`;
+            const img: any = await c.postForm("file/image/ad/upload/",
+              { advertiser_id: adv, upload_type: "UPLOAD_BY_FILE", image_signature: createHash("md5").update(jpeg).digest("hex"), file_name: nomeCapa },
+              { campo: "image_file", nome: `${nomeCapa}.jpg`, dados: jpeg, tipo: "image/jpeg" });
+            const imgId = Array.isArray(img) ? img[0]?.image_id : img?.image_id;
+            if (imgId) capaIdsProntos.set(videoIds.length, String(imgId));
+          }
+        } catch (err: any) { avisos.push(`Capa do video ${videoIds.length + 1} (quadro do arquivo): ${String(err?.message || err).slice(0, 160)}`); }
+        return videoId;
       });
       avisos.push(`"${prep.nome}" adaptado com FFmpeg no servidor (${plano.proporcao}, ${plano.largura}x${plano.altura}).`);
     } else {
@@ -525,19 +592,9 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
   passo("anuncios");
   const ads: ResultadoTikTok["ads"] = [];
   for (const [i, videoId] of videoIds.entries()) {
-    let capaId = "";
-    try {
-      // Capa do proprio video adaptado (mesmas dimensoes); sem ela, a capa automatica do TikTok.
-      let capaUrl = capas[i];
-      if (!capaUrl) {
-        const info: any = await c.get("file/video/ad/info/", { advertiser_id: adv, video_ids: [videoId] });
-        capaUrl = (Array.isArray(info) ? info : info?.list)?.[0]?.video_cover_url;
-      }
-      if (capaUrl) {
-        const img: any = await c.post("file/image/ad/upload/", { advertiser_id: adv, upload_type: "UPLOAD_BY_URL", image_url: capaUrl, file_name: `mecpro_capa_${Date.now()}_${i + 1}` });
-        capaId = String(img?.image_id || "");
-      }
-    } catch (err: any) { avisos.push(`Capa do video ${i + 1}: ${err.message}`); }
+    // O TikTok exige imagem de capa em anuncio de video ("You must upload an image", 40002, caso 828 de 27/11).
+    // Antes a falha da capa virava so um aviso e o erro aparecia depois, sem a causa. Agora a causa vem junto.
+    const capaId = capaIdsProntos.get(i) ?? await resolverCapaDoAnuncio(c, adv, videoId, capas[i], i + 1, fetchArquivo);
 
     const montar = (id: IdentidadeTikTok) => ({
       ad_name: `${e.campaignName} | V${i + 1}`.slice(0, 512),
@@ -545,7 +602,7 @@ export async function publicarCampanhaTikTok(c: ClienteTikTok, e: EntradaTikTok,
       ...(id.identity_authorized_bc_id ? { identity_authorized_bc_id: id.identity_authorized_bc_id } : {}),
       ad_format: "SINGLE_VIDEO", video_id: videoId,
       ad_text: e.adText, call_to_action: e.callToAction, landing_page_url: e.landingPageUrl,
-      ...(capaId ? { image_ids: [capaId] } : {}),
+      image_ids: [capaId],
     });
     const ad = await criarComIdentidade(montar);
     const adId = String(ad?.ad_ids?.[0] || "");

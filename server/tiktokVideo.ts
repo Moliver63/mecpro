@@ -249,6 +249,8 @@ export interface DepsVideo {
   aguardar(url: string): Promise<boolean>;
   /** Sem Cloudinary: baixa a origem e adapta com FFmpeg, tudo em arquivo (devolve o caminho pronto). */
   adaptarLocal?(origem: string, pasta: string, plano: PlanoDeVideo, temAudio: boolean, enquadramento: Enquadramento): Promise<string>;
+  /** Capa (JPEG) tirada do arquivo adaptado, para anuncio de video sem capa do TikTok/Cloudinary. */
+  extrairCapa?(arquivo: string, pasta: string): Promise<Buffer | null>;
 }
 
 export async function adaptarLocalPadrao(origem: string, pasta: string, plano: PlanoDeVideo, temAudio: boolean, enquadramento: Enquadramento): Promise<string> {
@@ -265,7 +267,17 @@ async function sondarSeguro(url: string): Promise<SondaRemota | null> {
   return final ? sondarVideoRemoto(final) : null;
 }
 
-export const depsVideoPadrao: DepsVideo = { sondar: sondarSeguro, importar: (u) => importarNoCloudinary(u), aguardar: (u) => aguardarUrlPronta(u), adaptarLocal: adaptarLocalPadrao };
+/** Primeiro quadro util (1s; se o video for mais curto, o inicio) como JPEG. */
+export async function extrairCapaPadrao(arquivo: string, pasta: string): Promise<Buffer | null> {
+  const saida = path.join(pasta, "capa.jpg");
+  for (const inicio of ["1", "0"]) {
+    const r = await rodar("ffmpeg", ["-v", "error", "-y", "-ss", inicio, "-i", arquivo, "-frames:v", "1", "-q:v", "2", saida], { timeoutMs: 60000, maxStdout: 1024 * 1024 });
+    if (r.code === 0) { const b = await fs.readFile(saida).catch(() => null); if (b?.length) return b; }
+  }
+  return null;
+}
+
+export const depsVideoPadrao: DepsVideo = { sondar: sondarSeguro, importar: (u) => importarNoCloudinary(u), aguardar: (u) => aguardarUrlPronta(u), adaptarLocal: adaptarLocalPadrao, extrairCapa: extrairCapaPadrao };
 
 /** So converte o codec (H.264 + AAC), sem mexer em tamanho: usado quando a sonda falha. */
 export function urlCloudinaryH264(url: string): string | null {

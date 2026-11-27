@@ -369,3 +369,44 @@ test("upload com 504 persistente: depois de 2 reenvios, interrompe com o erro or
   await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "a.mov" }] }), /HTTP 504 sem JSON/);
   assert.equal(chamadas.filter((x) => x.path === "file/video/ad/upload/").length, 3);
 });
+
+test("capa: o TikTok nao consegue buscar por URL -> baixa e envia como arquivo, e o anuncio leva image_ids", async () => {
+  const { ESPERA_CAPA } = await import("../tiktokPublicar");
+  ESPERA_CAPA.ms = [0, 0];
+  const { c, chamadas } = falso();
+  const postOrig = c.post.bind(c);
+  (c as any).post = async (path: string, body: any) => {
+    if (path === "file/image/ad/upload/") { chamadas.push({ m: "POST", path, body }); throw new Error("TikTok 40002: image url unreachable"); }
+    return postOrig(path, body);
+  };
+  (c as any).postForm = async (path: string, campos: any) => { chamadas.push({ m: "FORM", path, body: campos }); return { image_id: "IMG_ARQ" }; };
+  const fetchFalso = (async () => ({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer })) as any;
+  await publicarCampanhaTikTok(c, { ...base, videos: [{ videoUrl: "https://h/a.mp4", nome: "a.mov" }] }, () => {}, fetchFalso);
+  const form = chamadas.find((x) => x.m === "FORM")!;
+  assert.equal(form.body.upload_type, "UPLOAD_BY_FILE");
+  assert.ok(form.body.image_signature);
+  const ad = chamadas.find((x) => x.path === "ad/create/")!;
+  assert.deepEqual(ad.body.creatives[0].image_ids, ["IMG_ARQ"]);
+});
+
+test("capa: o TikTok ainda nao gerou a capa logo apos o upload -> espera e tenta de novo", async () => {
+  const { ESPERA_CAPA } = await import("../tiktokPublicar");
+  ESPERA_CAPA.ms = [0, 0];
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  let vezes = 0;
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/info/" ? [{ video_cover_url: vezes++ < 1 ? "" : "https://c/pronta.jpg" }] : getOrig(path, params);
+  await publicarCampanhaTikTok(c, { ...base, videos: [{ videoId: "V_PRONTO", nome: "a.mov" }] });
+  assert.ok(chamadas.some((x) => x.path === "file/image/ad/upload/" && x.body.image_url === "https://c/pronta.jpg"));
+  assert.deepEqual(chamadas.find((x) => x.path === "ad/create/")!.body.creatives[0].image_ids, ["IMG1"]);
+});
+
+test("capa: sem nenhuma capa possivel, para ANTES do ad/create com a causa de cada tentativa", async () => {
+  const { ESPERA_CAPA } = await import("../tiktokPublicar");
+  ESPERA_CAPA.ms = [0, 0];
+  const { c, chamadas } = falso();
+  const getOrig = c.get.bind(c);
+  (c as any).get = async (path: string, params: any) => path === "file/video/ad/info/" ? [{ video_cover_url: "" }] : getOrig(path, params);
+  await assert.rejects(publicarCampanhaTikTok(c, { ...base, videos: [{ videoId: "V1", nome: "a.mov" }] }), /imagem de capa do video 1/);
+  assert.equal(chamadas.filter((x) => x.path === "ad/create/").length, 0);
+});

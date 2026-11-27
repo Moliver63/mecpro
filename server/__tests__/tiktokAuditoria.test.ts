@@ -403,17 +403,19 @@ test("Goldfish 5: sem sonda, video do Cloudinary vai em H.264 (HEVC nao segue cr
 test("Goldfish 4: sem Cloudinary, FFmpeg em pasta temporaria e envio por arquivo (UPLOAD_BY_FILE), pasta apagada", async () => {
   const { c, chamadas } = contaQueCria();
   const forms: any[] = [];
-  (c as any).postForm = async (path: string, campos: any, arquivo: any) => { forms.push({ path, campos, tamanho: arquivo.dados.size }); return [{ video_id: "VLOCAL" }]; };
+  (c as any).postForm = async (path: string, campos: any, arquivo: any) => { forms.push({ path, campos, tamanho: arquivo.dados.size ?? arquivo.dados.length }); return path === "file/image/ad/upload/" ? { image_id: "IMG_LOCAL" } : [{ video_id: "VLOCAL" }]; };
   let pastaUsada = "";
   const deps = {
     sondar: async () => sonda({ largura: 1440, altura: 1080, proporcao: 4 / 3, rotuloProporcao: "1.33:1" }),
     importar: async () => null, aguardar: async () => true,
     adaptarLocal: async (_o: string, pasta: string) => { pastaUsada = pasta; const f = path.join(pasta, "tiktok.mp4"); await fs.writeFile(f, Buffer.from("video")); return f; },
+    extrairCapa: async () => Buffer.from("jpeg"),
   };
   const r = await publicarCampanhaTikTok(c, { ...shadia828, dailyBudgetReais: 30, videos: [{ videoUrl: "https://drive.exemplo.com/a.mp4", nome: "a.mp4" }] }, undefined, undefined, deps);
   assert.equal(r.ads[0].videoId, "VLOCAL");
   assert.equal(forms[0].campos.upload_type, "UPLOAD_BY_FILE");
   assert.match(forms[0].campos.video_signature, /^[0-9a-f]{32}$/);
+  assert.equal(chamadas.find((x: any) => x.path === "ad/create/")!.body.creatives[0].image_ids[0], "IMG_LOCAL", "capa tirada do arquivo adaptado");
   await assert.rejects(fs.stat(pastaUsada), "pasta temporaria removida");
 });
 
